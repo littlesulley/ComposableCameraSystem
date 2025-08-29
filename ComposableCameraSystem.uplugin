@@ -1,0 +1,55 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "0.1",
+	"FriendlyName": "ComposableCameraSystem",
+	"Description": "A highly flexible and composable camera system working with various camera nodes. Cameras are defined by nodes, which are driven by input data. This system is easy to use, and highly customizable.",
+	"Category": "Other",
+	"CreatedBy": "Sulley",
+	"CreatedByURL": "",
+	"DocsURL": "",
+	"MarketplaceURL": "",
+	"SupportURL": "",
+	"CanContainContent": true,
+	"IsBetaVersion": false,
+	"IsExperimentalVersion": true,
+	"Installed": false,
+	"Plugins": [
+		{
+			"Name": "EngineCameras",
+			"Enabled": true
+		},
+		{
+			"Name": "EnhancedInput",
+			"Enabled": true
+		},
+		{
+			"Name": "ActorSequence",
+			"Enabled": true
+		}
+	],
+	"Modules": [
+		{
+			"Name": "ComposableCameraSystem",
+			"Type": "Runtime",
+			"LoadingPhase": "PreDefault",
+			"PlatformAllowList": [
+				"Win64",
+				"Android",
+				"Linux",
+				"LinuxArm64"
+			]
+		},
+		{
+			"Name": "ComposableCameraSystemEditor",
+			"Type": "Editor",
+			"LoadingPhase": "PostEngineInit",
+			"PlatformAllowList": [
+				"Win64",
+				"Android",
+				"Linux",
+				"LinuxArm64"
+			]
+		}
+	]
+}
