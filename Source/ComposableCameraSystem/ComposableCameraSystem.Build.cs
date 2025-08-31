@@ -5,23 +5,7 @@ using UnrealBuildTool;
 public class ComposableCameraSystem : ModuleRules
 {
 	public ComposableCameraSystem(ReadOnlyTargetRules Target) : base(Target)
-	{
-		PCHUsage = ModuleRules.PCHUsageMode.UseExplicitOrSharedPCHs;
-		
-		PublicIncludePaths.AddRange(
-			new string[] {
-				
-			}
-			);
-				
-		
-		PrivateIncludePaths.AddRange(
-			new string[] {
-				
-			}
-			);
-			
-		
+	{		
 		PublicDependencyModuleNames.AddRange(
 			new string[] {
                 "Core",
@@ -37,22 +21,6 @@ public class ComposableCameraSystem : ModuleRules
                 "GameplayTags",
                 "MovieSceneTracks"
             }
-			);
-			
-		
-		PrivateDependencyModuleNames.AddRange(
-			new string[]
-			{
-				
-			}
-			);
-		
-		
-		DynamicallyLoadedModuleNames.AddRange(
-			new string[]
-			{
-				
-			}
 			);
 	}
 }

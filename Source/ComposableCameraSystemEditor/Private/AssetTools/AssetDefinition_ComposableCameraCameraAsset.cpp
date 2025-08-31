@@ -1,7 +1,8 @@
 // Copyright Sulley. All rights reserved.
 
 #include "AssetTools/AssetDefinition_ComposableCameraCameraAsset.h"
-#include "ComposableCameraSystemEditor.h"
+#include "Core/ComposableCameraCameraAsset.h"
+#include "ComposableCameraSystemEditorModule.h"
 #include "Modules/ModuleManager.h"
 
 #define LOCTEXT_NAMESPACE "AssetDefinition_ComposableCameraCameraAsset"
@@ -15,17 +16,18 @@ FText UAssetDefinition_ComposableCameraCameraAsset::GetAssetDisplayName() const
 
 FLinearColor UAssetDefinition_ComposableCameraCameraAsset::GetAssetColor() const
 {
-	return FLinearColor(FColor(200, 100, 80));
+	return FLinearColor(FColor(100, 10, 120));
 }
 
 TSoftClassPtr<UObject> UAssetDefinition_ComposableCameraCameraAsset::GetAssetClass() const
 {
-	return  UComposableCameraCameraAsset::StaticClass();
+	return UComposableCameraCameraAsset::StaticClass();
 }
 
 TConstArrayView<FAssetCategoryPath> UAssetDefinition_ComposableCameraCameraAsset::GetAssetCategories() const
 {
-	static const auto Categories = { FAssetCategoryPath(EAssetCategoryPaths::Gameplay) };
+	// You don't need to register category manually by aseet actions.
+	static const auto Categories = { FAssetCategoryPath(FText::FromString("Composable Camera System")) };
 	return Categories;
 }
 

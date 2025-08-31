@@ -13,7 +13,7 @@
  * Base class for camera assets in the Composable Camera System.
  * Create from this class to create custom camera assets with specific properties and behaviors.
  */
-UCLASS(ClassGroup = ComposableCameraSystem)
+UCLASS(BlueprintType, Blueprintable, ClassGroup = ComposableCameraSystem)
 class COMPOSABLECAMERASYSTEM_API UComposableCameraCameraAsset
 	: public UObject
 	, public IGameplayTagAssetInterface

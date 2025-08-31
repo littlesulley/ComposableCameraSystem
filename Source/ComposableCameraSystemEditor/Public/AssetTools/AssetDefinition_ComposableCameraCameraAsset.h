@@ -4,11 +4,11 @@
 
 #include "CoreMinimal.h"
 #include "AssetDefinitionDefault.h"
-#include "Core/ComposableCameraCameraAsset.h"
 #include "AssetDefinition_ComposableCameraCameraAsset.generated.h"
 
-UCLASS(ClassGroup = ComposableCameraSystem)
-class COMPOSABLECAMERASYSTEMEDITOR_API UAssetDefinition_ComposableCameraCameraAsset : public UAssetDefinitionDefault
+UCLASS(ClassGroup = ComposableCameraSystemEditor)
+class UAssetDefinition_ComposableCameraCameraAsset
+	: public UAssetDefinitionDefault
 {
 	GENERATED_BODY()
 

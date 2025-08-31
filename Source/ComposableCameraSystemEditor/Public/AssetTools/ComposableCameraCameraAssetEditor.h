@@ -9,7 +9,7 @@ class UComposableCameraCameraAsset;
 class FBaseAssetToolkit;
 
 UCLASS(Transient)
-class COMPOSABLECAMERASYSTEMEDITOR_API UComposableCameraCameraAssetEditor 
+class UComposableCameraCameraAssetEditor 
 	: public UAssetEditor
 {
 	GENERATED_BODY()

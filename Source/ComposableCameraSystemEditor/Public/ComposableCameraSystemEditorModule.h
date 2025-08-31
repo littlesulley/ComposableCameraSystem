@@ -1,6 +1,9 @@
-﻿#pragma once
+﻿// Copyright Sulley. All Rights Reserved.
+
+#pragma once
 
 #include "CoreMinimal.h"
+#include "AssetTypeCategories.h"
 #include "Modules/ModuleManager.h"
 
 class UComposableCameraCameraAsset;
@@ -12,4 +15,7 @@ public:
     virtual void StartupModule() override;
     virtual void ShutdownModule() override;
     UComposableCameraCameraAssetEditor* CreateComposableCameraCameraAssetEditor(const EToolkitMode::Type Mode, const TSharedPtr<IToolkitHost>& InitToolkitHost, UComposableCameraCameraAsset* CameraAsset);
+
 };
+
+DECLARE_LOG_CATEGORY_EXTERN(LogComposableCameraSystemEditor, Log, All);

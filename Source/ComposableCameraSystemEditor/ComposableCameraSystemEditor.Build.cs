@@ -4,11 +4,10 @@ public class ComposableCameraSystemEditor : ModuleRules
 {
     public ComposableCameraSystemEditor(ReadOnlyTargetRules Target) : base(Target)
     {
-        PCHUsage = ModuleRules.PCHUsageMode.UseExplicitOrSharedPCHs;
-
-        PrivateDependencyModuleNames.AddRange(
+        PublicDependencyModuleNames.AddRange(
             new string[]
             {
+                "ComposableCameraSystem",
                 "ApplicationCore",
                 "AssetDefinition",
                 "AssetRegistry",
@@ -28,7 +27,6 @@ public class ComposableCameraSystemEditor : ModuleRules
                 "InteractiveToolsFramework",
                 "Kismet",
                 "KismetWidgets",
-                "ComposableCameraSystem",
                 "LevelEditor",
                 "MovieScene",
                 "MovieSceneTools",

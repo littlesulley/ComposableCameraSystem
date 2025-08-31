@@ -1,7 +1,16 @@
-﻿#include "ComposableCameraSystemEditor.h"
+﻿// Copyright Sulley. All Rights Reserved.
+
+#include "ComposableCameraSystemEditorModule.h"
+
+#include "AssetToolsModule.h"
+#include "IAssetTools.h"
 #include "AssetTools/ComposableCameraCameraAssetEditor.h"
 
+class UComposableCameraCameraAsset;
+
 #define LOCTEXT_NAMESPACE "FComposableCameraSystemEditorModule"
+
+DEFINE_LOG_CATEGORY(LogComposableCameraSystemEditor);
 
 void FComposableCameraSystemEditorModule::StartupModule()
 {
@@ -21,6 +30,6 @@ UComposableCameraCameraAssetEditor* FComposableCameraSystemEditorModule::CreateC
     return AssetEditor;
 }
 
-#undef LOCTEXT_NAMESPACE
-    
 IMPLEMENT_MODULE(FComposableCameraSystemEditorModule, ComposableCameraSystemEditor)
+
+#undef LOCTEXT_NAMESPACE

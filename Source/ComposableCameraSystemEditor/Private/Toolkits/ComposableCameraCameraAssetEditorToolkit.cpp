@@ -1,6 +1,7 @@
 // Copyright Sulley. All rights reserved.
 
-#include "AssetTools/ComposableCameraCameraAssetEditorToolkit.h"
+#include "Toolkits/ComposableCameraCameraAssetEditorToolkit.h"
+#include "Toolkits/ComposableCameraCameraAssetEditorToolkitBase.h"
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(ComposableCameraCameraAssetEditorToolkit)
 
@@ -9,7 +10,8 @@
 FComposableCameraCameraAssetEditorToolkit::FComposableCameraCameraAssetEditorToolkit(UAssetEditor* InAssetEditor)
 	: FBaseAssetToolkit(InAssetEditor)
 {
-
+	Impl = MakeShared<FComposableCameraCameraAssetEditorToolkitBase>(TEXT("ComposableCameraCameraAssetEditorLayout"));
+	
 }
 
 FComposableCameraCameraAssetEditorToolkit::~FComposableCameraCameraAssetEditorToolkit()
@@ -18,7 +20,7 @@ FComposableCameraCameraAssetEditorToolkit::~FComposableCameraCameraAssetEditorTo
 
 void FComposableCameraCameraAssetEditorToolkit::SetCameraAsset(UComposableCameraCameraAsset* InCameraAsset)
 {
-	CameraAsset = InCameraAsset;
+	Impl->SetCameraAsset(InCameraAsset);
 }
 
 void FComposableCameraCameraAssetEditorToolkit::RegisterTabSpawners(const TSharedRef<class FTabManager>& InTabManager)
@@ -31,6 +33,9 @@ void FComposableCameraCameraAssetEditorToolkit::UnregisterTabSpawners(const TSha
 
 void FComposableCameraCameraAssetEditorToolkit::CreateWidgets()
 {
+	// Create widgets
+	Impl->CreateWidgets();
+	DetailsView = Impl->GetDetailsView();
 }
 
 void FComposableCameraCameraAssetEditorToolkit::RegisterToolbar()
@@ -51,22 +56,23 @@ void FComposableCameraCameraAssetEditorToolkit::PostRegenerateMenusAndToolbars()
 
 FText FComposableCameraCameraAssetEditorToolkit::GetBaseToolkitName() const
 {
-	return FText();
+	return LOCTEXT("AppLabel", "Composable Camera Camera Asset");
 }
 
 FName FComposableCameraCameraAssetEditorToolkit::GetToolkitFName() const
 {
-	return FName();
+	static FName ToolkitName("Composable Camera Camera Asset Editor");
+	return ToolkitName;
 }
 
 FString FComposableCameraCameraAssetEditorToolkit::GetWorldCentricTabPrefix() const
 {
-	return FString();
+	return LOCTEXT("WorldCentricTabPrefix", "Composable Camera Camera Asset ").ToString();
 }
 
 FLinearColor FComposableCameraCameraAssetEditorToolkit::GetWorldCentricTabColorScale() const
 {
-	return FLinearColor();
+	return FLinearColor(0.7f, 0.0f, 0.0f, 0.5f);
 }
 
 #undef LOCTEXT_NAMESPACE

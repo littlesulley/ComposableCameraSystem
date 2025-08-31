@@ -4,9 +4,9 @@
 
 #include "CoreMinimal.h"
 #include "Tools/BaseAssetToolkit.h"
-
 #include "ComposableCameraCameraAssetEditorToolkit.generated.h"
 
+class FComposableCameraCameraAssetEditorToolkitBase;
 class UComposableCameraCameraAsset;
 class UAssetEditor;
 
@@ -36,15 +36,15 @@ protected:
 	virtual FLinearColor GetWorldCentricTabColorScale() const override;
 
 private:
-	TObjectPtr<UComposableCameraCameraAsset> CameraAsset;
+	/* Base implementation */
+	TSharedPtr<FComposableCameraCameraAssetEditorToolkitBase> Impl;
 };
 
 UCLASS()
-class COMPOSABLECAMERASYSTEMEDITOR_API UComposableCameraCameraAssetEditorMenuContext : public UObject
+class UComposableCameraCameraAssetEditorMenuContext : public UObject
 {
 	GENERATED_BODY()
 
 public:
-
 	TWeakPtr<FComposableCameraCameraAssetEditorToolkit> Toolkit;
 };

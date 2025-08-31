@@ -1,14 +1,13 @@
 // Copyright Sulley. All rights reserved.
 
 #include "AssetTools/ComposableCameraCameraAssetEditor.h"
-#include "AssetTools/ComposableCameraCameraAssetEditorToolkit.h"
+#include "Toolkits/ComposableCameraCameraAssetEditorToolkit.h"
 #include "Core/ComposableCameraCameraAsset.h"
-
-#include UE_INLINE_GENERATED_CPP_BY_NAME(ComposableCameraCameraAsset)
 
 void UComposableCameraCameraAssetEditor::Initialize(TObjectPtr<UComposableCameraCameraAsset> InCameraAsset)
 {
 	CameraAsset = InCameraAsset;
+	Super::Initialize();
 }
 
 void UComposableCameraCameraAssetEditor::GetObjectsToEdit(TArray<UObject*>& InObjectsToEdit)
