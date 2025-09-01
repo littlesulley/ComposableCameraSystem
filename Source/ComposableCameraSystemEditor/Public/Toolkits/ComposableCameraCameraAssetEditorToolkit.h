@@ -40,7 +40,7 @@ private:
 	TSharedPtr<FComposableCameraCameraAssetEditorToolkitBase> Impl;
 };
 
-UCLASS()
+UCLASS(Experimental)
 class UComposableCameraCameraAssetEditorMenuContext : public UObject
 {
 	GENERATED_BODY()

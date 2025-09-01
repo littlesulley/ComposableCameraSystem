@@ -8,7 +8,7 @@
 class UComposableCameraCameraAsset;
 class FBaseAssetToolkit;
 
-UCLASS(Transient)
+UCLASS(Transient, Experimental)
 class UComposableCameraCameraAssetEditor 
 	: public UAssetEditor
 {

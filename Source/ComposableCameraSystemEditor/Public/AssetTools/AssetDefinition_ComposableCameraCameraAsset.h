@@ -6,7 +6,7 @@
 #include "AssetDefinitionDefault.h"
 #include "AssetDefinition_ComposableCameraCameraAsset.generated.h"
 
-UCLASS(ClassGroup = ComposableCameraSystemEditor)
+UCLASS(ClassGroup = ComposableCameraSystemEditor, Experimental)
 class UAssetDefinition_ComposableCameraCameraAsset
 	: public UAssetDefinitionDefault
 {

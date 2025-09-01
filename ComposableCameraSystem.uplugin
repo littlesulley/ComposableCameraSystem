@@ -50,6 +50,11 @@
 				"Linux",
 				"LinuxArm64"
 			]
+		},
+		{
+			"Name": "ComposableCameraSystemUncookedOnly",
+			"Type": "UncookedOnly",
+			"LoadingPhase": "Default"
 		}
 	]
 }

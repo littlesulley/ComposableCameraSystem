@@ -6,7 +6,7 @@
 #include "Factories/Factory.h"
 #include "ComposableCameraCameraAssetFactory.generated.h"
 
-UCLASS(ClassGroup = ComposableCameraSystem)
+UCLASS(ClassGroup = ComposableCameraSystem, Experimental)
 class COMPOSABLECAMERASYSTEMEDITOR_API UComposableCameraCameraAssetFactory : public UFactory
 {
 	GENERATED_BODY()
