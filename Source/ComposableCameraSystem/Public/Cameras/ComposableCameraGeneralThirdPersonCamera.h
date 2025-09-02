@@ -10,18 +10,12 @@
  * Generally-purposed third person camera.
  */
 UCLASS(ClassGroup = ComposableCameraSystem)
-class COMPOSABLECAMERASYSTEM_API UComposableCameraGeneralThirdPersonCamera
-	: public UComposableCameraCameraBase
+class COMPOSABLECAMERASYSTEM_API AComposableCameraGeneralThirdPersonCamera
+	: public AComposableCameraCameraBase
 {
 	GENERATED_BODY()
 
 public:
-	UComposableCameraGeneralThirdPersonCamera(const FObjectInitializer& ObjectInitializer);
+	AComposableCameraGeneralThirdPersonCamera(const FObjectInitializer& ObjectInitializer);
 
-protected:
-	virtual FComposableCameraPose OnTickCamera_Implementation(float DeltaTime) override;
-	virtual void OnBeginPlayCamera_Implementation() override;
-
-private:
-	TObjectPtr<AActor> PivotActor { nullptr };
 };

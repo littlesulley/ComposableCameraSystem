@@ -2,7 +2,29 @@
 
 #include "Nodes/ComposableCameraReceivePivotActorNode.h"
 
-AActor* UComposableCameraReceivePivotActorNode::Invoke(AActor* InActor)
+#include "Cameras/ComposableCameraCameraBase.h"
+
+UComposableCameraReceivePivotActorNode::UComposableCameraReceivePivotActorNode(
+	const FObjectInitializer& ObjectInitializer) : Super(ObjectInitializer)
 {
-	return InActor;
+	RequiredContextClasses = {
+		UComposableCameraPoseContextPivotOnly::StaticClass()
+	};
+}
+
+void UComposableCameraReceivePivotActorNode::OnBeginPlayNode_Implementation()
+{
+	if (!PivotOnlyContext)
+	{
+		PivotOnlyContext = CastChecked<UComposableCameraPoseContextPivotOnly>(GetOwningCameraPoseContextByClass(UComposableCameraPoseContextPivotOnly::StaticClass()));
+	}
+}
+
+void UComposableCameraReceivePivotActorNode::OnTickNode_Implementation(
+	float DeltaTime,
+	const FComposableCameraPose& CurrentCameraPose,
+	FComposableCameraPose& OutCameraPose)
+{
+	PivotOnlyContext->PivotActor = PivotActor.Get();
+	PivotOnlyContext->PivotPosition = PivotActor.Get() ? PivotActor.Get()->GetActorLocation() : PivotOnlyContext->PivotPosition;
 }

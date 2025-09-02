@@ -11,13 +11,13 @@
 #include "Nodes/ComposableCameraTraceCollisionPushNode.h"
 #include "Nodes/ComposableCameraSelfCollisionPushNode.h"
 
-UComposableCameraGeneralThirdPersonCamera::UComposableCameraGeneralThirdPersonCamera(
+AComposableCameraGeneralThirdPersonCamera::AComposableCameraGeneralThirdPersonCamera(
 	const FObjectInitializer& ObjectInitializer)
-		: Super(ObjectInitializer)
+		: Super(ObjectInitializer.SetDefaultSubobjectClass(TEXT("CameraPoseContext"), UComposableCameraPoseContextPivotOnly::StaticClass()))
 {
 	CameraNodes = {
-		CreateDefaultSubobject<UComposableCameraReceivePivotActorNode>(FName("ReceivePivotActorNode")),
 		CreateDefaultSubobject<UComposableCameraControlRotateNode>(FName("ControlRotateNode")),
+		CreateDefaultSubobject<UComposableCameraReceivePivotActorNode>(FName("ReceivePivotActorNode")),
 		CreateDefaultSubobject<UComposableCameraPivotOffsetNode>(FName("PivotOffsetNode")),
 		CreateDefaultSubobject<UComposableCameraPivotDampingNode>(FName("PivotDampingNode")),
 		CreateDefaultSubobject<UComposableCameraApplyPivotOffsetNode>(FName("ApplyPivotOffsetNode")),
@@ -25,15 +25,4 @@ UComposableCameraGeneralThirdPersonCamera::UComposableCameraGeneralThirdPersonCa
 		CreateDefaultSubobject<UComposableCameraSelfCollisionPushNode>(FName("SelfCollisionPushNode")),
 		CreateDefaultSubobject<UComposableCameraFieldOfViewNode>(FName("FieldOfViewNode")),
 	};
-}
-
-FComposableCameraPose UComposableCameraGeneralThirdPersonCamera::OnTickCamera_Implementation(float DeltaTime)
-{
-	UE_LOG(LogWindows, Warning, TEXT("HAHAHA"))
-	return CameraPose;
-}
-
-void UComposableCameraGeneralThirdPersonCamera::OnBeginPlayCamera_Implementation()
-{
-	
 }

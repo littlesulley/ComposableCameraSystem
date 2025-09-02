@@ -7,15 +7,24 @@
 #include "ComposableCameraReceivePivotActorNode.generated.h"
 
 /**
- * Node for receiving a pivot target actor. Only used when the owning camera is initialized.
+ * Node for receiving a pivot target actor. This node updates the camera pose context's PivotActor and PivotPosition.
  */
-UCLASS(NotBlueprintable, ClassGroup = ComposableCameraSystem)
+UCLASS(NotBlueprintable, ClassGroup = ComposableCameraSystem, CollapseCategories)
 class COMPOSABLECAMERASYSTEM_API UComposableCameraReceivePivotActorNode
 	: public UComposableCameraCameraNodeBase
 {
 	GENERATED_BODY()
+	
+public:
+	UComposableCameraReceivePivotActorNode(const  FObjectInitializer& ObjectInitializer);
+
+	virtual void OnBeginPlayNode_Implementation() override;
+	virtual void OnTickNode_Implementation(float DeltaTime, const FComposableCameraPose& CurrentCameraPose, FComposableCameraPose& OutCameraPose) override;
 
 public:
-	UFUNCTION(BlueprintCallable, Category = "ComposableCameraSystem|Nodes")
-	AActor* Invoke(AActor* InActor);
+	UPROPERTY(BlueprintReadWrite, EditAnywhere)
+	TSoftObjectPtr<AActor> PivotActor = nullptr;
+
+private:
+	UComposableCameraPoseContextPivotOnly* PivotOnlyContext;
 };

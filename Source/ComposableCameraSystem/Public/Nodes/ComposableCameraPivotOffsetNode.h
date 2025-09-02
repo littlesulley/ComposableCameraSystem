@@ -17,19 +17,27 @@ enum class ECameraPivotOffset : uint8
 /**
  * Camera node to adjust the pivot offset in world/camera space.
  */
-UCLASS(NotBlueprintable, ClassGroup = ComposableCameraSystem)
+UCLASS(NotBlueprintable, ClassGroup = ComposableCameraSystem, CollapseCategories)
 class COMPOSABLECAMERASYSTEM_API UComposableCameraPivotOffsetNode
 	: public UComposableCameraCameraNodeBase
 {
 	GENERATED_BODY()
 
 public:
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = PivotOffset)
+	UComposableCameraPivotOffsetNode(const  FObjectInitializer& ObjectInitializer);
+	virtual void OnBeginPlayNode_Implementation() override;
+	virtual void OnTickNode_Implementation(float DeltaTime, const FComposableCameraPose& CurrentCameraPose, FComposableCameraPose& OutCameraPose) override;
+	
+public:
+	UPROPERTY(EditAnywhere, BlueprintReadOnly)
 	ECameraPivotOffset PivotOffsetType = ECameraPivotOffset::WorldSpace;
 	
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = PivotOffset)
-	AActor* ActorForLocalSpace = nullptr;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly)
+	TSoftObjectPtr<AActor> ActorForLocalSpace = nullptr;
 
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = PivotOffset)
+	UPROPERTY(EditAnywhere, BlueprintReadOnly)
 	FVector PivotOffset = FVector::ZeroVector;
+
+private:
+	UComposableCameraPoseContextPivotOnly* PivotOnlyContext;
 };
