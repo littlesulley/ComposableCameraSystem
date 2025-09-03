@@ -5,6 +5,7 @@
 #include "AssetToolsModule.h"
 #include "IAssetTools.h"
 #include "AssetTools/ComposableCameraCameraAssetEditor.h"
+#include "Widgets/ComposableCameraVariablePicker.h"
 
 class UComposableCameraCameraAsset;
 
@@ -28,6 +29,13 @@ UComposableCameraCameraAssetEditor* FComposableCameraSystemEditorModule::CreateC
     UComposableCameraCameraAssetEditor* AssetEditor = NewObject<UComposableCameraCameraAssetEditor>(AssetEditorSubsystem, NAME_None, RF_Transient);
     AssetEditor->Initialize(CameraAsset);
     return AssetEditor;
+}
+
+TSharedRef<SWidget> FComposableCameraSystemEditorModule::CreateCameraVariablePicker(
+    const FComposableCameraVariablePickerConfig& InPickerConfig)
+{
+    return SNew(SComposableCameraVariablePicker)
+            .ComposableCameraVariablePickerConfig(InPickerConfig);
 }
 
 IMPLEMENT_MODULE(FComposableCameraSystemEditorModule, ComposableCameraSystemEditor)
