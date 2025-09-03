@@ -57,7 +57,7 @@ public:
 
 private:
 	void SetupInitialSelection(UComposableCameraVariable* InInitialComposableCameraVariableSelection);
-	TSharedRef<SWidget> BuildVariableCollectionAssetPicker();
+	TSharedRef<SWidget> BuildVariableCollectionAssetPicker(const FComposableCameraVariablePickerConfig& InPickerConfig);
 	void OnAssetSelected(const FAssetData& AssetData);
 	void UpdateVariableListItemsSource(UComposableCameraVariableCollection* InVariableCollection = nullptr);
 	TSharedRef<ITableRow> OnVariableListGenerateRow(UComposableCameraVariable* Item, const TSharedRef<STableViewBase>& OwnerTable);
