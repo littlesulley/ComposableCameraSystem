@@ -3,6 +3,8 @@
 #include "Widgets/ComposableCameraVariablePicker.h"
 
 #include "ContentBrowserModule.h"
+#include "Variables/ComposableCameraVariable.h"
+#include "Variables/ComposableCameraVariableCollection.h"
 
 #define LOCTEXT_NAMESPACE "SComposableCameraVariablePicker"
 
@@ -80,6 +82,7 @@ TSharedRef<SWidget> SComposableCameraVariablePicker::BuildVariableCollectionAsse
 	FContentBrowserModule& ContentBrowserModule = FModuleManager::Get().LoadModuleChecked<FContentBrowserModule>("ContentBrowser");
 	FAssetPickerConfig AssetPickerConfig;
 	FARFilter ARFilter;
+	ARFilter.bRecursiveClasses = true;
 	ARFilter.ClassPaths.Add(FTopLevelAssetPath(UComposableCameraVariableCollection::StaticClass()->GetPathName()));
 
 	FAssetData InitialVariableCollection = InPickerConfig.InitialComposableCameraVariableCollectionSelection;

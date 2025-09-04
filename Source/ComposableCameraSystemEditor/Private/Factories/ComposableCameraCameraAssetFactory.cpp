@@ -1,4 +1,4 @@
-﻿// Fill out your copyright notice in the Description page of Project Settings.
+﻿// Copyright Sulley. All rights reserved.
 
 #include "Factories/ComposableCameraCameraAssetFactory.h"
 #include "Core/ComposableCameraCameraAsset.h"

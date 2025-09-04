@@ -2,11 +2,16 @@
 
 #include "Customizations/ComposableCameraContextParameterDetailsCustomization.h"
 
+#include "ComposableCameraEditorStyle.h"
 #include "ComposableCameraSystemEditorModule.h"
 #include "DetailWidgetRow.h"
 #include "IDetailChildrenBuilder.h"
 #include "IPropertyUtilities.h"
 #include "Toolkits/ToolkitManager.h"
+#include "ComposableCameraMacros.h"
+#include "Variables/ComposableCameraParameter.h"
+#include "Variables/ComposableCameraVariable.h"
+#include "Variables/ComposableCameraVariableCollection.h"
 #include "Widgets/ComposableCameraVariablePicker.h"
 
 #define LOCTEXT_NAMESPACE "ComposableCameraContextParameterDetailsCustomization"
@@ -15,9 +20,10 @@ void FComposableCameraContextParameterDetailsCustomization::Register(FPropertyEd
 {
 #define COMPOSABLECAMERASYSTEMEDITOR_CAMERA_VARIABLE_FOR_TYPE(ValueType, ValueName) \
 	PropertyEditorModule.RegisterCustomPropertyTypeLayout( \
-		F##ValueName##ComposableCameraContextParameter::StaticClass()->GetFName(), \
+		F##ValueName##ComposableCameraContextParameter::StaticStruct()->GetFName(), \
 		FOnGetPropertyTypeCustomizationInstance::CreateLambda ( \
-		 [] { return MakeShared<F##ValueName##ComposableCameraContextParameterDetailsCustomization>(); })) \
+		 [] { return MakeShared<F##ValueName##ComposableCameraContextParameterDetailsCustomization>(); }));
+	
 COMPOSABLECAMERASYSTEMEDITOR_CAMERA_VARIABLE_FOR_ALL_TYPES()
 #undef COMPOSABLECAMERASYSTEMEDITOR_CAMERA_VARIABLE_FOR_TYPE
 }
@@ -28,7 +34,7 @@ void FComposableCameraContextParameterDetailsCustomization::Unregister(FProperty
 	{
 #define COMPOSABLECAMERASYSTEMEDITOR_CAMERA_VARIABLE_FOR_TYPE(ValueType, ValueName) \
 	PropertyEditorModule.UnregisterCustomPropertyTypeLayout \
-		(F##ValueName##ComposableCameraContextParameter::StaticClass()->GetFName());
+		(F##ValueName##ComposableCameraContextParameter::StaticStruct()->GetFName());
 		COMPOSABLECAMERASYSTEMEDITOR_CAMERA_VARIABLE_FOR_ALL_TYPES()
 #undef COMPOSABLECAMERASYSTEMEDITOR_CAMERA_VARIABLE_FOR_TYPE
 	}
@@ -62,6 +68,8 @@ void FComposableCameraContextParameterDetailsCustomization::CustomizeHeader(TSha
 	ValueWidget->SetEnabled(TAttribute<bool>::CreateSP(this, &FComposableCameraContextParameterDetailsCustomization::IsValueEditorEnabled));
 
 	// Create the whole UI layout
+	TSharedRef<FComposableCameraEditorStyle> Style = FComposableCameraEditorStyle::Get();
+	
 	HeaderRow
 	.NameContent()
 	[
@@ -105,7 +113,7 @@ void FComposableCameraContextParameterDetailsCustomization::CustomizeHeader(TSha
 				[
 					SNew(SImage)
 					.ColorAndOpacity(FSlateColor::UseForeground())
-					//.Image(FAppStyle::Get().GetBrush("Brushes.Panel"))
+					.Image(Style->GetBrush("CameraContextParameter.VariableBrowser"))
 				]
 				+SHorizontalBox::Slot()
 				.FillWidth(0.3f)
@@ -227,16 +235,16 @@ TSharedRef<SWidget> FComposableCameraContextParameterDetailsCustomization::Build
 
 	MenuBuilder.BeginSection(NAME_None, LOCTEXT("CameraVariableOperations", "Current Parameter"));
 	MenuBuilder.AddMenuEntry(
-		LOCTEXT("GoToVariable", "Go to variable"),
-		LOCTEXT("GoToVariable_ToolTip", "Open the referenced camera variable collection"),
+		LOCTEXT("OpenVariableCollection"/*"GoToVariable"*/, "Open Variable Collection"/*"Go to variable"*/),
+		LOCTEXT("OpenVariableCollection_Tooltip"/*"GoToVariable_ToolTip"*/, "Open the referenced camera variable collection."),
 		FSlateIcon(FAppStyle::GetAppStyleSetName(), "Icons.BrowseContent"),
 		FUIAction(
-			FExecuteAction::CreateSP(this, &FComposableCameraContextParameterDetailsCustomization::OnGoToVariable),
-			FCanExecuteAction::CreateSP(this, &FComposableCameraContextParameterDetailsCustomization::CanGoToVariable))
+			FExecuteAction::CreateSP(this, &FComposableCameraContextParameterDetailsCustomization::OnOpenVariableCollection/*OnGoToVariable*/),
+			FCanExecuteAction::CreateSP(this, &FComposableCameraContextParameterDetailsCustomization::CanOpenVariableCollection))
 		);
 	MenuBuilder.AddMenuEntry(
 		LOCTEXT("ClearVariable", "Clear variable"),
-		LOCTEXT("ClearVariable_ToolTip", "Clears the variable from the camera parameter"),
+		LOCTEXT("ClearVariable_ToolTip", "Clears the variable from the camera parameter."),
 		FSlateIcon(FAppStyle::GetAppStyleSetName(), "GenericCommands.Delete"),
 		FUIAction(
 			FExecuteAction::CreateSP(this, &FComposableCameraContextParameterDetailsCustomization::OnClearVariable),
@@ -270,14 +278,14 @@ TSharedRef<SWidget> FComposableCameraContextParameterDetailsCustomization::Build
 
 bool FComposableCameraContextParameterDetailsCustomization::IsValueEditorEnabled() const
 {
-	return VariableInfo.VariableValue != EComposableCameraVariableValue::NotSet;
+	return VariableInfo.VariableValue == EComposableCameraVariableValue::NotSet;
 }
 
 FText FComposableCameraContextParameterDetailsCustomization::GetCameraVariableBrowserToolTip() const
 {
 	return LOCTEXT(
 				"SetVariable_ToolTip", 
-				"Selects a camera variable to drive this parameter");
+				"Selects a camera variable to drive this parameter.");
 }
 
 FText FComposableCameraContextParameterDetailsCustomization::GetVariableInfoText() const
@@ -321,14 +329,14 @@ FOptionalSize FComposableCameraContextParameterDetailsCustomization::GetVariable
 	return bShowVariableErrorText ? FOptionalSize((LayoutBoxWidth - FixedSpace) / 3.f) : FOptionalSize(0);
 }
 
-bool FComposableCameraContextParameterDetailsCustomization::CanGoToVariable() const
+bool FComposableCameraContextParameterDetailsCustomization::CanOpenVariableCollection() const
 {
 	UObject* VariableObject = nullptr;
 	FPropertyAccess::Result PropertyAccessResult = VariableProperty->GetValue(VariableObject);
-	return PropertyAccessResult == FPropertyAccess::Success;
+	return VariableObject && PropertyAccessResult == FPropertyAccess::Success;
 }
 
-void FComposableCameraContextParameterDetailsCustomization::OnGoToVariable()
+void FComposableCameraContextParameterDetailsCustomization::OnOpenVariableCollection() const 
 {
 	UObject* VariableObject = nullptr;
 	FPropertyAccess::Result PropertyAccessResult = VariableProperty->GetValue(VariableObject);
@@ -338,12 +346,6 @@ void FComposableCameraContextParameterDetailsCustomization::OnGoToVariable()
 		if (VariableCollection)
 		{
 			GEditor->GetEditorSubsystem<UAssetEditorSubsystem>()->OpenEditorForAsset(VariableCollection);
-			if (TSharedPtr<IToolkit> FoundToolkit = FToolkitManager::Get().FindEditorForAsset(VariableCollection))
-			{
-				TSharedPtr<FComposableCameraVariableCollectionEditorToolkit> VariableCollectionToolkit = 
-					StaticCastSharedPtr<FComposableCameraVariableCollectionEditorToolkit>(FoundToolkit);
-				VariableCollectionToolkit->FocusWindow(VariableObject);
-			}
 		}
 	}
 }
@@ -356,7 +358,7 @@ void FComposableCameraContextParameterDetailsCustomization::OnSetVariable(UCompo
 	TArray<UObject*> OuterObjects;
 	StructProperty->GetOuterObjects(OuterObjects);
 
-	check(!OuterObjects.Num() || OuterObjects.Num() == RawData.Num());
+	check(!OuterObjects.Num() || (OuterObjects.Num() == RawData.Num() && RawData.Num() == 1));
 
 	{
 		FScopedTransaction Transaction(FText::Format(LOCTEXT("SetPropertyValue", "Set {0}"), StructProperty->GetPropertyDisplayName()));
@@ -378,7 +380,7 @@ void FComposableCameraContextParameterDetailsCustomization::OnSetVariable(UCompo
 
 bool FComposableCameraContextParameterDetailsCustomization::CanClearVariable() const
 {
-	return VariableProperty->CanResetToDefault();
+	return VariableInfo.CommonVariable != nullptr;
 }
 
 void FComposableCameraContextParameterDetailsCustomization::OnClearVariable()

@@ -8,6 +8,7 @@
 #include "UObject/Object.h"
 #include "ComposableCameraCameraBase.generated.h"
 
+class UComposableCameraVariableCollection;
 class UComposableCameraCameraNodeBase;
 class AComposableCameraPlayerCamaraManager;
 
@@ -61,8 +62,11 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "ComposableCameraSystem|Camera")
 	FGameplayTag CameraTag {};
 	
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Instanced, Category = "ComposableCameraSystem|Camera")
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Instanced, Category = "ComposableCameraSystem|Camera")
 	TArray<UComposableCameraCameraNodeBase*> CameraNodes;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Instanced, Category = "ComposableCameraSystem|Camera")
+	TObjectPtr<UComposableCameraVariableCollection> ContextVariables;
 
 protected:
 	void Initialize(AComposableCameraPlayerCamaraManager* Manager);

@@ -26,5 +26,9 @@ public:
 	TSoftObjectPtr<AActor> PivotActor = nullptr;
 
 private:
+	UPROPERTY(EditDefaultsOnly)
+	FVector3dComposableCameraContextParameter PivotPosition;
+
+private:
 	UComposableCameraPoseContextPivotOnly* PivotOnlyContext;
 };

@@ -8,7 +8,6 @@
 AComposableCameraCameraBase::AComposableCameraCameraBase(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
 {
-	
 }
 
 void AComposableCameraCameraBase::Initialize(AComposableCameraPlayerCamaraManager* Manager)

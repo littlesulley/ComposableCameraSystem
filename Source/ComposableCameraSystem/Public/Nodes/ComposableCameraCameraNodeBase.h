@@ -5,6 +5,7 @@
 #include "CoreMinimal.h"
 #include "Cameras/ComposableCameraCameraBase.h"
 #include "UObject/Object.h"
+#include "Variables/ComposableCameraParameter.h"
 #include "ComposableCameraCameraNodeBase.generated.h"
 
 class AComposableCameraCameraBase;
@@ -15,7 +16,7 @@ struct FComposableCameraPose;
 /**
  * Base node for all camera nodes.
  */
-UCLASS(Abstract, DefaultToInstanced, EditInlineNew, BlueprintType, Blueprintable, ClassGroup = ComposableCameraSystem)
+UCLASS(Abstract, DefaultToInstanced, EditInlineNew, BlueprintType, Blueprintable, CollapseCategories, ClassGroup = ComposableCameraSystem)
 class COMPOSABLECAMERASYSTEM_API UComposableCameraCameraNodeBase
 	: public UObject
 {
