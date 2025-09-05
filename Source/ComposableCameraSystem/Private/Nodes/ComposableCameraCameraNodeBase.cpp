@@ -25,17 +25,3 @@ FGameplayTag UComposableCameraCameraNodeBase::GetOwningCameraTag() const
 {
 	return OwningCamera ? OwningCamera->CameraTag : FGameplayTag::EmptyTag;
 }
-
-TArray<UComposableCameraPoseContextBase*> UComposableCameraCameraNodeBase::GetOwningCameraPoseContexts() const
-{
-	TArray<UComposableCameraPoseContextBase*> Contexts;
-	ContextClassToContextMap.GenerateValueArray(Contexts);
-	return Contexts;
-}
-
-UComposableCameraPoseContextBase* UComposableCameraCameraNodeBase::GetOwningCameraPoseContextByClass(
-	TSubclassOf<UComposableCameraPoseContextBase> ContextClass) const
-{
-	return *ContextClassToContextMap.Find(ContextClass);
-}
-

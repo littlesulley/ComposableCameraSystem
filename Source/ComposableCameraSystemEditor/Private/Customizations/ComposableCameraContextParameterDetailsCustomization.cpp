@@ -9,6 +9,7 @@
 #include "IPropertyUtilities.h"
 #include "Toolkits/ToolkitManager.h"
 #include "ComposableCameraMacros.h"
+#include "Cameras/ComposableCameraCameraBase.h"
 #include "Variables/ComposableCameraParameter.h"
 #include "Variables/ComposableCameraVariable.h"
 #include "Variables/ComposableCameraVariableCollection.h"
@@ -61,7 +62,21 @@ void FComposableCameraContextParameterDetailsCustomization::CustomizeHeader(TSha
 	ensure(VariableClass);
 
 	// Update our variable info once now. We will then update it each tick
+	GetVariableCollectionUsedByOwnedCamera(false);
 	UpdateVariableInfo();
+
+	// Only build widget when this node is instantiated inside a composable camera, but for the CDO node itself
+	TArray<UObject*> OuterObjects;
+	PropertyHandle->GetOuterObjects(OuterObjects);
+
+	for (UObject* OuterObject : OuterObjects)
+	{
+		if (OuterObject->HasAnyFlags(RF_ClassDefaultObject))
+		{
+			bShouldTick = false;
+			return;
+		}
+	}
 
 	// Create the parameter value editor (float editor, vector editor, etc.)
 	TSharedRef<SWidget> ValueWidget = ValueProperty->CreatePropertyValueWidgetWithCustomization(nullptr);
@@ -179,13 +194,18 @@ void FComposableCameraContextParameterDetailsCustomization::CustomizeChildren(
 
 void FComposableCameraContextParameterDetailsCustomization::Tick(float DeltaTime)
 {
-	UpdateVariableInfo();
+	if (bShouldTick)
+	{
+		// Update variable collection used by the owned camera
+		GetVariableCollectionUsedByOwnedCamera(true);
+		UpdateVariableInfo();
+	}
 }
 
 void FComposableCameraContextParameterDetailsCustomization::UpdateVariableInfo()
 {
 	VariableInfo = FComposableCameraVariableInfo();
-
+	
 	UObject* VariableObject = nullptr;
 	FPropertyAccess::Result Result = VariableProperty->GetValue(VariableObject);
 	if (Result == FPropertyAccess::Success)
@@ -226,6 +246,43 @@ void FComposableCameraContextParameterDetailsCustomization::UpdateVariableInfo()
 	}
 }
 
+void FComposableCameraContextParameterDetailsCustomization::GetVariableCollectionUsedByOwnedCamera(bool bExecuteOnChange)
+{
+	TArray<UObject*> OuterObjects;
+	StructProperty->GetOuterObjects(OuterObjects);
+
+	UComposableCameraVariableCollection* CurrentCollectionUsedByCamera = nullptr;
+	
+	if (UObject* Node = OuterObjects[0])
+	{
+		if (AComposableCameraCameraBase* Camera = Cast<AComposableCameraCameraBase>(Node->GetOuter()))
+		{
+			if (Camera->ContextVariables.IsPending())
+			{
+				Camera->ContextVariables.LoadSynchronous();
+			}
+			if (Camera->ContextVariables.IsValid())
+			{
+				CurrentCollectionUsedByCamera = Camera->ContextVariables.Get();
+			}
+		}
+	}
+
+	if (VariableCollectionUsedByCamera != CurrentCollectionUsedByCamera)
+	{
+		if (bExecuteOnChange)
+		{
+			OnVariableCollectionUsedByCameraChanged();
+		}
+		VariableCollectionUsedByCamera = CurrentCollectionUsedByCamera;
+	}
+}
+
+bool FComposableCameraContextParameterDetailsCustomization::OnShouldFilterAsset(const FAssetData& AssetData)
+{
+	return AssetData != VariableCollectionUsedByCamera;
+}
+
 TSharedRef<SWidget> FComposableCameraContextParameterDetailsCustomization::BuildCameraVariableBrowser()
 {
 	constexpr bool bShouldCloseWindowAfterMenuSelection = true;
@@ -258,6 +315,8 @@ TSharedRef<SWidget> FComposableCameraContextParameterDetailsCustomization::Build
 	PickerConfig.ComposableCameraVariableCollectionSaveSettingsName = TEXT("ComposableCameraParameterVariablePropertyPicker");
 	PickerConfig.OnCameraVariableSelected = FOnCameraVariableSelected::CreateSP(
 			this, &FComposableCameraContextParameterDetailsCustomization::OnSetVariable);
+	PickerConfig.OnShouldFilterAsset = FOnShouldFilterAsset::CreateSP(
+		this, &FComposableCameraContextParameterDetailsCustomization::OnShouldFilterAsset);
 	FComposableCameraSystemEditorModule& EditorModule = FModuleManager::LoadModuleChecked<FComposableCameraSystemEditorModule>("ComposableCameraSystemEditor");
 	TSharedRef<SWidget> PickerWidget = EditorModule.CreateCameraVariablePicker(PickerConfig);
 
@@ -376,6 +435,11 @@ void FComposableCameraContextParameterDetailsCustomization::OnSetVariable(UCompo
 	PropertyUtilities->NotifyFinishedChangingProperties(ChangeEvent);
 	PropertyUtilities->RequestForceRefresh();
 	VariableBrowserButton->SetIsOpen(false);
+}
+
+void FComposableCameraContextParameterDetailsCustomization::OnVariableCollectionUsedByCameraChanged()
+{
+	OnSetVariable(nullptr);
 }
 
 bool FComposableCameraContextParameterDetailsCustomization::CanClearVariable() const

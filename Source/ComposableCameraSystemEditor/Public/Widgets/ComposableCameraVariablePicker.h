@@ -39,6 +39,9 @@ struct FComposableCameraVariablePickerConfig
 
 	/** Callback for when a composable camera variable has been selected. */
 	FOnCameraVariableSelected OnCameraVariableSelected;
+
+	/** Callback for when the asset picker should filter assets. */
+	FOnShouldFilterAsset OnShouldFilterAsset;
 };
 
 /**
@@ -69,6 +72,7 @@ private:
 	TSharedPtr<SListView<UComposableCameraVariable*>> ComposableCameraVariableListView;
 	TArray<UComposableCameraVariable*> ComposableCameraVariableItemsSource;
 
+	FAssetData CurrentVariableCollectionUsedByCamera;
 	UClass* VariableClass = nullptr;
 
 	FGetCurrentSelectionDelegate GetCurrentAssetPickerSelection;

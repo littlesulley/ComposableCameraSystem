@@ -12,25 +12,6 @@ class UComposableCameraVariableCollection;
 class UComposableCameraCameraNodeBase;
 class AComposableCameraPlayerCamaraManager;
 
-UCLASS(BlueprintType, Blueprintable, DefaultToInstanced, EditInlineNew, ClassGroup = ComposableCameraSystem, CollapseCategories)
-class UComposableCameraPoseContextBase : public UObject
-{
-	GENERATED_BODY()
-};
-
-UCLASS(ClassGroup = ComposableCameraSystem, CollapseCategories)
-class UComposableCameraPoseContextPivotOnly : public UComposableCameraPoseContextBase
-{
-	GENERATED_BODY()
-
-public:
-	UPROPERTY(BlueprintReadWrite, EditDefaultsOnly)
-	AActor* PivotActor { nullptr };
-
-	UPROPERTY(BlueprintReadWrite, EditDefaultsOnly)
-	FVector PivotPosition = { 0, 0, 0 };
-};
-
 USTRUCT(BlueprintType)
 struct FComposableCameraPose
 {
@@ -59,14 +40,28 @@ class COMPOSABLECAMERASYSTEM_API AComposableCameraCameraBase
 public:
 	AComposableCameraCameraBase(const FObjectInitializer& ObjectInitializer);
 
+	/** Tag for this camera. Used by modifiers to distinguish different cameras. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "ComposableCameraSystem|Camera")
 	FGameplayTag CameraTag {};
-	
+
+	/** Nodes for this camera. They're executed in the order they are placed in this array.
+	 * Each node has two types of parameters: Input Parameters and Context Parameters.
+	 * Input parameters are the node's own parameters used to update its inner variables and execute its logic.
+	 * Context parameters are references to variables in ContextVariables, which can be read/written by each node.
+	 * 
+	 * For example, the ComposableCameraReceivePivotActorNode has an input parameter PivotActor, and a context parameter PivotPosition.
+	 * It reads the location of the PivotActor and writes the location to PivotPosition.
+	 * After this node, PivotPosition can be read by the other following nodes.
+	 */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Instanced, Category = "ComposableCameraSystem|Camera")
 	TArray<UComposableCameraCameraNodeBase*> CameraNodes;
 
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Instanced, Category = "ComposableCameraSystem|Camera")
-	TObjectPtr<UComposableCameraVariableCollection> ContextVariables;
+	/** Context variable collection for this camera. You should create a new collection specific to this camera first,
+	 * and then assign it here. All nodes within this camera can only use this collection.
+	 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "ComposableCameraSystem|Camera")
+	TSoftObjectPtr<UComposableCameraVariableCollection> ContextVariables;
+	
 
 protected:
 	void Initialize(AComposableCameraPlayerCamaraManager* Manager);
@@ -81,7 +76,7 @@ protected:
 	void OnInitialized();
 
 	/**
-	 * A function used to execute custom logic when internal camera tick finishes. You can use GetContextByClass to get context instance by context class.
+	 * A function used to execute custom logic when internal camera tick finishes. 
 	 * @param OldCameraPose Old camera pose for last frame.
 	 * @param NewCameraPose New camera pose calculated by nodes.
 	 */
@@ -90,7 +85,6 @@ protected:
 
 	/**
 	 * A function used to fully or partially override the current camera pose. You can write your own camera update logic here.
-	 * You can use GetContextByClass to get context instance by context class.
 	 * @param DeltaTime World ticked delta time for this frame.
 	 * @param CurrentCameraPose Current camera pose.
 	 * @param OutPose The camera pose actually used for final camera position, location, FOV and other parameters.
@@ -109,18 +103,6 @@ public:
 	UFUNCTION(BlueprintPure, Category = "ComposableCameraSystem|Camera")
 	FComposableCameraPose GetLastFrameCameraPose() const { return LastFrameCameraPose; }
 
-	UFUNCTION(BlueprintPure, Category = "ComposableCameraSystem|Camera")
-	TArray<UComposableCameraPoseContextBase*> GetAllContexts() const;
-	
-	UFUNCTION(BlueprintPure, Category = "ComposableCameraSystem|Camera")
-	TArray<TSubclassOf<UComposableCameraPoseContextBase>> GetAllContextClasses() const;
-
-	UFUNCTION(BlueprintPure, Category = "ComposableCameraSystem|Camera", meta = (DeterminesOutputType = "ContextClass"))
-	UComposableCameraPoseContextBase* GetContextByClass(TSubclassOf<UComposableCameraPoseContextBase> ContextClass) const;
-
-	UFUNCTION(BlueprintPure, Category = "ComposableCameraSystem|Camera")
-	bool HasContextClass(const TSubclassOf<UComposableCameraPoseContextBase>& ContextClass) const;
-
 public:
 	UPROPERTY(Transient)
 	FComposableCameraPose CameraPose;
@@ -128,13 +110,6 @@ public:
 	UPROPERTY(Transient)
 	FComposableCameraPose LastFrameCameraPose;
 
-	UPROPERTY(Transient)
-	TMap<TSubclassOf<UComposableCameraPoseContextBase>, UComposableCameraPoseContextBase*> ContextClassToContextMap;
-
 private:
-	void GenerateContextClassToContextMap(const TArray<TSubclassOf<UComposableCameraPoseContextBase>>& ContextClasses);
-	void DistributeContextsToNodes();
-	
 	TObjectPtr<AComposableCameraPlayerCamaraManager> CameraManager;
-	
 };

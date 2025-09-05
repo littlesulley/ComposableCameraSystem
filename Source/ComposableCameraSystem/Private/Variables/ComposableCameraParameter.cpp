@@ -213,6 +213,19 @@ bool FTransform3dComposableCameraContextParameter::SerializeFromMismatchedTag(co
 	return false;
 }
 
+bool FActorComposableCameraContextParameter::SerializeFromMismatchedTag(const FPropertyTag& Tag,
+	FStructuredArchive::FSlot Slot)
+{
+
+	if (Tag.GetType().IsStruct(NAME_Actor))
+	{
+		Slot << Value;
+		return true;
+	}
+
+	return false;
+}
+
 #define COMPOSABLECAMERASYSTEMEDITOR_CAMERA_VARIABLE_FOR_TYPE(ValueType, ValueName) \
 void F##ValueName##ComposableCameraContextParameter::PostSerialize(const FArchive& Ar) \
 { \
@@ -232,7 +245,7 @@ ValueType F##ValueName##ComposableCameraContextParameter::GetValue(const UCompos
 	} \
 	else \
 	{ \
-		if (const ValueType* ActualValue = Collection.FindValue<ValueType>(VariableID)) \
+		if (ValueType* ActualValue = const_cast<ValueType*>(Collection.FindValue<ValueType>(VariableID))) \
 		{ \
 			return *ActualValue; \
 		} \

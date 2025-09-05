@@ -28,6 +28,7 @@ enum class EComposableCameraVariableType
 	Rotator3d,
 	Transform3f,
 	Transform3d,
+	Actor,
 	BlendableStruct
 };
 
@@ -196,6 +197,7 @@ public:
 	bool GetDefaultValue() const { return DefaultValue; }
 	virtual EComposableCameraVariableType GetVariableType() const override { return EComposableCameraVariableType::Boolean; }
 	virtual const uint8* GetDefaultValuePtr() const override { return reinterpret_cast<const uint8*>(&DefaultValue); }
+	virtual void PostLoad() override { Super::PostLoad(); RuntimeValue = DefaultValue; }
 
 #if WITH_EDITOR
 	virtual FString FormatDefaultValue() const override { return LexToString(DefaultValue); }
@@ -204,6 +206,9 @@ public:
 public:
 	UPROPERTY(EditAnywhere)
 	bool DefaultValue = false;
+
+	UPROPERTY(Transient)
+	bool RuntimeValue;
 };
 
 /** Float camera variable. */
@@ -218,7 +223,8 @@ public:
 	float GetDefaultValue() const { return DefaultValue; }
 	virtual EComposableCameraVariableType GetVariableType() const override { return EComposableCameraVariableType::Float; }
 	virtual const uint8* GetDefaultValuePtr() const override { return reinterpret_cast<const uint8*>(&DefaultValue); }
-
+	virtual void PostLoad() override { Super::PostLoad(); RuntimeValue = DefaultValue; }
+	
 #if WITH_EDITOR
 	virtual FString FormatDefaultValue() const override { return LexToString(DefaultValue); }
 #endif  
@@ -226,6 +232,9 @@ public:
 public:
 	UPROPERTY(EditAnywhere, Category = ComposableCamera)
 	float DefaultValue = 0;
+
+	UPROPERTY(Transient)
+	float RuntimeValue;
 };
 
 /** Double camera variable. */
@@ -240,7 +249,8 @@ public:
 	double GetDefaultValue() const { return DefaultValue; }
 	virtual EComposableCameraVariableType GetVariableType() const override { return EComposableCameraVariableType::Double; }
 	virtual const uint8* GetDefaultValuePtr() const override { return reinterpret_cast<const uint8*>(&DefaultValue); }
-
+	virtual void PostLoad() override { Super::PostLoad(); RuntimeValue = DefaultValue; }
+	
 #if WITH_EDITOR
 	virtual FString FormatDefaultValue() const override { return LexToString(DefaultValue); }
 #endif  
@@ -248,6 +258,9 @@ public:
 public:
 	UPROPERTY(EditAnywhere, Category = ComposableCamera)
 	double DefaultValue = 0;
+
+	UPROPERTY(Transient)
+	double RuntimeValue;
 };
 
 /** Integer32 camera variable. */
@@ -262,7 +275,8 @@ public:
 	int32 GetDefaultValue() const { return DefaultValue; }
 	virtual EComposableCameraVariableType GetVariableType() const override { return EComposableCameraVariableType::Integer32; }
 	virtual const uint8* GetDefaultValuePtr() const override { return reinterpret_cast<const uint8*>(&DefaultValue); }
-
+	virtual void PostLoad() override { Super::PostLoad(); RuntimeValue = DefaultValue; }
+	
 #if WITH_EDITOR
 	virtual FString FormatDefaultValue() const override { return LexToString(DefaultValue); }
 #endif  
@@ -270,6 +284,9 @@ public:
 public:
 	UPROPERTY(EditAnywhere, Category = ComposableCamera)
 	int32 DefaultValue = 0;
+
+	UPROPERTY(Transient)
+	int32 RuntimeValue;
 };
 
 /** Vector2d camera variable. */
@@ -284,7 +301,8 @@ public:
 	FVector2d GetDefaultValue() const { return DefaultValue; }
 	virtual EComposableCameraVariableType GetVariableType() const override { return EComposableCameraVariableType::Vector2d; }
 	virtual const uint8* GetDefaultValuePtr() const override { return reinterpret_cast<const uint8*>(&DefaultValue); }
-
+	virtual void PostLoad() override { Super::PostLoad(); RuntimeValue = DefaultValue; }
+	
 #if WITH_EDITOR
 	virtual FString FormatDefaultValue() const override { return DefaultValue.ToString(); }
 #endif  
@@ -292,6 +310,9 @@ public:
 public:
 	UPROPERTY(EditAnywhere, Category = ComposableCamera)
 	FVector2D DefaultValue { };
+
+	UPROPERTY(Transient)
+	FVector2D RuntimeValue;
 };
 
 /** Vector2f camera variable. */
@@ -306,7 +327,8 @@ public:
 	FVector2f GetDefaultValue() const { return DefaultValue; }
 	virtual EComposableCameraVariableType GetVariableType() const override { return EComposableCameraVariableType::Vector2f; }
 	virtual const uint8* GetDefaultValuePtr() const override { return reinterpret_cast<const uint8*>(&DefaultValue); }
-
+	virtual void PostLoad() override { Super::PostLoad(); RuntimeValue = DefaultValue; }
+	
 #if WITH_EDITOR
 	virtual FString FormatDefaultValue() const override { return DefaultValue.ToString(); }
 #endif  
@@ -314,6 +336,9 @@ public:
 public:
 	UPROPERTY(EditAnywhere, Category = ComposableCamera)
 	FVector2f DefaultValue {};
+
+	UPROPERTY(Transient)
+	FVector2f RuntimeValue {};
 };
 
 /** Vector3d camera variable. */
@@ -328,7 +353,8 @@ public:
 	FVector3d GetDefaultValue() const { return DefaultValue; }
 	virtual EComposableCameraVariableType GetVariableType() const override { return EComposableCameraVariableType::Vector3d; }
 	virtual const uint8* GetDefaultValuePtr() const override { return reinterpret_cast<const uint8*>(&DefaultValue); }
-
+	virtual void PostLoad() override { Super::PostLoad(); RuntimeValue = DefaultValue; }
+	
 #if WITH_EDITOR
 	virtual FString FormatDefaultValue() const override { return DefaultValue.ToString(); }
 #endif  
@@ -336,6 +362,9 @@ public:
 public:
 	UPROPERTY(EditAnywhere, Category = ComposableCamera)
 	FVector3d DefaultValue {};
+
+	UPROPERTY(Transient)
+	FVector3d RuntimeValue {};
 };
 
 /** Vector3f camera variable. */
@@ -350,7 +379,8 @@ public:
 	FVector3f GetDefaultValue() const { return DefaultValue; }
 	virtual EComposableCameraVariableType GetVariableType() const override { return EComposableCameraVariableType::Vector3f; }
 	virtual const uint8* GetDefaultValuePtr() const override { return reinterpret_cast<const uint8*>(&DefaultValue); }
-
+	virtual void PostLoad() override { Super::PostLoad(); RuntimeValue = DefaultValue; }
+	
 #if WITH_EDITOR
 	virtual FString FormatDefaultValue() const override { return DefaultValue.ToString(); }
 #endif  
@@ -358,6 +388,9 @@ public:
 public:
 	UPROPERTY(EditAnywhere, Category = ComposableCamera)
 	FVector3f DefaultValue {};
+
+	UPROPERTY(Transient)
+	FVector3f RuntimeValue {};
 };
 
 /** Vector4d camera variable. */
@@ -372,7 +405,8 @@ public:
 	FVector4d GetDefaultValue() const { return DefaultValue; }
 	virtual EComposableCameraVariableType GetVariableType() const override { return EComposableCameraVariableType::Vector4d; }
 	virtual const uint8* GetDefaultValuePtr() const override { return reinterpret_cast<const uint8*>(&DefaultValue); }
-
+	virtual void PostLoad() override { Super::PostLoad(); RuntimeValue = DefaultValue; }
+	
 #if WITH_EDITOR
 	virtual FString FormatDefaultValue() const override { return DefaultValue.ToString(); }
 #endif  
@@ -380,6 +414,9 @@ public:
 public:
 	UPROPERTY(EditAnywhere, Category = ComposableCamera)
 	FVector4d DefaultValue {};
+
+	UPROPERTY(Transient)
+	FVector4d RuntimeValue {};
 };
 
 /** Vector4f camera variable. */
@@ -394,7 +431,8 @@ public:
 	FVector4f GetDefaultValue() const { return DefaultValue; }
 	virtual EComposableCameraVariableType GetVariableType() const override { return EComposableCameraVariableType::Vector4f; }
 	virtual const uint8* GetDefaultValuePtr() const override { return reinterpret_cast<const uint8*>(&DefaultValue); }
-
+	virtual void PostLoad() override { Super::PostLoad(); RuntimeValue = DefaultValue; }
+	
 #if WITH_EDITOR
 	virtual FString FormatDefaultValue() const override { return DefaultValue.ToString(); }
 #endif  
@@ -402,6 +440,9 @@ public:
 public:
 	UPROPERTY(EditAnywhere, Category = ComposableCamera)
 	FVector4f DefaultValue {};
+
+	UPROPERTY(Transient)
+	FVector4f RuntimeValue {};
 };
 
 /** Rotator3d camera variable. */
@@ -416,7 +457,8 @@ public:
 	FRotator3d GetDefaultValue() const { return DefaultValue; }
 	virtual EComposableCameraVariableType GetVariableType() const override { return EComposableCameraVariableType::Rotator3d; }
 	virtual const uint8* GetDefaultValuePtr() const override { return reinterpret_cast<const uint8*>(&DefaultValue); }
-
+	virtual void PostLoad() override { Super::PostLoad(); RuntimeValue = DefaultValue; }
+	
 #if WITH_EDITOR
 	virtual FString FormatDefaultValue() const override { return DefaultValue.ToString(); }
 #endif  
@@ -424,6 +466,9 @@ public:
 public:
 	UPROPERTY(EditAnywhere, Category = ComposableCamera)
 	FRotator3d DefaultValue {};
+	
+	UPROPERTY(Transient)
+	FRotator3d RuntimeValue {};
 };
 
 /** Rotator3f camera variable. */
@@ -438,7 +483,8 @@ public:
 	FRotator3f GetDefaultValue() const { return DefaultValue; }
 	virtual EComposableCameraVariableType GetVariableType() const override { return EComposableCameraVariableType::Rotator3f; }
 	virtual const uint8* GetDefaultValuePtr() const override { return reinterpret_cast<const uint8*>(&DefaultValue); }
-
+	virtual void PostLoad() override { Super::PostLoad(); RuntimeValue = DefaultValue; }
+	
 #if WITH_EDITOR
 	virtual FString FormatDefaultValue() const override { return DefaultValue.ToString(); }
 #endif  
@@ -446,6 +492,9 @@ public:
 public:
 	UPROPERTY(EditAnywhere, Category = ComposableCamera)
 	FRotator3f DefaultValue {};
+
+	UPROPERTY(Transient)
+	FRotator3f RuntimeValue {};
 };
 
 /** Transform3d camera variable. */
@@ -460,7 +509,8 @@ public:
 	FTransform3d GetDefaultValue() const { return DefaultValue; }
 	virtual EComposableCameraVariableType GetVariableType() const override { return EComposableCameraVariableType::Transform3d; }
 	virtual const uint8* GetDefaultValuePtr() const override { return reinterpret_cast<const uint8*>(&DefaultValue); }
-
+	virtual void PostLoad() override { Super::PostLoad(); RuntimeValue = DefaultValue; }
+	
 #if WITH_EDITOR
 	virtual FString FormatDefaultValue() const override { return DefaultValue.ToString(); }
 #endif  
@@ -468,6 +518,9 @@ public:
 public:
 	UPROPERTY(EditAnywhere, Category = ComposableCamera)
 	FTransform3d DefaultValue {};
+
+	UPROPERTY(Transient)
+	FTransform3d RuntimeValue {};
 };
 
 /** Transform3f camera variable. */
@@ -482,7 +535,8 @@ public:
 	FTransform3f GetDefaultValue() const { return DefaultValue; }
 	virtual EComposableCameraVariableType GetVariableType() const override { return EComposableCameraVariableType::Transform3f; }
 	virtual const uint8* GetDefaultValuePtr() const override { return reinterpret_cast<const uint8*>(&DefaultValue); }
-
+	virtual void PostLoad() override { Super::PostLoad(); RuntimeValue = DefaultValue; }
+	
 #if WITH_EDITOR
 	virtual FString FormatDefaultValue() const override { return DefaultValue.ToString(); }
 #endif  
@@ -490,6 +544,35 @@ public:
 public:
 	UPROPERTY(EditAnywhere, Category = ComposableCamera)
 	FTransform3f DefaultValue {};
+
+	UPROPERTY(Transient)
+	FTransform3f RuntimeValue {};
+};
+
+/** Actor camera variable. */
+UCLASS(ClassGroup = ComposableCameraSystem)
+class UActorComposableCameraVariable : public UComposableCameraVariable
+{
+	GENERATED_BODY()
+
+public:
+	using ValueType = AActor*;
+
+	AActor* GetDefaultValue() const { return DefaultValue; }
+	virtual EComposableCameraVariableType GetVariableType() const override { return EComposableCameraVariableType::Actor; }
+	virtual const uint8* GetDefaultValuePtr() const override { return reinterpret_cast<const uint8*>(&DefaultValue); }
+	virtual void PostLoad() override { Super::PostLoad(); RuntimeValue = DefaultValue; }
+	
+#if WITH_EDITOR
+	virtual FString FormatDefaultValue() const override { return LexToString(DefaultValue->GetName()); }
+#endif  
+
+public:
+	UPROPERTY(EditAnywhere, Category = ComposableCamera)
+	AActor* DefaultValue { nullptr };
+
+	UPROPERTY(Transient)
+	AActor* RuntimeValue {};
 };
 
 

@@ -82,7 +82,6 @@ TSharedRef<SWidget> SComposableCameraVariablePicker::BuildVariableCollectionAsse
 	FContentBrowserModule& ContentBrowserModule = FModuleManager::Get().LoadModuleChecked<FContentBrowserModule>("ContentBrowser");
 	FAssetPickerConfig AssetPickerConfig;
 	FARFilter ARFilter;
-	ARFilter.bRecursiveClasses = true;
 	ARFilter.ClassPaths.Add(FTopLevelAssetPath(UComposableCameraVariableCollection::StaticClass()->GetPathName()));
 
 	FAssetData InitialVariableCollection = InPickerConfig.InitialComposableCameraVariableCollectionSelection;
@@ -98,12 +97,13 @@ TSharedRef<SWidget> SComposableCameraVariablePicker::BuildVariableCollectionAsse
 	AssetPickerConfig.bFocusSearchBoxWhenOpened = true;
 	AssetPickerConfig.SelectionMode = ESelectionMode::Single;
 	AssetPickerConfig.Filter = ARFilter;
+	AssetPickerConfig.OnShouldFilterAsset = InPickerConfig.OnShouldFilterAsset;
 	AssetPickerConfig.SaveSettingsName = InPickerConfig.ComposableCameraVariableCollectionSaveSettingsName;
 	AssetPickerConfig.InitialAssetViewType = EAssetViewType::List;
 	AssetPickerConfig.InitialAssetSelection = InitialVariableCollection;
 	AssetPickerConfig.OnAssetSelected = FOnAssetSelected::CreateSP(this, &SComposableCameraVariablePicker::OnAssetSelected);
 	AssetPickerConfig.GetCurrentSelectionDelegates.Add(&GetCurrentAssetPickerSelection);
-
+	
 	return ContentBrowserModule.Get().CreateAssetPicker(AssetPickerConfig);
 }
 

@@ -363,6 +363,29 @@ struct FTransform3dComposableCameraContextParameter
 	COMPOSABLECAMERASYSTEM_PARAMETER_ALL_VALUE_CONSTRUCTORS(FTransform3dComposableCameraContextParameter)
 };
 
+/** Actor camera parameter. */
+USTRUCT(BlueprintType)
+struct FActorComposableCameraContextParameter
+{
+	GENERATED_BODY()
+
+	using ValueType = AActor*;
+	using VariableAssetType = UActorComposableCameraVariable;
+
+	UPROPERTY(EditAnywhere, Interp, Category=Common, meta=(SequencerUseParentPropertyName=true))
+	AActor* Value;
+
+	UPROPERTY()
+	FComposableCameraVariableID VariableID;
+
+	UPROPERTY(EditAnywhere, Category=Common)
+	TObjectPtr<UActorComposableCameraVariable> Variable;
+
+	bool SerializeFromMismatchedTag(const FPropertyTag& Tag, FStructuredArchive::FSlot Slot);
+
+	COMPOSABLECAMERASYSTEM_PARAMETER_ALL_VALUE_CONSTRUCTORS(FActorComposableCameraContextParameter)
+};
+
 #undef COMPOSABLECAMERASYSTEM_PARAMETER_VALUE_CONSTRUCTORS
 #undef COMPOSABLECAMERASYSTEM_PARAMETER_ALL_VALUE_CONSTRUCTORS
 

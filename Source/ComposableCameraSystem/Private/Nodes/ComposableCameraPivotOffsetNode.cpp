@@ -5,24 +5,23 @@
 
 UComposableCameraPivotOffsetNode::UComposableCameraPivotOffsetNode(const FObjectInitializer& ObjectInitializer)
 {
-	RequiredContextClasses = {
-		UComposableCameraPoseContextPivotOnly::StaticClass()
-	};
+	
 }
 
 void UComposableCameraPivotOffsetNode::OnBeginPlayNode_Implementation()
 {
-	if (!PivotOnlyContext)
-	{
-		PivotOnlyContext = CastChecked<UComposableCameraPoseContextPivotOnly>(GetOwningCameraPoseContextByClass(UComposableCameraPoseContextPivotOnly::StaticClass()));
-	}
+	
 }
 
 void UComposableCameraPivotOffsetNode::OnTickNode_Implementation(float DeltaTime,
 	const FComposableCameraPose& CurrentCameraPose, FComposableCameraPose& OutCameraPose)
 {
-	FVector Pivot = PivotOnlyContext->PivotPosition;
-
+	FVector Pivot = ContextPivotPosition.Value;
+	if (ContextPivotPosition.Variable)
+	{
+		Pivot = ContextPivotPosition.Variable->RuntimeValue;
+	}
+	
 	switch (PivotOffsetType)
 	{
 	case ECameraPivotOffset::ActorLocalSpace:
@@ -49,6 +48,13 @@ void UComposableCameraPivotOffsetNode::OnTickNode_Implementation(float DeltaTime
 		Pivot += PivotOffset;
 		break;
 	}
-	
-	PivotOnlyContext->PivotPosition = Pivot;
+
+	if (ContextPivotPosition.Variable)
+	{
+		ContextPivotPosition.Variable->RuntimeValue = Pivot;
+	}
+	else
+	{
+		ContextPivotPosition.Value = Pivot;
+	}
 }

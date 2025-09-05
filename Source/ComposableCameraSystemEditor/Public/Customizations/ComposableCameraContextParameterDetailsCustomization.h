@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "ComposableCameraMacros.h"
+#include "Variables/ComposableCameraVariableCollection.h"
 
 class UComposableCameraVariable;
 
@@ -48,6 +49,8 @@ private:
 
 	void UpdateVariableInfo();
 
+	void GetVariableCollectionUsedByOwnedCamera(bool bExecuteOnChange);
+	bool OnShouldFilterAsset(const FAssetData& AssetData);
 	TSharedRef<SWidget> BuildCameraVariableBrowser();
 
 	bool IsValueEditorEnabled() const;
@@ -66,14 +69,19 @@ private:
 
 	bool CanClearVariable() const;
 	void OnClearVariable();
-
+	
 	void OnSetVariable(UComposableCameraVariable* InVariable);
 
+	void OnVariableCollectionUsedByCameraChanged();
+	
 	bool IsResetToDefaultVisible(TSharedPtr<IPropertyHandle> InPropertyHandle) const;
 	void OnResetToDefault(TSharedPtr<IPropertyHandle> InPropertyHandle);
 
 protected:
+	UComposableCameraVariableCollection* VariableCollectionUsedByCamera = nullptr;
 	UClass* VariableClass = nullptr;
+
+	bool bShouldTick = true;
 
 	FComposableCameraVariableInfo VariableInfo;
 

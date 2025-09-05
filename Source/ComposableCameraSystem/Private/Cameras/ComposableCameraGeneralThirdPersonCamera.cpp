@@ -13,7 +13,7 @@
 
 AComposableCameraGeneralThirdPersonCamera::AComposableCameraGeneralThirdPersonCamera(
 	const FObjectInitializer& ObjectInitializer)
-		: Super(ObjectInitializer.SetDefaultSubobjectClass(TEXT("CameraPoseContext"), UComposableCameraPoseContextPivotOnly::StaticClass()))
+		: Super(ObjectInitializer)
 {
 	CameraNodes = {
 		CreateDefaultSubobject<UComposableCameraControlRotateNode>(FName("ControlRotateNode")),

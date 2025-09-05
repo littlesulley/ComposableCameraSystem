@@ -7,9 +7,13 @@
 #include "ComposableCameraReceivePivotActorNode.generated.h"
 
 /**
- * Node for receiving a pivot target actor. This node updates the camera pose context's PivotActor and PivotPosition.
+ * Node for receiving a pivot target actor and getting its location as the pivot location. \n
+ * @ InputParameter PivotActor: The actor you'd want to put into context parameter ContextPivotActor and get pivot location from. \n
+ * @ ContextParameter ContextPivotActor: The actor you'd want to maintain during the node's life cycle. The input PivotActor will be read into here, without validity check. \n 
+ * @ ContextParameter ContextPivotPosition: The location of the PivotActor. \n
+ * This node runs every tick.
  */
-UCLASS(NotBlueprintable, ClassGroup = ComposableCameraSystem, CollapseCategories)
+UCLASS(NotBlueprintable, ClassGroup = ComposableCameraSystem)
 class COMPOSABLECAMERASYSTEM_API UComposableCameraReceivePivotActorNode
 	: public UComposableCameraCameraNodeBase
 {
@@ -22,13 +26,13 @@ public:
 	virtual void OnTickNode_Implementation(float DeltaTime, const FComposableCameraPose& CurrentCameraPose, FComposableCameraPose& OutCameraPose) override;
 
 public:
-	UPROPERTY(BlueprintReadWrite, EditAnywhere)
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = InputParameters)
 	TSoftObjectPtr<AActor> PivotActor = nullptr;
 
-private:
-	UPROPERTY(EditDefaultsOnly)
-	FVector3dComposableCameraContextParameter PivotPosition;
-
-private:
-	UComposableCameraPoseContextPivotOnly* PivotOnlyContext;
+public:
+	UPROPERTY(EditDefaultsOnly, Category = ContextParameters)
+	FActorComposableCameraContextParameter ContextPivotActor;
+	
+	UPROPERTY(EditDefaultsOnly, Category = ContextParameters)
+	FVector3dComposableCameraContextParameter ContextPivotPosition;
 };
