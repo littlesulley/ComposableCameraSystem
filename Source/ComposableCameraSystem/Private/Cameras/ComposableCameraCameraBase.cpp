@@ -32,28 +32,21 @@ void AComposableCameraCameraBase::TickCamera(float DeltaTime)
 	{
 		Node->TickNode(DeltaTime, NewCameraPose, NewCameraPose);
 	}
-	
-	OnTicked(CameraPose, NewCameraPose);
-	
-	LastFrameCameraPose = CameraPose;
-	CameraPose = NewCameraPose;
 
-	UpdateCamera(DeltaTime);
+	CameraPose = NewCameraPose;
+	if (OnUpdateCamera(DeltaTime, LastFrameCameraPose, NewCameraPose, NewCameraPose))
+	{
+		CameraPose = NewCameraPose;
+	}
+	LastFrameCameraPose = CameraPose;
+
+	UpdateCamera();
 }
 
-void AComposableCameraCameraBase::UpdateCamera(float DeltaTime)
+void AComposableCameraCameraBase::UpdateCamera()
 {
-	FComposableCameraPose OutCameraPose;
-	FComposableCameraPose ThisCameraPose = CameraPose;
-
-	if (OnUpdateCamera(DeltaTime, ThisCameraPose, OutCameraPose))
-	{
-		ThisCameraPose = OutCameraPose;
-		CameraPose = OutCameraPose;
-	}
-	
-	SetActorLocation(ThisCameraPose.Position);
-	SetActorRotation(ThisCameraPose.Rotation);
-	GetCameraComponent()->FieldOfView = ThisCameraPose.FieldOfView;
+	SetActorLocation(CameraPose.Position);
+	SetActorRotation(CameraPose.Rotation);
+	GetCameraComponent()->FieldOfView = CameraPose.FieldOfView;
 }
 
