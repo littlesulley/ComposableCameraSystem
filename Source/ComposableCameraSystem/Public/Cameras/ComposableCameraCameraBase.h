@@ -18,14 +18,50 @@ struct FComposableCameraPose
 	GENERATED_BODY()
 
 public:
-	UPROPERTY(BlueprintReadWrite, Category = "ComposableCameraSystem|CameraPose")
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "ComposableCameraSystem|CameraPose")
 	FVector Position { 0, 0, 0 };
 
-	UPROPERTY(BlueprintReadWrite, Category = "ComposableCameraSystem|CameraPose")
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "ComposableCameraSystem|CameraPose")
 	FRotator Rotation { 0, 0, 0 };
 
-	UPROPERTY(BlueprintReadWrite, Category = "ComposableCameraSystem|CameraPose")
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "ComposableCameraSystem|CameraPose")
 	double FieldOfView { 75.f };
+
+	void BlendBy(const FComposableCameraPose& Other, float OtherWeight)
+	{
+		Position = FMath::Lerp(Position, Other.Position, OtherWeight);
+		
+		const FRotator DeltaAng = (Other.Rotation - Rotation).GetNormalized();
+		Rotation = OtherWeight * DeltaAng;
+
+		FieldOfView = FMath::Lerp(FieldOfView, Other.FieldOfView, OtherWeight);
+	}
+};
+
+/**
+ * Parameters when activating a new camera.
+ */
+USTRUCT(BlueprintType)
+struct FComposableCameraActivateParams
+{
+	GENERATED_BODY()
+
+public:
+	// Data table for node initializers. If not set, no initializer will be applied.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	UDataTable* NodeInitializerDataTable;
+
+	// Tags to use for node initializers. Only matched tags will be used.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	FGameplayTagContainer NodeInitializerTags;
+
+	// Whether this camera is transient.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	bool bIsTransient = false;
+
+	// The life time if this camera is transient.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	float LifeTime = 0.f;
 };
 
 /**
@@ -33,7 +69,7 @@ public:
  */
 UCLASS(Abstract, DefaultToInstanced, BlueprintType, Blueprintable, ClassGroup = ComposableCameraSystem)
 class COMPOSABLECAMERASYSTEM_API AComposableCameraCameraBase
-	: public ACameraActor
+	: public AActor
 {
 	GENERATED_BODY()
 
@@ -63,11 +99,10 @@ public:
 	TSoftObjectPtr<UComposableCameraVariableCollection> ContextVariables;
 	
 
-protected:
+public:
 	void Initialize(AComposableCameraPlayerCamaraManager* Manager);
-	void BeginPlayCamera();
-	void TickCamera(float DeltaTime);
-	void UpdateCamera();
+	void BeginPlayCamera(const FComposableCameraPose& CurrentCameraPose);
+	[[nodiscard]] FComposableCameraPose TickCamera(float DeltaTime);
 
 	/**
 	 * Do something when finishing initializing. This is called before all nodes begin to play.
@@ -132,6 +167,10 @@ public:
 	// Remaining life time.
 	UPROPERTY(Transient, VisibleAnywhere)
 	float RemainingLifeTime { 0.f };
+
+	// Whether this camera is currently active (running) and not yet killed, generally waiting to be resumed.
+	UPROPERTY(Transient, VisibleAnywhere)
+	bool bIsRunning { true };
 
 	// Pending camera to be resumed. This happens when the running camera is transient and once it finishes, ParentPendingCamera will be resumed.
 	UPROPERTY(Transient, VisibleAnywhere)

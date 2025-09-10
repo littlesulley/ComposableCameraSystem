@@ -4,6 +4,9 @@
 #include "Cameras/ComposableCameraCameraBase.h"
 #include "ComposableCameraSystemModule.h"
 #include "Core/ComposableCameraDirector.h"
+#include "Transitions/ComposableCameraTransitionBase.h"
+
+class UComposableCameraTransitionBase;
 
 AComposableCameraPlayerCamaraManager::AComposableCameraPlayerCamaraManager(const  FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
@@ -34,18 +37,35 @@ void AComposableCameraPlayerCamaraManager::ProcessViewRotation(float DeltaTime, 
 }
 
 AComposableCameraCameraBase* AComposableCameraPlayerCamaraManager::ActivateNewCamera(
-	TSubclassOf<AComposableCameraCameraBase> CameraClass, UDataTable* NodeInitializerDataTable,
-	FGameplayTagContainer NodeInitializerTags, bool bIsTransient, float LifeTime)
+	TSubclassOf<AComposableCameraCameraBase> CameraClass,
+	FComposableCameraTransitionParams TransitionParams,
+	UDataTable* NodeInitializerDataTable,
+	FGameplayTagContainer NodeInitializerTags,
+	bool bIsTransient,
+	float LifeTime)
 {
+	if (CameraClass == nullptr)
+	{
+		UE_LOG(LogComposableCameraSystem, Warning, TEXT(
+			"Camera class is null."));
+		return RunningCamera;
+	}
 	if (!IsValid(CameraClass))
 	{
 		UE_LOG(LogComposableCameraSystem, Warning, TEXT(
 			"Camera class %s is not valid."),
 			*CameraClass->StaticClass()->GetName());
+		return RunningCamera;
+	}
+	
+	if (!IsValid(TransitionParams.TransitionClass))
+	{
+		UE_LOG(LogComposableCameraSystem, Warning, TEXT(
+			"Transition class is not valid. Will use camera cut."));
 	}
 	
 	AComposableCameraCameraBase* NewCamera = Director->ActivateNewCamera(
-		CameraClass, NodeInitializerDataTable, NodeInitializerTags, bIsTransient, LifeTime);
+		CameraClass, TransitionParams, NodeInitializerDataTable, NodeInitializerTags, bIsTransient, LifeTime);
 	if (NewCamera)
 	{
 		RunningCamera = NewCamera;
@@ -60,8 +80,50 @@ AComposableCameraCameraBase* AComposableCameraPlayerCamaraManager::ActivateNewCa
 	return RunningCamera;
 }
 
+FMinimalViewInfo AComposableCameraPlayerCamaraManager::GetCameraViewFromCameraPose(const FComposableCameraPose& OutPose) const
+{
+	FMinimalViewInfo DesiredView = GetCameraCacheView();
+
+	DesiredView.Location = OutPose.Position;
+	DesiredView.Rotation = OutPose.Rotation;
+	DesiredView.FOV = OutPose.FieldOfView;
+	DesiredView.DesiredFOV = OutPose.FieldOfView;
+
+	// DesiredView.AspectRatio = CameraPose.GetSensorAspectRatio();
+	// DesiredView.bConstrainAspectRatio = CameraPose.GetConstrainAspectRatio();
+	// DesiredView.AspectRatioAxisConstraint = CameraPose.GetOverrideAspectRatioAxisConstraint() ?
+	// 	CameraPose.GetAspectRatioAxisConstraint() : TOptional<EAspectRatioAxisConstraint>();
+	//
+	// DesiredView.ProjectionMode = CameraPose.GetProjectionMode();
+	// if (CameraPose.GetProjectionMode() == ECameraProjectionMode::Orthographic)
+	// {
+	// 	DesiredView.OrthoWidth = CameraPose.GetOrthographicWidth();
+	// }
+	//
+	// DesiredView.PerspectiveNearClipPlane = CameraPose.GetNearClippingPlane();
+	//
+	// DesiredView.OffCenterProjectionOffset.X = CameraPose.GetHorizontalProjectionOffset();
+	// DesiredView.OffCenterProjectionOffset.Y = CameraPose.GetVerticalProjectionOffset();
+	//
+	// const FPostProcessSettingsCollection& PostProcessSettings = RootNodeResult.PostProcessSettings;
+	// DesiredView.PostProcessSettings = PostProcessSettings.Get();
+	// DesiredView.PostProcessBlendWeight = 1.f;
+	// // Create the physical camera settings if needed. Don't overwrite settings that were set by hand.
+	// CameraPose.ApplyPhysicalCameraSettings(DesiredView.PostProcessSettings, false);
+	//
+	// DesiredView.ApplyOverscan(CameraPose.GetOverscan());
+	
+	return DesiredView;
+}
+
 void AComposableCameraPlayerCamaraManager::DoUpdateCamera(float DeltaTime)
 {
 	Super::DoUpdateCamera(DeltaTime);
+	
+	FComposableCameraPose OutPose = Director->Evaluate(DeltaTime);
+	FMinimalViewInfo DesiredView = GetCameraViewFromCameraPose(OutPose);
+	CurrentCameraPose = OutPose;
+	
+	FillCameraCache(DesiredView);
 }
 

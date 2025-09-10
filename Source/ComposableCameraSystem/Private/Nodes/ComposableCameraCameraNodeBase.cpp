@@ -16,9 +16,9 @@ void UComposableCameraCameraNodeBase::TickNode(float DeltaTime, const FComposabl
 	OnTickNode(DeltaTime, CurrentCameraPose, OutCameraPose);
 }
 
-void UComposableCameraCameraNodeBase::BeginPlayNode()
+void UComposableCameraCameraNodeBase::BeginPlayNode(const FComposableCameraPose& CurrentCameraPose)
 {
-	OnBeginPlayNode();
+	OnBeginPlayNode(CurrentCameraPose);
 }
 
 FGameplayTag UComposableCameraCameraNodeBase::GetOwningCameraTag() const

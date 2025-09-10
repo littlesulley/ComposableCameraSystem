@@ -3,16 +3,22 @@
 #include "Core/ComposableCameraDirector.h"
 #include "Cameras/ComposableCameraCameraBase.h"
 #include "GameplayTagContainer.h"
+#include "Transitions/ComposableCameraTransitionBase.h"
+#include "Core/ComposableCameraEvaluationTree.h"
 
 UComposableCameraDirector::UComposableCameraDirector(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
 {
-	
+	EvaluationTree = CreateDefaultSubobject<UComposableCameraEvaluationTree>("ComposableCameraEvaluationTree");	
 }
 
 AComposableCameraCameraBase* UComposableCameraDirector::ActivateNewCamera(
-	TSubclassOf<AComposableCameraCameraBase> CameraClass, UDataTable* NodeInitializerDataTable,
-	FGameplayTagContainer NodeInitializerTags, bool bIsTransient, float LifeTime)
+	TSubclassOf<AComposableCameraCameraBase> CameraClass,
+	FComposableCameraTransitionParams TransitionParams,
+	UDataTable* NodeInitializerDataTable, // @TODO
+	FGameplayTagContainer NodeInitializerTags, // @TODO
+	bool bIsTransient,
+	float LifeTime)
 {
 	if (UWorld* World = GetWorld())
 	{
@@ -20,11 +26,13 @@ AComposableCameraCameraBase* UComposableCameraDirector::ActivateNewCamera(
 
 		if (bIsTransient)
 		{
-			NewCamera = NewObject<AComposableCameraCameraBase>(RunningCamera, CameraClass);
+			NewCamera = NewObject<AComposableCameraCameraBase>(this, CameraClass);
 			NewCamera->ParentPendingCamera = RunningCamera;
 			NewCamera->bIsTransient = true;
 			NewCamera->LifeTime = LifeTime;
 			NewCamera->RemainingLifeTime = LifeTime;
+			NewCamera->bIsRunning = true;
+			RunningCamera->bIsRunning = false;
 		}
 		else
 		{
@@ -33,10 +41,30 @@ AComposableCameraCameraBase* UComposableCameraDirector::ActivateNewCamera(
 			NewCamera->bIsTransient = false;
 			NewCamera->LifeTime = -1.f;
 			NewCamera->RemainingLifeTime = -1.f;
+			NewCamera->bIsRunning = true;
 		}
 
-		RunningCamera = NewCamera;
+		UComposableCameraTransitionBase* Transition = nullptr;
+		if (TransitionParams.TransitionClass)
+		{
+			Transition = NewObject<UComposableCameraTransitionBase>(this, TransitionParams.TransitionClass);
+			Transition->TransitionEnabled(CurrentCameraPose, TransitionParams.TransitionTime);
+		}
+		
+		OnActivateNewCamera(NewCamera, Transition);
 	}
 
 	return RunningCamera;
+}
+
+FComposableCameraPose UComposableCameraDirector::Evaluate(float DeltaTime)
+{
+	CurrentCameraPose = EvaluationTree->Evaluate(DeltaTime);
+	return CurrentCameraPose;
+}
+
+void UComposableCameraDirector::OnActivateNewCamera(AComposableCameraCameraBase* NewCamera, UComposableCameraTransitionBase* Transition)
+{
+	EvaluationTree->OnActivateNewCamera(NewCamera, Transition);
+	RunningCamera = NewCamera;
 }

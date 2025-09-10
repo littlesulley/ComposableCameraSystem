@@ -9,6 +9,7 @@ public class ComposableCameraSystemUncookedOnly : ModuleRules
         PrivateDependencyModuleNames.AddRange(
             new string[]
             {
+                "ComposableCameraSystem",
                 "BlueprintGraph",
                 "Core",
                 "CoreUObject",

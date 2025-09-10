@@ -13,18 +13,22 @@ AComposableCameraCameraBase::AComposableCameraCameraBase(const FObjectInitialize
 void AComposableCameraCameraBase::Initialize(AComposableCameraPlayerCamaraManager* Manager)
 {
 	CameraManager = Manager;
+	for (UComposableCameraCameraNodeBase* Node : CameraNodes)
+	{
+		Node->Initialize(this,  Manager);
+	}
 	OnInitialized();
 }
 
-void AComposableCameraCameraBase::BeginPlayCamera()
+void AComposableCameraCameraBase::BeginPlayCamera(const FComposableCameraPose& CurrentCameraPose)
 {
 	for (UComposableCameraCameraNodeBase* Node : CameraNodes)
 	{
-		Node->BeginPlayNode();
+		Node->BeginPlayNode(CurrentCameraPose);
 	}
 }
 
-void AComposableCameraCameraBase::TickCamera(float DeltaTime)
+FComposableCameraPose AComposableCameraCameraBase::TickCamera(float DeltaTime)
 {
 	FComposableCameraPose NewCameraPose {};
 	
@@ -39,14 +43,8 @@ void AComposableCameraCameraBase::TickCamera(float DeltaTime)
 		CameraPose = NewCameraPose;
 	}
 	LastFrameCameraPose = CameraPose;
-
-	UpdateCamera();
+	
+	return CameraPose;
 }
 
-void AComposableCameraCameraBase::UpdateCamera()
-{
-	SetActorLocation(CameraPose.Position);
-	SetActorRotation(CameraPose.Rotation);
-	GetCameraComponent()->FieldOfView = CameraPose.FieldOfView;
-}
 

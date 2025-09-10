@@ -22,7 +22,6 @@ class COMPOSABLECAMERASYSTEM_API UComposableCameraReceivePivotActorNode
 public:
 	UComposableCameraReceivePivotActorNode(const  FObjectInitializer& ObjectInitializer);
 
-	virtual void OnBeginPlayNode_Implementation() override;
 	virtual void OnTickNode_Implementation(float DeltaTime, const FComposableCameraPose& CurrentCameraPose, FComposableCameraPose& OutCameraPose) override;
 
 public:

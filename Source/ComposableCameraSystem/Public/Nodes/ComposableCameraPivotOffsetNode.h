@@ -23,7 +23,7 @@ enum class ECameraPivotOffset : uint8
  * @ ContextParameter ContextPivotPosition: The pivot location that is read from and written to after applying offset by this node. \n
  * This node runs every tick.
  */
-UCLASS(NotBlueprintable, ClassGroup = ComposableCameraSystem, CollapseCategories)
+UCLASS(NotBlueprintable, ClassGroup = ComposableCameraSystem)
 class COMPOSABLECAMERASYSTEM_API UComposableCameraPivotOffsetNode
 	: public UComposableCameraCameraNodeBase
 {
@@ -31,7 +31,7 @@ class COMPOSABLECAMERASYSTEM_API UComposableCameraPivotOffsetNode
 
 public:
 	UComposableCameraPivotOffsetNode(const  FObjectInitializer& ObjectInitializer);
-	virtual void OnBeginPlayNode_Implementation() override;
+	virtual void OnBeginPlayNode_Implementation(const FComposableCameraPose& CurrentCameraPose) override;
 	virtual void OnTickNode_Implementation(float DeltaTime, const FComposableCameraPose& CurrentCameraPose, FComposableCameraPose& OutCameraPose) override;
 	
 public:
@@ -46,4 +46,7 @@ public:
 
 	UPROPERTY(EditDefaultsOnly, Category = ContextParameters)
 	FVector3dComposableCameraContextParameter ContextPivotPosition;
+
+private:
+	void UpdatePivotOffset(const FComposableCameraPose& CurrentCameraPose);
 };

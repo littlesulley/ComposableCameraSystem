@@ -5,16 +5,20 @@
 
 UComposableCameraPivotOffsetNode::UComposableCameraPivotOffsetNode(const FObjectInitializer& ObjectInitializer)
 {
-	
 }
 
-void UComposableCameraPivotOffsetNode::OnBeginPlayNode_Implementation()
+void UComposableCameraPivotOffsetNode::OnBeginPlayNode_Implementation(const FComposableCameraPose& CurrentCameraPose)
 {
-	
+	UpdatePivotOffset(CurrentCameraPose);
 }
 
 void UComposableCameraPivotOffsetNode::OnTickNode_Implementation(float DeltaTime,
-	const FComposableCameraPose& CurrentCameraPose, FComposableCameraPose& OutCameraPose)
+                                                                 const FComposableCameraPose& CurrentCameraPose, FComposableCameraPose& OutCameraPose)
+{
+	UpdatePivotOffset(CurrentCameraPose);
+}
+
+void UComposableCameraPivotOffsetNode::UpdatePivotOffset(const FComposableCameraPose& CurrentCameraPose)
 {
 	FVector Pivot = ContextPivotPosition.Value;
 	if (ContextPivotPosition.Variable)

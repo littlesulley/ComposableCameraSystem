@@ -24,13 +24,16 @@ class COMPOSABLECAMERASYSTEM_API UComposableCameraCameraNodeBase
 public:
 	void Initialize(AComposableCameraCameraBase* InOwningCamera, AComposableCameraPlayerCamaraManager* InPlayerCameraManager);
 	void TickNode(float DeltaTime, const FComposableCameraPose& CurrentCameraPose, FComposableCameraPose& OutCameraPose);
-	void BeginPlayNode();
+	void BeginPlayNode(const FComposableCameraPose& CurrentCameraPose);
 	
 	UFUNCTION(BlueprintPure, Category = "ComposableCameraSystem|Node")
 	FGameplayTag GetOwningCameraTag() const;
 
 	UFUNCTION(BlueprintPure, Category = "ComposableCameraSystem|Node")
 	AComposableCameraCameraBase* GetOwningCamera() const { return OwningCamera; }
+
+	UFUNCTION(BlueprintPure, Category = "ComposableCameraSystem|Node")
+	AComposableCameraPlayerCamaraManager* GetOwningPlayerCameraManager() const { return OwningPlayerCameraManager; }
 	
 protected:
 	/**
@@ -50,11 +53,12 @@ protected:
 	virtual void OnTickNode_Implementation(float DeltaTime, const FComposableCameraPose& CurrentCameraPose, FComposableCameraPose& OutCameraPose) {}
 
 	/**
-	 * Do something when this node starts to play. This is usually when you'd like to override the camera pose context, or initialize context parameters.
+	 * Do something when this node starts to play. This is usually when you'd like to override the camera pose context, or initialize context parameters. \n
+	 * @param CurrentCameraPose Current camera pose.
 	 */
 	UFUNCTION(BlueprintNativeEvent, DisplayName = "BeginPlayNode", Category = "ComposableCameraSystem|Node")
-	void OnBeginPlayNode();
-	virtual void OnBeginPlayNode_Implementation() {}
+	void OnBeginPlayNode(const FComposableCameraPose& CurrentCameraPose);
+	virtual void OnBeginPlayNode_Implementation(const FComposableCameraPose& CurrentCameraPose) {}
 
 private:
 	AComposableCameraCameraBase* OwningCamera;

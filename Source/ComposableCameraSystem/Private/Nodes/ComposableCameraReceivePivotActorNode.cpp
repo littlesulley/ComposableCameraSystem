@@ -9,10 +9,6 @@ UComposableCameraReceivePivotActorNode::UComposableCameraReceivePivotActorNode(
 {
 }
 
-void UComposableCameraReceivePivotActorNode::OnBeginPlayNode_Implementation()
-{
-}
-
 void UComposableCameraReceivePivotActorNode::OnTickNode_Implementation(
 	float DeltaTime,
 	const FComposableCameraPose& CurrentCameraPose,

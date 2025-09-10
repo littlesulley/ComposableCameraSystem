@@ -4,6 +4,7 @@
 
 #include "Camera/PlayerCameraManager.h"
 #include "GameplayTagContainer.h"
+#include "Transitions/ComposableCameraTransitionBase.h"
 #include "ComposableCameraPlayerCamaraManager.generated.h"
 
 class UComposableCameraDirector;
@@ -21,22 +22,43 @@ public:
 	virtual void SetViewTarget(AActor* NewViewTarget, FViewTargetTransitionParams TransitionParams = FViewTargetTransitionParams()) override;
 	virtual void ProcessViewRotation(float DeltaTime, FRotator& OutViewRotation, FRotator& OutDeltaRot) override;
 
-	AComposableCameraCameraBase* ActivateNewCamera(TSubclassOf<AComposableCameraCameraBase> CameraClass, UDataTable* NodeInitializerDataTable, FGameplayTagContainer NodeInitializerTags, bool bIsTransient, float LifeTime);
-	
-protected:
-	virtual void DoUpdateCamera(float DeltaTime) override;
+	AComposableCameraCameraBase* ActivateNewCamera(
+		TSubclassOf<AComposableCameraCameraBase> CameraClass,
+		FComposableCameraTransitionParams TransitionParams,
+		UDataTable* NodeInitializerDataTable,
+		FGameplayTagContainer NodeInitializerTags,
+		bool bIsTransient,
+		float LifeTime);
 
-	// Current running camera. 
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Transient, Category = Camera)
-	AComposableCameraCameraBase* RunningCamera;
-
-public:
 	UFUNCTION(BlueprintPure, Category = "ComposableCameraSystem|Camera")
 	AComposableCameraCameraBase* GetRunningCamera () const
 	{
 		return RunningCamera;
 	}
-	
+
+	UFUNCTION(BlueprintPure, Category = "ComposableCameraSystem|Camera")
+	FComposableCameraPose GetCurrentCameraPose() const
+	{
+		return CurrentCameraPose;
+	}
+
+protected:
+	FMinimalViewInfo GetCameraViewFromCameraPose(const FComposableCameraPose& OutPose) const;
+	virtual void DoUpdateCamera(float DeltaTime) override;
+
+public:
+	// Whether to sync current camera rotation to ControlRotation
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ComposableCameraSystem")
+	bool SyncToControlRotation { false };
+
+	// Current running camera. 
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Transient, Category = "ComposableCameraSystem")
+	AComposableCameraCameraBase* RunningCamera;
+
+	// Current camera pose. 
+	UPROPERTY(Transient, VisibleAnywhere, BlueprintReadOnly, Category = "ComposableCameraSystem")
+	FComposableCameraPose CurrentCameraPose;
+
 private:
 	TObjectPtr<UComposableCameraDirector> Director;
 };

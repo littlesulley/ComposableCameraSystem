@@ -185,7 +185,7 @@ class COMPOSABLECAMERASYSTEM_API UComposableCameraInterpolatorBase
 {
 	GENERATED_BODY()
 
-protected:
+public:
 	virtual TUniquePtr<TCameraInterpolator<TValueTypeWrapper<double>>> BuildDoubleInterpolator() const { return nullptr; }
 	virtual TUniquePtr<TCameraInterpolator<TValueTypeWrapper<FVector2d>>> BuildVector2dInterpolator() const { return nullptr; }
 	virtual TUniquePtr<TCameraInterpolator<TValueTypeWrapper<FVector3d>>> BuildVector3dInterpolator() const { return nullptr; }
@@ -194,7 +194,7 @@ protected:
 };
 
 #define COMPOSABLECAMERASYSTEM_DECLARE_CAMERA_INTERPOLATOR() \
-		protected: \
+		public: \
 			virtual TUniquePtr<TCameraInterpolator<TValueTypeWrapper<double>>> BuildDoubleInterpolator() const override; \
 			virtual TUniquePtr<TCameraInterpolator<TValueTypeWrapper<FVector2d>>> BuildVector2dInterpolator() const override; \
 			virtual TUniquePtr<TCameraInterpolator<TValueTypeWrapper<FVector3d>>> BuildVector3dInterpolator() const override; \

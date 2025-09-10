@@ -33,12 +33,17 @@ public:
 	
 	virtual void PostLoad() override;
 
+public:
+	// Reset all variables in this collection to their default values.
+	UFUNCTION(BlueprintCallable, Category = "ComposableCameraSystem|Variable")
+	void ResetVariables();
+
 private:
 #if WITH_EDITOR
 	void CleanUpStrayObjects();
 #endif
 
 public:
-	UPROPERTY(EditDefaultsOnly, Instanced)
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Instanced)
 	TArray<TObjectPtr<UComposableCameraVariable>> Variables;
 };

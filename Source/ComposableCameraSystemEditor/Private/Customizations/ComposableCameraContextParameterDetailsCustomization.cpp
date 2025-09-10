@@ -71,11 +71,13 @@ void FComposableCameraContextParameterDetailsCustomization::CustomizeHeader(TSha
 
 	for (UObject* OuterObject : OuterObjects)
 	{
-		if (OuterObject->HasAnyFlags(RF_ClassDefaultObject))
+		UObject* OuterOuterObject = OuterObject->GetOuter();
+		if (!Cast<AComposableCameraCameraBase>(OuterOuterObject))
 		{
 			bShouldTick = false;
 			return;
 		}
+		
 	}
 
 	// Create the parameter value editor (float editor, vector editor, etc.)
@@ -250,6 +252,11 @@ void FComposableCameraContextParameterDetailsCustomization::GetVariableCollectio
 {
 	TArray<UObject*> OuterObjects;
 	StructProperty->GetOuterObjects(OuterObjects);
+
+	if (OuterObjects.Num() == 0)
+	{
+		return;
+	}
 
 	UComposableCameraVariableCollection* CurrentCollectionUsedByCamera = nullptr;
 	

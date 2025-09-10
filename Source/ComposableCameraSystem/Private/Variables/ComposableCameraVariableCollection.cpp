@@ -27,6 +27,17 @@ void UComposableCameraVariableCollection::PostLoad()
 #endif
 }
 
+void UComposableCameraVariableCollection::ResetVariables()
+{
+	for (UComposableCameraVariable* Variable : Variables)
+	{
+		if (Variable)
+		{
+			Variable->Reset();
+		}
+	}
+}
+
 #if WITH_EDITOR
 void UComposableCameraVariableCollection::CleanUpStrayObjects()
 {
