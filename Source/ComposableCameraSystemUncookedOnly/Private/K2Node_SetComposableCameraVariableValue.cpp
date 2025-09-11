@@ -19,11 +19,6 @@ struct FK2Node_SetComposableCameraVariableValuePinNames
 	static inline const FName ValuePinName = "Value";
 };
 
-void UK2Node_SetComposableCameraVariableValue::BeginDestroy()
-{
-	Super::BeginDestroy();
-}
-
 void UK2Node_SetComposableCameraVariableValue::AllocateDefaultPins()
 {
 	CreatePin(EGPD_Input, UEdGraphSchema_K2::PC_Exec, UEdGraphSchema_K2::PN_Execute);
@@ -35,17 +30,6 @@ void UK2Node_SetComposableCameraVariableValue::AllocateDefaultPins()
 	K2Schema->ConstructBasicPinTooltip(*InVariablePin, LOCTEXT("InVariablePinDescription", "The variable you want to set its value to."), InVariablePin->PinToolTip);
 
 	Super::AllocateDefaultPins();
-}
-
-void UK2Node_SetComposableCameraVariableValue::ValidateNodeDuringCompilation(FCompilerResultsLog& MessageLog) const
-{
-	Super::ValidateNodeDuringCompilation(MessageLog);
-
-	if (UComposableCameraVariable* CameraVariable = GetVariableFromPin(FindPinChecked(FK2Node_SetComposableCameraVariableValuePinNames::VariablePinName, EGPD_Input)); !CameraVariable)
-	{
-		const FText Messagetext = LOCTEXT("MissingVariable", "Missing variable inside node @@");
-		MessageLog.Warning(*Messagetext.ToString(), this);
-	}
 }
 
 void UK2Node_SetComposableCameraVariableValue::PinDefaultValueChanged(UEdGraphPin* Pin)
@@ -66,6 +50,29 @@ void UK2Node_SetComposableCameraVariableValue::PinConnectionListChanged(UEdGraph
 	{
 		OnPinChanged();
 	}
+}
+
+void UK2Node_SetComposableCameraVariableValue::ReallocatePinsDuringReconstruction(TArray<UEdGraphPin*>& OldPins)
+{
+	UEdGraphPin* VariablePin = nullptr;
+
+	for (UEdGraphPin* Pin : OldPins)
+	{
+		if (Pin->PinName == FK2Node_SetComposableCameraVariableValuePinNames::VariablePinName)
+		{
+			VariablePin = Pin;
+			break;
+		}
+	}
+
+	AllocateDefaultPins();
+
+	if (UClass* VariableClass = GetInVariableClass(VariablePin))
+	{
+		CreateValuePin(VariableClass);
+	}
+
+	RestoreSplitPins(OldPins);
 }
 
 FText UK2Node_SetComposableCameraVariableValue::GetNodeTitle(ENodeTitleType::Type TitleType) const
@@ -94,8 +101,8 @@ void UK2Node_SetComposableCameraVariableValue::ExpandNode(FKismetCompilerContext
 {
 	Super::ExpandNode(CompilerContext, SourceGraph);
 
-	UEdGraphPin* ValuePin = FindPinChecked(FK2Node_SetComposableCameraVariableValuePinNames::ValuePinName, EGPD_Input);
-	UEdGraphPin* VariablePin = FindPinChecked(FK2Node_SetComposableCameraVariableValuePinNames::VariablePinName, EGPD_Input);
+	UEdGraphPin* ValuePin = FindPin(FK2Node_SetComposableCameraVariableValuePinNames::ValuePinName, EGPD_Input);
+	UEdGraphPin* VariablePin = FindPin(FK2Node_SetComposableCameraVariableValuePinNames::VariablePinName, EGPD_Input);
 	UClass* VariableClass = GetInVariableClass(VariablePin);
 	
 	if (!VariableClass)
@@ -113,14 +120,14 @@ void UK2Node_SetComposableCameraVariableValue::ExpandNode(FKismetCompilerContext
 	}
 
 	UK2Node_CallFunction* CallFunction = CompilerContext.SpawnIntermediateNode<UK2Node_CallFunction>(this, SourceGraph);
-	CallFunction->FunctionReference.SetExternalMember(TEXT("SetComposableCameraVariableRuntimeValue"), UComposableCameraBlueprintLibrary::StaticClass());
+	CallFunction->SetFromFunction(UComposableCameraBlueprintLibrary::StaticClass()->FindFunctionByName("SetComposableCameraVariableRuntimeValue"));
 	CallFunction->AllocateDefaultPins();
 
 	UEdGraphPin* FunctionExecPin = CallFunction->GetExecPin();
 	UEdGraphPin* FunctionThenPin = CallFunction->GetThenPin();
 	UEdGraphPin* FunctionVariablePin = CallFunction->FindPinChecked(TEXT("Variable"));
 	UEdGraphPin* FunctionValuePin = CallFunction->FindPinChecked(TEXT("NewRuntimeValue"));
-	FunctionValuePin->PinType = VariablePin->PinType;
+	FunctionValuePin->PinType = ValuePin->PinType;
 	
 	UEdGraphPin* ExecPin = GetExecPin();
 	UEdGraphPin* ThenPin = GetThenPin();

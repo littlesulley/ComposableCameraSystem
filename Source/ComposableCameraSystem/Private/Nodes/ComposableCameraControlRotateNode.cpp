@@ -13,7 +13,7 @@ void UComposableCameraControlRotateNode::OnBeginPlayNode_Implementation(const FC
 {
 	LastFrameCameraRotationInput = FVector2D::ZeroVector;
 
-	if (ContextRotationInputActor.Variable)
+	if (ContextRotationInputActor.Variable && ContextRotationInputActor.Variable->RuntimeValue)
 	{
 		InputComponent = Cast<UEnhancedInputComponent>(ContextRotationInputActor.Variable->RuntimeValue->InputComponent);
 	}

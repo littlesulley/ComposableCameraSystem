@@ -18,14 +18,11 @@ class COMPOSABLECAMERASYSTEMUNCOOKEDONLY_API UK2Node_SetComposableCameraVariable
 	GENERATED_BODY()
 
 public:
-	// UObject interface.
-	virtual void BeginDestroy() override;
-
 	// UEdGraphNode interface.
 	virtual void AllocateDefaultPins() override;
-	virtual void ValidateNodeDuringCompilation(FCompilerResultsLog& MessageLog) const override;
 	virtual void PinDefaultValueChanged(UEdGraphPin* Pin) override;
 	virtual void PinConnectionListChanged(UEdGraphPin* Pin) override;
+	virtual void ReallocatePinsDuringReconstruction(TArray<UEdGraphPin*>& OldPins);
 	virtual FText GetNodeTitle(ENodeTitleType::Type TitleType) const override;
 	virtual FLinearColor GetNodeTitleColor() const override;
 	virtual FText GetTooltipText() const override;

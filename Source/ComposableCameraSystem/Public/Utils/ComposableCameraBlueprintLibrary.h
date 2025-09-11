@@ -42,20 +42,25 @@ public:
 	FComposableCameraActivateParams ActivationParams,
 	bool bNewInstance);
 
-	UFUNCTION(BlueprintCallable, BlueprintInternalUseOnly, CustomThunk, meta = (CustomStructureParam = "NewRuntimeValue"))
+	/** Custom thunk function for setting runtime values of a composable camera variable.
+	 * @param Variable The variable to set.
+	 * @param NewRuntimeValue The new runtime value.
+	 */
+	UFUNCTION(BlueprintCallable, CustomThunk, meta = (BlueprintInternalUseOnly = "true", CustomStructureParam = "NewRuntimeValue"))
 	static void SetComposableCameraVariableRuntimeValue(UComposableCameraVariable* Variable, UPARAM(Ref) const int32& NewRuntimeValue);
 	DECLARE_FUNCTION(execSetComposableCameraVariableRuntimeValue)
 	{
 		P_GET_OBJECT(UComposableCameraVariable, Variable);
 
 		Stack.MostRecentPropertyAddress = nullptr;
-		Stack.MostRecentPropertyContainer = nullptr;
 		Stack.StepCompiledIn<FProperty>(nullptr);
 
 		const FProperty* ValueProperty = Stack.MostRecentProperty;
 		void* ValuePtr = Stack.MostRecentPropertyAddress;
 
 		P_FINISH;
+
+		P_NATIVE_BEGIN
 
 		if (ValueProperty == nullptr || ValuePtr == nullptr)
 		{
@@ -67,16 +72,15 @@ public:
 		}
 		else
 		{
-			P_NATIVE_BEGIN
 
 			UClass* SourceClass = Variable->GetClass();
 			FProperty* SourceProperty = FindFProperty<FProperty>(SourceClass, TEXT("RuntimeValue"));
 			void* SourcePtr = SourceProperty->ContainerPtrToValuePtr<void>(Variable);
 
-			SourceProperty->CopyCompleteValue(ValuePtr, SourcePtr);
-
-			P_NATIVE_END
+			SourceProperty->CopyCompleteValue(SourcePtr, ValuePtr);
 		}
+		
+		P_NATIVE_END
 	}
 };
 

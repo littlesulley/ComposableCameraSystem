@@ -257,6 +257,9 @@ class UDoubleComposableCameraVariable : public UComposableCameraVariable
 public:
 	using ValueType = double;
 
+	UFUNCTION(BlueprintPure)
+	double GetRuntimeValue() const { return RuntimeValue; }
+	
 	void SetRuntimeValue(ValueType NewRuntimeValue) { RuntimeValue = NewRuntimeValue; }
 	double GetDefaultValue() const { return DefaultValue; }
 	virtual EComposableCameraVariableType GetVariableType() const override { return EComposableCameraVariableType::Double; }
