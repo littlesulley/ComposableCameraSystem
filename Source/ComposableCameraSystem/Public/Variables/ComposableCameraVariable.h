@@ -18,15 +18,10 @@ enum class EComposableCameraVariableType
 	Integer32,
 	Float,
 	Double,
-	Vector2f,
 	Vector2d,
-	Vector3f,
 	Vector3d,
-	Vector4f,
 	Vector4d,
-	Rotator3f,
 	Rotator3d,
-	Transform3f,
 	Transform3d,
 	Actor,
 	BlendableStruct
@@ -335,34 +330,6 @@ public:
 	FVector2D RuntimeValue;
 };
 
-/** Vector2f camera variable. */
-UCLASS(ClassGroup = ComposableCameraSystem)
-class UVector2fComposableCameraVariable : public UComposableCameraVariable
-{
-	GENERATED_BODY()
-
-public:
-	using ValueType = FVector2f;
-
-	void SetRuntimeValue(ValueType NewRuntimeValue) { RuntimeValue = NewRuntimeValue; }
-	FVector2f GetDefaultValue() const { return DefaultValue; }
-	virtual EComposableCameraVariableType GetVariableType() const override { return EComposableCameraVariableType::Vector2f; }
-	virtual const uint8* GetDefaultValuePtr() const override { return reinterpret_cast<const uint8*>(&DefaultValue); }
-	virtual void Reset() override { RuntimeValue = DefaultValue; }
-	virtual void PostLoad() override { Super::PostLoad(); RuntimeValue = DefaultValue; }
-	
-#if WITH_EDITOR
-	virtual FString FormatDefaultValue() const override { return DefaultValue.ToString(); }
-#endif  
-
-public:
-	UPROPERTY(EditAnywhere, Category = ComposableCamera)
-	FVector2f DefaultValue {};
-
-	UPROPERTY(Transient)
-	FVector2f RuntimeValue {};
-};
-
 /** Vector3d camera variable. */
 UCLASS(ClassGroup = ComposableCameraSystem)
 class UVector3dComposableCameraVariable : public UComposableCameraVariable
@@ -370,10 +337,10 @@ class UVector3dComposableCameraVariable : public UComposableCameraVariable
 	GENERATED_BODY()
 
 public:
-	using ValueType = FVector3d;
+	using ValueType = FVector;
 
 	void SetRuntimeValue(ValueType NewRuntimeValue) { RuntimeValue = NewRuntimeValue; }
-	FVector3d GetDefaultValue() const { return DefaultValue; }
+	FVector GetDefaultValue() const { return DefaultValue; }
 	virtual EComposableCameraVariableType GetVariableType() const override { return EComposableCameraVariableType::Vector3d; }
 	virtual const uint8* GetDefaultValuePtr() const override { return reinterpret_cast<const uint8*>(&DefaultValue); }
 	virtual void Reset() override { RuntimeValue = DefaultValue; }
@@ -385,38 +352,10 @@ public:
 
 public:
 	UPROPERTY(EditAnywhere, Category = ComposableCamera)
-	FVector3d DefaultValue {};
+	FVector DefaultValue {};
 
 	UPROPERTY(Transient)
-	FVector3d RuntimeValue {};
-};
-
-/** Vector3f camera variable. */
-UCLASS(ClassGroup = ComposableCameraSystem)
-class UVector3fComposableCameraVariable : public UComposableCameraVariable
-{
-	GENERATED_BODY()
-
-public:
-	using ValueType = FVector3f;
-
-	void SetRuntimeValue(ValueType NewRuntimeValue) { RuntimeValue = NewRuntimeValue; }
-	FVector3f GetDefaultValue() const { return DefaultValue; }
-	virtual EComposableCameraVariableType GetVariableType() const override { return EComposableCameraVariableType::Vector3f; }
-	virtual const uint8* GetDefaultValuePtr() const override { return reinterpret_cast<const uint8*>(&DefaultValue); }
-	virtual void Reset() override { RuntimeValue = DefaultValue; }
-	virtual void PostLoad() override { Super::PostLoad(); RuntimeValue = DefaultValue; }
-	
-#if WITH_EDITOR
-	virtual FString FormatDefaultValue() const override { return DefaultValue.ToString(); }
-#endif  
-
-public:
-	UPROPERTY(EditAnywhere, Category = ComposableCamera)
-	FVector3f DefaultValue {};
-
-	UPROPERTY(Transient)
-	FVector3f RuntimeValue {};
+	FVector RuntimeValue {};
 };
 
 /** Vector4d camera variable. */
@@ -426,10 +365,10 @@ class UVector4dComposableCameraVariable : public UComposableCameraVariable
 	GENERATED_BODY()
 
 public:
-	using ValueType = FVector4d;
+	using ValueType = FVector4;
 
 	void SetRuntimeValue(ValueType NewRuntimeValue) { RuntimeValue = NewRuntimeValue; }
-	FVector4d GetDefaultValue() const { return DefaultValue; }
+	FVector4 GetDefaultValue() const { return DefaultValue; }
 	virtual EComposableCameraVariableType GetVariableType() const override { return EComposableCameraVariableType::Vector4d; }
 	virtual const uint8* GetDefaultValuePtr() const override { return reinterpret_cast<const uint8*>(&DefaultValue); }
 	virtual void Reset() override { RuntimeValue = DefaultValue; }
@@ -441,38 +380,10 @@ public:
 
 public:
 	UPROPERTY(EditAnywhere, Category = ComposableCamera)
-	FVector4d DefaultValue {};
+	FVector4 DefaultValue {};
 
 	UPROPERTY(Transient)
-	FVector4d RuntimeValue {};
-};
-
-/** Vector4f camera variable. */
-UCLASS(ClassGroup = ComposableCameraSystem)
-class UVector4fComposableCameraVariable : public UComposableCameraVariable
-{
-	GENERATED_BODY()
-
-public:
-	using ValueType = FVector4f;
-
-	void SetRuntimeValue(ValueType NewRuntimeValue) { RuntimeValue = NewRuntimeValue; }
-	FVector4f GetDefaultValue() const { return DefaultValue; }
-	virtual EComposableCameraVariableType GetVariableType() const override { return EComposableCameraVariableType::Vector4f; }
-	virtual const uint8* GetDefaultValuePtr() const override { return reinterpret_cast<const uint8*>(&DefaultValue); }
-	virtual void Reset() override { RuntimeValue = DefaultValue; }
-	virtual void PostLoad() override { Super::PostLoad(); RuntimeValue = DefaultValue; }
-	
-#if WITH_EDITOR
-	virtual FString FormatDefaultValue() const override { return DefaultValue.ToString(); }
-#endif  
-
-public:
-	UPROPERTY(EditAnywhere, Category = ComposableCamera)
-	FVector4f DefaultValue {};
-
-	UPROPERTY(Transient)
-	FVector4f RuntimeValue {};
+	FVector4 RuntimeValue {};
 };
 
 /** Rotator3d camera variable. */
@@ -503,34 +414,6 @@ public:
 	FRotator3d RuntimeValue {};
 };
 
-/** Rotator3f camera variable. */
-UCLASS(ClassGroup = ComposableCameraSystem)
-class URotator3fComposableCameraVariable : public UComposableCameraVariable
-{
-	GENERATED_BODY()
-
-public:
-	using ValueType = FRotator3f;
-
-	void SetRuntimeValue(ValueType NewRuntimeValue) { RuntimeValue = NewRuntimeValue; }
-	FRotator3f GetDefaultValue() const { return DefaultValue; }
-	virtual EComposableCameraVariableType GetVariableType() const override { return EComposableCameraVariableType::Rotator3f; }
-	virtual const uint8* GetDefaultValuePtr() const override { return reinterpret_cast<const uint8*>(&DefaultValue); }
-	virtual void Reset() override { RuntimeValue = DefaultValue; }
-	virtual void PostLoad() override { Super::PostLoad(); RuntimeValue = DefaultValue; }
-	
-#if WITH_EDITOR
-	virtual FString FormatDefaultValue() const override { return DefaultValue.ToString(); }
-#endif  
-
-public:
-	UPROPERTY(EditAnywhere, Category = ComposableCamera)
-	FRotator3f DefaultValue {};
-
-	UPROPERTY(Transient)
-	FRotator3f RuntimeValue {};
-};
-
 /** Transform3d camera variable. */
 UCLASS(ClassGroup = ComposableCameraSystem)
 class UTransform3dComposableCameraVariable : public UComposableCameraVariable
@@ -557,34 +440,6 @@ public:
 
 	UPROPERTY(Transient)
 	FTransform3d RuntimeValue {};
-};
-
-/** Transform3f camera variable. */
-UCLASS(ClassGroup = ComposableCameraSystem)
-class UTransform3fComposableCameraVariable : public UComposableCameraVariable
-{
-	GENERATED_BODY()
-
-public:
-	using ValueType = FTransform3f;
-
-	void SetRuntimeValue(ValueType NewRuntimeValue) { RuntimeValue = NewRuntimeValue; }
-	FTransform3f GetDefaultValue() const { return DefaultValue; }
-	virtual EComposableCameraVariableType GetVariableType() const override { return EComposableCameraVariableType::Transform3f; }
-	virtual const uint8* GetDefaultValuePtr() const override { return reinterpret_cast<const uint8*>(&DefaultValue); }
-	virtual void Reset() override { RuntimeValue = DefaultValue; }
-	virtual void PostLoad() override { Super::PostLoad(); RuntimeValue = DefaultValue; }
-	
-#if WITH_EDITOR
-	virtual FString FormatDefaultValue() const override { return DefaultValue.ToString(); }
-#endif  
-
-public:
-	UPROPERTY(EditAnywhere, Category = ComposableCamera)
-	FTransform3f DefaultValue {};
-
-	UPROPERTY(Transient)
-	FTransform3f RuntimeValue {};
 };
 
 /** Actor camera variable. */

@@ -52,23 +52,6 @@ bool FDoubleComposableCameraContextParameter::SerializeFromMismatchedTag(const F
 	return false;
 }
 
-FVector2fComposableCameraContextParameter::FVector2fComposableCameraContextParameter()
-	: Value(EForceInit::ForceInit)
-{
-}
-
-bool FVector2fComposableCameraContextParameter::SerializeFromMismatchedTag(const FPropertyTag& Tag,
-	FStructuredArchive::FSlot Slot)
-{
-	if (Tag.GetType().IsStruct(NAME_Vector2f) || Tag.GetType().IsStruct(NAME_Vector2D))
-	{
-		Slot << Value;
-		return true;
-	}
-
-	return false;
-}
-
 FVector2dComposableCameraContextParameter::FVector2dComposableCameraContextParameter()
 	: Value(EForceInit::ForceInit)
 {
@@ -78,23 +61,6 @@ bool FVector2dComposableCameraContextParameter::SerializeFromMismatchedTag(const
 	FStructuredArchive::FSlot Slot)
 {
 	if (Tag.GetType().IsStruct(NAME_Vector2d))
-	{
-		Slot << Value;
-		return true;
-	}
-
-	return false;
-}
-
-FVector3fComposableCameraContextParameter::FVector3fComposableCameraContextParameter()
-	: Value(EForceInit::ForceInit)
-{
-}
-
-bool FVector3fComposableCameraContextParameter::SerializeFromMismatchedTag(const FPropertyTag& Tag,
-	FStructuredArchive::FSlot Slot)
-{
-	if (Tag.GetType().IsStruct(NAME_Vector3f))
 	{
 		Slot << Value;
 		return true;
@@ -120,23 +86,6 @@ bool FVector3dComposableCameraContextParameter::SerializeFromMismatchedTag(const
 	return false;
 }
 
-FVector4fComposableCameraContextParameter::FVector4fComposableCameraContextParameter()
-	: Value(EForceInit::ForceInit)
-{
-}
-
-bool FVector4fComposableCameraContextParameter::SerializeFromMismatchedTag(const FPropertyTag& Tag,
-	FStructuredArchive::FSlot Slot)
-{
-	if (Tag.GetType().IsStruct(NAME_Vector4f))
-	{
-		Slot << Value;
-		return true;
-	}
-
-	return false;
-}
-
 FVector4dComposableCameraContextParameter::FVector4dComposableCameraContextParameter()
 	: Value(EForceInit::ForceInit)
 {
@@ -154,23 +103,6 @@ bool FVector4dComposableCameraContextParameter::SerializeFromMismatchedTag(const
 	return false;
 }
 
-FRotator3fComposableCameraContextParameter::FRotator3fComposableCameraContextParameter()
-	: Value(EForceInit::ForceInit)
-{
-}
-
-bool FRotator3fComposableCameraContextParameter::SerializeFromMismatchedTag(const FPropertyTag& Tag,
-	FStructuredArchive::FSlot Slot)
-{
-	if (Tag.GetType().IsStruct(NAME_Rotator3f))
-	{
-		Slot << Value;
-		return true;
-	}
-
-	return false;
-}
-
 FRotator3dComposableCameraContextParameter::FRotator3dComposableCameraContextParameter()
 	: Value(EForceInit::ForceInit)
 {
@@ -180,18 +112,6 @@ bool FRotator3dComposableCameraContextParameter::SerializeFromMismatchedTag(cons
 	FStructuredArchive::FSlot Slot)
 {
 	if (Tag.GetType().IsStruct(NAME_Rotator3d))
-	{
-		Slot << Value;
-		return true;
-	}
-
-	return false;
-}
-
-bool FTransform3fComposableCameraContextParameter::SerializeFromMismatchedTag(const FPropertyTag& Tag,
-	FStructuredArchive::FSlot Slot)
-{
-	if (Tag.GetType().IsStruct(NAME_Transform3f))
 	{
 		Slot << Value;
 		return true;

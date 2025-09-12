@@ -70,9 +70,8 @@ public:
 			);
 			FBlueprintCoreDelegates::ThrowScriptException(P_THIS, Stack, ExceptionInfo);
 		}
-		else
+		else if (Variable)
 		{
-
 			UClass* SourceClass = Variable->GetClass();
 			FProperty* SourceProperty = FindFProperty<FProperty>(SourceClass, TEXT("RuntimeValue"));
 			void* SourcePtr = SourceProperty->ContainerPtrToValuePtr<void>(Variable);

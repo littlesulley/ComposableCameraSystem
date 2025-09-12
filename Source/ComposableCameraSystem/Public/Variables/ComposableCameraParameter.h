@@ -125,30 +125,6 @@ struct FDoubleComposableCameraContextParameter
 	COMPOSABLECAMERASYSTEM_PARAMETER_ALL_VALUE_CONSTRUCTORS(FDoubleComposableCameraContextParameter)
 };
 
-/** Vector2f camera parameter. */
-USTRUCT(BlueprintType)
-struct FVector2fComposableCameraContextParameter
-{
-	GENERATED_BODY()
-
-	using ValueType = FVector2f;
-	using VariableAssetType = UVector2fComposableCameraVariable;
-
-	UPROPERTY(EditAnywhere, Interp, Category=Common, meta=(SequencerUseParentPropertyName=true))
-	FVector2f Value;
-
-	UPROPERTY()
-	FComposableCameraVariableID VariableID;
-
-	UPROPERTY(EditAnywhere, Category=Common)
-	TObjectPtr<UVector2fComposableCameraVariable> Variable;
-
-	FVector2fComposableCameraContextParameter();
-	bool SerializeFromMismatchedTag(const FPropertyTag& Tag, FStructuredArchive::FSlot Slot);
-
-	COMPOSABLECAMERASYSTEM_PARAMETER_VALUE_CONSTRUCTORS(FVector2fComposableCameraContextParameter)
-};
-
 /** Vector2d camera parameter. */
 USTRUCT(BlueprintType)
 struct FVector2dComposableCameraContextParameter
@@ -171,30 +147,6 @@ struct FVector2dComposableCameraContextParameter
 	bool SerializeFromMismatchedTag(const FPropertyTag& Tag, FStructuredArchive::FSlot Slot);
 
 	COMPOSABLECAMERASYSTEM_PARAMETER_VALUE_CONSTRUCTORS(FVector2dComposableCameraContextParameter)
-};
-
-/** Vector3f camera parameter. */
-USTRUCT(BlueprintType)
-struct FVector3fComposableCameraContextParameter
-{
-	GENERATED_BODY()
-
-	using ValueType = FVector3f;
-	using VariableAssetType = UVector3fComposableCameraVariable;
-
-	UPROPERTY(EditAnywhere, Interp, Category=Common, meta=(SequencerUseParentPropertyName=true))
-	FVector3f Value;
-
-	UPROPERTY()
-	FComposableCameraVariableID VariableID;
-
-	UPROPERTY(EditAnywhere, Category=Common)
-	TObjectPtr<UVector3fComposableCameraVariable> Variable;
-
-	FVector3fComposableCameraContextParameter();
-	bool SerializeFromMismatchedTag(const FPropertyTag& Tag, FStructuredArchive::FSlot Slot);
-
-	COMPOSABLECAMERASYSTEM_PARAMETER_VALUE_CONSTRUCTORS(FVector3fComposableCameraContextParameter)
 };
 
 /** Vector3d camera parameter. */
@@ -221,30 +173,6 @@ struct FVector3dComposableCameraContextParameter
 	COMPOSABLECAMERASYSTEM_PARAMETER_VALUE_CONSTRUCTORS(FVector3dComposableCameraContextParameter)
 };
 
-/** Vector4f camera parameter. */
-USTRUCT(BlueprintType)
-struct FVector4fComposableCameraContextParameter
-{
-	GENERATED_BODY()
-
-	using ValueType = FVector4f;
-	using VariableAssetType = UVector4fComposableCameraVariable;
-
-	UPROPERTY(EditAnywhere, Interp, Category=Common, meta=(SequencerUseParentPropertyName=true))
-	FVector4f Value;
-
-	UPROPERTY()
-	FComposableCameraVariableID VariableID;
-
-	UPROPERTY(EditAnywhere, Category=Common)
-	TObjectPtr<UVector4fComposableCameraVariable> Variable;
-
-	FVector4fComposableCameraContextParameter();
-	bool SerializeFromMismatchedTag(const FPropertyTag& Tag, FStructuredArchive::FSlot Slot);
-
-	COMPOSABLECAMERASYSTEM_PARAMETER_VALUE_CONSTRUCTORS(FVector4fComposableCameraContextParameter)
-};
-
 /** Vector4d camera parameter. */
 USTRUCT(BlueprintType)
 struct FVector4dComposableCameraContextParameter
@@ -269,30 +197,6 @@ struct FVector4dComposableCameraContextParameter
 	COMPOSABLECAMERASYSTEM_PARAMETER_VALUE_CONSTRUCTORS(FVector4dComposableCameraContextParameter)
 };
 
-/** Rotator3f camera parameter. */
-USTRUCT(BlueprintType)
-struct FRotator3fComposableCameraContextParameter
-{
-	GENERATED_BODY()
-
-	using ValueType = FRotator3f;
-	using VariableAssetType = URotator3fComposableCameraVariable;
-
-	UPROPERTY(EditAnywhere, Interp, Category=Common, meta=(SequencerUseParentPropertyName=true))
-	FRotator3f Value;
-
-	UPROPERTY()
-	FComposableCameraVariableID VariableID;
-
-	UPROPERTY(EditAnywhere, Category=Common)
-	TObjectPtr<URotator3fComposableCameraVariable> Variable;
-
-	FRotator3fComposableCameraContextParameter();
-	bool SerializeFromMismatchedTag(const FPropertyTag& Tag, FStructuredArchive::FSlot Slot);
-
-	COMPOSABLECAMERASYSTEM_PARAMETER_VALUE_CONSTRUCTORS(FRotator3fComposableCameraContextParameter)
-};
-
 /** Rotator3d camera parameter. */
 USTRUCT(BlueprintType)
 struct FRotator3dComposableCameraContextParameter
@@ -315,29 +219,6 @@ struct FRotator3dComposableCameraContextParameter
 	bool SerializeFromMismatchedTag(const FPropertyTag& Tag, FStructuredArchive::FSlot Slot);
 
 	COMPOSABLECAMERASYSTEM_PARAMETER_VALUE_CONSTRUCTORS(FRotator3dComposableCameraContextParameter)
-};
-
-/** Transform3f camera parameter. */
-USTRUCT(BlueprintType)
-struct FTransform3fComposableCameraContextParameter
-{
-	GENERATED_BODY()
-
-	using ValueType = FTransform3f;
-	using VariableAssetType = UTransform3fComposableCameraVariable;
-
-	UPROPERTY(EditAnywhere, Interp, Category=Common, meta=(SequencerUseParentPropertyName=true))
-	FTransform3f Value;
-
-	UPROPERTY()
-	FComposableCameraVariableID VariableID;
-
-	UPROPERTY(EditAnywhere, Category=Common)
-	TObjectPtr<UTransform3fComposableCameraVariable> Variable;
-
-	bool SerializeFromMismatchedTag(const FPropertyTag& Tag, FStructuredArchive::FSlot Slot);
-
-	COMPOSABLECAMERASYSTEM_PARAMETER_ALL_VALUE_CONSTRUCTORS(FTransform3fComposableCameraContextParameter)
 };
 
 /** Transform3d camera parameter. */
