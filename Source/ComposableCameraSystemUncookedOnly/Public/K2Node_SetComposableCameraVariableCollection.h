@@ -9,6 +9,7 @@
 #include "K2Node_SetComposableCameraVariableCollection.generated.h"
 
 class UComposableCameraVariable;
+class UComposableCameraVariableCollection;
 
 /**
  * K2 Node to set the runtime values of a composable camera variable collection.
@@ -50,9 +51,13 @@ public:
 	//~ IK2Node_AddPinInterface
 	virtual bool CanAddPin() const override { return true; }
 	virtual void AddInputPin() override;
+	virtual void RemoveInputPin(UEdGraphPin* Pin) override;
 	//~ End IK2Node_AddPinInterface
 
 private:
+	UPROPERTY()
+	UComposableCameraVariableCollection* Collection;
+	
 	UPROPERTY()
 	int32 NumPins = 0;
 
@@ -75,7 +80,7 @@ private:
 	bool IsVariableValuePin(UEdGraphPin* Pin) const;
 
 private:
-	void Initialize(const FAssetData& UnloadedCollection, const FString& InCollectionName);
+	void Initialize(const FAssetData& UnloadedCollection);
 	void GetMenuAction(FBlueprintActionDatabaseRegistrar& ActionRegistrar, const FAssetData& CollectionAssetData) const;
 	FEdGraphPinType MakePinTypeFromVariableType(EComposableCameraVariableType VariableType, const UObject* InPinSubCategoryObject = nullptr);
 };

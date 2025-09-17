@@ -3,6 +3,7 @@
 #include "K2Node_SetComposableCameraVariableCollection.h"
 
 #include "BlueprintActionDatabaseRegistrar.h"
+#include "BlueprintEditor.h"
 #include "BlueprintNodeSpawner.h"
 #include "K2Node_CallFunction.h"
 #include "K2Node_ExecutionSequence.h"
@@ -23,24 +24,22 @@ struct FK2Node_SetComposableCameraVariableCollectionPinNames
 };
 
 
-void UK2Node_SetComposableCameraVariableCollection::Initialize(const FAssetData& UnloadedCollection, const FString& InCollectionName)
+void UK2Node_SetComposableCameraVariableCollection::Initialize(const FAssetData& UnloadedCollection)
 {
 	UComposableCameraVariableCollection* LoadedCollection = Cast<UComposableCameraVariableCollection>(UnloadedCollection.GetAsset());
 	if (ensure(LoadedCollection))
 	{
-		
+		Collection = LoadedCollection;
 	}
 }
 
 void UK2Node_SetComposableCameraVariableCollection::AllocateDefaultPins()
 {
 	bReconstructNode = false;
-	
-	const UEdGraphSchema_K2* K2Schema = GetDefault<UEdGraphSchema_K2>();
-	
-	UEdGraphPin* InVariablePin = CreatePin(EGPD_Input, UEdGraphSchema_K2::PC_Object, UComposableCameraVariableCollection::StaticClass(), FK2Node_SetComposableCameraVariableCollectionPinNames::CollectionPinName);
-	K2Schema->ConstructBasicPinTooltip(*InVariablePin, LOCTEXT("InCollectionPinDescription", "The variable collection you want to set its values to."), InVariablePin->PinToolTip);
 
+	CreatePin(EGPD_Input, UEdGraphSchema_K2::PC_Exec, UEdGraphSchema_K2::PN_Execute);
+	CreatePin(EGPD_Output, UEdGraphSchema_K2::PC_Exec, UEdGraphSchema_K2::PN_Then);
+	
 	for (int32 Idx = 0; Idx < NumPins; Idx++)
 	{
 		const FName PinName = *FString::Printf(TEXT("Variable %d"), Idx);
@@ -139,7 +138,7 @@ FText UK2Node_SetComposableCameraVariableCollection::GetTooltipText() const
 
 FText UK2Node_SetComposableCameraVariableCollection::GetNodeTitle(ENodeTitleType::Type TitleType) const
 {
-	return LOCTEXT("K2Node_SetComposableCameraVariableCollection_NodeTitle", "Set Composable Camera Variable Collection.");
+	return LOCTEXT("K2Node_SetComposableCameraVariableCollection_NodeTitle", "Set Composable Camera Variable Collection");
 }
 
 void UK2Node_SetComposableCameraVariableCollection::NodeConnectionListChanged()
@@ -201,6 +200,12 @@ void UK2Node_SetComposableCameraVariableCollection::AddInputPin()
 	NumPins++;
 
 	// Let AllocateDefaultPins handle the actual addition via ReconstructNode.
+	ReconstructNode();
+}
+
+void UK2Node_SetComposableCameraVariableCollection::RemoveInputPin(UEdGraphPin* Pin)
+{
+	NumPins--;
 	ReconstructNode();
 }
 
@@ -279,25 +284,19 @@ void UK2Node_SetComposableCameraVariableCollection::GetMenuAction(FBlueprintActi
 {
 	const FText BaseCategoryString = GetMenuCategory();
 
-	for (TPair<FName, FAssetTagValueRef> It : CollectionAssetData.TagsAndValues)
-	{
-		const FName ParameterName = It.Key;
+	UBlueprintNodeSpawner* NodeSpawner = UBlueprintNodeSpawner::Create(GetClass());
+	NodeSpawner->DefaultMenuSignature.Category = BaseCategoryString;
+	NodeSpawner->DefaultMenuSignature.MenuName = FText::Format(
+			LOCTEXT("SetComposableCameraVariableCollectionActionMenuName", "Set {0}"),
+			FText::FromString(CollectionAssetData.AssetName.ToString()));
+	NodeSpawner->CustomizeNodeDelegate = UBlueprintNodeSpawner::FCustomizeNodeDelegate::CreateLambda(
+			[CollectionAssetData](UEdGraphNode* NewNode, bool bIsTemplateNode)
+			{
+				UK2Node_SetComposableCameraVariableCollection* NewSetter = CastChecked<UK2Node_SetComposableCameraVariableCollection>(NewNode);
+				NewSetter->Initialize(CollectionAssetData);
+			});
 
-		UBlueprintNodeSpawner* NodeSpawner = UBlueprintNodeSpawner::Create(GetClass());
-		NodeSpawner->DefaultMenuSignature.Category = FText::Join(
-				FText::FromString(TEXT("|")), BaseCategoryString, FText::FromName(CollectionAssetData.AssetName));
-		NodeSpawner->DefaultMenuSignature.MenuName = FText::Format(
-				LOCTEXT("SetComposableCameraVariableCollectionActionMenuName", "Set {0}"),
-				FText::FromName(ParameterName));
-		NodeSpawner->CustomizeNodeDelegate = UBlueprintNodeSpawner::FCustomizeNodeDelegate::CreateLambda(
-				[ParameterName, CollectionAssetData](UEdGraphNode* NewNode, bool bIsTemplateNode)
-				{
-					UK2Node_SetComposableCameraVariableCollection* NewSetter = CastChecked<UK2Node_SetComposableCameraVariableCollection>(NewNode);
-					NewSetter->Initialize(CollectionAssetData, ParameterName.ToString());
-				});
-
-		ActionRegistrar.AddBlueprintAction(CollectionAssetData, NodeSpawner);
-	}
+	ActionRegistrar.AddBlueprintAction(CollectionAssetData, NodeSpawner);
 }
 
 FEdGraphPinType UK2Node_SetComposableCameraVariableCollection::MakePinTypeFromVariableType(
