@@ -138,7 +138,7 @@ public:
 /**
  * Camera variables.
  */
-UCLASS(Abstract, DefaultToInstanced, BlueprintType, EditInlineNew, CollapseCategories, ClassGroup = ComposableCameraSystem)
+UCLASS(Abstract, DefaultToInstanced, EditInlineNew, CollapseCategories, ClassGroup = ComposableCameraSystem)
 class COMPOSABLECAMERASYSTEM_API UComposableCameraVariable : public UObject
 {
 	GENERATED_BODY()
@@ -155,7 +155,7 @@ public:
 	virtual EComposableCameraVariableType GetVariableType() const PURE_VIRTUAL(UComposableCameraVariable::GetVariableType, return EComposableCameraVariableType::Boolean;);
 	virtual const uint8* GetDefaultValuePtr() const PURE_VIRTUAL(UComposableCameraVariable::GetDefaultValuePtr, return nullptr;);
 	virtual void Reset() PURE_VIRTUAL(UComposableCameraVariable::Reset, return;);
-
+	
 	UFUNCTION(BlueprintCallable, Category = "ComposableCameraSystem|Variable")
 	void ResetToDefaultValues()
 	{
@@ -326,7 +326,7 @@ public:
 	UPROPERTY(EditAnywhere, Category = ComposableCamera)
 	FVector2D DefaultValue { };
 
-	UPROPERTY(Transient)
+	UPROPERTY(BlueprintReadOnly, Transient)
 	FVector2D RuntimeValue;
 };
 

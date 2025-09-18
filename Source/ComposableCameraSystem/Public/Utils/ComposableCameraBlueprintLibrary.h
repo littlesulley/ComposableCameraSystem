@@ -53,6 +53,7 @@ public:
 		P_GET_OBJECT(UComposableCameraVariable, Variable);
 
 		Stack.MostRecentPropertyAddress = nullptr;
+		Stack.MostRecentPropertyContainer = nullptr;
 		Stack.StepCompiledIn<FProperty>(nullptr);
 
 		const FProperty* ValueProperty = Stack.MostRecentProperty;
@@ -81,6 +82,21 @@ public:
 		
 		P_NATIVE_END
 	}
+
+	UFUNCTION(BlueprintPure, meta=(BlueprintThreadSafe, BlueprintInternalUseOnly="true"))
+	static FVector MakeLiteralVector(FVector Value);
+
+	UFUNCTION(BlueprintPure, meta=(BlueprintThreadSafe, BlueprintInternalUseOnly="true"))
+	static FVector4 MakeLiteralVector4(FVector4 Value);
+
+	UFUNCTION(BlueprintPure, meta=(BlueprintThreadSafe, BlueprintInternalUseOnly="true"))
+	static FVector2D MakeLiteralVector2D(FVector2D Value);
+	
+	UFUNCTION(BlueprintPure, meta=(BlueprintThreadSafe, BlueprintInternalUseOnly="true"))
+	static FRotator MakeLiteralRotator(FRotator Value);
+
+	UFUNCTION(BlueprintPure, meta=(BlueprintThreadSafe, BlueprintInternalUseOnly="true"))
+	static FTransform MakeLiteralTransform(FTransform Value);
 };
 
 

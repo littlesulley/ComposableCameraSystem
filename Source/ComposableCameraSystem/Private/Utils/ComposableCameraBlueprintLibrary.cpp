@@ -44,3 +44,28 @@ AComposableCameraCameraBase* UComposableCameraBlueprintLibrary::ActivateComposab
 
 	return nullptr;
 }
+
+FVector UComposableCameraBlueprintLibrary::MakeLiteralVector(FVector Value)
+{
+	return Value;
+}
+
+FVector4 UComposableCameraBlueprintLibrary::MakeLiteralVector4(FVector4 Value)
+{
+	return Value;
+}
+
+FVector2D UComposableCameraBlueprintLibrary::MakeLiteralVector2D(FVector2D Value)
+{
+	return Value;
+}
+
+FRotator UComposableCameraBlueprintLibrary::MakeLiteralRotator(FRotator Value)
+{
+	return Value;
+}
+
+FTransform UComposableCameraBlueprintLibrary::MakeLiteralTransform(FTransform Value)
+{
+	return Value;
+}

@@ -16,7 +16,6 @@ public class ComposableCameraSystemUncookedOnly : ModuleRules
             new string[]
             {
                 "ComposableCameraSystem",
-                "BlueprintGraph",
                 "Core",
                 "CoreUObject",
                 "Engine",
@@ -24,7 +23,10 @@ public class ComposableCameraSystemUncookedOnly : ModuleRules
                 "Kismet",
                 "KismetCompiler",
                 "SlateCore",
+                "ToolMenus",
                 "UnrealEd",
+                "GraphEditor",
+                "Slate"
             }
         );
     }
