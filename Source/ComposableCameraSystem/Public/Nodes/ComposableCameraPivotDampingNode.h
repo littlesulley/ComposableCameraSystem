@@ -28,24 +28,31 @@ public:
 	virtual void OnTickNode_Implementation(float DeltaTime, const FComposableCameraPose& CurrentCameraPose, FComposableCameraPose& OutCameraPose) override;
 
 public:
+	// Interpolator when the pivot is moving upward.
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Instanced, Category = InputParameters)
 	UComposableCameraInterpolatorBase* UpwardInterpolator;
 
+	// Interpolator when the pivot is moving downward.
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Instanced, Category = InputParameters)
 	UComposableCameraInterpolatorBase* DownwardInterpolator;
 
+	// Interpolator when the pivot is moving leftward. 
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Instanced, Category = InputParameters)
 	UComposableCameraInterpolatorBase* LeftwardInterpolator;
 
+	// Interpolator when the pivot is moving rightward.
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Instanced, Category = InputParameters)
 	UComposableCameraInterpolatorBase* RightwardInterpolator;
 
+	// Interpolator when the pivot is moving forward. 
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Instanced, Category = InputParameters)
 	UComposableCameraInterpolatorBase* ForwardInterpolator;
 
+	// Interpolator when the pivot is moving backward. 
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Instanced, Category = InputParameters)
 	UComposableCameraInterpolatorBase* BackwardInterpolator;
 
+	// Pivot position to read. Damping is applied to this value too.
 	UPROPERTY(EditDefaultsOnly, Category = ContextParameters)
 	FVector3dComposableCameraContextParameter ContextPivotPosition;
 

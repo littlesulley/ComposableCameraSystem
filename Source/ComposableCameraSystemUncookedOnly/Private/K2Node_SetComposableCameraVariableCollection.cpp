@@ -29,6 +29,11 @@ void UK2Node_SetComposableCameraVariableCollection::Initialize(const FAssetData&
 
 		for (UComposableCameraVariable* Variable : Collection->Variables)
 		{
+			if (!Variable)
+			{
+				continue;
+			}
+			
 			UObject* PinSubCategoryObject = nullptr;
 			EComposableCameraVariableType Type = Variable->GetVariableType();
 
@@ -334,7 +339,10 @@ TArray<FString> UK2Node_SetComposableCameraVariableCollection::GetVariableNames(
 	{
 		for (UComposableCameraVariable* Variable : Collection->Variables)
 		{
-			Names.Add(Variable->DisplayName);
+			if (Variable)
+			{
+				Names.Add(Variable->DisplayName);
+			}
 		}
 	}
 
@@ -382,7 +390,7 @@ UEdGraphPin* UK2Node_SetComposableCameraVariableCollection::FindCorrespondingVar
 
 void UK2Node_SetComposableCameraVariableCollection::CreateCorrespondingVariableValuePin(UEdGraphPin* Pin)
 {
-	if (Pin && FName(Pin->DefaultValue) != FName())
+	if (Pin && Collection && FName(Pin->DefaultValue) != FName())
 	{
 		Modify();
 		

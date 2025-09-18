@@ -25,13 +25,16 @@ public:
 	virtual void OnTickNode_Implementation(float DeltaTime, const FComposableCameraPose& CurrentCameraPose, FComposableCameraPose& OutCameraPose) override;
 
 public:
+	// The actor you'd want to put into context parameter ContextPivotActor and get pivot location from.
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = InputParameters)
 	TSoftObjectPtr<AActor> PivotActor = nullptr;
 
 public:
+	// The actor you'd want to maintain during the node's life cycle. The input PivotActor will be read into here, without validity check.
 	UPROPERTY(EditDefaultsOnly, Category = ContextParameters)
 	FActorComposableCameraContextParameter ContextPivotActor;
-	
+
+	// The location of the PivotActor.
 	UPROPERTY(EditDefaultsOnly, Category = ContextParameters)
 	FVector3dComposableCameraContextParameter ContextPivotPosition;
 };

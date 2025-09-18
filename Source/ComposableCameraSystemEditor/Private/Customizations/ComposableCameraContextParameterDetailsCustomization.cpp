@@ -275,7 +275,7 @@ void FComposableCameraContextParameterDetailsCustomization::GetVariableCollectio
 		}
 	}
 
-	if (VariableCollectionUsedByCamera != CurrentCollectionUsedByCamera)
+	if (CurrentCollectionUsedByCamera && VariableCollectionUsedByCamera != CurrentCollectionUsedByCamera)
 	{
 		if (bExecuteOnChange)
 		{

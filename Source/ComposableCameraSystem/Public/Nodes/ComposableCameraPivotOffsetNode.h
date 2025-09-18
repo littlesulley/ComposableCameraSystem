@@ -35,15 +35,19 @@ public:
 	virtual void OnTickNode_Implementation(float DeltaTime, const FComposableCameraPose& CurrentCameraPose, FComposableCameraPose& OutCameraPose) override;
 	
 public:
+	// In which space you'd like to apply offset, can be world, camera, or actor local.
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = InputParameters)
 	ECameraPivotOffset PivotOffsetType = ECameraPivotOffset::WorldSpace;
-	
+
+	// The actor determining the local space if you choose actor local space.
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = InputParameters)
 	TSoftObjectPtr<AActor> ActorForLocalSpace = nullptr;
 
+	// The offset.
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = InputParameters)
 	FVector PivotOffset = FVector::ZeroVector;
 
+	// The pivot location that is read from and written to after applying offset by this node.
 	UPROPERTY(EditDefaultsOnly, Category = ContextParameters)
 	FVector3dComposableCameraContextParameter ContextPivotPosition;
 

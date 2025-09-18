@@ -21,9 +21,11 @@ public:
 	virtual void OnTickNode_Implementation(float DeltaTime, const FComposableCameraPose& CurrentCameraPose, FComposableCameraPose& OutCameraPose) override;
 
 public:
+	// Offset to apply on the context pivot position in camera space.
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = InputParameters)
 	FVector CameraOffset;
 
+	// The pivot to read position to read.
 	UPROPERTY(EditDefaultsOnly, Category = ContextParameters)
 	FVector3dComposableCameraContextParameter ContextPivotPosition;
 };
