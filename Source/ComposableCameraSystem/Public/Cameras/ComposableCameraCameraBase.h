@@ -88,18 +88,24 @@ public:
 	 * For example, the ComposableCameraReceivePivotActorNode has an input parameter PivotActor, and a context parameter PivotPosition.
 	 * It reads the location of the PivotActor and writes the location to PivotPosition.
 	 * After this node, PivotPosition can be read by the other following nodes.
+	 *
+	 * @NOTE: This property is exposed as EditAnywhere, only for debug purposes at runtime. You should NEVER modify this for instances.
 	 */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Instanced, Category = "ComposableCameraSystem|Camera")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Instanced, Category = "ComposableCameraSystem|Camera")
 	TArray<UComposableCameraCameraNodeBase*> CameraNodes;
 
 	/** Context variable collection for this camera. You should create a new collection specific to this camera first,
 	 * and then assign it here. All nodes within this camera can only use this collection.
+	 *
+	 * @NOTE: This property is exposed as EditAnywhere, only for debug purposes at runtime. You should NEVER modify this for instances.
 	 */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "ComposableCameraSystem|Camera")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "ComposableCameraSystem|Camera")
 	TSoftObjectPtr<UComposableCameraVariableCollection> ContextVariables;
 	
 
 public:
+	virtual void BeginPlay() override;
+	
 	void Initialize(AComposableCameraPlayerCamaraManager* Manager);
 	void BeginPlayCamera(const FComposableCameraPose& CurrentCameraPose);
 	[[nodiscard]] FComposableCameraPose TickCamera(float DeltaTime);
@@ -127,6 +133,10 @@ public:
 	UFUNCTION(BlueprintPure, Category = "ComposableCameraSystem|Camera")
 	AComposableCameraPlayerCamaraManager* GetOwningPlayerCameraManager() { return CameraManager; }
 
+	// Set owning player camera manager.
+	UFUNCTION(BlueprintCallable, Category = "ComposableCameraSystem|Camera")
+	void SetOwningPlayerCameraManager(AComposableCameraPlayerCamaraManager* InCameraManager) { CameraManager = InCameraManager; }
+
 	// Get camera pose for this frame.
 	UFUNCTION(BlueprintPure, Category = "ComposableCameraSystem|Camera")
 	FComposableCameraPose GetCameraPose() const { return CameraPose; }
@@ -149,33 +159,34 @@ public:
 
 public:
 	// Camera pose for this frame.
-	UPROPERTY(Transient, VisibleAnywhere)
+	UPROPERTY(Transient, VisibleAnywhere, Category = "ComposableCameraSystem|Camera")
 	FComposableCameraPose CameraPose;
 
 	// Camera pose for last frame.
-	UPROPERTY(Transient, VisibleAnywhere)
+	UPROPERTY(Transient, VisibleAnywhere, Category = "ComposableCameraSystem|Camera")
 	FComposableCameraPose LastFrameCameraPose;
 
 	// Whether this camera is transient, i.e., it has a fixed life time.
-	UPROPERTY(Transient, VisibleAnywhere)
+	UPROPERTY(Transient, VisibleAnywhere, Category = "ComposableCameraSystem|Camera")
 	bool bIsTransient { false };
 
 	// Life time if this camera is transient.
-	UPROPERTY(Transient, VisibleAnywhere)
+	UPROPERTY(Transient, VisibleAnywhere, Category = "ComposableCameraSystem|Camera")
 	float LifeTime { 0.f };
 
 	// Remaining life time.
-	UPROPERTY(Transient, VisibleAnywhere)
+	UPROPERTY(Transient, VisibleAnywhere, Category = "ComposableCameraSystem|Camera")
 	float RemainingLifeTime { 0.f };
 
 	// Whether this camera is currently active (running) and not yet killed, generally waiting to be resumed.
-	UPROPERTY(Transient, VisibleAnywhere)
+	UPROPERTY(Transient, VisibleAnywhere, Category = "ComposableCameraSystem|Camera")
 	bool bIsRunning { true };
 
 	// Pending camera to be resumed. This happens when the running camera is transient and once it finishes, ParentPendingCamera will be resumed.
-	UPROPERTY(Transient, VisibleAnywhere)
+	UPROPERTY(Transient, VisibleAnywhere, Category = "ComposableCameraSystem|Camera")
 	AComposableCameraCameraBase* ParentPendingCamera;
 	
-private:
+protected:
+	UPROPERTY(Transient)
 	TObjectPtr<AComposableCameraPlayerCamaraManager> CameraManager;
 };

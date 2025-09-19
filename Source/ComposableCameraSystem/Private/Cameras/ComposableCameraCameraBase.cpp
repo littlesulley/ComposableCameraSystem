@@ -3,6 +3,7 @@
 #include "Cameras/ComposableCameraCameraBase.h"
 
 #include "Camera/CameraComponent.h"
+#include "Core/ComposableCameraPlayerCamaraManager.h"
 #include "Nodes/ComposableCameraCameraNodeBase.h"
 
 AComposableCameraCameraBase::AComposableCameraCameraBase(const FObjectInitializer& ObjectInitializer)
@@ -10,12 +11,22 @@ AComposableCameraCameraBase::AComposableCameraCameraBase(const FObjectInitialize
 {
 }
 
+void AComposableCameraCameraBase::BeginPlay()
+{
+	Super::BeginPlay();
+	
+	BeginPlayCamera(CameraManager->GetCurrentCameraPose());
+}
+
 void AComposableCameraCameraBase::Initialize(AComposableCameraPlayerCamaraManager* Manager)
 {
 	CameraManager = Manager;
 	for (UComposableCameraCameraNodeBase* Node : CameraNodes)
 	{
-		Node->Initialize(this,  Manager);
+		if (Node)
+		{
+			Node->Initialize(this,  Manager);
+		}
 	}
 	OnInitialized();
 }
@@ -24,7 +35,10 @@ void AComposableCameraCameraBase::BeginPlayCamera(const FComposableCameraPose& C
 {
 	for (UComposableCameraCameraNodeBase* Node : CameraNodes)
 	{
-		Node->BeginPlayNode(CurrentCameraPose);
+		if (Node)
+		{
+			Node->BeginPlayNode(CurrentCameraPose);
+		}
 	}
 }
 
@@ -34,7 +48,10 @@ FComposableCameraPose AComposableCameraCameraBase::TickCamera(float DeltaTime)
 	
 	for (UComposableCameraCameraNodeBase* Node : CameraNodes)
 	{
-		Node->TickNode(DeltaTime, NewCameraPose, NewCameraPose);
+		if (Node)
+		{
+			Node->TickNode(DeltaTime, NewCameraPose, NewCameraPose);
+		}
 	}
 
 	CameraPose = NewCameraPose;

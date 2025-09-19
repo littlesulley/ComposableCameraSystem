@@ -1,8 +1,10 @@
 // Copyright Sulley. All rights reserved.
 
 #include "ComposableCameraGraphPanelPinFactory.h"
+
 #include "Variables/ComposableCameraVariableCollection.h"
 #include "K2Node_SetComposableCameraVariableCollection.h"
+#include "K2Node_GetComposableCameraVariableCollection.h"
 #include "SComposableCameraGraphPinCollectionVariable.h"
 
 TSharedPtr<class SGraphPin> FComposableCameraGraphPanelPinFactory::CreatePin(class UEdGraphPin* InPin) const
@@ -11,15 +13,26 @@ TSharedPtr<class SGraphPin> FComposableCameraGraphPanelPinFactory::CreatePin(cla
 	{
 		if (UObject* Outer = InPin->GetOuter())
 		{
-			if (Outer->IsA(UK2Node_SetComposableCameraVariableCollection::StaticClass()))
+			if (Outer->IsA(UK2Node_SetComposableCameraVariableCollection::StaticClass())
+				|| Outer->IsA(UK2Node_GetComposableCameraVariableCollection::StaticClass()))
 			{
-				UK2Node_SetComposableCameraVariableCollection* Node = CastChecked<UK2Node_SetComposableCameraVariableCollection>(Outer);
-				UComposableCameraVariableCollection* Collection = Node->GetVariableCollection();
-
-				if (Collection)
+				
+				
+				if (UK2Node_SetComposableCameraVariableCollection* Node = Cast<UK2Node_SetComposableCameraVariableCollection>(Outer))
 				{
-					TArray<FString> VariableNames = Node->GetVariableNames();
-					return SNew(SComposableCameraGraphPinCollectionVariable, InPin, VariableNames);
+					if (Node->GetVariableCollection())
+					{
+						TArray<FString> VariableNames = Node->GetVariableNames();
+						return SNew(SComposableCameraGraphPinCollectionVariable, InPin, VariableNames);
+					}
+				}
+				if (UK2Node_GetComposableCameraVariableCollection* Node = Cast<UK2Node_GetComposableCameraVariableCollection>(Outer))
+				{
+					if (Node->GetVariableCollection())
+					{
+						TArray<FString> VariableNames = Node->GetVariableNames();
+						return SNew(SComposableCameraGraphPinCollectionVariable, InPin, VariableNames);
+					}
 				}
 			}
 		}

@@ -43,22 +43,22 @@ public:
 
 	// Acceleration and deceleration time when changing yaw. First element is acceleration, second is deceleration.
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = InputParameters)
-	FVector2f HorizontalDamping { 1.f };
+	FVector2f HorizontalDamping { .5f };
 	
 	// Acceleration and deceleration time when changing pitch. First element is acceleration, second is deceleration.
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = InputParameters)
-	FVector2f VerticalDamping { 1.f };
+	FVector2f VerticalDamping { .5f };
 
 	// Whether to invert pitch.
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = InputParameters)
-	bool bInvertPitch { false };
+	bool bInvertPitch { true };
 
 	// Camera rotation input for this frame (not the final rotation). This is where the result camera rotation input will be written to.
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = ContextParameters)
 	FVector2dComposableCameraContextParameter ContextCameraRotationInput;
 
 	// The actor where you retrieve the InputComponent used to read input.
-	UPROPERTY(EditDefaultsOnly, Category = ContextParameters)
+	UPROPERTY(EditAnywhere, Category = ContextParameters)
 	FActorComposableCameraContextParameter ContextRotationInputActor;
 
 private:

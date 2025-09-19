@@ -48,7 +48,7 @@ public:
 	FVector PivotOffset = FVector::ZeroVector;
 
 	// The pivot location that is read from and written to after applying offset by this node.
-	UPROPERTY(EditDefaultsOnly, Category = ContextParameters)
+	UPROPERTY(EditAnywhere, Category = ContextParameters)
 	FVector3dComposableCameraContextParameter ContextPivotPosition;
 
 private:

@@ -8,8 +8,7 @@
 #include "Nodes/ComposableCameraPivotDampingNode.h"
 #include "Nodes/ComposableCameraCameraOffsetNode.h"
 #include "Nodes/ComposableCameraReceivePivotActorNode.h"
-#include "Nodes/ComposableCameraTraceCollisionPushNode.h"
-#include "Nodes/ComposableCameraSelfCollisionPushNode.h"
+#include "Nodes/ComposableCameraCollisionPushNode.h"
 
 AComposableCameraGeneralThirdPersonCamera::AComposableCameraGeneralThirdPersonCamera(
 	const FObjectInitializer& ObjectInitializer)
@@ -21,8 +20,7 @@ AComposableCameraGeneralThirdPersonCamera::AComposableCameraGeneralThirdPersonCa
 		CreateDefaultSubobject<UComposableCameraPivotOffsetNode>(FName("PivotOffsetNode")),
 		CreateDefaultSubobject<UComposableCameraPivotDampingNode>(FName("PivotDampingNode")),
 		CreateDefaultSubobject<UComposableCameraCameraOffsetNode>(FName("ApplyPivotOffsetNode")),
-		CreateDefaultSubobject<UComposableCameraTraceCollisionPushNode>(FName("TraceCollisionPushNode")),
-		CreateDefaultSubobject<UComposableCameraSelfCollisionPushNode>(FName("SelfCollisionPushNode")),
+		CreateDefaultSubobject<UComposableCameraCollisionPushNode>(FName("SelfCollisionPushNode")),
 		CreateDefaultSubobject<UComposableCameraFieldOfViewNode>(FName("FieldOfViewNode")),
 	};
 }

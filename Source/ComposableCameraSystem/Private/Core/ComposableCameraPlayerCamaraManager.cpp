@@ -37,6 +37,7 @@ void AComposableCameraPlayerCamaraManager::ProcessViewRotation(float DeltaTime, 
 }
 
 AComposableCameraCameraBase* AComposableCameraPlayerCamaraManager::ActivateNewCamera(
+	AComposableCameraPlayerCamaraManager* PlayerCameraManager,
 	TSubclassOf<AComposableCameraCameraBase> CameraClass,
 	FComposableCameraTransitionParams TransitionParams,
 	UDataTable* NodeInitializerDataTable,
@@ -65,7 +66,7 @@ AComposableCameraCameraBase* AComposableCameraPlayerCamaraManager::ActivateNewCa
 	}
 	
 	AComposableCameraCameraBase* NewCamera = Director->ActivateNewCamera(
-		CameraClass, TransitionParams, NodeInitializerDataTable, NodeInitializerTags, bIsTransient, LifeTime);
+		PlayerCameraManager, CameraClass, TransitionParams, NodeInitializerDataTable, NodeInitializerTags, bIsTransient, LifeTime);
 	if (NewCamera)
 	{
 		RunningCamera = NewCamera;

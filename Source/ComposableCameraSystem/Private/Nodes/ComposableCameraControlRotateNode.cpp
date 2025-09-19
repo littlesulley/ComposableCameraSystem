@@ -58,12 +58,9 @@ void UComposableCameraControlRotateNode::OnTickNode_Implementation(
 	ApplyAcceleration(DeltaTime, VerticalDamping, CameraRotationInputForThisFrame.Y, LastFrameCameraRotationInput.Y);
 
 	// Write into OutCameraPose
-	FRotator CurrentRotation = GetOwningPlayerCameraManager()->GetCameraRotation();
-	FQuat CurrentRotationQuat = CurrentRotation.Quaternion();
-	CurrentRotationQuat = CurrentRotationQuat * FRotator{ CameraRotationInputForThisFrame.Y, 0, 0}.Quaternion();
-	CurrentRotationQuat = FRotator{ 0, CameraRotationInputForThisFrame.X, 0}.Quaternion() * CurrentRotationQuat;
-
-	OutCameraPose.Rotation = CurrentRotationQuat.Rotator();
+	OwningCamera->AddActorLocalRotation(FRotator(CameraRotationInputForThisFrame.Y, 0, 0));
+	OwningCamera->AddActorWorldRotation(FRotator(0,  CameraRotationInputForThisFrame.X, 0));
+	OutCameraPose.Rotation = OwningCamera->GetActorRotation();
 	
 	// Write into context.
 	if (ContextCameraRotationInput.Variable)
@@ -75,7 +72,7 @@ void UComposableCameraControlRotateNode::OnTickNode_Implementation(
 		ContextCameraRotationInput.Value = CameraRotationInputForThisFrame;	
 	}
 	
-	LastFrameCameraRotationInput =  CameraRotationInputForThisFrame;
+	LastFrameCameraRotationInput = CameraRotationInputForThisFrame;
 }
 
 void UComposableCameraControlRotateNode::ApplyAcceleration(float DeltaTime, FVector2f Damping, double& ThisFrameRotationInput,
@@ -86,5 +83,5 @@ void UComposableCameraControlRotateNode::ApplyAcceleration(float DeltaTime, FVec
 			: Damping.Y;
 
 	double Increment = SimpleExpDamp(DeltaTime, DampTime, ThisFrameRotationInput - LastFrameRotationInput);
-	ThisFrameRotationInput += Increment;
+	ThisFrameRotationInput = LastFrameRotationInput + Increment;
 }

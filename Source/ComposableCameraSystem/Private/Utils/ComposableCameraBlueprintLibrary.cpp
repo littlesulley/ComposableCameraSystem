@@ -31,13 +31,8 @@ AComposableCameraCameraBase* UComposableCameraBlueprintLibrary::ActivateComposab
 			return PlayerCameraManager->GetRunningCamera();
 		}
 
-		AComposableCameraCameraBase* NewCamera = PlayerCameraManager->ActivateNewCamera(CameraClass, TransitionParams, NodeInitializerDataTable, NodeInitializerTags, bIsTransient, LifeTime);
-
-		if (NewCamera)
-		{
-			NewCamera->Initialize(PlayerCameraManager);
-			NewCamera->BeginPlayCamera(PlayerCameraManager->GetCurrentCameraPose());
-		}
+		AComposableCameraCameraBase* NewCamera = PlayerCameraManager->ActivateNewCamera(
+			PlayerCameraManager, CameraClass, TransitionParams, NodeInitializerDataTable, NodeInitializerTags, bIsTransient, LifeTime);
 		
 		return NewCamera; 
 	}

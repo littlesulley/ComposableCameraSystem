@@ -23,6 +23,7 @@ public:
 	virtual void ProcessViewRotation(float DeltaTime, FRotator& OutViewRotation, FRotator& OutDeltaRot) override;
 
 	AComposableCameraCameraBase* ActivateNewCamera(
+	AComposableCameraPlayerCamaraManager* PlayerCameraManager,
 		TSubclassOf<AComposableCameraCameraBase> CameraClass,
 		FComposableCameraTransitionParams TransitionParams,
 		UDataTable* NodeInitializerDataTable,
@@ -60,6 +61,7 @@ public:
 	FComposableCameraPose CurrentCameraPose;
 
 private:
+	UPROPERTY(Transient)
 	TObjectPtr<UComposableCameraDirector> Director;
 };
 	

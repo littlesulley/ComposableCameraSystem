@@ -5,6 +5,7 @@
 #include "GameplayTagContainer.h"
 #include "Transitions/ComposableCameraTransitionBase.h"
 #include "Core/ComposableCameraEvaluationTree.h"
+#include "Kismet/GameplayStatics.h"
 
 UComposableCameraDirector::UComposableCameraDirector(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
@@ -13,6 +14,7 @@ UComposableCameraDirector::UComposableCameraDirector(const FObjectInitializer& O
 }
 
 AComposableCameraCameraBase* UComposableCameraDirector::ActivateNewCamera(
+AComposableCameraPlayerCamaraManager* PlayerCameraManager,
 	TSubclassOf<AComposableCameraCameraBase> CameraClass,
 	FComposableCameraTransitionParams TransitionParams,
 	UDataTable* NodeInitializerDataTable, // @TODO
@@ -26,22 +28,26 @@ AComposableCameraCameraBase* UComposableCameraDirector::ActivateNewCamera(
 
 		if (bIsTransient)
 		{
-			NewCamera = NewObject<AComposableCameraCameraBase>(this, CameraClass);
+			NewCamera = World->SpawnActorDeferred<AComposableCameraCameraBase>(CameraClass, FTransform{});
 			NewCamera->ParentPendingCamera = RunningCamera;
 			NewCamera->bIsTransient = true;
 			NewCamera->LifeTime = LifeTime;
 			NewCamera->RemainingLifeTime = LifeTime;
 			NewCamera->bIsRunning = true;
 			RunningCamera->bIsRunning = false;
+			NewCamera->Initialize(PlayerCameraManager);
+			NewCamera->FinishSpawning(FTransform{});
 		}
 		else
 		{
-			NewCamera = NewObject<AComposableCameraCameraBase>(this, CameraClass);
+			NewCamera = World->SpawnActorDeferred<AComposableCameraCameraBase>(CameraClass, FTransform{});
 			NewCamera->ParentPendingCamera = nullptr;
 			NewCamera->bIsTransient = false;
 			NewCamera->LifeTime = -1.f;
 			NewCamera->RemainingLifeTime = -1.f;
 			NewCamera->bIsRunning = true;
+			NewCamera->Initialize(PlayerCameraManager);
+			NewCamera->FinishSpawning(FTransform{});
 		}
 
 		UComposableCameraTransitionBase* Transition = nullptr;

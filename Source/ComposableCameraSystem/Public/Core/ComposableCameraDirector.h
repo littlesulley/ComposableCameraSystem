@@ -22,6 +22,7 @@ public:
 	UComposableCameraDirector(const FObjectInitializer& ObjectInitializer);
 
 	AComposableCameraCameraBase* ActivateNewCamera(
+		AComposableCameraPlayerCamaraManager* PlayerCameraManager,
 		TSubclassOf<AComposableCameraCameraBase> CameraClass,
 		FComposableCameraTransitionParams TransitionParams,
 		UDataTable* NodeInitializerDataTable,
@@ -32,8 +33,13 @@ public:
 	[[nodiscard]] FComposableCameraPose Evaluate(float DeltaTime);
 	
 private:
+	UPROPERTY(Transient)
 	FComposableCameraPose CurrentCameraPose;
+
+	UPROPERTY(Transient)
 	UComposableCameraEvaluationTree* EvaluationTree;
+
+	UPROPERTY(Transient)
 	AComposableCameraCameraBase* RunningCamera;
 
 	void OnActivateNewCamera(AComposableCameraCameraBase* NewCamera, UComposableCameraTransitionBase* Transition);

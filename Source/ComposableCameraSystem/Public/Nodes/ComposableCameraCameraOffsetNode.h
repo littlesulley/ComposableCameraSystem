@@ -26,6 +26,6 @@ public:
 	FVector CameraOffset;
 
 	// The pivot to read position to read.
-	UPROPERTY(EditDefaultsOnly, Category = ContextParameters)
+	UPROPERTY(EditAnywhere, Category = ContextParameters)
 	FVector3dComposableCameraContextParameter ContextPivotPosition;
 };

@@ -31,10 +31,10 @@ public:
 
 public:
 	// The actor you'd want to maintain during the node's life cycle. The input PivotActor will be read into here, without validity check.
-	UPROPERTY(EditDefaultsOnly, Category = ContextParameters)
+	UPROPERTY(EditAnywhere, Category = ContextParameters)
 	FActorComposableCameraContextParameter ContextPivotActor;
 
 	// The location of the PivotActor.
-	UPROPERTY(EditDefaultsOnly, Category = ContextParameters)
+	UPROPERTY(EditAnywhere, Category = ContextParameters)
 	FVector3dComposableCameraContextParameter ContextPivotPosition;
 };

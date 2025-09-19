@@ -60,9 +60,7 @@ public:
 		void* ValuePtr = Stack.MostRecentPropertyAddress;
 
 		P_FINISH;
-
-		P_NATIVE_BEGIN
-
+		
 		if (ValueProperty == nullptr || ValuePtr == nullptr)
 		{
 			FBlueprintExceptionInfo ExceptionInfo(
@@ -73,14 +71,58 @@ public:
 		}
 		else if (Variable)
 		{
+			P_NATIVE_BEGIN
+			
 			UClass* SourceClass = Variable->GetClass();
 			FProperty* SourceProperty = FindFProperty<FProperty>(SourceClass, TEXT("RuntimeValue"));
 			void* SourcePtr = SourceProperty->ContainerPtrToValuePtr<void>(Variable);
 
 			SourceProperty->CopyCompleteValue(SourcePtr, ValuePtr);
+			
+			P_NATIVE_END
 		}
 		
-		P_NATIVE_END
+	}
+
+	/** Custom thunk function for getting runtime values of a composable camera variable.
+	 * @param Variable The variable to get.
+	 * @param ReturnValue The returned runtime value for this variable.
+	 */
+	UFUNCTION(BlueprintCallable, CustomThunk, meta = (BlueprintInternalUseOnly = "true", CustomStructureParam = "ReturnValue"))
+	static void GetComposableCameraVariableRuntimeValue(UComposableCameraVariable* Variable, int32& ReturnValue);
+	DECLARE_FUNCTION(execGetComposableCameraVariableRuntimeValue)
+	{
+		P_GET_OBJECT(UComposableCameraVariable, Variable);
+
+		Stack.MostRecentPropertyAddress = nullptr;
+		Stack.MostRecentPropertyContainer = nullptr;
+		Stack.StepCompiledIn<FProperty>(nullptr);
+
+		const FProperty* ValueProperty = Stack.MostRecentProperty;
+		void* ValuePtr = Stack.MostRecentPropertyAddress;
+
+		P_FINISH;
+		
+		if (ValueProperty == nullptr || ValuePtr == nullptr)
+		{
+			FBlueprintExceptionInfo ExceptionInfo(
+				EBlueprintExceptionType::AbortExecution,
+				LOCTEXT("InvalidSetComposableCameraVariableRuntimeValue", "Failed to resolve ReturnValue for GetComposableCameraVariableRuntimeValue")
+			);
+			FBlueprintCoreDelegates::ThrowScriptException(P_THIS, Stack, ExceptionInfo);
+		}
+		else if (Variable)
+		{
+			P_NATIVE_BEGIN
+
+			UClass* SourceClass = Variable->GetClass();
+			FProperty* SourceProperty = FindFProperty<FProperty>(SourceClass, TEXT("RuntimeValue"));
+			void* SourcePtr = SourceProperty->ContainerPtrToValuePtr<void>(Variable);
+
+			SourceProperty->CopyCompleteValue(ValuePtr, SourcePtr);
+			
+			P_NATIVE_END
+		}
 	}
 
 	UFUNCTION(BlueprintPure, meta=(BlueprintThreadSafe, BlueprintInternalUseOnly="true"))

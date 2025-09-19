@@ -53,7 +53,7 @@ public:
 	UComposableCameraInterpolatorBase* BackwardInterpolator;
 
 	// Pivot position to read. Damping is applied to this value too.
-	UPROPERTY(EditDefaultsOnly, Category = ContextParameters)
+	UPROPERTY(EditAnywhere, Category = ContextParameters)
 	FVector3dComposableCameraContextParameter ContextPivotPosition;
 
 private:

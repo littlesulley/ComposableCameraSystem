@@ -211,7 +211,7 @@ public:
 	UPROPERTY(EditAnywhere)
 	bool DefaultValue = false;
 
-	UPROPERTY(Transient)
+	UPROPERTY(Transient, VisibleAnywhere)
 	bool RuntimeValue;
 };
 
@@ -239,7 +239,7 @@ public:
 	UPROPERTY(EditAnywhere, Category = ComposableCamera)
 	float DefaultValue = 0;
 
-	UPROPERTY(Transient)
+	UPROPERTY(Transient, VisibleAnywhere)
 	float RuntimeValue;
 };
 
@@ -270,7 +270,7 @@ public:
 	UPROPERTY(EditAnywhere, Category = ComposableCamera)
 	double DefaultValue = 0;
 
-	UPROPERTY(Transient)
+	UPROPERTY(Transient, VisibleAnywhere)
 	double RuntimeValue;
 };
 
@@ -298,7 +298,7 @@ public:
 	UPROPERTY(EditAnywhere, Category = ComposableCamera)
 	int32 DefaultValue = 0;
 
-	UPROPERTY(Transient)
+	UPROPERTY(Transient, VisibleAnywhere)
 	int32 RuntimeValue;
 };
 
@@ -326,7 +326,7 @@ public:
 	UPROPERTY(EditAnywhere, Category = ComposableCamera)
 	FVector2D DefaultValue { };
 
-	UPROPERTY(BlueprintReadOnly, Transient)
+	UPROPERTY(Transient, VisibleAnywhere)
 	FVector2D RuntimeValue;
 };
 
@@ -354,7 +354,7 @@ public:
 	UPROPERTY(EditAnywhere, Category = ComposableCamera)
 	FVector DefaultValue {};
 
-	UPROPERTY(Transient)
+	UPROPERTY(Transient, VisibleAnywhere)
 	FVector RuntimeValue {};
 };
 
@@ -382,7 +382,7 @@ public:
 	UPROPERTY(EditAnywhere, Category = ComposableCamera)
 	FVector4 DefaultValue {};
 
-	UPROPERTY(Transient)
+	UPROPERTY(Transient, VisibleAnywhere)
 	FVector4 RuntimeValue {};
 };
 
@@ -410,7 +410,7 @@ public:
 	UPROPERTY(EditAnywhere, Category = ComposableCamera)
 	FRotator3d DefaultValue {};
 	
-	UPROPERTY(Transient)
+	UPROPERTY(Transient, VisibleAnywhere)
 	FRotator3d RuntimeValue {};
 };
 
@@ -438,7 +438,7 @@ public:
 	UPROPERTY(EditAnywhere, Category = ComposableCamera)
 	FTransform3d DefaultValue {};
 
-	UPROPERTY(Transient)
+	UPROPERTY(Transient, VisibleAnywhere)
 	FTransform3d RuntimeValue {};
 };
 
@@ -466,7 +466,7 @@ public:
 	UPROPERTY(EditAnywhere, Category = ComposableCamera)
 	AActor* DefaultValue { nullptr };
 
-	UPROPERTY(Transient)
+	UPROPERTY(Transient, VisibleAnywhere)
 	AActor* RuntimeValue {};
 };
 

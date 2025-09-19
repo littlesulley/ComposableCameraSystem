@@ -60,7 +60,10 @@ protected:
 	void OnBeginPlayNode(const FComposableCameraPose& CurrentCameraPose);
 	virtual void OnBeginPlayNode_Implementation(const FComposableCameraPose& CurrentCameraPose) {}
 
-private:
+protected:
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "ComposableCameraSystem|Node")
 	AComposableCameraCameraBase* OwningCamera;
+
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "ComposableCameraSystem|Node")
 	AComposableCameraPlayerCamaraManager* OwningPlayerCameraManager;
 };
