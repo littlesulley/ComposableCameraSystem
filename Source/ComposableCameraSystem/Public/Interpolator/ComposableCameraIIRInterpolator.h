@@ -79,12 +79,14 @@ class TIIRInterpolator : public TCameraInterpolator<TValueTypeWrapper<ValueType>
 public:
 	TIIRInterpolator(const UComposableCameraIIRInterpolator* Interpolator)
 		: TCameraInterpolator<TValueTypeWrapper<ValueType>>(Interpolator)
+		, IIRInterpolator(Interpolator)
 		, Speed(Interpolator->Speed)
 		, bUseFixedStep(Interpolator->bUseFixedStep)
 	{}
 
 	TIIRInterpolator(const float InSpeed, const bool InUseFixedStep)
 		: TCameraInterpolator<TValueTypeWrapper<ValueType>>(nullptr)
+		, IIRInterpolator(nullptr)
 		, Speed(InSpeed)
 		, bUseFixedStep(InUseFixedStep)
 	{}
@@ -94,6 +96,12 @@ public:
 	
 	virtual ValueType Run(const float DeltaTime) override
 	{
+		if (IIRInterpolator)
+		{
+			Speed = IIRInterpolator->Speed;
+			bUseFixedStep = IIRInterpolator->bUseFixedStep;
+		}
+		
 		if (bUseFixedStep)
 		{
 			float RemainingTime = DeltaTime;
@@ -151,7 +159,8 @@ protected:
 private:
 	static constexpr float MaxSubstepTime = 1.f / 120.f;
 	static constexpr bool bDoLeftoverRewind = true;
-	
+
+	const UComposableCameraIIRInterpolator* IIRInterpolator;
 	float Speed = 1.f;
 	bool bUseFixedStep = false;
 

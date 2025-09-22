@@ -35,7 +35,6 @@ public:
 
 public:
 	// Reset all variables in this collection to their default values.
-	UFUNCTION(BlueprintCallable, Category = "ComposableCameraSystem|Variable")
 	void ResetVariables();
 
 private:

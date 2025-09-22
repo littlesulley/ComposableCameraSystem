@@ -23,7 +23,7 @@ class COMPOSABLECAMERASYSTEM_API UComposableCameraCameraNodeBase
 
 public:
 	void Initialize(AComposableCameraCameraBase* InOwningCamera, AComposableCameraPlayerCamaraManager* InPlayerCameraManager);
-	void TickNode(float DeltaTime, const FComposableCameraPose& CurrentCameraPose, FComposableCameraPose& OutCameraPose);
+	void TickNode(float DeltaTime, const FComposableCameraPose CurrentCameraPose, FComposableCameraPose& OutCameraPose);
 	void BeginPlayNode(const FComposableCameraPose& CurrentCameraPose);
 	
 	UFUNCTION(BlueprintPure, Category = "ComposableCameraSystem|Node")

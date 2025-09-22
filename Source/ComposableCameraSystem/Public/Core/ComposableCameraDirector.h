@@ -28,7 +28,8 @@ public:
 		UDataTable* NodeInitializerDataTable,
 		FGameplayTagContainer NodeInitializerTags,
 		bool bIsTransient,
-		float LifeTime);
+		float LifeTime,
+		FOnCameraFinishConstructed OnPreBeginplayEvent);
 	
 	[[nodiscard]] FComposableCameraPose Evaluate(float DeltaTime);
 	

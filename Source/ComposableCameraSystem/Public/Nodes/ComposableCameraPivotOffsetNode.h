@@ -36,15 +36,15 @@ public:
 	
 public:
 	// In which space you'd like to apply offset, can be world, camera, or actor local.
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = InputParameters)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters)
 	ECameraPivotOffset PivotOffsetType = ECameraPivotOffset::WorldSpace;
 
 	// The actor determining the local space if you choose actor local space.
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = InputParameters)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters)
 	TSoftObjectPtr<AActor> ActorForLocalSpace = nullptr;
 
 	// The offset.
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = InputParameters)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters)
 	FVector PivotOffset = FVector::ZeroVector;
 
 	// The pivot location that is read from and written to after applying offset by this node.

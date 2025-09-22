@@ -11,7 +11,7 @@ void UComposableCameraCameraNodeBase::Initialize(AComposableCameraCameraBase* In
 	OnInitialize();
 }
 
-void UComposableCameraCameraNodeBase::TickNode(float DeltaTime, const FComposableCameraPose& CurrentCameraPose, FComposableCameraPose& OutCameraPose)
+void UComposableCameraCameraNodeBase::TickNode(float DeltaTime, const FComposableCameraPose CurrentCameraPose, FComposableCameraPose& OutCameraPose)
 {
 	OnTickNode(DeltaTime, CurrentCameraPose, OutCameraPose);
 }

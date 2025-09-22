@@ -1,7 +1,10 @@
 // Copyright Sulley. All rights reserved.
 
 #include "Nodes/ComposableCameraPivotOffsetNode.h"
+
+#include "Core/ComposableCameraPlayerCamaraManager.h"
 #include "Kismet/KismetMathLibrary.h"
+#include "Kismet/KismetSystemLibrary.h"
 
 UComposableCameraPivotOffsetNode::UComposableCameraPivotOffsetNode(const FObjectInitializer& ObjectInitializer)
 {
@@ -60,5 +63,10 @@ void UComposableCameraPivotOffsetNode::UpdatePivotOffset(const FComposableCamera
 	else
 	{
 		ContextPivotPosition.Value = Pivot;
+	}
+
+	if (OwningPlayerCameraManager && OwningPlayerCameraManager->bDrawDebugInformation)
+	{
+		UKismetSystemLibrary::DrawDebugSphere(this, Pivot, 20, 12, FLinearColor::Yellow, 0, 1);
 	}
 }

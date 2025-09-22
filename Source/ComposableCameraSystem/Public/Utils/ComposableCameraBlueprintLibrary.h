@@ -31,6 +31,7 @@ public:
 	 * @param TransitionParams The transition parameters to use. If no transition param is provided, camera cut will be used. \n
 	 * @param ActivationParams Parameters to define some of the properties when activating a new camera, e.g., if it's transient and the node initializers. \n
 	 * @param bNewInstance When the current running camera has the same camera class as CameraClass specified here, whether to instantiate a new camera. \n
+	 * @param OnPreBeginplayEvent Do something after the camera is constructed and initialized, before BeginPlay() is called. You should initialize all camera and node parameters here. \n 
 	 * @return The instanced camera.
 	 */
 	UFUNCTION(BlueprintCallable, Category = "ComposableCameraSystem|Camera", meta = (WorldContext = "WorldContextObject", DeterminesOutputType = "CameraClass"))
@@ -40,7 +41,8 @@ public:
 	TSubclassOf<AComposableCameraCameraBase> CameraClass,
 	FComposableCameraTransitionParams TransitionParams,
 	FComposableCameraActivateParams ActivationParams,
-	bool bNewInstance);
+	bool bNewInstance,
+	FOnCameraFinishConstructed OnPreBeginplayEvent);
 
 	/** Custom thunk function for setting runtime values of a composable camera variable.
 	 * @param Variable The variable to set.

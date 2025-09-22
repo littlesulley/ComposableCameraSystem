@@ -20,7 +20,8 @@ AComposableCameraPlayerCamaraManager* PlayerCameraManager,
 	UDataTable* NodeInitializerDataTable, // @TODO
 	FGameplayTagContainer NodeInitializerTags, // @TODO
 	bool bIsTransient,
-	float LifeTime)
+	float LifeTime,
+	FOnCameraFinishConstructed OnPreBeginplayEvent)
 {
 	if (UWorld* World = GetWorld())
 	{
@@ -36,6 +37,7 @@ AComposableCameraPlayerCamaraManager* PlayerCameraManager,
 			NewCamera->bIsRunning = true;
 			RunningCamera->bIsRunning = false;
 			NewCamera->Initialize(PlayerCameraManager);
+			OnPreBeginplayEvent.ExecuteIfBound(NewCamera);
 			NewCamera->FinishSpawning(FTransform{});
 		}
 		else
@@ -47,6 +49,7 @@ AComposableCameraPlayerCamaraManager* PlayerCameraManager,
 			NewCamera->RemainingLifeTime = -1.f;
 			NewCamera->bIsRunning = true;
 			NewCamera->Initialize(PlayerCameraManager);
+			OnPreBeginplayEvent.ExecuteIfBound(NewCamera);
 			NewCamera->FinishSpawning(FTransform{});
 		}
 

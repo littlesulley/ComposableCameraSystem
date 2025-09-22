@@ -29,7 +29,8 @@ public:
 		UDataTable* NodeInitializerDataTable,
 		FGameplayTagContainer NodeInitializerTags,
 		bool bIsTransient,
-		float LifeTime);
+		float LifeTime,
+		FOnCameraFinishConstructed OnPreBeginplayEvent);
 
 	UFUNCTION(BlueprintPure, Category = "ComposableCameraSystem|Camera")
 	AComposableCameraCameraBase* GetRunningCamera () const
@@ -48,9 +49,13 @@ protected:
 	virtual void DoUpdateCamera(float DeltaTime) override;
 
 public:
-	// Whether to sync current camera rotation to ControlRotation
+	// Whether to sync current camera rotation to ControlRotation.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ComposableCameraSystem")
-	bool SyncToControlRotation { false };
+	bool bSyncToControlRotation { false };
+
+	// Whether to draw debug information during runtime.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ComposableCameraSystem")
+	bool bDrawDebugInformation { false };
 
 	// Current running camera. 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Transient, Category = "ComposableCameraSystem")
@@ -63,5 +68,8 @@ public:
 private:
 	UPROPERTY(Transient)
 	TObjectPtr<UComposableCameraDirector> Director;
+
+	UPROPERTY(Transient)
+	FMinimalViewInfo LastDesiredView;
 };
 	

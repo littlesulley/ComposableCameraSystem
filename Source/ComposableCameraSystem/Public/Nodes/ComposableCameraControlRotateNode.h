@@ -30,31 +30,31 @@ public:
 
 public:
 	// Input action controlling camera rotation. You must use the Enhanced Input Component.
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = InputParameters)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters)
 	class UInputAction* RotateAction;
 
 	// Camera horizontal rotation speed.
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = InputParameters)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters)
 	float HorizontalSpeed { 1.f };
 
 	// Camera vertical rotation speed.
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = InputParameters)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters)
 	float VerticalSpeed { 1.f };
 
 	// Acceleration and deceleration time when changing yaw. First element is acceleration, second is deceleration.
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = InputParameters)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters)
 	FVector2f HorizontalDamping { .5f };
 	
 	// Acceleration and deceleration time when changing pitch. First element is acceleration, second is deceleration.
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = InputParameters)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters)
 	FVector2f VerticalDamping { .5f };
 
 	// Whether to invert pitch.
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = InputParameters)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters)
 	bool bInvertPitch { true };
 
 	// Camera rotation input for this frame (not the final rotation). This is where the result camera rotation input will be written to.
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = ContextParameters)
+	UPROPERTY(EditAnywhere, Category = ContextParameters)
 	FVector2dComposableCameraContextParameter ContextCameraRotationInput;
 
 	// The actor where you retrieve the InputComponent used to read input.

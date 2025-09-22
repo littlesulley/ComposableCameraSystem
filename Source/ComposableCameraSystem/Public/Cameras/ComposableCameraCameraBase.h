@@ -6,6 +6,7 @@
 #include "GameplayTagContainer.h"
 #include "Camera/CameraActor.h"
 #include "UObject/Object.h"
+#include "Variables/ComposableCameraVariableCollection.h"
 #include "ComposableCameraCameraBase.generated.h"
 
 class UComposableCameraVariableCollection;
@@ -64,6 +65,8 @@ public:
 	float LifeTime = 0.f;
 };
 
+DECLARE_DYNAMIC_DELEGATE_OneParam(FOnCameraFinishConstructed, AComposableCameraCameraBase*, Camera);
+
 /**
  * Base camera class.
  */
@@ -101,7 +104,6 @@ public:
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "ComposableCameraSystem|Camera")
 	TSoftObjectPtr<UComposableCameraVariableCollection> ContextVariables;
-	
 
 public:
 	virtual void BeginPlay() override;
@@ -129,6 +131,20 @@ public:
 	bool OnUpdateCamera(float DeltaTime, FComposableCameraPose OldCameraPose, FComposableCameraPose CurrentCameraPose, FComposableCameraPose& OutPose);
 
 public:
+	// Reset all variables in the owning variable collection.
+	UFUNCTION(BlueprintCallable, Category = "ComposableCameraSystem|Camera")
+	void ResetVariableCollection()
+	{
+		if (ContextVariables.IsValid())
+		{
+			ContextVariables->ResetVariables();
+		}
+	}
+
+	// Get the owning node by class. If no such node exists, returns nullptr.
+	UFUNCTION(BlueprintPure, Category = "ComposableCameraSystem|Camera", meta = (DeterminesOutputType = "NodeClass"))
+	UComposableCameraCameraNodeBase* GetNodeByClass(TSubclassOf<UComposableCameraCameraNodeBase> NodeClass);
+	
 	// Get owning player camera manager. Must be type ComposableCameraPlayerCamaraManager.
 	UFUNCTION(BlueprintPure, Category = "ComposableCameraSystem|Camera")
 	AComposableCameraPlayerCamaraManager* GetOwningPlayerCameraManager() { return CameraManager; }
@@ -185,7 +201,7 @@ public:
 	// Pending camera to be resumed. This happens when the running camera is transient and once it finishes, ParentPendingCamera will be resumed.
 	UPROPERTY(Transient, VisibleAnywhere, Category = "ComposableCameraSystem|Camera")
 	AComposableCameraCameraBase* ParentPendingCamera;
-	
+
 protected:
 	UPROPERTY(Transient)
 	TObjectPtr<AComposableCameraPlayerCamaraManager> CameraManager;

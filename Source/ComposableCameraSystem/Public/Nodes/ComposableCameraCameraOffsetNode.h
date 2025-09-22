@@ -22,7 +22,7 @@ public:
 
 public:
 	// Offset to apply on the context pivot position in camera space.
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = InputParameters)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters)
 	FVector CameraOffset;
 
 	// The pivot to read position to read.

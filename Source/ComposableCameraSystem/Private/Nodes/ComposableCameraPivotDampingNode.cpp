@@ -2,7 +2,9 @@
 
 #include "Nodes/ComposableCameraPivotDampingNode.h"
 
+#include "Core/ComposableCameraPlayerCamaraManager.h"
 #include "Kismet/KismetMathLibrary.h"
+#include "Kismet/KismetSystemLibrary.h"
 
 void UComposableCameraPivotDampingNode::OnBeginPlayNode_Implementation(const FComposableCameraPose& CurrentCameraPose)
 {
@@ -26,6 +28,15 @@ void UComposableCameraPivotDampingNode::OnTickNode_Implementation(float DeltaTim
 	}
 
 	FRotator CameraRotation = OutCameraPose.Rotation;
+	
+	if (bMaintainCameraSpacePivotPosition)
+	{
+		FRotator LastCameraRotation = OwningPlayerCameraManager->GetCameraRotation();
+		FVector FakeCameraSpacePivotDirection = UKismetMathLibrary::LessLess_VectorRotator(
+			Pivot - LastPivotPosition, LastCameraRotation);
+		LastPivotPosition = Pivot - UKismetMathLibrary::GreaterGreater_VectorRotator(FakeCameraSpacePivotDirection, CameraRotation);
+	}
+
 	CameraRotation.Pitch = 0;
 	
 	FVector WorldSpacePivotDirection = Pivot - LastPivotPosition;
@@ -96,18 +107,23 @@ void UComposableCameraPivotDampingNode::OnTickNode_Implementation(float DeltaTim
 		}
 		CameraSpaceDampedPivotDirection.Z = NewZ;
 	}
-
-	FVector WorldSpaceDampedPivotDirection = UKismetMathLibrary::GreaterGreater_VectorRotator(
+	
+	FVector WorldSpaceDampedPivotPosition = UKismetMathLibrary::GreaterGreater_VectorRotator(
 		CameraSpaceDampedPivotDirection, CameraRotation) + LastPivotPosition;
 	
 	if (ContextPivotPosition.Variable)
 	{
-		ContextPivotPosition.Variable->RuntimeValue = WorldSpaceDampedPivotDirection;
+		ContextPivotPosition.Variable->RuntimeValue = WorldSpaceDampedPivotPosition;
 	}
 	else
 	{
-		ContextPivotPosition.Value = WorldSpaceDampedPivotDirection;
+		ContextPivotPosition.Value = WorldSpaceDampedPivotPosition;
 	}
 
-	LastPivotPosition = WorldSpaceDampedPivotDirection;
+	LastPivotPosition = WorldSpaceDampedPivotPosition;
+
+	if (OwningPlayerCameraManager && OwningPlayerCameraManager->bDrawDebugInformation)
+	{
+		UKismetSystemLibrary::DrawDebugSphere(this, WorldSpaceDampedPivotPosition, 20, 12, FLinearColor::Green, 0, 1);
+	}
 }

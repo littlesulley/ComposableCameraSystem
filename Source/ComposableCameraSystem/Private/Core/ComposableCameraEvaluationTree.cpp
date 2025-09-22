@@ -1,8 +1,6 @@
 // Copyright Sulley. All rights reserved.
 
 #include "Core/ComposableCameraEvaluationTree.h"
-
-#include "IAutomationControllerManager.h"
 #include "Transitions/ComposableCameraTransitionBase.h"
 
 FComposableCameraPose UComposableCameraEvaluationTree::Evaluate(float DeltaTime)

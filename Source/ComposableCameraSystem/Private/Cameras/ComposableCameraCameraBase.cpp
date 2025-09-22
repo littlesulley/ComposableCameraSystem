@@ -64,4 +64,21 @@ FComposableCameraPose AComposableCameraCameraBase::TickCamera(float DeltaTime)
 	return CameraPose;
 }
 
+UComposableCameraCameraNodeBase* AComposableCameraCameraBase::GetNodeByClass(
+	TSubclassOf<UComposableCameraCameraNodeBase> NodeClass)
+{
+	UComposableCameraCameraNodeBase* Node = nullptr;
+
+	for (UComposableCameraCameraNodeBase* OwningNode : CameraNodes)
+	{
+		if (OwningNode && OwningNode->GetClass() == NodeClass)
+		{
+			Node = OwningNode;
+			break;
+		}
+	}
+
+	return Node;
+}
+
 

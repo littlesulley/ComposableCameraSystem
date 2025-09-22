@@ -9,6 +9,7 @@
 
 /**
  * Node for damping (interpolating) the pivot position. This is done in the space projected onto the XY plane. \n
+ * @InputParameter MaintainCameraSpacePivot: Whether to maintain camera space pivot position. \n
  * @InputParameter UpwardInterpolator: Interpolator when the pivot is moving upward. \n
  * @InputParameter DownwardInterpolator: Interpolator when the pivot is moving downward. \n
  * @InputParameter LeftwardInterpolator: Interpolator when the pivot is moving leftward. \n
@@ -28,6 +29,10 @@ public:
 	virtual void OnTickNode_Implementation(float DeltaTime, const FComposableCameraPose& CurrentCameraPose, FComposableCameraPose& OutCameraPose) override;
 
 public:
+	// Whether to maintain camera space pivot position.
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = InputParameters)
+	bool bMaintainCameraSpacePivotPosition { true };
+	
 	// Interpolator when the pivot is moving upward.
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Instanced, Category = InputParameters)
 	UComposableCameraInterpolatorBase* UpwardInterpolator;

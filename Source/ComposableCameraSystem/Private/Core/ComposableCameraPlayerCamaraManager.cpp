@@ -43,7 +43,8 @@ AComposableCameraCameraBase* AComposableCameraPlayerCamaraManager::ActivateNewCa
 	UDataTable* NodeInitializerDataTable,
 	FGameplayTagContainer NodeInitializerTags,
 	bool bIsTransient,
-	float LifeTime)
+	float LifeTime,
+	FOnCameraFinishConstructed OnPreBeginplayEvent)
 {
 	if (CameraClass == nullptr)
 	{
@@ -66,7 +67,7 @@ AComposableCameraCameraBase* AComposableCameraPlayerCamaraManager::ActivateNewCa
 	}
 	
 	AComposableCameraCameraBase* NewCamera = Director->ActivateNewCamera(
-		PlayerCameraManager, CameraClass, TransitionParams, NodeInitializerDataTable, NodeInitializerTags, bIsTransient, LifeTime);
+		PlayerCameraManager, CameraClass, TransitionParams, NodeInitializerDataTable, NodeInitializerTags, bIsTransient, LifeTime, OnPreBeginplayEvent);
 	if (NewCamera)
 	{
 		RunningCamera = NewCamera;
@@ -120,11 +121,20 @@ FMinimalViewInfo AComposableCameraPlayerCamaraManager::GetCameraViewFromCameraPo
 void AComposableCameraPlayerCamaraManager::DoUpdateCamera(float DeltaTime)
 {
 	Super::DoUpdateCamera(DeltaTime);
+
+	// Must call FillCameraCache, since the call to Super::DoUpdateCamera will override the true camera view.
+	FillCameraCache(LastDesiredView);
 	
 	FComposableCameraPose OutPose = Director->Evaluate(DeltaTime);
 	FMinimalViewInfo DesiredView = GetCameraViewFromCameraPose(OutPose);
 	CurrentCameraPose = OutPose;
-	
+
+	if (bSyncToControlRotation)
+	{
+		GetOwningPlayerController()->SetControlRotation(DesiredView.Rotation);
+	}
+
+	LastDesiredView = DesiredView;
 	FillCameraCache(DesiredView);
 }
 
