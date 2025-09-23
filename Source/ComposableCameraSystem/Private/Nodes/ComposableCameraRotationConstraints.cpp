@@ -22,7 +22,7 @@ void UComposableCameraRotationConstraints::OnTickNode_Implementation(float Delta
 			WorldPivotYaw = 0.;
 			break;
 		case EComposableCameraRotationConstrainType::ActorSpace:
-			if (ActorForYawConstrain)
+			if (ActorForYawConstrain.IsValid())
 			{
 				WorldPivotYaw = ActorForYawConstrain->GetActorRotation().Yaw;
 			}
@@ -52,9 +52,9 @@ void UComposableCameraRotationConstraints::OnTickNode_Implementation(float Delta
 			WorldPivotPitch = 0.;
 			break;
 		case EComposableCameraRotationConstrainType::ActorSpace:
-			if (ActorForYawConstrain)
+			if (ActorForPitchConstrain.IsValid())
 			{
-				WorldPivotPitch = ActorForYawConstrain->GetActorRotation().Pitch;
+				WorldPivotPitch = ActorForPitchConstrain->GetActorRotation().Pitch;
 			}
 			else
 			{
@@ -62,7 +62,7 @@ void UComposableCameraRotationConstraints::OnTickNode_Implementation(float Delta
 			}
 			break;
 		case EComposableCameraRotationConstrainType::VectorSpace:
-			FRotator VectorSpaceRotation = UKismetMathLibrary::MakeRotFromX(VectorForYawConstrain);
+			FRotator VectorSpaceRotation = UKismetMathLibrary::MakeRotFromX(VectorForPitchConstrain);
 			WorldPivotPitch = VectorSpaceRotation.Pitch;
 			break;
 		}

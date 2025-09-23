@@ -44,7 +44,7 @@ public:
 
 	// Reference actor when ActorSpace is used. Its transform will be used as the reference frame.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters, meta = (EditCondition = "ConstrainYawType == EComposableCameraRotationConstrainType::ActorSpace"))
-	AActor* ActorForYawConstrain { nullptr };
+	TSoftObjectPtr<AActor> ActorForYawConstrain { nullptr };
 
 	// Reference vector when VectorSpace is used. It will serve as the forward vector of the reference frame.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters, meta = (EditCondition = "ConstrainYawType == EComposableCameraRotationConstrainType::VectorSpace"))
@@ -63,20 +63,16 @@ public:
 	EComposableCameraRotationConstrainType ConstrainPitchType { EComposableCameraRotationConstrainType::WorldSpace };
 
 	// Reference actor when ActorSpace is used. Its transform will be used as the reference frame.
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters, meta = (EditCondition = "ConstrainYawType == EComposableCameraRotationConstrainType::ActorSpace"))
-	AActor* ActorForPitchConstrain { nullptr };
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters, meta = (EditCondition = "ConstrainPitchType == EComposableCameraRotationConstrainType::ActorSpace"))
+	TSoftObjectPtr<AActor> ActorForPitchConstrain { nullptr };
 
 	// Reference vector when VectorSpace is used. It will serve as the forward vector of the reference frame.
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters, meta = (EditCondition = "ConstrainYawType == EComposableCameraRotationConstrainType::VectorSpace"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters, meta = (EditCondition = "ConstrainPitchType == EComposableCameraRotationConstrainType::VectorSpace"))
 	FVector VectorForPitchConstrain { FVector::ForwardVector };
 
 	// Pitch range in the reference frame. Use the world space, actor space or vector space as the reference frame.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters)
 	FVector2D PitchRange { FVector2D {-70., 70.} };
-
-	// Interpolator for resuming to the valid rotation range when this node gets called but the initial rotation is not within the valid range. 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Instanced, Category = InputParameters)
-	UComposableCameraInterpolatorBase* ResumeInterpolator;
 
 private:
 	double FindTargetYawInRange(const double WorldCurrentYaw, const FVector2D& Vector2);
