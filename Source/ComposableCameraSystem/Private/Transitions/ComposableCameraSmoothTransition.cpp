@@ -7,7 +7,7 @@ FComposableCameraPose UComposableCameraSmoothTransition::OnEvaluate(float DeltaT
 	const FComposableCameraPose& CurrentTargetPose)
 {
 	float DurationPct = (GetTransitionTime() - GetRemainingTime()) / GetTransitionTime();
-	float BlendWeight = bSmootherStep ? SmootherStep(DurationPct) : SmoothStep(DurationPct);
+	float BlendWeight = bSmootherStep ? ComposableCameraSystem::SmootherStep(DurationPct) : ComposableCameraSystem::SmoothStep(DurationPct);
 	
 	FComposableCameraPose CurrentPose = StartCameraPose;
 	CurrentPose.BlendBy(CurrentTargetPose, BlendWeight);

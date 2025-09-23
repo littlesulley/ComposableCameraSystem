@@ -9,6 +9,7 @@
 #include "Nodes/ComposableCameraCameraOffsetNode.h"
 #include "Nodes/ComposableCameraReceivePivotActorNode.h"
 #include "Nodes/ComposableCameraCollisionPushNode.h"
+#include "Nodes/ComposableCameraRotationConstraints.h"
 
 AComposableCameraGeneralThirdPersonCamera::AComposableCameraGeneralThirdPersonCamera(
 	const FObjectInitializer& ObjectInitializer)
@@ -16,6 +17,7 @@ AComposableCameraGeneralThirdPersonCamera::AComposableCameraGeneralThirdPersonCa
 {
 	CameraNodes = {
 		CreateDefaultSubobject<UComposableCameraControlRotateNode>(FName("ControlRotateNode")),
+		CreateDefaultSubobject<UComposableCameraRotationConstraints>(FName("RotationConstraintsNode")),
 		CreateDefaultSubobject<UComposableCameraReceivePivotActorNode>(FName("ReceivePivotActorNode")),
 		CreateDefaultSubobject<UComposableCameraPivotOffsetNode>(FName("PivotOffsetNode")),
 		CreateDefaultSubobject<UComposableCameraPivotDampingNode>(FName("PivotDampingNode")),
