@@ -16,7 +16,7 @@ class COMPOSABLECAMERASYSTEM_API UComposableCameraSmoothTransition
 	GENERATED_BODY()
 
 public:
-	virtual FComposableCameraPose OnEvaluate(float DeltaTime, const FComposableCameraPose& CurrentTargetPose) override;
+	virtual FComposableCameraPose OnEvaluate_Implementation(float DeltaTime, const FComposableCameraPose& CurrentTargetPose) override;
 
 public:
 	// Whether to use smoother step, a fifth-order polynomial algorithm for transition.

@@ -38,11 +38,11 @@ class COMPOSABLECAMERASYSTEM_API UComposableCameraTransitionBase
 
 public:
 	FComposableCameraPose Evaluate(float DeltaTime, const FComposableCameraPose& CurrentTargetPose);
-	void TransitionEnabled(FComposableCameraPose CurrentCameraPose, float TransitionTime);
+	void TransitionEnabled(AComposableCameraCameraBase* SourceCamera, AComposableCameraCameraBase* TargetCamera, const FComposableCameraPose& CurrentSourceCameraPose, float TransitionTime);
 	void TransitionFinished();
 	
 	UFUNCTION(BlueprintPure, Category = "ComposableCameraSystem|Transition")
-	FComposableCameraPose GetStartCameraPose() const { return  StartCameraPose; }
+	FComposableCameraPose GetStartCameraPose() const { return StartCameraPose; }
 
 	UFUNCTION(BlueprintPure, Category = "ComposableCameraSystem|Transition")
 	bool IsFinished() const { return bFinished; }
@@ -54,29 +54,30 @@ public:
 	float GetTransitionTime() const { return TransitionTime; }
 	
 protected:
-	virtual FComposableCameraPose OnEvaluate(float DeltaTime, const FComposableCameraPose& CurrentTargetPose) PURE_VIRTUAL(UComposableCameraTransitionBase::Evaluate, return FComposableCameraPose{};);
-
-	/**
-	 * Event to customize the evaluation function for each tick. When calling this function, RemainingTime has already been decremented, and assured to not go below 0. \n
+	/** Begin Play event. Called when this is the first frame of transition and both source camera and target camera are evaluated, but before the first Tick event is called. \n
+	 * This is usually for constructing or initializing internal parameters specialized for this type of transition, e.g., the Inertialized Transition. \n
 	 * @param DeltaTime World delta time. \n
-	 * @param CurrentTargetPose Current target camera pose for this frame. Don't forget to use the automatically cached StartCameraPose. \n
-	 * @param OutPose Output blended camera pose. \n
-	 * @return Whether to use the result of OutPose for this frame.
+	 * @param CurrentTargetPose Current target camera pose. \n
+	 * @return Returns the new blended camera pose.
 	 */
-	UFUNCTION(BlueprintImplementableEvent, meta = (DisplayName = "OnTransitionTick"), Category = "ComposableCameraSystem|Transition")
-	bool OnTransitionEvaluate(float DeltaTime, const FComposableCameraPose& CurrentTargetPose, FComposableCameraPose& OutPose);
+	UFUNCTION(BlueprintNativeEvent, DisplayName = "OnBeginPlay", Category = "ComposableCameraSystem|Transition")
+	void OnBeginPlay(float DeltaTime, const FComposableCameraPose& CurrentTargetPose);
+	virtual void OnBeginPlay_Implementation(float DeltaTime, const FComposableCameraPose& CurrentTargetPose) {}
+
+	/** Event to customize the evaluation function for each tick. When calling this function, RemainingTime has already been decremented, and assured to not go below 0. \n
+	 * @param DeltaTime World delta time. \n
+	 * @param CurrentTargetPose Current target camera pose. \n
+	 * @return Returns the new blended camera pose.
+	 */
+	UFUNCTION(BlueprintNativeEvent, DisplayName = "OnTick", Category = "ComposableCameraSystem|Transition")
+	FComposableCameraPose OnEvaluate(float DeltaTime, const FComposableCameraPose& CurrentTargetPose);
+	virtual FComposableCameraPose OnEvaluate_Implementation(float DeltaTime, const FComposableCameraPose& CurrentTargetPose) { return FComposableCameraPose{}; }
 
 	/**
-	 * Event when transition enabled, before any tick applies. This is where your custom transition creates internal variables and sets their default values.
-	 */
-	UFUNCTION(BlueprintImplementableEvent, meta = (DisplayName = "OnTransitionEnabled"), Category = "ComposableCameraSystem|Transition")
-	void OnTransitionEnabled();
-	
-	/**
-	 * Event when transitiono finishes. The base class simply sets bFinished to true.
+	 * Event when the transition finishes. The base class simply sets bFinished to true.
 	 */
 	UFUNCTION(BlueprintImplementableEvent, meta = (DisplayName = "OnTransitionFinish"), Category = "ComposableCameraSystem|Transition")
-	void OnTransitionFinished();
+	void OnFinished();
 	
 protected:
 	// Camera pose when transition starts.
@@ -94,4 +95,16 @@ protected:
 	// If finished transition.
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
 	bool bFinished { false };
+
+	// If at the first frame of transition.
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+	bool bFirstFrame { true };
+
+	// Source camera.
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+	AComposableCameraCameraBase* SourceCamera;
+
+	// Target camera.
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+	AComposableCameraCameraBase* TargetCamera;
 };

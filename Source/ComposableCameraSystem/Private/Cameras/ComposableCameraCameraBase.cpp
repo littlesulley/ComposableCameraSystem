@@ -54,12 +54,13 @@ FComposableCameraPose AComposableCameraCameraBase::TickCamera(float DeltaTime)
 		}
 	}
 
+	LastFrameCameraPose = CameraPose;
 	CameraPose = NewCameraPose;
+	
 	if (OnUpdateCamera(DeltaTime, LastFrameCameraPose, NewCameraPose, NewCameraPose))
 	{
 		CameraPose = NewCameraPose;
 	}
-	LastFrameCameraPose = CameraPose;
 	
 	return CameraPose;
 }

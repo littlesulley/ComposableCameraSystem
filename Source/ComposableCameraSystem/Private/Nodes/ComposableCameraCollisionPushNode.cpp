@@ -74,7 +74,7 @@ FComposableCameraHitResult UComposableCameraCollisionPushNode::FindCollisionPoin
 	// Do trace collision point first.
 	const FVector Start = PivotPosition;
 	const FVector End = CameraPosition;
-	FVector Direction = End - Start;
+	FVector Direction = Start - End;
 	Direction.Normalize();
 	
 	TArray<AActor*> ActorsToIgnore;
@@ -90,7 +90,7 @@ FComposableCameraHitResult UComposableCameraCollisionPushNode::FindCollisionPoin
 
 	FHitResult TraceCollisionHit;
 	EDrawDebugTrace::Type DrawDebugType =
-		OwningPlayerCameraManager->bDebugClientSideCamera ?
+		OwningPlayerCameraManager->bDrawDebugInformation ?
 		EDrawDebugTrace::ForOneFrame :
 		EDrawDebugTrace::None;
 		
@@ -112,7 +112,7 @@ FComposableCameraHitResult UComposableCameraCollisionPushNode::FindCollisionPoin
 		if (ElapsedExemptionTime >= TraceOcclusionExemptionTime)
 		{
 			PendingTargetPosition = TraceCollisionHit.Location;
-			PendingTargetPosition += CameraRotation.RotateVector(FVector::ForwardVector) * ExtraPushDistance;
+			PendingTargetPosition += Direction * ExtraPushDistance;
 		}
 	}
 	else
@@ -132,7 +132,6 @@ FComposableCameraHitResult UComposableCameraCollisionPushNode::FindCollisionPoin
 		
 		SelfCollisionStart = PivotPosition;
 		TArray<FHitResult> SelfHitResults;
-		//UKismetSystemLibrary::SphereTraceMulti(this, SelfCollisionStart, SelfCollisionEnd, SelfSphereRadius, SelfCollisionChannel, true, ActorsToIgnore, EDrawDebugTrace::ForOneFrame, SelfHitResults, true);
 
 		FCollisionQueryParams QueryParams =  FCollisionQueryParams::DefaultQueryParam;
 		QueryParams.AddIgnoredActors(ActorsToIgnore);
@@ -169,8 +168,10 @@ FComposableCameraHitResult UComposableCameraCollisionPushNode::FindCollisionPoin
 		{
 			if (HitResult.GetActor() == HitActor)
 			{
+				Direction = SelfCollisionStart - SelfCollisionEnd;
+				Direction.Normalize();
 				PendingTargetPosition = HitResult.Location;
-				PendingTargetPosition += CameraRotation.RotateVector(FVector::ForwardVector) * ExtraPushDistance;
+				PendingTargetPosition += Direction * ExtraPushDistance;
 				break;
 			}
 		}

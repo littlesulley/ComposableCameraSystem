@@ -57,7 +57,7 @@ AComposableCameraPlayerCamaraManager* PlayerCameraManager,
 		if (TransitionParams.TransitionClass)
 		{
 			Transition = NewObject<UComposableCameraTransitionBase>(this, TransitionParams.TransitionClass);
-			Transition->TransitionEnabled(CurrentCameraPose, TransitionParams.TransitionTime);
+			Transition->TransitionEnabled(RunningCamera, NewCamera, RunningCamera->GetCameraPose(), TransitionParams.TransitionTime);
 		}
 		
 		OnActivateNewCamera(NewCamera, Transition);
@@ -66,10 +66,9 @@ AComposableCameraPlayerCamaraManager* PlayerCameraManager,
 	return RunningCamera;
 }
 
-FComposableCameraPose UComposableCameraDirector::Evaluate(float DeltaTime)
+FComposableCameraPose UComposableCameraDirector::Evaluate(float DeltaTime) const
 {
-	CurrentCameraPose = EvaluationTree->Evaluate(DeltaTime);
-	return CurrentCameraPose;
+	return EvaluationTree->Evaluate(DeltaTime);
 }
 
 void UComposableCameraDirector::OnActivateNewCamera(AComposableCameraCameraBase* NewCamera, UComposableCameraTransitionBase* Transition)

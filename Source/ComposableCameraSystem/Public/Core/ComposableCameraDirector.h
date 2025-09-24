@@ -31,12 +31,9 @@ public:
 		float LifeTime,
 		FOnCameraFinishConstructed OnPreBeginplayEvent);
 	
-	[[nodiscard]] FComposableCameraPose Evaluate(float DeltaTime);
+	[[nodiscard]] FComposableCameraPose Evaluate(float DeltaTime) const;
 	
 private:
-	UPROPERTY(Transient)
-	FComposableCameraPose CurrentCameraPose;
-
 	UPROPERTY(Transient)
 	UComposableCameraEvaluationTree* EvaluationTree;
 

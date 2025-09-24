@@ -3,7 +3,7 @@
 
 #include "Transitions/ComposableCameraCubicTransition.h"
 
-FComposableCameraPose UComposableCameraCubicTransition::OnEvaluate(
+FComposableCameraPose UComposableCameraCubicTransition::OnEvaluate_Implementation(
 	float DeltaTime, const FComposableCameraPose& CurrentTargetPose)
 {
 	float DurationPct = (GetTransitionTime() - GetRemainingTime()) / GetTransitionTime();

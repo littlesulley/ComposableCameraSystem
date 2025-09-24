@@ -3,7 +3,7 @@
 #include "Transitions/ComposableCameraSmoothTransition.h"
 #include "Math/ComposableCameraMath.h"
 
-FComposableCameraPose UComposableCameraSmoothTransition::OnEvaluate(float DeltaTime,
+FComposableCameraPose UComposableCameraSmoothTransition::OnEvaluate_Implementation(float DeltaTime,
 	const FComposableCameraPose& CurrentTargetPose)
 {
 	float DurationPct = (GetTransitionTime() - GetRemainingTime()) / GetTransitionTime();

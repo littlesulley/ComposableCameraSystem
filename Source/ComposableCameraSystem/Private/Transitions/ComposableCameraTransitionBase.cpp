@@ -4,6 +4,12 @@
 
 FComposableCameraPose UComposableCameraTransitionBase::Evaluate(float DeltaTime, const FComposableCameraPose& CurrentTargetPose)
 {
+	if (bFirstFrame)
+	{
+		OnBeginPlay(DeltaTime, CurrentTargetPose);
+		bFirstFrame = false;
+	}
+	
 	// If no time remains, directly return the target pose.
 	RemainingTime -= DeltaTime;
 	if (RemainingTime <= 0.0f)
@@ -13,31 +19,22 @@ FComposableCameraPose UComposableCameraTransitionBase::Evaluate(float DeltaTime,
 	}
 
 	// Else, do evaluation.
-	FComposableCameraPose OutPose;
-	if (OnTransitionEvaluate(DeltaTime, CurrentTargetPose,  OutPose))
-	{
-		// Do nothing here, as OutPose already be set.
-	}
-	else
-	{
-		OutPose = OnEvaluate(DeltaTime, CurrentTargetPose);
-	}
-
-	return OutPose;
+	return OnEvaluate(DeltaTime, CurrentTargetPose);
 }
 
-void UComposableCameraTransitionBase::TransitionEnabled(FComposableCameraPose CurrentCameraPose, float InTransitionTime)
+void UComposableCameraTransitionBase::TransitionEnabled(AComposableCameraCameraBase* InSourceCamera, AComposableCameraCameraBase* InTargetCamera, const FComposableCameraPose& CurrentSourceCameraPose, float InTransitionTime)
 {
-	StartCameraPose = CurrentCameraPose;
+	SourceCamera = InSourceCamera;
+	TargetCamera = InTargetCamera;
+	StartCameraPose = CurrentSourceCameraPose;
 	TransitionTime = InTransitionTime;
 	RemainingTime = InTransitionTime;
 	bFinished = false;
-	OnTransitionEnabled();
 }
 
 void UComposableCameraTransitionBase::TransitionFinished()
 {
 	bFinished = true;
-	OnTransitionFinished();
+	OnFinished();
 }
 

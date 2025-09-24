@@ -2,7 +2,7 @@
 
 #include "Transitions/ComposableCameraLinearTransition.h"
 
-FComposableCameraPose UComposableCameraLinearTransition::OnEvaluate(float DeltaTime,
+FComposableCameraPose UComposableCameraLinearTransition::OnEvaluate_Implementation(float DeltaTime,
 	const FComposableCameraPose& CurrentTargetPose)
 {
 	float BlendWeight = (GetTransitionTime() - GetRemainingTime()) / GetTransitionTime();

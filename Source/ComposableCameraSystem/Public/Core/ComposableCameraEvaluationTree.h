@@ -24,6 +24,9 @@ public:
 	void OnActivateNewCamera(AComposableCameraCameraBase* NewCamera, UComposableCameraTransitionBase* Transition);
 
 private:
+	// Last camera pose.
+	FComposableCameraPose LastCameraPose;
+	
 	// Currently running camera.
 	AComposableCameraCameraBase* RunningCamera;
 
