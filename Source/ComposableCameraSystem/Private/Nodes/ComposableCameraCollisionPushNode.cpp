@@ -191,15 +191,14 @@ FVector UComposableCameraCollisionPushNode::StartResolveCollision(double DeltaTi
 
 	double TargetDistance = (TargetLocation - CameraPosition).Length();
 	double DistanceOffset = TargetDistance - CurrentDistanceFromCamera;
-	double NewDistanceOffset = DistanceOffset;
 	
 	if (PushInterpolator_T)
 	{
-		PushInterpolator_T->Reset(0, DistanceOffset);
-		NewDistanceOffset = PushInterpolator_T->Run(DeltaTime);
+		PushInterpolator_T->Reset(CurrentDistanceFromCamera, TargetDistance);
+		DistanceOffset = PushInterpolator_T->Run(DeltaTime);
 	}
 
-	CurrentDistanceFromCamera += NewDistanceOffset;
+	CurrentDistanceFromCamera += DistanceOffset;
 
 	return CameraPosition + Direction * CurrentDistanceFromCamera;
 }

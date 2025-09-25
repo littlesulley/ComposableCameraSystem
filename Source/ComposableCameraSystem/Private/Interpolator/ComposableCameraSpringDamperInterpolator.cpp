@@ -1,0 +1,5 @@
+// Copyright Sulley. All rights reserved.
+
+#include "Interpolator/ComposableCameraSpringDamperInterpolator.h"
+
+COMPOSABLECAMERASYSTEM_DEFINE_CAMERA_INTERPOLATOR(UComposableCameraSpringDamperInterpolator, TSpringDamperInterpolator)

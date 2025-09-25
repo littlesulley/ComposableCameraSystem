@@ -31,6 +31,11 @@ struct TValueTypeWrapper
 		Value *= Multiplier;
 		return *this;
 	}
+	TValueTypeWrapper& operator- ()
+	{
+		Value = -Value;
+		return *this;
+	}
 	friend TValueTypeWrapper operator- (TValueTypeWrapper LHS, const TValueTypeWrapper& RHS)
 	{
 		LHS -= RHS;
@@ -41,9 +46,17 @@ struct TValueTypeWrapper
 		LHS += RHS;
 		return LHS;
 	}
+	friend TValueTypeWrapper operator* (double Multiplier, const TValueTypeWrapper& RHS)
+	{
+		return Multiplier * RHS.Value;
+	}
 	TValueTypeWrapper operator* (double Multiplier) const
 	{
 		return Value * Multiplier;
+	}
+	TValueTypeWrapper operator/ (double Multiplier) const
+	{
+		return Value / Multiplier;
 	}
 
 	ValueType Value {};
