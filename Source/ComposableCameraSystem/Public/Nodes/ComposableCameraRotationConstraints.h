@@ -23,7 +23,17 @@ enum class EComposableCameraRotationConstrainType : uint8
 };
 
 /**
- * Node for constraining rotation's yaw or pitch.
+ * Node for constraining rotation's yaw or pitch. \n
+ *  @ InputParameter bConstrainYaw: Whether to enable yaw constraint. \n
+ *  @ InputParameter ConstrainYawType: Constrain yaw type, choose between WorldSpace, ActorSpace and VectorSpace. \n
+ *  @ InputParameter ActorForYawConstrain: Reference actor when ActorSpace is used. Its transform will be used as the reference frame. \n
+ *  @ InputParameter VectorForYawConstrain: Reference vector when VectorSpace is used. It will serve as the forward vector of the reference frame. \n
+ *  @ InputParameter YawRange: Yaw range in the reference frame. Use the world space, actor space or vector space as the reference frame. \n
+ *  @ InputParameter bConstrainPitch: Whether to enable pitch constraint. \n
+ *  @ InputParameter ConstrainPitchType: Constrain pitch type, choose between WorldSpace, ActorSpace and VectorSpace. \n
+ *  @ InputParameter ActorForPitchConstrain: Reference actor when ActorSpace is used. Its transform will be used as the reference frame. \n
+ *  @ InputParameter VectorForPitchConstrain: Reference vector when VectorSpace is used. It will serve as the forward vector of the reference frame. \n
+ *  @ InputParameter PitchRange: Pitch range in the reference frame. Use the world space, actor space or vector space as the reference frame. 
  */
 UCLASS(NotBlueprintable, ClassGroup = ComposableCameraSystem)
 class COMPOSABLECAMERASYSTEM_API UComposableCameraRotationConstraints : public UComposableCameraCameraNodeBase

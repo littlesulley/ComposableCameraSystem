@@ -72,7 +72,7 @@ DECLARE_DYNAMIC_DELEGATE_OneParam(FOnCameraFinishConstructed, AComposableCameraC
  */
 UCLASS(Abstract, DefaultToInstanced, BlueprintType, Blueprintable, ClassGroup = ComposableCameraSystem)
 class COMPOSABLECAMERASYSTEM_API AComposableCameraCameraBase
-	: public AActor
+	: public ACameraActor
 {
 	GENERATED_BODY()
 

@@ -20,5 +20,5 @@ public:
 
 public:
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = InputParameters)
-	float FieldOfView;
+	float FieldOfView { 79.f };
 };
