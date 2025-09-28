@@ -3,6 +3,7 @@
 #include "Core/ComposableCameraPlayerCamaraManager.h"
 #include "Cameras/ComposableCameraCameraBase.h"
 #include "ComposableCameraSystemModule.h"
+#include "Camera/CameraComponent.h"
 #include "Core/ComposableCameraDirector.h"
 #include "Transitions/ComposableCameraTransitionBase.h"
 
@@ -128,6 +129,13 @@ void AComposableCameraPlayerCamaraManager::DoUpdateCamera(float DeltaTime)
 	FComposableCameraPose OutPose = Director->Evaluate(DeltaTime);
 	FMinimalViewInfo DesiredView = GetCameraViewFromCameraPose(OutPose);
 	CurrentCameraPose = OutPose;
+
+	if (RunningCamera)
+	{
+		RunningCamera->SetActorLocation(DesiredView.Location);
+		RunningCamera->SetActorRotation(DesiredView.Rotation);
+		RunningCamera->GetCameraComponent()->FieldOfView = DesiredView.FOV;
+	}
 
 	if (bSyncToControlRotation)
 	{

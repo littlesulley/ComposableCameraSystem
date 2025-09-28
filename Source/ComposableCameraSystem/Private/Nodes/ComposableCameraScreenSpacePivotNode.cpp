@@ -83,6 +83,8 @@ FVector UComposableCameraScreenSpacePivotNode::GetScreenSpaceTranslateAmount(con
 	int32 ViewportX, ViewportY;
 	OwningPlayerCameraManager->GetOwningPlayerController()->GetViewportSize(ViewportX, ViewportY);
 	float AspectRatio = 1.0f * ViewportX / ViewportY;
+
+	UKismetSystemLibrary::PrintString(this, FString::SanitizeFloat(ViewportX) + " " + FString::SanitizeFloat(ViewportY));
 	//AspectRatio = OwningCamera->GetCameraComponent()->AspectRatio;
 
 	// Get the expected camera distance.
