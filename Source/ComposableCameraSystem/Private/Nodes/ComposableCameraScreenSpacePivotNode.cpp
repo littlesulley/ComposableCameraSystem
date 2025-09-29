@@ -66,7 +66,7 @@ FVector UComposableCameraScreenSpacePivotNode::GetScreenSpaceTranslateAmount(con
                                                                              const FComposableCameraPose& OutCameraPose, float DeltaTime)
 {
 	double CameraDistance = TranslationParams.CameraDistance;
-	FVector CameraPosition = GetOwningPlayerCameraManager()->GetCameraLocation();
+	FVector CameraPosition = GetOwningPlayerCameraManager()->GetCameraLocation(); // @TODO should use the location before deocclusion.
 	FRotator CameraRotation = OutCameraPose.Rotation;
 	FVector CameraSpacePivotPosition = UKismetMathLibrary::LessLess_VectorRotator(Pivot - CameraPosition, CameraRotation);
 	
@@ -219,10 +219,9 @@ void UComposableCameraScreenSpacePivotNode::DrawDebugInfo(AHUD* HUD, UCanvas* Ca
 		}
 		else
 		{
-			float DegTanHalfHOR = UKismetMathLibrary::DegTan(OwningCamera->GetCameraComponent()->FieldOfView / 2.0f);;
 			float ViewportAspectRatio = 1.0f * ScreenWidth / ScreenHeight;
 			float AspectRatio = OwningCamera->GetCameraComponent()->AspectRatio;
-
+			
 			float ClampedScreenWidth = ScreenWidth;
 			float ClampedScreenHeight = ScreenHeight;
 			
@@ -235,22 +234,32 @@ void UComposableCameraScreenSpacePivotNode::DrawDebugInfo(AHUD* HUD, UCanvas* Ca
 				ClampedScreenHeight = ScreenWidth / AspectRatio;
 			}
 
+			FVector2D ScreenOffset = FVector2D::ZeroVector;
+			ULocalPlayer* const LP = OwningPlayerCameraManager->GetOwningPlayerController() ? OwningPlayerCameraManager->GetOwningPlayerController()->GetLocalPlayer() : nullptr;
+			
+			if (LP && LP->ViewportClient)
+			{
+				FSceneViewProjectionData ProjectionData;
+				LP->GetProjectionData(LP->ViewportClient->Viewport, ProjectionData);
+				ScreenOffset = FVector2D(ProjectionData.GetConstrainedViewRect().Min);
+			}
+			
 			float RatioX = ClampedScreenWidth / ScreenWidth;
 			float RatioY = ClampedScreenHeight / ScreenHeight;
-
-			float ScreenX = (SafeZoneCenter.X * RatioX + 0.5f + SafeZoneWidth.X * RatioX) * ScreenWidth;
-			float ScreenY = (-SafeZoneCenter.Y * RatioY + 0.5f - SafeZoneHeight.Y * RatioY) * ScreenHeight;
+			
+			float ScreenX = (SafeZoneCenter.X * RatioX + 0.5f + SafeZoneWidth.X * RatioX) * ScreenWidth - ScreenOffset.X;
+			float ScreenY = (-SafeZoneCenter.Y * RatioY + 0.5f - SafeZoneHeight.Y * RatioY) * ScreenHeight - ScreenOffset.Y;
 			float ScreenW = (SafeZoneWidth.Y * RatioX - SafeZoneWidth.X * RatioX) * ScreenWidth;
 			float ScreenH = (SafeZoneHeight.Y * RatioY - SafeZoneHeight.X * RatioY) * ScreenHeight;
 			HUD->DrawRect(RectColor, ScreenX, ScreenY, ScreenW, ScreenH);
-
-			float CenterX = (SafeZoneCenter.X * RatioX + 0.5f) * ScreenWidth;
-			float CenterY = (-SafeZoneCenter.Y * RatioY + 0.5f) * ScreenHeight;
+			
+			float CenterX = (SafeZoneCenter.X * RatioX + 0.5f) * ScreenWidth - ScreenOffset.X;
+			float CenterY = (-SafeZoneCenter.Y * RatioY + 0.5f) * ScreenHeight - ScreenOffset.Y;
 			HUD->DrawRect(CenterColor, CenterX - Radius, CenterY - Radius, 2 * Radius, 2 * Radius);
 	
 			FVector2D ScreenPosition;
 			FVector Pivot = GetCurrentPivot();
-			UGameplayStatics::ProjectWorldToScreen(OwningPlayerCameraManager->GetOwningPlayerController(), Pivot, ScreenPosition);
+			UGameplayStatics::ProjectWorldToScreen(OwningPlayerCameraManager->GetOwningPlayerController(), Pivot, ScreenPosition, true);
 			HUD->DrawRect(PivotCenterColor, ScreenPosition.X - Radius, ScreenPosition.Y - Radius, 2 * Radius, 2 * Radius);
 			
 		}
