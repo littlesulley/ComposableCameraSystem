@@ -92,29 +92,19 @@ FMinimalViewInfo AComposableCameraPlayerCamaraManager::GetCameraViewFromCameraPo
 	DesiredView.FOV = OutPose.FieldOfView;
 	DesiredView.DesiredFOV = OutPose.FieldOfView;
 
-	// DesiredView.AspectRatio = CameraPose.GetSensorAspectRatio();
-	// DesiredView.bConstrainAspectRatio = CameraPose.GetConstrainAspectRatio();
-	// DesiredView.AspectRatioAxisConstraint = CameraPose.GetOverrideAspectRatioAxisConstraint() ?
-	// 	CameraPose.GetAspectRatioAxisConstraint() : TOptional<EAspectRatioAxisConstraint>();
-	//
-	// DesiredView.ProjectionMode = CameraPose.GetProjectionMode();
-	// if (CameraPose.GetProjectionMode() == ECameraProjectionMode::Orthographic)
-	// {
-	// 	DesiredView.OrthoWidth = CameraPose.GetOrthographicWidth();
-	// }
-	//
-	// DesiredView.PerspectiveNearClipPlane = CameraPose.GetNearClippingPlane();
-	//
-	// DesiredView.OffCenterProjectionOffset.X = CameraPose.GetHorizontalProjectionOffset();
-	// DesiredView.OffCenterProjectionOffset.Y = CameraPose.GetVerticalProjectionOffset();
-	//
-	// const FPostProcessSettingsCollection& PostProcessSettings = RootNodeResult.PostProcessSettings;
-	// DesiredView.PostProcessSettings = PostProcessSettings.Get();
-	// DesiredView.PostProcessBlendWeight = 1.f;
-	// // Create the physical camera settings if needed. Don't overwrite settings that were set by hand.
-	// CameraPose.ApplyPhysicalCameraSettings(DesiredView.PostProcessSettings, false);
-	//
-	// DesiredView.ApplyOverscan(CameraPose.GetOverscan());
+	if (RunningCamera)
+	{
+		UCameraComponent* CameraComponent = RunningCamera->GetCameraComponent();
+		DesiredView.AspectRatio = CameraComponent->AspectRatio;
+		DesiredView.bConstrainAspectRatio = CameraComponent->bConstrainAspectRatio;
+		DesiredView.AspectRatioAxisConstraint = CameraComponent->AspectRatioAxisConstraint;
+		DesiredView.ProjectionMode = CameraComponent->ProjectionMode;
+		DesiredView.OrthoWidth = CameraComponent->OrthoWidth;
+		DesiredView.OrthoNearClipPlane = CameraComponent->OrthoNearClipPlane;
+		DesiredView.OrthoFarClipPlane = CameraComponent->OrthoFarClipPlane;
+		DesiredView.PostProcessSettings = CameraComponent->PostProcessSettings;
+		DesiredView.PostProcessBlendWeight = CameraComponent->PostProcessBlendWeight;
+	}
 	
 	return DesiredView;
 }

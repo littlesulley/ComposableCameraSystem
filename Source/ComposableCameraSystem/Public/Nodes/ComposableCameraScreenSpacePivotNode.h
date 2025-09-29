@@ -23,7 +23,7 @@ USTRUCT(BlueprintType)
 struct FComposableCameraScreenSpaceTranslationParams
 {
 	GENERATED_BODY()
-
+	
 	// Camera distance to the pivot.
 	UPROPERTY(EditAnywhere)
 	double CameraDistance { 300. };
@@ -103,7 +103,7 @@ private:
 
 	FDelegateHandle DrawDebugHandle;
 
-	void EnsureWithinBounds(const FVector& CameraSpacePivotPosition, FVector& CameraSpaceDampedOffset, const float& AspectRatio, const float& FieldOfView, const float& CameraDistanc);
+	void EnsureWithinBounds(const FVector& CameraSpacePivotPosition, FVector& CameraSpaceDampedOffset, const float& AspectRatio, const float& TanHalfHOR, const float& CameraDistanc);
 	FVector GetScreenSpaceTranslateAmount(const FVector& Pivot, const FComposableCameraPose& OutCameraPose, float DeltaTime);
 	FRotator GetScreenSpaceRotateAmount(const FVector& Pivot, const FComposableCameraPose& OutCameraPose, float DeltaTime);
 

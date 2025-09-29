@@ -14,27 +14,16 @@ void UComposableCameraReceivePivotActorNode::OnTickNode_Implementation(
 	const FComposableCameraPose& CurrentCameraPose,
 	FComposableCameraPose& OutCameraPose)
 {
-	if (ContextPivotActor.Variable)
+	if (ContextPivotActor.Variable && ContextPivotActor.Variable->RuntimeValue)
 	{
-		ContextPivotActor.Variable->RuntimeValue = PivotActor.Get();
+		ContextPivotPosition.Variable->RuntimeValue = ContextPivotActor.Variable->RuntimeValue->GetActorLocation();
+	}
+	else if (ContextPivotActor.Value)
+	{
+		ContextPivotPosition.Variable->RuntimeValue = ContextPivotActor.Value->GetActorLocation();
 	}
 	else
 	{
-		ContextPivotActor.Value = PivotActor.Get();
-	}
-
-	if (ContextPivotPosition.Variable)
-	{
-		ContextPivotPosition.Variable->RuntimeValue =
-			PivotActor.IsValid()
-			? PivotActor.Get()->GetActorLocation()
-			: FVector::ZeroVector;
-	}
-	else
-	{
-		ContextPivotPosition.Value =
-			PivotActor.IsValid()
-			? PivotActor.Get()->GetActorLocation()
-			: FVector::ZeroVector;
+		ContextPivotPosition.Variable->RuntimeValue = FVector::ZeroVector;
 	}
 }

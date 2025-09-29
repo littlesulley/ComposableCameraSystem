@@ -79,19 +79,54 @@ FVector UComposableCameraScreenSpacePivotNode::GetScreenSpaceTranslateAmount(con
 		CameraSpaceDampedXOffset = XInterpolator_T->Run(DeltaTime);
 	}
 
-	// Get aspect ratio.
+	// Get aspect ratio and horizontal FOV.
 	int32 ViewportX, ViewportY;
 	OwningPlayerCameraManager->GetOwningPlayerController()->GetViewportSize(ViewportX, ViewportY);
-	float AspectRatio = 1.0f * ViewportX / ViewportY;
+	
+	float DegTanHalfHOR = UKismetMathLibrary::DegTan(OutCameraPose.FieldOfView / 2.0f);;
+	float AspectRatio = 1.0f * ViewportX / ViewportY;;
 
-	UKismetSystemLibrary::PrintString(this, FString::SanitizeFloat(ViewportX) + " " + FString::SanitizeFloat(ViewportY));
-	//AspectRatio = OwningCamera->GetCameraComponent()->AspectRatio;
+	// Aspect ratio is different when bConstrainAspectRatio is true or false.
+	// If bConstrainAspectRatio is false, ViewportX / ViewportY is the real aspect ratio, and FOV is computed according to AspectRatioAxisConstraint.
+	// If bConstrainAspectRatio is true, camera's own aspect ratio is used, FOV is not modified, and black bars will be added to sides of the viewport.
+	if (!OwningCamera->GetCameraComponent()->bConstrainAspectRatio)
+	{
+		if (OwningCamera->GetCameraComponent()->bOverrideAspectRatioAxisConstraint)
+		{
+			switch (OwningCamera->GetCameraComponent()->AspectRatioAxisConstraint)
+			{
+			case AspectRatio_MaintainXFOV:
+				DegTanHalfHOR = UKismetMathLibrary::DegTan(OutCameraPose.FieldOfView / 2.0f);
+				break;
+			case AspectRatio_MaintainYFOV:
+				DegTanHalfHOR = UKismetMathLibrary::DegTan(OutCameraPose.FieldOfView / 2.0f) / OwningCamera->GetCameraComponent()->AspectRatio * AspectRatio;
+				break;
+			case AspectRatio_MajorAxisFOV:
+				if (ViewportX > ViewportY)
+				{
+					DegTanHalfHOR = UKismetMathLibrary::DegTan(OutCameraPose.FieldOfView / 2.0f);
+				}
+				else
+				{
+					DegTanHalfHOR = UKismetMathLibrary::DegTan(OutCameraPose.FieldOfView / 2.0f) / OwningCamera->GetCameraComponent()->AspectRatio * AspectRatio;
+				}
+				break;
+			default:
+				DegTanHalfHOR = UKismetMathLibrary::DegTan(OutCameraPose.FieldOfView / 2.0f);
+				break;
+			}
+		}
+	}
+	else
+	{
+		AspectRatio = OwningCamera->GetCameraComponent()->AspectRatio;
+	}
 
 	// Get the expected camera distance.
 	CameraDistance = CameraSpacePivotPosition.X - CameraSpaceDampedXOffset;
 
 	// Calculate camera space damped Y/Z axis (camera distance) offset.
-	float W = UKismetMathLibrary::DegTan(OutCameraPose.FieldOfView / 2.0f) * CameraDistance * 2.0f;
+	float W = DegTanHalfHOR * CameraDistance * 2.0f;
 	float DesiredCameraSpaceY = W * SafeZoneCenter.X;
 	float DesiredCameraSpaceZ = W / AspectRatio * SafeZoneCenter.Y;
 	
@@ -111,7 +146,7 @@ FVector UComposableCameraScreenSpacePivotNode::GetScreenSpaceTranslateAmount(con
 
 	// Ensure the pivot is within safe zone.
 	FVector CameraSpaceDampedOffset { CameraSpaceDampedXOffset, CameraSpaceDampedYOffset, CameraSpaceDampedZOffset };
-	EnsureWithinBounds(CameraSpacePivotPosition, CameraSpaceDampedOffset, AspectRatio, OutCameraPose.FieldOfView, CameraDistance);
+	EnsureWithinBounds(CameraSpacePivotPosition, CameraSpaceDampedOffset, AspectRatio, DegTanHalfHOR, CameraDistance);
 
 	// Convert to world space offset.
 	return UKismetMathLibrary::GreaterGreater_VectorRotator(CameraSpaceDampedOffset, CameraRotation);
@@ -119,11 +154,11 @@ FVector UComposableCameraScreenSpacePivotNode::GetScreenSpaceTranslateAmount(con
 }
 
 void UComposableCameraScreenSpacePivotNode::EnsureWithinBounds(const FVector& CameraSpacePivotPosition,
-	FVector& CameraSpaceDampedOffset, const float& AspectRatio, const float& FieldOfView, const float& CameraDistance)
+	FVector& CameraSpaceDampedOffset, const float& AspectRatio, const float& TanHalfHOR, const float& CameraDistance)
 {
 	FVector DesiredCameraSpacePivotPosition = CameraSpacePivotPosition - CameraSpaceDampedOffset;
 
-	float Width = UKismetMathLibrary::DegTan(FieldOfView / 2.0f) * CameraDistance * 2.0f;
+	float Width = TanHalfHOR * CameraDistance * 2.0f;
 	float LeftBound = (SafeZoneCenter.X + SafeZoneWidth.X) * Width;
 	float RightBound = (SafeZoneCenter.X + SafeZoneWidth.Y) * Width;
 	float BottomBound = (SafeZoneCenter.Y + SafeZoneHeight.X) * Width / AspectRatio;
@@ -161,23 +196,63 @@ void UComposableCameraScreenSpacePivotNode::DrawDebugInfo(AHUD* HUD, UCanvas* Ca
 		constexpr FLinearColor CenterColor = FLinearColor(0.7f, 0.9f, 1.0f, 0.8f);
 		constexpr FLinearColor PivotCenterColor = FLinearColor(0.6f, 0.78f, 1.0f, 0.8f);
 		constexpr float Radius = 5.0f;
-		
+
 		int32 ScreenWidth = Canvas->SizeX;
 		int32 ScreenHeight = Canvas->SizeY;
 		
-		float ScreenX = (SafeZoneCenter.X + 0.5f + SafeZoneWidth.X) * ScreenWidth;
-		float ScreenY = (-SafeZoneCenter.Y + 0.5f - SafeZoneHeight.Y) * ScreenHeight;
-		float ScreenW = (SafeZoneWidth.Y - SafeZoneWidth.X) * ScreenWidth;
-		float ScreenH = (SafeZoneHeight.Y - SafeZoneHeight.X) * ScreenHeight;
-		HUD->DrawRect(RectColor, ScreenX, ScreenY, ScreenW, ScreenH);
+		if (!OwningCamera->GetCameraComponent()->bConstrainAspectRatio)
+		{
+			float ScreenX = (SafeZoneCenter.X + 0.5f + SafeZoneWidth.X) * ScreenWidth;
+			float ScreenY = (-SafeZoneCenter.Y + 0.5f - SafeZoneHeight.Y) * ScreenHeight;
+			float ScreenW = (SafeZoneWidth.Y - SafeZoneWidth.X) * ScreenWidth;
+			float ScreenH = (SafeZoneHeight.Y - SafeZoneHeight.X) * ScreenHeight;
+			HUD->DrawRect(RectColor, ScreenX, ScreenY, ScreenW, ScreenH);
 
-		float CenterX = (SafeZoneCenter.X + 0.5f) * ScreenWidth;
-		float CenterY = (-SafeZoneCenter.Y + 0.5f) * ScreenHeight;
-		HUD->DrawRect(CenterColor, CenterX - Radius, CenterY - Radius, 2 * Radius, 2 * Radius);
+			float CenterX = (SafeZoneCenter.X + 0.5f) * ScreenWidth;
+			float CenterY = (-SafeZoneCenter.Y + 0.5f) * ScreenHeight;
+			HUD->DrawRect(CenterColor, CenterX - Radius, CenterY - Radius, 2 * Radius, 2 * Radius);
 	
-		FVector2D ScreenPosition;
-		FVector Pivot = GetCurrentPivot();
-		UGameplayStatics::ProjectWorldToScreen(OwningPlayerCameraManager->GetOwningPlayerController(), Pivot, ScreenPosition);
-		HUD->DrawRect(PivotCenterColor, ScreenPosition.X - Radius, ScreenPosition.Y - Radius, 2 * Radius, 2 * Radius);
+			FVector2D ScreenPosition;
+			FVector Pivot = GetCurrentPivot();
+			UGameplayStatics::ProjectWorldToScreen(OwningPlayerCameraManager->GetOwningPlayerController(), Pivot, ScreenPosition);
+			HUD->DrawRect(PivotCenterColor, ScreenPosition.X - Radius, ScreenPosition.Y - Radius, 2 * Radius, 2 * Radius);
+		}
+		else
+		{
+			float DegTanHalfHOR = UKismetMathLibrary::DegTan(OwningCamera->GetCameraComponent()->FieldOfView / 2.0f);;
+			float ViewportAspectRatio = 1.0f * ScreenWidth / ScreenHeight;
+			float AspectRatio = OwningCamera->GetCameraComponent()->AspectRatio;
+
+			float ClampedScreenWidth = ScreenWidth;
+			float ClampedScreenHeight = ScreenHeight;
+			
+			if (ViewportAspectRatio > AspectRatio)
+			{
+				ClampedScreenWidth = ScreenHeight * AspectRatio;
+			}
+			else
+			{
+				ClampedScreenHeight = ScreenWidth / AspectRatio;
+			}
+
+			float RatioX = ClampedScreenWidth / ScreenWidth;
+			float RatioY = ClampedScreenHeight / ScreenHeight;
+
+			float ScreenX = (SafeZoneCenter.X * RatioX + 0.5f + SafeZoneWidth.X * RatioX) * ScreenWidth;
+			float ScreenY = (-SafeZoneCenter.Y * RatioY + 0.5f - SafeZoneHeight.Y * RatioY) * ScreenHeight;
+			float ScreenW = (SafeZoneWidth.Y * RatioX - SafeZoneWidth.X * RatioX) * ScreenWidth;
+			float ScreenH = (SafeZoneHeight.Y * RatioY - SafeZoneHeight.X * RatioY) * ScreenHeight;
+			HUD->DrawRect(RectColor, ScreenX, ScreenY, ScreenW, ScreenH);
+
+			float CenterX = (SafeZoneCenter.X * RatioX + 0.5f) * ScreenWidth;
+			float CenterY = (-SafeZoneCenter.Y * RatioY + 0.5f) * ScreenHeight;
+			HUD->DrawRect(CenterColor, CenterX - Radius, CenterY - Radius, 2 * Radius, 2 * Radius);
+	
+			FVector2D ScreenPosition;
+			FVector Pivot = GetCurrentPivot();
+			UGameplayStatics::ProjectWorldToScreen(OwningPlayerCameraManager->GetOwningPlayerController(), Pivot, ScreenPosition);
+			HUD->DrawRect(PivotCenterColor, ScreenPosition.X - Radius, ScreenPosition.Y - Radius, 2 * Radius, 2 * Radius);
+			
+		}
 	}
 } 
