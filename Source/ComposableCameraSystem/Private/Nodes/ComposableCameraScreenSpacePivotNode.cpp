@@ -24,6 +24,8 @@ void UComposableCameraScreenSpacePivotNode::OnBeginPlayNode_Implementation(
 	{
 		DrawDebugInfo(HUD, Canvas);
 	});
+
+	LastCameraPosition = CurrentCameraPose.Position;
 }
 
 void UComposableCameraScreenSpacePivotNode::OnTickNode_Implementation(float DeltaTime,
@@ -36,18 +38,15 @@ void UComposableCameraScreenSpacePivotNode::OnTickNode_Implementation(float Delt
 		FVector TranslateAmount = GetScreenSpaceTranslateAmount(Pivot, OutCameraPose, DeltaTime);
 
 		// Write into OutCameraPose
-		OutCameraPose.Position = GetOwningPlayerCameraManager()->GetCameraLocation() + TranslateAmount;
+		OutCameraPose.Position = LastCameraPosition + TranslateAmount;
+		LastCameraPosition = OutCameraPose.Position;
 	}
 	else if (Method == EComposableCameraScreenSpaceMethod::Rotate)
 	{
 		FRotator RotateAmount = GetScreenSpaceRotateAmount(Pivot, OutCameraPose, DeltaTime);
 
 		// Write into OutCameraPose
-		FQuat CurrentCameraRotation = OutCameraPose.Rotation.GetNormalized().Quaternion();
-		FQuat LocalRotationPitch = FRotator(RotateAmount.Pitch, 0, 0).Quaternion();
-		FQuat WorldRotationYaw = FRotator(0,  RotateAmount.Yaw, 0).Quaternion();
-		FQuat NewCameraRotation = WorldRotationYaw * CurrentCameraRotation * LocalRotationPitch;
-		OutCameraPose.Rotation = NewCameraRotation.GetNormalized().Rotator();
+		OutCameraPose.Rotation = (OutCameraPose.Rotation + RotateAmount).GetNormalized();
 	}
 }
 
@@ -66,7 +65,7 @@ FVector UComposableCameraScreenSpacePivotNode::GetScreenSpaceTranslateAmount(con
                                                                              const FComposableCameraPose& OutCameraPose, float DeltaTime)
 {
 	double CameraDistance = TranslationParams.CameraDistance;
-	FVector CameraPosition = GetOwningPlayerCameraManager()->GetCameraLocation(); // @TODO should use the location before deocclusion.
+	FVector CameraPosition = LastCameraPosition;
 	FRotator CameraRotation = OutCameraPose.Rotation;
 	FVector CameraSpacePivotPosition = UKismetMathLibrary::LessLess_VectorRotator(Pivot - CameraPosition, CameraRotation);
 	
@@ -78,11 +77,119 @@ FVector UComposableCameraScreenSpacePivotNode::GetScreenSpaceTranslateAmount(con
 		XInterpolator_T->Reset(0, CameraSpaceDampedXOffset);
 		CameraSpaceDampedXOffset = XInterpolator_T->Run(DeltaTime);
 	}
+	
+	// Get aspect ratio and tangent of half horizontal FOV.
+	auto [DegTanHalfHOR, AspectRatio] =
+		GetTanHalfHORAndAspectRatio(OutCameraPose);
 
-	// Get aspect ratio and horizontal FOV.
+	// Get the expected camera distance.
+	CameraDistance = CameraSpacePivotPosition.X - CameraSpaceDampedXOffset;
+
+	if (CameraDistance < 0)
+	{
+		CameraDistance = -CameraDistance;
+	}
+
+	// Calculate camera space damped Y/Z axis (camera distance) offset.
+	float W = DegTanHalfHOR * CameraDistance * 2.0f;
+	float DesiredCameraSpaceY = W * SafeZoneCenter.X;
+	float DesiredCameraSpaceZ = W / AspectRatio * SafeZoneCenter.Y;
+	
+	double CameraSpaceDampedYOffset = CameraSpacePivotPosition.Y - DesiredCameraSpaceY;
+	double CameraSpaceDampedZOffset = CameraSpacePivotPosition.Z - DesiredCameraSpaceZ;
+
+	if (YInterpolator_T)
+	{
+		YInterpolator_T->Reset(0, CameraSpaceDampedYOffset);
+		CameraSpaceDampedYOffset = YInterpolator_T->Run(DeltaTime);
+	}
+	if (ZInterpolator_T)
+	{
+		ZInterpolator_T->Reset(0, CameraSpaceDampedZOffset);
+		CameraSpaceDampedZOffset = ZInterpolator_T->Run(DeltaTime);
+	}
+
+	// Ensure the pivot is within safe zone.
+	FVector CameraSpaceDampedOffset { CameraSpaceDampedXOffset, CameraSpaceDampedYOffset, CameraSpaceDampedZOffset };
+	EnsureWithinBoundsTranslation(CameraSpacePivotPosition, CameraSpaceDampedOffset, AspectRatio, DegTanHalfHOR, CameraDistance);
+
+	// Convert to world space offset.
+	return UKismetMathLibrary::GreaterGreater_VectorRotator(CameraSpaceDampedOffset, CameraRotation);
+	
+}
+
+FRotator UComposableCameraScreenSpacePivotNode::GetScreenSpaceRotateAmount(const FVector& Pivot,
+																		   const FComposableCameraPose& OutCameraPose, float DeltaTime)
+{
+	FRotator CameraRotation = OutCameraPose.Rotation;
+	FVector CameraPosition = OutCameraPose.Position;
+	
+	FRotator LookAtRotation = UKismetMathLibrary::FindLookAtRotation(CameraPosition, Pivot);
+	FRotator DeltaRotation = UKismetMathLibrary::NormalizedDeltaRotator(LookAtRotation, CameraRotation);
+
+	// Get aspect ratio and tangent of half horizontal FOV.
+	auto [DegTanHalfHOR, AspectRatio] =
+		GetTanHalfHORAndAspectRatio(OutCameraPose);
+
+	// Get delta rotation (offset).
+	DeltaRotation.Yaw -= UKismetMathLibrary::DegAtan(2.0 * SafeZoneCenter.X * DegTanHalfHOR);
+	DeltaRotation.Pitch -= UKismetMathLibrary::DegAtan(2.0 * SafeZoneCenter.Y * DegTanHalfHOR / AspectRatio);
+
+	// Calculate damped delta rotation.
+	if (YawInterpolator_T)
+	{
+		YawInterpolator_T->Reset(0, DeltaRotation.Yaw);
+		DeltaRotation.Yaw = YawInterpolator_T->Run(DeltaTime);
+	}
+	if (PitchInterpolator_T)
+	{
+		PitchInterpolator_T->Reset(0, DeltaRotation.Pitch);
+		DeltaRotation.Pitch = PitchInterpolator_T->Run(DeltaTime);
+	}
+
+	EnsureWithinBoundsRotation(CameraRotation, LookAtRotation, DeltaRotation, AspectRatio, DegTanHalfHOR);
+
+	return DeltaRotation;
+}
+
+void UComposableCameraScreenSpacePivotNode::EnsureWithinBoundsTranslation(const FVector& CameraSpacePivotPosition,
+	FVector& CameraSpaceDampedOffset, const float& AspectRatio, const float& TanHalfHOR, const float& CameraDistance)
+{
+	FVector DesiredCameraSpacePivotPosition = CameraSpacePivotPosition - CameraSpaceDampedOffset;
+
+	float Width = TanHalfHOR * CameraDistance * 2.0f;
+	float LeftBound = (SafeZoneCenter.X + SafeZoneWidth.X) * Width;
+	float RightBound = (SafeZoneCenter.X + SafeZoneWidth.Y) * Width;
+	float BottomBound = (SafeZoneCenter.Y + SafeZoneHeight.X) * Width / AspectRatio;
+	float TopBound = (SafeZoneCenter.Y + SafeZoneHeight.Y) * Width / AspectRatio;
+	
+	if (DesiredCameraSpacePivotPosition.Y < LeftBound)   CameraSpaceDampedOffset.Y += DesiredCameraSpacePivotPosition.Y - LeftBound;
+	if (DesiredCameraSpacePivotPosition.Y > RightBound)  CameraSpaceDampedOffset.Y += DesiredCameraSpacePivotPosition.Y - RightBound;
+	if (DesiredCameraSpacePivotPosition.Z < BottomBound) CameraSpaceDampedOffset.Z += DesiredCameraSpacePivotPosition.Z - BottomBound;
+	if (DesiredCameraSpacePivotPosition.Z > TopBound)    CameraSpaceDampedOffset.Z += DesiredCameraSpacePivotPosition.Z - TopBound;
+}
+
+void UComposableCameraScreenSpacePivotNode::EnsureWithinBoundsRotation(const FRotator& CameraRotation, const FRotator& LookAtRotation, FRotator& DeltaRotation,
+	float AspectRatio, float DegTanHalfHor)
+{
+	double LeftBound = UKismetMathLibrary::DegAtan(2.0 * (SafeZoneCenter.X + SafeZoneWidth.X) * DegTanHalfHor);
+	double RightBound = UKismetMathLibrary::DegAtan(2.0 * (SafeZoneCenter.X + SafeZoneWidth.Y) * DegTanHalfHor);
+	double BottomBound = UKismetMathLibrary::DegAtan(2.0 * (SafeZoneCenter.Y + SafeZoneHeight.X) * DegTanHalfHor / AspectRatio);
+	double TopBound = UKismetMathLibrary::DegAtan(2.0 * (SafeZoneCenter.Y + SafeZoneHeight.Y) * DegTanHalfHor / AspectRatio);
+
+	FRotator DesiredRotation = (CameraRotation + DeltaRotation).GetNormalized();
+	FRotator ResultRotationDiff = UKismetMathLibrary::NormalizedDeltaRotator(LookAtRotation, DesiredRotation);
+	if (ResultRotationDiff.Yaw < LeftBound) DeltaRotation.Yaw += ResultRotationDiff.Yaw - LeftBound;
+	if (ResultRotationDiff.Yaw > RightBound) DeltaRotation.Yaw += ResultRotationDiff.Yaw - RightBound;
+	if (ResultRotationDiff.Pitch < BottomBound) DeltaRotation.Pitch += ResultRotationDiff.Pitch - BottomBound;
+	if (ResultRotationDiff.Pitch > TopBound) DeltaRotation.Pitch += ResultRotationDiff.Pitch - TopBound;
+}
+
+std::pair<float, float> UComposableCameraScreenSpacePivotNode::GetTanHalfHORAndAspectRatio(const FComposableCameraPose& OutCameraPose)
+{
 	int32 ViewportX, ViewportY;
 	OwningPlayerCameraManager->GetOwningPlayerController()->GetViewportSize(ViewportX, ViewportY);
-	
+
 	float DegTanHalfHOR = UKismetMathLibrary::DegTan(OutCameraPose.FieldOfView / 2.0f);;
 	float AspectRatio = 1.0f * ViewportX / ViewportY;;
 
@@ -122,59 +229,10 @@ FVector UComposableCameraScreenSpacePivotNode::GetScreenSpaceTranslateAmount(con
 		AspectRatio = OwningCamera->GetCameraComponent()->AspectRatio;
 	}
 
-	// Get the expected camera distance.
-	CameraDistance = CameraSpacePivotPosition.X - CameraSpaceDampedXOffset;
-
-	// Calculate camera space damped Y/Z axis (camera distance) offset.
-	float W = DegTanHalfHOR * CameraDistance * 2.0f;
-	float DesiredCameraSpaceY = W * SafeZoneCenter.X;
-	float DesiredCameraSpaceZ = W / AspectRatio * SafeZoneCenter.Y;
-	
-	double CameraSpaceDampedYOffset = CameraSpacePivotPosition.Y - DesiredCameraSpaceY;
-	double CameraSpaceDampedZOffset = CameraSpacePivotPosition.Z - DesiredCameraSpaceZ;
-
-	if (YInterpolator_T)
-	{
-		YInterpolator_T->Reset(0, CameraSpaceDampedYOffset);
-		CameraSpaceDampedYOffset = YInterpolator_T->Run(DeltaTime);
-	}
-	if (ZInterpolator_T)
-	{
-		ZInterpolator_T->Reset(0, CameraSpaceDampedZOffset);
-		CameraSpaceDampedZOffset = ZInterpolator_T->Run(DeltaTime);
-	}
-
-	// Ensure the pivot is within safe zone.
-	FVector CameraSpaceDampedOffset { CameraSpaceDampedXOffset, CameraSpaceDampedYOffset, CameraSpaceDampedZOffset };
-	EnsureWithinBounds(CameraSpacePivotPosition, CameraSpaceDampedOffset, AspectRatio, DegTanHalfHOR, CameraDistance);
-
-	// Convert to world space offset.
-	return UKismetMathLibrary::GreaterGreater_VectorRotator(CameraSpaceDampedOffset, CameraRotation);
-	
+	return { DegTanHalfHOR, AspectRatio };
 }
 
-void UComposableCameraScreenSpacePivotNode::EnsureWithinBounds(const FVector& CameraSpacePivotPosition,
-	FVector& CameraSpaceDampedOffset, const float& AspectRatio, const float& TanHalfHOR, const float& CameraDistance)
-{
-	FVector DesiredCameraSpacePivotPosition = CameraSpacePivotPosition - CameraSpaceDampedOffset;
 
-	float Width = TanHalfHOR * CameraDistance * 2.0f;
-	float LeftBound = (SafeZoneCenter.X + SafeZoneWidth.X) * Width;
-	float RightBound = (SafeZoneCenter.X + SafeZoneWidth.Y) * Width;
-	float BottomBound = (SafeZoneCenter.Y + SafeZoneHeight.X) * Width / AspectRatio;
-	float TopBound = (SafeZoneCenter.Y + SafeZoneHeight.Y) * Width / AspectRatio;
-	
-	if (DesiredCameraSpacePivotPosition.Y < LeftBound)   CameraSpaceDampedOffset.Y += DesiredCameraSpacePivotPosition.Y - LeftBound;
-	if (DesiredCameraSpacePivotPosition.Y > RightBound)  CameraSpaceDampedOffset.Y += DesiredCameraSpacePivotPosition.Y - RightBound;
-	if (DesiredCameraSpacePivotPosition.Z < BottomBound) CameraSpaceDampedOffset.Z += DesiredCameraSpacePivotPosition.Z - BottomBound;
-	if (DesiredCameraSpacePivotPosition.Z > TopBound)    CameraSpaceDampedOffset.Z += DesiredCameraSpacePivotPosition.Z - TopBound;
-}
-
-FRotator UComposableCameraScreenSpacePivotNode::GetScreenSpaceRotateAmount(const FVector& Pivot,
-	const FComposableCameraPose& OutCameraPose, float DeltaTime)
-{
-	return FRotator{};
-}
 
 FVector UComposableCameraScreenSpacePivotNode::GetCurrentPivot()
 {
@@ -261,7 +319,6 @@ void UComposableCameraScreenSpacePivotNode::DrawDebugInfo(AHUD* HUD, UCanvas* Ca
 			FVector Pivot = GetCurrentPivot();
 			UGameplayStatics::ProjectWorldToScreen(OwningPlayerCameraManager->GetOwningPlayerController(), Pivot, ScreenPosition, true);
 			HUD->DrawRect(PivotCenterColor, ScreenPosition.X - Radius, ScreenPosition.Y - Radius, 2 * Radius, 2 * Radius);
-			
 		}
 	}
 } 
