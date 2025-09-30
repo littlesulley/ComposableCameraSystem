@@ -17,6 +17,7 @@ AComposableCameraCameraBase* UComposableCameraDirector::ActivateNewCamera(
 AComposableCameraPlayerCamaraManager* PlayerCameraManager,
 	TSubclassOf<AComposableCameraCameraBase> CameraClass,
 	FComposableCameraTransitionParams TransitionParams,
+	FTransform InitialTransform,
 	UDataTable* NodeInitializerDataTable, // @TODO
 	FGameplayTagContainer NodeInitializerTags, // @TODO
 	bool bIsTransient,
@@ -29,7 +30,7 @@ AComposableCameraPlayerCamaraManager* PlayerCameraManager,
 
 		if (bIsTransient)
 		{
-			NewCamera = World->SpawnActorDeferred<AComposableCameraCameraBase>(CameraClass, FTransform{});
+			NewCamera = World->SpawnActorDeferred<AComposableCameraCameraBase>(CameraClass, InitialTransform);
 			NewCamera->ParentPendingCamera = RunningCamera;
 			NewCamera->bIsTransient = true;
 			NewCamera->LifeTime = LifeTime;
@@ -38,11 +39,11 @@ AComposableCameraPlayerCamaraManager* PlayerCameraManager,
 			RunningCamera->bIsRunning = false;
 			NewCamera->Initialize(PlayerCameraManager);
 			OnPreBeginplayEvent.ExecuteIfBound(NewCamera);
-			NewCamera->FinishSpawning(FTransform{});
+			NewCamera->FinishSpawning(InitialTransform);
 		}
 		else
 		{
-			NewCamera = World->SpawnActorDeferred<AComposableCameraCameraBase>(CameraClass, FTransform{});
+			NewCamera = World->SpawnActorDeferred<AComposableCameraCameraBase>(CameraClass, InitialTransform);
 			NewCamera->ParentPendingCamera = nullptr;
 			NewCamera->bIsTransient = false;
 			NewCamera->LifeTime = -1.f;
@@ -50,7 +51,7 @@ AComposableCameraPlayerCamaraManager* PlayerCameraManager,
 			NewCamera->bIsRunning = true;
 			NewCamera->Initialize(PlayerCameraManager);
 			OnPreBeginplayEvent.ExecuteIfBound(NewCamera);
-			NewCamera->FinishSpawning(FTransform{});
+			NewCamera->FinishSpawning(InitialTransform);
 		}
 
 		UComposableCameraTransitionBase* Transition = nullptr;

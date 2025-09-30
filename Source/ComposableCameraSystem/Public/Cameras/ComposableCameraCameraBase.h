@@ -48,6 +48,9 @@ struct FComposableCameraActivateParams
 	GENERATED_BODY()
 
 public:
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	FTransform InitialTransform;
+	
 	// Data table for node initializers. If not set, no initializer will be applied.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	UDataTable* NodeInitializerDataTable;
