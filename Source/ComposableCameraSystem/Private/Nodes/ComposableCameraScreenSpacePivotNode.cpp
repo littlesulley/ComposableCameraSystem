@@ -130,10 +130,17 @@ FRotator UComposableCameraScreenSpacePivotNode::GetScreenSpaceRotateAmount(const
 	// Get aspect ratio and tangent of half horizontal FOV.
 	auto [DegTanHalfHOR, AspectRatio] =
 		GetTanHalfHORAndAspectRatio(OutCameraPose);
-
+	
 	// Get delta rotation (offset).
-	DeltaRotation.Yaw -= UKismetMathLibrary::DegAtan(2.0 * SafeZoneCenter.X * DegTanHalfHOR);
 	DeltaRotation.Pitch -= UKismetMathLibrary::DegAtan(2.0 * SafeZoneCenter.Y * DegTanHalfHOR / AspectRatio);
+
+	// @TODO: Hard to accurately compute the world-space yaw offset.
+	// @TODO: Problematic when pitch is close to 90 or -90.
+	//DeltaRotation.Yaw -= UKismetMathLibrary::DegAtan(2.0 * SafeZoneCenter.X / UKismetMathLibrary::DegCos(CameraRotation.Pitch + DeltaRotation.Pitch) * DegTanHalfHOR);
+	float HorizontalAngle = UKismetMathLibrary::DegAtan(2.0 * SafeZoneCenter.X * DegTanHalfHOR);
+	float YawOffset = UKismetMathLibrary::DegAsin(UKismetMathLibrary::DegSin(HorizontalAngle) / UKismetMathLibrary::DegSin(90.f - LookAtRotation.Pitch));
+	DeltaRotation.Yaw -= YawOffset;
+	DeltaRotation.Pitch -= UKismetMathLibrary::DegAsin(UKismetMathLibrary::DegSin(90.f - LookAtRotation.Pitch) * UKismetMathLibrary::DegCos(90.f - LookAtRotation.Pitch) * (UKismetMathLibrary::DegCos(YawOffset) - 1.f));
 
 	// Calculate damped delta rotation.
 	if (YawInterpolator_T)
