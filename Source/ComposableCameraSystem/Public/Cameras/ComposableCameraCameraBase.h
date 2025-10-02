@@ -176,6 +176,10 @@ public:
 	UFUNCTION(BlueprintPure, Category = "ComposableCameraSystem|Camera")
 	float GetRemainingLifeTime() const { return bIsTransient ? RemainingLifeTime : -1.f; }
 
+	// If this camera should end its lifetime.
+	UFUNCTION(BlueprintPure, Category = "ComposableCameraSystem|Camera")
+	bool IsFinished() const { return RemainingLifeTime <= 0.f; }
+
 public:
 	// Camera pose for this frame.
 	UPROPERTY(Transient, VisibleAnywhere, Category = "ComposableCameraSystem|Camera")

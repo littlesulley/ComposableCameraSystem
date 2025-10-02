@@ -17,6 +17,7 @@ public class ComposableCameraSystem : ModuleRules
                 "EngineCameras",
                 "EnhancedInput",
                 "ActorSequence",
+                "LevelSequence",
                 "MovieScene",
                 "GameplayTags",
                 "MovieSceneTracks"

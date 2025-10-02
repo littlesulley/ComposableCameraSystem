@@ -11,6 +11,12 @@ FComposableCameraPose UComposableCameraEvaluationTree::Evaluate(float DeltaTime)
 	{
 		return CurrentPose;
 	}
+
+	//@TODO: when this current camera is finished and should resume to its pending camera.
+	if (RunningCamera->IsFinished())
+	{
+		
+	}
 	
 	if (Transition)
 	{

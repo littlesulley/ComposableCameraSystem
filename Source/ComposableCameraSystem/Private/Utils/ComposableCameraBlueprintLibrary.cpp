@@ -42,6 +42,12 @@ AComposableCameraCameraBase* UComposableCameraBlueprintLibrary::ActivateComposab
 	return nullptr;
 }
 
+//@TODO: implement TerminateCurrentCamera.
+void UComposableCameraBlueprintLibrary::TerminateCurrentCamera(const UObject* WorldContextObject)
+{
+	
+}
+
 FVector UComposableCameraBlueprintLibrary::MakeLiteralVector(FVector Value)
 {
 	return Value;

@@ -44,6 +44,9 @@ public:
 	bool bNewInstance,
 	FOnCameraFinishConstructed OnPreBeginplayEvent);
 
+	UFUNCTION(BlueprintCallable, Category = "ComposableCameraSystem|Camera", meta = (WorldContext = "WorldContextObject"))
+	static void TerminateCurrentCamera(const UObject* WorldContextObject);
+
 	/** Custom thunk function for setting runtime values of a composable camera variable.
 	 * @param Variable The variable to set.
 	 * @param NewRuntimeValue The new runtime value.
