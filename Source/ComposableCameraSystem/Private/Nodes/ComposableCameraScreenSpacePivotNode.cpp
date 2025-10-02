@@ -115,7 +115,6 @@ FVector UComposableCameraScreenSpacePivotNode::GetScreenSpaceTranslateAmount(con
 
 	// Convert to world space offset.
 	return UKismetMathLibrary::GreaterGreater_VectorRotator(CameraSpaceDampedOffset, CameraRotation);
-	
 }
 
 FRotator UComposableCameraScreenSpacePivotNode::GetScreenSpaceRotateAmount(const FVector& Pivot,
@@ -238,8 +237,6 @@ std::pair<float, float> UComposableCameraScreenSpacePivotNode::GetTanHalfHORAndA
 
 	return { DegTanHalfHOR, AspectRatio };
 }
-
-
 
 FVector UComposableCameraScreenSpacePivotNode::GetCurrentPivot()
 {
