@@ -132,4 +132,5 @@ public:
 
 private:
 	TUniquePtr<TCameraInterpolator<TValueTypeWrapper<FVector3d>>> Interpolator_T;
+	FVector LastPivot { FVector::ZeroVector };
 };

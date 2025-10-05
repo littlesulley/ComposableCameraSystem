@@ -9,6 +9,7 @@ void UComposableCameraCylindricalTransition::OnBeginPlay_Implementation(float De
 	const FComposableCameraPose& CurrentTargetPose)
 {
 	Interpolator_T = PivotInterpolator ? PivotInterpolator->BuildVector3dInterpolator() : nullptr;
+	LastPivot = StartCameraPose.Position + MinimumDistanceFromOrigin * StartCameraPose.Rotation.RotateVector(FVector::ForwardVector);
 }
 
 FComposableCameraPose UComposableCameraCylindricalTransition::OnEvaluate_Implementation(float DeltaTime,
@@ -48,9 +49,11 @@ FComposableCameraPose UComposableCameraCylindricalTransition::OnEvaluate_Impleme
 	
 	if (Interpolator_T)
 	{
-		Interpolator_T->Reset(StartPivot, TargetPivot);
+		Interpolator_T->Reset(LastPivot, TargetPivot);
 		ResultPivot = Interpolator_T->Run(DeltaTime);
 	}
+
+	LastPivot = ResultPivot;
 
 	FRotator ResultRotation = UKismetMathLibrary::FindLookAtRotation(ResultPosition, ResultPivot);
 
