@@ -12,6 +12,16 @@ class AComposableCameraCameraBase;
 class AComposableCameraPlayerCamaraManager;
 struct FComposableCameraPose;
 
+USTRUCT(Blueprintable, BlueprintType)
+struct FComposableCameraNodeParamaters
+{
+	GENERATED_BODY()
+
+public:
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	bool bEnableNode { true };
+};
+
 /**
  * Base node for all camera nodes.
  */

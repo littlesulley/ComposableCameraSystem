@@ -7,6 +7,8 @@
 #include "Transitions/ComposableCameraTransitionBase.h"
 #include "ComposableCameraPlayerCamaraManager.generated.h"
 
+class UComposableCameraNodeModifierDataAsset;
+class UComposableCameraModifierManager;
 class UComposableCameraDirector;
 	
 UCLASS(ClassGroup = ComposableCameraSystem, NotPlaceable)
@@ -32,6 +34,9 @@ public:
 		bool bIsTransient,
 		float LifeTime,
 		FOnCameraFinishConstructed OnPreBeginplayEvent);
+
+	void AddModifier(UComposableCameraNodeModifierDataAsset* ModifierAsset);
+	void RemoveModifier(UComposableCameraNodeModifierDataAsset* ModifierAsset);
 
 	UFUNCTION(BlueprintPure, Category = "ComposableCameraSystem|Camera")
 	AComposableCameraCameraBase* GetRunningCamera () const
@@ -69,6 +74,9 @@ public:
 private:
 	UPROPERTY(Transient)
 	TObjectPtr<UComposableCameraDirector> Director;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UComposableCameraModifierManager> ModifierManager;
 
 	UPROPERTY(Transient)
 	FMinimalViewInfo LastDesiredView;

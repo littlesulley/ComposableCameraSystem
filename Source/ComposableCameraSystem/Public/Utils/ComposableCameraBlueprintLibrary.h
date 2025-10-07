@@ -10,6 +10,7 @@
 #include "Variables/ComposableCameraVariable.h"
 #include "ComposableCameraBlueprintLibrary.generated.h"
 
+class UComposableCameraModifierBase;
 class AComposableCameraCameraBase;
 class UComposableCameraVariable;
 
@@ -44,8 +45,27 @@ public:
 	bool bNewInstance,
 	FOnCameraFinishConstructed OnPreBeginplayEvent);
 
+	/** Terminate current camera.
+	 * @param WorldContextObject World context object.
+	 */
 	UFUNCTION(BlueprintCallable, Category = "ComposableCameraSystem|Camera", meta = (WorldContext = "WorldContextObject"))
 	static void TerminateCurrentCamera(const UObject* WorldContextObject);
+
+	/** Add a modifier data asset.
+	 * @param WorldContextObject World context object. \n
+	 * @param PlayerCameraManager The player camera manager, must be a ComposableCameraPlayerCameraManager. \n
+	 * @param ModifierAsset Data asset for modifiers to add.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "ComposableCameraSystem|Camera", meta = (WorldContext = "WorldContextObject"))
+	static void AddModifier(const UObject* WorldContextObject, AComposableCameraPlayerCamaraManager* PlayerCameraManager, UComposableCameraNodeModifierDataAsset* ModifierAsset);
+
+	/** Remove a modifier data asset.
+	 * @param WorldContextObject World context object. \n
+	 * @param PlayerCameraManager The player camera manager, must be a ComposableCameraPlayerCameraManager. \n
+	 * @param ModifierAsset Data asset for modifiers to remove.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "ComposableCameraSystem|Camera", meta = (WorldContext = "WorldContextObject"))
+	static void RemoveModifier(const UObject* WorldContextObject, AComposableCameraPlayerCamaraManager* PlayerCameraManager, UComposableCameraNodeModifierDataAsset* ModifierAsset);
 
 	/** Custom thunk function for setting runtime values of a composable camera variable.
 	 * @param Variable The variable to set.

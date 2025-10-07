@@ -50,6 +50,8 @@ FComposableCameraPose UComposableCameraInertializedTransition::OnEvaluate_Implem
 			OutPose.Rotation = RotationalInertializer.Evaluate(BlendDuration, CurrentTargetPose.Rotation);
 		}
 
+		OutPose.FieldOfView = StartCameraPose.FieldOfView + BlendPct * (CurrentTargetPose.FieldOfView - StartCameraPose.FieldOfView);
+
 		return OutPose;
 	}
 	else

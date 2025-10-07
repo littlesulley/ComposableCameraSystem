@@ -5,6 +5,7 @@
 #include "ComposableCameraSystemModule.h"
 #include "Camera/CameraComponent.h"
 #include "Core/ComposableCameraDirector.h"
+#include "Core/ComposableCameraModifierManager.h"
 #include "Transitions/ComposableCameraTransitionBase.h"
 
 class UComposableCameraTransitionBase;
@@ -13,6 +14,7 @@ AComposableCameraPlayerCamaraManager::AComposableCameraPlayerCamaraManager(const
 	: Super(ObjectInitializer)
 {
 	Director = CreateDefaultSubobject<UComposableCameraDirector>(TEXT("Director"));
+	ModifierManager = CreateDefaultSubobject<UComposableCameraModifierManager>(TEXT("ModifierManager"));
 }
 
 void AComposableCameraPlayerCamaraManager::BeginPlay()
@@ -82,6 +84,14 @@ AComposableCameraCameraBase* AComposableCameraPlayerCamaraManager::ActivateNewCa
 	}
 
 	return RunningCamera;
+}
+
+void AComposableCameraPlayerCamaraManager::AddModifier(UComposableCameraNodeModifierDataAsset* ModifierAsset)
+{
+}
+
+void AComposableCameraPlayerCamaraManager::RemoveModifier(UComposableCameraNodeModifierDataAsset* ModifierAsset)
+{
 }
 
 FMinimalViewInfo AComposableCameraPlayerCamaraManager::GetCameraViewFromCameraPose(const FComposableCameraPose& OutPose) const

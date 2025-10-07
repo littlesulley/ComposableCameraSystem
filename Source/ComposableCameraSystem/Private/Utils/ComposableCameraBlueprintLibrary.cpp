@@ -42,10 +42,27 @@ AComposableCameraCameraBase* UComposableCameraBlueprintLibrary::ActivateComposab
 	return nullptr;
 }
 
-//@TODO: implement TerminateCurrentCamera.
 void UComposableCameraBlueprintLibrary::TerminateCurrentCamera(const UObject* WorldContextObject)
 {
 	
+}
+
+void UComposableCameraBlueprintLibrary::AddModifier(const UObject* WorldContextObject,
+	AComposableCameraPlayerCamaraManager* PlayerCameraManager, UComposableCameraNodeModifierDataAsset* ModifierAsset)
+{
+	if (PlayerCameraManager)
+	{
+		PlayerCameraManager->AddModifier(ModifierAsset);
+	}
+}
+
+void UComposableCameraBlueprintLibrary::RemoveModifier(const UObject* WorldContextObject,
+	AComposableCameraPlayerCamaraManager* PlayerCameraManager, UComposableCameraNodeModifierDataAsset* ModifierAsset)
+{
+	if (PlayerCameraManager)
+	{
+		PlayerCameraManager->RemoveModifier(ModifierAsset);
+	}
 }
 
 FVector UComposableCameraBlueprintLibrary::MakeLiteralVector(FVector Value)

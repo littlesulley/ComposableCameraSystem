@@ -13,7 +13,10 @@ class UMovieSceneFloatSection;
 class UMovieScene3DTransformSection;
 
 /**
- * Node for playing a keyframed sequence relative to some transform.
+ * Node for playing a keyframed level sequence relative to some transform. \n
+ * Your sequence MUST contain a CineCameraActor binding for camera transform and optionally a CameraComponent binding for FieldOfView. \n
+ * This can be done by simply clicking the "Create a new camera and set it as the current cut" button on the level sequence panel. \n
+ * Only transform and FOV are used. Other parameters bound in the level sequence will not be used.
  */
 UCLASS(NotBlueprintable, ClassGroup = ComposableCameraSystem)
 class COMPOSABLECAMERASYSTEM_API UComposableCameraKeyframeSequenceNode : public UComposableCameraCameraNodeBase
