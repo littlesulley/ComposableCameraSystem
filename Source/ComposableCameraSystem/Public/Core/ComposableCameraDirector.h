@@ -40,10 +40,10 @@ public:
 
 private:
 	UPROPERTY(Transient)
-	UComposableCameraEvaluationTree* EvaluationTree;
+	UComposableCameraEvaluationTree* EvaluationTree { nullptr };
 
 	UPROPERTY(Transient)
-	AComposableCameraCameraBase* RunningCamera;
+	AComposableCameraCameraBase* RunningCamera { nullptr };
 
 	void OnActivateNewCamera(AComposableCameraCameraBase* NewCamera, UComposableCameraTransitionBase* Transition);
 

@@ -25,8 +25,10 @@ public:
 
 private:
 	// Currently running camera.
+	UPROPERTY(Transient)
 	AComposableCameraCameraBase* RunningCamera;
 
 	// Current transition.
+	UPROPERTY(Transient)
 	UComposableCameraTransitionBase* Transition;
 };

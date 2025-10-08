@@ -7,6 +7,7 @@
 #include "Core/ComposableCameraDirector.h"
 #include "Core/ComposableCameraModifierManager.h"
 #include "Transitions/ComposableCameraTransitionBase.h"
+#include "Utils/ComposableCameraProjectSettings.h"
 
 class UComposableCameraTransitionBase;
 
@@ -162,21 +163,26 @@ void AComposableCameraPlayerCamaraManager::DoUpdateCamera(float DeltaTime)
 
 void AComposableCameraPlayerCamaraManager::RefreshCameraChain() const
 {
-	constexpr static int MaxCameraChainLength = 3;
+	const UComposableCameraProjectSettings* Settings = GetDefault<UComposableCameraProjectSettings>();
+	const int32 MaxCameraChainLength = Settings->MaxCameraChainCleanupDepth;
 
 	int CurrentCameraChainLength = 0;
 	AComposableCameraCameraBase* CurrentCamera = RunningCamera;
 
-	while (CurrentCamera->ParentPendingCamera && CurrentCameraChainLength <= MaxCameraChainLength)
+	while (CurrentCamera->ParentPendingCamera && CurrentCameraChainLength + 1 < MaxCameraChainLength)
 	{
 		++CurrentCameraChainLength;
 		CurrentCamera = CurrentCamera->ParentPendingCamera;
 	}
 
-	if (CurrentCamera->ParentPendingCamera)
+	// Recursively destroy camera above the position.
+	CurrentCamera = CurrentCamera->ParentPendingCamera;
+	while (CurrentCamera)
 	{
-		CurrentCamera->ParentPendingCamera->Destroy();
+		AComposableCameraCameraBase* ParentCamera = CurrentCamera->ParentPendingCamera;
+		CurrentCamera->ParentPendingCamera = nullptr;
+		CurrentCamera->Destroy();
+		CurrentCamera = ParentCamera;
 	}
-	CurrentCamera->ParentPendingCamera = nullptr;
 }
 

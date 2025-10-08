@@ -20,7 +20,8 @@ public class ComposableCameraSystem : ModuleRules
                 "LevelSequence",
                 "MovieScene",
                 "GameplayTags",
-                "MovieSceneTracks"
+                "MovieSceneTracks",
+                "DeveloperSettings"
             }
 			);
 	}

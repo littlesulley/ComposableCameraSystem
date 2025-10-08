@@ -45,7 +45,7 @@ public:
 		bool bNewInstance,
 		FOnCameraFinishConstructed OnPreBeginplayEvent);
 
-	/** Terminate current camera.
+	/** Terminate current camera. Ideally, this should only be used for transient cameras (automatically called) and keyframe cameras that are manually controlled to terminate.
 	 * @param WorldContextObject World context object. \n
 	 * @param PlayerCameraManager The player camera manager, must be a ComposableCameraPlayerCameraManager. \n
 	 * @param TransitionParams The transition parameters to use. If no transition param is provided, the pending camera's default transition will be used. \n

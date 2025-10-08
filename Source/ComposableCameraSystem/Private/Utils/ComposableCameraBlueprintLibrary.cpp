@@ -44,39 +44,18 @@ AComposableCameraCameraBase* UComposableCameraBlueprintLibrary::ActivateComposab
 void UComposableCameraBlueprintLibrary::TerminateCurrentCamera(const UObject* WorldContextObject, AComposableCameraPlayerCamaraManager* PlayerCameraManager,
 		FComposableCameraTransitionParams TransitionParams, bool bPreserveCameraPose)
 {
-	if (!PlayerCameraManager || !PlayerCameraManager->RunningCamera)
+	if (!PlayerCameraManager || !PlayerCameraManager->RunningCamera || !PlayerCameraManager->RunningCamera->ParentPendingCamera)
 	{
 		return;
 	}
 
-	AComposableCameraCameraBase* CurrentCamera = PlayerCameraManager->RunningCamera;
-	AComposableCameraCameraBase* ResumeCamera = CurrentCamera->ParentPendingCamera;
-	
-	while (ResumeCamera)
-	{
-		if (ResumeCamera->IsFinished())
-		{
-			AComposableCameraCameraBase* PendingKillCamera = ResumeCamera;
-			CurrentCamera->ParentPendingCamera = ResumeCamera->ParentPendingCamera;
-			ResumeCamera = ResumeCamera->ParentPendingCamera;
-			PendingKillCamera->ParentPendingCamera = nullptr;
-			PendingKillCamera->Destroy();
-		}
-		else
-		{
-			break;
-		}
-	}
-	
-	if (!ResumeCamera)
-	{
-		return;
-	}
+	AComposableCameraCameraBase* ResumeCamera = PlayerCameraManager->RunningCamera->ParentPendingCamera;
 	
 	FComposableCameraTransitionParams TransitionParameters = TransitionParams;
 	if (!TransitionParams.TransitionClass)
 	{
-		TransitionParameters.TransitionClass = ResumeCamera->DefaultTransition ? ResumeCamera->DefaultTransition->StaticClass() : nullptr;
+		//@TODO: Use instanced transition rather than plain uclass
+		TransitionParameters.TransitionClass = ResumeCamera->DefaultTransition ? ResumeCamera->DefaultTransition->StaticClass() : nullptr; 
 		TransitionParameters.TransitionTime = ResumeCamera->DefaultTransition ? ResumeCamera->DefaultTransitionTime : 0.f;
 	}
 

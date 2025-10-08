@@ -16,6 +16,7 @@ UComposableCameraDirector::UComposableCameraDirector(const FObjectInitializer& O
 AComposableCameraCameraBase* UComposableCameraDirector::ResumeCamera(AComposableCameraCameraBase* ResumeCamera,
 	const FComposableCameraTransitionParams& TransitionParameters, const FTransform& Transform)
 {
+	ResumeCamera->bIsRunning = true;
 	RunningCamera->bIsRunning = false;
 	
 	UComposableCameraTransitionBase* Transition = nullptr;
@@ -23,7 +24,16 @@ AComposableCameraCameraBase* UComposableCameraDirector::ResumeCamera(AComposable
 	{
 		Transition = NewObject<UComposableCameraTransitionBase>(this, TransitionParameters.TransitionClass);
 		Transition->TransitionEnabled(RunningCamera, ResumeCamera, RunningCamera->GetCameraPose(), TransitionParameters.TransitionTime);
-		Transition->OnTransitionFinishesDelegate.AddLambda([SourceCamera = RunningCamera]() { if (SourceCamera) SourceCamera->Destroy(); });
+		Transition->OnTransitionFinishesDelegate.AddLambda(
+			[SourceCamera = RunningCamera]()
+			{
+				if (SourceCamera)
+				{
+					SourceCamera->ParentPendingCamera = nullptr;
+					SourceCamera->Destroy();
+				}
+			}
+		);
 	}
 		
 	OnActivateNewCamera(ResumeCamera, Transition);
