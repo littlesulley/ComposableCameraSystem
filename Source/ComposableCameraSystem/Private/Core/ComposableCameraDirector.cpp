@@ -13,6 +13,24 @@ UComposableCameraDirector::UComposableCameraDirector(const FObjectInitializer& O
 	EvaluationTree = CreateDefaultSubobject<UComposableCameraEvaluationTree>("ComposableCameraEvaluationTree");	
 }
 
+AComposableCameraCameraBase* UComposableCameraDirector::ResumeCamera(AComposableCameraCameraBase* ResumeCamera,
+	const FComposableCameraTransitionParams& TransitionParameters, const FTransform& Transform)
+{
+	RunningCamera->bIsRunning = false;
+	
+	UComposableCameraTransitionBase* Transition = nullptr;
+	if (TransitionParameters.TransitionClass && RunningCamera)
+	{
+		Transition = NewObject<UComposableCameraTransitionBase>(this, TransitionParameters.TransitionClass);
+		Transition->TransitionEnabled(RunningCamera, ResumeCamera, RunningCamera->GetCameraPose(), TransitionParameters.TransitionTime);
+		Transition->OnTransitionFinishesDelegate.AddLambda([SourceCamera = RunningCamera]() { if (SourceCamera) SourceCamera->Destroy(); });
+	}
+		
+	OnActivateNewCamera(ResumeCamera, Transition);
+
+	return RunningCamera;
+}
+
 AComposableCameraCameraBase* UComposableCameraDirector::ActivateNewCamera(
 AComposableCameraPlayerCamaraManager* PlayerCameraManager,
 	TSubclassOf<AComposableCameraCameraBase> CameraClass,
@@ -25,36 +43,33 @@ AComposableCameraPlayerCamaraManager* PlayerCameraManager,
 {
 	if (UWorld* World = GetWorld())
 	{
-		AComposableCameraCameraBase* NewCamera;
-
+		AComposableCameraCameraBase* NewCamera = World->SpawnActorDeferred<AComposableCameraCameraBase>(CameraClass, InitialTransform);
+		NewCamera->ParentPendingCamera = RunningCamera;
+		NewCamera->bIsRunning = true;
+		if (RunningCamera)
+		{
+			RunningCamera->bIsRunning = false;
+		}
+		
 		if (bIsTransient)
 		{
-			NewCamera = World->SpawnActorDeferred<AComposableCameraCameraBase>(CameraClass, InitialTransform);
-			NewCamera->ParentPendingCamera = RunningCamera;
 			NewCamera->bIsTransient = true;
 			NewCamera->LifeTime = LifeTime;
 			NewCamera->RemainingLifeTime = LifeTime;
-			NewCamera->bIsRunning = true;
-			RunningCamera->bIsRunning = false;
-			NewCamera->Initialize(PlayerCameraManager, NodeInitializerDataAsset);
-			OnPreBeginplayEvent.ExecuteIfBound(NewCamera);
-			NewCamera->FinishSpawning(InitialTransform);
 		}
 		else
 		{
-			NewCamera = World->SpawnActorDeferred<AComposableCameraCameraBase>(CameraClass, InitialTransform);
-			NewCamera->ParentPendingCamera = nullptr;
 			NewCamera->bIsTransient = false;
 			NewCamera->LifeTime = -1.f;
 			NewCamera->RemainingLifeTime = -1.f;
-			NewCamera->bIsRunning = true;
-			NewCamera->Initialize(PlayerCameraManager, NodeInitializerDataAsset);
-			OnPreBeginplayEvent.ExecuteIfBound(NewCamera);
-			NewCamera->FinishSpawning(InitialTransform);
 		}
+		
+		NewCamera->Initialize(PlayerCameraManager, NodeInitializerDataAsset);
+		OnPreBeginplayEvent.ExecuteIfBound(NewCamera);
+		NewCamera->FinishSpawning(InitialTransform);
 
 		UComposableCameraTransitionBase* Transition = nullptr;
-		if (TransitionParams.TransitionClass)
+		if (TransitionParams.TransitionClass && RunningCamera)
 		{
 			Transition = NewObject<UComposableCameraTransitionBase>(this, TransitionParams.TransitionClass);
 			Transition->TransitionEnabled(RunningCamera, NewCamera, RunningCamera->GetCameraPose(), TransitionParams.TransitionTime);

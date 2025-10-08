@@ -132,7 +132,7 @@ void UComposableCameraKeyframeSequenceNode::OnTickNode_Implementation(float Delt
 
 		if (StayAtLastFrameTime >= 0.f && ElapsedStayAtLastFrameTime >= StayAtLastFrameTime)
 		{
-			UComposableCameraBlueprintLibrary::TerminateCurrentCamera(this);
+			UComposableCameraBlueprintLibrary::TerminateCurrentCamera(this, OwningPlayerCameraManager, FComposableCameraTransitionParams{});
 		}
 	}
 }

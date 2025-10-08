@@ -2,20 +2,21 @@
 
 #include "Core/ComposableCameraEvaluationTree.h"
 #include "Transitions/ComposableCameraTransitionBase.h"
+#include "Utils/ComposableCameraBlueprintLibrary.h"
 
 FComposableCameraPose UComposableCameraEvaluationTree::Evaluate(float DeltaTime)
 {
 	FComposableCameraPose CurrentPose;
 
-	if (!RunningCamera)
+	if (!RunningCamera || !RunningCamera->bIsRunning)
 	{
 		return CurrentPose;
 	}
 
-	//@TODO: when this current camera is finished and should resume to its pending camera.
 	if (RunningCamera->IsFinished())
 	{
-		
+		UComposableCameraBlueprintLibrary::TerminateCurrentCamera(
+			this, RunningCamera->GetOwningPlayerCameraManager(), FComposableCameraTransitionParams{});
 	}
 	
 	if (Transition)

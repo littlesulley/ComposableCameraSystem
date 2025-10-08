@@ -37,19 +37,26 @@ public:
 	 */
 	UFUNCTION(BlueprintCallable, Category = "ComposableCameraSystem|Camera", meta = (WorldContext = "WorldContextObject", DeterminesOutputType = "CameraClass"))
 	static AComposableCameraCameraBase* ActivateComposableCameraByClass(
-	const UObject* WorldContextObject,
-	AComposableCameraPlayerCamaraManager* PlayerCameraManager,
-	TSubclassOf<AComposableCameraCameraBase> CameraClass,
-	FComposableCameraTransitionParams TransitionParams,
-	FComposableCameraActivateParams ActivationParams,
-	bool bNewInstance,
-	FOnCameraFinishConstructed OnPreBeginplayEvent);
+		const UObject* WorldContextObject,
+		AComposableCameraPlayerCamaraManager* PlayerCameraManager,
+		TSubclassOf<AComposableCameraCameraBase> CameraClass,
+		FComposableCameraTransitionParams TransitionParams,
+		FComposableCameraActivateParams ActivationParams,
+		bool bNewInstance,
+		FOnCameraFinishConstructed OnPreBeginplayEvent);
 
 	/** Terminate current camera.
-	 * @param WorldContextObject World context object.
+	 * @param WorldContextObject World context object. \n
+	 * @param PlayerCameraManager The player camera manager, must be a ComposableCameraPlayerCameraManager. \n
+	 * @param TransitionParams The transition parameters to use. If no transition param is provided, the pending camera's default transition will be used. \n
+	 * @param bPreserveCameraPose Whether to preserve current camera pose (position and rotation) when returning to the last camera.
 	 */
 	UFUNCTION(BlueprintCallable, Category = "ComposableCameraSystem|Camera", meta = (WorldContext = "WorldContextObject"))
-	static void TerminateCurrentCamera(const UObject* WorldContextObject);
+	static void TerminateCurrentCamera(
+		const UObject* WorldContextObject,
+		AComposableCameraPlayerCamaraManager* PlayerCameraManager,
+		FComposableCameraTransitionParams TransitionParams,
+		bool bPreserveCameraPose = true);
 
 	/** Add a modifier data asset.
 	 * @param WorldContextObject World context object. \n

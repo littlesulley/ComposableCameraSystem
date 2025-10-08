@@ -10,6 +10,8 @@ void UComposableCameraInertializedTransition::OnBeginPlay_Implementation(float D
 {
 	if (SourceCamera)
 	{
+		bCanUseInertialization = true;
+		
 		FComposableCameraPose LastSourceCameraPose = SourceCamera->GetLastFrameCameraPose();
 		FComposableCameraPose ThisSourceCameraPose = SourceCamera->GetCameraPose();
 
@@ -31,7 +33,7 @@ void UComposableCameraInertializedTransition::OnBeginPlay_Implementation(float D
 FComposableCameraPose UComposableCameraInertializedTransition::OnEvaluate_Implementation(float DeltaTime,
                                                                                          const FComposableCameraPose& CurrentTargetPose)
 {
-	if (SourceCamera)
+	if (bCanUseInertialization)
 	{
 		FComposableCameraPose OutPose {};
 		

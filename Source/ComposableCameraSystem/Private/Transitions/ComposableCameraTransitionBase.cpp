@@ -35,6 +35,13 @@ void UComposableCameraTransitionBase::TransitionEnabled(AComposableCameraCameraB
 void UComposableCameraTransitionBase::TransitionFinished()
 {
 	bFinished = true;
+
+	if (OnTransitionFinishesDelegate.IsBound())
+	{
+		OnTransitionFinishesDelegate.Broadcast();
+		OnTransitionFinishesDelegate.Clear();
+	}
+	
 	OnFinished();
 }
 

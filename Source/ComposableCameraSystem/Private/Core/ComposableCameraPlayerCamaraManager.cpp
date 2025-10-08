@@ -74,6 +74,7 @@ AComposableCameraCameraBase* AComposableCameraPlayerCamaraManager::ActivateNewCa
 	if (NewCamera)
 	{
 		RunningCamera = NewCamera;
+		RefreshCameraChain();
 	}
 	else
 	{
@@ -91,6 +92,19 @@ void AComposableCameraPlayerCamaraManager::AddModifier(UComposableCameraNodeModi
 
 void AComposableCameraPlayerCamaraManager::RemoveModifier(UComposableCameraNodeModifierDataAsset* ModifierAsset)
 {
+}
+
+void AComposableCameraPlayerCamaraManager::ResumeCamera(AComposableCameraCameraBase* ResumeCamera,
+	const FComposableCameraTransitionParams& TransitionParameters, bool bPreserveCameraPose)
+{
+	FTransform InitialTransform {};
+	if (bPreserveCameraPose)
+	{
+		InitialTransform.SetLocation(CurrentCameraPose.Position);
+		InitialTransform.SetRotation(CurrentCameraPose.Rotation.Quaternion());
+	}
+	
+	RunningCamera = Director->ResumeCamera(ResumeCamera, TransitionParameters, InitialTransform);
 }
 
 FMinimalViewInfo AComposableCameraPlayerCamaraManager::GetCameraViewFromCameraPose(const FComposableCameraPose& OutPose) const
@@ -144,5 +158,25 @@ void AComposableCameraPlayerCamaraManager::DoUpdateCamera(float DeltaTime)
 
 	LastDesiredView = DesiredView;
 	FillCameraCache(DesiredView);
+}
+
+void AComposableCameraPlayerCamaraManager::RefreshCameraChain() const
+{
+	constexpr static int MaxCameraChainLength = 3;
+
+	int CurrentCameraChainLength = 0;
+	AComposableCameraCameraBase* CurrentCamera = RunningCamera;
+
+	while (CurrentCamera->ParentPendingCamera && CurrentCameraChainLength <= MaxCameraChainLength)
+	{
+		++CurrentCameraChainLength;
+		CurrentCamera = CurrentCamera->ParentPendingCamera;
+	}
+
+	if (CurrentCamera->ParentPendingCamera)
+	{
+		CurrentCamera->ParentPendingCamera->Destroy();
+	}
+	CurrentCamera->ParentPendingCamera = nullptr;
 }
 

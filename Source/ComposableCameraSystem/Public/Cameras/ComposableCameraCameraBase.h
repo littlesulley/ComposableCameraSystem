@@ -9,6 +9,7 @@
 #include "Variables/ComposableCameraVariableCollection.h"
 #include "ComposableCameraCameraBase.generated.h"
 
+class UComposableCameraTransitionBase;
 class UComposableCameraNodeInitializerDataAsset;
 class UComposableCameraVariableCollection;
 class UComposableCameraCameraNodeBase;
@@ -48,13 +49,17 @@ struct FComposableCameraActivateParams
 {
 	GENERATED_BODY()
 
+	FComposableCameraActivateParams() = default;
+	FComposableCameraActivateParams(const FTransform& InInitialTransform) : InitialTransform(InInitialTransform)
+	{}
+
 public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	FTransform InitialTransform;
 	
 	// Data asset for node initializers. If not set, no initializer will be applied.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
-	UComposableCameraNodeInitializerDataAsset* NodeInitializerDataTable;
+	UComposableCameraNodeInitializerDataAsset* NodeInitializerDataTable { nullptr };
 
 	// Whether this camera is transient.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
@@ -82,6 +87,14 @@ public:
 	/** Tag for this camera. Used by modifiers to distinguish different cameras. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "ComposableCameraSystem|Camera")
 	FGameplayTag CameraTag {};
+
+	/** Default transition. Usually used for returning back to this camera from a transient camera. */
+	UPROPERTY(EditDefaultsOnly, Instanced, Category = "ComposableCameraSystem|Camera")
+	UComposableCameraTransitionBase* DefaultTransition;
+
+	/** Default transition time. Usually used for returning back to this camera from a transient camera. */
+	UPROPERTY(EditDefaultsOnly, Category = "ComposableCameraSystem|Camera")
+	float DefaultTransitionTime { 1.f };
 
 	/** Nodes for this camera. They're executed in the order they are placed in this array.
 	 * Each node has two types of parameters: Input Parameters and Context Parameters.
@@ -175,7 +188,7 @@ public:
 
 	// If this camera should end its lifetime.
 	UFUNCTION(BlueprintPure, Category = "ComposableCameraSystem|Camera")
-	bool IsFinished() const { return RemainingLifeTime <= 0.f; }
+	bool IsFinished() const { return bIsTransient && RemainingLifeTime <= 0.f; }
 
 public:
 	// Camera pose for this frame.

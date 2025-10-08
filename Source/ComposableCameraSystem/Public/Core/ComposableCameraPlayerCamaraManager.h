@@ -3,7 +3,6 @@
 #pragma once
 
 #include "Camera/PlayerCameraManager.h"
-#include "GameplayTagContainer.h"
 #include "Transitions/ComposableCameraTransitionBase.h"
 #include "ComposableCameraPlayerCamaraManager.generated.h"
 
@@ -36,6 +35,7 @@ public:
 
 	void AddModifier(UComposableCameraNodeModifierDataAsset* ModifierAsset);
 	void RemoveModifier(UComposableCameraNodeModifierDataAsset* ModifierAsset);
+	void ResumeCamera(AComposableCameraCameraBase* ResumeCamera, const FComposableCameraTransitionParams& TransitionParameters, bool bPreserveCameraPose);
 
 	UFUNCTION(BlueprintPure, Category = "ComposableCameraSystem|Camera")
 	AComposableCameraCameraBase* GetRunningCamera () const
@@ -52,6 +52,10 @@ public:
 protected:
 	FMinimalViewInfo GetCameraViewFromCameraPose(const FComposableCameraPose& OutPose) const;
 	virtual void DoUpdateCamera(float DeltaTime) override;
+
+private:
+	// Used to maintain a maximum number of parent cameras in the camera chain. Default is 3.
+	void RefreshCameraChain() const;
 
 public:
 	// Whether to sync current camera rotation to ControlRotation.

@@ -244,6 +244,7 @@ public:
 	float AdditiveCurveShape { 10.f };
 	
 private:
+	bool bCanUseInertialization = false;
 	ComposableCameraInitializer<FRotator, ComposableCameraRotationalInertializer> RotationalInertializer;
 	ComposableCameraInitializer<FVector, ComposableCameraPositionalInertializer> PositionalInertializer;
 

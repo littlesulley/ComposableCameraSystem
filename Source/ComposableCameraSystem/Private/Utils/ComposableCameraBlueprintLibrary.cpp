@@ -41,9 +41,46 @@ AComposableCameraCameraBase* UComposableCameraBlueprintLibrary::ActivateComposab
 	return nullptr;
 }
 
-void UComposableCameraBlueprintLibrary::TerminateCurrentCamera(const UObject* WorldContextObject)
+void UComposableCameraBlueprintLibrary::TerminateCurrentCamera(const UObject* WorldContextObject, AComposableCameraPlayerCamaraManager* PlayerCameraManager,
+		FComposableCameraTransitionParams TransitionParams, bool bPreserveCameraPose)
 {
+	if (!PlayerCameraManager || !PlayerCameraManager->RunningCamera)
+	{
+		return;
+	}
+
+	AComposableCameraCameraBase* CurrentCamera = PlayerCameraManager->RunningCamera;
+	AComposableCameraCameraBase* ResumeCamera = CurrentCamera->ParentPendingCamera;
 	
+	while (ResumeCamera)
+	{
+		if (ResumeCamera->IsFinished())
+		{
+			AComposableCameraCameraBase* PendingKillCamera = ResumeCamera;
+			CurrentCamera->ParentPendingCamera = ResumeCamera->ParentPendingCamera;
+			ResumeCamera = ResumeCamera->ParentPendingCamera;
+			PendingKillCamera->ParentPendingCamera = nullptr;
+			PendingKillCamera->Destroy();
+		}
+		else
+		{
+			break;
+		}
+	}
+	
+	if (!ResumeCamera)
+	{
+		return;
+	}
+	
+	FComposableCameraTransitionParams TransitionParameters = TransitionParams;
+	if (!TransitionParams.TransitionClass)
+	{
+		TransitionParameters.TransitionClass = ResumeCamera->DefaultTransition ? ResumeCamera->DefaultTransition->StaticClass() : nullptr;
+		TransitionParameters.TransitionTime = ResumeCamera->DefaultTransition ? ResumeCamera->DefaultTransitionTime : 0.f;
+	}
+
+	PlayerCameraManager->ResumeCamera(ResumeCamera, TransitionParameters, bPreserveCameraPose);
 }
 
 void UComposableCameraBlueprintLibrary::AddModifier(const UObject* WorldContextObject,

@@ -9,6 +9,8 @@
 
 class UComposableCameraTransitionBase;
 
+DECLARE_MULTICAST_DELEGATE(FOnTransitionFinishes);
+
 /**
  * Parameters for a camera transition.
  */
@@ -78,6 +80,9 @@ protected:
 	 */
 	UFUNCTION(BlueprintImplementableEvent, meta = (DisplayName = "OnTransitionFinish"), Category = "ComposableCameraSystem|Transition")
 	void OnFinished();
+
+public:
+	FOnTransitionFinishes OnTransitionFinishesDelegate;
 	
 protected:
 	// Camera pose when transition starts.

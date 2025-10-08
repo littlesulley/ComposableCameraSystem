@@ -21,6 +21,11 @@ class COMPOSABLECAMERASYSTEM_API UComposableCameraDirector : public UObject
 public:
 	UComposableCameraDirector(const FObjectInitializer& ObjectInitializer);
 
+	AComposableCameraCameraBase* ResumeCamera(
+		AComposableCameraCameraBase* ResumeCamera,
+		const FComposableCameraTransitionParams& TransitionParameters,
+		const FTransform& Transform);
+	
 	AComposableCameraCameraBase* ActivateNewCamera(
 		AComposableCameraPlayerCamaraManager* PlayerCameraManager,
 		TSubclassOf<AComposableCameraCameraBase> CameraClass,
@@ -32,7 +37,7 @@ public:
 		FOnCameraFinishConstructed OnPreBeginplayEvent);
 	
 	[[nodiscard]] FComposableCameraPose Evaluate(float DeltaTime) const;
-	
+
 private:
 	UPROPERTY(Transient)
 	UComposableCameraEvaluationTree* EvaluationTree;

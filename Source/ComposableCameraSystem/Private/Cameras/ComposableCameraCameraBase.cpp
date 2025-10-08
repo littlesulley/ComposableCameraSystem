@@ -65,7 +65,10 @@ FComposableCameraPose AComposableCameraCameraBase::TickCamera(float DeltaTime)
 		CameraPose = NewCameraPose;
 	}
 
-	RemainingLifeTime = FMath::Max(0.f, RemainingLifeTime - DeltaTime);
+	if (bIsTransient)
+	{
+		RemainingLifeTime = FMath::Max(0.f, RemainingLifeTime - DeltaTime);
+	}
 	
 	return CameraPose;
 }
