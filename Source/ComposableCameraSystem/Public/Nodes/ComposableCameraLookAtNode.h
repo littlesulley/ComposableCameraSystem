@@ -41,6 +41,9 @@ public:
 	virtual void OnBeginPlayNode_Implementation(const FComposableCameraPose& CurrentCameraPose) override;
 	virtual void OnTickNode_Implementation(float DeltaTime, const FComposableCameraPose& CurrentCameraPose, FComposableCameraPose& OutCameraPose) override;
 
+protected:
+	virtual void ReceiveInitializerNode(UComposableCameraCameraNodeBase* Initializer) override;
+	
 public:
 	// Look at type, to look at a specified position or by an actor's position.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters)

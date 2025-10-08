@@ -26,8 +26,7 @@ public:
 		TSubclassOf<AComposableCameraCameraBase> CameraClass,
 		FComposableCameraTransitionParams TransitionParams,
 		FTransform InitialTransform,
-		UDataTable* NodeInitializerDataTable,
-		FGameplayTagContainer NodeInitializerTags,
+		UComposableCameraNodeInitializerDataAsset* NodeInitializerDataAsset,
 		bool bIsTransient,
 		float LifeTime,
 		FOnCameraFinishConstructed OnPreBeginplayEvent);

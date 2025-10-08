@@ -48,3 +48,15 @@ void UComposableCameraRelativeFixedPoseNode::OnTickNode_Implementation(float Del
 	OutCameraPose.Position = TargetLocation;
 	OutCameraPose.Rotation = TargetRotation;
 }
+
+void UComposableCameraRelativeFixedPoseNode::ReceiveInitializerNode(UComposableCameraCameraNodeBase* Initializer)
+{
+	if (UComposableCameraRelativeFixedPoseNode* CastedInitializer = Cast<UComposableCameraRelativeFixedPoseNode>(Initializer))
+	{
+		Method = CastedInitializer->Method;
+		RelativeTransform = CastedInitializer->RelativeTransform;
+		RelativeActor = CastedInitializer->RelativeActor;
+		RelativeSocket = CastedInitializer->RelativeSocket;
+		TargetTransform = CastedInitializer->TargetTransform;
+	}
+}

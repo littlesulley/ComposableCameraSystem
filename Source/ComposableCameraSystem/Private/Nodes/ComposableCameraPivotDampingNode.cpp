@@ -127,3 +127,17 @@ void UComposableCameraPivotDampingNode::OnTickNode_Implementation(float DeltaTim
 		UKismetSystemLibrary::DrawDebugSphere(this, WorldSpaceDampedPivotPosition, 20, 12, FLinearColor::Green, 0, 1);
 	}
 }
+
+void UComposableCameraPivotDampingNode::ReceiveInitializerNode(UComposableCameraCameraNodeBase* Initializer)
+{
+	if (UComposableCameraPivotDampingNode* CastedInitializer = Cast<UComposableCameraPivotDampingNode>(Initializer))
+	{
+		bMaintainCameraSpacePivotPosition = CastedInitializer->bMaintainCameraSpacePivotPosition;
+		UpwardInterpolator = CastedInitializer->UpwardInterpolator;
+		DownwardInterpolator = CastedInitializer->DownwardInterpolator;
+		LeftwardInterpolator = CastedInitializer->LeftwardInterpolator;
+		RightwardInterpolator = CastedInitializer->RightwardInterpolator;
+		ForwardInterpolator = CastedInitializer->ForwardInterpolator;
+		BackwardInterpolator = CastedInitializer->BackwardInterpolator;
+	}
+}

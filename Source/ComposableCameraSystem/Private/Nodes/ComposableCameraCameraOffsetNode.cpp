@@ -27,3 +27,11 @@ void UComposableCameraCameraOffsetNode::OnTickNode_Implementation(
 
 	OutCameraPose.Position = OutPosition;
 }
+
+void UComposableCameraCameraOffsetNode::ReceiveInitializerNode(UComposableCameraCameraNodeBase* Initializer)
+{
+	if (UComposableCameraCameraOffsetNode* CastedInitializer = Cast<UComposableCameraCameraOffsetNode>(Initializer))
+	{
+		CameraOffset = CastedInitializer->CameraOffset;
+	}
+}

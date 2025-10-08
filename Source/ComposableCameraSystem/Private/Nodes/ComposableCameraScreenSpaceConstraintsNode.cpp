@@ -56,8 +56,19 @@ void UComposableCameraScreenSpaceConstraintsNode::BeginDestroy()
 	}
 }
 
+void UComposableCameraScreenSpaceConstraintsNode::ReceiveInitializerNode(UComposableCameraCameraNodeBase* Initializer)
+{
+	if (UComposableCameraScreenSpaceConstraintsNode* CastedInitializer = Cast<UComposableCameraScreenSpaceConstraintsNode>(Initializer))
+	{
+		Method = CastedInitializer->Method;
+		SafeZoneCenter = CastedInitializer->SafeZoneCenter;
+		SafeZoneWidth = CastedInitializer->SafeZoneWidth;
+		SafeZoneHeight = CastedInitializer->SafeZoneHeight;
+	}
+}
+
 FVector UComposableCameraScreenSpaceConstraintsNode::EnsureWithinBoundsTranslation(const FVector& Pivot,
-	const FComposableCameraPose& CurrentPose, const float& AspectRatio, const float& TanHalfHOR)
+                                                                                   const FComposableCameraPose& CurrentPose, const float& AspectRatio, const float& TanHalfHOR)
 {
 	FVector CameraSpacePivotPosition = UKismetMathLibrary::LessLess_VectorRotator(Pivot - CurrentPose.Position, CurrentPose.Rotation);
 

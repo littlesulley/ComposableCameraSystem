@@ -69,6 +69,27 @@ void UComposableCameraCollisionPushNode::OnTickNode_Implementation(float DeltaTi
 	}
 }
 
+void UComposableCameraCollisionPushNode::ReceiveInitializerNode(UComposableCameraCameraNodeBase* Initializer)
+{
+	if (UComposableCameraCollisionPushNode* CastedInitializer = Cast<UComposableCameraCollisionPushNode>(Initializer))
+	{
+		TraceCollisionChannel = CastedInitializer->TraceCollisionChannel;
+		bTraceUseSphere = CastedInitializer->bTraceUseSphere;
+		TraceSphereRadius = CastedInitializer->TraceSphereRadius;
+		TraceOcclusionExemptionTime = CastedInitializer->TraceOcclusionExemptionTime;
+		SelfCollisionChannel = CastedInitializer->SelfCollisionChannel;
+		SelfSphereRadius = CastedInitializer->SelfSphereRadius;
+		SelfSphereDistanceOffsetFromCenter = CastedInitializer->SelfSphereDistanceOffsetFromCenter;
+		ActorTypesToIgnore = CastedInitializer->ActorTypesToIgnore;
+		ExtraPushDistance = CastedInitializer->ExtraPushDistance;
+		PushInterpolator = CastedInitializer->PushInterpolator;
+		PullInterpolator = CastedInitializer->PullInterpolator;
+		PivotZOffset = CastedInitializer->PivotZOffset;
+		bUseBoneForDetection = CastedInitializer->bUseBoneForDetection;
+		BoneName = CastedInitializer->BoneName;
+	}
+}
+
 FComposableCameraHitResult UComposableCameraCollisionPushNode::FindCollisionPoint(double DeltaTime,  const FVector& PivotPosition, const FVector& CameraPosition, const FRotator& CameraRotation)
 {
 	// Do trace collision point first.

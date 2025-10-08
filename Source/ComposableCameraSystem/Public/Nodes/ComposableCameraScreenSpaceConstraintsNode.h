@@ -20,6 +20,9 @@ public:
 	virtual void OnTickNode_Implementation(float DeltaTime, const FComposableCameraPose& CurrentCameraPose, FComposableCameraPose& OutCameraPose) override;
 	virtual void BeginDestroy() override;
 
+protected:
+	virtual void ReceiveInitializerNode(UComposableCameraCameraNodeBase* Initializer) override;
+	
 public:
 	// The method to keep screen space constraints, translation or rotation.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters)

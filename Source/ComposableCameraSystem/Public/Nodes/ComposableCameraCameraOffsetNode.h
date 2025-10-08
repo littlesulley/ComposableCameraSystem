@@ -20,6 +20,9 @@ class COMPOSABLECAMERASYSTEM_API UComposableCameraCameraOffsetNode
 public:
 	virtual void OnTickNode_Implementation(float DeltaTime, const FComposableCameraPose& CurrentCameraPose, FComposableCameraPose& OutCameraPose) override;
 
+protected:
+	virtual void ReceiveInitializerNode(UComposableCameraCameraNodeBase* Initializer) override;
+	
 public:
 	// Offset to apply on the context pivot position in camera space.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters)

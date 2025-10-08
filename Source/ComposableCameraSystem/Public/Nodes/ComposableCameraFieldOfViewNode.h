@@ -18,6 +18,9 @@ class COMPOSABLECAMERASYSTEM_API UComposableCameraFieldOfViewNode
 public:
 	virtual void OnTickNode_Implementation(float DeltaTime, const FComposableCameraPose& CurrentCameraPose, FComposableCameraPose& OutCameraPose) override;
 
+protected:
+	virtual void ReceiveInitializerNode(UComposableCameraCameraNodeBase* Initializer) override;
+	
 public:
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = InputParameters)
 	float FieldOfView { 79.f };

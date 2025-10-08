@@ -27,6 +27,9 @@ public:
 	virtual void OnBeginPlayNode_Implementation(const FComposableCameraPose& CurrentCameraPose) override;
 	virtual void OnTickNode_Implementation(float DeltaTime, const FComposableCameraPose& CurrentCameraPose, FComposableCameraPose& OutCameraPose) override;
 
+protected:
+	virtual void ReceiveInitializerNode(UComposableCameraCameraNodeBase* Initializer) override;
+	
 public:
 	// The level sequence you want to use for setting camera pose.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters)

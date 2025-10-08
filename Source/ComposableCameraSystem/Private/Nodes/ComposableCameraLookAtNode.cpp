@@ -78,3 +78,18 @@ void UComposableCameraLookAtNode::OnTickNode_Implementation(float DeltaTime,
 
 	OutCameraPose.Rotation = ResultRotation;
 }
+
+void UComposableCameraLookAtNode::ReceiveInitializerNode(UComposableCameraCameraNodeBase* Initializer)
+{
+	if (UComposableCameraLookAtNode* CastedInitializer = Cast<UComposableCameraLookAtNode>(Initializer))
+	{
+		LookAtType = CastedInitializer->LookAtType;
+		LookAtPosition = CastedInitializer->LookAtPosition;
+		LookAtActor = CastedInitializer->LookAtActor;
+		LookAtSocket = CastedInitializer->LookAtSocket;
+		LookAtConstraintType = CastedInitializer->LookAtConstraintType;
+		SoftLookAtRange = CastedInitializer->SoftLookAtRange;
+		SoftLookAtWeight = CastedInitializer->SoftLookAtWeight;
+		SoftLookAtInterpolator = CastedInitializer->SoftLookAtInterpolator;
+	}
+}

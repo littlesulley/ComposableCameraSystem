@@ -4,11 +4,6 @@
 
 #include "Cameras/ComposableCameraCameraBase.h"
 
-UComposableCameraReceivePivotActorNode::UComposableCameraReceivePivotActorNode(
-	const FObjectInitializer& ObjectInitializer) : Super(ObjectInitializer)
-{
-}
-
 void UComposableCameraReceivePivotActorNode::OnTickNode_Implementation(
 	float DeltaTime,
 	const FComposableCameraPose& CurrentCameraPose,

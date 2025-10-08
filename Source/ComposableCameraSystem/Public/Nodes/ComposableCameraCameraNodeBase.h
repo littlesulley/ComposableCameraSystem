@@ -12,16 +12,6 @@ class AComposableCameraCameraBase;
 class AComposableCameraPlayerCamaraManager;
 struct FComposableCameraPose;
 
-USTRUCT(Blueprintable, BlueprintType)
-struct FComposableCameraNodeParamaters
-{
-	GENERATED_BODY()
-
-public:
-	UPROPERTY(EditAnywhere, BlueprintReadWrite)
-	bool bEnableNode { true };
-};
-
 /**
  * Base node for all camera nodes.
  */
@@ -32,7 +22,7 @@ class COMPOSABLECAMERASYSTEM_API UComposableCameraCameraNodeBase
 	GENERATED_BODY()
 
 public:
-	void Initialize(AComposableCameraCameraBase* InOwningCamera, AComposableCameraPlayerCamaraManager* InPlayerCameraManager);
+	void Initialize(AComposableCameraCameraBase* InOwningCamera, AComposableCameraPlayerCamaraManager* InPlayerCameraManager, TArray<UComposableCameraCameraNodeBase*>& Initializers);
 	void TickNode(float DeltaTime, const FComposableCameraPose CurrentCameraPose, FComposableCameraPose& OutCameraPose);
 	void BeginPlayNode(const FComposableCameraPose& CurrentCameraPose);
 	
@@ -69,6 +59,9 @@ protected:
 	UFUNCTION(BlueprintNativeEvent, DisplayName = "BeginPlayNode", Category = "ComposableCameraSystem|Node")
 	void OnBeginPlayNode(const FComposableCameraPose& CurrentCameraPose);
 	virtual void OnBeginPlayNode_Implementation(const FComposableCameraPose& CurrentCameraPose) {}
+
+protected:
+	virtual void ReceiveInitializerNode(UComposableCameraCameraNodeBase* Initializer) {}
 
 protected:
 	UPROPERTY(BlueprintReadOnly, Transient, Category = "ComposableCameraSystem|Node")

@@ -61,6 +61,19 @@ void UComposableCameraScreenSpacePivotNode::BeginDestroy()
 	}
 }
 
+void UComposableCameraScreenSpacePivotNode::ReceiveInitializerNode(UComposableCameraCameraNodeBase* Initializer)
+{
+	if (UComposableCameraScreenSpacePivotNode* CastedInitializer = Cast<UComposableCameraScreenSpacePivotNode>(Initializer))
+	{
+		Method = CastedInitializer->Method;
+		TranslationParams = CastedInitializer->TranslationParams;
+		RotationParams = CastedInitializer->RotationParams;
+		SafeZoneCenter = CastedInitializer->SafeZoneCenter;
+		SafeZoneWidth = CastedInitializer->SafeZoneWidth;
+		SafeZoneHeight = CastedInitializer->SafeZoneHeight;
+	}
+}
+
 FVector UComposableCameraScreenSpacePivotNode::GetScreenSpaceTranslateAmount(const FVector& Pivot,
                                                                              const FComposableCameraPose& OutCameraPose, float DeltaTime)
 {

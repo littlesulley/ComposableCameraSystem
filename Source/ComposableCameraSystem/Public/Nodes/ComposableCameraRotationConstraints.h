@@ -43,6 +43,9 @@ class COMPOSABLECAMERASYSTEM_API UComposableCameraRotationConstraints : public U
 public:
 	virtual void OnTickNode_Implementation(float DeltaTime, const FComposableCameraPose& CurrentCameraPose, FComposableCameraPose& OutCameraPose) override;
 
+protected:
+	virtual void ReceiveInitializerNode(UComposableCameraCameraNodeBase* Initializer) override;
+	
 public:
 	// Whether to enable yaw constraint.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters)

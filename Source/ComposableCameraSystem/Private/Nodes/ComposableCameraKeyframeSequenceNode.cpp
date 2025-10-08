@@ -137,6 +137,19 @@ void UComposableCameraKeyframeSequenceNode::OnTickNode_Implementation(float Delt
 	}
 }
 
+void UComposableCameraKeyframeSequenceNode::ReceiveInitializerNode(UComposableCameraCameraNodeBase* Initializer)
+{
+	if (UComposableCameraKeyframeSequenceNode* CastedInitializer = Cast<UComposableCameraKeyframeSequenceNode>(Initializer))
+	{
+		CameraSequence = CastedInitializer->CameraSequence;
+		Method = CastedInitializer->Method;
+		RelativeTransform = CastedInitializer->RelativeTransform;
+		RelativeActor = CastedInitializer->RelativeActor;
+		RelativeSocket = CastedInitializer->RelativeSocket;
+		StayAtLastFrameTime = CastedInitializer->StayAtLastFrameTime;
+	}
+}
+
 std::pair<float, FTransform> UComposableCameraKeyframeSequenceNode::GetTargetTransform(FFrameTime FrameTime)
 {
 	float TargetFOV = -1.f;

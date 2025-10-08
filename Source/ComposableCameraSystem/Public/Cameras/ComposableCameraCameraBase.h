@@ -9,6 +9,7 @@
 #include "Variables/ComposableCameraVariableCollection.h"
 #include "ComposableCameraCameraBase.generated.h"
 
+class UComposableCameraNodeInitializerDataAsset;
 class UComposableCameraVariableCollection;
 class UComposableCameraCameraNodeBase;
 class AComposableCameraPlayerCamaraManager;
@@ -51,13 +52,9 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	FTransform InitialTransform;
 	
-	// Data table for node initializers. If not set, no initializer will be applied.
+	// Data asset for node initializers. If not set, no initializer will be applied.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
-	UDataTable* NodeInitializerDataTable;
-
-	// Tags to use for node initializers. Only matched tags will be used.
-	UPROPERTY(EditAnywhere, BlueprintReadWrite)
-	FGameplayTagContainer NodeInitializerTags;
+	UComposableCameraNodeInitializerDataAsset* NodeInitializerDataTable;
 
 	// Whether this camera is transient.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
@@ -111,7 +108,7 @@ public:
 public:
 	virtual void BeginPlay() override;
 	
-	void Initialize(AComposableCameraPlayerCamaraManager* Manager);
+	void Initialize(AComposableCameraPlayerCamaraManager* Manager, UComposableCameraNodeInitializerDataAsset* NodeInitializerDataAsset);
 	void BeginPlayCamera(const FComposableCameraPose& CurrentCameraPose);
 	[[nodiscard]] FComposableCameraPose TickCamera(float DeltaTime);
 

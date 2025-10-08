@@ -19,8 +19,6 @@ class COMPOSABLECAMERASYSTEM_API UComposableCameraReceivePivotActorNode
 	GENERATED_BODY()
 	
 public:
-	UComposableCameraReceivePivotActorNode(const  FObjectInitializer& ObjectInitializer);
-
 	virtual void OnTickNode_Implementation(float DeltaTime, const FComposableCameraPose& CurrentCameraPose, FComposableCameraPose& OutCameraPose) override;
 
 public:

@@ -6,10 +6,6 @@
 #include "Kismet/KismetMathLibrary.h"
 #include "Kismet/KismetSystemLibrary.h"
 
-UComposableCameraPivotOffsetNode::UComposableCameraPivotOffsetNode(const FObjectInitializer& ObjectInitializer)
-{
-}
-
 void UComposableCameraPivotOffsetNode::OnBeginPlayNode_Implementation(const FComposableCameraPose& CurrentCameraPose)
 {
 	UpdatePivotOffset(CurrentCameraPose);
@@ -19,6 +15,16 @@ void UComposableCameraPivotOffsetNode::OnTickNode_Implementation(float DeltaTime
                                                                  const FComposableCameraPose& CurrentCameraPose, FComposableCameraPose& OutCameraPose)
 {
 	UpdatePivotOffset(CurrentCameraPose);
+}
+
+void UComposableCameraPivotOffsetNode::ReceiveInitializerNode(UComposableCameraCameraNodeBase* Initializer)
+{
+	if (UComposableCameraPivotOffsetNode* CastedInitializer = Cast<UComposableCameraPivotOffsetNode>(Initializer))
+	{
+		PivotOffsetType = CastedInitializer->PivotOffsetType;
+		ActorForLocalSpace = CastedInitializer->ActorForLocalSpace;
+		PivotOffset = CastedInitializer->PivotOffset;
+	}
 }
 
 void UComposableCameraPivotOffsetNode::UpdatePivotOffset(const FComposableCameraPose& CurrentCameraPose)

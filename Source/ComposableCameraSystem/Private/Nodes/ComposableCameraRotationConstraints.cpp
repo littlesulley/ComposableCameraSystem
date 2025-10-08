@@ -81,8 +81,25 @@ void UComposableCameraRotationConstraints::OnTickNode_Implementation(float Delta
 	OutCameraPose.Rotation = FRotator(WorldTargetPitch, WorldTargetYaw, CurrentCameraRotation.Roll);
 }
 
+void UComposableCameraRotationConstraints::ReceiveInitializerNode(UComposableCameraCameraNodeBase* Initializer)
+{
+	if (UComposableCameraRotationConstraints* CastedInitializer = Cast<UComposableCameraRotationConstraints>(Initializer))
+	{
+		bConstrainYaw = CastedInitializer->bConstrainYaw;
+		YawRange = CastedInitializer->YawRange;
+		ConstrainYawType = CastedInitializer->ConstrainYawType;
+		ActorForYawConstrain = CastedInitializer->ActorForYawConstrain;
+		VectorForYawConstrain = CastedInitializer->VectorForYawConstrain;
+		bConstrainPitch = CastedInitializer->bConstrainPitch;
+		PitchRange = CastedInitializer->PitchRange;
+		ConstrainPitchType = CastedInitializer->ConstrainPitchType;
+		ActorForPitchConstrain = CastedInitializer->ActorForPitchConstrain;
+		VectorForPitchConstrain = CastedInitializer->VectorForPitchConstrain;
+	}
+}
+
 double UComposableCameraRotationConstraints::FindTargetYawInRange(const double WorldCurrentYaw,
-	const FVector2D& WorldTargetYawRange)
+                                                                  const FVector2D& WorldTargetYawRange)
 {
 	double NormalizedWorldCurrentYaw = ComposableCameraSystem::NormalizeYaw(WorldCurrentYaw);
 	FVector2D NormalizedWorldTargetYawRange = {

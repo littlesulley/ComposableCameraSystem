@@ -44,8 +44,7 @@ AComposableCameraCameraBase* AComposableCameraPlayerCamaraManager::ActivateNewCa
 	TSubclassOf<AComposableCameraCameraBase> CameraClass,
 	FComposableCameraTransitionParams TransitionParams,
 	FTransform InitialTransform,
-	UDataTable* NodeInitializerDataTable,
-	FGameplayTagContainer NodeInitializerTags,
+	UComposableCameraNodeInitializerDataAsset* NodeInitializerDataAsset,
 	bool bIsTransient,
 	float LifeTime,
 	FOnCameraFinishConstructed OnPreBeginplayEvent)
@@ -71,7 +70,7 @@ AComposableCameraCameraBase* AComposableCameraPlayerCamaraManager::ActivateNewCa
 	}
 	
 	AComposableCameraCameraBase* NewCamera = Director->ActivateNewCamera(
-		PlayerCameraManager, CameraClass, TransitionParams, InitialTransform, NodeInitializerDataTable, NodeInitializerTags, bIsTransient, LifeTime, OnPreBeginplayEvent);
+		PlayerCameraManager, CameraClass, TransitionParams, InitialTransform, NodeInitializerDataAsset, bIsTransient, LifeTime, OnPreBeginplayEvent);
 	if (NewCamera)
 	{
 		RunningCamera = NewCamera;

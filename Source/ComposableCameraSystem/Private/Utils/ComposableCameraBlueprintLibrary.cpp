@@ -16,8 +16,7 @@ AComposableCameraCameraBase* UComposableCameraBlueprintLibrary::ActivateComposab
 	FOnCameraFinishConstructed OnPreBeginplayEvent)
 {
 	FTransform InitialTransform = ActivationParams.InitialTransform;
-	UDataTable* NodeInitializerDataTable = ActivationParams.NodeInitializerDataTable;
-	FGameplayTagContainer NodeInitializerTags = ActivationParams.NodeInitializerTags;
+	UComposableCameraNodeInitializerDataAsset* NodeInitializerDataAsset = ActivationParams.NodeInitializerDataTable;
 	bool bIsTransient = ActivationParams.bIsTransient;
 	float LifeTime = ActivationParams.LifeTime;
 	
@@ -34,7 +33,7 @@ AComposableCameraCameraBase* UComposableCameraBlueprintLibrary::ActivateComposab
 		}
 
 		AComposableCameraCameraBase* NewCamera = PlayerCameraManager->ActivateNewCamera(
-			PlayerCameraManager, CameraClass, TransitionParams, InitialTransform, NodeInitializerDataTable, NodeInitializerTags, bIsTransient, LifeTime, OnPreBeginplayEvent);
+			PlayerCameraManager, CameraClass, TransitionParams, InitialTransform, NodeInitializerDataAsset, bIsTransient, LifeTime, OnPreBeginplayEvent);
 		
 		return NewCamera; 
 	}

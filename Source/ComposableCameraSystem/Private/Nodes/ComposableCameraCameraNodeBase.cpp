@@ -4,10 +4,19 @@
 
 #include "Cameras/ComposableCameraCameraBase.h"
 
-void UComposableCameraCameraNodeBase::Initialize(AComposableCameraCameraBase* InOwningCamera, AComposableCameraPlayerCamaraManager* InPlayerCameraManager)
+void UComposableCameraCameraNodeBase::Initialize(AComposableCameraCameraBase* InOwningCamera, AComposableCameraPlayerCamaraManager* InPlayerCameraManager, TArray<UComposableCameraCameraNodeBase*>& Initializers)
 {
 	OwningCamera = InOwningCamera;
 	OwningPlayerCameraManager = InPlayerCameraManager;
+
+	for (UComposableCameraCameraNodeBase* Initializer : Initializers)
+	{
+		if (Initializer && Initializer->StaticClass() == this->StaticClass())
+		{
+			ReceiveInitializerNode(Initializer);
+		}
+	}
+	
 	OnInitialize();
 }
 

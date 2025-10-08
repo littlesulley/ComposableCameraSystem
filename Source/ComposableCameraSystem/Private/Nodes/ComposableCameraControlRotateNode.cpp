@@ -78,8 +78,21 @@ void UComposableCameraControlRotateNode::OnTickNode_Implementation(
 	LastFrameCameraRotationInput = CameraRotationInputForThisFrame;
 }
 
+void UComposableCameraControlRotateNode::ReceiveInitializerNode(UComposableCameraCameraNodeBase* Initializer)
+{
+	if (UComposableCameraControlRotateNode* CastedInitializer = Cast<UComposableCameraControlRotateNode>(Initializer))
+	{
+		RotateAction = CastedInitializer->RotateAction;
+		HorizontalSpeed = CastedInitializer->HorizontalSpeed;
+		VerticalSpeed = CastedInitializer->VerticalSpeed;
+		HorizontalDamping = CastedInitializer->HorizontalDamping;
+		VerticalDamping = CastedInitializer->VerticalDamping;
+		bInvertPitch = CastedInitializer->bInvertPitch;
+	}
+}
+
 void UComposableCameraControlRotateNode::ApplyAcceleration(float DeltaTime, FVector2f Damping, double& ThisFrameRotationInput,
-	const double& LastFrameRotationInput)
+                                                           const double& LastFrameRotationInput)
 {
 	float DampTime = FMath::Abs(ThisFrameRotationInput) > FMath::Abs(LastFrameRotationInput)
 			? Damping.X

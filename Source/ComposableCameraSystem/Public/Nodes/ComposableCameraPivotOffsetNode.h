@@ -30,9 +30,11 @@ class COMPOSABLECAMERASYSTEM_API UComposableCameraPivotOffsetNode
 	GENERATED_BODY()
 
 public:
-	UComposableCameraPivotOffsetNode(const  FObjectInitializer& ObjectInitializer);
 	virtual void OnBeginPlayNode_Implementation(const FComposableCameraPose& CurrentCameraPose) override;
 	virtual void OnTickNode_Implementation(float DeltaTime, const FComposableCameraPose& CurrentCameraPose, FComposableCameraPose& OutCameraPose) override;
+
+protected:
+	virtual void ReceiveInitializerNode(UComposableCameraCameraNodeBase* Initializer) override;
 	
 public:
 	// In which space you'd like to apply offset, can be world, camera, or actor local.

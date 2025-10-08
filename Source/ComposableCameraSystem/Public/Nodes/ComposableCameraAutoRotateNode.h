@@ -4,7 +4,6 @@
 
 #include "CoreMinimal.h"
 #include "Nodes/ComposableCameraCameraNodeBase.h"
-#include "StructUtils/InstancedStruct.h"
 #include "ComposableCameraAutoRotateNode.generated.h"
 
 UENUM()
@@ -20,22 +19,6 @@ enum class EComposableCameraAutoRotateType
 	FixedTransform
 };
 
-USTRUCT(NotBlueprintable)
-struct FComposableCameraAutoRotateNodeParameters : public FComposableCameraNodeParamaters
-{
-	GENERATED_BODY()
-
-public:
-	UPROPERTY(EditAnywhere, BlueprintReadWrite)
-	EComposableCameraAutoRotateType RotateType { EComposableCameraAutoRotateType::ActorVelocity };
-	
-	UPROPERTY(EditAnywhere, BlueprintReadWrite)
-	float RotateSpeed { 1.0f };
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite)
-	AActor* PivotActor { nullptr };
-};
-
 /**
  * Node for auto-rotating
  */
@@ -48,7 +31,16 @@ public:
 	virtual void OnBeginPlayNode_Implementation(const FComposableCameraPose& CurrentCameraPose) override;
 	virtual void OnTickNode_Implementation(float DeltaTime, const FComposableCameraPose& CurrentCameraPose, FComposableCameraPose& OutCameraPose) override;
 
+protected:
+	virtual void ReceiveInitializerNode(UComposableCameraCameraNodeBase* Initializer) override;
+	
 public:
-	UPROPERTY(EditAnywhere, BlueprintReadWrite)
-	FComposableCameraAutoRotateNodeParameters InputParameters;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters)
+	EComposableCameraAutoRotateType RotateType { EComposableCameraAutoRotateType::ActorVelocity };
+	
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters)
+	float RotateSpeed { 1.0f };
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters)
+	AActor* PivotActor { nullptr }; 
 };

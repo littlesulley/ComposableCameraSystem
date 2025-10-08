@@ -4,6 +4,7 @@
 
 #include "Camera/CameraComponent.h"
 #include "Core/ComposableCameraPlayerCamaraManager.h"
+#include "DataTables/ComposableCameraNodeInitializerDataAsset.h"
 #include "Nodes/ComposableCameraCameraNodeBase.h"
 
 AComposableCameraCameraBase::AComposableCameraCameraBase(const FObjectInitializer& ObjectInitializer)
@@ -18,14 +19,16 @@ void AComposableCameraCameraBase::BeginPlay()
 	BeginPlayCamera(CameraManager->GetCurrentCameraPose());
 }
 
-void AComposableCameraCameraBase::Initialize(AComposableCameraPlayerCamaraManager* Manager)
+void AComposableCameraCameraBase::Initialize(AComposableCameraPlayerCamaraManager* Manager, UComposableCameraNodeInitializerDataAsset* NodeInitializerDataAsset)
 {
+	TArray<UComposableCameraCameraNodeBase*> Initializers = NodeInitializerDataAsset ? NodeInitializerDataAsset->NodeParameterInitializers : TArray<UComposableCameraCameraNodeBase*>();
+	
 	CameraManager = Manager;
 	for (UComposableCameraCameraNodeBase* Node : CameraNodes)
 	{
 		if (Node)
 		{
-			Node->Initialize(this,  Manager);
+			Node->Initialize(this,  Manager, Initializers);
 		}
 	}
 	OnInitialized();

@@ -18,8 +18,7 @@ AComposableCameraPlayerCamaraManager* PlayerCameraManager,
 	TSubclassOf<AComposableCameraCameraBase> CameraClass,
 	FComposableCameraTransitionParams TransitionParams,
 	FTransform InitialTransform,
-	UDataTable* NodeInitializerDataTable, // @TODO
-	FGameplayTagContainer NodeInitializerTags, // @TODO
+	UComposableCameraNodeInitializerDataAsset* NodeInitializerDataAsset, 
 	bool bIsTransient,
 	float LifeTime,
 	FOnCameraFinishConstructed OnPreBeginplayEvent)
@@ -37,7 +36,7 @@ AComposableCameraPlayerCamaraManager* PlayerCameraManager,
 			NewCamera->RemainingLifeTime = LifeTime;
 			NewCamera->bIsRunning = true;
 			RunningCamera->bIsRunning = false;
-			NewCamera->Initialize(PlayerCameraManager);
+			NewCamera->Initialize(PlayerCameraManager, NodeInitializerDataAsset);
 			OnPreBeginplayEvent.ExecuteIfBound(NewCamera);
 			NewCamera->FinishSpawning(InitialTransform);
 		}
@@ -49,7 +48,7 @@ AComposableCameraPlayerCamaraManager* PlayerCameraManager,
 			NewCamera->LifeTime = -1.f;
 			NewCamera->RemainingLifeTime = -1.f;
 			NewCamera->bIsRunning = true;
-			NewCamera->Initialize(PlayerCameraManager);
+			NewCamera->Initialize(PlayerCameraManager, NodeInitializerDataAsset);
 			OnPreBeginplayEvent.ExecuteIfBound(NewCamera);
 			NewCamera->FinishSpawning(InitialTransform);
 		}

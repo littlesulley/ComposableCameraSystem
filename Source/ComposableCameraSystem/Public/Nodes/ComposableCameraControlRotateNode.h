@@ -28,6 +28,9 @@ public:
 	virtual void OnBeginPlayNode_Implementation(const FComposableCameraPose& CurrentCameraPose) override;
 	virtual void OnTickNode_Implementation(float DeltaTime, const FComposableCameraPose& CurrentCameraPose, FComposableCameraPose& OutCameraPose) override;
 
+protected:
+	virtual void ReceiveInitializerNode(UComposableCameraCameraNodeBase* Initializer) override;
+	
 public:
 	// Input action controlling camera rotation. You must use the Enhanced Input Component.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters)

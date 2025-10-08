@@ -12,3 +12,11 @@ void UComposableCameraAutoRotateNode::OnTickNode_Implementation(float DeltaTime,
 {
 
 }
+
+void UComposableCameraAutoRotateNode::ReceiveInitializerNode(UComposableCameraCameraNodeBase* Initializer)
+{
+	if (UComposableCameraAutoRotateNode* CastedInitializer = Cast<UComposableCameraAutoRotateNode>(Initializer))
+	{
+		
+	}
+}
