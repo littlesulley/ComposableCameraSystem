@@ -4,7 +4,7 @@
 
 #include "Camera/CameraComponent.h"
 #include "Core/ComposableCameraPlayerCamaraManager.h"
-#include "DataTables/ComposableCameraNodeInitializerDataAsset.h"
+#include "DataAssets/ComposableCameraNodeInitializerDataAsset.h"
 #include "Nodes/ComposableCameraCameraNodeBase.h"
 
 AComposableCameraCameraBase::AComposableCameraCameraBase(const FObjectInitializer& ObjectInitializer)

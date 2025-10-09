@@ -32,6 +32,8 @@ public:
 
 	void BlendBy(const FComposableCameraPose& Other, float OtherWeight)
 	{
+		OtherWeight = FMath::Clamp(OtherWeight, 0.f, 1.f);
+		
 		Position = FMath::Lerp(Position, Other.Position, OtherWeight);
 		
 		const FRotator DeltaAng = (Other.Rotation - Rotation).GetNormalized();
@@ -59,7 +61,7 @@ public:
 	
 	// Data asset for node initializers. If not set, no initializer will be applied.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
-	UComposableCameraNodeInitializerDataAsset* NodeInitializerDataTable { nullptr };
+	UComposableCameraNodeInitializerDataAsset* NodeInitializerDataAsset { nullptr };
 
 	// Whether this camera is transient.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
@@ -85,15 +87,15 @@ public:
 	AComposableCameraCameraBase(const FObjectInitializer& ObjectInitializer);
 
 	/** Tag for this camera. Used by modifiers to distinguish different cameras. */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "ComposableCameraSystem|Camera")
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "ComposableCameraSystem|Composable Camera")
 	FGameplayTag CameraTag {};
 
 	/** Default transition. Usually used for returning back to this camera from a transient camera. */
-	UPROPERTY(EditDefaultsOnly, Instanced, Category = "ComposableCameraSystem|Camera")
+	UPROPERTY(EditDefaultsOnly, Instanced, Category = "ComposableCameraSystem|Composable Camera")
 	UComposableCameraTransitionBase* DefaultTransition;
 
 	/** Default transition time. Usually used for returning back to this camera from a transient camera. */
-	UPROPERTY(EditDefaultsOnly, Category = "ComposableCameraSystem|Camera")
+	UPROPERTY(EditDefaultsOnly, Category = "ComposableCameraSystem|Composable Camera")
 	float DefaultTransitionTime { 1.f };
 
 	/** Nodes for this camera. They're executed in the order they are placed in this array.
@@ -107,7 +109,7 @@ public:
 	 *
 	 * @NOTE: This property is exposed as EditAnywhere, only for debug purposes at runtime. You should NEVER modify this for instances.
 	 */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Instanced, Category = "ComposableCameraSystem|Camera")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Instanced, Category = "ComposableCameraSystem|Composable Camera")
 	TArray<UComposableCameraCameraNodeBase*> CameraNodes;
 
 	/** Context variable collection for this camera. You should create a new collection specific to this camera first,
@@ -115,7 +117,7 @@ public:
 	 *
 	 * @NOTE: This property is exposed as EditAnywhere, only for debug purposes at runtime. You should NEVER modify this for instances.
 	 */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "ComposableCameraSystem|Camera")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "ComposableCameraSystem|Composable Camera")
 	TSoftObjectPtr<UComposableCameraVariableCollection> ContextVariables;
 
 public:
@@ -192,32 +194,32 @@ public:
 
 public:
 	// Camera pose for this frame.
-	UPROPERTY(Transient, VisibleAnywhere, Category = "ComposableCameraSystem|Camera")
+	UPROPERTY(Transient, VisibleAnywhere, Category = "ComposableCameraSystem|Composable Camera")
 	FComposableCameraPose CameraPose;
 
 	// Camera pose for last frame.
-	UPROPERTY(Transient, VisibleAnywhere, Category = "ComposableCameraSystem|Camera")
+	UPROPERTY(Transient, VisibleAnywhere, Category = "ComposableCameraSystem|Composable Camera")
 	FComposableCameraPose LastFrameCameraPose;
 
 	// Whether this camera is transient, i.e., it has a fixed life time.
-	UPROPERTY(Transient, VisibleAnywhere, Category = "ComposableCameraSystem|Camera")
+	UPROPERTY(Transient, VisibleAnywhere, Category = "ComposableCameraSystem|Composable Camera")
 	bool bIsTransient { false };
 
 	// Life time if this camera is transient.
-	UPROPERTY(Transient, VisibleAnywhere, Category = "ComposableCameraSystem|Camera")
+	UPROPERTY(Transient, VisibleAnywhere, Category = "ComposableCameraSystem|Composable Camera")
 	float LifeTime { 0.f };
 
 	// Remaining life time.
-	UPROPERTY(Transient, VisibleAnywhere, Category = "ComposableCameraSystem|Camera")
+	UPROPERTY(Transient, VisibleAnywhere, Category = "ComposableCameraSystem|Composable Camera")
 	float RemainingLifeTime { 0.f };
 
 	// Whether this camera is currently active (running) and not yet killed, generally waiting to be resumed.
-	UPROPERTY(Transient, VisibleAnywhere, Category = "ComposableCameraSystem|Camera")
+	UPROPERTY(Transient, VisibleAnywhere, Category = "ComposableCameraSystem|Composable Camera")
 	bool bIsRunning { true };
 
 	// Pending camera to be resumed. This happens when the running camera is transient and once it finishes, ParentPendingCamera will be resumed.
-	UPROPERTY(Transient, VisibleAnywhere, Category = "ComposableCameraSystem|Camera")
-	AComposableCameraCameraBase* ParentPendingCamera;
+	UPROPERTY(Transient, VisibleAnywhere, Category = "ComposableCameraSystem|Composable Camera")
+	TSoftObjectPtr<AComposableCameraCameraBase> ParentPendingCamera;
 
 protected:
 	UPROPERTY(Transient)

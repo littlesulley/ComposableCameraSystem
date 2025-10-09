@@ -3,8 +3,6 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "GameplayTagContainer.h"
-#include "StructUtils/InstancedStruct.h"
 #include "Engine/DataTable.h"
 
 #include "ComposableCameraNodeInitializerDataAsset.generated.h"
@@ -30,3 +28,4 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly)
 	FString Comment;
 };
+

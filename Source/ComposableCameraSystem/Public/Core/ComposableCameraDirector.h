@@ -12,6 +12,8 @@
 class AComposableCameraCameraBase;
 class UComposableCameraEvaluationTree;
 class UComposableCameraTransitionBase;
+class UComposableCameraNodeModifierDataAsset;
+class UComposableCameraTransitionDataAsset;
 
 UCLASS(ClassGroup = ComposableCameraSystem)
 class COMPOSABLECAMERASYSTEM_API UComposableCameraDirector : public UObject
@@ -23,13 +25,13 @@ public:
 
 	AComposableCameraCameraBase* ResumeCamera(
 		AComposableCameraCameraBase* ResumeCamera,
-		const FComposableCameraTransitionParams& TransitionParameters,
+		UComposableCameraTransitionBase* Transition,
 		const FTransform& Transform);
 	
 	AComposableCameraCameraBase* ActivateNewCamera(
 		AComposableCameraPlayerCamaraManager* PlayerCameraManager,
 		TSubclassOf<AComposableCameraCameraBase> CameraClass,
-		FComposableCameraTransitionParams TransitionParams,
+		UComposableCameraTransitionDataAsset* TransitionDataAsset,
 		FTransform InitialTransform,
 		UComposableCameraNodeInitializerDataAsset* NodeInitializerDataAsset,
 		bool bIsTransient,

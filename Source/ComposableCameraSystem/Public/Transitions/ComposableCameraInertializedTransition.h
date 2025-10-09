@@ -227,10 +227,6 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (EditCondition = "bAutoTransitionTime == true"))
 	float MaxAcceleration { 100.f };
 
-	// Transition time if not using bAutoTransitionTime.
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (EditCondition = "bAutoTransitionTime == false"))
-	float BlendTime { 2.f };
-
 	// Additive curve used to change the "shape" of transition. Must be normalized into [0,1] for both x-axis and y-axis and f(0)=1, f(1)=0. 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	UCurveFloat* AdditiveCurve;

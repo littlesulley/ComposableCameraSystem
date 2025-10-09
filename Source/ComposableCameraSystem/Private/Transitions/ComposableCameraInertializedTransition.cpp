@@ -26,7 +26,9 @@ void UComposableCameraInertializedTransition::OnBeginPlay_Implementation(float D
 		UE_LOG(LogComposableCameraSystem, Warning, TEXT("SourceCamera is null in ComposableCameraInertializedTransition. Turn to use SmoothTransition."))
 
 		BackupSmoothTransition = NewObject<UComposableCameraSmoothTransition>();
-		BackupSmoothTransition->TransitionEnabled(SourceCamera, TargetCamera, StartCameraPose, TransitionTime);
+		BackupSmoothTransition->TransitionEnabled(SourceCamera, TargetCamera, StartCameraPose);
+		BackupSmoothTransition->SetTransitionTime(TransitionTime);
+		BackupSmoothTransition->ResetTransitionState();
 	}
 }
 
@@ -98,6 +100,6 @@ float UComposableCameraInertializedTransition::GetActualBlendTime(float DeltaTim
 	}
 	else
 	{
-		return BlendTime;
+		return TransitionTime;
 	}
 }

@@ -10,6 +10,7 @@
 #include "Variables/ComposableCameraVariable.h"
 #include "ComposableCameraBlueprintLibrary.generated.h"
 
+class UComposableCameraTransitionDataAsset;
 class UComposableCameraModifierBase;
 class AComposableCameraCameraBase;
 class UComposableCameraVariable;
@@ -29,7 +30,7 @@ public:
 	 * @param WorldContextObject World context object. \n
 	 * @param PlayerCameraManager The player camera manager, must be a ComposableCameraPlayerCameraManager. \n
 	 * @param CameraClass The camera class to instantiate. \n
-	 * @param TransitionParams The transition parameters to use. If no transition param is provided, camera cut will be used. \n
+	 * @param TransitionDataAsset The transition data asset. If no transition data asset is provided, camera cut will be used. \n
 	 * @param ActivationParams Parameters to define some of the properties when activating a new camera, e.g., if it's transient and the node initializers. \n
 	 * @param bNewInstance When the current running camera has the same camera class as CameraClass specified here, whether to instantiate a new camera. \n
 	 * @param OnPreBeginplayEvent Do something after the camera is constructed and initialized, before BeginPlay() is called. You should initialize all camera and node parameters here. \n 
@@ -40,7 +41,7 @@ public:
 		const UObject* WorldContextObject,
 		AComposableCameraPlayerCamaraManager* PlayerCameraManager,
 		TSubclassOf<AComposableCameraCameraBase> CameraClass,
-		FComposableCameraTransitionParams TransitionParams,
+		UComposableCameraTransitionDataAsset* TransitionDataAsset,
 		FComposableCameraActivateParams ActivationParams,
 		bool bNewInstance,
 		FOnCameraFinishConstructed OnPreBeginplayEvent);
@@ -48,14 +49,14 @@ public:
 	/** Terminate current camera. Ideally, this should only be used for transient cameras (automatically called) and keyframe cameras that are manually controlled to terminate.
 	 * @param WorldContextObject World context object. \n
 	 * @param PlayerCameraManager The player camera manager, must be a ComposableCameraPlayerCameraManager. \n
-	 * @param TransitionParams The transition parameters to use. If no transition param is provided, the pending camera's default transition will be used. \n
+	 * @param TransitionDataAsset The transition data asset to use. If no transition is provided, the pending camera's default transition will be used. \n
 	 * @param bPreserveCameraPose Whether to preserve current camera pose (position and rotation) when returning to the last camera.
 	 */
 	UFUNCTION(BlueprintCallable, Category = "ComposableCameraSystem|Camera", meta = (WorldContext = "WorldContextObject"))
 	static void TerminateCurrentCamera(
 		const UObject* WorldContextObject,
 		AComposableCameraPlayerCamaraManager* PlayerCameraManager,
-		FComposableCameraTransitionParams TransitionParams,
+		UComposableCameraTransitionDataAsset* TransitionDataAsset,
 		bool bPreserveCameraPose = true);
 
 	/** Add a modifier data asset.

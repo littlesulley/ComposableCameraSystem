@@ -6,12 +6,12 @@ namespace ComposableCameraSystem
 {
 	inline float SmoothStep(float T)
 	{
-		return (T * T * (3.f - 2.f * T));
+		return T * T * (3.f - 2.f * T);
 	}
 
 	inline float SmootherStep(float T)
 	{
-		return (T * T * T * (T * (T * 6.f - 15.f) + 10.f));
+		return T * T * T * (T * (T * 6.f - 15.f) + 10.f);
 	}
 
 	inline double SimpleExpDamp(float DeltaTime, float DampTime, float Input)

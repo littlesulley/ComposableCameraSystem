@@ -6,6 +6,7 @@
 #include "Camera/CameraComponent.h"
 #include "Core/ComposableCameraDirector.h"
 #include "Core/ComposableCameraModifierManager.h"
+#include "DataAssets/ComposableCameraTransitionDataAsset.h"
 #include "Transitions/ComposableCameraTransitionBase.h"
 #include "Utils/ComposableCameraProjectSettings.h"
 
@@ -43,7 +44,7 @@ void AComposableCameraPlayerCamaraManager::ProcessViewRotation(float DeltaTime, 
 AComposableCameraCameraBase* AComposableCameraPlayerCamaraManager::ActivateNewCamera(
 	AComposableCameraPlayerCamaraManager* PlayerCameraManager,
 	TSubclassOf<AComposableCameraCameraBase> CameraClass,
-	FComposableCameraTransitionParams TransitionParams,
+	UComposableCameraTransitionDataAsset* Transition,
 	FTransform InitialTransform,
 	UComposableCameraNodeInitializerDataAsset* NodeInitializerDataAsset,
 	bool bIsTransient,
@@ -64,14 +65,14 @@ AComposableCameraCameraBase* AComposableCameraPlayerCamaraManager::ActivateNewCa
 		return RunningCamera;
 	}
 	
-	if (!IsValid(TransitionParams.TransitionClass))
+	if (!Transition || !Transition->Transition)
 	{
 		UE_LOG(LogComposableCameraSystem, Warning, TEXT(
-			"Transition class is not valid. Will use camera cut."));
+			"Transition is not valid. Will use camera cut."));
 	}
 	
 	AComposableCameraCameraBase* NewCamera = Director->ActivateNewCamera(
-		PlayerCameraManager, CameraClass, TransitionParams, InitialTransform, NodeInitializerDataAsset, bIsTransient, LifeTime, OnPreBeginplayEvent);
+		PlayerCameraManager, CameraClass, Transition, InitialTransform, NodeInitializerDataAsset, bIsTransient, LifeTime, OnPreBeginplayEvent);
 	if (NewCamera)
 	{
 		RunningCamera = NewCamera;
@@ -96,7 +97,7 @@ void AComposableCameraPlayerCamaraManager::RemoveModifier(UComposableCameraNodeM
 }
 
 void AComposableCameraPlayerCamaraManager::ResumeCamera(AComposableCameraCameraBase* ResumeCamera,
-	const FComposableCameraTransitionParams& TransitionParameters, bool bPreserveCameraPose)
+	UComposableCameraTransitionBase* Transition, bool bPreserveCameraPose)
 {
 	FTransform InitialTransform {};
 	if (bPreserveCameraPose)
@@ -105,7 +106,7 @@ void AComposableCameraPlayerCamaraManager::ResumeCamera(AComposableCameraCameraB
 		InitialTransform.SetRotation(CurrentCameraPose.Rotation.Quaternion());
 	}
 	
-	RunningCamera = Director->ResumeCamera(ResumeCamera, TransitionParameters, InitialTransform);
+	RunningCamera = Director->ResumeCamera(ResumeCamera, Transition, InitialTransform);
 }
 
 FMinimalViewInfo AComposableCameraPlayerCamaraManager::GetCameraViewFromCameraPose(const FComposableCameraPose& OutPose) const
@@ -172,14 +173,14 @@ void AComposableCameraPlayerCamaraManager::RefreshCameraChain() const
 	while (CurrentCamera->ParentPendingCamera && CurrentCameraChainLength + 1 < MaxCameraChainLength)
 	{
 		++CurrentCameraChainLength;
-		CurrentCamera = CurrentCamera->ParentPendingCamera;
+		CurrentCamera = CurrentCamera->ParentPendingCamera.Get();
 	}
 
 	// Recursively destroy camera above the position.
-	CurrentCamera = CurrentCamera->ParentPendingCamera;
+	CurrentCamera = CurrentCamera->ParentPendingCamera.Get();
 	while (CurrentCamera)
 	{
-		AComposableCameraCameraBase* ParentCamera = CurrentCamera->ParentPendingCamera;
+		AComposableCameraCameraBase* ParentCamera = CurrentCamera->ParentPendingCamera.Get();
 		CurrentCamera->ParentPendingCamera = nullptr;
 		CurrentCamera->Destroy();
 		CurrentCamera = ParentCamera;

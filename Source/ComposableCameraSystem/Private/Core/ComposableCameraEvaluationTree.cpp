@@ -16,7 +16,7 @@ FComposableCameraPose UComposableCameraEvaluationTree::Evaluate(float DeltaTime)
 	if (RunningCamera->IsFinished())
 	{
 		UComposableCameraBlueprintLibrary::TerminateCurrentCamera(
-			this, RunningCamera->GetOwningPlayerCameraManager(), FComposableCameraTransitionParams{});
+			this, RunningCamera->GetOwningPlayerCameraManager(), nullptr);
 	}
 	
 	if (Transition)

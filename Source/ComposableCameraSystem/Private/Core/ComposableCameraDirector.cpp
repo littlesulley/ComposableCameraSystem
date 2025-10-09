@@ -5,6 +5,7 @@
 #include "GameplayTagContainer.h"
 #include "Transitions/ComposableCameraTransitionBase.h"
 #include "Core/ComposableCameraEvaluationTree.h"
+#include "DataAssets/ComposableCameraTransitionDataAsset.h"
 #include "Kismet/GameplayStatics.h"
 
 UComposableCameraDirector::UComposableCameraDirector(const FObjectInitializer& ObjectInitializer)
@@ -14,16 +15,16 @@ UComposableCameraDirector::UComposableCameraDirector(const FObjectInitializer& O
 }
 
 AComposableCameraCameraBase* UComposableCameraDirector::ResumeCamera(AComposableCameraCameraBase* ResumeCamera,
-	const FComposableCameraTransitionParams& TransitionParameters, const FTransform& Transform)
+	UComposableCameraTransitionBase* Transition, const FTransform& Transform)
 {
 	ResumeCamera->bIsRunning = true;
 	RunningCamera->bIsRunning = false;
 	
-	UComposableCameraTransitionBase* Transition = nullptr;
-	if (TransitionParameters.TransitionClass && RunningCamera)
+	if (Transition && RunningCamera)
 	{
-		Transition = NewObject<UComposableCameraTransitionBase>(this, TransitionParameters.TransitionClass);
-		Transition->TransitionEnabled(RunningCamera, ResumeCamera, RunningCamera->GetCameraPose(), TransitionParameters.TransitionTime);
+		Transition = DuplicateObject(Transition, this);
+		Transition->TransitionEnabled(RunningCamera, ResumeCamera, RunningCamera->GetCameraPose());
+		Transition->ResetTransitionState();
 		Transition->OnTransitionFinishesDelegate.AddLambda(
 			[SourceCamera = RunningCamera]()
 			{
@@ -44,7 +45,7 @@ AComposableCameraCameraBase* UComposableCameraDirector::ResumeCamera(AComposable
 AComposableCameraCameraBase* UComposableCameraDirector::ActivateNewCamera(
 AComposableCameraPlayerCamaraManager* PlayerCameraManager,
 	TSubclassOf<AComposableCameraCameraBase> CameraClass,
-	FComposableCameraTransitionParams TransitionParams,
+	UComposableCameraTransitionDataAsset* TransitionDataAsset,
 	FTransform InitialTransform,
 	UComposableCameraNodeInitializerDataAsset* NodeInitializerDataAsset, 
 	bool bIsTransient,
@@ -79,10 +80,11 @@ AComposableCameraPlayerCamaraManager* PlayerCameraManager,
 		NewCamera->FinishSpawning(InitialTransform);
 
 		UComposableCameraTransitionBase* Transition = nullptr;
-		if (TransitionParams.TransitionClass && RunningCamera)
+		if (TransitionDataAsset && TransitionDataAsset->Transition && RunningCamera)
 		{
-			Transition = NewObject<UComposableCameraTransitionBase>(this, TransitionParams.TransitionClass);
-			Transition->TransitionEnabled(RunningCamera, NewCamera, RunningCamera->GetCameraPose(), TransitionParams.TransitionTime);
+			Transition = DuplicateObject(TransitionDataAsset->Transition, this);
+			Transition->TransitionEnabled(RunningCamera, NewCamera, RunningCamera->GetCameraPose());
+			Transition->ResetTransitionState();
 		}
 		
 		OnActivateNewCamera(NewCamera, Transition);

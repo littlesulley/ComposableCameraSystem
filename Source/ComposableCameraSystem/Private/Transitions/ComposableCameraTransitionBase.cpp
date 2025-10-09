@@ -22,13 +22,11 @@ FComposableCameraPose UComposableCameraTransitionBase::Evaluate(float DeltaTime,
 	return OnEvaluate(DeltaTime, CurrentTargetPose);
 }
 
-void UComposableCameraTransitionBase::TransitionEnabled(AComposableCameraCameraBase* InSourceCamera, AComposableCameraCameraBase* InTargetCamera, const FComposableCameraPose& CurrentSourceCameraPose, float InTransitionTime)
+void UComposableCameraTransitionBase::TransitionEnabled(AComposableCameraCameraBase* InSourceCamera, AComposableCameraCameraBase* InTargetCamera, const FComposableCameraPose& CurrentSourceCameraPose)
 {
 	SourceCamera = InSourceCamera;
 	TargetCamera = InTargetCamera;
 	StartCameraPose = CurrentSourceCameraPose;
-	TransitionTime = InTransitionTime;
-	RemainingTime = InTransitionTime;
 	bFinished = false;
 }
 
@@ -43,5 +41,17 @@ void UComposableCameraTransitionBase::TransitionFinished()
 	}
 	
 	OnFinished();
+}
+
+void UComposableCameraTransitionBase::SetTransitionTime(float NewTransitionTime)
+{
+	TransitionTime = NewTransitionTime;
+}
+
+void UComposableCameraTransitionBase::ResetTransitionState()
+{
+	RemainingTime = TransitionTime;
+	bFinished = false;
+	bFirstFrame = true;
 }
 

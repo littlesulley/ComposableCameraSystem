@@ -6,6 +6,7 @@
 #include "Transitions/ComposableCameraTransitionBase.h"
 #include "ComposableCameraPlayerCamaraManager.generated.h"
 
+class UComposableCameraTransitionDataAsset;
 class UComposableCameraNodeModifierDataAsset;
 class UComposableCameraModifierManager;
 class UComposableCameraDirector;
@@ -26,7 +27,7 @@ public:
 	AComposableCameraCameraBase* ActivateNewCamera(
 	AComposableCameraPlayerCamaraManager* PlayerCameraManager,
 		TSubclassOf<AComposableCameraCameraBase> CameraClass,
-		FComposableCameraTransitionParams TransitionParams,
+		UComposableCameraTransitionDataAsset* Transition,
 		FTransform InitialTransform,
 		UComposableCameraNodeInitializerDataAsset* NodeInitializerDataAsset,
 		bool bIsTransient,
@@ -35,7 +36,7 @@ public:
 
 	void AddModifier(UComposableCameraNodeModifierDataAsset* ModifierAsset);
 	void RemoveModifier(UComposableCameraNodeModifierDataAsset* ModifierAsset);
-	void ResumeCamera(AComposableCameraCameraBase* ResumeCamera, const FComposableCameraTransitionParams& TransitionParameters, bool bPreserveCameraPose);
+	void ResumeCamera(AComposableCameraCameraBase* ResumeCamera, UComposableCameraTransitionBase* Transition, bool bPreserveCameraPose);
 
 	UFUNCTION(BlueprintPure, Category = "ComposableCameraSystem|Camera")
 	AComposableCameraCameraBase* GetRunningCamera () const

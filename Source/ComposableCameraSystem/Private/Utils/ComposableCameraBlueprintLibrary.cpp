@@ -4,19 +4,20 @@
 
 #include "Cameras/ComposableCameraCameraBase.h"
 #include "Core/ComposableCameraPlayerCamaraManager.h"
+#include "DataAssets/ComposableCameraTransitionDataAsset.h"
 #include "Kismet/GameplayStatics.h"
 
 AComposableCameraCameraBase* UComposableCameraBlueprintLibrary::ActivateComposableCameraByClass(
 	const UObject* WorldContextObject,
 	AComposableCameraPlayerCamaraManager* PlayerCameraManager,
 	TSubclassOf<AComposableCameraCameraBase> CameraClass,
-	FComposableCameraTransitionParams TransitionParams,
+	UComposableCameraTransitionDataAsset* TransitionDataAsset,
 	FComposableCameraActivateParams ActivationParams,
 	bool bNewInstance,
 	FOnCameraFinishConstructed OnPreBeginplayEvent)
 {
 	FTransform InitialTransform = ActivationParams.InitialTransform;
-	UComposableCameraNodeInitializerDataAsset* NodeInitializerDataAsset = ActivationParams.NodeInitializerDataTable;
+	UComposableCameraNodeInitializerDataAsset* NodeInitializerDataAsset = ActivationParams.NodeInitializerDataAsset;
 	bool bIsTransient = ActivationParams.bIsTransient;
 	float LifeTime = ActivationParams.LifeTime;
 	
@@ -33,7 +34,7 @@ AComposableCameraCameraBase* UComposableCameraBlueprintLibrary::ActivateComposab
 		}
 
 		AComposableCameraCameraBase* NewCamera = PlayerCameraManager->ActivateNewCamera(
-			PlayerCameraManager, CameraClass, TransitionParams, InitialTransform, NodeInitializerDataAsset, bIsTransient, LifeTime, OnPreBeginplayEvent);
+			PlayerCameraManager, CameraClass, TransitionDataAsset, InitialTransform, NodeInitializerDataAsset, bIsTransient, LifeTime, OnPreBeginplayEvent);
 		
 		return NewCamera; 
 	}
@@ -42,24 +43,26 @@ AComposableCameraCameraBase* UComposableCameraBlueprintLibrary::ActivateComposab
 }
 
 void UComposableCameraBlueprintLibrary::TerminateCurrentCamera(const UObject* WorldContextObject, AComposableCameraPlayerCamaraManager* PlayerCameraManager,
-		FComposableCameraTransitionParams TransitionParams, bool bPreserveCameraPose)
+		UComposableCameraTransitionDataAsset* TransitionDataAsset, bool bPreserveCameraPose)
 {
 	if (!PlayerCameraManager || !PlayerCameraManager->RunningCamera || !PlayerCameraManager->RunningCamera->ParentPendingCamera)
 	{
 		return;
 	}
 
-	AComposableCameraCameraBase* ResumeCamera = PlayerCameraManager->RunningCamera->ParentPendingCamera;
-	
-	FComposableCameraTransitionParams TransitionParameters = TransitionParams;
-	if (!TransitionParams.TransitionClass)
+	AComposableCameraCameraBase* ResumeCamera = PlayerCameraManager->RunningCamera->ParentPendingCamera.Get();
+
+	UComposableCameraTransitionBase* Transition = nullptr;
+	if (!TransitionDataAsset || !TransitionDataAsset->Transition)
 	{
-		//@TODO: Use instanced transition rather than plain uclass
-		TransitionParameters.TransitionClass = ResumeCamera->DefaultTransition ? ResumeCamera->DefaultTransition->StaticClass() : nullptr; 
-		TransitionParameters.TransitionTime = ResumeCamera->DefaultTransition ? ResumeCamera->DefaultTransitionTime : 0.f;
+		Transition = ResumeCamera->DefaultTransition ? DuplicateObject(ResumeCamera->DefaultTransition, PlayerCameraManager) : nullptr;
+	}
+	else
+	{
+		Transition = DuplicateObject(TransitionDataAsset->Transition, PlayerCameraManager);
 	}
 
-	PlayerCameraManager->ResumeCamera(ResumeCamera, TransitionParameters, bPreserveCameraPose);
+	PlayerCameraManager->ResumeCamera(ResumeCamera, Transition, bPreserveCameraPose);
 }
 
 void UComposableCameraBlueprintLibrary::AddModifier(const UObject* WorldContextObject,

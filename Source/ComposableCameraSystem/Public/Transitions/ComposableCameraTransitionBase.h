@@ -12,27 +12,9 @@ class UComposableCameraTransitionBase;
 DECLARE_MULTICAST_DELEGATE(FOnTransitionFinishes);
 
 /**
- * Parameters for a camera transition.
- */
-USTRUCT(BlueprintType)
-struct FComposableCameraTransitionParams
-{
-	GENERATED_BODY()
-
-public:
-	// Transition class.
-	UPROPERTY(EditAnywhere, BlueprintReadWrite)
-	TSubclassOf<UComposableCameraTransitionBase> TransitionClass;
-
-	// Transition time.
-	UPROPERTY(EditAnywhere, BlueprintReadWrite)
-	float TransitionTime;
-};
-
-/**
  * Base class during transition evaluation.
  */
-UCLASS(Abstract, DefaultToInstanced, EditInlineNew, ClassGroup = ComposableCameraSystem)
+UCLASS(Abstract, DefaultToInstanced, EditInlineNew, ClassGroup = ComposableCameraSystem, CollapseCategories)
 class COMPOSABLECAMERASYSTEM_API UComposableCameraTransitionBase
 	: public UObject
 {
@@ -40,8 +22,11 @@ class COMPOSABLECAMERASYSTEM_API UComposableCameraTransitionBase
 
 public:
 	FComposableCameraPose Evaluate(float DeltaTime, const FComposableCameraPose& CurrentTargetPose);
-	void TransitionEnabled(AComposableCameraCameraBase* SourceCamera, AComposableCameraCameraBase* TargetCamera, const FComposableCameraPose& CurrentSourceCameraPose, float TransitionTime);
+	void TransitionEnabled(AComposableCameraCameraBase* SourceCamera, AComposableCameraCameraBase* TargetCamera, const FComposableCameraPose& CurrentSourceCameraPose);
 	void TransitionFinished();
+
+	void SetTransitionTime(float NewTransitionTime);
+	void ResetTransitionState();
 	
 	UFUNCTION(BlueprintPure, Category = "ComposableCameraSystem|Transition")
 	FComposableCameraPose GetStartCameraPose() const { return StartCameraPose; }
@@ -85,31 +70,31 @@ public:
 	FOnTransitionFinishes OnTransitionFinishesDelegate;
 	
 protected:
-	// Camera pose when transition starts.
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
-	FComposableCameraPose StartCameraPose;
-	
 	// Transition time.
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+	UPROPERTY(EditAnywhere, BlueprintReadOnly)
 	float TransitionTime;
 
 	// Remaining transition time.
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+	UPROPERTY(BlueprintReadOnly)
 	float RemainingTime;
 
 	// If finished transition.
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+	UPROPERTY(BlueprintReadOnly)
 	bool bFinished { false };
 
 	// If at the first frame of transition.
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+	UPROPERTY(BlueprintReadOnly)
 	bool bFirstFrame { true };
 
+	// Camera pose when transition starts.
+	UPROPERTY(BlueprintReadOnly)
+	FComposableCameraPose StartCameraPose;
+
 	// Source camera.
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+	UPROPERTY(BlueprintReadOnly)
 	AComposableCameraCameraBase* SourceCamera;
 
 	// Target camera.
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+	UPROPERTY(BlueprintReadOnly)
 	AComposableCameraCameraBase* TargetCamera;
 };
