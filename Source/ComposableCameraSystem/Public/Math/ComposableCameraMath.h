@@ -2,6 +2,9 @@
 
 #pragma once
 
+#include "Kismet/KismetMathLibrary.h"
+#include "Kismet/KismetSystemLibrary.h"
+
 namespace ComposableCameraSystem
 {
 	inline float SmoothStep(float T)
@@ -41,5 +44,36 @@ namespace ComposableCameraSystem
 			InYaw += 360.0;
 		}
 		return InYaw;
+	}
+
+	inline FVector SlerpNormalized(const FVector& Start, const FVector& End, float Alpha)
+	{
+		float Dot = Start.Dot(End);
+		float Theta = UKismetMathLibrary::DegAcos(Dot);
+
+		if (FMath::Abs(Theta) < 0.001f)
+		{
+			return UKismetMathLibrary::VLerp(Start, End, Alpha);
+		}
+    
+		float SinTheta = UKismetMathLibrary::DegSin(Theta);
+		float StartRatio = UKismetMathLibrary::DegSin((1 - Alpha) * Theta) / SinTheta;
+		float EndRatio = UKismetMathLibrary::DegSin(Alpha * Theta) / SinTheta;
+    
+		return StartRatio * Start + EndRatio * End;
+	}
+
+	inline FVector Slerp(const FVector& Start, const FVector& End, float Alpha)
+	{
+		float StartMag = Start.Length();
+		float EndMag = End.Length();
+
+		FVector StartDirection = Start.GetSafeNormal();
+		FVector EndDirection = End.GetSafeNormal();
+		FVector Direction = SlerpNormalized(StartDirection, EndDirection, Alpha);
+
+		float Mag = FMath::Lerp(StartMag, EndMag, Alpha);
+
+		return Direction * Mag;
 	}
 }

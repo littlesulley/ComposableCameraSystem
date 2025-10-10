@@ -26,7 +26,7 @@ struct TSimpleSpringInterpolatorTraits<FVector2d>
 	{
 		double TargetValue_0 = TSimpleSpringInterpolatorTraits<double>::Damp(CurrentValue[0], TargetValue[0], DeltaTime, DampTime);
 		double TargetValue_1 = TSimpleSpringInterpolatorTraits<double>::Damp(CurrentValue[1], TargetValue[1], DeltaTime, DampTime);
-		return { TargetValue_0, TargetValue_1 };
+		return { CurrentValue[0] + TargetValue_0, CurrentValue[1] + TargetValue_1 };
 	}
 };
 
@@ -38,7 +38,7 @@ struct TSimpleSpringInterpolatorTraits<FVector3d>
 		double TargetValue_0 = TSimpleSpringInterpolatorTraits<double>::Damp(CurrentValue[0], TargetValue[0], DeltaTime, DampTime);
 		double TargetValue_1 = TSimpleSpringInterpolatorTraits<double>::Damp(CurrentValue[1], TargetValue[1], DeltaTime, DampTime);
 		double TargetValue_2 = TSimpleSpringInterpolatorTraits<double>::Damp(CurrentValue[2], TargetValue[2], DeltaTime, DampTime);
-		return { TargetValue_0, TargetValue_1, TargetValue_2 };
+		return { CurrentValue[0] + TargetValue_0, CurrentValue[1] + TargetValue_1, CurrentValue[2] + TargetValue_2 };
 	}
 };
 

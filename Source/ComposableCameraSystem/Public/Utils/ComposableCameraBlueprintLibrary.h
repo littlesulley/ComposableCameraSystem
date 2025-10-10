@@ -10,6 +10,7 @@
 #include "Variables/ComposableCameraVariable.h"
 #include "ComposableCameraBlueprintLibrary.generated.h"
 
+class AComposableCameraPlayerCamaraManager;
 class UComposableCameraTransitionDataAsset;
 class UComposableCameraModifierBase;
 class AComposableCameraCameraBase;
@@ -74,6 +75,12 @@ public:
 	 */
 	UFUNCTION(BlueprintCallable, Category = "ComposableCameraSystem|Camera", meta = (WorldContext = "WorldContextObject"))
 	static void RemoveModifier(const UObject* WorldContextObject, AComposableCameraPlayerCamaraManager* PlayerCameraManager, UComposableCameraNodeModifierDataAsset* ModifierAsset);
+
+	/** Get player camera manager and cast it to ComposableCameraPlayerCameraManager. Can be null if it's not the type.
+	 * @param Index Player index.
+	 */
+	UFUNCTION(BlueprintPure, Category = "ComposableCameraSystem|Camera", meta = (WorldContext = "WorldContextObject"))
+	static AComposableCameraPlayerCamaraManager* GetComposableCameraPlayerCameraManager(const UObject* WorldContextObject, int Index);
 
 	/** Custom thunk function for setting runtime values of a composable camera variable.
 	 * @param Variable The variable to set.

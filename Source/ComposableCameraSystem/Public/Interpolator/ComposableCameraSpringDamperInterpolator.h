@@ -171,7 +171,7 @@ public:
 			Output = Value.Value - X.Value;
 		}
 
-		return TSpringDamperInterpolatorTraits<ValueType>::ConvertFrom(Output).Value;
+		return TSpringDamperInterpolatorTraits<ValueType>::ConvertFrom(Output).Value + this->CurrentValue.Value;
 	}
 
 protected:

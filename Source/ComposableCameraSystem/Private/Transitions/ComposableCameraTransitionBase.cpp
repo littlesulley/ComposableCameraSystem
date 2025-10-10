@@ -7,7 +7,6 @@ FComposableCameraPose UComposableCameraTransitionBase::Evaluate(float DeltaTime,
 	if (bFirstFrame)
 	{
 		OnBeginPlay(DeltaTime, CurrentTargetPose);
-		bFirstFrame = false;
 	}
 	
 	// If no time remains, directly return the target pose.
@@ -19,7 +18,10 @@ FComposableCameraPose UComposableCameraTransitionBase::Evaluate(float DeltaTime,
 	}
 
 	// Else, do evaluation.
-	return OnEvaluate(DeltaTime, CurrentTargetPose);
+	FComposableCameraPose OutResult = OnEvaluate(DeltaTime, CurrentTargetPose);
+	bFirstFrame = false;
+	
+	return OutResult;
 }
 
 void UComposableCameraTransitionBase::TransitionEnabled(AComposableCameraCameraBase* InSourceCamera, AComposableCameraCameraBase* InTargetCamera, const FComposableCameraPose& CurrentSourceCameraPose)

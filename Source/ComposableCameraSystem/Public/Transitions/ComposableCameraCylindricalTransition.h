@@ -50,7 +50,7 @@ struct FComposableCameraRayDefinition
 		float Dot = FVector::DotProduct(D1, D2);
 		float SquaredDot = FMath::Square(Dot);
 
-		if (FMath::IsNearlyZero(Dot, 1e-2f))
+		if (FMath::IsNearlyEqual(FMath::Abs(Dot), 1.f, 1e-2f))
 		{
 			Result.bIsParallel = true;
 
@@ -70,19 +70,49 @@ struct FComposableCameraRayDefinition
 			return Result;
 		}
 
-		float T1 = (Dot * W2 - W1) / SquaredDot;
-		float T2 = (Dot * W1 - W2) / SquaredDot;
+		float T1 = (Dot * W2 - W1) / (1. - SquaredDot);
+		float T2 = (W2 - Dot * W1) / (1. - SquaredDot);
 
 		// Considering if T1 or T2 is negative.
-		if (T1 < 0.f)
+		if (T1 < 0.f && T2 >= 0.f)
 		{
 			T1 = 0.f;
-			T2 = W2 > 0.f ? W2 : 0.0f;
+			T2 = FMath::Max(0.f, W2);
 		}
-		else if (T2 < 0.f)
+		else if (T2 < 0.f && T1 >= 0.f)
 		{
 			T2 = 0.f;
-			T1 = -W1 > 0.f ? -W1 : 0.0f;
+			T1 = FMath::Max(0.f, -W1);
+		}
+		else if (T1 < 0.f && T2 < 0.f)
+		{
+			// Case 1: Use O1 and O2
+			float BackupT1 = 0.f;
+			float BackupT2 = 0.f;
+			float BackupDist = FVector::Dist(O1, O2);
+			T1 = BackupT1;
+			T2 = BackupT2;
+
+			// Case 2: Use O1 and projected O2
+			BackupT1 = 0.f;
+			BackupT2 = FMath::Max(0.f, W2);
+			float Dist = FVector::Dist(O1 + T1 * D1, O2 + T2 * D2);
+			if (Dist < BackupDist)
+			{
+				BackupDist = Dist;
+				T1 = BackupT1;
+				T2 = BackupT2;
+			}
+
+			// Case 3: Use projected O1 and O2
+			BackupT1 = FMath::Max(0.f, -W1);
+			BackupT2 = 0.f;
+			Dist = FVector::Dist(O1 + T1 * D1, O2 + T2 * D2);
+			if (Dist < BackupDist)
+			{
+				T1 = BackupT1;
+				T2 = BackupT2;
+			}
 		}
 		
 		Result.FirstPoint = O1 + T1 * D1;
@@ -125,7 +155,7 @@ public:
 	// Maintaining a minimum distance from origin along the camera's looking direction.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	float MinimumDistanceFromOrigin { 10.f };
-
+	
 	// Pivot move interpolator.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Instanced)
 	UComposableCameraInterpolatorBase* PivotInterpolator;

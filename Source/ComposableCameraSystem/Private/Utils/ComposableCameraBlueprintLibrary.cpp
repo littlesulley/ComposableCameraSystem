@@ -78,6 +78,13 @@ void UComposableCameraBlueprintLibrary::RemoveModifier(const UObject* WorldConte
 	}
 }
 
+AComposableCameraPlayerCamaraManager* UComposableCameraBlueprintLibrary::GetComposableCameraPlayerCameraManager(
+	const UObject* WorldContextObject, int Index)
+{
+	APlayerController* PC = UGameplayStatics::GetPlayerController(WorldContextObject, Index);
+	return Cast<AComposableCameraPlayerCamaraManager>(PC->PlayerCameraManager);
+}
+
 FVector UComposableCameraBlueprintLibrary::MakeLiteralVector(FVector Value)
 {
 	return Value;
