@@ -31,7 +31,7 @@ void UComposableCameraPivotDampingNode::OnTickNode_Implementation(float DeltaTim
 	
 	if (bMaintainCameraSpacePivotPosition)
 	{
-		FRotator LastCameraRotation = OwningPlayerCameraManager->GetCameraRotation();
+		FRotator LastCameraRotation = OwningCamera->CameraPose.Rotation;
 		FVector FakeCameraSpacePivotDirection = UKismetMathLibrary::LessLess_VectorRotator(
 			Pivot - LastPivotPosition, LastCameraRotation);
 		LastPivotPosition = Pivot - UKismetMathLibrary::GreaterGreater_VectorRotator(FakeCameraSpacePivotDirection, CameraRotation);

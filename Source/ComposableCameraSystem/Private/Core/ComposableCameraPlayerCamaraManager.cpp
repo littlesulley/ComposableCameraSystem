@@ -45,10 +45,7 @@ AComposableCameraCameraBase* AComposableCameraPlayerCamaraManager::ActivateNewCa
 	AComposableCameraPlayerCamaraManager* PlayerCameraManager,
 	TSubclassOf<AComposableCameraCameraBase> CameraClass,
 	UComposableCameraTransitionDataAsset* Transition,
-	FTransform InitialTransform,
-	UComposableCameraNodeInitializerDataAsset* NodeInitializerDataAsset,
-	bool bIsTransient,
-	float LifeTime,
+	const FComposableCameraActivateParams& ActivationParams,
 	FOnCameraFinishConstructed OnPreBeginplayEvent)
 {
 	if (CameraClass == nullptr)
@@ -72,7 +69,7 @@ AComposableCameraCameraBase* AComposableCameraPlayerCamaraManager::ActivateNewCa
 	}
 	
 	AComposableCameraCameraBase* NewCamera = Director->ActivateNewCamera(
-		PlayerCameraManager, CameraClass, Transition, InitialTransform, NodeInitializerDataAsset, bIsTransient, LifeTime, OnPreBeginplayEvent);
+		PlayerCameraManager, CameraClass, Transition, ActivationParams, OnPreBeginplayEvent);
 	if (NewCamera)
 	{
 		RunningCamera = NewCamera;
@@ -102,8 +99,8 @@ void AComposableCameraPlayerCamaraManager::ResumeCamera(AComposableCameraCameraB
 	FTransform InitialTransform {};
 	if (bPreserveCameraPose)
 	{
-		InitialTransform.SetLocation(CurrentCameraPose.Position);
-		InitialTransform.SetRotation(CurrentCameraPose.Rotation.Quaternion());
+		InitialTransform.SetLocation(GetCameraLocation());
+		InitialTransform.SetRotation(GetCameraRotation().Quaternion());
 	}
 	
 	RunningCamera = Director->ResumeCamera(ResumeCamera, Transition, InitialTransform);

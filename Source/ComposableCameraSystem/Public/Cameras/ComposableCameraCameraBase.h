@@ -37,7 +37,7 @@ public:
 		Position = FMath::Lerp(Position, Other.Position, OtherWeight);
 		
 		const FRotator DeltaAng = (Other.Rotation - Rotation).GetNormalized();
-		Rotation = OtherWeight * DeltaAng;
+		Rotation = (Rotation + OtherWeight * DeltaAng).GetNormalized();
 
 		FieldOfView = FMath::Lerp(FieldOfView, Other.FieldOfView, OtherWeight);
 	}
@@ -56,6 +56,11 @@ struct FComposableCameraActivateParams
 	{}
 
 public:
+	// Whether to preserve current camera pose when activating a new camera.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	bool bPreserveCameraPose { false };
+	
+	// Initial transform to spawn the camera if bPreserveCameraPose is false.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	FTransform InitialTransform;
 	

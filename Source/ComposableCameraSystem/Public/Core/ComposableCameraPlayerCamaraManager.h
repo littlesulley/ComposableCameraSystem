@@ -28,10 +28,7 @@ public:
 	AComposableCameraPlayerCamaraManager* PlayerCameraManager,
 		TSubclassOf<AComposableCameraCameraBase> CameraClass,
 		UComposableCameraTransitionDataAsset* Transition,
-		FTransform InitialTransform,
-		UComposableCameraNodeInitializerDataAsset* NodeInitializerDataAsset,
-		bool bIsTransient,
-		float LifeTime,
+		const FComposableCameraActivateParams& ActivationParams,
 		FOnCameraFinishConstructed OnPreBeginplayEvent);
 
 	void AddModifier(UComposableCameraNodeModifierDataAsset* ModifierAsset);

@@ -32,10 +32,7 @@ public:
 		AComposableCameraPlayerCamaraManager* PlayerCameraManager,
 		TSubclassOf<AComposableCameraCameraBase> CameraClass,
 		UComposableCameraTransitionDataAsset* TransitionDataAsset,
-		FTransform InitialTransform,
-		UComposableCameraNodeInitializerDataAsset* NodeInitializerDataAsset,
-		bool bIsTransient,
-		float LifeTime,
+		const FComposableCameraActivateParams& ActivationParams,
 		FOnCameraFinishConstructed OnPreBeginplayEvent);
 	
 	[[nodiscard]] FComposableCameraPose Evaluate(float DeltaTime) const;
@@ -47,6 +44,7 @@ private:
 	UPROPERTY(Transient)
 	AComposableCameraCameraBase* RunningCamera { nullptr };
 
+	void ForceCameraPoses(AComposableCameraCameraBase* Camera, const FTransform& Transform);
 	void OnActivateNewCamera(AComposableCameraCameraBase* NewCamera, UComposableCameraTransitionBase* Transition);
 
 };
