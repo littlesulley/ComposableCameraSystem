@@ -102,6 +102,11 @@ void AComposableCameraPlayerCamaraManager::ResumeCamera(AComposableCameraCameraB
 		InitialTransform.SetLocation(GetCameraLocation());
 		InitialTransform.SetRotation(GetCameraRotation().Quaternion());
 	}
+	else
+	{
+		InitialTransform.SetLocation(ResumeCamera->CameraPose.Position);
+		InitialTransform.SetRotation(ResumeCamera->CameraPose.Rotation.Quaternion());
+	}
 	
 	RunningCamera = Director->ResumeCamera(ResumeCamera, Transition, InitialTransform);
 }

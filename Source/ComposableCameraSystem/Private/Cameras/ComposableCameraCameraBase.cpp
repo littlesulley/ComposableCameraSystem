@@ -10,6 +10,7 @@
 AComposableCameraCameraBase::AComposableCameraCameraBase(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
 {
+	GetCameraComponent()->bConstrainAspectRatio = false;
 }
 
 void AComposableCameraCameraBase::BeginPlay()

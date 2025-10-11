@@ -58,7 +58,7 @@ struct FComposableCameraActivateParams
 public:
 	// Whether to preserve current camera pose when activating a new camera.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
-	bool bPreserveCameraPose { false };
+	bool bPreserveCameraPose { true };
 	
 	// Initial transform to spawn the camera if bPreserveCameraPose is false.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
@@ -98,6 +98,10 @@ public:
 	/** Default transition. Usually used for returning back to this camera from a transient camera. */
 	UPROPERTY(EditDefaultsOnly, Instanced, Category = "ComposableCameraSystem|Composable Camera")
 	UComposableCameraTransitionBase* DefaultTransition;
+
+	/** Whether to preserve last camera's pose when resuming this camera. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "ComposableCameraSystem|Composable Camera")
+	bool bDefaultPreserveCameraPose { true };
 
 	/** Default transition time. Usually used for returning back to this camera from a transient camera. */
 	UPROPERTY(EditDefaultsOnly, Category = "ComposableCameraSystem|Composable Camera")
