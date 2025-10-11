@@ -24,6 +24,11 @@ public:
 	virtual void SetViewTarget(AActor* NewViewTarget, FViewTargetTransitionParams TransitionParams = FViewTargetTransitionParams()) override;
 	virtual void ProcessViewRotation(float DeltaTime, FRotator& OutViewRotation, FRotator& OutDeltaRot) override;
 
+	AComposableCameraCameraBase* CreateNewCamera(
+	AComposableCameraPlayerCamaraManager* PlayerCameraManager,
+		TSubclassOf<AComposableCameraCameraBase> CameraClass,
+		const FComposableCameraActivateParams& ActivationParams);
+	
 	AComposableCameraCameraBase* ActivateNewCamera(
 	AComposableCameraPlayerCamaraManager* PlayerCameraManager,
 		TSubclassOf<AComposableCameraCameraBase> CameraClass,

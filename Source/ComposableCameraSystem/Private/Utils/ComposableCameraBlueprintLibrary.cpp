@@ -7,6 +7,23 @@
 #include "DataAssets/ComposableCameraTransitionDataAsset.h"
 #include "Kismet/GameplayStatics.h"
 
+AComposableCameraCameraBase* UComposableCameraBlueprintLibrary::CreateComposableCameraByClass(
+	const UObject* WorldContextObject,
+	AComposableCameraPlayerCamaraManager* PlayerCameraManager,
+	TSubclassOf<AComposableCameraCameraBase> CameraClass,
+	FComposableCameraActivateParams ActivationParams)
+{
+	if (PlayerCameraManager)
+	{
+		AComposableCameraCameraBase* NewCamera = PlayerCameraManager->CreateNewCamera(
+			PlayerCameraManager, CameraClass, ActivationParams);
+		
+		return NewCamera; 
+	}
+
+	return nullptr;
+}
+
 AComposableCameraCameraBase* UComposableCameraBlueprintLibrary::ActivateComposableCameraByClass(
 	const UObject* WorldContextObject,
 	AComposableCameraPlayerCamaraManager* PlayerCameraManager,

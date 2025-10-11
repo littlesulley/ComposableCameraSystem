@@ -27,6 +27,21 @@ class COMPOSABLECAMERASYSTEM_API UComposableCameraBlueprintLibrary : public UBlu
 	GENERATED_BODY()
 
 public:
+	/** Create a composable camera by camera class and activation parameters. This function does not update other states. \n
+	 * The newly created camera has no parent camera, and it does not do transition. \n
+	 * @param WorldContextObject World context object. \n
+	 * @param PlayerCameraManager The player camera manager, must be a ComposableCameraPlayerCameraManager. \n
+	 * @param CameraClass The camera class to instantiate. \n
+	 * @param ActivationParams Parameters to define some of the properties when activating a new camera, e.g., if it's transient and the node initializers. \n
+	 * @return The instanced camera.
+	 */
+	UFUNCTION(BlueprintCallable, BlueprintInternalUseOnly, Category = "ComposableCameraSystem|Camera", meta = (WorldContext = "WorldContextObject", DeterminesOutputType = "CameraClass"))
+	static AComposableCameraCameraBase* CreateComposableCameraByClass(
+		const UObject* WorldContextObject,
+		AComposableCameraPlayerCamaraManager* PlayerCameraManager,
+		TSubclassOf<AComposableCameraCameraBase> CameraClass,
+		FComposableCameraActivateParams ActivationParams);
+	
 	/** Activate a composable camera by camera class, all derived from ComposableCameraCameraBase. \n
 	 * @param WorldContextObject World context object. \n
 	 * @param PlayerCameraManager The player camera manager, must be a ComposableCameraPlayerCameraManager. \n

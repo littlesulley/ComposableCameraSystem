@@ -41,6 +41,30 @@ void AComposableCameraPlayerCamaraManager::ProcessViewRotation(float DeltaTime, 
 	Super::ProcessViewRotation(DeltaTime, OutViewRotation, OutDeltaRot);
 }
 
+AComposableCameraCameraBase* AComposableCameraPlayerCamaraManager::CreateNewCamera(
+	AComposableCameraPlayerCamaraManager* PlayerCameraManager, TSubclassOf<AComposableCameraCameraBase> CameraClass,
+	const FComposableCameraActivateParams& ActivationParams)
+{
+	if (CameraClass == nullptr)
+	{
+		UE_LOG(LogComposableCameraSystem, Warning, TEXT(
+			"Camera class is null."));
+		return nullptr;
+	}
+	if (!IsValid(CameraClass))
+	{
+		UE_LOG(LogComposableCameraSystem, Warning, TEXT(
+			"Camera class %s is not valid."),
+			*CameraClass->StaticClass()->GetName());
+		return nullptr;
+	}
+	
+	AComposableCameraCameraBase* NewCamera = Director->CreateNewCamera(
+		PlayerCameraManager, CameraClass, ActivationParams);
+	
+	return NewCamera;
+}
+
 AComposableCameraCameraBase* AComposableCameraPlayerCamaraManager::ActivateNewCamera(
 	AComposableCameraPlayerCamaraManager* PlayerCameraManager,
 	TSubclassOf<AComposableCameraCameraBase> CameraClass,

@@ -52,7 +52,18 @@ struct FComposableCameraActivateParams
 	GENERATED_BODY()
 
 	FComposableCameraActivateParams() = default;
-	FComposableCameraActivateParams(const FTransform& InInitialTransform) : InitialTransform(InInitialTransform)
+	FComposableCameraActivateParams(const FTransform& InInitialTransform) : InitialTransform(InInitialTransform) {}
+	FComposableCameraActivateParams(
+		bool bInPreserveCameraPose,
+		const FTransform& InInitialTransform,
+		UComposableCameraNodeInitializerDataAsset* InNodeInitializerDataAsset,
+		bool bInIsTransient,
+		float InLifeTime)
+			: bPreserveCameraPose(bInPreserveCameraPose)
+			, InitialTransform(InInitialTransform)
+			, NodeInitializerDataAsset(InNodeInitializerDataAsset)
+			, bIsTransient(bInIsTransient)
+			, LifeTime(InLifeTime)
 	{}
 
 public:

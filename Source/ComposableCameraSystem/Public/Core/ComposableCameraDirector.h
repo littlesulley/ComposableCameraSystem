@@ -27,6 +27,11 @@ public:
 		AComposableCameraCameraBase* ResumeCamera,
 		UComposableCameraTransitionBase* Transition,
 		const FTransform& Transform);
+
+	AComposableCameraCameraBase* CreateNewCamera(
+		AComposableCameraPlayerCamaraManager* PlayerCameraManager,
+		TSubclassOf<AComposableCameraCameraBase> CameraClass,
+		const FComposableCameraActivateParams& ActivationParams);
 	
 	AComposableCameraCameraBase* ActivateNewCamera(
 		AComposableCameraPlayerCamaraManager* PlayerCameraManager,
