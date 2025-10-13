@@ -8,6 +8,17 @@
 
 DECLARE_DYNAMIC_DELEGATE_RetVal(TArray<float>, FOnReceiveMixingCameraWeights);
 
+
+/** Weight normalization method. */
+UENUM()
+enum class EComposableCameraMixingCameraWeightNormalizationMethod : uint8
+{
+	L1,
+	L2,
+	SoftMax
+};
+
+/** Mixing camera node mode. */
 UENUM()
 enum class EComposableCameraMixingCameraMode : uint8
 {
@@ -95,6 +106,10 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters)
 	EComposableCameraMixingCameraMode MixMode { EComposableCameraMixingCameraMode::Both };
 
+	// Weight normalization method.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters)
+	EComposableCameraMixingCameraWeightNormalizationMethod WeightNormalizationMethod { EComposableCameraMixingCameraWeightNormalizationMethod::L2 };
+	
 	// Method to mix rotation.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters, meta = (EditCondition = "MixMode == EComposableCameraMixingCameraMode::RotationOnly || MixMode == EComposableCameraMixingCameraMode::Both", EditConditionHides))
 	EComposableCameraMixingCameraRotationMethod MixRotationMethod { EComposableCameraMixingCameraRotationMethod::MatrixInterp };
