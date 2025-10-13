@@ -57,8 +57,6 @@ void UComposableCameraMixingCameraNode::OnTickNode_Implementation(float DeltaTim
 		break;
 	}
 
-	UKismetSystemLibrary::PrintString(this, OutCameraPose.Rotation.ToString(), true, true, FLinearColor::Red);
-	
 	OutCameraPose.FieldOfView = GetMixedFieldOfView(Poses, Weights);
 }
 
@@ -164,15 +162,13 @@ FRotator UComposableCameraMixingCameraNode::GetMixedRotation(const TArray<FCompo
 		return Pose.Rotation;
 	});
 
-	for (int i = 0; i < Rotations.Num(); i++)
-	{
-		UKismetSystemLibrary::PrintString(this, Rotations[i].ToString());
-	}
-	
 	switch (MixRotationMethod)
 	{
-	case EComposableCameraMixingCameraRotationMethod::MatrixInterp:
-		return ComposableCameraSystem::MatrixInterpRotation(Rotations, Weights);
+	case EComposableCameraMixingCameraRotationMethod::MatrixInterp: {
+		auto [Rotation, EigenVector] = ComposableCameraSystem::MatrixInterpRotation(Rotations, Weights, InitialEigenVector);
+		InitialEigenVector = EigenVector;
+		return Rotation;
+	}
 	case EComposableCameraMixingCameraRotationMethod::CircularInterp:
 		return ComposableCameraSystem::CircularInterpRotation(Rotations, Weights, CircularInterpEpsilon);
 	case EComposableCameraMixingCameraRotationMethod::QuaternionInterpolation:

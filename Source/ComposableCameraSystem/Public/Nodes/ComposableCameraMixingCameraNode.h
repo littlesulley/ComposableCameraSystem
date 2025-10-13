@@ -146,4 +146,6 @@ private:
 	FVector GetMixedPosition(const TArray<FComposableCameraPose>& Poses, const TArray<float>& Weights);
 	FRotator GetMixedRotation(const TArray<FComposableCameraPose>& Poses, const TArray<float>& Weights);
 	double GetMixedFieldOfView(const TArray<FComposableCameraPose>& Poses, const TArray<float>& Weights);
+
+	FVector4 InitialEigenVector { 0, 0, 0, 1 };
 };

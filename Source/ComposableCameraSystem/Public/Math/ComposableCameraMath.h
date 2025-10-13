@@ -93,7 +93,6 @@ namespace ComposableCameraSystem
 		{
 			FVector4 Mul = M.TransformFVector4(EigenVector);
 			FVector4 NewEigenVector = NormalizeVector4(Mul);
-			
 			float NewEigenValue = M.TransformFVector4(NewEigenVector).X / NewEigenVector.X;
 
 			if (FMath::Abs(EigenValue - NewEigenValue) < Epsilon)
@@ -105,10 +104,10 @@ namespace ComposableCameraSystem
 			EigenValue = NewEigenValue;
 		}
 
-		return EigenVector;
+		return NormalizeVector4(EigenVector);
 	}
 
-	inline FRotator MatrixInterpRotation(const TArray<FRotator>& Rotations, const TArray<float>& Weights)
+	inline std::pair<FRotator, FVector4> MatrixInterpRotation(const TArray<FRotator>& Rotations, const TArray<float>& Weights, FVector4 InitialEigenVector = FVector4{ 0, 0, 0, 1})
 	{
 		// Must initialize as all-zeros
 		FMatrix Accumulated = FMatrix(
@@ -131,12 +130,14 @@ namespace ComposableCameraSystem
 
 			Accumulated += M * Weights[i];
 		}
-	
-		FVector4 V = FindEigenVectorByPowerIteration(Accumulated, FVector4(0, 0, 0, 1), 64);
+
+		InitialEigenVector = NormalizeVector4(InitialEigenVector);
+		FVector4 V = FindEigenVectorByPowerIteration(Accumulated, InitialEigenVector, 64);
+		
 		FQuat Q = FQuat(V.X, V.Y, V.Z, V.W);
 		Q = Q.W < 0 ? -Q : Q;
 		
-		return Q.Rotator();
+		return { Q.Rotator(), V };
 	}
 
 	inline FRotator CircularInterpRotation(const TArray<FRotator>& Rotations, const TArray<float>& Weights, float Epsilon)
