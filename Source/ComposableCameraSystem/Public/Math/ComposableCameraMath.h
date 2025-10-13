@@ -35,15 +35,20 @@ namespace ComposableCameraSystem
 
 	inline double NormalizeYaw(double InYaw)
 	{
-		while (InYaw > 180.)
+		return FMath::UnwindDegrees(InYaw);
+	}
+
+	inline FVector4 NormalizeVector4(const FVector4& V, float Tolerance = UE_KINDA_SMALL_NUMBER)
+	{
+		float SquaredSum = V.X * V.X + V.Y * V.Y + V.Z * V.Z + V.W * V.W;
+		
+		if (SquaredSum > Tolerance)
 		{
-			InYaw -= 360.0;
+			const float Scale = FMath::InvSqrt(SquaredSum);
+			return FVector4(V.X * Scale, V.Y * Scale, V.Z * Scale, V.W * Scale);
 		}
-		while (InYaw < -180.)
-		{
-			InYaw += 360.0;
-		}
-		return InYaw;
+		
+		return V;
 	}
 
 	inline FVector SlerpNormalized(const FVector& Start, const FVector& End, float Alpha)
@@ -87,7 +92,7 @@ namespace ComposableCameraSystem
 		for (int i = 0; i < Steps; ++i)
 		{
 			FVector4 Mul = M.TransformFVector4(EigenVector);
-			FVector4 NewEigenVector = Mul.GetSafeNormal();
+			FVector4 NewEigenVector = NormalizeVector4(Mul);
 			
 			float NewEigenValue = M.TransformFVector4(NewEigenVector).X / NewEigenVector.X;
 

@@ -4,6 +4,7 @@
 
 #include <algorithm>
 
+#include "Algo/MaxElement.h"
 #include "ComposableCameraSystemModule.h"
 #include "Math/ComposableCameraMath.h"
 #include "Utils/ComposableCameraBlueprintLibrary.h"
@@ -87,25 +88,41 @@ void UComposableCameraMixingCameraNode::SetUpdateWeights(FOnReceiveMixingCameraW
 	OnReceiveMixingCameraWeights = OnUpdateMixingCameraWeights;
 }
 
-void UComposableCameraMixingCameraNode::NormalizeWeights(TArray<float>& Array)
+void UComposableCameraMixingCameraNode::NormalizeWeights(TArray<float>& Weights)
 {
 	float Accumulation = 0.f;
+	const float MaxWeight = *Algo::MaxElement(Weights);
 	
 	for (uint32 Index = 0; AComposableCameraCameraBase* Camera : CameraInstances)
 	{
+		float CurrentWeight = 0.f;
+
+		switch (WeightNormalizationMethod)
+		{
+		case EComposableCameraMixingCameraWeightNormalizationMethod::L1:
+			CurrentWeight = FMath::Abs(Weights[Index]);
+			break;
+		case EComposableCameraMixingCameraWeightNormalizationMethod::L2:
+			CurrentWeight = Weights[Index] * Weights[Index];
+			break;
+		case EComposableCameraMixingCameraWeightNormalizationMethod::SoftMax:
+			CurrentWeight = FMath::Exp(Weights[Index] - MaxWeight);
+			break;
+		}
+		
 		if (!Camera)
 		{
-			Array[Index] = 0.f;
+			CurrentWeight = 0.f;
 		}
 
-		Array[Index] *= Array[Index];
-		Accumulation += Array[Index]; 
+		Weights[Index] = CurrentWeight;
+		Accumulation += CurrentWeight; 
 		Index++;
 	}
 
-	for (int32 Index = 0; Index < Array.Num(); Index++)
+	for (int32 Index = 0; Index < Weights.Num(); Index++)
 	{
-		Array[Index] /= (Accumulation + UE_KINDA_SMALL_NUMBER);
+		Weights[Index] /= (Accumulation + UE_KINDA_SMALL_NUMBER);
 	}
 }
 

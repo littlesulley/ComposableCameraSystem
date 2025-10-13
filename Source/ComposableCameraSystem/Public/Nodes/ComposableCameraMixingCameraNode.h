@@ -13,8 +13,13 @@ DECLARE_DYNAMIC_DELEGATE_RetVal(TArray<float>, FOnReceiveMixingCameraWeights);
 UENUM()
 enum class EComposableCameraMixingCameraWeightNormalizationMethod : uint8
 {
+	// Update rule: w_i <- |w_i| / (|w_1| + ... + |w_n|)
 	L1,
+	
+	// Update rule: w_i <- w_i^2 / (w_1^2 + ... + w_n^2)
 	L2,
+
+	// Update rule: w_i <- exp(w_i) / (exp(w_1) + ... + exp(w_n))
 	SoftMax
 };
 
