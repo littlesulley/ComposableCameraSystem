@@ -75,11 +75,11 @@ void UComposableCameraAutoRotateNode::OnTickNode_Implementation(float DeltaTime,
 		
 		float TargetYaw = bYawInValidRange
 			? OutCameraPose.Rotation.Yaw
-			: ComposableCameraSystem::GetCloestAngleDegree(OutCameraPose.Rotation.Yaw, ValidRangeYaw[0], ValidRangeYaw[1]);
+			: ComposableCameraSystem::GetClosestAngleDegree(OutCameraPose.Rotation.Yaw, ValidRangeYaw[0], ValidRangeYaw[1]);
 		
 		float TargetPitch = bPitchInValidRange
 			? OutCameraPose.Rotation.Pitch
-			: ComposableCameraSystem::GetCloestAngleDegree(OutCameraPose.Rotation.Pitch, ValidRangePitch[0], ValidRangePitch[1]);
+			: ComposableCameraSystem::GetClosestAngleDegree(OutCameraPose.Rotation.Pitch, ValidRangePitch[0], ValidRangePitch[1]);
 
 		if (bYawOnly)
 		{

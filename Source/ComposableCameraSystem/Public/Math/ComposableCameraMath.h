@@ -222,7 +222,7 @@ namespace ComposableCameraSystem
 
 	template<typename... Args>
 		requires (std::is_floating_point_v<Args> && ...)
-	inline float GetCloestAngleDegree(float InAngle, Args... Angles)
+	inline float GetClosestAngleDegree(float InAngle, Args... Angles)
 	{
 		constexpr static uint32 AngleCount = sizeof...(Angles);
 		std::array<float, AngleCount> AnglesArray = { Angles... };
