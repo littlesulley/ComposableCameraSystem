@@ -8,7 +8,6 @@
 
 DECLARE_DYNAMIC_DELEGATE_RetVal(TArray<float>, FOnReceiveMixingCameraWeights);
 
-
 /** Weight normalization method. */
 UENUM()
 enum class EComposableCameraMixingCameraWeightNormalizationMethod : uint8

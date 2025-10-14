@@ -3,7 +3,6 @@
 #pragma once
 
 #include "Kismet/KismetMathLibrary.h"
-#include "Kismet/KismetSystemLibrary.h"
 
 namespace ComposableCameraSystem
 {
@@ -219,6 +218,23 @@ namespace ComposableCameraSystem
 		}
 
 		return AccumulatedRotation;
+	}
+
+	template<typename... Args>
+		requires (std::is_floating_point_v<Args> && ...)
+	inline float GetCloestAngleDegree(float InAngle, Args... Angles)
+	{
+		constexpr static uint32 AngleCount = sizeof...(Angles);
+		std::array<float, AngleCount> AnglesArray = { Angles... };
+
+		const float* TargetAnglePtr = Algo::MinElement(AnglesArray, [InAngle](const float& A, const float& B)
+		{
+			float DeltaA = FMath::Abs(FMath::FindDeltaAngleDegrees(InAngle, A));
+			float DeltaB = FMath::Abs(FMath::FindDeltaAngleDegrees(InAngle, B));
+			return DeltaA < DeltaB;
+		});
+		
+		return *TargetAnglePtr;
 	}
 	
 }

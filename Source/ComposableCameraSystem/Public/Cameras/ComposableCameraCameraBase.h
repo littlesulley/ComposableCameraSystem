@@ -114,10 +114,6 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "ComposableCameraSystem|Composable Camera")
 	bool bDefaultPreserveCameraPose { true };
 
-	/** Default transition time. Usually used for returning back to this camera from a transient camera. */
-	UPROPERTY(EditDefaultsOnly, Category = "ComposableCameraSystem|Composable Camera")
-	float DefaultTransitionTime { 1.f };
-
 	/** Nodes for this camera. They're executed in the order they are placed in this array.
 	 * Each node has two types of parameters: Input Parameters and Context Parameters.
 	 * Input parameters are the node's own parameters used to update its inner variables and execute its logic.
