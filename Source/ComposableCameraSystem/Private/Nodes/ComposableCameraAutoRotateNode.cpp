@@ -5,7 +5,6 @@
 #include "ComposableCameraSystemModule.h"
 #include "Interpolator/ComposableCameraInterpolatorBase.h"
 #include "Kismet/KismetMathLibrary.h"
-#include "Kismet/KismetSystemLibrary.h"
 #include "Math/ComposableCameraMath.h"
 
 void UComposableCameraAutoRotateNode::OnBeginPlayNode_Implementation(const FComposableCameraPose& CurrentCameraPose)
