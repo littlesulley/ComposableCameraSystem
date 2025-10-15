@@ -3,8 +3,10 @@
 #pragma once
 
 #include "Kismet/KismetMathLibrary.h"
+#include "ComposableCameraSplines.generated.h"
 
-namespace ComposableCameraSystem
+UCLASS(Abstract, ClassGroup = ComposableCameraSystem, CollapseCategories)
+class COMPOSABLECAMERASYSTEM_API UComposableCameraSplineBase : public UObject
 {
-	
-}
+	GENERATED_BODY()
+};
