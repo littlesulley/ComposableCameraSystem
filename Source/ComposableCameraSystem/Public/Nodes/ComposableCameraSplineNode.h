@@ -4,8 +4,11 @@
 
 #include "CoreMinimal.h"
 #include "ComposableCameraCameraNodeBase.h"
+#include "Interpolator/ComposableCameraInterpolatorBase.h"
+#include "Math/ComposableCameraSplineInterface.h"
 #include "ComposableCameraSplineNode.generated.h"
 
+class IComposableCameraSplineInterface;
 class UComposableCameraInterpolatorBase;
 class ACameraRig_Rail;
 
@@ -54,7 +57,7 @@ protected:
 	virtual void ReceiveInitializerNode(UComposableCameraCameraNodeBase* Initializer) override;
 
 public:
-	// Spline type. The typical use is BuiltInSpline, i.e., the Unreal's built-in Bezier curve.
+	// Spline type. The typical use is BuiltInSpline, i.e., the Unreal's built-in Bézier curve.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters)
 	EComposableCameraSplineNodeSplineType SplineType { EComposableCameraSplineNodeSplineType::BuiltInSpline };
 
@@ -70,10 +73,14 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters, meta = (EditCondition = "EComposableCameraSplineNodeMoveMethod::ClosestPoint", EditConditionHides))
 	TObjectPtr<AActor> ClosestMoveMethodPivotActor { nullptr };
 	
-	// Move speed curve for Automatic move method.
+	// Move curve for Automatic move method. X axis is normalized time in [0,1], Y axis is the normalized distance along the spline within [0,1].
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters, meta = (EditCondition = "EComposableCameraSplineNodeMoveMethod::Automatic", EditConditionHides))
 	TObjectPtr<UCurveFloat> AutomaticMoveCurve { nullptr };
-
+	
+	// Duration for Automatic move method. If loop, this will be the time for traversing one round.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters, meta = (EditCondition = "EComposableCameraSplineNodeMoveMethod::Automatic", EditConditionHides))
+	float Duration { 3.0f };
+	
 	// Whether to loop for Automatic move method.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters, meta = (EditCondition = "EComposableCameraSplineNodeMoveMethod::Automatic", EditConditionHides))
 	bool bLoop { false };
@@ -89,4 +96,19 @@ public:
 	// Determines whether the orientation of the camera should be in the tangent direction of the spline. 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters)
 	bool bLockOrientationOnSpline;
+
+private:
+	TUniquePtr<TCameraInterpolator<TValueTypeWrapper<double>>> MoveInterpolator_T;
+	IComposableCameraSplineInterface* SplineInterface;
+
+	float ElapsedTimeForAutomaticMethod { 0.0f };
+	bool bFirstLapIfLoop { true };
+
+private:
+	void UpdateCameraPoseByBuiltInSpline(FVector& OutPosition, FRotator& OutRotation, const FComposableCameraPose& CurrentCameraPose, float DeltaTime);
+	void UpdateCameraPoseByBezierSpline(FVector& OutPosition, FRotator& OutRotation, const FComposableCameraPose& CurrentCameraPose, float DeltaTime);
+	void UpdateCameraPoseByHermiteSpline(FVector& OutPosition, FRotator& OutRotation, const FComposableCameraPose& CurrentCameraPose, float DeltaTime);
+	void UpdateCameraPoseByBasicSpline(FVector& OutPosition, FRotator& OutRotation, const FComposableCameraPose& CurrentCameraPose, float DeltaTime);
+	void UpdateCameraPoseByNURBSpline(FVector& OutPosition, FRotator& OutRotation, const FComposableCameraPose& CurrentCameraPose, float DeltaTime);
+
 };

@@ -7,6 +7,8 @@
 #include "UObject/Object.h"
 #include "ComposableCameraBuiltInSpline.generated.h"
 
+class USplineComponent;
+
 /**
  * Unreal's built-in splines. 
  */

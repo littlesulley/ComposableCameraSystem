@@ -2,11 +2,14 @@
 
 #include "Nodes/ComposableCameraSplineNode.h"
 
+#include "CameraRig_Rail.h"
 #include "ComposableCameraSystemModule.h"
+#include "Components/SplineComponent.h"
+#include "Interpolator/ComposableCameraInterpolatorBase.h"
 
 void UComposableCameraSplineNode::OnBeginPlayNode_Implementation(const FComposableCameraPose& CurrentCameraPose)
 {
-	
+	MoveInterpolator_T = MoveInterpolator ? MoveInterpolator->BuildDoubleInterpolator() : nullptr;
 }
 
 void UComposableCameraSplineNode::OnTickNode_Implementation(float DeltaTime,
@@ -34,9 +37,161 @@ void UComposableCameraSplineNode::OnTickNode_Implementation(float DeltaTime,
 	case EComposableCameraSplineNodeSplineType::NURBS:
 		break;
 	}
+
+	if (!bShouldProceed)
+	{
+		return;
+	}
+
+	FVector OutPosition = FVector::ZeroVector;
+	FRotator OutRotation = FRotator::ZeroRotator;
+
+	switch (SplineType)
+	{
+	case EComposableCameraSplineNodeSplineType::BuiltInSpline:
+		UpdateCameraPoseByBuiltInSpline(OutPosition, OutRotation, CurrentCameraPose, DeltaTime);
+		break;
+	case EComposableCameraSplineNodeSplineType::BasicSpline:
+		UpdateCameraPoseByBasicSpline(OutPosition, OutRotation, CurrentCameraPose, DeltaTime);
+		break;
+	case EComposableCameraSplineNodeSplineType::Bezier:
+		UpdateCameraPoseByBezierSpline(OutPosition, OutRotation, CurrentCameraPose, DeltaTime);
+		break;
+	case EComposableCameraSplineNodeSplineType::CubicHermite:
+		UpdateCameraPoseByHermiteSpline(OutPosition, OutRotation, CurrentCameraPose, DeltaTime);
+		break;
+	case EComposableCameraSplineNodeSplineType::NURBS:
+		UpdateCameraPoseByNURBSpline(OutPosition, OutRotation, CurrentCameraPose, DeltaTime);
+		break;
+	}
+
+	OutCameraPose.Position = OutPosition;
+	OutCameraPose.Rotation = OutRotation;
 }
 
 void UComposableCameraSplineNode::ReceiveInitializerNode(UComposableCameraCameraNodeBase* Initializer)
 {
 	
+}
+
+void UComposableCameraSplineNode::UpdateCameraPoseByBuiltInSpline(FVector& OutPosition, FRotator& OutRotation,
+	const FComposableCameraPose& CurrentCameraPose, float DeltaTime)
+{
+	switch (MoveMethod)
+	{
+	case EComposableCameraSplineNodeMoveMethod::ClosestPoint:
+		{
+			if (!ClosestMoveMethodPivotActor)
+			{
+				UE_LOG(LogComposableCameraSystem, Error, TEXT("ClosestMoveMethodPivotActor is null, will not proceed."))
+				return;
+			}
+
+			USplineComponent* Spline = Rail->GetRailSplineComponent();
+			float SplineLength = Spline->GetSplineLength();
+			float InputKey = Spline->FindInputKeyClosestToWorldLocation(ClosestMoveMethodPivotActor->GetActorLocation());
+			float Distance = Spline->GetDistanceAlongSplineAtSplineInputKey(InputKey);
+			float TargetPosition = Distance / SplineLength;
+			float CurrentPosition = Rail->CurrentPositionOnRail;
+
+			if (MoveInterpolator_T)
+			{
+				MoveInterpolator_T->Reset(CurrentPosition, TargetPosition);
+				TargetPosition = MoveInterpolator_T->Run(DeltaTime);
+			}
+
+			TargetPosition += MoveOffset;
+			TargetPosition = FMath::Clamp(TargetPosition, 0.0f, 1.0f);
+			Rail->CurrentPositionOnRail = TargetPosition;
+			
+			OutPosition = Spline->GetLocationAtDistanceAlongSpline(SplineLength * TargetPosition, ESplineCoordinateSpace::World);
+			if (bLockOrientationOnSpline)
+			{
+				OutRotation = Spline->GetQuaternionAtDistanceAlongSpline(SplineLength * TargetPosition, ESplineCoordinateSpace::World).Rotator();
+			}
+		}
+	case EComposableCameraSplineNodeMoveMethod::Automatic:
+		{
+			if (!AutomaticMoveCurve)
+			{
+				UE_LOG(LogComposableCameraSystem, Error, TEXT("A movement curve must be provided, will not proceed."))
+				return;
+			}
+
+			ElapsedTimeForAutomaticMethod += DeltaTime;
+			if (bLoop && ElapsedTimeForAutomaticMethod > Duration)
+			{
+				ElapsedTimeForAutomaticMethod -= Duration;
+			}
+			
+			USplineComponent* Spline = Rail->GetRailSplineComponent();
+			float SplineLength = Spline->GetSplineLength();
+			float CurrentPosition = Rail->CurrentPositionOnRail;
+			float TargetPosition = AutomaticMoveCurve->GetFloatValue(ElapsedTimeForAutomaticMethod / Duration);
+
+			if (MoveInterpolator_T)
+			{
+				if (CurrentPosition > TargetPosition)
+				{
+					TargetPosition += 1.0f;
+				}
+				MoveInterpolator_T->Reset(CurrentPosition, TargetPosition);
+				TargetPosition = MoveInterpolator_T->Run(DeltaTime);
+			}
+
+			TargetPosition += MoveOffset;
+			
+			if (TargetPosition < 0.f)
+			{
+				if (bLoop && bFirstLapIfLoop || !bLoop)
+				{
+					TargetPosition = 0.0f;
+				}
+				else
+				{
+					TargetPosition = TargetPosition + 1.0f;
+				}
+			}
+			if (TargetPosition > 1.0f)
+			{
+				if (bLoop)
+				{
+					TargetPosition = TargetPosition - 1.0f;
+					bFirstLapIfLoop = false;
+				}
+				else
+				{
+					TargetPosition = 1.0f;
+				}
+			}
+			
+			Rail->CurrentPositionOnRail = TargetPosition;
+			
+			OutPosition = Spline->GetLocationAtDistanceAlongSpline(SplineLength * TargetPosition, ESplineCoordinateSpace::World);
+			if (bLockOrientationOnSpline)
+			{
+				OutRotation = Spline->GetQuaternionAtDistanceAlongSpline(SplineLength * TargetPosition, ESplineCoordinateSpace::World).Rotator();
+			}
+		}
+	}
+}
+
+void UComposableCameraSplineNode::UpdateCameraPoseByBezierSpline(FVector& OutPosition, FRotator& OutRotation,
+	const FComposableCameraPose& CurrentCameraPose, float DeltaTime)
+{
+}
+
+void UComposableCameraSplineNode::UpdateCameraPoseByHermiteSpline(FVector& OutPosition, FRotator& OutRotation,
+	const FComposableCameraPose& CurrentCameraPose, float DeltaTime)
+{
+}
+
+void UComposableCameraSplineNode::UpdateCameraPoseByBasicSpline(FVector& OutPosition, FRotator& OutRotation,
+	const FComposableCameraPose& CurrentCameraPose, float DeltaTime)
+{
+}
+
+void UComposableCameraSplineNode::UpdateCameraPoseByNURBSpline(FVector& OutPosition, FRotator& OutRotation,
+	const FComposableCameraPose& CurrentCameraPose, float DeltaTime)
+{
 }
