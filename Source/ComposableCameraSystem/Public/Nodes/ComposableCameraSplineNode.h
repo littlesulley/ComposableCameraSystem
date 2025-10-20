@@ -70,19 +70,19 @@ public:
 	EComposableCameraSplineNodeMoveMethod MoveMethod { EComposableCameraSplineNodeMoveMethod::ClosestPoint };
 
 	// Actor for ClosestPoint move method, receiving a FVector.
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters, meta = (EditCondition = "EComposableCameraSplineNodeMoveMethod::ClosestPoint", EditConditionHides))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters, meta = (EditCondition = "MoveMethod == EComposableCameraSplineNodeMoveMethod::ClosestPoint", EditConditionHides))
 	TObjectPtr<AActor> ClosestMoveMethodPivotActor { nullptr };
 	
 	// Move curve for Automatic move method. X axis is normalized time in [0,1], Y axis is the normalized distance along the spline within [0,1].
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters, meta = (EditCondition = "EComposableCameraSplineNodeMoveMethod::Automatic", EditConditionHides))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters, meta = (EditCondition = "MoveMethod == EComposableCameraSplineNodeMoveMethod::Automatic", EditConditionHides))
 	TObjectPtr<UCurveFloat> AutomaticMoveCurve { nullptr };
 	
 	// Duration for Automatic move method. If loop, this will be the time for traversing one round.
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters, meta = (EditCondition = "EComposableCameraSplineNodeMoveMethod::Automatic", EditConditionHides))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters, meta = (EditCondition = "MoveMethod == EComposableCameraSplineNodeMoveMethod::Automatic", EditConditionHides))
 	float Duration { 3.0f };
 	
 	// Whether to loop for Automatic move method.
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters, meta = (EditCondition = "EComposableCameraSplineNodeMoveMethod::Automatic", EditConditionHides))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters, meta = (EditCondition = "MoveMethod == EComposableCameraSplineNodeMoveMethod::Automatic", EditConditionHides))
 	bool bLoop { false };
 
 	// Interpolator for all move methods.

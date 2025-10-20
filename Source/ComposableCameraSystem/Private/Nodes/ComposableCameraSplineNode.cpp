@@ -6,6 +6,7 @@
 #include "ComposableCameraSystemModule.h"
 #include "Components/SplineComponent.h"
 #include "Interpolator/ComposableCameraInterpolatorBase.h"
+#include "Kismet/KismetSystemLibrary.h"
 
 void UComposableCameraSplineNode::OnBeginPlayNode_Implementation(const FComposableCameraPose& CurrentCameraPose)
 {
@@ -66,7 +67,11 @@ void UComposableCameraSplineNode::OnTickNode_Implementation(float DeltaTime,
 	}
 
 	OutCameraPose.Position = OutPosition;
-	OutCameraPose.Rotation = OutRotation;
+
+	if (bLockOrientationOnSpline)
+	{
+		OutCameraPose.Rotation = OutRotation;
+	}
 }
 
 void UComposableCameraSplineNode::ReceiveInitializerNode(UComposableCameraCameraNodeBase* Initializer)
@@ -94,13 +99,14 @@ void UComposableCameraSplineNode::UpdateCameraPoseByBuiltInSpline(FVector& OutPo
 			float TargetPosition = Distance / SplineLength;
 			float CurrentPosition = Rail->CurrentPositionOnRail;
 
+			TargetPosition += MoveOffset;
+
 			if (MoveInterpolator_T)
 			{
 				MoveInterpolator_T->Reset(CurrentPosition, TargetPosition);
 				TargetPosition = MoveInterpolator_T->Run(DeltaTime);
 			}
 
-			TargetPosition += MoveOffset;
 			TargetPosition = FMath::Clamp(TargetPosition, 0.0f, 1.0f);
 			Rail->CurrentPositionOnRail = TargetPosition;
 			
@@ -109,6 +115,8 @@ void UComposableCameraSplineNode::UpdateCameraPoseByBuiltInSpline(FVector& OutPo
 			{
 				OutRotation = Spline->GetQuaternionAtDistanceAlongSpline(SplineLength * TargetPosition, ESplineCoordinateSpace::World).Rotator();
 			}
+
+			break;
 		}
 	case EComposableCameraSplineNodeMoveMethod::Automatic:
 		{
@@ -129,40 +137,39 @@ void UComposableCameraSplineNode::UpdateCameraPoseByBuiltInSpline(FVector& OutPo
 			float CurrentPosition = Rail->CurrentPositionOnRail;
 			float TargetPosition = AutomaticMoveCurve->GetFloatValue(ElapsedTimeForAutomaticMethod / Duration);
 
-			if (MoveInterpolator_T)
+			if (bFirstLapIfLoop && TargetPosition < CurrentPosition)
 			{
-				if (CurrentPosition > TargetPosition)
-				{
-					TargetPosition += 1.0f;
-				}
-				MoveInterpolator_T->Reset(CurrentPosition, TargetPosition);
-				TargetPosition = MoveInterpolator_T->Run(DeltaTime);
+				bFirstLapIfLoop = false;
 			}
 
 			TargetPosition += MoveOffset;
-			
+
 			if (TargetPosition < 0.f)
 			{
 				if (bLoop && bFirstLapIfLoop || !bLoop)
 				{
-					TargetPosition = 0.0f;
+					TargetPosition = 0.f;
 				}
 				else
 				{
-					TargetPosition = TargetPosition + 1.0f;
+					TargetPosition += 1.0f;
 				}
 			}
-			if (TargetPosition > 1.0f)
+
+			if (CurrentPosition > TargetPosition)
 			{
-				if (bLoop)
-				{
-					TargetPosition = TargetPosition - 1.0f;
-					bFirstLapIfLoop = false;
-				}
-				else
-				{
-					TargetPosition = 1.0f;
-				}
+				TargetPosition += 1.0f;
+			}
+			
+			if (MoveInterpolator_T)
+			{
+				MoveInterpolator_T->Reset(CurrentPosition, TargetPosition);
+				TargetPosition = MoveInterpolator_T->Run(DeltaTime);
+			}
+
+			if (TargetPosition >= 1.f)
+			{
+				TargetPosition -= 1.0f;
 			}
 			
 			Rail->CurrentPositionOnRail = TargetPosition;
@@ -172,6 +179,8 @@ void UComposableCameraSplineNode::UpdateCameraPoseByBuiltInSpline(FVector& OutPo
 			{
 				OutRotation = Spline->GetQuaternionAtDistanceAlongSpline(SplineLength * TargetPosition, ESplineCoordinateSpace::World).Rotator();
 			}
+			
+			break;
 		}
 	}
 }
