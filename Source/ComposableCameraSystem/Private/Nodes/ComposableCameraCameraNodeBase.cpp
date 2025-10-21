@@ -34,3 +34,13 @@ FGameplayTag UComposableCameraCameraNodeBase::GetOwningCameraTag() const
 {
 	return OwningCamera ? OwningCamera->CameraTag : FGameplayTag::EmptyTag;
 }
+
+void UComposableCameraCameraNodeBase::OnPreTick()
+{
+	K2_OnPreTick();
+}
+
+void UComposableCameraCameraNodeBase::OnPostTick()
+{
+	K2_OnPostTick();
+}

@@ -30,6 +30,10 @@ void AComposableCameraCameraBase::Initialize(AComposableCameraPlayerCamaraManage
 		if (Node)
 		{
 			Node->Initialize(this,  Manager, Initializers);
+
+			// Register node delegates.
+			OnPreTick.AddUObject(Node, &UComposableCameraCameraNodeBase::OnPreTick);
+			OnPostTick.AddUObject(Node, &UComposableCameraCameraNodeBase::OnPostTick);
 		}
 	}
 	OnInitialized();
@@ -48,8 +52,12 @@ void AComposableCameraCameraBase::BeginPlayCamera(const FComposableCameraPose& C
 
 FComposableCameraPose AComposableCameraCameraBase::TickCamera(float DeltaTime)
 {
-	FComposableCameraPose NewCameraPose {};
-	
+	FComposableCameraPose NewCameraPose = CameraPose;
+
+	// Do something before camera tick begins.
+	OnPreTick.Broadcast();
+
+	// Tick each node by order.
 	for (UComposableCameraCameraNodeBase* Node : CameraNodes)
 	{
 		if (Node)
@@ -58,18 +66,24 @@ FComposableCameraPose AComposableCameraCameraBase::TickCamera(float DeltaTime)
 		}
 	}
 
+	// Cache camera pose.
 	LastFrameCameraPose = CameraPose;
 	CameraPose = NewCameraPose;
-	
+
+	// Override camera pose by blueprint.
 	if (OnUpdateCamera(DeltaTime, LastFrameCameraPose, NewCameraPose, NewCameraPose))
 	{
 		CameraPose = NewCameraPose;
 	}
 
+	// Update remaining life time if transient.
 	if (bIsTransient)
 	{
 		RemainingLifeTime = FMath::Max(0.f, RemainingLifeTime - DeltaTime);
 	}
+
+	// Do something when camera tick finishes.
+	OnPostTick.Broadcast();
 	
 	return CameraPose;
 }

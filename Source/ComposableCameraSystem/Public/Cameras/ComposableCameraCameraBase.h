@@ -88,6 +88,11 @@ public:
 	float LifeTime = 0.f;
 };
 
+/** Called before any internal node is executed. */
+DECLARE_MULTICAST_DELEGATE(FOnPreTick);
+/** Called after all internal nodes are executed. */
+DECLARE_MULTICAST_DELEGATE(FOnPostTick);
+/** Called when the camera finishes constructed, before BeginPlay is called. */
 DECLARE_DYNAMIC_DELEGATE_OneParam(FOnCameraFinishConstructed, AComposableCameraCameraBase*, Camera);
 
 /**
@@ -161,6 +166,10 @@ public:
 	UFUNCTION(BlueprintImplementableEvent, DisplayName = "OnUpdateCamera", Category = "ComposableCameraSystem|Camera")
 	bool OnUpdateCamera(float DeltaTime, FComposableCameraPose OldCameraPose, FComposableCameraPose CurrentCameraPose, FComposableCameraPose& OutPose);
 
+public:
+	FOnPreTick OnPreTick;
+	FOnPostTick OnPostTick;
+	
 public:
 	// Reset all variables in the owning variable collection.
 	UFUNCTION(BlueprintCallable, Category = "ComposableCameraSystem|Camera")

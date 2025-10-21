@@ -106,8 +106,6 @@ private:
 
 	FDelegateHandle DrawDebugHandle;
 
-	FVector LastCameraPosition;
-	
 private:
 	void EnsureWithinBoundsTranslation(const FVector& CameraSpacePivotPosition, FVector& CameraSpaceDampedOffset, const float& AspectRatio, const float& TanHalfHOR, const float& CameraDistance);
 	void EnsureWithinBoundsRotation(const FRotator& CameraRotation, const FRotator& LookAtRotation, FRotator& DeltaRotation, float AspectRatio, float DegTanHalfHor);

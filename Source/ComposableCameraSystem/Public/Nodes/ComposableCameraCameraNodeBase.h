@@ -34,6 +34,13 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "ComposableCameraSystem|Node")
 	AComposableCameraPlayerCamaraManager* GetOwningPlayerCameraManager() const { return OwningPlayerCameraManager; }
+
+public:
+	UFUNCTION()
+	virtual void OnPreTick();
+
+	UFUNCTION()
+	virtual void OnPostTick();
 	
 protected:
 	/**
@@ -42,6 +49,14 @@ protected:
 	UFUNCTION(BlueprintImplementableEvent, DisplayName = "InitializeNode", Category = "ComposableCameraSystem|Node")
 	void OnInitialize();
 
+	/** You can implement this function to define what this node will do before all any node ticks. */
+	UFUNCTION(BlueprintImplementableEvent, meta = (DisplayName = "PreTickCamera"))
+	void K2_OnPreTick();
+
+	/** You can implement this function to define what this node will do after all node execute in one tick. */
+	UFUNCTION(BlueprintImplementableEvent, meta = (DisplayName = "PostTickCamera"))
+	void K2_OnPostTick();
+	
 	/**
 	 * Main node logic implemented here. This node can read/write ContextParameters and/or CameraPose.
 	 * @param DeltaTime Delta time for this frame.

@@ -31,7 +31,8 @@ class COMPOSABLECAMERASYSTEM_API UComposableCameraCollisionPushNode
 public:
 	virtual void OnBeginPlayNode_Implementation(const FComposableCameraPose& CurrentCameraPose) override;
 	virtual void OnTickNode_Implementation(float DeltaTime, const FComposableCameraPose& CurrentCameraPose, FComposableCameraPose& OutCameraPose) override;
-
+	virtual void OnPreTick() override;
+	
 protected:
 	virtual void ReceiveInitializerNode(UComposableCameraCameraNodeBase* Initializer) override;
 	
@@ -108,4 +109,6 @@ private:
 	USkeletalMeshComponent* SkeletalMeshComponentForPivotActor { nullptr };
 	double ElapsedExemptionTime { 0. };
 	double CurrentDistanceFromCamera { 0. };
+
+	FVector OriginalCameraPosition;
 };

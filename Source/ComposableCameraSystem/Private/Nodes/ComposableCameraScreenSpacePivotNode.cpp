@@ -24,8 +24,6 @@ void UComposableCameraScreenSpacePivotNode::OnBeginPlayNode_Implementation(
 	{
 		DrawDebugInfo(HUD, Canvas);
 	});
-
-	LastCameraPosition = CurrentCameraPose.Position;
 }
 
 void UComposableCameraScreenSpacePivotNode::OnTickNode_Implementation(float DeltaTime,
@@ -38,8 +36,7 @@ void UComposableCameraScreenSpacePivotNode::OnTickNode_Implementation(float Delt
 		FVector TranslateAmount = GetScreenSpaceTranslateAmount(Pivot, OutCameraPose, DeltaTime);
 
 		// Write into OutCameraPose
-		OutCameraPose.Position = LastCameraPosition + TranslateAmount;
-		LastCameraPosition = OutCameraPose.Position;
+		OutCameraPose.Position = GetOwningCamera()->GetCameraPose().Position + TranslateAmount;
 	}
 	else if (Method == EComposableCameraScreenSpaceMethod::Rotate)
 	{
@@ -78,7 +75,7 @@ FVector UComposableCameraScreenSpacePivotNode::GetScreenSpaceTranslateAmount(con
                                                                              const FComposableCameraPose& OutCameraPose, float DeltaTime)
 {
 	double CameraDistance = TranslationParams.CameraDistance;
-	FVector CameraPosition = LastCameraPosition;
+	FVector CameraPosition = OutCameraPose.Position;
 	FRotator CameraRotation = OutCameraPose.Rotation;
 	FVector CameraSpacePivotPosition = UKismetMathLibrary::LessLess_VectorRotator(Pivot - CameraPosition, CameraRotation);
 	
@@ -148,7 +145,6 @@ FRotator UComposableCameraScreenSpacePivotNode::GetScreenSpaceRotateAmount(const
 
 	// @TODO: Hard to accurately compute the world-space yaw offset.
 	// @TODO: Problematic when pitch is close to 90 or -90.
-	//DeltaRotation.Yaw -= UKismetMathLibrary::DegAtan(2.0 * SafeZoneCenter.X / UKismetMathLibrary::DegCos(CameraRotation.Pitch + DeltaRotation.Pitch) * DegTanHalfHOR);
 	float HorizontalAngle = UKismetMathLibrary::DegAtan(2.0 * SafeZoneCenter.X * DegTanHalfHOR);
 	float YawOffset = UKismetMathLibrary::DegAsin(UKismetMathLibrary::DegSin(HorizontalAngle) / UKismetMathLibrary::DegSin(90.f - LookAtRotation.Pitch));
 	DeltaRotation.Yaw -= YawOffset;

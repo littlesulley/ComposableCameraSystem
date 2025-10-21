@@ -30,6 +30,7 @@ void UComposableCameraCollisionPushNode::OnBeginPlayNode_Implementation(const FC
 void UComposableCameraCollisionPushNode::OnTickNode_Implementation(float DeltaTime,
                                                                    const FComposableCameraPose& CurrentCameraPose, FComposableCameraPose& OutCameraPose)
 {
+	OriginalCameraPosition = CurrentCameraPose.Position;
 	FVector PivotPosition = FVector::ZeroVector;
 
 	if (bUseBoneForDetection && SkeletalMeshComponentForPivotActor)
@@ -66,6 +67,16 @@ void UComposableCameraCollisionPushNode::OnTickNode_Implementation(float DeltaTi
 		}
 
 		OutCameraPose.Position = OutCameraPosition;
+	}
+}
+
+void UComposableCameraCollisionPushNode::OnPreTick()
+{
+	Super::OnPreTick();
+
+	if (OwningCamera)
+	{
+		OwningCamera->CameraPose.Position = OriginalCameraPosition;
 	}
 }
 
