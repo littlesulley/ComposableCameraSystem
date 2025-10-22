@@ -134,8 +134,6 @@ FRotator UComposableCameraScreenSpacePivotNode::GetScreenSpaceRotateAmount(const
 	FVector CameraPosition = OutCameraPose.Position;
 	
 	FRotator LookAtRotation = UKismetMathLibrary::FindLookAtRotation(CameraPosition, Pivot);
-
-	UKismetSystemLibrary::PrintString(this, "Raw LookAt Pitch is: " + FString::SanitizeFloat(LookAtRotation.Pitch));
 	
 	// Get aspect ratio and tangent of half horizontal FOV.
 	auto [DegTanHalfHOR, AspectRatio] =
@@ -156,15 +154,12 @@ FRotator UComposableCameraScreenSpacePivotNode::GetScreenSpaceRotateAmount(const
 	// LookAtRotation.Yaw -= YawOffset;
 	// LookAtRotation.Pitch -= UKismetMathLibrary::DegAsin(UKismetMathLibrary::DegSin(90.f - LookAtRotation.Pitch) * UKismetMathLibrary::DegCos(90.f - LookAtRotation.Pitch) * (UKismetMathLibrary::DegCos(YawOffset) - 1.f));
 
-
 	auto [Pitch, Yaw] = CalibrateRotationOffset(DegTanHalfHOR, AspectRatio, Pivot - CameraPosition);
-	Pitch = 90 - Pitch;
+	//Pitch = 90 - Pitch;
 
 	LookAtRotation = FRotator { Pitch, Yaw, 0 };
 	
 	FRotator DeltaRotation = UKismetMathLibrary::NormalizedDeltaRotator(LookAtRotation, CameraRotation);
-	UKismetSystemLibrary::PrintString(this, "Final LookAt Pitch is: " + FString::SanitizeFloat(LookAtRotation.Pitch));
-	UKismetSystemLibrary::PrintString(this, "Final DeltaRotation Pitch is: " + FString::SanitizeFloat(DeltaRotation.Pitch));
 	
 	// Calculate damped delta rotation.
 	if (YawInterpolator_T)
@@ -208,9 +203,6 @@ std::pair<float, float> UComposableCameraScreenSpacePivotNode::CalibrateRotation
 		}
 	}
 
-	UKismetSystemLibrary::PrintString(this, "X is " + FString::SanitizeFloat(X));
-	UKismetSystemLibrary::PrintString(this, "Y is " + FString::SanitizeFloat(Y));
-
 	return { X, Y };
 }
 
@@ -219,28 +211,28 @@ std::pair<float, float> UComposableCameraScreenSpacePivotNode::CalibrateRotation
 	using Trig_T = double(*)(double);
 	Trig_T Sin = &UKismetMathLibrary::DegSin;
 	Trig_T Cos = &UKismetMathLibrary::DegCos;
-	Trig_T Asin = &UKismetMathLibrary::DegAsin;
-	Trig_T Acos = &UKismetMathLibrary::DegAcos;
 	
-	constexpr static int Steps = 10;
+	constexpr static int Steps = 20;
 	const float A = Direction.X;
 	const float B = Direction.Y;
 	const float C = Direction.Z;
 	const float TanHalfVOR = TanHalfHOR / AspectRatio;
-	
-	float P = 90, Y = 0;
+
+	FRotator InitialRotation = UKismetMathLibrary::MakeRotFromX(Direction);
+	float P = InitialRotation.Pitch, Y = InitialRotation.Yaw;
 	float OldP = P, OldY = Y;
 
-	for (uint32 i = 0; i < Steps; ++i)
+	uint32 Iteration = 0;
+	for (Iteration = 0; Iteration < Steps; ++Iteration)
 	{
 		OldP = P, OldY = Y;
 
-		float Y1 = TanHalfHOR * (A * Sin(P) * Cos(Y) + B * Sin(P) * Sin(Y) + C * Cos(P)) - 2 * SafeZoneCenter.X * (-A * Sin(Y) + B * Cos(Y));
-		float Y2 = TanHalfHOR * (-A * Sin(P) * Sin(Y) + B * Sin(P) * Cos(Y))             - 2 * SafeZoneCenter.X * (-A * Cos(Y) - B * Sin(Y));
+		float Y1 = 2 * SafeZoneCenter.X * TanHalfHOR * (A * Sin(P) * Cos(Y) + B * Sin(P) * Sin(Y) + C * Cos(P)) - (-A * Sin(Y) + B * Cos(Y));
+		float Y2 = 2 * SafeZoneCenter.X * TanHalfHOR * (-A * Sin(P) * Sin(Y) + B * Sin(P) * Cos(Y))             - (-A * Cos(Y) - B * Sin(Y));
 		Y = Y - Y1 / Y2;
 
-		float P1 = TanHalfVOR * (A * Sin(P) * Cos(Y) + B * Sin(P) * Sin(Y) + C * Cos(P)) - 2 * SafeZoneCenter.Y * (A * Cos(P) * Cos(Y) + B * Cos(P) * Sin(Y) - C * Sin(P));
-		float P2 = TanHalfVOR * (A * Cos(P) * Cos(Y) + B * Cos(P) * Sin(Y) - C * Sin(P)) - 2 * SafeZoneCenter.Y * (-A * Sin(P) * Cos(Y) - B * Sin(P) * Sin(Y) - C * Cos(P));
+		float P1 = 2 * SafeZoneCenter.Y * TanHalfVOR * (A * Sin(P) * Cos(Y) + B * Sin(P) * Sin(Y) + C * Cos(P)) - (A * Cos(P) * Cos(Y) + B * Cos(P) * Sin(Y) - C * Sin(P));
+		float P2 = 2 * SafeZoneCenter.Y * TanHalfVOR * (A * Cos(P) * Cos(Y) + B * Cos(P) * Sin(Y) - C * Sin(P)) - (-A * Sin(P) * Cos(Y) - B * Sin(P) * Sin(Y) - C * Cos(P));
 		P = P - P1 / P2;
 
 		if (FMath::Abs(P - OldP) < 1e-4 && FMath::Abs(Y - OldY) < 1e-4)
@@ -248,7 +240,11 @@ std::pair<float, float> UComposableCameraScreenSpacePivotNode::CalibrateRotation
 			break;
 		}
 	}
-
+	
+	UKismetSystemLibrary::PrintString(this, "Iteration is " + FString::FromInt(Iteration));
+	UKismetSystemLibrary::PrintString(this, "OldP - P is " + FString::SanitizeFloat(OldP - P));
+	UKismetSystemLibrary::PrintString(this, "OldY - Y is " + FString::SanitizeFloat(OldY - Y));
+	
 	UKismetSystemLibrary::PrintString(this, "P is " + FString::SanitizeFloat(P));
 	UKismetSystemLibrary::PrintString(this, "Y is " + FString::SanitizeFloat(Y));
 
