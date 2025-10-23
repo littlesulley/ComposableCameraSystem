@@ -209,7 +209,7 @@ std::pair<float, float> UComposableCameraScreenSpacePivotNode::CalibrateRotation
 	Trig_T Sin = &FMath::Sin;
 	Trig_T Cos = &FMath::Cos;
 	
-	constexpr static int Steps = 10;
+	constexpr static int Steps = 20;
 	const float TanHalfVOR = TanHalfHOR / AspectRatio;
 	const float a = SafeZoneCenter.X;
 	const float b = SafeZoneCenter.Y;
@@ -219,8 +219,8 @@ std::pair<float, float> UComposableCameraScreenSpacePivotNode::CalibrateRotation
 	const float B = Direction.Y;
 	const float C = Direction.Z;
 	
-	float X = LookAtRotation.Pitch - UKismetMathLibrary::DegAtan(2.0 * SafeZoneCenter.Y * TanHalfVOR);
-	float Y = LookAtRotation.Yaw   - UKismetMathLibrary::DegAtan(2.0 * SafeZoneCenter.X * TanHalfHOR);
+	float X = 90.f - (LookAtRotation.Pitch - UKismetMathLibrary::DegAtan(2.0 * SafeZoneCenter.Y * TanHalfVOR));
+	float Y = LookAtRotation.Yaw - UKismetMathLibrary::DegAtan(2.0 * SafeZoneCenter.X * TanHalfHOR);
 	X = FMath::DegreesToRadians(X);
 	Y = FMath::DegreesToRadians(Y);
 	float OldX = X, OldY = Y;
@@ -239,20 +239,18 @@ std::pair<float, float> UComposableCameraScreenSpacePivotNode::CalibrateRotation
 		const float SinY = Sin(Y);
 		const float CosY = Cos(Y);
 
-		const float S = A * SinX * CosY + B * SinX * SinY + C * CosY;
-		const float D = A * CosY + B * SinY;
-
+		const float S = A * SinX * CosY + B * SinX * SinY + C * CosX;
 		const float F1 = 2.f * a * m * S - (-A * SinY + B * CosY);
-		const float F2 = 2.f * b * n * S - (A * CosX * CosY + B * CosX * SinY - C * SinY);
+		const float F2 = 2.f * b * n * S - (A * CosX * CosY + B * CosX * SinY - C * SinX);
 
 		// Compute Jacobian.
-		const float DSDX = CosX * D;
-		const float DSDY = SinX * (-A * SinY + B * CosY) - C * SinY;
+		const float DSDX = A* CosX * CosY + B * CosX * SinY - C * SinX;
+		const float DSDY = SinX * (-A * SinY + B * CosY);
 
 		const float DF1DX = 2.f * a * m * DSDX;
 		const float DF1DY = 2.f * a * m * DSDY - (-A * CosY - B * SinY);
-		const float DF2DX = 2.f * b * n * DSDX + SinX * D;
-		const float DF2DY = 2.f * b * n * DSDY - CosX * (-A * SinY + B * CosY) + C * CosY;
+		const float DF2DX = 2.f * b * n * DSDX - (-A * SinX * CosY - B * SinX * SinY - C * CosX);
+		const float DF2DY = 2.f * b * n * DSDY - (-A * CosX * SinY + B * CosX * CosY);
 		
 		// Update.
 		// const float Det = DF1DX * DF2DY - DF1DY * DF2DX;
@@ -287,8 +285,9 @@ std::pair<float, float> UComposableCameraScreenSpacePivotNode::CalibrateRotation
 			break;
 
 		// Solve for Δ = -(JTJ + λI)⁻¹ * J^T * F
-		const float DX = (-JTF_0 * JTJ_DAMP_11 + JTF_1 * JTJ_01) / Det;
-		const float DY = (-JTF_1 * JTJ_DAMP_00 + JTF_0 * JTJ_01) / Det;
+		constexpr static float MaxStepRad = 0.2f;
+		const float DX = FMath::Clamp((-JTF_0 * JTJ_DAMP_11 + JTF_1 * JTJ_01) / Det, -MaxStepRad, MaxStepRad);
+		const float DY = FMath::Clamp((-JTF_1 * JTJ_DAMP_00 + JTF_0 * JTJ_01) / Det, -MaxStepRad, MaxStepRad);
 
 		const float NewX = X + DX;
 		const float NewY = Y + DY;
@@ -299,9 +298,9 @@ std::pair<float, float> UComposableCameraScreenSpacePivotNode::CalibrateRotation
 		const float SinYn = Sin(NewY);
 		const float CosYn = Cos(NewY);
 
-		const float Sn = A * SinXn * CosYn + B * SinXn * SinYn + C * CosYn;
+		const float Sn = A * SinXn * CosYn + B * SinXn * SinYn + C * CosXn;
 		const float F1n = 2.f * a * m * Sn - (-A * SinYn + B * CosYn);
-		const float F2n = 2.f * b * n * Sn - (A * CosXn * CosYn + B * CosXn * SinYn - C * SinYn);
+		const float F2n = 2.f * b * n * Sn - (A * CosXn * CosYn + B * CosXn * SinYn - C * SinXn);
 
 		const float NewError = FMath::Sqrt(F1n * F1n + F2n * F2n);
 		const float OldErrorMag = FMath::Sqrt(F1 * F1 + F2 * F2);
