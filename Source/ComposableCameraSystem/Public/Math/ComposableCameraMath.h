@@ -2,6 +2,8 @@
 
 #pragma once
 
+#include "Constraint.h"
+#include "HeadMountedDisplayTypes.h"
 #include "Kismet/KismetMathLibrary.h"
 
 namespace ComposableCameraSystem
@@ -50,6 +52,7 @@ namespace ComposableCameraSystem
 		return V;
 	}
 
+	/** Apply Slerp to two normalized vectors. */
 	inline FVector SlerpNormalized(const FVector& Start, const FVector& End, float Alpha)
 	{
 		float Dot = Start.Dot(End);
@@ -67,6 +70,7 @@ namespace ComposableCameraSystem
 		return StartRatio * Start + EndRatio * End;
 	}
 
+	/** Apply Slerp to two vectors, no normalization is needed. */
 	inline FVector Slerp(const FVector& Start, const FVector& End, float Alpha)
 	{
 		float StartMag = Start.Length();
@@ -80,9 +84,87 @@ namespace ComposableCameraSystem
 
 		return Direction * Mag;
 	}
+
+	/** Get the unsigned angle between two vectors. */
+	inline float UnsignedAngleBetweenVectors(FVector V1, FVector V2)
+	{
+		V1.Normalize();
+		V2.Normalize();
+		return UKismetMathLibrary::DegAtan2((V1 - V2).Length(), (V1 + V2).Length()) * 2.f;
+	}
 	
-	// Power iteration to find eigenvector. Ref https://en.wikipedia.org/wiki/Power_iteration 
-	// Rayleigh quotient iteration converges faster, but involving computing matrix inverse. Ref https://en.wikipedia.org/wiki/Rayleigh_quotient_iteration
+	/** Get the signed angle between two vectors. */
+	inline float SignedAngleBetweenVectors(FVector V1, FVector V2, FVector Up)
+	{
+		float Angle = UnsignedAngleBetweenVectors(V1, V2);
+
+		// Due to UE's coordinate system.
+		if (FMath::Sign(FVector::DotProduct(Up, FVector::CrossProduct(V1, V2))) < 0)
+		{
+			Angle = -Angle;
+		}
+
+		return Angle;
+	}
+
+	/** Apply an additive rotation to camera rotation. First about world space yaw using AdditiveRotation.X, then about local space pitch using AdditiveRotation.Y. */
+	inline FQuat ApplyAdditiveCameraRotation(FQuat CameraRotation, FVector2D AdditiveRotation)
+	{
+		if (AdditiveRotation.Length() < 1e-4)
+		{
+			return CameraRotation;
+		}
+
+		FQuat LocalRotation = FQuat { FVector::LeftVector, FMath::DegreesToRadians(AdditiveRotation.Y) };
+		FQuat WorldRotation = FQuat { FVector::UpVector, FMath::DegreesToRadians(AdditiveRotation.X) };
+
+		return ((WorldRotation * CameraRotation) * LocalRotation).GetNormalized();
+	}
+
+	/** Get world space yaw and local space pitch change from a camera rotation to a look-at direction. */
+	inline FVector2D GetCameraRotationFromTarget(FQuat CameraRotation, FVector LookAtDirection)
+	{
+		if (LookAtDirection.Length() < 1e-4)
+		{
+			return FVector2D::ZeroVector;
+		}
+
+		FVector LocalDirection = UKismetMathLibrary::Quat_UnrotateVector(CameraRotation, LookAtDirection);
+
+		// Align yaw.
+		FVector ProjLookDirection = FVector::VectorPlaneProject(LocalDirection, FVector::UpVector);
+		FVector ProjForwardDirection = FVector::VectorPlaneProject(FVector::ForwardVector, FVector::UpVector);
+		float Yaw = SignedAngleBetweenVectors(ProjForwardDirection, ProjLookDirection, FVector::UpVector);
+		
+		// Align pitch.
+		FQuat Q { FVector::UpVector, FMath::DegreesToRadians(Yaw) };
+		float Pitch = SignedAngleBetweenVectors(Q * FVector::ForwardVector, LocalDirection, Q * FVector::LeftVector);
+
+		return { Yaw, Pitch };
+	}
+
+	/** Get camera rotation from V1 to V2 with up vector Up. */
+	inline FQuat GetCameraRotationFromVectors(FVector V1, FVector V2, FVector Up = FVector::UpVector)
+	{
+		V1.Normalize();
+		V2.Normalize();
+		
+		FVector P1 = FVector::VectorPlaneProject(V1, Up);
+		FVector P2 = FVector::VectorPlaneProject(V2, Up);
+
+		if (P1.Length() < 1e-4 || P2.Length() < 1e-4)
+		{
+			FVector Axis = FVector::CrossProduct(V1, V2);
+			return FQuat { Axis, FMath::DegreesToRadians(SignedAngleBetweenVectors(V1, V2, Up)) };
+		}
+
+		float DeltaPitch = UnsignedAngleBetweenVectors(V1, Up) - UnsignedAngleBetweenVectors(V2, Up);
+		return FQuat { Up, FMath::DegreesToRadians(SignedAngleBetweenVectors(P1, P2, Up)) } * FQuat { FVector::CrossProduct(Up, V1), FMath::DegreesToRadians(DeltaPitch) }.GetNormalized();
+	}
+	
+	/** Power iteration to find eigenvector. Ref https://en.wikipedia.org/wiki/Power_iteration 
+	 *  Rayleigh quotient iteration converges faster, but involving computing matrix inverse. Ref https://en.wikipedia.org/wiki/Rayleigh_quotient_iteration
+	 */
 	inline FVector4 FindEigenVectorByPowerIteration(const FMatrix& M, const FVector4& V, const int Steps, const float Epsilon = UE_SMALL_NUMBER)
 	{
 		FVector4 EigenVector = V;

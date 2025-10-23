@@ -5,10 +5,12 @@
 #include "Camera/CameraComponent.h"
 #include "Core/ComposableCameraPlayerCamaraManager.h"
 #include "Engine/Canvas.h"
+#include "Engine/SceneCapture2D.h"
 #include "GameFramework/HUD.h"
 #include "Interpolator/ComposableCameraInterpolatorBase.h"
 #include "Kismet/GameplayStatics.h"
 #include "Kismet/KismetMathLibrary.h"
+#include "Math/ComposableCameraMath.h"
 
 void UComposableCameraScreenSpacePivotNode::OnBeginPlayNode_Implementation(
 	const FComposableCameraPose& CurrentCameraPose)
@@ -142,22 +144,20 @@ FRotator UComposableCameraScreenSpacePivotNode::GetScreenSpaceRotateAmount(const
 	// Calibrate look-at rotation.
 	float VerticalAngle = UKismetMathLibrary::DegAtan(2.0 * SafeZoneCenter.Y * DegTanHalfHOR / AspectRatio);
 	float HorizontalAngle = UKismetMathLibrary::DegAtan(2.0 * SafeZoneCenter.X * DegTanHalfHOR);
-
+	
 	// auto [PitchOffset, YawOffset] = CalibrateRotationOffset(
 	// 	UKismetMathLibrary::DegTan(HorizontalAngle),
 	// 	UKismetMathLibrary::DegTan(VerticalAngle),
 	// 	90 - LookAtRotation.Pitch);
-	//
-	// LookAtRotation.Yaw += YawOffset;
-	// LookAtRotation.Pitch += PitchOffset;
-	// float YawOffset = UKismetMathLibrary::DegAsin(UKismetMathLibrary::DegSin(HorizontalAngle) / UKismetMathLibrary::DegSin(90.f - LookAtRotation.Pitch));
-	// LookAtRotation.Yaw -= YawOffset;
-	// LookAtRotation.Pitch -= UKismetMathLibrary::DegAsin(UKismetMathLibrary::DegSin(90.f - LookAtRotation.Pitch) * UKismetMathLibrary::DegCos(90.f - LookAtRotation.Pitch) * (UKismetMathLibrary::DegCos(YawOffset) - 1.f));
 
-	auto [Pitch, Yaw] = CalibrateRotationOffset(DegTanHalfHOR, AspectRatio, Pivot - CameraPosition);
-	//Pitch = 90 - Pitch;
-
-	LookAtRotation = FRotator { Pitch, Yaw, 0 };
+	auto [Pitch, Yaw] = CalibrateRotationOffset(
+		DegTanHalfHOR,
+		AspectRatio,
+		Pivot - CameraPosition,
+		LookAtRotation);
+	
+	LookAtRotation.Yaw = Yaw;
+	LookAtRotation.Pitch = 90.f - Pitch;
 	
 	FRotator DeltaRotation = UKismetMathLibrary::NormalizedDeltaRotator(LookAtRotation, CameraRotation);
 	
@@ -178,10 +178,6 @@ FRotator UComposableCameraScreenSpacePivotNode::GetScreenSpaceRotateAmount(const
 	return DeltaRotation;
 }
 
-// This function iteratively solves the following equations for x and y using Newton's method:
-// P(sin(A+x)*sin(A)*cos(y)+cos(A+x)*cos(A)) = -sin(A)*sin(y)
-// Q(sin(A+x)*sin(A)*cos(y)+cos(A+x)*cos(A)) = sin(A)*cos(A+x)*cos(y)-cos(A)*sin(A+x)
-// The default iteration step is 5.
 std::pair<float, float> UComposableCameraScreenSpacePivotNode::CalibrateRotationOffset(double P, double Q, double A)
 {
 	constexpr static int Steps = 10;
@@ -192,10 +188,10 @@ std::pair<float, float> UComposableCameraScreenSpacePivotNode::CalibrateRotation
 	{
 		OldX = X, OldY = Y;
 
-		// Y = UKismetMathLibrary::DegAsin(-P / UKismetMathLibrary::DegSin(A));
-		// X = X -
-		// 	(UKismetMathLibrary::DegSin(A) * UKismetMathLibrary::DegCos(A + X) * UKismetMathLibrary::DegCos(Y) - UKismetMathLibrary::DegCos(A) * UKismetMathLibrary::DegSin(A + X) - Q)
-		//   / (-UKismetMathLibrary::DegSin(A) * UKismetMathLibrary::DegSin(A + X) * UKismetMathLibrary::DegCos(Y) - UKismetMathLibrary::DegCos(A) * UKismetMathLibrary::DegCos(A + X));
+		Y = UKismetMathLibrary::DegAsin(-P / UKismetMathLibrary::DegSin(A));
+		X = X -
+			(UKismetMathLibrary::DegSin(A) * UKismetMathLibrary::DegCos(A + X) * UKismetMathLibrary::DegCos(Y) - UKismetMathLibrary::DegCos(A) * UKismetMathLibrary::DegSin(A + X) - Q)
+		  / (-UKismetMathLibrary::DegSin(A) * UKismetMathLibrary::DegSin(A + X) * UKismetMathLibrary::DegCos(Y) - UKismetMathLibrary::DegCos(A) * UKismetMathLibrary::DegCos(A + X));
 
 		if (FMath::Abs(X - OldX) < 1e-4 && FMath::Abs(Y - OldY) < 1e-4)
 		{
@@ -206,53 +202,136 @@ std::pair<float, float> UComposableCameraScreenSpacePivotNode::CalibrateRotation
 	return { X, Y };
 }
 
-std::pair<float, float> UComposableCameraScreenSpacePivotNode::CalibrateRotationOffset(double TanHalfHOR, double AspectRatio, FVector Direction)
+std::pair<float, float> UComposableCameraScreenSpacePivotNode::CalibrateRotationOffset(float TanHalfHOR,
+	float AspectRatio, FVector Direction, FRotator LookAtRotation)
 {
 	using Trig_T = double(*)(double);
-	Trig_T Sin = &UKismetMathLibrary::DegSin;
-	Trig_T Cos = &UKismetMathLibrary::DegCos;
+	Trig_T Sin = &FMath::Sin;
+	Trig_T Cos = &FMath::Cos;
 	
-	constexpr static int Steps = 20;
+	constexpr static int Steps = 10;
+	const float TanHalfVOR = TanHalfHOR / AspectRatio;
+	const float a = SafeZoneCenter.X;
+	const float b = SafeZoneCenter.Y;
+	const float m = TanHalfHOR;
+	const float n = TanHalfVOR;
 	const float A = Direction.X;
 	const float B = Direction.Y;
 	const float C = Direction.Z;
-	const float TanHalfVOR = TanHalfHOR / AspectRatio;
+	
+	float X = LookAtRotation.Pitch - UKismetMathLibrary::DegAtan(2.0 * SafeZoneCenter.Y * TanHalfVOR);
+	float Y = LookAtRotation.Yaw   - UKismetMathLibrary::DegAtan(2.0 * SafeZoneCenter.X * TanHalfHOR);
+	X = FMath::DegreesToRadians(X);
+	Y = FMath::DegreesToRadians(Y);
+	float OldX = X, OldY = Y;
 
-	FRotator InitialRotation = UKismetMathLibrary::MakeRotFromX(Direction);
-	float P = InitialRotation.Pitch, Y = InitialRotation.Yaw;
-	float OldP = P, OldY = Y;
-
+	float Lambda = 1e-2f;      // Start with small damping
+	float OldError = FLT_MAX;
+	
 	uint32 Iteration = 0;
 	for (Iteration = 0; Iteration < Steps; ++Iteration)
 	{
-		OldP = P, OldY = Y;
+		OldX = X, OldY = Y;
 
-		float Y1 = 2 * SafeZoneCenter.X * TanHalfHOR * (A * Sin(P) * Cos(Y) + B * Sin(P) * Sin(Y) + C * Cos(P)) - (-A * Sin(Y) + B * Cos(Y));
-		float Y2 = 2 * SafeZoneCenter.X * TanHalfHOR * (-A * Sin(P) * Sin(Y) + B * Sin(P) * Cos(Y))             - (-A * Cos(Y) - B * Sin(Y));
-		Y = Y - Y1 / Y2;
+		// Compute common terms.
+		const float SinX = Sin(X);
+		const float CosX = Cos(X);
+		const float SinY = Sin(Y);
+		const float CosY = Cos(Y);
 
-		float P1 = 2 * SafeZoneCenter.Y * TanHalfVOR * (A * Sin(P) * Cos(Y) + B * Sin(P) * Sin(Y) + C * Cos(P)) - (A * Cos(P) * Cos(Y) + B * Cos(P) * Sin(Y) - C * Sin(P));
-		float P2 = 2 * SafeZoneCenter.Y * TanHalfVOR * (A * Cos(P) * Cos(Y) + B * Cos(P) * Sin(Y) - C * Sin(P)) - (-A * Sin(P) * Cos(Y) - B * Sin(P) * Sin(Y) - C * Cos(P));
-		P = P - P1 / P2;
+		const float S = A * SinX * CosY + B * SinX * SinY + C * CosY;
+		const float D = A * CosY + B * SinY;
 
-		if (FMath::Abs(P - OldP) < 1e-4 && FMath::Abs(Y - OldY) < 1e-4)
-		{
+		const float F1 = 2.f * a * m * S - (-A * SinY + B * CosY);
+		const float F2 = 2.f * b * n * S - (A * CosX * CosY + B * CosX * SinY - C * SinY);
+
+		// Compute Jacobian.
+		const float DSDX = CosX * D;
+		const float DSDY = SinX * (-A * SinY + B * CosY) - C * SinY;
+
+		const float DF1DX = 2.f * a * m * DSDX;
+		const float DF1DY = 2.f * a * m * DSDY - (-A * CosY - B * SinY);
+		const float DF2DX = 2.f * b * n * DSDX + SinX * D;
+		const float DF2DY = 2.f * b * n * DSDY - CosX * (-A * SinY + B * CosY) + C * CosY;
+		
+		// Update.
+		// const float Det = DF1DX * DF2DY - DF1DY * DF2DX;
+		// if (FMath::Abs(Det) < 1e-4)
+		// {
+		// 	break;
+		// }
+		//
+		// constexpr static float Lambda = 0.5f;
+		// const float DX = (-F1 * DF2DY + F2 * DF1DY) / Det;
+		// const float DY = (-DF1DX * F2 + DF2DX * F1) / Det;
+		// X += Lambda * DX;
+		// Y += Lambda * DY;
+		//
+		// if (FMath::Abs(X - OldX) < 1e-4 && FMath::Abs(Y - OldY) < 1e-4)
+		// {
+		// 	break;
+		// }
+		// Form J^T * J and J^T * F
+		const float JTJ_00 = DF1DX * DF1DX + DF2DX * DF2DX;
+		const float JTJ_01 = DF1DX * DF1DY + DF2DX * DF2DY;
+		const float JTJ_11 = DF1DY * DF1DY + DF2DY * DF2DY;
+
+		const float JTF_0 = DF1DX * F1 + DF2DX * F2;
+		const float JTF_1 = DF1DY * F1 + DF2DY * F2;
+
+		// Apply Levenberg–Marquardt damping
+		const float JTJ_DAMP_00 = JTJ_00 + Lambda;
+		const float JTJ_DAMP_11 = JTJ_11 + Lambda;
+		const float Det = JTJ_DAMP_00 * JTJ_DAMP_11 - JTJ_01 * JTJ_01;
+		if (FMath::Abs(Det) < 1e-8f)
 			break;
-		}
-	}
-	
-	UKismetSystemLibrary::PrintString(this, "Iteration is " + FString::FromInt(Iteration));
-	UKismetSystemLibrary::PrintString(this, "OldP - P is " + FString::SanitizeFloat(OldP - P));
-	UKismetSystemLibrary::PrintString(this, "OldY - Y is " + FString::SanitizeFloat(OldY - Y));
-	
-	UKismetSystemLibrary::PrintString(this, "P is " + FString::SanitizeFloat(P));
-	UKismetSystemLibrary::PrintString(this, "Y is " + FString::SanitizeFloat(Y));
 
-	return { P, Y };
+		// Solve for Δ = -(JTJ + λI)⁻¹ * J^T * F
+		const float DX = (-JTF_0 * JTJ_DAMP_11 + JTF_1 * JTJ_01) / Det;
+		const float DY = (-JTF_1 * JTJ_DAMP_00 + JTF_0 * JTJ_01) / Det;
+
+		const float NewX = X + DX;
+		const float NewY = Y + DY;
+
+		// Evaluate new residual magnitude
+		const float SinXn = Sin(NewX);
+		const float CosXn = Cos(NewX);
+		const float SinYn = Sin(NewY);
+		const float CosYn = Cos(NewY);
+
+		const float Sn = A * SinXn * CosYn + B * SinXn * SinYn + C * CosYn;
+		const float F1n = 2.f * a * m * Sn - (-A * SinYn + B * CosYn);
+		const float F2n = 2.f * b * n * Sn - (A * CosXn * CosYn + B * CosXn * SinYn - C * SinYn);
+
+		const float NewError = FMath::Sqrt(F1n * F1n + F2n * F2n);
+		const float OldErrorMag = FMath::Sqrt(F1 * F1 + F2 * F2);
+
+		// Adaptive lambda adjustment
+		if (NewError < OldErrorMag)
+		{
+			// Accept update and decrease lambda (move toward Gauss–Newton)
+			X = NewX;
+			Y = NewY;
+			Lambda *= 0.5f;
+			OldError = NewError;
+		}
+		else
+		{
+			// Reject step and increase lambda (move toward gradient descent)
+			Lambda *= 2.0f;
+		}
+
+		if (NewError < 1e-6f)
+			break;
+	}
+
+	UKismetSystemLibrary::PrintString(this, "Error is: " + FString::SanitizeFloat(OldError));
+
+	return { FMath::RadiansToDegrees(X), FMath::RadiansToDegrees(Y) };
 }
 
 void UComposableCameraScreenSpacePivotNode::EnsureWithinBoundsTranslation(const FVector& CameraSpacePivotPosition,
-	FVector& CameraSpaceDampedOffset, const float& AspectRatio, const float& TanHalfHOR, const float& CameraDistance)
+                                                                          FVector& CameraSpaceDampedOffset, const float& AspectRatio, const float& TanHalfHOR, const float& CameraDistance)
 {
 	FVector DesiredCameraSpacePivotPosition = CameraSpacePivotPosition - CameraSpaceDampedOffset;
 

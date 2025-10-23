@@ -112,7 +112,7 @@ private:
 	std::pair<float, float> GetTanHalfHORAndAspectRatio(const FComposableCameraPose& OutCameraPose);
 	FVector GetScreenSpaceTranslateAmount(const FVector& Pivot, const FComposableCameraPose& OutCameraPose, float DeltaTime);
 	std::pair<float, float> CalibrateRotationOffset(double P, double Q, double A);
-	std::pair<float, float> CalibrateRotationOffset(double TanHalfHOR, double AspectRatio, FVector Direction);
+	std::pair<float, float> CalibrateRotationOffset(float TanHalfHOR, float AspectRatio, FVector Direction, FRotator LookAtRotation);
 	FRotator GetScreenSpaceRotateAmount(const FVector& Pivot, const FComposableCameraPose& OutCameraPose, float DeltaTime);
 
 	FVector GetCurrentPivot();
