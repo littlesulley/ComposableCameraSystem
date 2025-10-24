@@ -135,31 +135,23 @@ FRotator UComposableCameraScreenSpacePivotNode::GetScreenSpaceRotateAmount(const
 	FRotator CameraRotation = OutCameraPose.Rotation;
 	FVector CameraPosition = OutCameraPose.Position;
 	
-	FRotator LookAtRotation = UKismetMathLibrary::FindLookAtRotation(CameraPosition, Pivot);
+	const FRotator LookAtRotation = UKismetMathLibrary::FindLookAtRotation(CameraPosition, Pivot);
 	
 	// Get aspect ratio and tangent of half horizontal FOV.
 	auto [DegTanHalfHOR, AspectRatio] =
 		GetTanHalfHORAndAspectRatio(OutCameraPose);
 	
 	// Calibrate look-at rotation.
-	float VerticalAngle = UKismetMathLibrary::DegAtan(2.0 * SafeZoneCenter.Y * DegTanHalfHOR / AspectRatio);
-	float HorizontalAngle = UKismetMathLibrary::DegAtan(2.0 * SafeZoneCenter.X * DegTanHalfHOR);
-	
-	// auto [PitchOffset, YawOffset] = CalibrateRotationOffset(
-	// 	UKismetMathLibrary::DegTan(HorizontalAngle),
-	// 	UKismetMathLibrary::DegTan(VerticalAngle),
-	// 	90 - LookAtRotation.Pitch);
-
 	auto [Pitch, Yaw] = CalibrateRotationOffset(
 		DegTanHalfHOR,
 		AspectRatio,
 		Pivot - CameraPosition,
-		LookAtRotation);
-	
-	LookAtRotation.Yaw = Yaw;
-	LookAtRotation.Pitch = 90.f - Pitch;
-	
-	FRotator DeltaRotation = UKismetMathLibrary::NormalizedDeltaRotator(LookAtRotation, CameraRotation);
+		LookAtRotation,
+		SafeZoneCenter.X,
+		SafeZoneCenter.Y);
+
+	FRotator DesiredRotation = { Pitch, Yaw, 0.f };
+	FRotator DeltaRotation = UKismetMathLibrary::NormalizedDeltaRotator(DesiredRotation, CameraRotation);
 	
 	// Calculate damped delta rotation.
 	if (YawInterpolator_T)
@@ -173,103 +165,85 @@ FRotator UComposableCameraScreenSpacePivotNode::GetScreenSpaceRotateAmount(const
 		DeltaRotation.Pitch = PitchInterpolator_T->Run(DeltaTime);
 	}
 
-	//EnsureWithinBoundsRotation(CameraRotation, LookAtRotation, DeltaRotation, AspectRatio, DegTanHalfHOR);
+	EnsureWithinBoundsRotation(CameraRotation, LookAtRotation, DeltaRotation, AspectRatio, DegTanHalfHOR);
 
 	return DeltaRotation;
 }
 
-std::pair<float, float> UComposableCameraScreenSpacePivotNode::CalibrateRotationOffset(double P, double Q, double A)
-{
-	constexpr static int Steps = 10;
-	float X = 0, Y = 0;
-	float OldX = X, OldY = Y;
-
-	for (uint32 i = 0; i < Steps; ++i)
-	{
-		OldX = X, OldY = Y;
-
-		Y = UKismetMathLibrary::DegAsin(-P / UKismetMathLibrary::DegSin(A));
-		X = X -
-			(UKismetMathLibrary::DegSin(A) * UKismetMathLibrary::DegCos(A + X) * UKismetMathLibrary::DegCos(Y) - UKismetMathLibrary::DegCos(A) * UKismetMathLibrary::DegSin(A + X) - Q)
-		  / (-UKismetMathLibrary::DegSin(A) * UKismetMathLibrary::DegSin(A + X) * UKismetMathLibrary::DegCos(Y) - UKismetMathLibrary::DegCos(A) * UKismetMathLibrary::DegCos(A + X));
-
-		if (FMath::Abs(X - OldX) < 1e-4 && FMath::Abs(Y - OldY) < 1e-4)
-		{
-			break;
-		}
-	}
-
-	return { X, Y };
-}
-
+/** Using Newton's method to solve pitch (X) and yaw (Y).
+ * The intuition is: we first assume X and Y, and get the desired camera space, defined by
+ *
+ * Forward Axis: [cos(X)cos(Y),  cos(X)sin(Y),  sin(X)]
+ * Right Axis:   [-sin(Y),       cos(Y),        0     ]
+ * Up Axis:      [-sin(X)cos(Y), -sin(X)sin(Y), cos(X)]
+ *
+ * Given a world-space Direction from camera to the pivot point, its desired camera space position should be
+ *
+ * Px = Forward * Direction
+ * Py = Right * Direction
+ * Pz = Up * Direction
+ *
+ * Then, use this information to match the desired screen space position, given by
+ *
+ * 2 * SafeZoneCenter.X = Py / (TanHalfHOR * Px)
+ * 2 * SafeZoneCenter.Y = Pz / (TanHalfVOR * Px)
+ *
+ * We can then solve X and Y according to the above two nonlinear equations.
+ *
+ * WARNING: Do not exceed +- 90 degrees for pitch.
+ *
+ * I suspect there is some definite method to solve X and Y without iteration.
+ */
 std::pair<float, float> UComposableCameraScreenSpacePivotNode::CalibrateRotationOffset(float TanHalfHOR,
-	float AspectRatio, FVector Direction, FRotator LookAtRotation)
+       float AspectRatio, FVector Direction, FRotator LookAtRotation, float ScreenX, float ScreenY)
 {
 	using Trig_T = double(*)(double);
 	Trig_T Sin = &FMath::Sin;
 	Trig_T Cos = &FMath::Cos;
 	
-	constexpr static int Steps = 20;
+	constexpr static int Steps = 10;
 	const float TanHalfVOR = TanHalfHOR / AspectRatio;
-	const float a = SafeZoneCenter.X;
-	const float b = SafeZoneCenter.Y;
+	const float a = ScreenX;
+	const float b = ScreenY;
 	const float m = TanHalfHOR;
 	const float n = TanHalfVOR;
 	const float A = Direction.X;
 	const float B = Direction.Y;
 	const float C = Direction.Z;
 	
-	float X = 90.f - (LookAtRotation.Pitch - UKismetMathLibrary::DegAtan(2.0 * SafeZoneCenter.Y * TanHalfVOR));
-	float Y = LookAtRotation.Yaw - UKismetMathLibrary::DegAtan(2.0 * SafeZoneCenter.X * TanHalfHOR);
+	float X = LookAtRotation.Pitch - UKismetMathLibrary::DegAtan(2.0 * SafeZoneCenter.Y * TanHalfVOR);
+	float Y = LookAtRotation.Yaw   - UKismetMathLibrary::DegAtan(2.0 * SafeZoneCenter.X * TanHalfHOR);
 	X = FMath::DegreesToRadians(X);
 	Y = FMath::DegreesToRadians(Y);
-	float OldX = X, OldY = Y;
 
-	float Lambda = 1e-2f;      // Start with small damping
+	// Start with small damping.
+	float Lambda = 1e-2f;    
 	float OldError = FLT_MAX;
 	
 	uint32 Iteration = 0;
 	for (Iteration = 0; Iteration < Steps; ++Iteration)
 	{
-		OldX = X, OldY = Y;
-
 		// Compute common terms.
 		const float SinX = Sin(X);
 		const float CosX = Cos(X);
 		const float SinY = Sin(Y);
 		const float CosY = Cos(Y);
 
-		const float S = A * SinX * CosY + B * SinX * SinY + C * CosX;
+		const float S = A * CosX * CosY + B * CosX * SinY + C * SinX;
 		const float F1 = 2.f * a * m * S - (-A * SinY + B * CosY);
-		const float F2 = 2.f * b * n * S - (A * CosX * CosY + B * CosX * SinY - C * SinX);
+		const float F2 = 2.f * b * n * S - (-A * SinX * CosY - B * SinX * SinY + C * CosX);
 
 		// Compute Jacobian.
-		const float DSDX = A* CosX * CosY + B * CosX * SinY - C * SinX;
-		const float DSDY = SinX * (-A * SinY + B * CosY);
+		const float DSDX = -A * SinX * CosY - B * SinX * SinY + C * CosX;
+		const float DSDY = CosX * (-A * SinY + B * CosY);
 
 		const float DF1DX = 2.f * a * m * DSDX;
 		const float DF1DY = 2.f * a * m * DSDY - (-A * CosY - B * SinY);
-		const float DF2DX = 2.f * b * n * DSDX - (-A * SinX * CosY - B * SinX * SinY - C * CosX);
-		const float DF2DY = 2.f * b * n * DSDY - (-A * CosX * SinY + B * CosX * CosY);
+		const float DF2DX = 2.f * b * n * DSDX - (-A * CosX * CosY - B * CosX * SinY - C * SinX);
+		const float DF2DY = 2.f * b * n * DSDY - (A * SinX * SinY - B * SinX * CosY);
 		
-		// Update.
-		// const float Det = DF1DX * DF2DY - DF1DY * DF2DX;
-		// if (FMath::Abs(Det) < 1e-4)
-		// {
-		// 	break;
-		// }
-		//
-		// constexpr static float Lambda = 0.5f;
-		// const float DX = (-F1 * DF2DY + F2 * DF1DY) / Det;
-		// const float DY = (-DF1DX * F2 + DF2DX * F1) / Det;
-		// X += Lambda * DX;
-		// Y += Lambda * DY;
-		//
-		// if (FMath::Abs(X - OldX) < 1e-4 && FMath::Abs(Y - OldY) < 1e-4)
-		// {
-		// 	break;
-		// }
-		// Form J^T * J and J^T * F
+		// Update using Levenberg–Marquardt (J^T*J+Lambda*I)Delta = -J^T*F.
+		// Form J^T * J and J^T * F.
 		const float JTJ_00 = DF1DX * DF1DX + DF2DX * DF2DX;
 		const float JTJ_01 = DF1DX * DF1DY + DF2DX * DF2DY;
 		const float JTJ_11 = DF1DY * DF1DY + DF2DY * DF2DY;
@@ -277,38 +251,39 @@ std::pair<float, float> UComposableCameraScreenSpacePivotNode::CalibrateRotation
 		const float JTF_0 = DF1DX * F1 + DF2DX * F2;
 		const float JTF_1 = DF1DY * F1 + DF2DY * F2;
 
-		// Apply Levenberg–Marquardt damping
+		// Apply Levenberg–Marquardt damping.
 		const float JTJ_DAMP_00 = JTJ_00 + Lambda;
 		const float JTJ_DAMP_11 = JTJ_11 + Lambda;
 		const float Det = JTJ_DAMP_00 * JTJ_DAMP_11 - JTJ_01 * JTJ_01;
-		if (FMath::Abs(Det) < 1e-8f)
+		if (FMath::Abs(Det) < 1e-3f)
+		{
 			break;
-
-		// Solve for Δ = -(JTJ + λI)⁻¹ * J^T * F
-		constexpr static float MaxStepRad = 0.2f;
-		const float DX = FMath::Clamp((-JTF_0 * JTJ_DAMP_11 + JTF_1 * JTJ_01) / Det, -MaxStepRad, MaxStepRad);
-		const float DY = FMath::Clamp((-JTF_1 * JTJ_DAMP_00 + JTF_0 * JTJ_01) / Det, -MaxStepRad, MaxStepRad);
+		}
+		
+		// Solve for Δ = -(JTJ + λI)⁻¹ * J^T * F.
+		const float DX = (-JTF_0 * JTJ_DAMP_11 + JTF_1 * JTJ_01) / Det;
+		const float DY = (-JTF_1 * JTJ_DAMP_00 + JTF_0 * JTJ_01) / Det;
 
 		const float NewX = X + DX;
 		const float NewY = Y + DY;
 
-		// Evaluate new residual magnitude
+		// Evaluate new residual magnitude.
 		const float SinXn = Sin(NewX);
 		const float CosXn = Cos(NewX);
 		const float SinYn = Sin(NewY);
 		const float CosYn = Cos(NewY);
 
-		const float Sn = A * SinXn * CosYn + B * SinXn * SinYn + C * CosXn;
+		const float Sn = A * CosXn * CosYn + B * CosXn * SinYn + C * SinXn;
 		const float F1n = 2.f * a * m * Sn - (-A * SinYn + B * CosYn);
-		const float F2n = 2.f * b * n * Sn - (A * CosXn * CosYn + B * CosXn * SinYn - C * SinXn);
+		const float F2n = 2.f * b * n * Sn - (-A * SinXn * CosYn - B * SinXn * SinYn + C * CosXn);
 
 		const float NewError = FMath::Sqrt(F1n * F1n + F2n * F2n);
 		const float OldErrorMag = FMath::Sqrt(F1 * F1 + F2 * F2);
 
-		// Adaptive lambda adjustment
+		// Adaptive lambda adjustment.
 		if (NewError < OldErrorMag)
 		{
-			// Accept update and decrease lambda (move toward Gauss–Newton)
+			// Accept update and decrease lambda (move toward Gauss–Newton).
 			X = NewX;
 			Y = NewY;
 			Lambda *= 0.5f;
@@ -316,16 +291,16 @@ std::pair<float, float> UComposableCameraScreenSpacePivotNode::CalibrateRotation
 		}
 		else
 		{
-			// Reject step and increase lambda (move toward gradient descent)
+			// Reject step and increase lambda (move toward gradient descent).
 			Lambda *= 2.0f;
 		}
 
-		if (NewError < 1e-6f)
+		if (NewError < 1e-2f)
+		{
 			break;
+		}
 	}
-
-	UKismetSystemLibrary::PrintString(this, "Error is: " + FString::SanitizeFloat(OldError));
-
+	
 	return { FMath::RadiansToDegrees(X), FMath::RadiansToDegrees(Y) };
 }
 
@@ -349,26 +324,42 @@ void UComposableCameraScreenSpacePivotNode::EnsureWithinBoundsTranslation(const 
 void UComposableCameraScreenSpacePivotNode::EnsureWithinBoundsRotation(const FRotator& CameraRotation, const FRotator& LookAtRotation, FRotator& DeltaRotation,
 	float AspectRatio, float DegTanHalfHor)
 {
-	double LeftBound = UKismetMathLibrary::DegAtan(2.0 * (SafeZoneCenter.X + SafeZoneWidth.X) * DegTanHalfHor); 
-	double RightBound = UKismetMathLibrary::DegAtan(2.0 * (SafeZoneCenter.X + SafeZoneWidth.Y) * DegTanHalfHor); 
-	double BottomBound = UKismetMathLibrary::DegAtan(2.0 * (SafeZoneCenter.Y + SafeZoneHeight.X) * DegTanHalfHor / AspectRatio);
-	double TopBound = UKismetMathLibrary::DegAtan(2.0 * (SafeZoneCenter.Y + SafeZoneHeight.Y) * DegTanHalfHor / AspectRatio);
+	// double LeftBound = UKismetMathLibrary::DegAtan(2.0 * (SafeZoneCenter.X + SafeZoneWidth.X) * DegTanHalfHor); 
+	// double RightBound = UKismetMathLibrary::DegAtan(2.0 * (SafeZoneCenter.X + SafeZoneWidth.Y) * DegTanHalfHor); 
+	// double BottomBound = UKismetMathLibrary::DegAtan(2.0 * (SafeZoneCenter.Y + SafeZoneHeight.X) * DegTanHalfHor / AspectRatio);
+	// double TopBound = UKismetMathLibrary::DegAtan(2.0 * (SafeZoneCenter.Y + SafeZoneHeight.Y) * DegTanHalfHor / AspectRatio);
+	//
+	// FRotator DesiredRotation = (CameraRotation + DeltaRotation).GetNormalized();
+	// FRotator ResultRotationDiff = UKismetMathLibrary::NormalizedDeltaRotator(LookAtRotation, DesiredRotation);
+	//
+	// if (ResultRotationDiff.Yaw < LeftBound) DeltaRotation.Yaw += ResultRotationDiff.Yaw - LeftBound;
+	// if (ResultRotationDiff.Yaw > RightBound) DeltaRotation.Yaw += ResultRotationDiff.Yaw - RightBound;
+	// if (ResultRotationDiff.Pitch < BottomBound) DeltaRotation.Pitch += ResultRotationDiff.Pitch - BottomBound;
+	// if (ResultRotationDiff.Pitch > TopBound) DeltaRotation.Pitch += ResultRotationDiff.Pitch - TopBound;
 
 	FRotator DesiredRotation = (CameraRotation + DeltaRotation).GetNormalized();
-	FRotator ResultRotationDiff = UKismetMathLibrary::NormalizedDeltaRotator(LookAtRotation, DesiredRotation);
 
-	// Calibrate bounding angles according to current camera pitch.
-	LeftBound = UKismetMathLibrary::DegAsin(UKismetMathLibrary::DegSin(LeftBound) / UKismetMathLibrary::DegSin(90.f - LookAtRotation.Pitch));
-	RightBound = UKismetMathLibrary::DegAsin(UKismetMathLibrary::DegSin(RightBound) / UKismetMathLibrary::DegSin(90.f - LookAtRotation.Pitch));
-	
-	if (ResultRotationDiff.Yaw < LeftBound) DeltaRotation.Yaw += ResultRotationDiff.Yaw - LeftBound;
-	if (ResultRotationDiff.Yaw > RightBound) DeltaRotation.Yaw += ResultRotationDiff.Yaw - RightBound;
+	auto [LB_Pitch, LB_Yaw] = CalibrateRotationOffset(
+		DegTanHalfHor,
+		AspectRatio,
+		LookAtRotation.RotateVector(FVector::ForwardVector),
+		LookAtRotation,
+		SafeZoneCenter.X + SafeZoneWidth.X,
+		SafeZoneCenter.Y + SafeZoneHeight.X);
 
-	BottomBound += UKismetMathLibrary::DegAsin(UKismetMathLibrary::DegSin(90.f - LookAtRotation.Pitch) * UKismetMathLibrary::DegCos(90.f - LookAtRotation.Pitch) * (UKismetMathLibrary::DegCos(ResultRotationDiff.Yaw) - 1.f));
-	TopBound += UKismetMathLibrary::DegAsin(UKismetMathLibrary::DegSin(90.f - LookAtRotation.Pitch) * UKismetMathLibrary::DegCos(90.f - LookAtRotation.Pitch) * (UKismetMathLibrary::DegCos(ResultRotationDiff.Yaw) - 1.f));
+	auto [RT_Pitch, RT_Yaw] = CalibrateRotationOffset(
+		DegTanHalfHor,
+		AspectRatio,
+		LookAtRotation.RotateVector(FVector::ForwardVector),
+		LookAtRotation,
+		SafeZoneCenter.X + SafeZoneWidth.Y,
+		SafeZoneCenter.Y + SafeZoneHeight.Y);
 
-	if (ResultRotationDiff.Pitch < BottomBound) DeltaRotation.Pitch += ResultRotationDiff.Pitch - BottomBound;
-	if (ResultRotationDiff.Pitch > TopBound) DeltaRotation.Pitch += ResultRotationDiff.Pitch - TopBound;
+	float Yaw = FMath::ClampAngle(DesiredRotation.Yaw, RT_Yaw, LB_Yaw);
+	float Pitch = DesiredRotation.Pitch < RT_Pitch ? RT_Pitch : (DesiredRotation.Pitch > LB_Pitch ? LB_Pitch : DesiredRotation.Pitch);
+	DesiredRotation.Yaw = Yaw;
+	DesiredRotation.Pitch = Pitch;
+	DeltaRotation = (DesiredRotation - CameraRotation).GetNormalized();
 }
 
 std::pair<float, float> UComposableCameraScreenSpacePivotNode::GetTanHalfHORAndAspectRatio(const FComposableCameraPose& OutCameraPose)
