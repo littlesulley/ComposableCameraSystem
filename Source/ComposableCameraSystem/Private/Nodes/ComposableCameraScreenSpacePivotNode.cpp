@@ -134,7 +134,8 @@ FRotator UComposableCameraScreenSpacePivotNode::GetScreenSpaceRotateAmount(const
 {
 	FRotator CameraRotation = OutCameraPose.Rotation;
 	FVector CameraPosition = OutCameraPose.Position;
-	
+
+	const FVector Direction = Pivot - CameraPosition;
 	const FRotator LookAtRotation = UKismetMathLibrary::FindLookAtRotation(CameraPosition, Pivot);
 	
 	// Get aspect ratio and tangent of half horizontal FOV.
@@ -145,7 +146,7 @@ FRotator UComposableCameraScreenSpacePivotNode::GetScreenSpaceRotateAmount(const
 	auto [Pitch, Yaw] = CalibrateRotationOffset(
 		DegTanHalfHOR,
 		AspectRatio,
-		Pivot - CameraPosition,
+		Direction,
 		LookAtRotation,
 		SafeZoneCenter.X,
 		SafeZoneCenter.Y);
@@ -165,7 +166,7 @@ FRotator UComposableCameraScreenSpacePivotNode::GetScreenSpaceRotateAmount(const
 		DeltaRotation.Pitch = PitchInterpolator_T->Run(DeltaTime);
 	}
 
-	EnsureWithinBoundsRotation(CameraRotation, LookAtRotation, DeltaRotation, AspectRatio, DegTanHalfHOR);
+	EnsureWithinBoundsRotation(CameraRotation, Direction, DeltaRotation, AspectRatio, DegTanHalfHOR);
 
 	return DeltaRotation;
 }
@@ -211,8 +212,8 @@ std::pair<float, float> UComposableCameraScreenSpacePivotNode::CalibrateRotation
 	const float B = Direction.Y;
 	const float C = Direction.Z;
 	
-	float X = LookAtRotation.Pitch - UKismetMathLibrary::DegAtan(2.0 * SafeZoneCenter.Y * TanHalfVOR);
-	float Y = LookAtRotation.Yaw   - UKismetMathLibrary::DegAtan(2.0 * SafeZoneCenter.X * TanHalfHOR);
+	float X = LookAtRotation.Pitch - UKismetMathLibrary::DegAtan(2.0 * ScreenY * TanHalfVOR);
+	float Y = LookAtRotation.Yaw   - UKismetMathLibrary::DegAtan(2.0 * ScreenX * TanHalfHOR);
 	X = FMath::DegreesToRadians(X);
 	Y = FMath::DegreesToRadians(Y);
 
@@ -321,42 +322,25 @@ void UComposableCameraScreenSpacePivotNode::EnsureWithinBoundsTranslation(const 
 	if (DesiredCameraSpacePivotPosition.Z > TopBound)    CameraSpaceDampedOffset.Z += DesiredCameraSpacePivotPosition.Z - TopBound;
 }
 
-void UComposableCameraScreenSpacePivotNode::EnsureWithinBoundsRotation(const FRotator& CameraRotation, const FRotator& LookAtRotation, FRotator& DeltaRotation,
+void UComposableCameraScreenSpacePivotNode::EnsureWithinBoundsRotation(const FRotator& CameraRotation, const FVector& Direction, FRotator& DeltaRotation,
 	float AspectRatio, float DegTanHalfHor)
 {
-	// double LeftBound = UKismetMathLibrary::DegAtan(2.0 * (SafeZoneCenter.X + SafeZoneWidth.X) * DegTanHalfHor); 
-	// double RightBound = UKismetMathLibrary::DegAtan(2.0 * (SafeZoneCenter.X + SafeZoneWidth.Y) * DegTanHalfHor); 
-	// double BottomBound = UKismetMathLibrary::DegAtan(2.0 * (SafeZoneCenter.Y + SafeZoneHeight.X) * DegTanHalfHor / AspectRatio);
-	// double TopBound = UKismetMathLibrary::DegAtan(2.0 * (SafeZoneCenter.Y + SafeZoneHeight.Y) * DegTanHalfHor / AspectRatio);
-	//
-	// FRotator DesiredRotation = (CameraRotation + DeltaRotation).GetNormalized();
-	// FRotator ResultRotationDiff = UKismetMathLibrary::NormalizedDeltaRotator(LookAtRotation, DesiredRotation);
-	//
-	// if (ResultRotationDiff.Yaw < LeftBound) DeltaRotation.Yaw += ResultRotationDiff.Yaw - LeftBound;
-	// if (ResultRotationDiff.Yaw > RightBound) DeltaRotation.Yaw += ResultRotationDiff.Yaw - RightBound;
-	// if (ResultRotationDiff.Pitch < BottomBound) DeltaRotation.Pitch += ResultRotationDiff.Pitch - BottomBound;
-	// if (ResultRotationDiff.Pitch > TopBound) DeltaRotation.Pitch += ResultRotationDiff.Pitch - TopBound;
-
 	FRotator DesiredRotation = (CameraRotation + DeltaRotation).GetNormalized();
 
-	auto [LB_Pitch, LB_Yaw] = CalibrateRotationOffset(
+	FVector CameraSpaceDirection = DesiredRotation.UnrotateVector(Direction);
+	float ScreenPositionX = CameraSpaceDirection.Y / (2.0f * DegTanHalfHor * CameraSpaceDirection.X);
+	float ScreenPositionY = CameraSpaceDirection.Z / (2.0f * DegTanHalfHor / AspectRatio * CameraSpaceDirection.X);
+	ScreenPositionX = FMath::Clamp(ScreenPositionX, SafeZoneCenter.X + SafeZoneWidth.X, SafeZoneCenter.X + SafeZoneWidth.Y);
+	ScreenPositionY = FMath::Clamp(ScreenPositionY, SafeZoneCenter.Y + SafeZoneHeight.X, SafeZoneCenter.Y + SafeZoneHeight.Y);
+
+	auto [Pitch, Yaw] = CalibrateRotationOffset(
 		DegTanHalfHor,
 		AspectRatio,
-		LookAtRotation.RotateVector(FVector::ForwardVector),
-		LookAtRotation,
-		SafeZoneCenter.X + SafeZoneWidth.X,
-		SafeZoneCenter.Y + SafeZoneHeight.X);
+		Direction,
+		UKismetMathLibrary::MakeRotFromX(Direction),
+		ScreenPositionX,
+		ScreenPositionY);
 
-	auto [RT_Pitch, RT_Yaw] = CalibrateRotationOffset(
-		DegTanHalfHor,
-		AspectRatio,
-		LookAtRotation.RotateVector(FVector::ForwardVector),
-		LookAtRotation,
-		SafeZoneCenter.X + SafeZoneWidth.Y,
-		SafeZoneCenter.Y + SafeZoneHeight.Y);
-
-	float Yaw = FMath::ClampAngle(DesiredRotation.Yaw, RT_Yaw, LB_Yaw);
-	float Pitch = DesiredRotation.Pitch < RT_Pitch ? RT_Pitch : (DesiredRotation.Pitch > LB_Pitch ? LB_Pitch : DesiredRotation.Pitch);
 	DesiredRotation.Yaw = Yaw;
 	DesiredRotation.Pitch = Pitch;
 	DeltaRotation = (DesiredRotation - CameraRotation).GetNormalized();

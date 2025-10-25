@@ -45,6 +45,7 @@ FText UComposableCameraVariable::GetDisplayText() const
 	}
 	return FText::FromName(GetFName());
 }
+#endif
 
 void UComposableCameraVariable::PostLoad()
 {
@@ -75,4 +76,3 @@ void UComposableCameraVariable::PostDuplicate(EDuplicateMode::Type DuplicateMode
 		Guid = FGuid::NewGuid();
 	}
 }
-#endif

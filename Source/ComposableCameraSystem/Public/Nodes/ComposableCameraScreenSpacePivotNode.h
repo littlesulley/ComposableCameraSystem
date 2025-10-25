@@ -108,7 +108,7 @@ private:
 
 private:
 	void EnsureWithinBoundsTranslation(const FVector& CameraSpacePivotPosition, FVector& CameraSpaceDampedOffset, const float& AspectRatio, const float& TanHalfHOR, const float& CameraDistance);
-	void EnsureWithinBoundsRotation(const FRotator& CameraRotation, const FRotator& LookAtRotation, FRotator& DeltaRotation, float AspectRatio, float DegTanHalfHor);
+	void EnsureWithinBoundsRotation(const FRotator& CameraRotation, const FVector& LookAtRotation, FRotator& DeltaRotation, float AspectRatio, float DegTanHalfHor);
 	std::pair<float, float> GetTanHalfHORAndAspectRatio(const FComposableCameraPose& OutCameraPose);
 	FVector GetScreenSpaceTranslateAmount(const FVector& Pivot, const FComposableCameraPose& OutCameraPose, float DeltaTime);
 	std::pair<float, float> CalibrateRotationOffset(float TanHalfHOR, float AspectRatio, FVector Direction, FRotator LookAtRotation, float ScreenX, float ScreenY);
