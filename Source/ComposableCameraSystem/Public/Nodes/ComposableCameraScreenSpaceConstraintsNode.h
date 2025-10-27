@@ -50,6 +50,7 @@ private:
 	FVector EnsureWithinBoundsTranslation(const FVector& Pivot, const FComposableCameraPose& CurrentPose, const float& AspectRatio, const float& TanHalfHOR);
 	FRotator EnsureWithinBoundsRotation(const FVector& Pivot, const FComposableCameraPose& CurrentPose, float AspectRatio, float DegTanHalfHor);
 	std::pair<float, float> GetTanHalfHORAndAspectRatio(const FComposableCameraPose& OutCameraPose);
+	std::pair<float, float> CalibrateRotationOffsetNewton(float TanHalfHOR, float AspectRatio, FVector Direction, FRotator LookAtRotation, float ScreenX, float ScreenY);
 
 	FVector GetCurrentPivot();
 	void DrawDebugInfo(AHUD* HUD, UCanvas* Canvas);
