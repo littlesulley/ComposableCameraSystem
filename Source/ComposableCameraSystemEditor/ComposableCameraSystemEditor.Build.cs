@@ -48,6 +48,7 @@ public class ComposableCameraSystemEditor : ModuleRules
                 "TraceLog",
                 "TraceServices",
                 "UnrealEd",
+                "Blutility"
             }
         );
     }
