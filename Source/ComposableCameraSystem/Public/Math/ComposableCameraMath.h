@@ -318,5 +318,19 @@ namespace ComposableCameraSystem
 		
 		return *TargetAnglePtr;
 	}
+
+	/** Get the perpendicular vector's length from any vector B projecting onto a unit vector A.
+	 * i.e., (B - A * (A.Dot(B)).Length().
+	 */
+	inline float GetProjectPerpLength(const FVector& A, const FVector& B)
+	{
+		return (B - A * (A.Dot(B))).Length();
+	}
+
+	/** Get the point projected from B to a unit vector A. */
+	inline FVector GetProjectedPoint(const FVector& A, const FVector& B)
+	{
+		return A * (A.Dot(B));
+	}
 	
 }

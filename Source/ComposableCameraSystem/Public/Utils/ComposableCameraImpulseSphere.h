@@ -7,7 +7,6 @@
 #include "GameFramework/Actor.h"
 #include "ComposableCameraImpulseSphere.generated.h"
 
-class UBoxComponent;
 class USphereComponent;
 
 /**

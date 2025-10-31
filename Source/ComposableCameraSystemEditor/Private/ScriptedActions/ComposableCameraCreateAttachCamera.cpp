@@ -27,6 +27,12 @@ void UComposableCameraCreateAttachCamera::CreateAndAttachCamera()
 
 	FWorldContext* WorldContext = GEngine->GetWorldContextFromGameViewport(GEngine->GameViewport);
 	UWorld* World = WorldContext->World();
+
+	if (!World)
+	{
+		return;
+	}
+	
 	ACameraActor* Camera = World->SpawnActor<ACameraActor>(
 		ACameraActor::StaticClass(),
 		FVector{100.f, 0.f, 50.f},
