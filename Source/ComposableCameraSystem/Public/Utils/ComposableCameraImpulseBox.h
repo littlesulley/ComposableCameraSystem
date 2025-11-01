@@ -53,7 +53,7 @@ public:
 	FVector GetOrigin(const FVector& CameraPosition);
 
 public:
-	// How to compute the distance when the camera is in the box.
+	// How to compute the distance when the camera is in the box. Set it to a relatively large value, e.g., 1000.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ComposableCameraImpulseBox")
 	EComposableCameraImpulseBoxDistanceType DistanceType { EComposableCameraImpulseBoxDistanceType::BoxOrigin };
 	

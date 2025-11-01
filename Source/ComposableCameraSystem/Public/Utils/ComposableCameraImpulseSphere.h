@@ -31,11 +31,11 @@ public:
 	//~~
 
 public:
-	// Radius of this impulse sphere.
+	// Radius of this impulse sphere. 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ComposableCameraImpulseSphere")
 	float Radius { 100.f };
 
-	// Force curve along the distance to sphere center. Practically, F(0) should be the largest, F(Radius) should be zero.
+	// Force curve along the distance to sphere center. Practically, F(0) should be the largest, F(Radius) should be zero. Set it to a relatively large value, e.g., 1000.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ComposableCameraImpulseSphere")
 	FRuntimeFloatCurve ForceCurve;
 

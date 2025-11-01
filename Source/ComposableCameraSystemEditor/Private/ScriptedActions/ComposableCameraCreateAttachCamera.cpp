@@ -3,13 +3,11 @@
 
 #include "ScriptedActions/ComposableCameraCreateAttachCamera.h"
 
-#include "EditorLevelUtils.h"
 #include "EditorUtilityLibrary.h"
 #include "LevelEditorSubsystem.h"
 #include "Camera/CameraActor.h"
 #include "Camera/CameraComponent.h"
 #include "Subsystems/EditorActorSubsystem.h"
-#include "Subsystems/UnrealEditorSubsystem.h"
 
 void UComposableCameraCreateAttachCamera::CreateAndAttachCamera()
 {

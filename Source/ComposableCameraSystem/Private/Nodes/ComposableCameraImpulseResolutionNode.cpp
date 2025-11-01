@@ -35,7 +35,7 @@ void UComposableCameraImpulseResolutionNode::OnTickNode_Implementation(float Del
 	FVector Impulse = CombinedForce * DeltaTime;
 	FVector NewVelocity = OldVelocity + Impulse;
 	NewVelocity *= FMath::Clamp(1.f - VelocityDamping * DeltaTime, 0.f, 1.f);
-
+	
 	if (Interpolator_T)
 	{
 		Interpolator_T->Reset(OldVelocity, NewVelocity);
