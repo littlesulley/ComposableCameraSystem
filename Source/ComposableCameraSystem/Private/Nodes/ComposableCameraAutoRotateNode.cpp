@@ -21,7 +21,9 @@ void UComposableCameraAutoRotateNode::SetAutoRotateMainDirectionFunction(
 
 std::pair<bool, bool> UComposableCameraAutoRotateNode::CheckIfInValidRange(const FVector2D& ValidRangeYaw, const FVector2D& ValidRangePitch, const FRotator& Rotation)
 {
-	bool bYawInRange = UKismetMathLibrary::InRange_FloatFloat(FMath::UnwindDegrees(Rotation.Yaw), ValidRangeYaw[0], ValidRangeYaw[1]);
+	bool bYawInRange = UKismetMathLibrary::InRange_FloatFloat(FMath::UnwindDegrees(Rotation.Yaw), ValidRangeYaw[0], ValidRangeYaw[1])
+					|| UKismetMathLibrary::InRange_FloatFloat(FMath::UnwindDegrees(Rotation.Yaw) + 360.f, ValidRangeYaw[0], ValidRangeYaw[1])
+					|| UKismetMathLibrary::InRange_FloatFloat(FMath::UnwindDegrees(Rotation.Yaw) - 360.f, ValidRangeYaw[0], ValidRangeYaw[1]);
 	bool bPitchInRange = UKismetMathLibrary::InRange_FloatFloat(FMath::UnwindDegrees(Rotation.Pitch), ValidRangePitch[0], ValidRangePitch[1]);
 	return { bYawInRange, bPitchInRange };
 }
