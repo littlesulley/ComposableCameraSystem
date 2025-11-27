@@ -3,10 +3,9 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "ComposableCameraPlayerCamaraManager.h"
 #include "UObject/Object.h"
-#include "GameplayTagContainer.h"
 #include "Cameras/ComposableCameraCameraBase.h"
-#include "Transitions/ComposableCameraTransitionBase.h"
 #include "ComposableCameraDirector.generated.h"
 
 class AComposableCameraCameraBase;
@@ -39,6 +38,13 @@ public:
 		UComposableCameraTransitionDataAsset* TransitionDataAsset,
 		const FComposableCameraActivateParams& ActivationParams,
 		FOnCameraFinishConstructed OnPreBeginplayEvent);
+
+	AComposableCameraCameraBase* ReactivateCurrentCamera(
+		AComposableCameraPlayerCamaraManager* PlayerCameraManager,
+		TSubclassOf<AComposableCameraCameraBase> CameraClass,
+		UComposableCameraTransitionBase* Transition,
+		UComposableCameraNodeInitializerDataAsset* NodeInitializerDataAsset,
+		const FOnCameraFinishConstructed& OnPreBeginplayEvent);
 	
 	[[nodiscard]] FComposableCameraPose Evaluate(float DeltaTime) const;
 

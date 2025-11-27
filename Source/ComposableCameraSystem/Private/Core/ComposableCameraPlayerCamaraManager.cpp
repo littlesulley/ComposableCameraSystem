@@ -3,6 +3,7 @@
 #include "Core/ComposableCameraPlayerCamaraManager.h"
 #include "Cameras/ComposableCameraCameraBase.h"
 #include "ComposableCameraSystemModule.h"
+#include "IAutomationControllerManager.h"
 #include "Camera/CameraComponent.h"
 #include "Core/ComposableCameraDirector.h"
 #include "Core/ComposableCameraModifierManager.h"
@@ -42,8 +43,7 @@ void AComposableCameraPlayerCamaraManager::ProcessViewRotation(float DeltaTime, 
 }
 
 AComposableCameraCameraBase* AComposableCameraPlayerCamaraManager::CreateNewCamera(
-	AComposableCameraPlayerCamaraManager* PlayerCameraManager, TSubclassOf<AComposableCameraCameraBase> CameraClass,
-	const FComposableCameraActivateParams& ActivationParams)
+	TSubclassOf<AComposableCameraCameraBase> CameraClass, const FComposableCameraActivateParams& ActivationParams)
 {
 	if (CameraClass == nullptr)
 	{
@@ -60,13 +60,12 @@ AComposableCameraCameraBase* AComposableCameraPlayerCamaraManager::CreateNewCame
 	}
 	
 	AComposableCameraCameraBase* NewCamera = Director->CreateNewCamera(
-		PlayerCameraManager, CameraClass, ActivationParams);
+		this, CameraClass, ActivationParams);
 	
 	return NewCamera;
 }
 
 AComposableCameraCameraBase* AComposableCameraPlayerCamaraManager::ActivateNewCamera(
-	AComposableCameraPlayerCamaraManager* PlayerCameraManager,
 	TSubclassOf<AComposableCameraCameraBase> CameraClass,
 	UComposableCameraTransitionDataAsset* Transition,
 	const FComposableCameraActivateParams& ActivationParams,
@@ -93,9 +92,11 @@ AComposableCameraCameraBase* AComposableCameraPlayerCamaraManager::ActivateNewCa
 	}
 	
 	AComposableCameraCameraBase* NewCamera = Director->ActivateNewCamera(
-		PlayerCameraManager, CameraClass, Transition, ActivationParams, OnPreBeginplayEvent);
+		this, CameraClass, Transition, ActivationParams, OnPreBeginplayEvent);
 	if (NewCamera)
 	{
+		CurrentNodeInitializerDataAsset = ActivationParams.NodeInitializerDataAsset;
+		CurrentOnPreBeginplayEvent = OnPreBeginplayEvent;
 		RunningCamera = NewCamera;
 		RefreshCameraChain();
 	}
@@ -109,16 +110,53 @@ AComposableCameraCameraBase* AComposableCameraPlayerCamaraManager::ActivateNewCa
 	return RunningCamera;
 }
 
+AComposableCameraCameraBase* AComposableCameraPlayerCamaraManager::ReactivateCurrentCamera(UComposableCameraTransitionBase* Transition)
+{
+	TSubclassOf<AComposableCameraCameraBase> CameraClass = RunningCamera->GetClass();
+	return Director->ReactivateCurrentCamera(this, CameraClass, Transition, CurrentNodeInitializerDataAsset, CurrentOnPreBeginplayEvent);
+}
+
 void AComposableCameraPlayerCamaraManager::AddModifier(UComposableCameraNodeModifierDataAsset* ModifierAsset)
 {
+	ModifierManager->AddModifier(ModifierAsset);
+	OnModifierChanged();
 }
 
 void AComposableCameraPlayerCamaraManager::RemoveModifier(UComposableCameraNodeModifierDataAsset* ModifierAsset)
 {
+	ModifierManager->RemoveModifier(ModifierAsset);
+	OnModifierChanged();
+}
+
+void AComposableCameraPlayerCamaraManager::ApplyModifiers(AComposableCameraCameraBase* Camera, bool bRefreshModifierData)
+{
+	if (bRefreshModifierData)
+	{
+		ModifierManager->GetModifierData().UpdateEffectiveModifiers(Camera);
+	}
+
+	const auto& Modifiers = ModifierManager->GetModifierData().EffectiveModifiers;
+	Camera->ApplyModifiers(Modifiers);
+}
+
+void AComposableCameraPlayerCamaraManager::OnModifierChanged()
+{
+	auto [bChanged, Transition] = ModifierManager->GetModifierData().UpdateEffectiveModifiers(RunningCamera);
+
+	if (bChanged && !RunningCamera->bIsTransient /* Modifiers are only applicable for non-transient cameras. */)
+	{
+		if (!Transition && RunningCamera->DefaultTransition)
+		{
+			Transition = DuplicateObject(RunningCamera->DefaultTransition, this);	
+		}
+
+		RunningCamera = ReactivateCurrentCamera(Transition);
+		RefreshCameraChain();
+	}
 }
 
 void AComposableCameraPlayerCamaraManager::ResumeCamera(AComposableCameraCameraBase* ResumeCamera,
-	UComposableCameraTransitionBase* Transition, bool bPreserveCameraPose)
+                                                        UComposableCameraTransitionBase* Transition, bool bPreserveCameraPose)
 {
 	FTransform InitialTransform {};
 	if (bPreserveCameraPose)

@@ -2,8 +2,10 @@
 
 #pragma once
 
+#include "ComposableCameraModifierManager.h"
 #include "Camera/PlayerCameraManager.h"
 #include "Transitions/ComposableCameraTransitionBase.h"
+#include "ComposableCameraNamespaces.h"
 #include "ComposableCameraPlayerCamaraManager.generated.h"
 
 class UComposableCameraTransitionDataAsset;
@@ -25,20 +27,27 @@ public:
 	virtual void ProcessViewRotation(float DeltaTime, FRotator& OutViewRotation, FRotator& OutDeltaRot) override;
 
 	AComposableCameraCameraBase* CreateNewCamera(
-	AComposableCameraPlayerCamaraManager* PlayerCameraManager,
 		TSubclassOf<AComposableCameraCameraBase> CameraClass,
 		const FComposableCameraActivateParams& ActivationParams);
 	
 	AComposableCameraCameraBase* ActivateNewCamera(
-	AComposableCameraPlayerCamaraManager* PlayerCameraManager,
 		TSubclassOf<AComposableCameraCameraBase> CameraClass,
 		UComposableCameraTransitionDataAsset* Transition,
 		const FComposableCameraActivateParams& ActivationParams,
 		FOnCameraFinishConstructed OnPreBeginplayEvent);
 
+	AComposableCameraCameraBase* ReactivateCurrentCamera(UComposableCameraTransitionBase* Transition);
+
+	// Resume a given camera with a given transition.
+	void ResumeCamera(AComposableCameraCameraBase* ResumeCamera, UComposableCameraTransitionBase* Transition, bool bPreserveCameraPose);
+
+	
 	void AddModifier(UComposableCameraNodeModifierDataAsset* ModifierAsset);
 	void RemoveModifier(UComposableCameraNodeModifierDataAsset* ModifierAsset);
-	void ResumeCamera(AComposableCameraCameraBase* ResumeCamera, UComposableCameraTransitionBase* Transition, bool bPreserveCameraPose);
+	void ApplyModifiers(AComposableCameraCameraBase* Camera, bool bRefreshModifierData = false);
+
+	// Called when modifier is added or removed. When this happens, the modifier data will be refreshed and the current running camera may be re-activated.
+	void OnModifierChanged();
 
 	UFUNCTION(BlueprintPure, Category = "ComposableCameraSystem|Camera")
 	AComposableCameraCameraBase* GetRunningCamera () const
@@ -76,6 +85,12 @@ public:
 	// Current camera pose. 
 	UPROPERTY(Transient, VisibleAnywhere, BlueprintReadOnly, Category = "ComposableCameraSystem")
 	FComposableCameraPose CurrentCameraPose;
+
+	UPROPERTY(Transient)
+	UComposableCameraNodeInitializerDataAsset* CurrentNodeInitializerDataAsset;
+
+	UPROPERTY(Transient)
+	FOnCameraFinishConstructed CurrentOnPreBeginplayEvent;
 
 private:
 	UPROPERTY(Transient)

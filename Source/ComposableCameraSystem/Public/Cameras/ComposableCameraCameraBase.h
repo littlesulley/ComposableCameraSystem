@@ -7,13 +7,17 @@
 #include "Camera/CameraActor.h"
 #include "UObject/Object.h"
 #include "Variables/ComposableCameraVariableCollection.h"
+#include "ComposableCameraNamespaces.h"
 #include "ComposableCameraCameraBase.generated.h"
 
+class UComposableCameraModifierManager;
 class UComposableCameraTransitionBase;
 class UComposableCameraNodeInitializerDataAsset;
 class UComposableCameraVariableCollection;
 class UComposableCameraCameraNodeBase;
 class AComposableCameraPlayerCamaraManager;
+
+using namespace ComposableCameraModifier;
 
 USTRUCT(BlueprintType)
 struct FComposableCameraPose
@@ -145,14 +149,9 @@ public:
 	virtual void BeginPlay() override;
 	
 	void Initialize(AComposableCameraPlayerCamaraManager* Manager, UComposableCameraNodeInitializerDataAsset* NodeInitializerDataAsset);
+	void ApplyModifiers(const T_NodeModifier& Modifiers);
 	void BeginPlayCamera(const FComposableCameraPose& CurrentCameraPose);
 	[[nodiscard]] FComposableCameraPose TickCamera(float DeltaTime);
-
-	/**
-	 * Do something when finishing initializing. This is called before all nodes begin to play.
-	 */
-	UFUNCTION(BlueprintImplementableEvent, DisplayName = "OnInitializedCamera", Category = "ComposableCameraSystem|Camera")
-	void OnInitialized();
 
 	/**
 	 * A function used to fully or partially override the current camera pose. You can write your own camera update logic here. \n

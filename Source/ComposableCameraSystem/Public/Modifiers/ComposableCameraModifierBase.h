@@ -9,6 +9,10 @@
 
 class UComposableCameraCameraNodeBase;
 
+/**
+ * An abstract modifier that provides interfaces for customizing node properties.
+ * Modifiers can only be applied to non-transient cameras.
+ */
 UCLASS(Abstract, Blueprintable, BlueprintType, DefaultToInstanced, EditInlineNew, ClassGroup = ComposableCameraSystem, CollapseCategories)
 class COMPOSABLECAMERASYSTEM_API UComposableCameraModifierBase : public UObject
 {
@@ -20,27 +24,9 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, meta = (NoEditInline))
 	TSubclassOf<UComposableCameraCameraNodeBase> NodeClass;
 
-	// Tags for cameras on which this modifier is applied.
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly)
-	FGameplayTagContainer CameraTags;
-};
-
-/**
- * Data asset for node modifiers. A node modifier can modify any parameters of any node type at runtime. \n
- * All modifiers are defined using blueprints by the users.
- */
-UCLASS(BlueprintType)
-class UComposableCameraNodeModifierDataAsset
-	: public UDataAsset
-{
-	GENERATED_BODY()
-
 public:
-	/** Gameplay tag for a sequence of node modifiers. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite)
-	FGameplayTag NodeModifierTag;
-
-	/* Modifiers. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Instanced)
-	TArray<UComposableCameraModifierBase*> NodeModifiers;
+	// This is the function implementing and executing your modifier logic.
+	// Typically, you should define your own modifier-specific function that truly sets node parameters or other stuff.
+	UFUNCTION(BlueprintImplementableEvent, Category = "ComposableCameraSystem|Modifiers")
+	void ApplyModifier(UComposableCameraCameraNodeBase* Node);
 };

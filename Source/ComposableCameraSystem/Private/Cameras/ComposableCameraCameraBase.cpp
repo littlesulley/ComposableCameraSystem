@@ -5,6 +5,7 @@
 #include "Camera/CameraComponent.h"
 #include "Core/ComposableCameraPlayerCamaraManager.h"
 #include "DataAssets/ComposableCameraNodeInitializerDataAsset.h"
+#include "Modifiers/ComposableCameraModifierBase.h"
 #include "Nodes/ComposableCameraCameraNodeBase.h"
 
 AComposableCameraCameraBase::AComposableCameraCameraBase(const FObjectInitializer& ObjectInitializer)
@@ -36,7 +37,25 @@ void AComposableCameraCameraBase::Initialize(AComposableCameraPlayerCamaraManage
 			OnPostTick.AddUObject(Node, &UComposableCameraCameraNodeBase::OnPostTick);
 		}
 	}
-	OnInitialized();
+}
+
+void AComposableCameraCameraBase::ApplyModifiers(const T_NodeModifier& Modifiers)
+{
+	for (UComposableCameraCameraNodeBase* Node : CameraNodes)
+	{
+		if (!Node)
+		{
+			continue;
+		}
+		
+		if (const FModifierEntry* Modifier = Modifiers.Find(Node->GetClass()))
+		{
+			if (Modifier->Modifier)
+			{
+				Modifier->Modifier->ApplyModifier(Node);
+			}
+		}
+	}
 }
 
 void AComposableCameraCameraBase::BeginPlayCamera(const FComposableCameraPose& CurrentCameraPose)

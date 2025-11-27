@@ -15,8 +15,7 @@ AComposableCameraCameraBase* UComposableCameraBlueprintLibrary::CreateComposable
 {
 	if (PlayerCameraManager)
 	{
-		AComposableCameraCameraBase* NewCamera = PlayerCameraManager->CreateNewCamera(
-			PlayerCameraManager, CameraClass, ActivationParams);
+		AComposableCameraCameraBase* NewCamera = PlayerCameraManager->CreateNewCamera(CameraClass, ActivationParams);
 		
 		return NewCamera; 
 	}
@@ -35,7 +34,7 @@ AComposableCameraCameraBase* UComposableCameraBlueprintLibrary::ActivateComposab
 {
 	if (PlayerCameraManager)
 	{
-		// Return the current running camera, if (1) class not matching, (2) current running camera is not transient,
+		// Return the current running camera, if (1) class is matching, (2) current running camera is not transient,
 		// (3) incoming camera is not transient, and (4) not spawning a new instance.
 		if (PlayerCameraManager->GetRunningCamera()->StaticClass() == CameraClass->StaticClass() &&
 			!PlayerCameraManager->GetRunningCamera()->IsTransient() &&
@@ -46,7 +45,10 @@ AComposableCameraCameraBase* UComposableCameraBlueprintLibrary::ActivateComposab
 		}
 
 		AComposableCameraCameraBase* NewCamera = PlayerCameraManager->ActivateNewCamera(
-			PlayerCameraManager, CameraClass, TransitionDataAsset, ActivationParams, OnPreBeginplayEvent);
+			CameraClass,
+			TransitionDataAsset,
+			ActivationParams,
+			OnPreBeginplayEvent);
 		
 		return NewCamera; 
 	}

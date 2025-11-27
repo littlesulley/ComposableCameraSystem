@@ -14,7 +14,7 @@ class IComposableCameraImpulseShapeInterface;
 /**
  * Node for resolving impulse shapes including impulse box and impulse sphere.
  */
-UCLASS(ClassGroup = ComposableCameraSystem)
+UCLASS(NotBlueprintable, ClassGroup = ComposableCameraSystem)
 class COMPOSABLECAMERASYSTEM_API UComposableCameraImpulseResolutionNode : public UComposableCameraCameraNodeBase
 {
 	GENERATED_BODY()
