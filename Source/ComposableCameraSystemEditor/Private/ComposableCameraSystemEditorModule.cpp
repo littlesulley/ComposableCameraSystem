@@ -7,6 +7,7 @@
 #include "AssetTools/ComposableCameraCameraAssetEditor.h"
 #include "AssetTools/ComposableCameraVariableCollectionEditor.h"
 #include "Customizations/ComposableCameraContextParameterDetailsCustomization.h"
+#include "EditorHooks/EditorHooks.h"
 #include "Widgets/ComposableCameraVariablePicker.h"
 
 class UComposableCameraCameraAsset;
@@ -17,11 +18,24 @@ DEFINE_LOG_CATEGORY(LogComposableCameraSystemEditor);
 
 void FComposableCameraSystemEditorModule::StartupModule()
 {
+#if WITH_EDITOR
+    FIsSimulatingInEditor::GetIsSimulatingInEditorDelegate.BindLambda([]() -> bool
+    {
+        if (GEditor)
+        {
+            return GEditor->bIsSimulatingInEditor;
+        }
+        return false;
+    });
+#endif
     RegisterDetailsCustomizations();
 }
 
 void FComposableCameraSystemEditorModule::ShutdownModule()
 {
+#if WITH_EDITOR
+    FIsSimulatingInEditor::GetIsSimulatingInEditorDelegate.Unbind();
+#endif
     UnregisterDetailsCustomizations();
 }
 

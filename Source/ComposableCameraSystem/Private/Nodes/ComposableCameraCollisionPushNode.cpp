@@ -7,6 +7,7 @@
 #include "Kismet/GameplayStatics.h"
 #include "Kismet/KismetMathLibrary.h"
 #include "KismetTraceUtils.h"
+#include "EditorHooks/EditorHooks.h"
 #include "Kismet/KismetSystemLibrary.h"
 
 void UComposableCameraCollisionPushNode::OnBeginPlayNode_Implementation(const FComposableCameraPose& CurrentCameraPose)
@@ -126,6 +127,13 @@ FComposableCameraHitResult UComposableCameraCollisionPushNode::FindCollisionPoin
 		EDrawDebugTrace::ForOneFrame :
 		EDrawDebugTrace::None;
 		
+#if WITH_EDITOR
+	if (!FIsSimulatingInEditor::GetIsSimulatingInEditor())
+	{
+		DrawDebugType = EDrawDebugTrace::None;
+	}
+#endif
+	
 	if (bTraceUseSphere)
 	{
 		UKismetSystemLibrary::SphereTraceSingle(this, Start, End, TraceSphereRadius, TraceCollisionChannel, true, ActorsToIgnore, DrawDebugType, TraceCollisionHit, true);
