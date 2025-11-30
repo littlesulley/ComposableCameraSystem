@@ -25,7 +25,8 @@ public:
 	virtual void InitializeFor(APlayerController* PlayerController) override;
 	virtual void SetViewTarget(AActor* NewViewTarget, FViewTargetTransitionParams TransitionParams = FViewTargetTransitionParams()) override;
 	virtual void ProcessViewRotation(float DeltaTime, FRotator& OutViewRotation, FRotator& OutDeltaRot) override;
-
+	virtual void DisplayDebug(class UCanvas* Canvas, const class FDebugDisplayInfo& DebugDisplay, float& YL, float& YPos) override;
+	
 	AComposableCameraCameraBase* CreateNewCamera(
 		TSubclassOf<AComposableCameraCameraBase> CameraClass,
 		const FComposableCameraActivateParams& ActivationParams);
@@ -40,7 +41,6 @@ public:
 
 	// Resume a given camera with a given transition.
 	void ResumeCamera(AComposableCameraCameraBase* ResumeCamera, UComposableCameraTransitionBase* Transition, bool bPreserveCameraPose);
-
 	
 	void AddModifier(UComposableCameraNodeModifierDataAsset* ModifierAsset);
 	void RemoveModifier(UComposableCameraNodeModifierDataAsset* ModifierAsset);
@@ -68,6 +68,9 @@ protected:
 private:
 	// Used to maintain a maximum number of parent cameras in the camera chain. Default is 3.
 	void RefreshCameraChain() const;
+	
+	// Build debug string for modifiers.
+	void BuildModifierDebugString(FDisplayDebugManager& DisplayDebugManager);
 
 public:
 	// Whether to sync current camera rotation to ControlRotation.

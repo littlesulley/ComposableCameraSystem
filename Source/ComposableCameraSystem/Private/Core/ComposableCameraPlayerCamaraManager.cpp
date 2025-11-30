@@ -7,7 +7,11 @@
 #include "Camera/CameraComponent.h"
 #include "Core/ComposableCameraDirector.h"
 #include "Core/ComposableCameraModifierManager.h"
+#include "DataAssets/ComposableCameraModifierDataAsset.h"
 #include "DataAssets/ComposableCameraTransitionDataAsset.h"
+#include "Engine/Canvas.h"
+#include "Modifiers/ComposableCameraModifierBase.h"
+#include "Nodes/ComposableCameraCameraNodeBase.h"
 #include "Transitions/ComposableCameraTransitionBase.h"
 #include "Utils/ComposableCameraProjectSettings.h"
 
@@ -40,6 +44,17 @@ void AComposableCameraPlayerCamaraManager::ProcessViewRotation(float DeltaTime, 
 	FRotator& OutDeltaRot)
 {
 	Super::ProcessViewRotation(DeltaTime, OutViewRotation, OutDeltaRot);
+}
+
+void AComposableCameraPlayerCamaraManager::DisplayDebug(class UCanvas* Canvas,
+	const FDebugDisplayInfo& DebugDisplay, float& YL, float& YPos)
+{
+	const FMinimalViewInfo& CurrentPOV = GetCameraCacheView();
+	FDisplayDebugManager& DisplayDebugManager = Canvas->DisplayDebugManager;
+	DisplayDebugManager.SetDrawColor(FColor(122, 122, 255));
+	DisplayDebugManager.DrawString(FString::Printf(TEXT("   Camera Location: %s, Camera Rotation :%s, FOV: %f"), *CurrentPOV.Location.ToCompactString(), *CurrentPOV.Rotation.ToCompactString(), CurrentPOV.FOV));
+	DisplayDebugManager.DrawString(FString::Printf(TEXT("   AspectRatio: %1.3f"), CurrentPOV.AspectRatio));
+	BuildModifierDebugString(DisplayDebugManager);
 }
 
 AComposableCameraCameraBase* AComposableCameraPlayerCamaraManager::CreateNewCamera(
@@ -249,5 +264,108 @@ void AComposableCameraPlayerCamaraManager::RefreshCameraChain() const
 		CurrentCamera->Destroy();
 		CurrentCamera = ParentCamera;
 	}
+}
+
+void AComposableCameraPlayerCamaraManager::BuildModifierDebugString(FDisplayDebugManager& DisplayDebugManager)
+{
+	const auto& ModifierDataStruct = ModifierManager->GetModifierData();
+	const auto& ModifierData = ModifierDataStruct.ModifierData;
+	const auto& EffectiveModifiers = ModifierDataStruct.EffectiveModifiers;
+	
+	TStringBuilder<512> ModifierDataString;
+	TStringBuilder<512> EffectiveModifiersString;
+	TStringBuilder<512> Formatter;
+	int IndentLevel = 0;
+	
+	const auto AddText = [&](auto& Builder, const TCHAR* Fmt, ...)
+	{
+		va_list Args;
+		va_start(Args, Fmt);
+		{
+			Formatter.Reset();
+			Formatter.AppendV(Fmt, Args);
+			const TCHAR* Message = Formatter.ToString();
+			Builder.Append(Message);
+		}
+		va_end(Args);
+	};
+	
+	const auto GetIndentString = [&]()
+	{
+		return FString::ChrN(IndentLevel * 8, ' ');
+	};
+	
+	DisplayDebugManager.SetFont(GEngine->GetLargeFont());
+
+	// Build All Modifiers.
+	DisplayDebugManager.SetDrawColor(FColor( 100, 20, 100 ));
+	DisplayDebugManager.DrawString(FString("\nAll Modifiers"));
+	DisplayDebugManager.SetDrawColor(FColor( 222, 100, 5 ));
+	
+	for (const auto& CameraModifier : ModifierData)
+	{
+		const auto& CameraTag = CameraModifier.Key;
+		const auto& NodeModifierArray = CameraModifier.Value;
+		
+		// Begin Level 0: CameraTag
+		AddText(ModifierDataString, TEXT("%s[Camera Tag] %s:\n"), *GetIndentString(), *CameraTag.ToString());
+		
+		// Begin Level 1: Node Class
+		++IndentLevel;
+		for (const auto& NodeModifiers : NodeModifierArray)
+		{
+			const auto& NodeClass = NodeModifiers.Key;
+			const auto& Modifiers = NodeModifiers.Value;
+			
+			AddText(ModifierDataString, TEXT("%s[Camera Node] %s:\n"), *GetIndentString(), *NodeClass->GetName());
+			
+			// Begin Level 2: Modifiers
+			++IndentLevel;
+			for (const auto& Modifier : Modifiers)
+			{
+				if (Modifier.Asset && Modifier.Modifier)
+				{
+					AddText(ModifierDataString, TEXT("%s[Modifier] %s from [Asset]%s with priority %d\n"), 
+						*GetIndentString(), 
+						*Modifier.Modifier->GetName(),
+						*Modifier.Asset->GetName(),
+						Modifier.Asset->Priority);
+				}
+			}
+			--IndentLevel;
+		}
+		--IndentLevel;
+	}
+	
+	DisplayDebugManager.DrawString(ModifierDataString.ToString());
+	
+	// Build Effective Modifiers.
+	IndentLevel = 0;
+	DisplayDebugManager.SetDrawColor(FColor( 100, 20, 100 ));
+	DisplayDebugManager.DrawString(FString("Effective Modifiers"));
+	DisplayDebugManager.SetDrawColor(FColor( 222, 100, 5 ));
+	
+	for (const auto& EffectiveModifier : EffectiveModifiers)
+	{
+		const auto& NodeClass = EffectiveModifier.Key;
+		const auto& Modifier = EffectiveModifier.Value;
+		
+		AddText(EffectiveModifiersString, TEXT("%s[Camera Node] %s:\n"), *GetIndentString(), *NodeClass->GetName());
+			
+		++IndentLevel;
+		
+		if (Modifier.Asset && Modifier.Modifier)
+		{
+			AddText(EffectiveModifiersString, TEXT("%s[Modifier] %s from [Asset] %s with priority %d\n"), 
+				*GetIndentString(), 
+				*Modifier.Modifier->GetName(),
+				*Modifier.Asset->GetName(),
+				Modifier.Asset->Priority);
+		}
+		
+		--IndentLevel;
+	}
+	
+	DisplayDebugManager.DrawString(EffectiveModifiersString.ToString());
 }
 
