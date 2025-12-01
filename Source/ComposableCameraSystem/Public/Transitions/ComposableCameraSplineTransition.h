@@ -60,4 +60,7 @@ public:
 	// The angle that the desired arc spans. 180 means a half circle, 90 means a quarter circle. 270 is also a quarter circle but in the opposite direction.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (ClampMin = "1", ClampMax = "359", EditCondition = "SplineType == EComposableCameraSplineTransitionType::Arc", EditConditionHides))
 	float ArcAngle { 180.f };
+
+private:
+	void DrawDebugSplinePoints(const TArray<FVector>& SplinePoints);
 };
