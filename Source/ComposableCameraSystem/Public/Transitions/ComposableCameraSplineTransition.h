@@ -61,6 +61,12 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (ClampMin = "1", ClampMax = "359", EditCondition = "SplineType == EComposableCameraSplineTransitionType::Arc", EditConditionHides))
 	float ArcAngle { 180.f };
 
+	// The roll that the desired arc has along the forward direction defined by the start pose location and the target pose location.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (ClampMin = "-180", ClampMax = "180", EditCondition = "SplineType == EComposableCameraSplineTransitionType::Arc", EditConditionHides))
+	float ArcRoll { 0.f };
+
 private:
+
+	void DrawDebugSpline(const FComposableCameraPose& StartPose, const FComposableCameraPose& TargetPose);
 	void DrawDebugSplinePoints(const TArray<FVector>& SplinePoints);
 };

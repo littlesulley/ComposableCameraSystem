@@ -84,7 +84,7 @@ FComposableCameraPose UComposableCameraSplineTransition::OnEvaluate_Implementati
 			FVector L  = ComposableCameraSystem::Slerp(V0, V1,  BlendWeight);
 			L += C;
 
-			FRotator R = UKismetMathLibrary::MakeRotFromX(P1 - P0);
+			FRotator R = (UKismetMathLibrary::MakeRotFromX(P1 - P0).Quaternion() * FRotator{ 0., 0., ArcRoll }.Quaternion()).Rotator();
 			FVector PositionOnSpline = P0 + R.RotateVector(L);
 
 			// Set to result pose
@@ -100,65 +100,70 @@ FComposableCameraPose UComposableCameraSplineTransition::OnEvaluate_Implementati
 	{
 		if (TargetCamera->GetOwningPlayerCameraManager()->bDrawDebugInformation)
 		{
-			constexpr static int NumSplinePoints = 128;
-			TArray<FVector> SplinePoints{};
-			SplinePoints.Reserve(NumSplinePoints);
-			
-			switch (SplineType)
-			{
-			case EComposableCameraSplineTransitionType::Hermite:
-				{
-					FVector P0 = StartCameraPose.Position;
-					FVector P1 = CurrentTargetPose.Position;
-					FRotator R = UKismetMathLibrary::MakeRotFromX(P1 - P0);
-					FVector V0 = R.RotateVector(StartTangent);
-					FVector V1 = R.RotateVector(EndTangent);
-			
-					FVector A = V0 + V1 + 2. * P0 - 2. * P1;
-					FVector B = -2. * V0 - V1 - 3. * P0 + 3. * P1;
-					FVector C = V0;
-					FVector D = P0;
-
-					for (int i = 0; i < NumSplinePoints; ++i)
-					{
-						float TimeStamp = 1.f / NumSplinePoints * i;
-						SplinePoints.Add((((A * TimeStamp) + B) * TimeStamp + C) * TimeStamp + D);
-					}
-					break;
-				}
-			case EComposableCameraSplineTransitionType::Bezier:
-				break;
-			case EComposableCameraSplineTransitionType::BasicSpline:
-				break;
-			case EComposableCameraSplineTransitionType::Arc:
-				{
-					FVector P0 = StartCameraPose.Position;
-					FVector P1 = CurrentTargetPose.Position;
-					float D = FVector::Dist(P0, P1);
-					float CosHalfAngle = UKismetMathLibrary::DegCos(ArcAngle / 2.f);
-					float SinHalfAngle = UKismetMathLibrary::DegSin(ArcAngle / 2.f);
-					FVector C  = FVector { D / 2.f, -D / 2.f * CosHalfAngle / SinHalfAngle, 0 };
-					FVector V0 = FVector::ZeroVector - C;
-					FVector V1 = FVector { D, 0., 0. } - C;
-					FRotator R = UKismetMathLibrary::MakeRotFromX(P1 - P0);
-
-					for (int i = 0; i < NumSplinePoints; ++i)
-					{
-						float TimeStamp = 1.f / NumSplinePoints * i;
-						FVector L  = ComposableCameraSystem::Slerp(V0, V1,  TimeStamp) + C;
-						SplinePoints.Add(P0 + R.RotateVector(L));
-					}
-					break;
-				}
-			default:
-				break;
-			}
-
-			DrawDebugSplinePoints(SplinePoints);
+			DrawDebugSpline(StartCameraPose, CurrentTargetPose);
 		}
 	}
 	
 	return ResultPose;
+}
+
+void UComposableCameraSplineTransition::DrawDebugSpline(const FComposableCameraPose& StartPose, const FComposableCameraPose& TargetPose)
+{
+	constexpr static int NumSplinePoints = 128;
+	TArray<FVector> SplinePoints{};
+	SplinePoints.Reserve(NumSplinePoints);
+			
+	switch (SplineType)
+	{
+	case EComposableCameraSplineTransitionType::Hermite:
+		{
+			FVector P0 = StartPose.Position;
+			FVector P1 = TargetPose.Position;
+			FRotator R = (UKismetMathLibrary::MakeRotFromX(P1 - P0).Quaternion() * FRotator{ 0., 0., ArcRoll }.Quaternion()).Rotator();
+			FVector V0 = R.RotateVector(StartTangent);
+			FVector V1 = R.RotateVector(EndTangent);
+			
+			FVector A = V0 + V1 + 2. * P0 - 2. * P1;
+			FVector B = -2. * V0 - V1 - 3. * P0 + 3. * P1;
+			FVector C = V0;
+			FVector D = P0;
+
+			for (int i = 0; i < NumSplinePoints; ++i)
+			{
+				float TimeStamp = 1.f / NumSplinePoints * i;
+				SplinePoints.Add((((A * TimeStamp) + B) * TimeStamp + C) * TimeStamp + D);
+			}
+			break;
+		}
+	case EComposableCameraSplineTransitionType::Bezier:
+		break;
+	case EComposableCameraSplineTransitionType::BasicSpline:
+		break;
+	case EComposableCameraSplineTransitionType::Arc:
+		{
+			FVector P0 = StartPose.Position;
+			FVector P1 = TargetPose.Position;
+			float D = FVector::Dist(P0, P1);
+			float CosHalfAngle = UKismetMathLibrary::DegCos(ArcAngle / 2.f);
+			float SinHalfAngle = UKismetMathLibrary::DegSin(ArcAngle / 2.f);
+			FVector C  = FVector { D / 2.f, -D / 2.f * CosHalfAngle / SinHalfAngle, 0 };
+			FVector V0 = FVector::ZeroVector - C;
+			FVector V1 = FVector { D, 0., 0. } - C;
+			FRotator R = UKismetMathLibrary::MakeRotFromX(P1 - P0);
+
+			for (int i = 0; i < NumSplinePoints; ++i)
+			{
+				float TimeStamp = 1.f / NumSplinePoints * i;
+				FVector L  = ComposableCameraSystem::Slerp(V0, V1,  TimeStamp) + C;
+				SplinePoints.Add(P0 + R.RotateVector(L));
+			}
+			break;
+		}
+	default:
+		break;
+	}
+
+	DrawDebugSplinePoints(SplinePoints);
 }
 
 void UComposableCameraSplineTransition::DrawDebugSplinePoints(const TArray<FVector>& SplinePoints)
