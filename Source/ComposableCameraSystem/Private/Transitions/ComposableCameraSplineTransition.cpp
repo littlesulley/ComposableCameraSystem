@@ -3,6 +3,19 @@
 #include "Transitions/ComposableCameraSplineTransition.h"
 #include "Math/ComposableCameraMath.h"
 
+void UComposableCameraSplineTransition::OnBeginPlay_Implementation(float DeltaTime,
+	const FComposableCameraPose& CurrentTargetPose)
+{
+	if (ArcAngle <= 180.f && FMath::IsNearlyEqual(ArcAngle, 180.f, 1e-1))
+	{
+		ArcAngle = 179.f;
+	}
+	if (ArcAngle >= 180.f && FMath::IsNearlyEqual(ArcAngle, 180.f, 1e-1))
+	{
+		ArcAngle = 181.f;
+	}
+}
+
 FComposableCameraPose UComposableCameraSplineTransition::OnEvaluate_Implementation(float DeltaTime, const FComposableCameraPose& CurrentTargetPose)
 {
 	float DurationPct = (GetTransitionTime() - GetRemainingTime()) / GetTransitionTime();
@@ -33,8 +46,8 @@ FComposableCameraPose UComposableCameraSplineTransition::OnEvaluate_Implementati
 	{
 	case EComposableCameraSplineTransitionType::Hermite:
 		{
-			FVector P1 = CurrentTargetPose.Position;
 			FVector P0 = StartCameraPose.Position;
+			FVector P1 = CurrentTargetPose.Position;
 			FRotator R = UKismetMathLibrary::MakeRotFromX(P1 - P0);
 			FVector V0 = R.RotateVector(StartTangent);
 			FVector V1 = R.RotateVector(EndTangent);
@@ -48,13 +61,33 @@ FComposableCameraPose UComposableCameraSplineTransition::OnEvaluate_Implementati
 			// Evaluate f(BlendWeight)
 			FVector PositionOnSpline = (((A * BlendWeight) + B) * BlendWeight + C) * BlendWeight + D;
 			
-			// Set to result pose.
+			// Set to result pose
 			ResultPose.Position = PositionOnSpline;
 		}
 		break;
 	case EComposableCameraSplineTransitionType::Bezier:
 		break;
 	case EComposableCameraSplineTransitionType::BasicSpline:
+		break;
+	case EComposableCameraSplineTransitionType::Arc:
+		{
+			FVector P0 = StartCameraPose.Position;
+			FVector P1 = CurrentTargetPose.Position;
+			float D = FVector::Dist(P0, P1);
+			float CosHalfAngle = UKismetMathLibrary::DegCos(ArcAngle / 2.f);
+			float SinHalfAngle = UKismetMathLibrary::DegSin(ArcAngle / 2.f);
+			FVector C  = FVector { D / 2.f, -D / 2.f * CosHalfAngle / SinHalfAngle, 0 };
+			FVector V0 = FVector::ZeroVector - C;
+			FVector V1 = FVector { D, 0., 0. } - C;
+			FVector L  = ComposableCameraSystem::Slerp(V0, V1,  BlendWeight);
+			L += C;
+
+			FRotator R = UKismetMathLibrary::MakeRotFromX(P1 - P0);
+			FVector PositionOnSpline = P0 + R.RotateVector(L);
+
+			// Set to result pose
+			ResultPose.Position = PositionOnSpline;
+		}
 		break;
 	default:
 		break;

@@ -16,8 +16,11 @@ enum class EComposableCameraSplineTransitionType : uint8
 	// Using a cubic Bézier curve to generate the transition spline, given start tangent and end tangent.
 	Bezier,
 	
-	
-	BasicSpline
+	// Using a cubic basic spline to generate the transition spline, given knots between start and end points.
+	BasicSpline,
+
+	// Using an arc as the transition spline with a fixed given curvature.
+	Arc
 };
 
 UENUM()
@@ -38,6 +41,7 @@ class COMPOSABLECAMERASYSTEM_API UComposableCameraSplineTransition : public UCom
 	GENERATED_BODY()
 	
 public:
+	virtual void OnBeginPlay_Implementation(float DeltaTime, const FComposableCameraPose& CurrentTargetPose) override;
 	virtual FComposableCameraPose OnEvaluate_Implementation(float DeltaTime, const FComposableCameraPose& CurrentTargetPose) override;
 
 public:
@@ -52,4 +56,8 @@ public:
 	
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (EditCondition = "SplineType == EComposableCameraSplineTransitionType::Hermite", EditConditionHides))
 	FVector EndTangent { 0.f, 100.f, 0.f };
+
+	// The angle that the desired arc spans. 180 means a half circle, 90 means a quarter circle. 270 is also a quarter circle but in the opposite direction.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (ClampMin = "1", ClampMax = "359", EditCondition = "SplineType == EComposableCameraSplineTransitionType::Arc", EditConditionHides))
+	float ArcAngle { 180.f };
 };
