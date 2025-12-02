@@ -16,8 +16,8 @@ enum class EComposableCameraSplineTransitionType : uint8
 	// Using a cubic Bézier curve to generate the transition spline, given start tangent and end tangent.
 	Bezier,
 	
-	// Using a cubic basic spline to generate the transition spline, given knots between start and end points.
-	BasicSpline,
+	// Using piecewise catmull-rom splines to generate the transition spline, given knots between start and end points.
+	CatmullRom,
 
 	// Using an arc as the transition spline with a fixed given curvature.
 	Arc
@@ -61,13 +61,17 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (EditCondition = "SplineType == EComposableCameraSplineTransitionType::Hermite", EditConditionHides))
 	FVector EndTangent { 0.f, 100.f, 0.f };
 
-	// Start control point, relative to the transform formed by the direction from start position to end position.
+	// Start control point, relative to the end position and the transform formed by the direction from start position to end position.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (EditCondition = "SplineType == EComposableCameraSplineTransitionType::Bezier", EditConditionHides))
 	FVector StartControlPoint { 0.f, 100.f, 0.f };
 
-	// End control point, relative to the transform formed by the direction from start position to end position.
+	// End control point, relative to the end position and the transform formed by the direction from start position to end position.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (EditCondition = "SplineType == EComposableCameraSplineTransitionType::Bezier", EditConditionHides))
 	FVector EndControlPoint { 0.f, 100.f, 0.f };
+
+	// Control points for Catmull Roll splines. Defined relative to the transform formed by the direction from start position to end position.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (EditCondition = "SplineType == EComposableCameraSplineTransitionType::CatmullRom", EditConditionHides))
+	TArray<FVector> ControlPoints;
 	
 	// The angle that the desired arc spans. 180 means a half circle, 90 means a quarter circle. 270 is also a quarter circle but in the opposite direction.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (ClampMin = "1", ClampMax = "359", EditCondition = "SplineType == EComposableCameraSplineTransitionType::Arc", EditConditionHides))

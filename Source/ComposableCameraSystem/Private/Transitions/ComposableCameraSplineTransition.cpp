@@ -2,6 +2,7 @@
 
 #include "Transitions/ComposableCameraSplineTransition.h"
 
+#include "ComposableCameraSystemModule.h"
 #include "Core/ComposableCameraPlayerCamaraManager.h"
 #include "Math/ComposableCameraMath.h"
 
@@ -90,7 +91,38 @@ FComposableCameraPose UComposableCameraSplineTransition::OnEvaluate_Implementati
 			ResultPose.Position = PositionOnSpline;
 		}
 		break;
-	case EComposableCameraSplineTransitionType::BasicSpline:
+	case EComposableCameraSplineTransitionType::CatmullRom:
+		{
+			// Control points
+			TArray<FVector> ControlPointsWithStartAndEnd = ControlPoints;
+			FVector StartPoint = StartCameraPose.Position;
+			FVector EndPoint = CurrentTargetPose.Position;
+			ControlPointsWithStartAndEnd.Insert(FVector::ZeroVector, 0);
+			ControlPointsWithStartAndEnd.Insert(FVector{ (EndPoint - StartPoint).Length(), 0., 0. }, ControlPointsWithStartAndEnd.Num());
+			
+			// Map BlendWeight to segment
+			int NumControlPoints = ControlPointsWithStartAndEnd.Num();
+			float SegmentFloat = BlendWeight * (NumControlPoints - 1);
+			int SegmentIndex = FMath::Clamp(FMath::FloorToInt(SegmentFloat), 0, NumControlPoints - 2);
+
+			// Choose 4 points for this segment (with clamping at endpoints)
+			FRotator R = UKismetMathLibrary::MakeRotFromX(EndPoint - StartPoint);
+			FVector P0 = StartPoint + R.RotateVector(ControlPointsWithStartAndEnd[FMath::Clamp(SegmentIndex - 1, 0, NumControlPoints - 1)]);
+			FVector P1 = StartPoint + R.RotateVector(ControlPointsWithStartAndEnd[SegmentIndex]);
+			FVector P2 = StartPoint + R.RotateVector(ControlPointsWithStartAndEnd[SegmentIndex + 1]);
+			FVector P3 = StartPoint + R.RotateVector(ControlPointsWithStartAndEnd[FMath::Clamp(SegmentIndex + 2, 0, NumControlPoints - 1)]);
+
+			float T = SegmentFloat - SegmentIndex;
+			float T2 = T * T;
+			float T3 = T2 * T;
+
+			FVector PositionOnSpline = 0.5f * ((2.f * P1) +
+									  (-P0 + P2) * T +
+									  (2.f * P0 - 5.f * P1 + 4.f * P2 - P3) * T2 +
+									  (-P0 + 3.f * P1 - 3.f * P2 + P3) * T3);
+			
+			ResultPose.Position = PositionOnSpline;
+		}
 		break;
 	case EComposableCameraSplineTransitionType::Arc:
 		{
@@ -177,8 +209,40 @@ void UComposableCameraSplineTransition::DrawDebugSpline(const FComposableCameraP
 			}
 			break;
 		}
-	case EComposableCameraSplineTransitionType::BasicSpline:
-		break;
+	case EComposableCameraSplineTransitionType::CatmullRom:
+		{
+			TArray<FVector> ControlPointsWithStartAndEnd = ControlPoints;
+			FVector StartPoint = StartCameraPose.Position;
+			FVector EndPoint = TargetPose.Position;
+			ControlPointsWithStartAndEnd.Insert(FVector::ZeroVector, 0);
+			ControlPointsWithStartAndEnd.Insert(FVector{ (EndPoint - StartPoint).Length(), 0., 0. }, ControlPointsWithStartAndEnd.Num());
+
+			for (int i = 0; i < NumSplinePoints; ++i)
+			{
+				float TimeStamp = 1.f / NumSplinePoints * i;
+
+				int NumControlPoints = ControlPointsWithStartAndEnd.Num();
+				float SegmentFloat = TimeStamp * (NumControlPoints - 1);
+				int SegmentIndex = FMath::Clamp(FMath::FloorToInt(SegmentFloat), 0, NumControlPoints - 2);
+
+				// Choose 4 points for this segment (with clamping at endpoints)
+				FRotator R = UKismetMathLibrary::MakeRotFromX(EndPoint - StartPoint);
+				FVector P0 = StartPoint + R.RotateVector(ControlPointsWithStartAndEnd[FMath::Clamp(SegmentIndex - 1, 0, NumControlPoints - 1)]);
+				FVector P1 = StartPoint + R.RotateVector(ControlPointsWithStartAndEnd[SegmentIndex]);
+				FVector P2 = StartPoint + R.RotateVector(ControlPointsWithStartAndEnd[SegmentIndex + 1]);
+				FVector P3 = StartPoint + R.RotateVector(ControlPointsWithStartAndEnd[FMath::Clamp(SegmentIndex + 2, 0, NumControlPoints - 1)]);
+
+				float T = SegmentFloat - SegmentIndex;
+				float T2 = T * T;
+				float T3 = T2 * T;
+
+				SplinePoints.Add(0.5f * ((2.f * P1) +
+									(-P0 + P2) * T +
+									(2.f * P0 - 5.f * P1 + 4.f * P2 - P3) * T2 +
+									(-P0 + 3.f * P1 - 3.f * P2 + P3) * T3));
+			}
+			break;
+		}
 	case EComposableCameraSplineTransitionType::Arc:
 		{
 			FVector P0 = StartPose.Position;
