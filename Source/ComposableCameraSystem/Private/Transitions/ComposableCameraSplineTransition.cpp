@@ -68,6 +68,27 @@ FComposableCameraPose UComposableCameraSplineTransition::OnEvaluate_Implementati
 		}
 		break;
 	case EComposableCameraSplineTransitionType::Bezier:
+		{
+			FVector P0 = StartCameraPose.Position;
+			FVector P3 = CurrentTargetPose.Position;
+			FRotator R = UKismetMathLibrary::MakeRotFromX(P3 - P0);
+			FVector P1 = R.RotateVector(StartControlPoint) + P0;
+			FVector P2 = R.RotateVector(EndControlPoint) + P3;
+
+			// B(t) = (1 - t)^3 * P0 + 3 * (1 - t)^2 * t * P1 + 3 * (1 - t) * t^2 * P2 + t^3 * P3
+			float M1 = 1.f - BlendWeight;
+			float M2 = M1 * M1;
+			float M3 = M2 * M1;
+			float N1 = BlendWeight;
+			float N2 = N1 * N1;
+			float N3 = N2 * N1;
+			
+			// Evaluate f(BlendWeight)
+			FVector PositionOnSpline = M3 * P0 + 3. * M2 * N1 * P1 + 3. * M1 * N2 * P2 + N3 * P3;
+
+			// Set to result pose
+			ResultPose.Position = PositionOnSpline;
+		}
 		break;
 	case EComposableCameraSplineTransitionType::BasicSpline:
 		break;
@@ -136,7 +157,26 @@ void UComposableCameraSplineTransition::DrawDebugSpline(const FComposableCameraP
 			break;
 		}
 	case EComposableCameraSplineTransitionType::Bezier:
-		break;
+		{
+			FVector P0 = StartCameraPose.Position;
+			FVector P3 = TargetPose.Position;
+			FRotator R = UKismetMathLibrary::MakeRotFromX(P3 - P0);
+			FVector P1 = R.RotateVector(StartControlPoint) + P0;
+			FVector P2 = R.RotateVector(EndControlPoint) + P3;
+
+			for (int i = 0; i < NumSplinePoints; ++i)
+			{
+				float TimeStamp = 1.f / NumSplinePoints * i;
+				float M1 = 1.f - TimeStamp;
+				float M2 = M1 * M1;
+				float M3 = M2 * M1;
+				float N1 = TimeStamp;
+				float N2 = N1 * N1;
+				float N3 = N2 * N1;
+				SplinePoints.Add(M3 * P0 + 3. * M2 * N1 * P1 + 3. * M1 * N2 * P2 + N3 * P3);
+			}
+			break;
+		}
 	case EComposableCameraSplineTransitionType::BasicSpline:
 		break;
 	case EComposableCameraSplineTransitionType::Arc:

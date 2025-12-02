@@ -45,18 +45,30 @@ public:
 	virtual FComposableCameraPose OnEvaluate_Implementation(float DeltaTime, const FComposableCameraPose& CurrentTargetPose) override;
 
 public:
+	// Spline type: Hermite, Bezier, B-Spline, Arc.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	EComposableCameraSplineTransitionType SplineType { EComposableCameraSplineTransitionType::Hermite };
-	
+
+	// How does the camera will move on the spline.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	EComposableCameraSplineTransitionEvaluationCurveType EvaluationCurveType { EComposableCameraSplineTransitionEvaluationCurveType::Smoother };
-	
+
+	// Start tangent, relative to the transform formed by the direction from start position to end position.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (EditCondition = "SplineType == EComposableCameraSplineTransitionType::Hermite", EditConditionHides))
 	FVector StartTangent { 0.f, 100.f, 0.f };
-	
+
+	// End tangent, relative to the transform formed by the direction from start position to end position.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (EditCondition = "SplineType == EComposableCameraSplineTransitionType::Hermite", EditConditionHides))
 	FVector EndTangent { 0.f, 100.f, 0.f };
 
+	// Start control point, relative to the transform formed by the direction from start position to end position.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (EditCondition = "SplineType == EComposableCameraSplineTransitionType::Bezier", EditConditionHides))
+	FVector StartControlPoint { 0.f, 100.f, 0.f };
+
+	// End control point, relative to the transform formed by the direction from start position to end position.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (EditCondition = "SplineType == EComposableCameraSplineTransitionType::Bezier", EditConditionHides))
+	FVector EndControlPoint { 0.f, 100.f, 0.f };
+	
 	// The angle that the desired arc spans. 180 means a half circle, 90 means a quarter circle. 270 is also a quarter circle but in the opposite direction.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (ClampMin = "1", ClampMax = "359", EditCondition = "SplineType == EComposableCameraSplineTransitionType::Arc", EditConditionHides))
 	float ArcAngle { 180.f };
