@@ -12,7 +12,6 @@
 void UComposableCameraCylindricalTransition::OnBeginPlay_Implementation(float DeltaTime,
                                                                         const FComposableCameraPose& CurrentTargetPose)
 {
-	Interpolator_T = PivotInterpolator ? PivotInterpolator->BuildVector3dInterpolator() : nullptr;
 }
 
 FComposableCameraPose UComposableCameraCylindricalTransition::OnEvaluate_Implementation(float DeltaTime,
@@ -41,18 +40,6 @@ FComposableCameraPose UComposableCameraCylindricalTransition::OnEvaluate_Impleme
 
 	// Rotation, always looking at the blended pivot.
 	FVector ResultPivot = FMath::Lerp(StartPivot, TargetPivot, BlendPct);
-
-	if (bFirstFrame)
-	{
-		LastPivot = StartPivot;
-	}
-	if (Interpolator_T)
-	{
-		Interpolator_T->Reset(LastPivot, TargetPivot);
-		ResultPivot = Interpolator_T->Run(DeltaTime);
-	}
-	LastPivot = ResultPivot;
-
 	FRotator ResultRotation = UKismetMathLibrary::FindLookAtRotation(ResultPosition, ResultPivot);
 
 	// Returns output pose.

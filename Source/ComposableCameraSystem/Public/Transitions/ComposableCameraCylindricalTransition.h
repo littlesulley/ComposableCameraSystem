@@ -41,8 +41,8 @@ struct FComposableCameraRayDefinition
 		FVector D1 = this->Direction.GetSafeNormal();
 		FVector D2 = OtherRay.Direction.GetSafeNormal();
 		
-		FVector O1 = this->Origin + this->Direction * this->MinimumDistance;
-		FVector O2 = OtherRay.Origin + OtherRay.Direction * OtherRay.MinimumDistance;
+		FVector O1 = this->Origin + D1 * this->MinimumDistance;
+		FVector O2 = OtherRay.Origin + D2 * OtherRay.MinimumDistance;
 		FVector W0 = O1 - O2;
 		
 		float W1 = FVector::DotProduct(D1, W0);
@@ -155,12 +155,4 @@ public:
 	// Maintaining a minimum distance from origin along the camera's looking direction.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	float MinimumDistanceFromOrigin { 10.f };
-	
-	// Pivot move interpolator.
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Instanced)
-	UComposableCameraInterpolatorBase* PivotInterpolator;
-
-private:
-	TUniquePtr<TCameraInterpolator<TValueTypeWrapper<FVector3d>>> Interpolator_T;
-	FVector LastPivot { FVector::ZeroVector };
 };
