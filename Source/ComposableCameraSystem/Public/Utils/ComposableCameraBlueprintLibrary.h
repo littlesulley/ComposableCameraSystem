@@ -13,6 +13,7 @@
 class AComposableCameraPlayerCamaraManager;
 class UComposableCameraTransitionDataAsset;
 class UComposableCameraModifierBase;
+class UComposableCameraActionBase;
 class AComposableCameraCameraBase;
 class UComposableCameraVariable;
 
@@ -90,6 +91,15 @@ public:
 	 */
 	UFUNCTION(BlueprintCallable, Category = "ComposableCameraSystem|Camera", meta = (WorldContext = "WorldContextObject"))
 	static void RemoveModifier(const UObject* WorldContextObject, AComposableCameraPlayerCamaraManager* PlayerCameraManager, UComposableCameraNodeModifierDataAsset* ModifierAsset);
+	
+	/** Remove a camera action.
+	 * @param WorldContextObject World context object. \n
+	 * @param PlayerCameraManager The player camera manager, must be a ComposableCameraPlayerCameraManager. \n
+	 * @param ActionClass The class of action you want to add. \n
+	 * @param bOnlyForCurrentCamera If this action is only valid for current running camera. If true, the action will expire when the current camera is blended out.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "ComposableCameraSystem|Camera", meta = (WorldContext = "WorldContextObject", DeterminesOutputType = "ActionClass"))
+	static UComposableCameraActionBase* AddAction(const UObject* WorldContextObject, AComposableCameraPlayerCamaraManager* PlayerCameraManager, TSubclassOf<UComposableCameraActionBase> ActionClass, bool bOnlyForCurrentCamera = false);
 
 	/** Get player camera manager and cast it to ComposableCameraPlayerCameraManager. Can be null if it's not the type.
 	 * @param Index Player index.
