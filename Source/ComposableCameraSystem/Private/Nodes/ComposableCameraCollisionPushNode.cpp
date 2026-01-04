@@ -71,9 +71,9 @@ void UComposableCameraCollisionPushNode::OnTickNode_Implementation(float DeltaTi
 	}
 }
 
-void UComposableCameraCollisionPushNode::OnPreTick()
+void UComposableCameraCollisionPushNode::OnPreTick(float DeltaTime, const FComposableCameraPose& CurrentCameraPose, FComposableCameraPose& OutCameraPose)
 {
-	Super::OnPreTick();
+	Super::OnPreTick(DeltaTime,  CurrentCameraPose, OutCameraPose);
 
 	if (OwningCamera)
 	{

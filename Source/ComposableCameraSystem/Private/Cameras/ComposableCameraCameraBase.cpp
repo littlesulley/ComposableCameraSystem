@@ -2,6 +2,7 @@
 
 #include "Cameras/ComposableCameraCameraBase.h"
 
+#include "Actions/ComposableCameraActionBase.h"
 #include "Camera/CameraComponent.h"
 #include "Core/ComposableCameraPlayerCamaraManager.h"
 #include "DataAssets/ComposableCameraNodeInitializerDataAsset.h"
@@ -21,6 +22,16 @@ void AComposableCameraCameraBase::BeginPlay()
 	BeginPlayCamera(CameraManager->GetCurrentCameraPose());
 }
 
+void AComposableCameraCameraBase::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+	Super::EndPlay(EndPlayReason);
+
+	OnPreTick.Clear();
+	OnPostTick.Clear();
+	OnActionPreTick.Clear();
+	OnActionPostTick.Clear();
+}
+
 void AComposableCameraCameraBase::Initialize(AComposableCameraPlayerCamaraManager* Manager, UComposableCameraNodeInitializerDataAsset* NodeInitializerDataAsset)
 {
 	TArray<UComposableCameraCameraNodeBase*> Initializers = NodeInitializerDataAsset ? NodeInitializerDataAsset->NodeParameterInitializers : TArray<UComposableCameraCameraNodeBase*>();
@@ -37,6 +48,8 @@ void AComposableCameraCameraBase::Initialize(AComposableCameraPlayerCamaraManage
 			OnPostTick.AddUObject(Node, &UComposableCameraCameraNodeBase::OnPostTick);
 		}
 	}
+
+	Manager->BindCameraActionsForNewCamera(this);
 }
 
 void AComposableCameraCameraBase::ApplyModifiers(const T_NodeModifier& Modifiers)
@@ -73,8 +86,11 @@ FComposableCameraPose AComposableCameraCameraBase::TickCamera(float DeltaTime)
 {
 	FComposableCameraPose NewCameraPose = CameraPose;
 
+	// Execute pre-tick actions.
+	OnActionPreTick.Broadcast(DeltaTime, NewCameraPose, NewCameraPose);
+
 	// Do something before camera tick begins.
-	OnPreTick.Broadcast();
+	OnPreTick.Broadcast(DeltaTime, NewCameraPose, NewCameraPose);
 
 	// Tick each node by order.
 	for (UComposableCameraCameraNodeBase* Node : CameraNodes)
@@ -102,7 +118,10 @@ FComposableCameraPose AComposableCameraCameraBase::TickCamera(float DeltaTime)
 	}
 
 	// Do something when camera tick finishes.
-	OnPostTick.Broadcast();
+	OnPostTick.Broadcast(DeltaTime, NewCameraPose, NewCameraPose);
+
+	// Execute post-tick actions.
+	OnActionPostTick.Broadcast(DeltaTime, NewCameraPose, NewCameraPose);
 	
 	return CameraPose;
 }

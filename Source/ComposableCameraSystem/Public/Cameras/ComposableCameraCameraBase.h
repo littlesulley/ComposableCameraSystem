@@ -93,9 +93,13 @@ public:
 };
 
 /** Called before any internal node is executed. */
-DECLARE_MULTICAST_DELEGATE(FOnPreTick);
+DECLARE_MULTICAST_DELEGATE_ThreeParams(FOnPreTick, float, const FComposableCameraPose&, FComposableCameraPose&);
 /** Called after all internal nodes are executed. */
-DECLARE_MULTICAST_DELEGATE(FOnPostTick);
+DECLARE_MULTICAST_DELEGATE_ThreeParams(FOnPostTick, float, const FComposableCameraPose&, FComposableCameraPose&);
+/** Called before any internal node is executed for camera actions. */
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(FOnActionPreTick, float, DeltaTime, const FComposableCameraPose&, CurrentCameraPose, FComposableCameraPose&, OutputPose);
+/** Called after all internal nodes are executed for camera actions. */
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(FOnActionPostTick, float, DeltaTime, const FComposableCameraPose&, CurrentCameraPose, FComposableCameraPose&, OutputPose);
 /** Called when the camera finishes constructed, before BeginPlay is called. */
 DECLARE_DYNAMIC_DELEGATE_OneParam(FOnCameraFinishConstructed, AComposableCameraCameraBase*, Camera);
 
@@ -147,6 +151,7 @@ public:
 
 public:
 	virtual void BeginPlay() override;
+	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 	
 	void Initialize(AComposableCameraPlayerCamaraManager* Manager, UComposableCameraNodeInitializerDataAsset* NodeInitializerDataAsset);
 	void ApplyModifiers(const T_NodeModifier& Modifiers);
@@ -166,8 +171,10 @@ public:
 	bool OnUpdateCamera(float DeltaTime, FComposableCameraPose OldCameraPose, FComposableCameraPose CurrentCameraPose, FComposableCameraPose& OutPose);
 
 public:
-	FOnPreTick OnPreTick;
-	FOnPostTick OnPostTick;
+	FOnPreTick		  OnPreTick;
+	FOnPostTick		  OnPostTick;
+	FOnActionPreTick  OnActionPreTick;
+	FOnActionPostTick OnActionPostTick;
 	
 public:
 	// Reset all variables in the owning variable collection.

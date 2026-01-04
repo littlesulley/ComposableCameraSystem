@@ -8,6 +8,7 @@
 #include "ComposableCameraNamespaces.h"
 #include "ComposableCameraPlayerCamaraManager.generated.h"
 
+class UComposableCameraActionBase;
 class UComposableCameraTransitionDataAsset;
 class UComposableCameraNodeModifierDataAsset;
 class UComposableCameraModifierManager;
@@ -41,16 +42,27 @@ public:
 
 	// Resume a given camera with a given transition.
 	void ResumeCamera(AComposableCameraCameraBase* ResumeCamera, UComposableCameraTransitionBase* Transition, bool bPreserveCameraPose);
-	
+
+	// ~~~~ Modifiers.
+	const TSet<UComposableCameraActionBase*>& GetCameraActions();
 	void AddModifier(UComposableCameraNodeModifierDataAsset* ModifierAsset);
 	void RemoveModifier(UComposableCameraNodeModifierDataAsset* ModifierAsset);
 	void ApplyModifiers(AComposableCameraCameraBase* Camera, bool bRefreshModifierData = false);
 
 	// Called when modifier is added or removed. When this happens, the modifier data will be refreshed and the current running camera may be re-activated.
 	void OnModifierChanged();
-
+	// ~~~~ 
+	
+	// ~~~~ Actions.
+	UComposableCameraActionBase* AddCameraAction(TSubclassOf<UComposableCameraActionBase> ActionClass, bool bOnlyForCurrentCamera);
+	UComposableCameraActionBase* FindCameraAction(TSubclassOf<UComposableCameraActionBase> ActionClass);
+	void RemoveCameraAction(UComposableCameraActionBase* Action);
+	void ExpireCameraAction(TSubclassOf<UComposableCameraActionBase> ActionClass);
+	void BindCameraActionsForNewCamera(AComposableCameraCameraBase* Camera);
+	// ~~~~
+	
 	UFUNCTION(BlueprintPure, Category = "ComposableCameraSystem|Camera")
-	AComposableCameraCameraBase* GetRunningCamera () const
+	AComposableCameraCameraBase* GetRunningCamera() const
 	{
 		return RunningCamera;
 	}
@@ -68,6 +80,9 @@ protected:
 private:
 	// Used to maintain a maximum number of parent cameras in the camera chain. Default is 3.
 	void RefreshCameraChain() const;
+
+	// Update camera actions.
+	void UpdateActions(float DeltaTime);
 	
 	// Build debug string for modifiers.
 	void BuildModifierDebugString(FDisplayDebugManager& DisplayDebugManager);
@@ -98,9 +113,12 @@ public:
 private:
 	UPROPERTY(Transient)
 	TObjectPtr<UComposableCameraDirector> Director;
-
+	
 	UPROPERTY(Transient)
 	TObjectPtr<UComposableCameraModifierManager> ModifierManager;
+
+	UPROPERTY(Transient)
+	TSet<UComposableCameraActionBase*> CameraActions;
 
 	UPROPERTY(Transient)
 	FMinimalViewInfo LastDesiredView;

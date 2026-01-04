@@ -6,6 +6,8 @@
 #include "UObject/Object.h"
 #include "ComposableCameraActionBase.generated.h"
 
+class AComposableCameraPlayerCamaraManager;
+
 UENUM(BlueprintType, meta = (Bitflags, UseEnumValuesAsMaskValuesInEditor = "true"))
 enum class EComposableCameraActionExpirationType : uint8
 {
@@ -32,10 +34,12 @@ enum class EComposableCameraActionExecutionType : uint8
 	// This action is executed before camera is evaluated.
 	PreCameraTick,
 	
-	// This action is executed before some node is evaluated. If no such node exists, this action is ignored.
+	// This action is executed before some node is evaluated. If no such node exists, this action is ignored. \n
+	// @TODO: Currently not implemented.
 	PreNodeTick,
 	
-	// This action is executed after some node is evaluated. If no such node exists, this action is ignored.
+	// This action is executed after some node is evaluated. If no such node exists, this action is ignored. \n
+	// @TODO: Currently not implemented.
 	PostNodeTick,
 	
 	// This action is executed after camera is evaluated.
@@ -64,6 +68,7 @@ public:
 	float Duration { 1.f };
 
 public:
+	bool OnCanExecute(float DeltaTime, const FComposableCameraPose& CurrentCameraPose);
 	
 	// Predicate checking whether this action can be executed. If false, this action will get expired. Only get called when ExpirationType has Condition on.
 	UFUNCTION(BlueprintNativeEvent, DisplayName = "CanExecute", Category = "ComposableCameraSystem|Action")
@@ -74,4 +79,26 @@ public:
 	UFUNCTION(BlueprintNativeEvent, DisplayName = "OnExecute", Category = "ComposableCameraSystem|Action")
 	void OnExecute(float DeltaTime, const FComposableCameraPose& CurrentCameraPose, FComposableCameraPose& OutCameraPose);
 	virtual void OnExecute_Implementation(float DeltaTime, const FComposableCameraPose& CurrentCameraPose, FComposableCameraPose& OutCameraPose) {}
+
+	// Manually expire this action.
+	UFUNCTION(BlueprintCallable, Category = "ComposableCameraSystem|Action")
+	void ExpireAction()
+	{
+		bCanExecuteManul = false;
+	}
+
+public:
+	UPROPERTY(BlueprintReadOnly, VisibleAnywhere)
+	bool bOnlyForCurrentCamera { true };
+	
+	UPROPERTY(BlueprintReadOnly)
+	AComposableCameraPlayerCamaraManager* PlayerCameraManager{};
+
+private:
+	bool bCanExecuteInstant { true };
+	bool bCanExecuteDuration { true };
+	bool bCanExecuteManul { true };
+	bool bCanExecuteCondition { true };
+	
+	float ElapsedTime { 0.f };
 };

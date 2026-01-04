@@ -37,10 +37,10 @@ public:
 
 public:
 	UFUNCTION()
-	virtual void OnPreTick();
+	virtual void OnPreTick(float DeltaTime, const FComposableCameraPose& CurrentCameraPose, FComposableCameraPose& OutCameraPose);
 
 	UFUNCTION()
-	virtual void OnPostTick();
+	virtual void OnPostTick(float DeltaTime, const FComposableCameraPose& CurrentCameraPose, FComposableCameraPose& OutCameraPose);
 	
 protected:
 	/**
@@ -49,13 +49,13 @@ protected:
 	UFUNCTION(BlueprintImplementableEvent, DisplayName = "InitializeNode", Category = "ComposableCameraSystem|Node")
 	void OnInitialize();
 
-	/** You can implement this function to define what this node will do before all any node ticks. */
+	/** You can implement this function to define what this node will do before any node ticks. */
 	UFUNCTION(BlueprintImplementableEvent, meta = (DisplayName = "PreTickCamera"))
-	void K2_OnPreTick();
+	void K2_OnPreTick(float DeltaTime, const FComposableCameraPose& CurrentCameraPose, FComposableCameraPose& OutCameraPose);
 
-	/** You can implement this function to define what this node will do after all node execute in one tick. */
+	/** You can implement this function to define what this node will do after all nodes execute in one tick. */
 	UFUNCTION(BlueprintImplementableEvent, meta = (DisplayName = "PostTickCamera"))
-	void K2_OnPostTick();
+	void K2_OnPostTick(float DeltaTime, const FComposableCameraPose& CurrentCameraPose, FComposableCameraPose& OutCameraPose);
 	
 	/**
 	 * Main node logic implemented here. This node can read/write ContextParameters and/or CameraPose.

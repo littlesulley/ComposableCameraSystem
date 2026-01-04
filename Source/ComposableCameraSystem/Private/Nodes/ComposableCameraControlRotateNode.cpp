@@ -58,7 +58,7 @@ void UComposableCameraControlRotateNode::OnTickNode_Implementation(
 	ApplyAcceleration(DeltaTime, VerticalDamping, CameraRotationInputForThisFrame.Y, LastFrameCameraRotationInput.Y);
 
 	// Write into OutCameraPose
-	FQuat CurrentCameraRotation = OwningCamera->CameraPose.Rotation.Quaternion();
+	FQuat CurrentCameraRotation = CurrentCameraPose.Rotation.Quaternion();
 	FQuat LocalRotationPitch = FRotator(CameraRotationInputForThisFrame.Y, 0, 0).Quaternion();
 	FQuat WorldRotationYaw = FRotator(0,  CameraRotationInputForThisFrame.X, 0).Quaternion();
 	

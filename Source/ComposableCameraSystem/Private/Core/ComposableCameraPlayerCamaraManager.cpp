@@ -4,6 +4,7 @@
 #include "Cameras/ComposableCameraCameraBase.h"
 #include "ComposableCameraSystemModule.h"
 #include "IAutomationControllerManager.h"
+#include "Actions/ComposableCameraActionBase.h"
 #include "Camera/CameraComponent.h"
 #include "Core/ComposableCameraDirector.h"
 #include "Core/ComposableCameraModifierManager.h"
@@ -170,6 +171,113 @@ void AComposableCameraPlayerCamaraManager::OnModifierChanged()
 	}
 }
 
+UComposableCameraActionBase* AComposableCameraPlayerCamaraManager::AddCameraAction(
+	TSubclassOf<UComposableCameraActionBase> ActionClass, bool bOnlyForCurrentCamera)
+{
+	if (!ActionClass)
+	{
+		return nullptr;
+	}
+	
+	UComposableCameraActionBase* Action = NewObject<UComposableCameraActionBase>(this, ActionClass);
+	Action->bOnlyForCurrentCamera = bOnlyForCurrentCamera;
+	Action->PlayerCameraManager = this;
+	CameraActions.Add(Action);
+
+	// Recursively bind delegates, if required.
+	if (bOnlyForCurrentCamera)
+	{
+		if (Action->ExecutionType == EComposableCameraActionExecutionType::PreCameraTick)
+		{
+			RunningCamera->OnActionPreTick.AddDynamic(Action, &UComposableCameraActionBase::OnExecute);
+		}
+		else if (Action->ExecutionType == EComposableCameraActionExecutionType::PostCameraTick)
+		{
+			RunningCamera->OnActionPostTick.AddDynamic(Action, &UComposableCameraActionBase::OnExecute);
+		}
+	}
+	else
+	{
+		AComposableCameraCameraBase* CurrentCamera = RunningCamera;
+		while (CurrentCamera)
+		{
+			if (Action->ExecutionType == EComposableCameraActionExecutionType::PreCameraTick)
+			{
+				CurrentCamera->OnActionPreTick.AddDynamic(Action, &UComposableCameraActionBase::OnExecute);
+			}
+			else if (Action->ExecutionType == EComposableCameraActionExecutionType::PostCameraTick)
+			{
+				CurrentCamera->OnActionPostTick.AddDynamic(Action, &UComposableCameraActionBase::OnExecute);
+			}
+			CurrentCamera = CurrentCamera->ParentPendingCamera.Get();
+		}
+	}
+
+	return Action;
+}
+
+UComposableCameraActionBase* AComposableCameraPlayerCamaraManager::FindCameraAction(
+	TSubclassOf<UComposableCameraActionBase> ActionClass)
+{
+	for (UComposableCameraActionBase* Action : CameraActions)
+	{
+		if (Action && Action->GetClass() == ActionClass)
+		{
+			return Action;
+		}
+	}
+	return nullptr;
+}
+
+void AComposableCameraPlayerCamaraManager::RemoveCameraAction(UComposableCameraActionBase* Action)
+{
+	// Recursively unbind delegates.
+	AComposableCameraCameraBase* CurrentCamera = RunningCamera;
+	while (CurrentCamera)
+	{
+		CurrentCamera->OnActionPreTick.RemoveDynamic(Action, &UComposableCameraActionBase::OnExecute);
+		CurrentCamera->OnActionPostTick.RemoveDynamic(Action, &UComposableCameraActionBase::OnExecute);
+		CurrentCamera = CurrentCamera->ParentPendingCamera.Get();
+	}
+}
+
+void AComposableCameraPlayerCamaraManager::ExpireCameraAction(TSubclassOf<UComposableCameraActionBase> ActionClass)
+{
+	if (auto* Action = FindCameraAction(ActionClass))
+	{
+		Action->ExpireAction();
+	}
+}
+
+void AComposableCameraPlayerCamaraManager::BindCameraActionsForNewCamera(AComposableCameraCameraBase* Camera)
+{
+	for (auto* Action: GetCameraActions())
+	{
+		if (!Action || Action->bOnlyForCurrentCamera)
+		{
+			continue;
+		}
+
+		switch (Action->ExecutionType)
+		{
+		case EComposableCameraActionExecutionType::PreCameraTick:
+			{
+				Camera->OnActionPreTick.AddDynamic(Action, &UComposableCameraActionBase::OnExecute);
+				break;
+			}
+		case EComposableCameraActionExecutionType::PostCameraTick:
+			{
+				Camera->OnActionPostTick.AddDynamic(Action, &UComposableCameraActionBase::OnExecute);
+				break;
+			}
+		// @TODO: TO BE IMPLEMENTED.
+		case EComposableCameraActionExecutionType::PreNodeTick:
+		case EComposableCameraActionExecutionType::PostNodeTick:
+			{ break; }
+		}
+	}
+}
+
 void AComposableCameraPlayerCamaraManager::ResumeCamera(AComposableCameraCameraBase* ResumeCamera,
                                                         UComposableCameraTransitionBase* Transition, bool bPreserveCameraPose)
 {
@@ -186,6 +294,11 @@ void AComposableCameraPlayerCamaraManager::ResumeCamera(AComposableCameraCameraB
 	}
 	
 	RunningCamera = Director->ResumeCamera(ResumeCamera, Transition, InitialTransform);
+}
+
+const TSet<UComposableCameraActionBase*>& AComposableCameraPlayerCamaraManager::GetCameraActions()
+{
+	return CameraActions;
 }
 
 FMinimalViewInfo AComposableCameraPlayerCamaraManager::GetCameraViewFromCameraPose(const FComposableCameraPose& OutPose) const
@@ -220,6 +333,9 @@ void AComposableCameraPlayerCamaraManager::DoUpdateCamera(float DeltaTime)
 
 	// Must call FillCameraCache, since the call to Super::DoUpdateCamera will override the true camera view.
 	FillCameraCache(LastDesiredView);
+
+	// Update camera actions.
+	UpdateActions(DeltaTime);
 	
 	FComposableCameraPose OutPose = Director->Evaluate(DeltaTime);
 	FMinimalViewInfo DesiredView = GetCameraViewFromCameraPose(OutPose);
@@ -263,6 +379,29 @@ void AComposableCameraPlayerCamaraManager::RefreshCameraChain() const
 		CurrentCamera->ParentPendingCamera = nullptr;
 		CurrentCamera->Destroy();
 		CurrentCamera = ParentCamera;
+	}
+}
+
+void AComposableCameraPlayerCamaraManager::UpdateActions(float DeltaTime)
+{
+	TSet<UComposableCameraActionBase*> ActionsToRemove;
+	for (auto* Action : CameraActions)
+	{
+		if (!Action)
+		{
+			ActionsToRemove.Add(Action);
+		}
+
+		if (!Action->OnCanExecute(DeltaTime, CurrentCameraPose))
+		{
+			RemoveCameraAction(Action);
+			ActionsToRemove.Add(Action);
+		}
+	}
+
+	for (auto* Action : ActionsToRemove)
+	{
+		CameraActions.Remove(Action);
 	}
 }
 

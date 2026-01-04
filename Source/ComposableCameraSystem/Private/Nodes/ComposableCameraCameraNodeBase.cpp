@@ -35,12 +35,12 @@ FGameplayTag UComposableCameraCameraNodeBase::GetOwningCameraTag() const
 	return OwningCamera ? OwningCamera->CameraTag : FGameplayTag::EmptyTag;
 }
 
-void UComposableCameraCameraNodeBase::OnPreTick()
+void UComposableCameraCameraNodeBase::OnPreTick(float DeltaTime, const FComposableCameraPose& CurrentCameraPose, FComposableCameraPose& OutCameraPose)
 {
-	K2_OnPreTick();
+	K2_OnPreTick(DeltaTime, CurrentCameraPose, OutCameraPose);
 }
 
-void UComposableCameraCameraNodeBase::OnPostTick()
+void UComposableCameraCameraNodeBase::OnPostTick(float DeltaTime, const FComposableCameraPose& CurrentCameraPose, FComposableCameraPose& OutCameraPose)
 {
-	K2_OnPostTick();
+	K2_OnPostTick(DeltaTime, CurrentCameraPose, OutCameraPose);
 }

@@ -92,7 +92,7 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "ComposableCameraSystem|Camera", meta = (WorldContext = "WorldContextObject"))
 	static void RemoveModifier(const UObject* WorldContextObject, AComposableCameraPlayerCamaraManager* PlayerCameraManager, UComposableCameraNodeModifierDataAsset* ModifierAsset);
 	
-	/** Remove a camera action.
+	/** Add a camera action. Multiple actions of the same class are not allowed.
 	 * @param WorldContextObject World context object. \n
 	 * @param PlayerCameraManager The player camera manager, must be a ComposableCameraPlayerCameraManager. \n
 	 * @param ActionClass The class of action you want to add. \n
@@ -100,6 +100,14 @@ public:
 	 */
 	UFUNCTION(BlueprintCallable, Category = "ComposableCameraSystem|Camera", meta = (WorldContext = "WorldContextObject", DeterminesOutputType = "ActionClass"))
 	static UComposableCameraActionBase* AddAction(const UObject* WorldContextObject, AComposableCameraPlayerCamaraManager* PlayerCameraManager, TSubclassOf<UComposableCameraActionBase> ActionClass, bool bOnlyForCurrentCamera = false);
+
+	/** Expire a camera action.
+	 * @param WorldContextObject World context object. \n
+	 * @param PlayerCameraManager The player camera manager, must be a ComposableCameraPlayerCameraManager. \n
+	 * @param ActionClass The class of action you want to expire.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "ComposableCameraSystem|Camera", meta = (WorldContext = "WorldContextObject"))
+	static void ExpireAction(const UObject* WorldContextObject, AComposableCameraPlayerCamaraManager* PlayerCameraManager, TSubclassOf<UComposableCameraActionBase> ActionClass);
 
 	/** Get player camera manager and cast it to ComposableCameraPlayerCameraManager. Can be null if it's not the type.
 	 * @param Index Player index.

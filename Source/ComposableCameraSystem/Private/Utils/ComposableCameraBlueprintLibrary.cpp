@@ -98,9 +98,23 @@ void UComposableCameraBlueprintLibrary::RemoveModifier(const UObject* WorldConte
 }
 
 UComposableCameraActionBase* UComposableCameraBlueprintLibrary::AddAction(const UObject* WorldContextObject,
-	AComposableCameraPlayerCamaraManager* PlayerCameraManager, TSubclassOf<UComposableCameraActionBase> ActionClass,
-	bool bOnlyForCurrentCamera)
+	AComposableCameraPlayerCamaraManager* PlayerCameraManager, TSubclassOf<UComposableCameraActionBase> ActionClass, bool bOnlyForCurrentCamera)
 {
+	if (PlayerCameraManager)
+	{
+		return PlayerCameraManager->AddCameraAction(ActionClass, bOnlyForCurrentCamera);
+	}
+
+	return nullptr;
+}
+
+void UComposableCameraBlueprintLibrary::ExpireAction(const UObject* WorldContextObject,
+	AComposableCameraPlayerCamaraManager* PlayerCameraManager, TSubclassOf<UComposableCameraActionBase> ActionClass)
+{
+	if (PlayerCameraManager)
+	{
+		PlayerCameraManager->ExpireCameraAction(ActionClass);
+	}
 }
 
 AComposableCameraPlayerCamaraManager* UComposableCameraBlueprintLibrary::GetComposableCameraPlayerCameraManager(
