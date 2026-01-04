@@ -32,10 +32,14 @@ public:
 	UPROPERTY(BlueprintReadWrite, EditAnywhere)
 	class UInputAction* RotateAction { nullptr };
 
-	// Interpolator for camera rotation. If not specified, will use a default RInterpTo method with speed of 1.0.
+	// Interpolator for camera rotation. If not specified, will use RInterpTo.
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Instanced)
 	UComposableCameraInterpolatorBase* Interpolator { nullptr };
 
+	// The speed of RInterpTo when not specifying Interpolator. 
+	UPROPERTY(BlueprintReadWrite, EditAnywhere)
+	float InterpSpeed { 1.f };
+	
 private:
 	class UEnhancedInputLocalPlayerSubsystem* Subsystem { nullptr };
 	TUniquePtr<TCameraInterpolator<TValueTypeWrapper<FRotator>>> Interp_T;

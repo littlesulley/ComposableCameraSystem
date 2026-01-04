@@ -101,6 +101,12 @@ FComposableCameraPose AComposableCameraCameraBase::TickCamera(float DeltaTime)
 		}
 	}
 
+	// Do something when camera tick finishes.
+	OnPostTick.Broadcast(DeltaTime, NewCameraPose, NewCameraPose);
+
+	// Execute post-tick actions.
+	OnActionPostTick.Broadcast(DeltaTime, NewCameraPose, NewCameraPose);
+	
 	// Cache camera pose.
 	LastFrameCameraPose = CameraPose;
 	CameraPose = NewCameraPose;
@@ -116,12 +122,6 @@ FComposableCameraPose AComposableCameraCameraBase::TickCamera(float DeltaTime)
 	{
 		RemainingLifeTime = FMath::Max(0.f, RemainingLifeTime - DeltaTime);
 	}
-
-	// Do something when camera tick finishes.
-	OnPostTick.Broadcast(DeltaTime, NewCameraPose, NewCameraPose);
-
-	// Execute post-tick actions.
-	OnActionPostTick.Broadcast(DeltaTime, NewCameraPose, NewCameraPose);
 	
 	return CameraPose;
 }

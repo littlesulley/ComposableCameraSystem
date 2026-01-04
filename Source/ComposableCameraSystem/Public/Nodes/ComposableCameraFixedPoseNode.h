@@ -7,7 +7,8 @@
 #include "ComposableCameraFixedPoseNode.generated.h"
 
 /**
- * Node for keeping a fixed pose camera, i.e., keeping its position, rotation and FOV.
+ * Node for keeping a fixed pose camera, i.e., keeping its position, rotation and FOV. \n
+ * This node simply uses the current camera's CameraPose as the output pose. So it's not rigorously "fixed".
  */
 UCLASS(NotBlueprintable, ClassGroup =  ComposableCameraSystem)
 class COMPOSABLECAMERASYSTEM_API UComposableCameraFixedPoseNode : public UComposableCameraCameraNodeBase
@@ -15,9 +16,5 @@ class COMPOSABLECAMERASYSTEM_API UComposableCameraFixedPoseNode : public UCompos
 	GENERATED_BODY()
 
 public:
-	virtual void OnBeginPlayNode_Implementation(const FComposableCameraPose& CurrentCameraPose) override;
 	virtual void OnTickNode_Implementation(float DeltaTime, const FComposableCameraPose& CurrentCameraPose, FComposableCameraPose& OutCameraPose) override;
-
-private:
-	FComposableCameraPose FixedPose {};
 };

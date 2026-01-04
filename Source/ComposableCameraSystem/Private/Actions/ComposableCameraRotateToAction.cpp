@@ -35,7 +35,7 @@ bool UComposableCameraRotateToAction::CanExecute_Implementation(float DeltaTime,
 			bHasUserInput = LookAxisVector != FVector2D::ZeroVector;
 		}
 	}
-
+	
 	bCompleteRotate = CurrentCameraPose.Rotation.Equals(TargetRotation);
 	return !bHasUserInput && !bCompleteRotate;
 }
@@ -50,6 +50,6 @@ void UComposableCameraRotateToAction::OnExecute_Implementation(float DeltaTime,
 	}
 	else
 	{
-		OutCameraPose.Rotation = FMath::RInterpTo(CurrentCameraPose.Rotation, TargetRotation, DeltaTime, 1.f);
+		OutCameraPose.Rotation = FMath::RInterpTo(CurrentCameraPose.Rotation, TargetRotation, DeltaTime, InterpSpeed);
 	}
 }

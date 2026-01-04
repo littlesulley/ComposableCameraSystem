@@ -195,10 +195,6 @@ public:
 	UFUNCTION(BlueprintPure, Category = "ComposableCameraSystem|Camera")
 	AComposableCameraPlayerCamaraManager* GetOwningPlayerCameraManager() { return CameraManager; }
 
-	// Set owning player camera manager.
-	UFUNCTION(BlueprintCallable, Category = "ComposableCameraSystem|Camera")
-	void SetOwningPlayerCameraManager(AComposableCameraPlayerCamaraManager* InCameraManager) { CameraManager = InCameraManager; }
-
 	// Get camera pose for this frame.
 	UFUNCTION(BlueprintPure, Category = "ComposableCameraSystem|Camera")
 	FComposableCameraPose GetCameraPose() const { return CameraPose; }
