@@ -10,8 +10,6 @@ UComposableCameraRotateToAction::UComposableCameraRotateToAction(const FObjectIn
 {
 	ExecutionType = EComposableCameraActionExecutionType::PreCameraTick;
 	ExpirationType = static_cast<uint8>(EComposableCameraActionExpirationType::Condition);
-
-	Interp_T = Interpolator ? Interpolator->BuildRotatorInterpolator() : nullptr;
 }
 
 bool UComposableCameraRotateToAction::CanExecute_Implementation(float DeltaTime,
@@ -36,13 +34,18 @@ bool UComposableCameraRotateToAction::CanExecute_Implementation(float DeltaTime,
 		}
 	}
 	
-	bCompleteRotate = CurrentCameraPose.Rotation.Equals(TargetRotation);
+	bCompleteRotate = CurrentCameraPose.Rotation.Equals(TargetRotation, 1e-1);
 	return !bHasUserInput && !bCompleteRotate;
 }
 
 void UComposableCameraRotateToAction::OnExecute_Implementation(float DeltaTime,
 	const FComposableCameraPose& CurrentCameraPose, FComposableCameraPose& OutCameraPose)
 {
+	if (!Interp_T && Interpolator)
+	{
+		Interp_T = Interpolator->BuildRotatorInterpolator();
+	}
+	
 	if (Interp_T)
 	{
 		Interp_T->Reset(CurrentCameraPose.Rotation, TargetRotation);

@@ -36,15 +36,13 @@ struct TValueTypeWrapper
 		Value = -Value;
 		return *this;
 	}
-	friend TValueTypeWrapper operator- (TValueTypeWrapper LHS, const TValueTypeWrapper& RHS)
+	friend TValueTypeWrapper operator- (const TValueTypeWrapper& LHS, const TValueTypeWrapper& RHS)
 	{
-		LHS -= RHS;
-		return LHS;
+		return ValueType { LHS.Value - RHS.Value };
 	}
-	friend TValueTypeWrapper operator+ (TValueTypeWrapper LHS, const TValueTypeWrapper& RHS)
+	friend TValueTypeWrapper operator+ (const TValueTypeWrapper& LHS, const TValueTypeWrapper& RHS)
 	{
-		LHS += RHS;
-		return LHS;
+		return ValueType { LHS.Value + RHS.Value };
 	}
 	friend TValueTypeWrapper operator* (double Multiplier, const TValueTypeWrapper& RHS)
 	{
@@ -85,15 +83,13 @@ struct TValueTypeWrapper<FRotator>
 		Value *= Multiplier;
 		return *this;
 	}
-	friend TValueTypeWrapper operator- (TValueTypeWrapper LHS, const TValueTypeWrapper& RHS)
+	friend TValueTypeWrapper operator- (const TValueTypeWrapper& LHS, const TValueTypeWrapper& RHS)
 	{
-		LHS -= RHS;
-		return LHS;
+		return (LHS.Value - RHS.Value).GetNormalized();
 	}
-	friend TValueTypeWrapper operator+ (TValueTypeWrapper LHS, const TValueTypeWrapper& RHS)
+	friend TValueTypeWrapper operator+ (const TValueTypeWrapper& LHS, const TValueTypeWrapper& RHS)
 	{
-		LHS += RHS;
-		return LHS;
+		return (LHS.Value + RHS.Value).GetNormalized();
 	}
 	TValueTypeWrapper operator* (double Multiplier) const
 	{
@@ -126,15 +122,13 @@ struct TValueTypeWrapper<FQuat>
 		Value = FQuat{ Value.GetRotationAxis(), Value.GetAngle() * Multiplier };
 		return *this;
 	}
-	friend TValueTypeWrapper operator- (TValueTypeWrapper LHS, const TValueTypeWrapper& RHS)
+	friend TValueTypeWrapper operator- (const TValueTypeWrapper& LHS, const TValueTypeWrapper& RHS)
 	{
-		LHS -= RHS;
-		return LHS;
+		return (LHS.Value * RHS.Value.Inverse());
 	}
-	friend TValueTypeWrapper operator+ (TValueTypeWrapper LHS, const TValueTypeWrapper& RHS)
+	friend TValueTypeWrapper operator+ (const TValueTypeWrapper& LHS, const TValueTypeWrapper& RHS)
 	{
-		LHS += RHS;
-		return LHS;
+		return (LHS.Value * RHS.Value);
 	}
 
 	TValueTypeWrapper operator* (double Multiplier) const

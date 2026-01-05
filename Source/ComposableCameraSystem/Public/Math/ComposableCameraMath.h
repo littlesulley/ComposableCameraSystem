@@ -5,6 +5,7 @@
 #include "Constraint.h"
 #include "HeadMountedDisplayTypes.h"
 #include "Kismet/KismetMathLibrary.h"
+#include "VT/VirtualTextureScalability.h"
 
 namespace ComposableCameraSystem
 {
@@ -58,9 +59,10 @@ namespace ComposableCameraSystem
 		float Dot = Start.Dot(End);
 		float Theta = UKismetMathLibrary::DegAcos(Dot);
 
-		if (FMath::Abs(Theta) < 0.001f)
+		if (FMath::IsNearlyEqual(FMath::Abs(Theta), 180.f, 1e-2))
 		{
-			return UKismetMathLibrary::VLerp(Start, End, Alpha);
+			FVector UpAxis = UKismetMathLibrary::MakeRotFromX(Start).RotateVector(FVector::UpVector);
+			return Start.RotateAngleAxis(Theta * Alpha, UpAxis);
 		}
     
 		float SinTheta = UKismetMathLibrary::DegSin(Theta);

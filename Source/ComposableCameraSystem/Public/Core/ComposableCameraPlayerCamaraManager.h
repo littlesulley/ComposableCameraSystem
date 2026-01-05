@@ -104,6 +104,10 @@ public:
 	UPROPERTY(Transient, VisibleAnywhere, BlueprintReadOnly, Category = "ComposableCameraSystem")
 	FComposableCameraPose CurrentCameraPose;
 
+	// Current camera actions.
+	UPROPERTY(Transient, VisibleAnywhere, BlueprintReadOnly, Category = "ComposableCameraSystem")
+	TSet<UComposableCameraActionBase*> CameraActions;
+
 	UPROPERTY(Transient)
 	UComposableCameraNodeInitializerDataAsset* CurrentNodeInitializerDataAsset;
 
@@ -116,9 +120,6 @@ private:
 	
 	UPROPERTY(Transient)
 	TObjectPtr<UComposableCameraModifierManager> ModifierManager;
-
-	UPROPERTY(Transient)
-	TSet<UComposableCameraActionBase*> CameraActions;
 
 	UPROPERTY(Transient)
 	FMinimalViewInfo LastDesiredView;

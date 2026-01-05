@@ -38,9 +38,12 @@ FComposableCameraPose UComposableCameraCylindricalTransition::OnEvaluate_Impleme
 	FVector TargetResultPosition = TargetPosition + (ResultVector - TargetDirection);
 	FVector ResultPosition = FMath::Lerp(StartResultPosition, TargetResultPosition, BlendPct);
 
-	// Rotation, always looking at the blended pivot.
+	// Rotation, looking at the blended pivot or using vanilla rotation blend.
 	FVector ResultPivot = FMath::Lerp(StartPivot, TargetPivot, BlendPct);
-	FRotator ResultRotation = UKismetMathLibrary::FindLookAtRotation(ResultPosition, ResultPivot);
+	FRotator ResultRotation =
+		bLockToPivot ?
+		UKismetMathLibrary::FindLookAtRotation(ResultPosition, ResultPivot) :
+		(StartCameraPose.Rotation + BlendPct * (CurrentTargetPose.Rotation - StartCameraPose.Rotation).GetNormalized()).GetNormalized();
 
 	// Returns output pose.
 	FComposableCameraPose ResultPose {};

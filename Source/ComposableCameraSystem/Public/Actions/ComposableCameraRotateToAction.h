@@ -19,7 +19,7 @@ class COMPOSABLECAMERASYSTEM_API UComposableCameraRotateToAction : public UCompo
 	
 public:
 	UComposableCameraRotateToAction(const FObjectInitializer& ObjectInitializer);
-	
+
 	virtual bool CanExecute_Implementation(float DeltaTime, const FComposableCameraPose& CurrentCameraPose) override;
 	virtual void OnExecute_Implementation(float DeltaTime, const FComposableCameraPose& CurrentCameraPose, FComposableCameraPose& OutCameraPose) override;
 	
@@ -29,15 +29,15 @@ public:
 	FRotator TargetRotation;
 
 	// Rotate action to read user input from.
-	UPROPERTY(BlueprintReadWrite, EditAnywhere)
+	UPROPERTY(EditAnywhere)
 	class UInputAction* RotateAction { nullptr };
 
 	// Interpolator for camera rotation. If not specified, will use RInterpTo.
-	UPROPERTY(BlueprintReadWrite, EditAnywhere, Instanced)
+	UPROPERTY(EditAnywhere, Instanced)
 	UComposableCameraInterpolatorBase* Interpolator { nullptr };
 
 	// The speed of RInterpTo when not specifying Interpolator. 
-	UPROPERTY(BlueprintReadWrite, EditAnywhere)
+	UPROPERTY(EditAnywhere, meta = (EditCondition = "Interpolator == nullptr", EditConditionHides))
 	float InterpSpeed { 1.f };
 	
 private:

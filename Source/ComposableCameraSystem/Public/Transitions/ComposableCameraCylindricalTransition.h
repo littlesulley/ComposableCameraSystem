@@ -54,17 +54,37 @@ struct FComposableCameraRayDefinition
 		{
 			Result.bIsParallel = true;
 
-			if (W2 <= 0.f)
+			// In the same direction.
+			if (Dot > 0.f)
 			{
-				Result.SecondPoint = O2;
-				Result.FirstPoint = O1 + (-W1) * D1;
-				Result.Distance = FVector::Dist(Result.FirstPoint, Result.SecondPoint);
+				if (W2 <= 0.f)  // Camera pushes forward.
+				{
+					Result.SecondPoint = O2;
+					Result.FirstPoint = O1 + (-W1) * D1;
+					Result.Distance = FVector::Dist(Result.FirstPoint, Result.SecondPoint);
+				}
+				else  // Camera pulls back.
+				{
+					Result.FirstPoint = O1;
+					Result.SecondPoint = O2 + W2 * D2;
+					Result.Distance = FVector::Dist(Result.FirstPoint, Result.SecondPoint);
+				}
 			}
+			// In the opposite direction.
 			else
 			{
-				Result.FirstPoint = O1;
-				Result.SecondPoint = O2 + W2 * D2;
-				Result.Distance = FVector::Dist(Result.FirstPoint, Result.SecondPoint);
+				if (W2 <= 0.f)                       //   <---------x (O1)
+				{                                    //                  (O2) x-------->
+					Result.FirstPoint = O1;
+					Result.SecondPoint = O2;
+					Result.Distance = FVector::Dist(Result.FirstPoint, Result.SecondPoint);
+				}
+				else                                //  <---------x (O1)
+				{                                   //    (O2) x-------->
+					Result.FirstPoint = O1 + (-W1 / 2.) * D1;
+					Result.SecondPoint = O2 + (W2 / 2.) * D2;
+					Result.Distance = FVector::Dist(Result.FirstPoint, Result.SecondPoint);
+				}
 			}
 
 			return Result;
@@ -155,4 +175,8 @@ public:
 	// Maintaining a minimum distance from origin along the camera's looking direction.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	float MinimumDistanceFromOrigin { 10.f };
+
+	// Whether to lock the camera's rotation to the pivot.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	bool bLockToPivot { true };
 };
