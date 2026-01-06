@@ -1,47 +1,47 @@
-﻿// Copyright Sulley. All rights reserved.
+// Copyright Sulley. All rights reserved.
 
 #pragma once
 
 #include "CoreMinimal.h"
 #include "ComposableCameraActionBase.h"
 #include "Interpolator/ComposableCameraInterpolatorBase.h"
-#include "ComposableCameraRotateToAction.generated.h"
+#include "ComposableCameraResetPitchAction.generated.h"
 
 class UComposableCameraInterpolatorBase;
 
 /**
- * Rotate camera to a given target rotation with some interpolator.
+ * This action smoothly resets pitch to a target value.
  * If the camera rotates to the target rotation or there is user input, the action will expire.
  */
 UCLASS(ClassGroup = ComposableCameraSystem)
-class COMPOSABLECAMERASYSTEM_API UComposableCameraRotateToAction : public UComposableCameraActionBase
+class COMPOSABLECAMERASYSTEM_API UComposableCameraResetPitchAction : public UComposableCameraActionBase
 {
 	GENERATED_BODY()
-	
-public:
-	UComposableCameraRotateToAction(const FObjectInitializer& ObjectInitializer);
 
+public:
+	UComposableCameraResetPitchAction(const FObjectInitializer& ObjectInitializer);
+	
 	virtual bool CanExecute_Implementation(float DeltaTime, const FComposableCameraPose& CurrentCameraPose) override;
 	virtual void OnExecute_Implementation(float DeltaTime, const FComposableCameraPose& CurrentCameraPose, FComposableCameraPose& OutCameraPose) override;
-	
+
 public:
-	// Target rotation the camera rotates to.
+	// Target pitch.
 	UPROPERTY(BlueprintReadWrite, EditAnywhere)
-	FRotator TargetRotation;
+	float Pitch { 0.f };
 
 	// Rotate action to read user input from. Used to detect 
 	UPROPERTY(EditAnywhere)
 	class UInputAction* RotateAction { nullptr };
 
-	// Interpolator for camera rotation. If not specified, will use RInterpTo.
+	// Interpolator for pitch rotation. If not specified, will use InterpTo.
 	UPROPERTY(EditAnywhere, Instanced)
 	UComposableCameraInterpolatorBase* Interpolator { nullptr };
 
-	// The speed of RInterpTo when not specifying Interpolator. 
+	// The speed of InterpTo when not specifying Interpolator. 
 	UPROPERTY(EditAnywhere, meta = (EditCondition = "Interpolator == nullptr", EditConditionHides))
 	float InterpSpeed { 1.f };
-	
+
 private:
 	class UEnhancedInputLocalPlayerSubsystem* Subsystem { nullptr };
-	TUniquePtr<TCameraInterpolator<TValueTypeWrapper<FRotator>>> Interp_T;
+	TUniquePtr<TCameraInterpolator<TValueTypeWrapper<double>>> Interp_T;
 };
