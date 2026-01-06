@@ -132,7 +132,11 @@ void UComposableCameraKeyframeSequenceNode::OnTickNode_Implementation(float Delt
 
 		if (StayAtLastFrameTime >= 0.f && ElapsedStayAtLastFrameTime >= StayAtLastFrameTime)
 		{
-			UComposableCameraBlueprintLibrary::TerminateCurrentCamera(this, OwningPlayerCameraManager, nullptr);
+			EComposableCameraResumeCameraTransformSchema ResumeTransformSchema
+				= OwningCamera->bDefaultPreserveCameraPose
+				? EComposableCameraResumeCameraTransformSchema::PreserveCurrent
+				: EComposableCameraResumeCameraTransformSchema::PreserveResumed;
+			UComposableCameraBlueprintLibrary::TerminateCurrentCamera(this, OwningPlayerCameraManager, nullptr, ResumeTransformSchema, FTransform{}, false);
 		}
 	}
 }

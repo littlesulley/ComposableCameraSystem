@@ -278,19 +278,29 @@ void AComposableCameraPlayerCamaraManager::BindCameraActionsForNewCamera(ACompos
 	}
 }
 
-void AComposableCameraPlayerCamaraManager::ResumeCamera(AComposableCameraCameraBase* ResumeCamera,
-                                                        UComposableCameraTransitionBase* Transition, bool bPreserveCameraPose)
+void AComposableCameraPlayerCamaraManager::ResumeCamera(AComposableCameraCameraBase* ResumeCamera, UComposableCameraTransitionBase* Transition,
+	EComposableCameraResumeCameraTransformSchema TransformSchema, FTransform SpecifiedTransform, bool bUseSpecifiedRotation)
 {
 	FTransform InitialTransform {};
-	if (bPreserveCameraPose)
+
+	switch (TransformSchema)
 	{
+	case EComposableCameraResumeCameraTransformSchema::PreserveCurrent:
 		InitialTransform.SetLocation(GetCameraLocation());
 		InitialTransform.SetRotation(GetCameraRotation().Quaternion());
-	}
-	else
-	{
+		break;
+	case EComposableCameraResumeCameraTransformSchema::PreserveResumed:
 		InitialTransform.SetLocation(ResumeCamera->CameraPose.Position);
 		InitialTransform.SetRotation(ResumeCamera->CameraPose.Rotation.Quaternion());
+		break;
+	case EComposableCameraResumeCameraTransformSchema::Specified:
+		InitialTransform = SpecifiedTransform;
+		break;
+	}
+
+	if (bUseSpecifiedRotation)
+	{
+		InitialTransform.SetRotation(SpecifiedTransform.GetRotation());
 	}
 	
 	RunningCamera = Director->ResumeCamera(ResumeCamera, Transition, InitialTransform);

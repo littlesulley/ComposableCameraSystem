@@ -41,7 +41,7 @@ public:
 	AComposableCameraCameraBase* ReactivateCurrentCamera(UComposableCameraTransitionBase* Transition);
 
 	// Resume a given camera with a given transition.
-	void ResumeCamera(AComposableCameraCameraBase* ResumeCamera, UComposableCameraTransitionBase* Transition, bool bPreserveCameraPose);
+	void ResumeCamera(AComposableCameraCameraBase* ResumeCamera, UComposableCameraTransitionBase* Transition, EComposableCameraResumeCameraTransformSchema TransformSchema, FTransform SpecifiedTransform, bool bUseSpecifiedRotation);
 
 	// ~~~~ Modifiers.
 	const TSet<UComposableCameraActionBase*>& GetCameraActions();

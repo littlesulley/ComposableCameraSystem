@@ -17,6 +17,7 @@ void UComposableCameraMixingCameraNode::OnBeginPlayNode_Implementation(const FCo
 		FComposableCameraActivateParams ActivationParams (
 			Definition.ActivationParams.bPreserveCameraPose,
 			Definition.ActivationParams.InitialTransform,
+			Definition.ActivationParams.bUseInitialTransformRotation,
 			Definition.ActivationParams.NodeInitializerDataAsset,
 			false,
 			0.f

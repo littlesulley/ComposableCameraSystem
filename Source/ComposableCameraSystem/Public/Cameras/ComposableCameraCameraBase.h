@@ -19,6 +19,19 @@ class AComposableCameraPlayerCamaraManager;
 
 using namespace ComposableCameraModifier;
 
+UENUM(BlueprintType)
+enum class EComposableCameraResumeCameraTransformSchema : uint8
+{
+	// Preserve current camera pose (position and rotation).
+	PreserveCurrent,
+
+	// Preserve the resumed camera pose.
+	PreserveResumed,
+
+	// Specify a transform.
+	Specified
+};
+
 USTRUCT(BlueprintType)
 struct FComposableCameraPose
 {
@@ -60,11 +73,13 @@ struct FComposableCameraActivateParams
 	FComposableCameraActivateParams(
 		bool bInPreserveCameraPose,
 		const FTransform& InInitialTransform,
+		bool bInUseInitialTransformRotation,
 		UComposableCameraNodeInitializerDataAsset* InNodeInitializerDataAsset,
 		bool bInIsTransient,
 		float InLifeTime)
 			: bPreserveCameraPose(bInPreserveCameraPose)
 			, InitialTransform(InInitialTransform)
+			, bUseInitialTransformRotation(bInUseInitialTransformRotation)
 			, NodeInitializerDataAsset(InNodeInitializerDataAsset)
 			, bIsTransient(bInIsTransient)
 			, LifeTime(InLifeTime)
@@ -78,6 +93,10 @@ public:
 	// Initial transform to spawn the camera if bPreserveCameraPose is false.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	FTransform InitialTransform;
+
+	// Whether to use InitialTransform's rotation to override the new camera's rotation, regardless of bPreserveCameraPose.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	bool bUseInitialTransformRotation { false };
 	
 	// Data asset for node initializers. If not set, no initializer will be applied.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)

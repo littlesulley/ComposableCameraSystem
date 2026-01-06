@@ -56,8 +56,13 @@ AComposableCameraCameraBase* UComposableCameraBlueprintLibrary::ActivateComposab
 	return nullptr;
 }
 
-void UComposableCameraBlueprintLibrary::TerminateCurrentCamera(const UObject* WorldContextObject, AComposableCameraPlayerCamaraManager* PlayerCameraManager,
-		UComposableCameraTransitionDataAsset* TransitionDataAsset, bool bPreserveCameraPose)
+void UComposableCameraBlueprintLibrary::TerminateCurrentCamera(
+	const UObject* WorldContextObject,
+	AComposableCameraPlayerCamaraManager* PlayerCameraManager,
+	UComposableCameraTransitionDataAsset* TransitionDataAsset,
+	EComposableCameraResumeCameraTransformSchema TransformSchema,
+	const FTransform& SpecifiedTransform,
+	bool bUseSpecifiedRotation)
 {
 	if (!PlayerCameraManager || !PlayerCameraManager->RunningCamera || !PlayerCameraManager->RunningCamera->ParentPendingCamera)
 	{
@@ -76,7 +81,7 @@ void UComposableCameraBlueprintLibrary::TerminateCurrentCamera(const UObject* Wo
 		Transition = DuplicateObject(TransitionDataAsset->Transition, PlayerCameraManager);
 	}
 
-	PlayerCameraManager->ResumeCamera(ResumeCamera, Transition, bPreserveCameraPose);
+	PlayerCameraManager->ResumeCamera(ResumeCamera, Transition, TransformSchema, SpecifiedTransform, bUseSpecifiedRotation);
 }
 
 void UComposableCameraBlueprintLibrary::AddModifier(const UObject* WorldContextObject,

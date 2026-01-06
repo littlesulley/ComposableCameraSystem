@@ -67,14 +67,18 @@ public:
 	 * @param WorldContextObject World context object. \n
 	 * @param PlayerCameraManager The player camera manager, must be a ComposableCameraPlayerCameraManager. \n
 	 * @param TransitionDataAsset The transition data asset to use. If no transition is provided, the pending camera's default transition will be used. \n
-	 * @param bPreserveCameraPose Whether to preserve current camera pose (position and rotation) when returning to the last camera.
+	 * @param TransformSchema How to determine the resumed camera's initial transform when terminating the current camera. \n
+	 * @param SpecifiedTransform Specified transform to spawn the camera if TransformSchema is Specified. \n
+	 * @param bUseSpecifiedRotation Whether to use SpecifiedTransform's rotation to override the new camera's rotation, regardless of TransformSchema.
 	 */
-	UFUNCTION(BlueprintCallable, Category = "ComposableCameraSystem|Camera", meta = (WorldContext = "WorldContextObject"))
+	UFUNCTION(BlueprintCallable, Category = "ComposableCameraSystem|Camera", meta = (WorldContext = "WorldContextObject", AutoCreateRefTerm = "SpecifiedTransform"))
 	static void TerminateCurrentCamera(
 		const UObject* WorldContextObject,
 		AComposableCameraPlayerCamaraManager* PlayerCameraManager,
 		UComposableCameraTransitionDataAsset* TransitionDataAsset,
-		bool bPreserveCameraPose = true);
+		EComposableCameraResumeCameraTransformSchema TransformSchema,
+		const FTransform& SpecifiedTransform,
+		bool bUseSpecifiedRotation);
 
 	/** Add a modifier data asset.
 	 * @param WorldContextObject World context object. \n

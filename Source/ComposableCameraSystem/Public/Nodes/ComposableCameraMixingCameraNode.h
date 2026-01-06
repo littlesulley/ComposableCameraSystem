@@ -68,6 +68,9 @@ public:
 	// Initial transform to spawn the camera if bPreserveCameraPose is false.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	FTransform InitialTransform;
+
+	// Whether to use InitialTransform's rotation to override the new camera's rotation, regardless of bPreserveCameraPose.
+	bool bUseInitialTransformRotation { false };
 	
 	// Data asset for node initializers. If not set, no initializer will be applied.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)

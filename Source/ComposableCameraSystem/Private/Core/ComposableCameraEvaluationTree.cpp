@@ -15,8 +15,13 @@ FComposableCameraPose UComposableCameraEvaluationTree::Evaluate(float DeltaTime)
 
 	if (RunningCamera->IsFinished())
 	{
+		EComposableCameraResumeCameraTransformSchema ResumeTransformSchema
+			= RunningCamera->bDefaultPreserveCameraPose
+			? EComposableCameraResumeCameraTransformSchema::PreserveCurrent
+			: EComposableCameraResumeCameraTransformSchema::PreserveResumed;
+		
 		UComposableCameraBlueprintLibrary::TerminateCurrentCamera(
-			this, RunningCamera->GetOwningPlayerCameraManager(), nullptr, RunningCamera->bDefaultPreserveCameraPose);
+			this, RunningCamera->GetOwningPlayerCameraManager(), nullptr, ResumeTransformSchema, FTransform{}, false);
 	}
 	
 	if (Transition)
