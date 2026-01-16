@@ -22,6 +22,34 @@ protected:
 	virtual void ReceiveInitializerNode(UComposableCameraCameraNodeBase* Initializer) override;
 	
 public:
+	// The default FOV.
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = InputParameters)
 	float FieldOfView { 79.f };
+
+	// Whether to enable dynamic FOV based on the scale of some actor(s).
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = InputParameters)
+	bool bDynamicFoV { false };
+
+	// Min FOV if bDynamicFoV.
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = InputParameters, meta = (ClampMin = 1.f, ClampMax = 180.f, Units = "deg", EditCondition = "bDynamicFoV", EditConditionHides))
+	float MinFoV { 30.f };
+
+	// Max FOV if bDynamicFoV.
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = InputParameters, meta = (ClampMin = 1.f, ClampMax = 180.f, Units = "deg", EditCondition = "bDynamicFoV", EditConditionHides))
+	float MaxFoV { 120.f };
+
+	// FOV damping if bDynamicFoV.
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = InputParameters, meta = (EditCondition = "bDynamicFoV", EditConditionHides))
+	float FoVDamping { 0.5f };
+
+	// This sets the object screen size where the camera will stop dynamically zooming.
+	// A value of 100% will fill have the subject fill the frame.
+	// Smaller percentages will provide some overscan and framing room around the subject.
+	// Larger numbers will have the camera push in.
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = InputParameters, meta = (ClampMin = 0.f, ClampMax = 200.f, Units = "%", EditCondition = "bDynamicFoV", EditConditionHides))
+	float DesiredTargetViewportSize { 40.f };
+
+	// Group of actors to track if bDynamicFoV.
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = InputParameters, meta = (EditCondition = "bDynamicFoV", EditConditionHides))
+	TArray<AActor*> ActorsForDynamicFoV;
 };

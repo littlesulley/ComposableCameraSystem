@@ -58,6 +58,11 @@ namespace ComposableCameraSystem
 	{
 		float Dot = Start.Dot(End);
 		float Theta = UKismetMathLibrary::DegAcos(Dot);
+		
+		if (FMath::IsNearlyEqual(FMath::Abs(Theta), 0.f, 1e-2))
+		{
+			return Start;
+		}
 
 		if (FMath::IsNearlyEqual(FMath::Abs(Theta), 180.f, 1e-2))
 		{

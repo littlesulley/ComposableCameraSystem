@@ -15,5 +15,10 @@ void UComposableCameraFieldOfViewNode::ReceiveInitializerNode(UComposableCameraC
 	if (UComposableCameraFieldOfViewNode* CastedInitializer = Cast<UComposableCameraFieldOfViewNode>(Initializer))
 	{
 		FieldOfView = CastedInitializer->FieldOfView;
+		bDynamicFoV = CastedInitializer->bDynamicFoV;
+		MinFoV = CastedInitializer->MinFoV;
+		MaxFoV = CastedInitializer->MaxFoV;
+		FoVDamping = CastedInitializer->FoVDamping;
+		DesiredTargetViewportSize = CastedInitializer->DesiredTargetViewportSize;
 	}
 }
