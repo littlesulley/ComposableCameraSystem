@@ -95,7 +95,7 @@ public:
 	
 	// Determines whether the orientation of the camera should be in the tangent direction of the spline. 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters)
-	bool bLockOrientationOnSpline;
+	bool bLockOrientationOnSpline { false };
 
 private:
 	TUniquePtr<TCameraInterpolator<TValueTypeWrapper<double>>> MoveInterpolator_T;

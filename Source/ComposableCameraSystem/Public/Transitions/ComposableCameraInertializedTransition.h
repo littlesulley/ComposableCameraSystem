@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "ComposableCameraTransitionBase.h"
+#include "Kismet/KismetSystemLibrary.h"
 #include "Math/ComposableCameraMath.h"
 #include "ComposableCameraInertializedTransition.generated.h"
 
@@ -130,6 +131,8 @@ public:
 	FVector Evaluate(float BlendDuration, FVector TargetLocation)
 	{
 		float NewLength = Poly.Evaluate(BlendDuration);
+		
+		UKismetSystemLibrary::PrintString(GEngine->GetWorld(), "_InitialLength is: " + FString::SanitizeFloat(_InitialLength) + " _InitialDirection is: " + _InitialDirection.ToString() + " NewLength is: " + FString::SanitizeFloat(NewLength));
 		return NewLength * _InitialDirection + TargetLocation;
 	}
 
@@ -144,6 +147,58 @@ private:
 	float _InitialLength;
 	FVector _InitialDirection;
 	ComposableCameraPolynomial<5, float> Poly;
+};
+
+struct ComposableCameraIndependentPositionalInertializer
+{
+public:
+	ComposableCameraIndependentPositionalInertializer() = default;
+	ComposableCameraIndependentPositionalInertializer(const ComposableCameraIndependentPositionalInertializer&) = default;
+	ComposableCameraIndependentPositionalInertializer(ComposableCameraIndependentPositionalInertializer&&) = default;
+	ComposableCameraIndependentPositionalInertializer& operator=(const ComposableCameraIndependentPositionalInertializer&) = default;
+	ComposableCameraIndependentPositionalInertializer& operator=(ComposableCameraIndependentPositionalInertializer&&) = default;
+	
+	ComposableCameraIndependentPositionalInertializer(
+		const FComposableCameraPose& LastSourceCameraPose,
+		const FComposableCameraPose& ThisSourceCameraPose,
+		const FComposableCameraPose& ThisTargetCameraPose,
+		float BlendTime,
+		float DeltaTime)
+	{
+		FVector LastSourceCameraPosition = LastSourceCameraPose.Position;
+		FVector ThisSourceCameraPosition = ThisSourceCameraPose.Position;
+		FVector ThisTargetCameraPosition = ThisTargetCameraPose.Position;
+		
+		FVector InitialDirection = ThisSourceCameraPosition - ThisTargetCameraPosition;
+		FVector InitialVelocity = (ThisSourceCameraPosition - LastSourceCameraPosition) / DeltaTime;
+		_InitialDirection = InitialDirection;
+		
+		FVector PositionInitialAcceleration = (-8.0 * InitialVelocity * BlendTime - 20.0 * InitialDirection) / (BlendTime * BlendTime);
+		FVector PositionA = -(PositionInitialAcceleration * BlendTime * BlendTime + 6.0 * InitialVelocity * BlendTime + 12.0 * InitialDirection) / (2.0 * FMath::Pow(BlendTime, 5.0));
+		FVector PositionB = (3.0 * PositionInitialAcceleration * BlendTime * BlendTime + 16.0 * InitialVelocity * BlendTime + 30.0 * InitialDirection) / (2.0 * FMath::Pow(BlendTime, 4.0));
+		FVector PositionC = -(3.0 * PositionInitialAcceleration * BlendTime * BlendTime + 12.0 * InitialVelocity * BlendTime + 20.0 * InitialDirection) / (2.0 * FMath::Pow(BlendTime, 3.0));
+		FVector PositionD = PositionInitialAcceleration / 2.0;
+		FVector PositionE = InitialVelocity;
+		FVector PositionF = InitialDirection;
+		Poly = ComposableCameraPolynomial<5, FVector>{PositionA, PositionB, PositionC, PositionD, PositionE, PositionF};
+	}
+
+	FVector Evaluate(float BlendDuration, FVector TargetLocation)
+	{
+		FVector NewPosition = Poly.Evaluate(BlendDuration);
+		return NewPosition + TargetLocation;
+	}
+
+	FVector Evaluate(float BlendDuration, FVector TargetLocation, float BlendCurveValue, float BlendWeight)
+	{
+		FVector NewPosition = Poly.Evaluate(BlendDuration);
+		NewPosition = (1.f - BlendWeight) * NewPosition + BlendWeight * (BlendCurveValue * _InitialDirection);
+		return NewPosition + TargetLocation;
+	}
+
+private:
+	FVector _InitialDirection;
+	ComposableCameraPolynomial<5, FVector> Poly;
 };
 
 struct ComposableCameraRotationalInertializer
@@ -242,7 +297,7 @@ public:
 private:
 	bool bCanUseInertialization = false;
 	ComposableCameraInitializer<FRotator, ComposableCameraRotationalInertializer> RotationalInertializer;
-	ComposableCameraInitializer<FVector, ComposableCameraPositionalInertializer> PositionalInertializer;
+	ComposableCameraInitializer<FVector, ComposableCameraIndependentPositionalInertializer> PositionalInertializer;
 
 	UComposableCameraSmoothTransition* BackupSmoothTransition;
 	

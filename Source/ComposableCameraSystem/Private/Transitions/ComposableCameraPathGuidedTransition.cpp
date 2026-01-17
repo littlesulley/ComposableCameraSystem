@@ -1,11 +1,11 @@
 // Copyright Sulley. All rights reserved.
 
 #include "Transitions/ComposableCameraPathGuidedTransition.h"
+#include "Transitions/ComposableCameraInertializedTransition.h"
 #include "CameraRig_Rail.h"
 #include "ComposableCameraSystemModule.h"
-#include "Components/SplineComponent.h"
-#include "Math/ComposableCameraMath.h"
-#include "Transitions/ComposableCameraInertializedTransition.h"
+#include "Core/ComposableCameraPlayerCamaraManager.h"
+#include "Nodes/ComposableCameraSplineNode.h"
 
 void UComposableCameraPathGuidedTransition::OnBeginPlay_Implementation(float DeltaTime,
                                                                        const FComposableCameraPose& CurrentTargetPose)
@@ -22,8 +22,29 @@ void UComposableCameraPathGuidedTransition::OnBeginPlay_Implementation(float Del
 		Rail = RailActor.Get();
 	}
 
-	PreviousBasePosition = StartCameraPose.Position;
-	PreviousResultPosition = StartCameraPose.Position;
+	// IntermediateCamera
+	IntermediateCamera = GetWorld()->SpawnActorDeferred<AComposableCameraCameraBase>(AComposableCameraCameraBase::StaticClass(), FTransform{});
+	IntermediateCamera->bIsRunning = true;
+	IntermediateCamera->bIsTransient = false;
+	IntermediateCamera->LifeTime = -1.f;
+	IntermediateCamera->RemainingLifeTime = -1.f;
+	IntermediateCamera->Initialize(SourceCamera->GetOwningPlayerCameraManager(), nullptr);
+	
+	UComposableCameraSplineNode* SplineNode = NewObject<UComposableCameraSplineNode>(IntermediateCamera, UComposableCameraSplineNode::StaticClass());
+	SplineNode->SplineType = EComposableCameraSplineNodeSplineType::BuiltInSpline;
+	SplineNode->Rail = Rail;
+	SplineNode->MoveMethod = EComposableCameraSplineNodeMoveMethod::Automatic;
+	SplineNode->AutomaticMoveCurve = SplineMoveCurve;
+	SplineNode->Duration = TransitionTime;
+	IntermediateCamera->CameraNodes.Add(SplineNode);
+	IntermediateCamera->FinishSpawning(FTransform{});
+	IntermediateCamera->Rename(TEXT("PathGuidedTransition_IntermediateCameraOnSpline"));
+#if WITH_EDITOR
+	IntermediateCamera->SetActorLabel(
+		TEXT("PathGuidedTransition_IntermediateCameraOnSpline"),
+		false
+	);
+#endif
 }
 
 FComposableCameraPose UComposableCameraPathGuidedTransition::OnEvaluate_Implementation(float DeltaTime,
@@ -44,81 +65,65 @@ FComposableCameraPose UComposableCameraPathGuidedTransition::OnEvaluate_Implemen
 
 	// Base pose.
 	FComposableCameraPose BasePose = DrivingTransition->Evaluate(DeltaTime, CurrentTargetPose);
+	FComposableCameraPose SplinePose = IntermediateCamera->TickCamera(DeltaTime);
 	FComposableCameraPose ResultPose = BasePose;
 
-	switch (GuideType)
+	if (DurationPct < GuideRange.X)
 	{
-	case EComposableCameraPathGuidedTransitionType::SoftGuide:
+		if (!EnterTransition)
 		{
-			// Get position on spline.
-			const FVector PositionOnSpline = GetPositionOnSpline(DurationPct);
-
-			// Not started yet.
-			if (DurationPct < GuideRange.X)
-			{
-				ResultPose = BasePose;
-			}
-			// Attracted by both base pose and spline.
-			else if (DurationPct <= GuideRange.Y)
-			{
-				ActualAttracton = FMath::FInterpTo(
-					ActualAttracton,
-					AttractionStrength,
-					DeltaTime,
-					1);
-				FVector DesiredPosition = FMath::VInterpTo(
-					BasePose.Position,
-					PositionOnSpline,
-					DeltaTime,
-					ActualAttracton);
-				FVector ResultPosition = FMath::VInterpTo(
-					PreviousResultPosition,
-					DesiredPosition,
-					DeltaTime,
-					FollowSpeed);
-				ResultPose.Position = ResultPosition;
-			}
-			// Return to the base pose.
-			else
-			{
-				// float Ratio = (DurationPct - GuideRange.Y) / (1.f - GuideRange.Y);
-				// float Weight = ComposableCameraSystem::SmoothStep(Ratio);
-				// FVector ResultPosition = FMath::Lerp(PreviousResultPosition, BasePose.Position, Weight);
-
-				FVector ResultPosition = FMath::VInterpTo(
-					PreviousResultPosition,
-					BasePose.Position,
-					DeltaTime,
-					ResumeSpeed);
-				ResultPose.Position = ResultPosition;
-			}
-			break;
+			EnterTransition = NewObject<UComposableCameraInertializedTransition>(this, UComposableCameraInertializedTransition::StaticClass());
+			EnterTransition->TransitionEnabled(SourceCamera, IntermediateCamera, SplinePose);
+			EnterTransition->SetTransitionTime(GuideRange.X * TransitionTime);
+			EnterTransition->ResetTransitionState();
 		}
-	case EComposableCameraPathGuidedTransitionType::HardGuide:
+		
+		FComposableCameraPose EnterPose = EnterTransition->Evaluate(DeltaTime, SplinePose);
+		ResultPose.Position = EnterPose.Position;
+	}
+	else if (DurationPct <= GuideRange.Y)
+	{
+		ResultPose.Position = SplinePose.Position;
+	}
+	else
+	{
+		if (!ExitTransition)
 		{
-			// Get position on spline.
-			const FVector PositionOnSpline = GetPositionOnSpline(DurationPct);
-
-			// Interp base position and spline position.
-			const float InterpPct = InterpCurve->GetFloatValue(DurationPct);
-			const FVector ResultPosition = FMath::Lerp(BasePose.Position, PositionOnSpline, InterpPct);
-
-			// Final pose.
-			ResultPose.Position = ResultPosition;
-			break;
+			ExitTransition = NewObject<UComposableCameraInertializedTransition>(this, UComposableCameraInertializedTransition::StaticClass());
+			ExitTransition->TransitionEnabled(IntermediateCamera, TargetCamera, CurrentTargetPose);
+			ExitTransition->SetTransitionTime(GetTransitionTime() * (1.f - GuideRange.Y));
+			ExitTransition->ResetTransitionState();
+			OnTransitionFinishesDelegate.AddLambda(
+				[InCamera = IntermediateCamera]()
+				{
+					if (InCamera)
+					{
+						InCamera->Destroy();
+					}
+				});
+		}
+		
+		FComposableCameraPose ExitPose = ExitTransition->Evaluate(DeltaTime, CurrentTargetPose /*BasePose*/);
+		ResultPose.Position = ExitPose.Position;
+	}
+	
+	// Draw debug spline points.
+	if (TargetCamera && TargetCamera->GetOwningPlayerCameraManager())
+	{
+		if (TargetCamera->GetOwningPlayerCameraManager()->bDrawDebugInformation)
+		{
+			DrawDebugSplinePoints(TArray<FVector>{ ResultPose.Position });
 		}
 	}
 
-	PreviousBasePosition = BasePose.Position;
-	PreviousResultPosition = ResultPose.Position;
+	PreviousResultPose = ResultPose;
 	return ResultPose;
 }
 
-FVector UComposableCameraPathGuidedTransition::GetPositionOnSpline(float DurationPct)
+void UComposableCameraPathGuidedTransition::DrawDebugSplinePoints(const TArray<FVector>& SplinePoints)
 {
-	USplineComponent* Spline = Rail->GetRailSplineComponent();
-	const float SplinePct = SplineMoveCurve->GetFloatValue(DurationPct);
-	const float SplineLen = Spline->GetSplineLength();
-	Rail->CurrentPositionOnRail = SplinePct;
-	return Spline->GetLocationAtDistanceAlongSpline(SplinePct * SplineLen, ESplineCoordinateSpace::World);
+	for (const FVector& Point : SplinePoints)
+	{
+		DrawDebugPoint(GetWorld(), Point, 8.f, FColor::Cyan, false, 2.f, 1.f);
+	}
 }

@@ -88,7 +88,7 @@ public:
 	}
 
 public:
-	UPROPERTY(BlueprintReadOnly, VisibleAnywhere)
+	UPROPERTY(BlueprintReadOnly, EditDefaultsOnly)
 	bool bOnlyForCurrentCamera { true };
 	
 	UPROPERTY(BlueprintReadOnly)

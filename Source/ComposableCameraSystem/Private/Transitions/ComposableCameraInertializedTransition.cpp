@@ -5,6 +5,10 @@
 #include "ComposableCameraSystemModule.h"
 #include "Transitions/ComposableCameraSmoothTransition.h"
 
+template struct ComposableCameraInitializer<FVector, ComposableCameraPositionalInertializer>;
+template struct ComposableCameraInitializer<FVector, ComposableCameraIndependentPositionalInertializer>;
+template struct ComposableCameraInitializer<FRotator, ComposableCameraRotationalInertializer>;
+
 void UComposableCameraInertializedTransition::OnBeginPlay_Implementation(float DeltaTime,
                                                                          const FComposableCameraPose& CurrentTargetPose)
 {
@@ -18,7 +22,7 @@ void UComposableCameraInertializedTransition::OnBeginPlay_Implementation(float D
 		TransitionTime = GetActualBlendTime(DeltaTime, LastSourceCameraPose, ThisSourceCameraPose, CurrentTargetPose);
 		RemainingTime = TransitionTime;
 
-		PositionalInertializer = ComposableCameraInitializer<FVector, ComposableCameraPositionalInertializer>{ LastSourceCameraPose, ThisSourceCameraPose, CurrentTargetPose, TransitionTime, DeltaTime };
+		PositionalInertializer = ComposableCameraInitializer<FVector, ComposableCameraIndependentPositionalInertializer>{ LastSourceCameraPose, ThisSourceCameraPose, CurrentTargetPose, TransitionTime, DeltaTime };
 		RotationalInertializer = ComposableCameraInitializer<FRotator, ComposableCameraRotationalInertializer>{ LastSourceCameraPose, ThisSourceCameraPose, CurrentTargetPose, TransitionTime, DeltaTime };
 	}
 	else

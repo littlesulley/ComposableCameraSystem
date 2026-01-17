@@ -125,7 +125,7 @@ DECLARE_DYNAMIC_DELEGATE_OneParam(FOnCameraFinishConstructed, AComposableCameraC
 /**
  * Base camera class.
  */
-UCLASS(Abstract, DefaultToInstanced, BlueprintType, Blueprintable, ClassGroup = ComposableCameraSystem)
+UCLASS(DefaultToInstanced, BlueprintType, Blueprintable, ClassGroup = ComposableCameraSystem)
 class COMPOSABLECAMERASYSTEM_API AComposableCameraCameraBase
 	: public ACameraActor
 {
