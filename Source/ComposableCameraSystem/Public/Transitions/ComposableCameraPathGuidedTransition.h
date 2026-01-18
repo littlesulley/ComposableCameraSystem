@@ -6,8 +6,19 @@
 #include "ComposableCameraTransitionBase.h"
 #include "ComposableCameraPathGuidedTransition.generated.h"
 
+class USplineComponent;
 class ACameraRig_Rail;
 class UComposableCameraInertializedTransition;
+
+UENUM()
+enum class EComposableCameraPathGuidedTransitionType : uint8
+{
+	// Use inertialized camera as a bridge to achieve path guided transition.
+	Inertialized,
+	
+	// Use auto-generated splines to achieve path guided transition.
+	Auto
+};
 
 /**
  * A transition which utilizes a path　(spline) to guide its position during transition.
@@ -29,6 +40,10 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Instanced)
 	UComposableCameraTransitionBase* DrivingTransition;
 
+	// Type of path guided transition.
+	UPROPERTY(BlueprintReadWrite, EditAnywhere)
+	EComposableCameraPathGuidedTransitionType Type { EComposableCameraPathGuidedTransitionType::Inertialized };
+	
 	// The rail actor thet contains the desired guiding spline.
 	UPROPERTY(BlueprintReadWrite, EditAnywhere)
 	TSoftObjectPtr<ACameraRig_Rail> RailActor;
@@ -54,7 +69,11 @@ private:
 	UPROPERTY()
 	UComposableCameraInertializedTransition* ExitTransition { nullptr };
 	
+	UPROPERTY()
+	USplineComponent* InternalSpline;
+	
 	FComposableCameraPose PreviousResultPose;
 
 	void DrawDebugSplinePoints(const TArray<FVector>& SplinePoints);
+	void BuildInternalSpline(const FComposableCameraPose& CurrentTargetPose);
 };
