@@ -16,7 +16,8 @@ enum class EComposableCameraPathGuidedTransitionType : uint8
 	// Use inertialized camera as a bridge to achieve path guided transition.
 	Inertialized,
 	
-	// Use auto-generated splines to achieve path guided transition.
+	// Use auto-generated splines to achieve path guided transition. \n
+	// @NOTE: This type won't update TargetCameraPose, so if the target camera is moving during transition, DO NOT use this type.
 	Auto
 };
 
@@ -78,5 +79,4 @@ private:
 private:
 	void DrawDebugSplinePoints(const TArray<FVector>& SplinePoints);
 	void BuildInternalSpline(const FComposableCameraPose& CurrentTargetPose, float DeltaTime);
-	void UpdateInternalSpline(const FComposableCameraPose& CurrentTargetPose, float DeltaTime);
 };

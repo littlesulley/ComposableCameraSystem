@@ -19,7 +19,7 @@ enum class EComposableCameraActionExpirationType : uint8
 	// This action lasts for a fixed duration. Can also be removed manully or by condition.
 	Duration = 1 << 1,
 	
-	// This action lasts indefinitive, must be removed manually. 
+	// This action lasts indefinitive, must be removed manually through node ExpireAction. 
 	Manual = 1 << 2,
 	
 	// This action expires according to some user-provided condition.

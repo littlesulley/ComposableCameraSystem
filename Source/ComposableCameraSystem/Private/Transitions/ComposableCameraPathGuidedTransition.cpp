@@ -148,9 +148,7 @@ FComposableCameraPose UComposableCameraPathGuidedTransition::OnEvaluate_Implemen
 				UE_LOG(LogComposableCameraSystem, Warning, TEXT("InternalSpline is not valid in ComposableCameraPathGuidedTransition."));
 				return CurrentTargetPose;
 			}
-
-			UpdateInternalSpline(CurrentTargetPose, DeltaTime);
-
+			
 			const float SplineLen = InternalSpline->GetSplineLength();
 			const FVector Position = InternalSpline->GetLocationAtDistanceAlongSpline(Percentage * SplineLen, ESplineCoordinateSpace::World);
 			ResultPose.Position = Position;
@@ -238,24 +236,4 @@ void UComposableCameraPathGuidedTransition::BuildInternalSpline(const FComposabl
 	}
 
 	InternalSpline->UpdateSpline();
-}
-
-void UComposableCameraPathGuidedTransition::UpdateInternalSpline(const FComposableCameraPose& CurrentTargetPose,
-	float DeltaTime)
-{
-	if (CurrentTargetPose.Position.Equals(TargetCamera->LastFrameCameraPose.Position))
-	{
-		return;
-	}
-	
-	InternalSpline->RemoveSplinePoint(InternalSpline->GetNumberOfSplinePoints() - 1, true);
-
-	FSplinePoint NewLastPoint;
-	FVector NewTargetPosition = UKismetMathLibrary::InverseTransformLocation(DebugSplineActor->GetActorTransform(), CurrentTargetPose.Position);
-	FVector LastTargetPosition = UKismetMathLibrary::InverseTransformLocation(DebugSplineActor->GetActorTransform(), TargetCamera->LastFrameCameraPose.Position);
-	NewLastPoint.Position = NewTargetPosition;
-	NewLastPoint.ArriveTangent = (NewTargetPosition - LastTargetPosition) / DeltaTime;
-	NewLastPoint.LeaveTangent = NewLastPoint.ArriveTangent;
-	NewLastPoint.Type = ESplinePointType::CurveCustomTangent;
-	InternalSpline->AddPoint(NewLastPoint, true);
 }
