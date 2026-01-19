@@ -41,6 +41,8 @@ FComposableCameraPose UComposableCameraSplineTransition::OnEvaluate_Implementati
 	default:
 		break;
 	}
+
+	Percentage = BlendWeight;
 	
 	FComposableCameraPose ResultPose = StartCameraPose;
 	ResultPose.BlendBy(CurrentTargetPose, BlendWeight);

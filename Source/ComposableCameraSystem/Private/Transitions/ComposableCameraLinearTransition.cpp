@@ -6,6 +6,7 @@ FComposableCameraPose UComposableCameraLinearTransition::OnEvaluate_Implementati
 	const FComposableCameraPose& CurrentTargetPose)
 {
 	float BlendWeight = (GetTransitionTime() - GetRemainingTime()) / GetTransitionTime();
+	Percentage = BlendWeight;
 	
 	FComposableCameraPose CurrentPose = StartCameraPose;
 	CurrentPose.BlendBy(CurrentTargetPose, BlendWeight);

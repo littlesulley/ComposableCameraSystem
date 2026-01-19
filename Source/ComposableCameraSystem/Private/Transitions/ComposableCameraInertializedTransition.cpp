@@ -27,6 +27,7 @@ void UComposableCameraInertializedTransition::OnBeginPlay_Implementation(float D
 	}
 	else
 	{
+		bCanUseInertialization = false;
 		UE_LOG(LogComposableCameraSystem, Warning, TEXT("SourceCamera is null in ComposableCameraInertializedTransition. Turn to use SmoothTransition."))
 
 		BackupSmoothTransition = NewObject<UComposableCameraSmoothTransition>();
@@ -45,6 +46,7 @@ FComposableCameraPose UComposableCameraInertializedTransition::OnEvaluate_Implem
 		
 		float BlendDuration = TransitionTime - RemainingTime;
 		float BlendPct = BlendDuration / TransitionTime;
+		Percentage = BlendPct;
 		
 		if (AdditiveCurve)
 		{
@@ -65,6 +67,7 @@ FComposableCameraPose UComposableCameraInertializedTransition::OnEvaluate_Implem
 	else
 	{
 		return BackupSmoothTransition->Evaluate(DeltaTime, CurrentTargetPose);
+		Percentage = BackupSmoothTransition->GetPercentage();
 	}
 }
 

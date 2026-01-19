@@ -7,6 +7,7 @@ FComposableCameraPose UComposableCameraEaseTransition::UComposableCameraEaseTran
 {
 	float DurationPct = (GetTransitionTime() - GetRemainingTime()) / GetTransitionTime();
 	float BlendWeight = FMath::InterpEaseInOut(0.f, 1.f, DurationPct, Exp);
+	Percentage = BlendWeight;
 
 	FComposableCameraPose CurrentPose = StartCameraPose;
 	CurrentPose.BlendBy(CurrentTargetPose, BlendWeight);

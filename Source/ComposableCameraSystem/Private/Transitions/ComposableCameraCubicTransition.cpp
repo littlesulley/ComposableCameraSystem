@@ -8,6 +8,7 @@ FComposableCameraPose UComposableCameraCubicTransition::OnEvaluate_Implementatio
 {
 	float DurationPct = (GetTransitionTime() - GetRemainingTime()) / GetTransitionTime();
 	float BlendWeight = FMath::CubicInterp(0.f, 0.f, 1.f, 0.f, DurationPct);
+	Percentage = BlendWeight;
 
 	FComposableCameraPose CurrentPose = StartCameraPose;
 	CurrentPose.BlendBy(CurrentTargetPose, BlendWeight);

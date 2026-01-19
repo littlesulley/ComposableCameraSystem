@@ -39,6 +39,9 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "ComposableCameraSystem|Transition")
 	float GetTransitionTime() const { return TransitionTime; }
+
+	UFUNCTION(BlueprintPure, Category = "ComposableCameraSystem|Transition")
+	float GetPercentage() const { return Percentage; }
 	
 protected:
 	/** Begin Play event. Called when this is the first frame of transition and both source camera and target camera are evaluated, but before the first Tick event is called. \n
@@ -97,4 +100,8 @@ protected:
 	// Target camera.
 	UPROPERTY(BlueprintReadOnly)
 	AComposableCameraCameraBase* TargetCamera;
+
+	// How much percentage this transition has completed.
+	UPROPERTY(BlueprintReadOnly)
+	float Percentage { 0.f };
 };

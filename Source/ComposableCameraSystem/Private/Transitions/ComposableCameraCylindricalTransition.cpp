@@ -24,6 +24,7 @@ FComposableCameraPose UComposableCameraCylindricalTransition::OnEvaluate_Impleme
 
 	float BlendPct = (TransitionTime - RemainingTime) / TransitionTime;
 	BlendPct = ComposableCameraSystem::SmootherStep(BlendPct);
+	Percentage = BlendPct;
 
 	FVector StartPosition = StartCameraPose.Position;
 	FVector StartPivot = Result.FirstPoint;

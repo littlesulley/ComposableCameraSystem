@@ -112,5 +112,7 @@ FComposableCameraPose UComposableCameraDynamicDeocclusionTransition::OnEvaluate_
 	
 	CandidatePose.Position = BasePose.Position + AggregateOffset;
 	PreviousOffset = AggregateOffset;
+
+	Percentage = DrivingTransition->GetPercentage();
 	return CandidatePose;
 }
