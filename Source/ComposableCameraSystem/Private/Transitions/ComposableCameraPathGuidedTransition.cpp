@@ -199,30 +199,35 @@ void UComposableCameraPathGuidedTransition::BuildInternalSpline(const FComposabl
 		);
 	}
 
+	InternalSpline->bAllowDiscontinuousSpline = true;
 	InternalSpline->ClearSplinePoints(true);
 
 	// Prepend and append control points (as long as their tangents)
-	FVector P0 = Points[1].Position;
-	FVector P1 = Points[0].Position;
-	FVector P2 = UKismetMathLibrary::InverseTransformLocation(DebugSplineActor->GetActorTransform(), StartCameraPose.Position);
-	FVector P3 = UKismetMathLibrary::InverseTransformLocation(DebugSplineActor->GetActorTransform(), SourceCamera->LastFrameCameraPose.Position);
+	FVector P0 = Points[0].Position;
+	FVector D0 = Points[0].LeaveTangent.GetSafeNormal();
+	FVector P1 = UKismetMathLibrary::InverseTransformLocation(DebugSplineActor->GetActorTransform(), StartCameraPose.Position);
+	FVector D1 = (P0 - P1).GetSafeNormal();
+	float L = (P0 - P1).Size();
+	float C = L * FMath::Sqrt((1.f + D1.Dot(-D0)) / 2.f) / 3.f;
 
 	FSplinePoint FirstPoint;
-	FirstPoint.Position = P2;
-	FirstPoint.LeaveTangent = (P2 - P3) / DeltaTime;
+	FirstPoint.Position = P1;
+	FirstPoint.LeaveTangent = C * D1;
 	FirstPoint.ArriveTangent = FirstPoint.LeaveTangent;
 	FirstPoint.Type = ESplinePointType::CurveCustomTangent;
 	Points.Insert(FirstPoint, 0);
 
 	Num = Points.Num();
-	P0 = Points[Num - 2].Position;
-	P1 = Points[Num - 1].Position;
-	P2 = UKismetMathLibrary::InverseTransformLocation(DebugSplineActor->GetActorTransform(), CurrentTargetPose.Position);
-	P3 = UKismetMathLibrary::InverseTransformLocation(DebugSplineActor->GetActorTransform(), TargetCamera->LastFrameCameraPose.Position);
-
+	P0 = Points[Num - 1].Position;
+	D0 = Points[Num - 1].ArriveTangent.GetSafeNormal();
+	P1 = UKismetMathLibrary::InverseTransformLocation(DebugSplineActor->GetActorTransform(), CurrentTargetPose.Position);
+	D1 = (P0 - P1).GetSafeNormal();
+	L = (P0 - P1).Size();
+	C = L * FMath::Sqrt((1.f + D1.Dot(D0)) / 2.f) / 3.f;
+	
 	FSplinePoint LastPoint;
-	LastPoint.Position = P2;
-	LastPoint.ArriveTangent = (P2 - P3) / DeltaTime;
+	LastPoint.Position = P1;
+	LastPoint.ArriveTangent = C * D1;
 	LastPoint.LeaveTangent = LastPoint.ArriveTangent;
 	LastPoint.Type = ESplinePointType::CurveCustomTangent;
 	Points.Add(LastPoint);
