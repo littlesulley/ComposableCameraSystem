@@ -259,10 +259,6 @@ public:
 	UPROPERTY(Transient, VisibleAnywhere, Category = "ComposableCameraSystem|Composable Camera")
 	float RemainingLifeTime { 0.f };
 
-	// Whether this camera is currently active (running) and not yet killed, generally waiting to be resumed.
-	UPROPERTY(Transient, VisibleAnywhere, Category = "ComposableCameraSystem|Composable Camera")
-	bool bIsRunning { true };
-
 	// Pending camera to be resumed. This happens when the running camera is transient and once it finishes, ParentPendingCamera will be resumed.
 	UPROPERTY(Transient, VisibleAnywhere, Category = "ComposableCameraSystem|Composable Camera")
 	TSoftObjectPtr<AComposableCameraCameraBase> ParentPendingCamera;

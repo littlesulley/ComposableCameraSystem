@@ -16,9 +16,6 @@ UComposableCameraDirector::UComposableCameraDirector(const FObjectInitializer& O
 AComposableCameraCameraBase* UComposableCameraDirector::ResumeCamera(AComposableCameraCameraBase* ResumeCamera,
 	UComposableCameraTransitionBase* Transition, const FTransform& Transform)
 {
-	ResumeCamera->bIsRunning = true;
-	RunningCamera->bIsRunning = false;
-	
 	if (Transition && RunningCamera)
 	{
 		ForceCameraPoses(ResumeCamera, Transform);
@@ -68,7 +65,6 @@ AComposableCameraCameraBase* UComposableCameraDirector::CreateNewCamera(
 	if (UWorld* World = GetWorld())
 	{
 		AComposableCameraCameraBase* NewCamera = World->SpawnActorDeferred<AComposableCameraCameraBase>(CameraClass, InitialTransform);
-		NewCamera->bIsRunning = true;
 		
 		if (bIsTransient)
 		{
@@ -123,11 +119,6 @@ AComposableCameraCameraBase* UComposableCameraDirector::ActivateNewCamera(
 	{
 		AComposableCameraCameraBase* NewCamera = World->SpawnActorDeferred<AComposableCameraCameraBase>(CameraClass, InitialTransform);
 		NewCamera->ParentPendingCamera = RunningCamera;
-		NewCamera->bIsRunning = true;
-		if (RunningCamera)
-		{
-			RunningCamera->bIsRunning = false;
-		}
 		
 		if (bIsTransient)
 		{
@@ -186,12 +177,6 @@ AComposableCameraCameraBase* UComposableCameraDirector::ReactivateCurrentCamera(
 		
 		AComposableCameraCameraBase* NewCamera = World->SpawnActorDeferred<AComposableCameraCameraBase>(CameraClass, InitialTransform);
 		NewCamera->ParentPendingCamera = RunningCamera->ParentPendingCamera;
-		NewCamera->bIsRunning = true;
-		if (RunningCamera)
-		{
-			RunningCamera->bIsRunning = false;
-		}
-		
 		NewCamera->bIsTransient = false;
 		NewCamera->LifeTime = -1.f;
 		NewCamera->RemainingLifeTime = -1.f;

@@ -1,17 +1,45 @@
 // Copyright Sulley. All rights reserved.
 
 #include "Core/ComposableCameraEvaluationTree.h"
+
+#include "ComposableCameraSystemModule.h"
 #include "Transitions/ComposableCameraTransitionBase.h"
 #include "Utils/ComposableCameraBlueprintLibrary.h"
 
+FComposableCameraPose FComposableCameraEvaluationTreeLeafNode::Evaluate(float DeltaTime)
+{
+	if (!RunningCamera)
+	{
+		UE_LOG(LogComposableCameraSystem, Error, TEXT("RunningCamera is null when evaluating FComposableCameraEvaluationTreeLeafNode."));
+		return FComposableCameraPose{};
+	}
+
+	return RunningCamera->TickCamera(DeltaTime);
+}
+
+FComposableCameraPose FComposableCameraEvaluationTreeInnerNode::Evaluate(float DeltaTime)
+{
+	
+}
+
+UComposableCameraEvaluationTree::UComposableCameraEvaluationTree(const FObjectInitializer& ObjectInitializer)
+{
+	EvaluationTree.Reserve(16);
+}
+
 FComposableCameraPose UComposableCameraEvaluationTree::Evaluate(float DeltaTime)
 {
-	FComposableCameraPose CurrentPose;
+	Node& RootNode = GetRootNode();
+	FComposableCameraPose ResultPose = Visit(
+		[DeltaTime](const auto& RootNode) -> FComposableCameraPose
+		{
+			return RootNode.Evaluate(DeltaTime);
+		},
+		RootNode);
 
-	if (!RunningCamera || !RunningCamera->bIsRunning)
-	{
-		return CurrentPose;
-	}
+	return ResultPose;
+
+	FComposableCameraPose CurrentPose;
 
 	if (RunningCamera->IsFinished())
 	{
@@ -46,4 +74,10 @@ void UComposableCameraEvaluationTree::OnActivateNewCamera(AComposableCameraCamer
 {
 	RunningCamera = NewCamera;
 	Transition = InTransition;
+}
+
+UComposableCameraEvaluationTree::Node& UComposableCameraEvaluationTree::GetRootNode()
+{
+	checkf(EvaluationTree.Num() > 0, TEXT("EvaluationTree is empty!"));
+	return EvaluationTree[0];
 }
