@@ -272,6 +272,7 @@ class COMPOSABLECAMERASYSTEM_API UComposableCameraInertializedTransition : publi
 public:
 	virtual void OnBeginPlay_Implementation(float DeltaTime, const FComposableCameraPose& CurrentTargetPose) override;
 	virtual FComposableCameraPose OnEvaluate_Implementation(float DeltaTime, const FComposableCameraPose& CurrentTargetPose) override;
+	virtual FComposableCameraPose OnEvaluateBySource_Implementation(float DeltaTime, const FComposableCameraPose& CurrentSourcePose, const FComposableCameraPose& CurrentTargetPose) override;
 
 public:
 	// Whether to use automatic transition time. If true, will compute the transition time according to MaxAcceleration, else, will use TransitionTime.

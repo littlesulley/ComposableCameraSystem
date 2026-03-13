@@ -8,6 +8,8 @@
 #include "ComposableCameraModifierDataAsset.generated.h"
 
 class UComposableCameraTransitionBase;
+class UComposableCameraModifierBase;
+
 /**
  * Data asset for node modifiers. A node modifier can modify any parameters of any node type at runtime. \n
  * All modifiers are defined using blueprints by the users.

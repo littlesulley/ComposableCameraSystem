@@ -46,7 +46,7 @@ public:
 	EComposableCameraPathGuidedTransitionType Type { EComposableCameraPathGuidedTransitionType::Inertialized };
 	
 	// The rail actor thet contains the desired guiding spline. The tangents of the spline should not be too small nor too large.
-	UPROPERTY(BlueprintReadWrite, EditAnywhere, meta = (EditCondition = "Type == EComposableCameraPathGuidedTransitionType::Inertialized", EditConditionHides))
+	UPROPERTY(BlueprintReadWrite, EditAnywhere)
 	TSoftObjectPtr<ACameraRig_Rail> RailActor;
 
 	// Normalized timestamps to start/end guide. It's recommended to set a not-close-to-one end timestamp ensuring the camera can return to the desired target position smoothly.

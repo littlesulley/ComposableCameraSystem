@@ -22,6 +22,7 @@ class COMPOSABLECAMERASYSTEM_API UComposableCameraTransitionBase
 
 public:
 	FComposableCameraPose Evaluate(float DeltaTime, const FComposableCameraPose& CurrentTargetPose);
+	FComposableCameraPose EvaluateBySource(float DeltaTime, const FComposableCameraPose& CurrentSourcePose, const FComposableCameraPose& CurrentTargetPose);
 	void TransitionEnabled(AComposableCameraCameraBase* SourceCamera, AComposableCameraCameraBase* TargetCamera, const FComposableCameraPose& CurrentSourceCameraPose);
 	void TransitionFinished();
 
@@ -63,6 +64,16 @@ protected:
 	FComposableCameraPose OnEvaluate(float DeltaTime, const FComposableCameraPose& CurrentTargetPose);
 	virtual FComposableCameraPose OnEvaluate_Implementation(float DeltaTime, const FComposableCameraPose& CurrentTargetPose) { return FComposableCameraPose{}; }
 
+	/** Event to customize the evaluation function for each tick. When calling this function, RemainingTime has already been decremented, and assured to not go below 0. \n
+	 * @param DeltaTime World delta time. \n
+	 * @param CurrentSourcePose Current source camera pose. \n 
+	 * @param CurrentTargetPose Current target camera pose. \n
+	 * @return Returns the new blended camera pose.
+	 */
+	UFUNCTION(BlueprintNativeEvent, DisplayName = "OnTick", Category = "ComposableCameraSystem|Transition")
+	FComposableCameraPose OnEvaluateBySource(float DeltaTime, const FComposableCameraPose& CurrentSourcePose, const FComposableCameraPose& CurrentTargetPose);
+	virtual FComposableCameraPose OnEvaluateBySource_Implementation(float DeltaTime, const FComposableCameraPose& CurrentSourcePose, const FComposableCameraPose& CurrentTargetPose) { return FComposableCameraPose{}; }
+	
 	/**
 	 * Event when the transition finishes. The base class simply sets bFinished to true.
 	 */

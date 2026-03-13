@@ -17,8 +17,14 @@ void UComposableCameraCylindricalTransition::OnBeginPlay_Implementation(float De
 FComposableCameraPose UComposableCameraCylindricalTransition::OnEvaluate_Implementation(float DeltaTime,
                                                                                         const FComposableCameraPose& CurrentTargetPose)
 {
+	return OnEvaluateBySource(DeltaTime, StartCameraPose, CurrentTargetPose);
+}
+
+FComposableCameraPose UComposableCameraCylindricalTransition::OnEvaluateBySource_Implementation(float DeltaTime,
+	const FComposableCameraPose& CurrentSourcePose, const FComposableCameraPose& CurrentTargetPose)
+{
 	// Position.
-	FComposableCameraRayDefinition StartRay { StartCameraPose.Position, StartCameraPose.Rotation.RotateVector(FVector::ForwardVector), MinimumDistanceFromOrigin };
+	FComposableCameraRayDefinition StartRay { CurrentSourcePose.Position, CurrentSourcePose.Rotation.RotateVector(FVector::ForwardVector), MinimumDistanceFromOrigin };
 	FComposableCameraRayDefinition TargetRay { CurrentTargetPose.Position, CurrentTargetPose.Rotation.RotateVector(FVector::ForwardVector), MinimumDistanceFromOrigin };
 	FComposableCameraNearestPointsOnRaysResult Result = StartRay.FindNearestPointsByOtherRay(TargetRay);
 
@@ -26,7 +32,7 @@ FComposableCameraPose UComposableCameraCylindricalTransition::OnEvaluate_Impleme
 	BlendPct = ComposableCameraSystem::SmootherStep(BlendPct);
 	Percentage = BlendPct;
 
-	FVector StartPosition = StartCameraPose.Position;
+	FVector StartPosition = CurrentSourcePose.Position;
 	FVector StartPivot = Result.FirstPoint;
 	FVector TargetPosition = CurrentTargetPose.Position;
 	FVector TargetPivot = Result.SecondPoint;
@@ -44,13 +50,13 @@ FComposableCameraPose UComposableCameraCylindricalTransition::OnEvaluate_Impleme
 	FRotator ResultRotation =
 		bLockToPivot ?
 		UKismetMathLibrary::FindLookAtRotation(ResultPosition, ResultPivot) :
-		(StartCameraPose.Rotation + BlendPct * (CurrentTargetPose.Rotation - StartCameraPose.Rotation).GetNormalized()).GetNormalized();
+		(CurrentSourcePose.Rotation + BlendPct * (CurrentTargetPose.Rotation - CurrentSourcePose.Rotation).GetNormalized()).GetNormalized();
 
 	// Returns output pose.
 	FComposableCameraPose ResultPose {};
 	ResultPose.Position = ResultPosition;
 	ResultPose.Rotation = ResultRotation;
-	ResultPose.FieldOfView = FMath::Lerp(StartCameraPose.FieldOfView, CurrentTargetPose.FieldOfView, BlendPct);
+	ResultPose.FieldOfView = FMath::Lerp(CurrentSourcePose.FieldOfView, CurrentTargetPose.FieldOfView, BlendPct);
 
 	// Draw debug info.
 	if (AComposableCameraPlayerCamaraManager* PCM = UComposableCameraBlueprintLibrary::GetComposableCameraPlayerCameraManager(this, 0))

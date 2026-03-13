@@ -3,10 +3,11 @@
 #include "Core/ComposableCameraEvaluationTree.h"
 
 #include "ComposableCameraSystemModule.h"
+#include "InteractiveToolManager.h"
 #include "Transitions/ComposableCameraTransitionBase.h"
 #include "Utils/ComposableCameraBlueprintLibrary.h"
 
-FComposableCameraPose FComposableCameraEvaluationTreeLeafNode::Evaluate(float DeltaTime)
+FComposableCameraPose FComposableCameraEvaluationTreeLeafNodeWrapper::Evaluate(float DeltaTime)
 {
 	if (!RunningCamera)
 	{
@@ -17,9 +18,35 @@ FComposableCameraPose FComposableCameraEvaluationTreeLeafNode::Evaluate(float De
 	return RunningCamera->TickCamera(DeltaTime);
 }
 
-FComposableCameraPose FComposableCameraEvaluationTreeInnerNode::Evaluate(float DeltaTime)
+FComposableCameraPose FComposableCameraEvaluationTreeInnerNodeWrapper::Evaluate(float DeltaTime)
 {
+	if (!&LeftNode || !&RightNode)
+	{
+		UE_LOG(LogComposableCameraSystem, Error, TEXT("LeftNode or RightNode in FComposableCameraEvaluationTreeInnerNodeWrapper is not valid."));
+		return FComposableCameraPose{};
+	}
 	
+	const FComposableCameraPose TargetPose = RightNode.Evaluate(DeltaTime);
+	
+	if (!Transition)
+	{
+		return TargetPose;
+	}
+	
+	const FComposableCameraPose SourcePose = bFreezePreviousCamera ? FreezedCameraPose : LeftNode.Evaluate(DeltaTime);
+	const FComposableCameraPose CurrentPose = Transition->EvaluateBySource(DeltaTime, SourcePose, TargetPose);
+	
+	if (Transition->IsFinished())
+	{
+		Transition = nullptr;
+	}
+	
+	return CurrentPose;	
+}
+
+FComposableCameraPose FComposableCameraEvaluationTreeNode::Evaluate(float DeltaTime)
+{
+	return {};
 }
 
 UComposableCameraEvaluationTree::UComposableCameraEvaluationTree(const FObjectInitializer& ObjectInitializer)
@@ -29,7 +56,7 @@ UComposableCameraEvaluationTree::UComposableCameraEvaluationTree(const FObjectIn
 
 FComposableCameraPose UComposableCameraEvaluationTree::Evaluate(float DeltaTime)
 {
-	Node& RootNode = GetRootNode();
+	auto& RootNode = GetRootNode();
 	FComposableCameraPose ResultPose = Visit(
 		[DeltaTime](const auto& RootNode) -> FComposableCameraPose
 		{
@@ -76,7 +103,13 @@ void UComposableCameraEvaluationTree::OnActivateNewCamera(AComposableCameraCamer
 	Transition = InTransition;
 }
 
-UComposableCameraEvaluationTree::Node& UComposableCameraEvaluationTree::GetRootNode()
+FComposableCameraEvaluationTreeNode& UComposableCameraEvaluationTree::GetRootNode()
+{
+	checkf(EvaluationTree.Num() > 0, TEXT("EvaluationTree is empty!"));
+	return EvaluationTree[0];
+}
+
+const FComposableCameraEvaluationTreeNode& UComposableCameraEvaluationTree::GetRootNode() const
 {
 	checkf(EvaluationTree.Num() > 0, TEXT("EvaluationTree is empty!"));
 	return EvaluationTree[0];

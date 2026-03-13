@@ -45,6 +45,12 @@ void UComposableCameraDynamicDeocclusionTransition::OnBeginPlay_Implementation(f
 FComposableCameraPose UComposableCameraDynamicDeocclusionTransition::OnEvaluate_Implementation(float DeltaTime,
 	const FComposableCameraPose& CurrentTargetPose)
 {
+	return OnEvaluateBySource(DeltaTime, StartCameraPose, CurrentTargetPose);
+}
+
+FComposableCameraPose UComposableCameraDynamicDeocclusionTransition::OnEvaluateBySource_Implementation(float DeltaTime,
+	const FComposableCameraPose& CurrentSourcePose, const FComposableCameraPose& CurrentTargetPose)
+{
 	if (!DrivingTransition)
 	{
 		UE_LOG(LogComposableCameraSystem, Warning, TEXT("DrivingTransition is not valid in ComposableCameraDynamicDeocclusionTransition."));

@@ -9,34 +9,36 @@
 
 class UComposableCameraTransitionBase;
 class AComposableCameraCameraBase;
+class FComposableCameraEvaluationTreeNode;
 
-USTRUCT()
-struct FComposableCameraEvaluationTreeLeafNode
+struct FComposableCameraEvaluationTreeLeafNodeWrapper
 {
-	GENERATED_BODY()
-
-public:
-	UPROPERTY(Transient)
-	AComposableCameraCameraBase* RunningCamera;
-
-public:
+	AComposableCameraCameraBase* RunningCamera { nullptr };
 	FComposableCameraPose Evaluate(float DeltaTime);
 };
 
+struct FComposableCameraEvaluationTreeInnerNodeWrapper
+{
+	UComposableCameraTransitionBase* Transition { nullptr };
+	FComposableCameraEvaluationTreeNode& LeftNode;
+	FComposableCameraEvaluationTreeNode& RightNode;
+	
+	bool bFreezePreviousCamera { false };
+	const FComposableCameraPose FreezedCameraPose;
+	
+	FComposableCameraPose Evaluate(float DeltaTime);
+};
+
+/** A basic evaluation tree node. */
 USTRUCT()
-struct FComposableCameraEvaluationTreeInnerNode
+struct FComposableCameraEvaluationTreeNode 
 {
 	GENERATED_BODY()
 
 public:
-	UPROPERTY(Transient)
-	UComposableCameraTransitionBase* Transition;
-	
-	bool bFreezePreviousCamera { false };
-	FComposableCameraPose FreezedCameraPose;
-	FComposableCameraEvaluationTreeLeafNode& RightNode;
-	FComposableCameraEvaluationTreeInnerNode& LeftNode;
-	
+	// This node can wrap either a transition or a running camera depending on its leaf node or inner node.
+	TVariant<FComposableCameraEvaluationTreeLeafNodeWrapper, FComposableCameraEvaluationTreeInnerNodeWrapper> Wrapper;
+
 public:
 	FComposableCameraPose Evaluate(float DeltaTime);
 };
@@ -53,7 +55,6 @@ class COMPOSABLECAMERASYSTEM_API UComposableCameraEvaluationTree
 	GENERATED_BODY()
 
 public:
-	using Node = TVariant<FComposableCameraEvaluationTreeLeafNode, FComposableCameraEvaluationTreeInnerNode>;
 	UComposableCameraEvaluationTree(const FObjectInitializer& ObjectInitializer);
 	
 	[[nodiscard]] FComposableCameraPose Evaluate(float DeltaTime);
@@ -61,9 +62,10 @@ public:
 
 private:
 	// Evaluation tree.
-	TArray<Node> EvaluationTree;
+	TArray<FComposableCameraEvaluationTreeNode> EvaluationTree;
 
-	Node& GetRootNode();
+	FComposableCameraEvaluationTreeNode& GetRootNode();
+	const FComposableCameraEvaluationTreeNode& GetRootNode() const;
 	
 	
 	// Currently running camera.

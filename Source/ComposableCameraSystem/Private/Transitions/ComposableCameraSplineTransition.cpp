@@ -21,6 +21,12 @@ void UComposableCameraSplineTransition::OnBeginPlay_Implementation(float DeltaTi
 
 FComposableCameraPose UComposableCameraSplineTransition::OnEvaluate_Implementation(float DeltaTime, const FComposableCameraPose& CurrentTargetPose)
 {
+	return OnEvaluateBySource(DeltaTime, CurrentTargetPose, CurrentTargetPose);
+}
+
+FComposableCameraPose UComposableCameraSplineTransition::OnEvaluateBySource_Implementation(float DeltaTime,
+	const FComposableCameraPose& CurrentSourcePose, const FComposableCameraPose& CurrentTargetPose)
+{
 	float DurationPct = (GetTransitionTime() - GetRemainingTime()) / GetTransitionTime();
 	float BlendWeight = DurationPct;
 	
@@ -44,14 +50,14 @@ FComposableCameraPose UComposableCameraSplineTransition::OnEvaluate_Implementati
 
 	Percentage = BlendWeight;
 	
-	FComposableCameraPose ResultPose = StartCameraPose;
+	FComposableCameraPose ResultPose = CurrentSourcePose;
 	ResultPose.BlendBy(CurrentTargetPose, BlendWeight);
 	
 	switch (SplineType)
 	{
 	case EComposableCameraSplineTransitionType::Hermite:
 		{
-			FVector P0 = StartCameraPose.Position;
+			FVector P0 = CurrentSourcePose.Position;
 			FVector P1 = CurrentTargetPose.Position;
 			FRotator R = UKismetMathLibrary::MakeRotFromX(P1 - P0);
 			FVector V0 = R.RotateVector(StartTangent);
@@ -72,7 +78,7 @@ FComposableCameraPose UComposableCameraSplineTransition::OnEvaluate_Implementati
 		break;
 	case EComposableCameraSplineTransitionType::Bezier:
 		{
-			FVector P0 = StartCameraPose.Position;
+			FVector P0 = CurrentSourcePose.Position;
 			FVector P3 = CurrentTargetPose.Position;
 			FRotator R = UKismetMathLibrary::MakeRotFromX(P3 - P0);
 			FVector P1 = R.RotateVector(StartControlPoint) + P0;
@@ -97,7 +103,7 @@ FComposableCameraPose UComposableCameraSplineTransition::OnEvaluate_Implementati
 		{
 			// Control points
 			TArray<FVector> ControlPointsWithStartAndEnd = ControlPoints;
-			FVector StartPoint = StartCameraPose.Position;
+			FVector StartPoint = CurrentSourcePose.Position;
 			FVector EndPoint = CurrentTargetPose.Position;
 			ControlPointsWithStartAndEnd.Insert(FVector::ZeroVector, 0);
 			ControlPointsWithStartAndEnd.Insert(FVector{ (EndPoint - StartPoint).Length(), 0., 0. }, ControlPointsWithStartAndEnd.Num());
@@ -128,7 +134,7 @@ FComposableCameraPose UComposableCameraSplineTransition::OnEvaluate_Implementati
 		break;
 	case EComposableCameraSplineTransitionType::Arc:
 		{
-			FVector P0 = StartCameraPose.Position;
+			FVector P0 = CurrentSourcePose.Position;
 			FVector P1 = CurrentTargetPose.Position;
 			float D = FVector::Dist(P0, P1);
 			float CosHalfAngle = UKismetMathLibrary::DegCos(ArcAngle / 2.f);
@@ -155,7 +161,7 @@ FComposableCameraPose UComposableCameraSplineTransition::OnEvaluate_Implementati
 	{
 		if (TargetCamera->GetOwningPlayerCameraManager()->bDrawDebugInformation)
 		{
-			DrawDebugSpline(StartCameraPose, CurrentTargetPose);
+			DrawDebugSpline(CurrentSourcePose, CurrentTargetPose);
 		}
 	}
 	
@@ -192,7 +198,7 @@ void UComposableCameraSplineTransition::DrawDebugSpline(const FComposableCameraP
 		}
 	case EComposableCameraSplineTransitionType::Bezier:
 		{
-			FVector P0 = StartCameraPose.Position;
+			FVector P0 = StartPose.Position;
 			FVector P3 = TargetPose.Position;
 			FRotator R = UKismetMathLibrary::MakeRotFromX(P3 - P0);
 			FVector P1 = R.RotateVector(StartControlPoint) + P0;
@@ -214,7 +220,7 @@ void UComposableCameraSplineTransition::DrawDebugSpline(const FComposableCameraP
 	case EComposableCameraSplineTransitionType::CatmullRom:
 		{
 			TArray<FVector> ControlPointsWithStartAndEnd = ControlPoints;
-			FVector StartPoint = StartCameraPose.Position;
+			FVector StartPoint = StartPose.Position;
 			FVector EndPoint = TargetPose.Position;
 			ControlPointsWithStartAndEnd.Insert(FVector::ZeroVector, 0);
 			ControlPointsWithStartAndEnd.Insert(FVector{ (EndPoint - StartPoint).Length(), 0., 0. }, ControlPointsWithStartAndEnd.Num());

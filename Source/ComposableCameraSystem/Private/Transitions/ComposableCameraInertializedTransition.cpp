@@ -40,6 +40,12 @@ void UComposableCameraInertializedTransition::OnBeginPlay_Implementation(float D
 FComposableCameraPose UComposableCameraInertializedTransition::OnEvaluate_Implementation(float DeltaTime,
                                                                                          const FComposableCameraPose& CurrentTargetPose)
 {
+	return OnEvaluateBySource(DeltaTime, StartCameraPose, CurrentTargetPose);
+}
+
+FComposableCameraPose UComposableCameraInertializedTransition::OnEvaluateBySource_Implementation(float DeltaTime,
+	const FComposableCameraPose& CurrentSourcePose, const FComposableCameraPose& CurrentTargetPose)
+{
 	if (bCanUseInertialization)
 	{
 		FComposableCameraPose OutPose {};
@@ -60,7 +66,7 @@ FComposableCameraPose UComposableCameraInertializedTransition::OnEvaluate_Implem
 			OutPose.Rotation = RotationalInertializer.Evaluate(BlendDuration, CurrentTargetPose.Rotation);
 		}
 
-		OutPose.FieldOfView = StartCameraPose.FieldOfView + BlendPct * (CurrentTargetPose.FieldOfView - StartCameraPose.FieldOfView);
+		OutPose.FieldOfView = CurrentSourcePose.FieldOfView + BlendPct * (CurrentTargetPose.FieldOfView - CurrentSourcePose.FieldOfView);
 
 		return OutPose;
 	}
@@ -72,9 +78,9 @@ FComposableCameraPose UComposableCameraInertializedTransition::OnEvaluate_Implem
 }
 
 float UComposableCameraInertializedTransition::GetActualBlendTime(float DeltaTime,
-	const FComposableCameraPose& LastSourceCameraPose,
-	const FComposableCameraPose& ThisSourceCameraPose,
-	const FComposableCameraPose& CurrentTargetPose)
+                                                                  const FComposableCameraPose& LastSourceCameraPose,
+                                                                  const FComposableCameraPose& ThisSourceCameraPose,
+                                                                  const FComposableCameraPose& CurrentTargetPose)
 {
 	if (bAutoTransitionTime)
 	{
