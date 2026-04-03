@@ -3,7 +3,7 @@
 #include "Nodes/ComposableCameraScreenSpaceConstraintsNode.h"
 
 #include "Camera/CameraComponent.h"
-#include "Core/ComposableCameraPlayerCamaraManager.h"
+#include "Core/ComposableCameraPlayerCameraManager.h"
 #include "Engine/Canvas.h"
 #include "GameFramework/HUD.h"
 #include "Kismet/GameplayStatics.h"

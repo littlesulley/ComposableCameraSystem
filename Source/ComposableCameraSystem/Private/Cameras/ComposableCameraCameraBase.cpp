@@ -4,7 +4,7 @@
 
 #include "Actions/ComposableCameraActionBase.h"
 #include "Camera/CameraComponent.h"
-#include "Core/ComposableCameraPlayerCamaraManager.h"
+#include "Core/ComposableCameraPlayerCameraManager.h"
 #include "DataAssets/ComposableCameraNodeInitializerDataAsset.h"
 #include "Modifiers/ComposableCameraModifierBase.h"
 #include "Nodes/ComposableCameraCameraNodeBase.h"
@@ -32,7 +32,7 @@ void AComposableCameraCameraBase::EndPlay(const EEndPlayReason::Type EndPlayReas
 	OnActionPostTick.Clear();
 }
 
-void AComposableCameraCameraBase::Initialize(AComposableCameraPlayerCamaraManager* Manager, UComposableCameraNodeInitializerDataAsset* NodeInitializerDataAsset)
+void AComposableCameraCameraBase::Initialize(AComposableCameraPlayerCameraManager* Manager, UComposableCameraNodeInitializerDataAsset* NodeInitializerDataAsset)
 {
 	TArray<UComposableCameraCameraNodeBase*> Initializers = NodeInitializerDataAsset ? NodeInitializerDataAsset->NodeParameterInitializers : TArray<UComposableCameraCameraNodeBase*>();
 	

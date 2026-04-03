@@ -6,7 +6,7 @@
 #include "UObject/Object.h"
 #include "ComposableCameraActionBase.generated.h"
 
-class AComposableCameraPlayerCamaraManager;
+class AComposableCameraPlayerCameraManager;
 
 UENUM(BlueprintType, meta = (Bitflags, UseEnumValuesAsMaskValuesInEditor = "true"))
 enum class EComposableCameraActionExpirationType : uint8
@@ -84,7 +84,7 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "ComposableCameraSystem|Action")
 	void ExpireAction()
 	{
-		bCanExecuteManul = false;
+		bCanExecuteManual = false;
 	}
 
 public:
@@ -92,12 +92,12 @@ public:
 	bool bOnlyForCurrentCamera { true };
 	
 	UPROPERTY(BlueprintReadOnly)
-	AComposableCameraPlayerCamaraManager* PlayerCameraManager{};
+	AComposableCameraPlayerCameraManager* PlayerCameraManager{};
 
 private:
 	bool bCanExecuteInstant { true };
 	bool bCanExecuteDuration { true };
-	bool bCanExecuteManul { true };
+	bool bCanExecuteManual { true };
 	bool bCanExecuteCondition { true };
 	
 	float ElapsedTime { 0.f };

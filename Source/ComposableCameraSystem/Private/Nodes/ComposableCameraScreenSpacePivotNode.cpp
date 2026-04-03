@@ -3,7 +3,7 @@
 #include "Nodes/ComposableCameraScreenSpacePivotNode.h"
 
 #include "Camera/CameraComponent.h"
-#include "Core/ComposableCameraPlayerCamaraManager.h"
+#include "Core/ComposableCameraPlayerCameraManager.h"
 #include "Engine/Canvas.h"
 #include "Engine/SceneCapture2D.h"
 #include "GameFramework/HUD.h"

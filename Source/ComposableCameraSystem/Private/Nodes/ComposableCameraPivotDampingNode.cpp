@@ -2,7 +2,7 @@
 
 #include "Nodes/ComposableCameraPivotDampingNode.h"
 
-#include "Core/ComposableCameraPlayerCamaraManager.h"
+#include "Core/ComposableCameraPlayerCameraManager.h"
 #include "Kismet/KismetMathLibrary.h"
 #include "Kismet/KismetSystemLibrary.h"
 

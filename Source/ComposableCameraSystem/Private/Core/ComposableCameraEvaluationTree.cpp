@@ -46,7 +46,10 @@ FComposableCameraPose FComposableCameraEvaluationTreeInnerNodeWrapper::Evaluate(
 
 FComposableCameraPose FComposableCameraEvaluationTreeNode::Evaluate(float DeltaTime)
 {
-	return {};
+	return Visit([=](auto& Node)
+	{
+		return Node.Evaluate(DeltaTime);
+	}, Wrapper);
 }
 
 UComposableCameraEvaluationTree::UComposableCameraEvaluationTree(const FObjectInitializer& ObjectInitializer)
@@ -99,6 +102,7 @@ FComposableCameraPose UComposableCameraEvaluationTree::Evaluate(float DeltaTime)
 
 void UComposableCameraEvaluationTree::OnActivateNewCamera(AComposableCameraCameraBase* NewCamera, UComposableCameraTransitionBase* InTransition)
 {
+	EvaluationTree.
 	RunningCamera = NewCamera;
 	Transition = InTransition;
 }

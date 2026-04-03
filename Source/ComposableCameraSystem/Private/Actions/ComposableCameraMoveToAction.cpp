@@ -1,7 +1,7 @@
 // Copyright Sulley. All rights reserved.
 
 #include "Actions/ComposableCameraMoveToAction.h"
-#include "Core/ComposableCameraPlayerCamaraManager.h"
+#include "Core/ComposableCameraPlayerCameraManager.h"
 
 UComposableCameraMoveToAction::UComposableCameraMoveToAction(const FObjectInitializer& ObjectInitializer)
 {

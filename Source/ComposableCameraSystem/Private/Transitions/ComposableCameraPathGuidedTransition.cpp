@@ -5,7 +5,7 @@
 #include "CameraRig_Rail.h"
 #include "ComposableCameraSystemModule.h"
 #include "Components/SplineComponent.h"
-#include "Core/ComposableCameraPlayerCamaraManager.h"
+#include "Core/ComposableCameraPlayerCameraManager.h"
 #include "Kismet/GameplayStatics.h"
 #include "Nodes/ComposableCameraSplineNode.h"
 

@@ -2,7 +2,7 @@
 
 #include "Transitions/ComposableCameraCylindricalTransition.h"
 
-#include "Core/ComposableCameraPlayerCamaraManager.h"
+#include "Core/ComposableCameraPlayerCameraManager.h"
 #include "Interpolator/ComposableCameraInterpolatorBase.h"
 #include "Kismet/KismetMathLibrary.h"
 #include "Kismet/KismetSystemLibrary.h"
@@ -59,7 +59,7 @@ FComposableCameraPose UComposableCameraCylindricalTransition::OnEvaluateBySource
 	ResultPose.FieldOfView = FMath::Lerp(CurrentSourcePose.FieldOfView, CurrentTargetPose.FieldOfView, BlendPct);
 
 	// Draw debug info.
-	if (AComposableCameraPlayerCamaraManager* PCM = UComposableCameraBlueprintLibrary::GetComposableCameraPlayerCameraManager(this, 0))
+	if (AComposableCameraPlayerCameraManager* PCM = UComposableCameraBlueprintLibrary::GetComposableCameraPlayerCameraManager(this, 0))
 	{
 		if (PCM->bDrawDebugInformation)
 		{

@@ -3,7 +3,7 @@
 #include "Actions/ComposableCameraRotateToAction.h"
 
 #include "EnhancedInputSubsystems.h"
-#include "Core/ComposableCameraPlayerCamaraManager.h"
+#include "Core/ComposableCameraPlayerCameraManager.h"
 #include "Interpolator/ComposableCameraInterpolatorBase.h"
 
 UComposableCameraRotateToAction::UComposableCameraRotateToAction(const FObjectInitializer& ObjectInitializer)

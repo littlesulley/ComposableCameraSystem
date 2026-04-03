@@ -5,7 +5,7 @@
 
 #include "EnhancedInputSubsystems.h"
 #include "EnhancedPlayerInput.h"
-#include "Core/ComposableCameraPlayerCamaraManager.h"
+#include "Core/ComposableCameraPlayerCameraManager.h"
 #include "Kismet/KismetSystemLibrary.h"
 
 UComposableCameraResetPitchAction::UComposableCameraResetPitchAction(const FObjectInitializer& ObjectInitializer)

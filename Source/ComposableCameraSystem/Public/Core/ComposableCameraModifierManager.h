@@ -13,7 +13,7 @@ class UComposableCameraCameraNodeBase;
 class UComposableCameraModifierBase;
 class UComposableCameraNodeModifierDataAsset;
 class UComposableCameraTransitionBase;
-class AComposableCameraPlayerCamaraManager;
+class AComposableCameraPlayerCameraManager;
 
 using namespace ComposableCameraModifier;
 

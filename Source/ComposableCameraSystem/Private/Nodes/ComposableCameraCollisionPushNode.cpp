@@ -3,7 +3,7 @@
 #include "Nodes/ComposableCameraCollisionPushNode.h"
 
 #include "ComposableCameraSystemModule.h"
-#include "Core/ComposableCameraPlayerCamaraManager.h"
+#include "Core/ComposableCameraPlayerCameraManager.h"
 #include "Kismet/GameplayStatics.h"
 #include "Kismet/KismetMathLibrary.h"
 #include "KismetTraceUtils.h"

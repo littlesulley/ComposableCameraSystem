@@ -10,7 +10,7 @@
 #include "Variables/ComposableCameraVariable.h"
 #include "ComposableCameraBlueprintLibrary.generated.h"
 
-class AComposableCameraPlayerCamaraManager;
+class AComposableCameraPlayerCameraManager;
 class UComposableCameraTransitionDataAsset;
 class UComposableCameraModifierBase;
 class UComposableCameraActionBase;
@@ -39,7 +39,7 @@ public:
 	UFUNCTION(BlueprintCallable, BlueprintInternalUseOnly, Category = "ComposableCameraSystem|Camera", meta = (WorldContext = "WorldContextObject", DeterminesOutputType = "CameraClass"))
 	static AComposableCameraCameraBase* CreateComposableCameraByClass(
 		const UObject* WorldContextObject,
-		AComposableCameraPlayerCamaraManager* PlayerCameraManager,
+		AComposableCameraPlayerCameraManager* PlayerCameraManager,
 		TSubclassOf<AComposableCameraCameraBase> CameraClass,
 		FComposableCameraActivateParams ActivationParams);
 	
@@ -56,7 +56,7 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "ComposableCameraSystem|Camera", meta = (WorldContext = "WorldContextObject", DeterminesOutputType = "CameraClass"))
 	static AComposableCameraCameraBase* ActivateComposableCameraByClass(
 		const UObject* WorldContextObject,
-		AComposableCameraPlayerCamaraManager* PlayerCameraManager,
+		AComposableCameraPlayerCameraManager* PlayerCameraManager,
 		TSubclassOf<AComposableCameraCameraBase> CameraClass,
 		UComposableCameraTransitionDataAsset* TransitionDataAsset,
 		FComposableCameraActivateParams ActivationParams,
@@ -74,7 +74,7 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "ComposableCameraSystem|Camera", meta = (WorldContext = "WorldContextObject", AutoCreateRefTerm = "SpecifiedTransform"))
 	static void TerminateCurrentCamera(
 		const UObject* WorldContextObject,
-		AComposableCameraPlayerCamaraManager* PlayerCameraManager,
+		AComposableCameraPlayerCameraManager* PlayerCameraManager,
 		UComposableCameraTransitionDataAsset* TransitionDataAsset,
 		EComposableCameraResumeCameraTransformSchema TransformSchema,
 		const FTransform& SpecifiedTransform,
@@ -86,7 +86,7 @@ public:
 	 * @param ModifierAsset Data asset for modifiers to add.
 	 */
 	UFUNCTION(BlueprintCallable, Category = "ComposableCameraSystem|Camera", meta = (WorldContext = "WorldContextObject"))
-	static void AddModifier(const UObject* WorldContextObject, AComposableCameraPlayerCamaraManager* PlayerCameraManager, UComposableCameraNodeModifierDataAsset* ModifierAsset);
+	static void AddModifier(const UObject* WorldContextObject, AComposableCameraPlayerCameraManager* PlayerCameraManager, UComposableCameraNodeModifierDataAsset* ModifierAsset);
 
 	/** Remove a modifier data asset.
 	 * @param WorldContextObject World context object. \n
@@ -94,7 +94,7 @@ public:
 	 * @param ModifierAsset Data asset for modifiers to remove.
 	 */
 	UFUNCTION(BlueprintCallable, Category = "ComposableCameraSystem|Camera", meta = (WorldContext = "WorldContextObject"))
-	static void RemoveModifier(const UObject* WorldContextObject, AComposableCameraPlayerCamaraManager* PlayerCameraManager, UComposableCameraNodeModifierDataAsset* ModifierAsset);
+	static void RemoveModifier(const UObject* WorldContextObject, AComposableCameraPlayerCameraManager* PlayerCameraManager, UComposableCameraNodeModifierDataAsset* ModifierAsset);
 	
 	/** Add a camera action. Multiple actions of the same class are not allowed.
 	 * @param WorldContextObject World context object. \n
@@ -103,7 +103,7 @@ public:
 	 * @param bOnlyForCurrentCamera If this action is only valid for current running camera. If true, the action will expire when the current camera is blended out.
 	 */
 	UFUNCTION(BlueprintCallable, Category = "ComposableCameraSystem|Camera", meta = (WorldContext = "WorldContextObject", DeterminesOutputType = "ActionClass"))
-	static UComposableCameraActionBase* AddAction(const UObject* WorldContextObject, AComposableCameraPlayerCamaraManager* PlayerCameraManager, TSubclassOf<UComposableCameraActionBase> ActionClass, bool bOnlyForCurrentCamera = false);
+	static UComposableCameraActionBase* AddAction(const UObject* WorldContextObject, AComposableCameraPlayerCameraManager* PlayerCameraManager, TSubclassOf<UComposableCameraActionBase> ActionClass, bool bOnlyForCurrentCamera = false);
 
 	/** Expire a camera action.
 	 * @param WorldContextObject World context object. \n
@@ -111,13 +111,13 @@ public:
 	 * @param ActionClass The class of action you want to expire.
 	 */
 	UFUNCTION(BlueprintCallable, Category = "ComposableCameraSystem|Camera", meta = (WorldContext = "WorldContextObject"))
-	static void ExpireAction(const UObject* WorldContextObject, AComposableCameraPlayerCamaraManager* PlayerCameraManager, TSubclassOf<UComposableCameraActionBase> ActionClass);
+	static void ExpireAction(const UObject* WorldContextObject, AComposableCameraPlayerCameraManager* PlayerCameraManager, TSubclassOf<UComposableCameraActionBase> ActionClass);
 
 	/** Get player camera manager and cast it to ComposableCameraPlayerCameraManager. Can be null if it's not the type.
 	 * @param Index Player index.
 	 */
 	UFUNCTION(BlueprintPure, Category = "ComposableCameraSystem|Camera", meta = (WorldContext = "WorldContextObject"))
-	static AComposableCameraPlayerCamaraManager* GetComposableCameraPlayerCameraManager(const UObject* WorldContextObject, int Index);
+	static AComposableCameraPlayerCameraManager* GetComposableCameraPlayerCameraManager(const UObject* WorldContextObject, int Index);
 
 	/** Custom thunk function for setting runtime values of a composable camera variable.
 	 * @param Variable The variable to set.

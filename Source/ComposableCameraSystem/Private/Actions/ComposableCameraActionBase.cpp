@@ -26,7 +26,7 @@ bool UComposableCameraActionBase::OnCanExecute(float DeltaTime, const FComposabl
 
 	if (ExpirationType & static_cast<uint8>(EComposableCameraActionExpirationType::Manual))
 	{
-		bCanExecuteManulThisTick = bCanExecuteManul;
+		bCanExecuteManulThisTick = bCanExecuteManual;
 	}
 
 	if (ExpirationType & static_cast<uint8>(EComposableCameraActionExpirationType::Condition))

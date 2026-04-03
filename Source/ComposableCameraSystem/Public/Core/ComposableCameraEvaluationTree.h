@@ -9,7 +9,6 @@
 
 class UComposableCameraTransitionBase;
 class AComposableCameraCameraBase;
-class FComposableCameraEvaluationTreeNode;
 
 struct FComposableCameraEvaluationTreeLeafNodeWrapper
 {
@@ -20,8 +19,8 @@ struct FComposableCameraEvaluationTreeLeafNodeWrapper
 struct FComposableCameraEvaluationTreeInnerNodeWrapper
 {
 	UComposableCameraTransitionBase* Transition { nullptr };
-	FComposableCameraEvaluationTreeNode& LeftNode;
-	FComposableCameraEvaluationTreeNode& RightNode;
+	int32 LeftNodeIndex { -1 };
+	int32 RightNodeIndex { -1 };
 	
 	bool bFreezePreviousCamera { false };
 	const FComposableCameraPose FreezedCameraPose;
@@ -64,6 +63,7 @@ private:
 	// Evaluation tree.
 	TArray<FComposableCameraEvaluationTreeNode> EvaluationTree;
 
+	// Evaluation tree helper functions.
 	FComposableCameraEvaluationTreeNode& GetRootNode();
 	const FComposableCameraEvaluationTreeNode& GetRootNode() const;
 	

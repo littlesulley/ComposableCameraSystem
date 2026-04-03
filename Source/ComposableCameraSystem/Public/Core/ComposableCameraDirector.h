@@ -3,7 +3,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "ComposableCameraPlayerCamaraManager.h"
+#include "ComposableCameraPlayerCameraManager.h"
 #include "UObject/Object.h"
 #include "Cameras/ComposableCameraCameraBase.h"
 #include "ComposableCameraDirector.generated.h"
@@ -28,19 +28,19 @@ public:
 		const FTransform& Transform);
 
 	AComposableCameraCameraBase* CreateNewCamera(
-		AComposableCameraPlayerCamaraManager* PlayerCameraManager,
+		AComposableCameraPlayerCameraManager* PlayerCameraManager,
 		TSubclassOf<AComposableCameraCameraBase> CameraClass,
 		const FComposableCameraActivateParams& ActivationParams);
 	
 	AComposableCameraCameraBase* ActivateNewCamera(
-		AComposableCameraPlayerCamaraManager* PlayerCameraManager,
+		AComposableCameraPlayerCameraManager* PlayerCameraManager,
 		TSubclassOf<AComposableCameraCameraBase> CameraClass,
 		UComposableCameraTransitionDataAsset* TransitionDataAsset,
 		const FComposableCameraActivateParams& ActivationParams,
 		FOnCameraFinishConstructed OnPreBeginplayEvent);
 
 	AComposableCameraCameraBase* ReactivateCurrentCamera(
-		AComposableCameraPlayerCamaraManager* PlayerCameraManager,
+		AComposableCameraPlayerCameraManager* PlayerCameraManager,
 		TSubclassOf<AComposableCameraCameraBase> CameraClass,
 		UComposableCameraTransitionBase* Transition,
 		UComposableCameraNodeInitializerDataAsset* NodeInitializerDataAsset,

@@ -3,7 +3,7 @@
 #include "Transitions/ComposableCameraSplineTransition.h"
 
 #include "ComposableCameraSystemModule.h"
-#include "Core/ComposableCameraPlayerCamaraManager.h"
+#include "Core/ComposableCameraPlayerCameraManager.h"
 #include "Math/ComposableCameraMath.h"
 
 void UComposableCameraSplineTransition::OnBeginPlay_Implementation(float DeltaTime,

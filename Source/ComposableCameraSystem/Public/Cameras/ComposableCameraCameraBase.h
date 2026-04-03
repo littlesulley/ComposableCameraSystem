@@ -15,7 +15,7 @@ class UComposableCameraTransitionBase;
 class UComposableCameraNodeInitializerDataAsset;
 class UComposableCameraVariableCollection;
 class UComposableCameraCameraNodeBase;
-class AComposableCameraPlayerCamaraManager;
+class AComposableCameraPlayerCameraManager;
 
 using namespace ComposableCameraModifier;
 
@@ -172,7 +172,7 @@ public:
 	virtual void BeginPlay() override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 	
-	void Initialize(AComposableCameraPlayerCamaraManager* Manager, UComposableCameraNodeInitializerDataAsset* NodeInitializerDataAsset);
+	void Initialize(AComposableCameraPlayerCameraManager* Manager, UComposableCameraNodeInitializerDataAsset* NodeInitializerDataAsset);
 	void ApplyModifiers(const T_NodeModifier& Modifiers);
 	void BeginPlayCamera(const FComposableCameraPose& CurrentCameraPose);
 	[[nodiscard]] FComposableCameraPose TickCamera(float DeltaTime);
@@ -212,7 +212,7 @@ public:
 	
 	// Get owning player camera manager. Must be type ComposableCameraPlayerCamaraManager.
 	UFUNCTION(BlueprintPure, Category = "ComposableCameraSystem|Camera")
-	AComposableCameraPlayerCamaraManager* GetOwningPlayerCameraManager() { return CameraManager; }
+	AComposableCameraPlayerCameraManager* GetOwningPlayerCameraManager() { return CameraManager; }
 
 	// Get camera pose for this frame.
 	UFUNCTION(BlueprintPure, Category = "ComposableCameraSystem|Camera")
@@ -265,5 +265,5 @@ public:
 
 protected:
 	UPROPERTY(Transient)
-	TObjectPtr<AComposableCameraPlayerCamaraManager> CameraManager;
+	TObjectPtr<AComposableCameraPlayerCameraManager> CameraManager;
 };

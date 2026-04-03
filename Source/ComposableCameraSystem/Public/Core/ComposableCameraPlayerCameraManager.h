@@ -6,7 +6,7 @@
 #include "Camera/PlayerCameraManager.h"
 #include "Transitions/ComposableCameraTransitionBase.h"
 #include "ComposableCameraNamespaces.h"
-#include "ComposableCameraPlayerCamaraManager.generated.h"
+#include "ComposableCameraPlayerCameraManager.generated.h"
 
 class UComposableCameraActionBase;
 class UComposableCameraTransitionDataAsset;
@@ -15,13 +15,13 @@ class UComposableCameraModifierManager;
 class UComposableCameraDirector;
 	
 UCLASS(ClassGroup = ComposableCameraSystem, NotPlaceable)
-class COMPOSABLECAMERASYSTEM_API AComposableCameraPlayerCamaraManager
+class COMPOSABLECAMERASYSTEM_API AComposableCameraPlayerCameraManager
 	: public APlayerCameraManager
 {
 	GENERATED_BODY()
 
 public:
-	AComposableCameraPlayerCamaraManager(const FObjectInitializer& ObjectInitializer);
+	AComposableCameraPlayerCameraManager(const FObjectInitializer& ObjectInitializer);
 	virtual void BeginPlay() override;
 	virtual void InitializeFor(APlayerController* PlayerController) override;
 	virtual void SetViewTarget(AActor* NewViewTarget, FViewTargetTransitionParams TransitionParams = FViewTargetTransitionParams()) override;

@@ -9,7 +9,7 @@
 #include "ComposableCameraCameraNodeBase.generated.h"
 
 class AComposableCameraCameraBase;
-class AComposableCameraPlayerCamaraManager;
+class AComposableCameraPlayerCameraManager;
 struct FComposableCameraPose;
 
 /**
@@ -22,7 +22,7 @@ class COMPOSABLECAMERASYSTEM_API UComposableCameraCameraNodeBase
 	GENERATED_BODY()
 
 public:
-	void Initialize(AComposableCameraCameraBase* InOwningCamera, AComposableCameraPlayerCamaraManager* InPlayerCameraManager, TArray<UComposableCameraCameraNodeBase*>& Initializers);
+	void Initialize(AComposableCameraCameraBase* InOwningCamera, AComposableCameraPlayerCameraManager* InPlayerCameraManager, TArray<UComposableCameraCameraNodeBase*>& Initializers);
 	void TickNode(float DeltaTime, const FComposableCameraPose CurrentCameraPose, FComposableCameraPose& OutCameraPose);
 	void BeginPlayNode(const FComposableCameraPose& CurrentCameraPose);
 	
@@ -33,7 +33,7 @@ public:
 	AComposableCameraCameraBase* GetOwningCamera() const { return OwningCamera; }
 
 	UFUNCTION(BlueprintPure, Category = "ComposableCameraSystem|Node")
-	AComposableCameraPlayerCamaraManager* GetOwningPlayerCameraManager() const { return OwningPlayerCameraManager; }
+	AComposableCameraPlayerCameraManager* GetOwningPlayerCameraManager() const { return OwningPlayerCameraManager; }
 
 public:
 	UFUNCTION()
@@ -83,5 +83,5 @@ protected:
 	AComposableCameraCameraBase* OwningCamera;
 
 	UPROPERTY(BlueprintReadOnly, Transient, Category = "ComposableCameraSystem|Node")
-	AComposableCameraPlayerCamaraManager* OwningPlayerCameraManager;
+	AComposableCameraPlayerCameraManager* OwningPlayerCameraManager;
 };

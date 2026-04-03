@@ -3,13 +3,13 @@
 #include "Utils/ComposableCameraBlueprintLibrary.h"
 
 #include "Cameras/ComposableCameraCameraBase.h"
-#include "Core/ComposableCameraPlayerCamaraManager.h"
+#include "Core/ComposableCameraPlayerCameraManager.h"
 #include "DataAssets/ComposableCameraTransitionDataAsset.h"
 #include "Kismet/GameplayStatics.h"
 
 AComposableCameraCameraBase* UComposableCameraBlueprintLibrary::CreateComposableCameraByClass(
 	const UObject* WorldContextObject,
-	AComposableCameraPlayerCamaraManager* PlayerCameraManager,
+	AComposableCameraPlayerCameraManager* PlayerCameraManager,
 	TSubclassOf<AComposableCameraCameraBase> CameraClass,
 	FComposableCameraActivateParams ActivationParams)
 {
@@ -25,7 +25,7 @@ AComposableCameraCameraBase* UComposableCameraBlueprintLibrary::CreateComposable
 
 AComposableCameraCameraBase* UComposableCameraBlueprintLibrary::ActivateComposableCameraByClass(
 	const UObject* WorldContextObject,
-	AComposableCameraPlayerCamaraManager* PlayerCameraManager,
+	AComposableCameraPlayerCameraManager* PlayerCameraManager,
 	TSubclassOf<AComposableCameraCameraBase> CameraClass,
 	UComposableCameraTransitionDataAsset* TransitionDataAsset,
 	FComposableCameraActivateParams ActivationParams,
@@ -58,7 +58,7 @@ AComposableCameraCameraBase* UComposableCameraBlueprintLibrary::ActivateComposab
 
 void UComposableCameraBlueprintLibrary::TerminateCurrentCamera(
 	const UObject* WorldContextObject,
-	AComposableCameraPlayerCamaraManager* PlayerCameraManager,
+	AComposableCameraPlayerCameraManager* PlayerCameraManager,
 	UComposableCameraTransitionDataAsset* TransitionDataAsset,
 	EComposableCameraResumeCameraTransformSchema TransformSchema,
 	const FTransform& SpecifiedTransform,
@@ -85,7 +85,7 @@ void UComposableCameraBlueprintLibrary::TerminateCurrentCamera(
 }
 
 void UComposableCameraBlueprintLibrary::AddModifier(const UObject* WorldContextObject,
-	AComposableCameraPlayerCamaraManager* PlayerCameraManager, UComposableCameraNodeModifierDataAsset* ModifierAsset)
+	AComposableCameraPlayerCameraManager* PlayerCameraManager, UComposableCameraNodeModifierDataAsset* ModifierAsset)
 {
 	if (PlayerCameraManager)
 	{
@@ -94,7 +94,7 @@ void UComposableCameraBlueprintLibrary::AddModifier(const UObject* WorldContextO
 }
 
 void UComposableCameraBlueprintLibrary::RemoveModifier(const UObject* WorldContextObject,
-	AComposableCameraPlayerCamaraManager* PlayerCameraManager, UComposableCameraNodeModifierDataAsset* ModifierAsset)
+	AComposableCameraPlayerCameraManager* PlayerCameraManager, UComposableCameraNodeModifierDataAsset* ModifierAsset)
 {
 	if (PlayerCameraManager)
 	{
@@ -103,7 +103,7 @@ void UComposableCameraBlueprintLibrary::RemoveModifier(const UObject* WorldConte
 }
 
 UComposableCameraActionBase* UComposableCameraBlueprintLibrary::AddAction(const UObject* WorldContextObject,
-	AComposableCameraPlayerCamaraManager* PlayerCameraManager, TSubclassOf<UComposableCameraActionBase> ActionClass, bool bOnlyForCurrentCamera)
+	AComposableCameraPlayerCameraManager* PlayerCameraManager, TSubclassOf<UComposableCameraActionBase> ActionClass, bool bOnlyForCurrentCamera)
 {
 	if (PlayerCameraManager)
 	{
@@ -114,7 +114,7 @@ UComposableCameraActionBase* UComposableCameraBlueprintLibrary::AddAction(const 
 }
 
 void UComposableCameraBlueprintLibrary::ExpireAction(const UObject* WorldContextObject,
-	AComposableCameraPlayerCamaraManager* PlayerCameraManager, TSubclassOf<UComposableCameraActionBase> ActionClass)
+	AComposableCameraPlayerCameraManager* PlayerCameraManager, TSubclassOf<UComposableCameraActionBase> ActionClass)
 {
 	if (PlayerCameraManager)
 	{
@@ -122,11 +122,11 @@ void UComposableCameraBlueprintLibrary::ExpireAction(const UObject* WorldContext
 	}
 }
 
-AComposableCameraPlayerCamaraManager* UComposableCameraBlueprintLibrary::GetComposableCameraPlayerCameraManager(
+AComposableCameraPlayerCameraManager* UComposableCameraBlueprintLibrary::GetComposableCameraPlayerCameraManager(
 	const UObject* WorldContextObject, int Index)
 {
 	APlayerController* PC = UGameplayStatics::GetPlayerController(WorldContextObject, Index);
-	return Cast<AComposableCameraPlayerCamaraManager>(PC->PlayerCameraManager);
+	return Cast<AComposableCameraPlayerCameraManager>(PC->PlayerCameraManager);
 }
 
 FVector UComposableCameraBlueprintLibrary::MakeLiteralVector(FVector Value)

@@ -1,6 +1,6 @@
 // Copyright Sulley. All rights reserved.
 
-#include "Core/ComposableCameraPlayerCamaraManager.h"
+#include "Core/ComposableCameraPlayerCameraManager.h"
 #include "Cameras/ComposableCameraCameraBase.h"
 #include "ComposableCameraSystemModule.h"
 #include "IAutomationControllerManager.h"
@@ -18,36 +18,36 @@
 
 class UComposableCameraTransitionBase;
 
-AComposableCameraPlayerCamaraManager::AComposableCameraPlayerCamaraManager(const  FObjectInitializer& ObjectInitializer)
+AComposableCameraPlayerCameraManager::AComposableCameraPlayerCameraManager(const  FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
 {
 	Director = CreateDefaultSubobject<UComposableCameraDirector>(TEXT("Director"));
 	ModifierManager = CreateDefaultSubobject<UComposableCameraModifierManager>(TEXT("ModifierManager"));
 }
 
-void AComposableCameraPlayerCamaraManager::BeginPlay()
+void AComposableCameraPlayerCameraManager::BeginPlay()
 {
 	Super::BeginPlay();
 }
 
-void AComposableCameraPlayerCamaraManager::InitializeFor(APlayerController* PlayerController)
+void AComposableCameraPlayerCameraManager::InitializeFor(APlayerController* PlayerController)
 {
 	Super::InitializeFor(PlayerController);
 }
 
-void AComposableCameraPlayerCamaraManager::SetViewTarget(AActor* NewViewTarget,
+void AComposableCameraPlayerCameraManager::SetViewTarget(AActor* NewViewTarget,
 	FViewTargetTransitionParams TransitionParams)
 {
 	Super::SetViewTarget(NewViewTarget, TransitionParams);
 }
 
-void AComposableCameraPlayerCamaraManager::ProcessViewRotation(float DeltaTime, FRotator& OutViewRotation,
+void AComposableCameraPlayerCameraManager::ProcessViewRotation(float DeltaTime, FRotator& OutViewRotation,
 	FRotator& OutDeltaRot)
 {
 	Super::ProcessViewRotation(DeltaTime, OutViewRotation, OutDeltaRot);
 }
 
-void AComposableCameraPlayerCamaraManager::DisplayDebug(class UCanvas* Canvas,
+void AComposableCameraPlayerCameraManager::DisplayDebug(class UCanvas* Canvas,
 	const FDebugDisplayInfo& DebugDisplay, float& YL, float& YPos)
 {
 	const FMinimalViewInfo& CurrentPOV = GetCameraCacheView();
@@ -58,7 +58,7 @@ void AComposableCameraPlayerCamaraManager::DisplayDebug(class UCanvas* Canvas,
 	BuildModifierDebugString(DisplayDebugManager);
 }
 
-AComposableCameraCameraBase* AComposableCameraPlayerCamaraManager::CreateNewCamera(
+AComposableCameraCameraBase* AComposableCameraPlayerCameraManager::CreateNewCamera(
 	TSubclassOf<AComposableCameraCameraBase> CameraClass, const FComposableCameraActivateParams& ActivationParams)
 {
 	if (CameraClass == nullptr)
@@ -81,7 +81,7 @@ AComposableCameraCameraBase* AComposableCameraPlayerCamaraManager::CreateNewCame
 	return NewCamera;
 }
 
-AComposableCameraCameraBase* AComposableCameraPlayerCamaraManager::ActivateNewCamera(
+AComposableCameraCameraBase* AComposableCameraPlayerCameraManager::ActivateNewCamera(
 	TSubclassOf<AComposableCameraCameraBase> CameraClass,
 	UComposableCameraTransitionDataAsset* Transition,
 	const FComposableCameraActivateParams& ActivationParams,
@@ -126,25 +126,25 @@ AComposableCameraCameraBase* AComposableCameraPlayerCamaraManager::ActivateNewCa
 	return RunningCamera;
 }
 
-AComposableCameraCameraBase* AComposableCameraPlayerCamaraManager::ReactivateCurrentCamera(UComposableCameraTransitionBase* Transition)
+AComposableCameraCameraBase* AComposableCameraPlayerCameraManager::ReactivateCurrentCamera(UComposableCameraTransitionBase* Transition)
 {
 	TSubclassOf<AComposableCameraCameraBase> CameraClass = RunningCamera->GetClass();
 	return Director->ReactivateCurrentCamera(this, CameraClass, Transition, CurrentNodeInitializerDataAsset, CurrentOnPreBeginplayEvent);
 }
 
-void AComposableCameraPlayerCamaraManager::AddModifier(UComposableCameraNodeModifierDataAsset* ModifierAsset)
+void AComposableCameraPlayerCameraManager::AddModifier(UComposableCameraNodeModifierDataAsset* ModifierAsset)
 {
 	ModifierManager->AddModifier(ModifierAsset);
 	OnModifierChanged();
 }
 
-void AComposableCameraPlayerCamaraManager::RemoveModifier(UComposableCameraNodeModifierDataAsset* ModifierAsset)
+void AComposableCameraPlayerCameraManager::RemoveModifier(UComposableCameraNodeModifierDataAsset* ModifierAsset)
 {
 	ModifierManager->RemoveModifier(ModifierAsset);
 	OnModifierChanged();
 }
 
-void AComposableCameraPlayerCamaraManager::ApplyModifiers(AComposableCameraCameraBase* Camera, bool bRefreshModifierData)
+void AComposableCameraPlayerCameraManager::ApplyModifiers(AComposableCameraCameraBase* Camera, bool bRefreshModifierData)
 {
 	if (bRefreshModifierData)
 	{
@@ -155,7 +155,7 @@ void AComposableCameraPlayerCamaraManager::ApplyModifiers(AComposableCameraCamer
 	Camera->ApplyModifiers(Modifiers);
 }
 
-void AComposableCameraPlayerCamaraManager::OnModifierChanged()
+void AComposableCameraPlayerCameraManager::OnModifierChanged()
 {
 	auto [bChanged, Transition] = ModifierManager->GetModifierData().UpdateEffectiveModifiers(RunningCamera);
 
@@ -171,7 +171,7 @@ void AComposableCameraPlayerCamaraManager::OnModifierChanged()
 	}
 }
 
-UComposableCameraActionBase* AComposableCameraPlayerCamaraManager::AddCameraAction(
+UComposableCameraActionBase* AComposableCameraPlayerCameraManager::AddCameraAction(
 	TSubclassOf<UComposableCameraActionBase> ActionClass, bool bOnlyForCurrentCamera)
 {
 	if (!ActionClass)
@@ -216,7 +216,7 @@ UComposableCameraActionBase* AComposableCameraPlayerCamaraManager::AddCameraActi
 	return Action;
 }
 
-UComposableCameraActionBase* AComposableCameraPlayerCamaraManager::FindCameraAction(
+UComposableCameraActionBase* AComposableCameraPlayerCameraManager::FindCameraAction(
 	TSubclassOf<UComposableCameraActionBase> ActionClass)
 {
 	for (UComposableCameraActionBase* Action : CameraActions)
@@ -229,7 +229,7 @@ UComposableCameraActionBase* AComposableCameraPlayerCamaraManager::FindCameraAct
 	return nullptr;
 }
 
-void AComposableCameraPlayerCamaraManager::RemoveCameraAction(UComposableCameraActionBase* Action)
+void AComposableCameraPlayerCameraManager::RemoveCameraAction(UComposableCameraActionBase* Action)
 {
 	// Recursively unbind delegates.
 	AComposableCameraCameraBase* CurrentCamera = RunningCamera;
@@ -241,7 +241,7 @@ void AComposableCameraPlayerCamaraManager::RemoveCameraAction(UComposableCameraA
 	}
 }
 
-void AComposableCameraPlayerCamaraManager::ExpireCameraAction(TSubclassOf<UComposableCameraActionBase> ActionClass)
+void AComposableCameraPlayerCameraManager::ExpireCameraAction(TSubclassOf<UComposableCameraActionBase> ActionClass)
 {
 	if (auto* Action = FindCameraAction(ActionClass))
 	{
@@ -249,7 +249,7 @@ void AComposableCameraPlayerCamaraManager::ExpireCameraAction(TSubclassOf<UCompo
 	}
 }
 
-void AComposableCameraPlayerCamaraManager::BindCameraActionsForNewCamera(AComposableCameraCameraBase* Camera)
+void AComposableCameraPlayerCameraManager::BindCameraActionsForNewCamera(AComposableCameraCameraBase* Camera)
 {
 	for (auto* Action: GetCameraActions())
 	{
@@ -278,7 +278,7 @@ void AComposableCameraPlayerCamaraManager::BindCameraActionsForNewCamera(ACompos
 	}
 }
 
-void AComposableCameraPlayerCamaraManager::ResumeCamera(AComposableCameraCameraBase* ResumeCamera, UComposableCameraTransitionBase* Transition,
+void AComposableCameraPlayerCameraManager::ResumeCamera(AComposableCameraCameraBase* ResumeCamera, UComposableCameraTransitionBase* Transition,
 	EComposableCameraResumeCameraTransformSchema TransformSchema, FTransform SpecifiedTransform, bool bUseSpecifiedRotation)
 {
 	FTransform InitialTransform {};
@@ -306,12 +306,12 @@ void AComposableCameraPlayerCamaraManager::ResumeCamera(AComposableCameraCameraB
 	RunningCamera = Director->ResumeCamera(ResumeCamera, Transition, InitialTransform);
 }
 
-const TSet<UComposableCameraActionBase*>& AComposableCameraPlayerCamaraManager::GetCameraActions()
+const TSet<UComposableCameraActionBase*>& AComposableCameraPlayerCameraManager::GetCameraActions()
 {
 	return CameraActions;
 }
 
-FMinimalViewInfo AComposableCameraPlayerCamaraManager::GetCameraViewFromCameraPose(const FComposableCameraPose& OutPose) const
+FMinimalViewInfo AComposableCameraPlayerCameraManager::GetCameraViewFromCameraPose(const FComposableCameraPose& OutPose) const
 {
 	FMinimalViewInfo DesiredView = GetCameraCacheView();
 
@@ -337,7 +337,7 @@ FMinimalViewInfo AComposableCameraPlayerCamaraManager::GetCameraViewFromCameraPo
 	return DesiredView;
 }
 
-void AComposableCameraPlayerCamaraManager::DoUpdateCamera(float DeltaTime)
+void AComposableCameraPlayerCameraManager::DoUpdateCamera(float DeltaTime)
 {
 	Super::DoUpdateCamera(DeltaTime);
 
@@ -367,7 +367,7 @@ void AComposableCameraPlayerCamaraManager::DoUpdateCamera(float DeltaTime)
 	FillCameraCache(DesiredView);
 }
 
-void AComposableCameraPlayerCamaraManager::RefreshCameraChain() const
+void AComposableCameraPlayerCameraManager::RefreshCameraChain() const
 {
 	const UComposableCameraProjectSettings* Settings = GetDefault<UComposableCameraProjectSettings>();
 	const int32 MaxCameraChainLength = Settings->MaxCameraChainCleanupDepth;
@@ -392,7 +392,7 @@ void AComposableCameraPlayerCamaraManager::RefreshCameraChain() const
 	}
 }
 
-void AComposableCameraPlayerCamaraManager::UpdateActions(float DeltaTime)
+void AComposableCameraPlayerCameraManager::UpdateActions(float DeltaTime)
 {
 	TSet<UComposableCameraActionBase*> ActionsToRemove;
 	for (auto* Action : CameraActions)
@@ -415,7 +415,7 @@ void AComposableCameraPlayerCamaraManager::UpdateActions(float DeltaTime)
 	}
 }
 
-void AComposableCameraPlayerCamaraManager::BuildModifierDebugString(FDisplayDebugManager& DisplayDebugManager)
+void AComposableCameraPlayerCameraManager::BuildModifierDebugString(FDisplayDebugManager& DisplayDebugManager)
 {
 	const auto& ModifierDataStruct = ModifierManager->GetModifierData();
 	const auto& ModifierData = ModifierDataStruct.ModifierData;

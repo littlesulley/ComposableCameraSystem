@@ -3,7 +3,7 @@
 #include "Transitions/ComposableCameraDynamicDeocclusionTransition.h"
 
 #include "ComposableCameraSystemModule.h"
-#include "Core/ComposableCameraPlayerCamaraManager.h"
+#include "Core/ComposableCameraPlayerCameraManager.h"
 #include "EditorHooks/EditorHooks.h"
 #include "Kismet/GameplayStatics.h"
 

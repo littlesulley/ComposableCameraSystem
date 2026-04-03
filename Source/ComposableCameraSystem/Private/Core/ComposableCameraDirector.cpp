@@ -4,7 +4,7 @@
 #include "Cameras/ComposableCameraCameraBase.h"
 #include "Transitions/ComposableCameraTransitionBase.h"
 #include "Core/ComposableCameraEvaluationTree.h"
-#include "Core/ComposableCameraPlayerCamaraManager.h"
+#include "Core/ComposableCameraPlayerCameraManager.h"
 #include "DataAssets/ComposableCameraTransitionDataAsset.h"
 
 UComposableCameraDirector::UComposableCameraDirector(const FObjectInitializer& ObjectInitializer)
@@ -41,7 +41,7 @@ AComposableCameraCameraBase* UComposableCameraDirector::ResumeCamera(AComposable
 }
 
 AComposableCameraCameraBase* UComposableCameraDirector::CreateNewCamera(
-	AComposableCameraPlayerCamaraManager* PlayerCameraManager, TSubclassOf<AComposableCameraCameraBase> CameraClass,
+	AComposableCameraPlayerCameraManager* PlayerCameraManager, TSubclassOf<AComposableCameraCameraBase> CameraClass,
 	const FComposableCameraActivateParams& ActivationParams)
 {
 	bool bPreserveCameraPose = ActivationParams.bPreserveCameraPose;
@@ -91,7 +91,7 @@ AComposableCameraCameraBase* UComposableCameraDirector::CreateNewCamera(
 }
 
 AComposableCameraCameraBase* UComposableCameraDirector::ActivateNewCamera(
-	AComposableCameraPlayerCamaraManager* PlayerCameraManager,
+	AComposableCameraPlayerCameraManager* PlayerCameraManager,
 	TSubclassOf<AComposableCameraCameraBase> CameraClass,
 	UComposableCameraTransitionDataAsset* TransitionDataAsset,
 	const FComposableCameraActivateParams& ActivationParams,
@@ -161,7 +161,7 @@ AComposableCameraCameraBase* UComposableCameraDirector::ActivateNewCamera(
 }
 
 AComposableCameraCameraBase* UComposableCameraDirector::ReactivateCurrentCamera(
-	AComposableCameraPlayerCamaraManager* PlayerCameraManager,
+	AComposableCameraPlayerCameraManager* PlayerCameraManager,
 	TSubclassOf<AComposableCameraCameraBase> CameraClass,
 	UComposableCameraTransitionBase* Transition,
 	UComposableCameraNodeInitializerDataAsset* NodeInitializerDataAsset,
