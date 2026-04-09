@@ -6,22 +6,27 @@
 #include "Core/ComposableCameraPlayerCameraManager.h"
 #include "EditorHooks/EditorHooks.h"
 #include "Kismet/GameplayStatics.h"
+#include "Utils/ComposableCameraBlueprintLibrary.h"
 
 void UComposableCameraDynamicDeocclusionTransition::OnBeginPlay_Implementation(float DeltaTime,
-	const FComposableCameraPose& CurrentTargetPose)
+	const FComposableCameraPose& CurrentSourcePose, const FComposableCameraPose& CurrentTargetPose)
 {
 	if (DrivingTransition)
 	{
-		DrivingTransition->TransitionEnabled(SourceCamera, TargetCamera, StartCameraPose);
+		DrivingTransition->TransitionEnabled(InitParams);
 		DrivingTransition->SetTransitionTime(TransitionTime);
 		DrivingTransition->ResetTransitionState();
 	}
 
 	// DrawDebugType.
-	DrawDebugType =
-		TargetCamera->GetOwningPlayerCameraManager()->bDrawDebugInformation ?
-		EDrawDebugTrace::ForOneFrame :
-		EDrawDebugTrace::None;
+	DrawDebugType = EDrawDebugTrace::None;
+	if (AComposableCameraPlayerCameraManager* PCM = UComposableCameraBlueprintLibrary::GetComposableCameraPlayerCameraManager(this, 0))
+	{
+		if (PCM->bDrawDebugInformation)
+		{
+			DrawDebugType = EDrawDebugTrace::ForOneFrame;
+		}
+	}
 
 #if WITH_EDITOR
 	if (!FIsSimulatingInEditor::GetIsSimulatingInEditor())
@@ -43,12 +48,6 @@ void UComposableCameraDynamicDeocclusionTransition::OnBeginPlay_Implementation(f
 }
 
 FComposableCameraPose UComposableCameraDynamicDeocclusionTransition::OnEvaluate_Implementation(float DeltaTime,
-	const FComposableCameraPose& CurrentTargetPose)
-{
-	return OnEvaluateBySource(DeltaTime, StartCameraPose, CurrentTargetPose);
-}
-
-FComposableCameraPose UComposableCameraDynamicDeocclusionTransition::OnEvaluateBySource_Implementation(float DeltaTime,
 	const FComposableCameraPose& CurrentSourcePose, const FComposableCameraPose& CurrentTargetPose)
 {
 	if (!DrivingTransition)
@@ -56,8 +55,8 @@ FComposableCameraPose UComposableCameraDynamicDeocclusionTransition::OnEvaluateB
 		UE_LOG(LogComposableCameraSystem, Warning, TEXT("DrivingTransition is not valid in ComposableCameraDynamicDeocclusionTransition."));
 		return FComposableCameraPose{};
 	}
-	
-	FComposableCameraPose BasePose = DrivingTransition->Evaluate(DeltaTime, CurrentTargetPose);
+
+	FComposableCameraPose BasePose = DrivingTransition->Evaluate(DeltaTime, CurrentSourcePose, CurrentTargetPose);
 	FComposableCameraPose CandidatePose = BasePose;
 	CandidatePose.Position = PreviousOffset + BasePose.Position;
 	FVector AggregateOffset = FVector::ZeroVector;

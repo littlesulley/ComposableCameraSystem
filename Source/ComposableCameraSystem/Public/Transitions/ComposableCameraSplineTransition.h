@@ -3,7 +3,6 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "ComposableCameraSmoothTransition.h"
 #include "ComposableCameraTransitionBase.h"
 #include "ComposableCameraSplineTransition.generated.h"
 
@@ -41,9 +40,8 @@ class COMPOSABLECAMERASYSTEM_API UComposableCameraSplineTransition : public UCom
 	GENERATED_BODY()
 	
 public:
-	virtual void OnBeginPlay_Implementation(float DeltaTime, const FComposableCameraPose& CurrentTargetPose) override;
-	virtual FComposableCameraPose OnEvaluate_Implementation(float DeltaTime, const FComposableCameraPose& CurrentTargetPose) override;
-	virtual FComposableCameraPose OnEvaluateBySource_Implementation(float DeltaTime, const FComposableCameraPose& CurrentSourcePose, const FComposableCameraPose& CurrentTargetPose) override;
+	virtual void OnBeginPlay_Implementation(float DeltaTime, const FComposableCameraPose& CurrentSourcePose, const FComposableCameraPose& CurrentTargetPose) override;
+	virtual FComposableCameraPose OnEvaluate_Implementation(float DeltaTime, const FComposableCameraPose& CurrentSourcePose, const FComposableCameraPose& CurrentTargetPose) override;
 
 public:
 	// Spline type: Hermite, Bezier, B-Spline, Arc.
@@ -62,7 +60,7 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (EditCondition = "SplineType == EComposableCameraSplineTransitionType::Hermite", EditConditionHides))
 	FVector EndTangent { 0.f, 100.f, 0.f };
 
-	// Start control point, relative to the end position and the transform formed by the direction from start position to end position.
+	// Start control point, relative to the start position and the transform formed by the direction from start position to end position.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (EditCondition = "SplineType == EComposableCameraSplineTransitionType::Bezier", EditConditionHides))
 	FVector StartControlPoint { 0.f, 100.f, 0.f };
 

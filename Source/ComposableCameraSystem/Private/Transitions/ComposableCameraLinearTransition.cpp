@@ -3,17 +3,11 @@
 #include "Transitions/ComposableCameraLinearTransition.h"
 
 FComposableCameraPose UComposableCameraLinearTransition::OnEvaluate_Implementation(float DeltaTime,
-	const FComposableCameraPose& CurrentTargetPose)
-{
-	return OnEvaluateBySource(DeltaTime, StartCameraPose, CurrentTargetPose);
-}
-
-FComposableCameraPose UComposableCameraLinearTransition::OnEvaluateBySource_Implementation(float DeltaTime,
 	const FComposableCameraPose& CurrentSourcePose, const FComposableCameraPose& CurrentTargetPose)
 {
 	float BlendWeight = (GetTransitionTime() - GetRemainingTime()) / GetTransitionTime();
 	Percentage = BlendWeight;
-	
+
 	FComposableCameraPose CurrentPose = CurrentSourcePose;
 	CurrentPose.BlendBy(CurrentTargetPose, BlendWeight);
 

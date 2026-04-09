@@ -8,8 +8,6 @@
 #include "Math/ComposableCameraMath.h"
 #include "ComposableCameraInertializedTransition.generated.h"
 
-class UComposableCameraSmoothTransition;
-
 template <size_t Order, typename ElementType>
 class ComposableCameraPolynomial
 {
@@ -270,9 +268,8 @@ class COMPOSABLECAMERASYSTEM_API UComposableCameraInertializedTransition : publi
 	GENERATED_BODY()
 
 public:
-	virtual void OnBeginPlay_Implementation(float DeltaTime, const FComposableCameraPose& CurrentTargetPose) override;
-	virtual FComposableCameraPose OnEvaluate_Implementation(float DeltaTime, const FComposableCameraPose& CurrentTargetPose) override;
-	virtual FComposableCameraPose OnEvaluateBySource_Implementation(float DeltaTime, const FComposableCameraPose& CurrentSourcePose, const FComposableCameraPose& CurrentTargetPose) override;
+	virtual void OnBeginPlay_Implementation(float DeltaTime, const FComposableCameraPose& CurrentSourcePose, const FComposableCameraPose& CurrentTargetPose) override;
+	virtual FComposableCameraPose OnEvaluate_Implementation(float DeltaTime, const FComposableCameraPose& CurrentSourcePose, const FComposableCameraPose& CurrentTargetPose) override;
 
 public:
 	// Whether to use automatic transition time. If true, will compute the transition time according to MaxAcceleration, else, will use TransitionTime.
@@ -296,11 +293,8 @@ public:
 	float AdditiveCurveShape { 10.f };
 	
 private:
-	bool bCanUseInertialization = false;
 	ComposableCameraInitializer<FRotator, ComposableCameraRotationalInertializer> RotationalInertializer;
 	ComposableCameraInitializer<FVector, ComposableCameraIndependentPositionalInertializer> PositionalInertializer;
 
-	UComposableCameraSmoothTransition* BackupSmoothTransition;
-	
 	float GetActualBlendTime(float DeltaTime, const FComposableCameraPose& LastSourceCameraPose, const FComposableCameraPose& ThisSourceCameraPose, const FComposableCameraPose& CurrentTargetPose);
 };

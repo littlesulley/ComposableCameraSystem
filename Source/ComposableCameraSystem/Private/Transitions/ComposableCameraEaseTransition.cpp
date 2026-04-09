@@ -2,13 +2,7 @@
 
 #include "Transitions/ComposableCameraEaseTransition.h"
 
-FComposableCameraPose UComposableCameraEaseTransition::UComposableCameraEaseTransition::OnEvaluate_Implementation(
-	float DeltaTime, const FComposableCameraPose& CurrentTargetPose)
-{
-	return OnEvaluateBySource(DeltaTime, StartCameraPose, CurrentTargetPose);
-}
-
-FComposableCameraPose UComposableCameraEaseTransition::OnEvaluateBySource_Implementation(float DeltaTime,
+FComposableCameraPose UComposableCameraEaseTransition::OnEvaluate_Implementation(float DeltaTime,
 	const FComposableCameraPose& CurrentSourcePose, const FComposableCameraPose& CurrentTargetPose)
 {
 	float DurationPct = (GetTransitionTime() - GetRemainingTime()) / GetTransitionTime();

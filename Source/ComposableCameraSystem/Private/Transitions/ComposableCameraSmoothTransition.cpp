@@ -4,18 +4,12 @@
 #include "Math/ComposableCameraMath.h"
 
 FComposableCameraPose UComposableCameraSmoothTransition::OnEvaluate_Implementation(float DeltaTime,
-	const FComposableCameraPose& CurrentTargetPose)
-{
-	return OnEvaluateBySource(DeltaTime, StartCameraPose, CurrentTargetPose);
-}
-
-FComposableCameraPose UComposableCameraSmoothTransition::OnEvaluateBySource_Implementation(float DeltaTime,
 	const FComposableCameraPose& CurrentSourcePose, const FComposableCameraPose& CurrentTargetPose)
 {
 	float DurationPct = (GetTransitionTime() - GetRemainingTime()) / GetTransitionTime();
 	float BlendWeight = bSmootherStep ? ComposableCameraSystem::SmootherStep(DurationPct) : ComposableCameraSystem::SmoothStep(DurationPct);
 	Percentage = BlendWeight;
-	
+
 	FComposableCameraPose CurrentPose = CurrentSourcePose;
 	CurrentPose.BlendBy(CurrentTargetPose, BlendWeight);
 

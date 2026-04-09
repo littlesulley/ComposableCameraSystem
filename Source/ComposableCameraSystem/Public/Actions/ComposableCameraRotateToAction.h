@@ -29,7 +29,7 @@ public:
 	UPROPERTY(BlueprintReadWrite, EditAnywhere)
 	FRotator TargetRotation;
 
-	// Rotate action to read user input from. Used to detect 
+	// Rotate action to read user input from. Used to detect whether user provides input.
 	UPROPERTY(EditAnywhere)
 	class UInputAction* RotateAction { nullptr };
 

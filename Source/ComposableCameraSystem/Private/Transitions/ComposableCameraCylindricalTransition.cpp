@@ -1,4 +1,4 @@
-﻿// Copyright Sulley. All rights reserved.
+// Copyright Sulley. All rights reserved.
 
 #include "Transitions/ComposableCameraCylindricalTransition.h"
 
@@ -10,17 +10,12 @@
 #include "Utils/ComposableCameraBlueprintLibrary.h"
 
 void UComposableCameraCylindricalTransition::OnBeginPlay_Implementation(float DeltaTime,
+                                                                        const FComposableCameraPose& CurrentSourcePose,
                                                                         const FComposableCameraPose& CurrentTargetPose)
 {
 }
 
 FComposableCameraPose UComposableCameraCylindricalTransition::OnEvaluate_Implementation(float DeltaTime,
-                                                                                        const FComposableCameraPose& CurrentTargetPose)
-{
-	return OnEvaluateBySource(DeltaTime, StartCameraPose, CurrentTargetPose);
-}
-
-FComposableCameraPose UComposableCameraCylindricalTransition::OnEvaluateBySource_Implementation(float DeltaTime,
 	const FComposableCameraPose& CurrentSourcePose, const FComposableCameraPose& CurrentTargetPose)
 {
 	// Position.
@@ -36,11 +31,11 @@ FComposableCameraPose UComposableCameraCylindricalTransition::OnEvaluateBySource
 	FVector StartPivot = Result.FirstPoint;
 	FVector TargetPosition = CurrentTargetPose.Position;
 	FVector TargetPivot = Result.SecondPoint;
-	
+
 	FVector StartDirection = FVector::VectorPlaneProject(StartPosition - StartPivot, FVector::UpVector);
 	FVector TargetDirection = FVector::VectorPlaneProject(TargetPosition - TargetPivot, FVector::UpVector);
 	FVector ResultVector = ComposableCameraSystem::Slerp(StartDirection, TargetDirection, BlendPct);
-		
+
 	FVector StartResultPosition = StartPosition + (ResultVector - StartDirection);
 	FVector TargetResultPosition = TargetPosition + (ResultVector - TargetDirection);
 	FVector ResultPosition = FMath::Lerp(StartResultPosition, TargetResultPosition, BlendPct);
@@ -71,6 +66,6 @@ FComposableCameraPose UComposableCameraCylindricalTransition::OnEvaluateBySource
 			UKismetSystemLibrary::DrawDebugString(this, ResultPivot + FVector(0, 0, 30), "Result Pivot", nullptr, FLinearColor::Red, 0.f);
 		}
 	}
-	
+
 	return ResultPose;
 }

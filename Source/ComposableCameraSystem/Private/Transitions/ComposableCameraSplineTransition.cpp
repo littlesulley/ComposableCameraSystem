@@ -5,9 +5,10 @@
 #include "ComposableCameraSystemModule.h"
 #include "Core/ComposableCameraPlayerCameraManager.h"
 #include "Math/ComposableCameraMath.h"
+#include "Utils/ComposableCameraBlueprintLibrary.h"
 
 void UComposableCameraSplineTransition::OnBeginPlay_Implementation(float DeltaTime,
-	const FComposableCameraPose& CurrentTargetPose)
+	const FComposableCameraPose& CurrentSourcePose, const FComposableCameraPose& CurrentTargetPose)
 {
 	if (ArcAngle <= 180.f && FMath::IsNearlyEqual(ArcAngle, 180.f, 1e-1))
 	{
@@ -19,12 +20,7 @@ void UComposableCameraSplineTransition::OnBeginPlay_Implementation(float DeltaTi
 	}
 }
 
-FComposableCameraPose UComposableCameraSplineTransition::OnEvaluate_Implementation(float DeltaTime, const FComposableCameraPose& CurrentTargetPose)
-{
-	return OnEvaluateBySource(DeltaTime, CurrentTargetPose, CurrentTargetPose);
-}
-
-FComposableCameraPose UComposableCameraSplineTransition::OnEvaluateBySource_Implementation(float DeltaTime,
+FComposableCameraPose UComposableCameraSplineTransition::OnEvaluate_Implementation(float DeltaTime,
 	const FComposableCameraPose& CurrentSourcePose, const FComposableCameraPose& CurrentTargetPose)
 {
 	float DurationPct = (GetTransitionTime() - GetRemainingTime()) / GetTransitionTime();
@@ -39,7 +35,7 @@ FComposableCameraPose UComposableCameraSplineTransition::OnEvaluateBySource_Impl
 		BlendWeight = FMath::CubicInterp(0.f, 0.f, 1.f, 0.f, DurationPct);
 		break;
 	case EComposableCameraSplineTransitionEvaluationCurveType::Smooth:
-		BlendWeight = ComposableCameraSystem::SmootherStep(DurationPct);
+		BlendWeight = ComposableCameraSystem::SmoothStep(DurationPct);
 		break;
 	case EComposableCameraSplineTransitionEvaluationCurveType::Smoother:
 		BlendWeight = ComposableCameraSystem::SmootherStep(DurationPct);
@@ -157,9 +153,9 @@ FComposableCameraPose UComposableCameraSplineTransition::OnEvaluateBySource_Impl
 	}
 
 	// Draw debug spline points.
-	if (TargetCamera && TargetCamera->GetOwningPlayerCameraManager())
+	if (AComposableCameraPlayerCameraManager* PCM = UComposableCameraBlueprintLibrary::GetComposableCameraPlayerCameraManager(this, 0))
 	{
-		if (TargetCamera->GetOwningPlayerCameraManager()->bDrawDebugInformation)
+		if (PCM->bDrawDebugInformation)
 		{
 			DrawDebugSpline(CurrentSourcePose, CurrentTargetPose);
 		}
@@ -180,7 +176,7 @@ void UComposableCameraSplineTransition::DrawDebugSpline(const FComposableCameraP
 		{
 			FVector P0 = StartPose.Position;
 			FVector P1 = TargetPose.Position;
-			FRotator R = (UKismetMathLibrary::MakeRotFromX(P1 - P0).Quaternion() * FRotator{ 0., 0., ArcRoll }.Quaternion()).Rotator();
+			FRotator R = UKismetMathLibrary::MakeRotFromX(P1 - P0);
 			FVector V0 = R.RotateVector(StartTangent);
 			FVector V1 = R.RotateVector(EndTangent);
 			
@@ -261,7 +257,7 @@ void UComposableCameraSplineTransition::DrawDebugSpline(const FComposableCameraP
 			FVector C  = FVector { D / 2.f, -D / 2.f * CosHalfAngle / SinHalfAngle, 0 };
 			FVector V0 = FVector::ZeroVector - C;
 			FVector V1 = FVector { D, 0., 0. } - C;
-			FRotator R = UKismetMathLibrary::MakeRotFromX(P1 - P0);
+			FRotator R = (UKismetMathLibrary::MakeRotFromX(P1 - P0).Quaternion() * FRotator{ 0, 0., ArcRoll }.Quaternion()).Rotator();
 
 			for (int i = 0; i < NumSplinePoints; ++i)
 			{

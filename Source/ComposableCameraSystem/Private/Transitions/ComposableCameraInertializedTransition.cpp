@@ -3,81 +3,55 @@
 #include "Transitions/ComposableCameraInertializedTransition.h"
 
 #include "ComposableCameraSystemModule.h"
-#include "Transitions/ComposableCameraSmoothTransition.h"
 
 template struct ComposableCameraInitializer<FVector, ComposableCameraPositionalInertializer>;
 template struct ComposableCameraInitializer<FVector, ComposableCameraIndependentPositionalInertializer>;
 template struct ComposableCameraInitializer<FRotator, ComposableCameraRotationalInertializer>;
 
 void UComposableCameraInertializedTransition::OnBeginPlay_Implementation(float DeltaTime,
+                                                                         const FComposableCameraPose& CurrentSourcePose,
                                                                          const FComposableCameraPose& CurrentTargetPose)
 {
-	if (SourceCamera)
-	{
-		bCanUseInertialization = true;
-		
-		FComposableCameraPose LastSourceCameraPose = SourceCamera->GetLastFrameCameraPose();
-		FComposableCameraPose ThisSourceCameraPose = SourceCamera->GetCameraPose();
+	// Use the previous and current source poses from InitParams for velocity estimation.
+	// These are the Director's blended output poses from the previous and current frames.
+	const FComposableCameraPose& LastSourceCameraPose = InitParams.PreviousSourcePose;
+	const FComposableCameraPose& ThisSourceCameraPose = InitParams.CurrentSourcePose;
+	const float InitDeltaTime = InitParams.DeltaTime;
 
-		TransitionTime = GetActualBlendTime(DeltaTime, LastSourceCameraPose, ThisSourceCameraPose, CurrentTargetPose);
-		RemainingTime = TransitionTime;
+	TransitionTime = GetActualBlendTime(InitDeltaTime, LastSourceCameraPose, ThisSourceCameraPose, CurrentTargetPose);
+	RemainingTime = TransitionTime;
 
-		PositionalInertializer = ComposableCameraInitializer<FVector, ComposableCameraIndependentPositionalInertializer>{ LastSourceCameraPose, ThisSourceCameraPose, CurrentTargetPose, TransitionTime, DeltaTime };
-		RotationalInertializer = ComposableCameraInitializer<FRotator, ComposableCameraRotationalInertializer>{ LastSourceCameraPose, ThisSourceCameraPose, CurrentTargetPose, TransitionTime, DeltaTime };
-	}
-	else
-	{
-		bCanUseInertialization = false;
-		UE_LOG(LogComposableCameraSystem, Warning, TEXT("SourceCamera is null in ComposableCameraInertializedTransition. Turn to use SmoothTransition."))
-
-		BackupSmoothTransition = NewObject<UComposableCameraSmoothTransition>();
-		BackupSmoothTransition->TransitionEnabled(SourceCamera, TargetCamera, StartCameraPose);
-		BackupSmoothTransition->SetTransitionTime(TransitionTime);
-		BackupSmoothTransition->ResetTransitionState();
-	}
+	PositionalInertializer = ComposableCameraInitializer<FVector, ComposableCameraIndependentPositionalInertializer>{ LastSourceCameraPose, ThisSourceCameraPose, CurrentTargetPose, TransitionTime, InitDeltaTime };
+	RotationalInertializer = ComposableCameraInitializer<FRotator, ComposableCameraRotationalInertializer>{ LastSourceCameraPose, ThisSourceCameraPose, CurrentTargetPose, TransitionTime, InitDeltaTime };
 }
 
 FComposableCameraPose UComposableCameraInertializedTransition::OnEvaluate_Implementation(float DeltaTime,
+                                                                                         const FComposableCameraPose& CurrentSourcePose,
                                                                                          const FComposableCameraPose& CurrentTargetPose)
 {
-	return OnEvaluateBySource(DeltaTime, StartCameraPose, CurrentTargetPose);
-}
+	FComposableCameraPose OutPose {};
 
-FComposableCameraPose UComposableCameraInertializedTransition::OnEvaluateBySource_Implementation(float DeltaTime,
-	const FComposableCameraPose& CurrentSourcePose, const FComposableCameraPose& CurrentTargetPose)
-{
-	if (bCanUseInertialization)
+	float BlendDuration = TransitionTime - RemainingTime;
+	float BlendPct = BlendDuration / TransitionTime;
+	Percentage = BlendPct;
+
+	if (AdditiveCurve)
 	{
-		FComposableCameraPose OutPose {};
-		
-		float BlendDuration = TransitionTime - RemainingTime;
-		float BlendPct = BlendDuration / TransitionTime;
-		Percentage = BlendPct;
-		
-		if (AdditiveCurve)
-		{
-			OutPose.Position = PositionalInertializer.Evaluate(BlendDuration, CurrentTargetPose.Position, BlendPct, AdditiveCurve, AdditiveCurveWeight, AdditiveCurveShape);
-			OutPose.Rotation = RotationalInertializer.Evaluate(BlendDuration, CurrentTargetPose.Rotation, BlendPct, AdditiveCurve, AdditiveCurveWeight, AdditiveCurveShape);
-
-		}
-		else
-		{
-			OutPose.Position = PositionalInertializer.Evaluate(BlendDuration, CurrentTargetPose.Position);
-			OutPose.Rotation = RotationalInertializer.Evaluate(BlendDuration, CurrentTargetPose.Rotation);
-		}
-
-		OutPose.FieldOfView = CurrentSourcePose.FieldOfView + BlendPct * (CurrentTargetPose.FieldOfView - CurrentSourcePose.FieldOfView);
-
-		return OutPose;
+		OutPose.Position = PositionalInertializer.Evaluate(BlendDuration, CurrentTargetPose.Position, BlendPct, AdditiveCurve, AdditiveCurveWeight, AdditiveCurveShape);
+		OutPose.Rotation = RotationalInertializer.Evaluate(BlendDuration, CurrentTargetPose.Rotation, BlendPct, AdditiveCurve, AdditiveCurveWeight, AdditiveCurveShape);
 	}
 	else
 	{
-		return BackupSmoothTransition->Evaluate(DeltaTime, CurrentTargetPose);
-		Percentage = BackupSmoothTransition->GetPercentage();
+		OutPose.Position = PositionalInertializer.Evaluate(BlendDuration, CurrentTargetPose.Position);
+		OutPose.Rotation = RotationalInertializer.Evaluate(BlendDuration, CurrentTargetPose.Rotation);
 	}
+
+	OutPose.FieldOfView = CurrentSourcePose.FieldOfView + BlendPct * (CurrentTargetPose.FieldOfView - CurrentSourcePose.FieldOfView);
+
+	return OutPose;
 }
 
-float UComposableCameraInertializedTransition::GetActualBlendTime(float DeltaTime,
+float UComposableCameraInertializedTransition::GetActualBlendTime(float InDeltaTime,
                                                                   const FComposableCameraPose& LastSourceCameraPose,
                                                                   const FComposableCameraPose& ThisSourceCameraPose,
                                                                   const FComposableCameraPose& CurrentTargetPose)
@@ -93,7 +67,7 @@ float UComposableCameraInertializedTransition::GetActualBlendTime(float DeltaTim
 			float InitialMagnitude = InitialDirection.Length();
 			InitialDirection.Normalize();
 			float PreviousMagnitude = PreviousDirection.Dot(InitialDirection);
-			float InitialVelocity = (InitialMagnitude - PreviousMagnitude) / DeltaTime;
+			float InitialVelocity = (InitialMagnitude - PreviousMagnitude) / InDeltaTime;
 			return std::pair{ InitialVelocity, InitialMagnitude };
 		}();
 

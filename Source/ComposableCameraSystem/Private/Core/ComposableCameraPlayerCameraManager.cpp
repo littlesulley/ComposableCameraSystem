@@ -3,9 +3,9 @@
 #include "Core/ComposableCameraPlayerCameraManager.h"
 #include "Cameras/ComposableCameraCameraBase.h"
 #include "ComposableCameraSystemModule.h"
-#include "IAutomationControllerManager.h"
 #include "Actions/ComposableCameraActionBase.h"
 #include "Camera/CameraComponent.h"
+#include "Core/ComposableCameraContextStack.h"
 #include "Core/ComposableCameraDirector.h"
 #include "Core/ComposableCameraModifierManager.h"
 #include "DataAssets/ComposableCameraModifierDataAsset.h"
@@ -21,8 +21,35 @@ class UComposableCameraTransitionBase;
 AComposableCameraPlayerCameraManager::AComposableCameraPlayerCameraManager(const  FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
 {
-	Director = CreateDefaultSubobject<UComposableCameraDirector>(TEXT("Director"));
+	ContextStack = CreateDefaultSubobject<UComposableCameraContextStack>(TEXT("ContextStack"));
 	ModifierManager = CreateDefaultSubobject<UComposableCameraModifierManager>(TEXT("ModifierManager"));
+}
+
+void AComposableCameraPlayerCameraManager::PopCameraContext(
+	FName ContextName,
+	UComposableCameraTransitionDataAsset* TransitionOverride,
+	const FComposableCameraActivateParams& ActivationParams)
+{
+	ContextStack->PopContext(ContextName, this, TransitionOverride, ActivationParams);
+	RunningCamera = ContextStack->GetRunningCamera();
+}
+
+void AComposableCameraPlayerCameraManager::TerminateCurrentCamera(
+	UComposableCameraTransitionDataAsset* TransitionOverride,
+	const FComposableCameraActivateParams& ActivationParams)
+{
+	ContextStack->PopActiveContext(this, TransitionOverride, ActivationParams);
+	RunningCamera = ContextStack->GetRunningCamera();
+}
+
+int32 AComposableCameraPlayerCameraManager::GetContextStackDepth() const
+{
+	return ContextStack ? ContextStack->GetStackDepth() : 0;
+}
+
+FName AComposableCameraPlayerCameraManager::GetActiveContextName() const
+{
+	return ContextStack ? ContextStack->GetActiveContextName() : NAME_None;
 }
 
 void AComposableCameraPlayerCameraManager::BeginPlay()
@@ -33,6 +60,21 @@ void AComposableCameraPlayerCameraManager::BeginPlay()
 void AComposableCameraPlayerCameraManager::InitializeFor(APlayerController* PlayerController)
 {
 	Super::InitializeFor(PlayerController);
+
+	// Push the base context — the first entry in project settings.
+	// Done here (not BeginPlay) because InitializeFor runs during PostInitializeComponents,
+	// which is before any actor's BeginPlay. This ensures the base context exists when
+	// gameplay code calls ActivateCamera in their BeginPlay.
+	const UComposableCameraProjectSettings* Settings = GetDefault<UComposableCameraProjectSettings>();
+	if (Settings->ContextNames.Num() > 0)
+	{
+		ContextStack->EnsureContext(this, Settings->ContextNames[0]);
+	}
+	else
+	{
+		UE_LOG(LogComposableCameraSystem, Warning,
+			TEXT("No context names in project settings. Define at least one context (the base gameplay context)."));
+	}
 }
 
 void AComposableCameraPlayerCameraManager::SetViewTarget(AActor* NewViewTarget,
@@ -75,7 +117,7 @@ AComposableCameraCameraBase* AComposableCameraPlayerCameraManager::CreateNewCame
 		return nullptr;
 	}
 	
-	AComposableCameraCameraBase* NewCamera = Director->CreateNewCamera(
+	AComposableCameraCameraBase* NewCamera = ContextStack->GetActiveDirector()->CreateNewCamera(
 		this, CameraClass, ActivationParams);
 	
 	return NewCamera;
@@ -85,7 +127,8 @@ AComposableCameraCameraBase* AComposableCameraPlayerCameraManager::ActivateNewCa
 	TSubclassOf<AComposableCameraCameraBase> CameraClass,
 	UComposableCameraTransitionDataAsset* Transition,
 	const FComposableCameraActivateParams& ActivationParams,
-	FOnCameraFinishConstructed OnPreBeginplayEvent)
+	FOnCameraFinishConstructed OnPreBeginplayEvent,
+	FName ContextName)
 {
 	if (CameraClass == nullptr)
 	{
@@ -100,21 +143,83 @@ AComposableCameraCameraBase* AComposableCameraPlayerCameraManager::ActivateNewCa
 			*CameraClass->StaticClass()->GetName());
 		return RunningCamera;
 	}
-	
+
 	if (!Transition || !Transition->Transition)
 	{
 		UE_LOG(LogComposableCameraSystem, Warning, TEXT(
 			"Transition is not valid. Will use camera cut."));
 	}
-	
-	AComposableCameraCameraBase* NewCamera = Director->ActivateNewCamera(
-		this, CameraClass, Transition, ActivationParams, OnPreBeginplayEvent);
+
+	// Determine the target Director. If a context name is specified, ensure that context exists.
+	// If NAME_None and the stack is empty, fall back to the base context from project settings.
+	UComposableCameraDirector* PreviousActiveDirector = ContextStack->GetActiveDirector();
+	UComposableCameraDirector* TargetDirector = PreviousActiveDirector;
+	bool bContextSwitched = false;
+
+	if (ContextName != NAME_None)
+	{
+		const FName ActiveName = ContextStack->GetActiveContextName();
+
+		// EnsureContext will auto-push if the context doesn't exist yet, or return the existing Director.
+		TargetDirector = ContextStack->EnsureContext(this, ContextName);
+		if (!TargetDirector)
+		{
+			UE_LOG(LogComposableCameraSystem, Warning, TEXT(
+				"Failed to ensure context '%s'. Falling back to active context."),
+				*ContextName.ToString());
+			TargetDirector = ContextStack->GetActiveDirector();
+		}
+		else
+		{
+			// Check if we actually switched contexts (the target became the new active, or we're activating
+			// on a non-active context).
+			bContextSwitched = (TargetDirector != PreviousActiveDirector)
+				&& (TargetDirector == ContextStack->GetActiveDirector());
+		}
+	}
+
+	// If TargetDirector is still null (e.g. NAME_None on an empty stack), fall back to the
+	// base context from project settings so the first activation doesn't crash.
+	if (!TargetDirector)
+	{
+		const UComposableCameraProjectSettings* Settings = GetDefault<UComposableCameraProjectSettings>();
+		if (Settings->ContextNames.Num() > 0)
+		{
+			TargetDirector = ContextStack->EnsureContext(this, Settings->ContextNames[0]);
+		}
+
+		if (!TargetDirector)
+		{
+			UE_LOG(LogComposableCameraSystem, Error, TEXT(
+				"No valid context available. Cannot activate camera. "
+				"Ensure at least one context name is configured in Project Settings > Composable Camera System."));
+			return RunningCamera;
+		}
+	}
+
+	// Activate the camera on the target Director.
+	AComposableCameraCameraBase* NewCamera = nullptr;
+
+	if (bContextSwitched && PreviousActiveDirector)
+	{
+		// Inter-context activation: route through ActivateNewCameraWithReferenceSource.
+		// Whether there's a transition or a camera cut is handled internally —
+		// the key distinction is that we're switching contexts and need the reference leaf path.
+		NewCamera = TargetDirector->ActivateNewCameraWithReferenceSource(
+			this, CameraClass, Transition, ActivationParams, OnPreBeginplayEvent, PreviousActiveDirector);
+	}
+	else
+	{
+		// Same-context activation — normal path.
+		NewCamera = TargetDirector->ActivateNewCamera(
+			this, CameraClass, Transition, ActivationParams, OnPreBeginplayEvent);
+	}
+
 	if (NewCamera)
 	{
 		CurrentNodeInitializerDataAsset = ActivationParams.NodeInitializerDataAsset;
 		CurrentOnPreBeginplayEvent = OnPreBeginplayEvent;
 		RunningCamera = NewCamera;
-		RefreshCameraChain();
 	}
 	else
 	{
@@ -128,8 +233,14 @@ AComposableCameraCameraBase* AComposableCameraPlayerCameraManager::ActivateNewCa
 
 AComposableCameraCameraBase* AComposableCameraPlayerCameraManager::ReactivateCurrentCamera(UComposableCameraTransitionBase* Transition)
 {
+	if (!RunningCamera)
+	{
+		UE_LOG(LogComposableCameraSystem, Warning, TEXT("ReactivateCurrentCamera: no running camera."));
+		return nullptr;
+	}
+
 	TSubclassOf<AComposableCameraCameraBase> CameraClass = RunningCamera->GetClass();
-	return Director->ReactivateCurrentCamera(this, CameraClass, Transition, CurrentNodeInitializerDataAsset, CurrentOnPreBeginplayEvent);
+	return ContextStack->GetActiveDirector()->ReactivateCurrentCamera(this, CameraClass, Transition, CurrentNodeInitializerDataAsset, CurrentOnPreBeginplayEvent);
 }
 
 void AComposableCameraPlayerCameraManager::AddModifier(UComposableCameraNodeModifierDataAsset* ModifierAsset)
@@ -157,17 +268,21 @@ void AComposableCameraPlayerCameraManager::ApplyModifiers(AComposableCameraCamer
 
 void AComposableCameraPlayerCameraManager::OnModifierChanged()
 {
+	if (!RunningCamera)
+	{
+		return;
+	}
+
 	auto [bChanged, Transition] = ModifierManager->GetModifierData().UpdateEffectiveModifiers(RunningCamera);
 
 	if (bChanged && !RunningCamera->bIsTransient /* Modifiers are only applicable for non-transient cameras. */)
 	{
 		if (!Transition && RunningCamera->DefaultTransition)
 		{
-			Transition = DuplicateObject(RunningCamera->DefaultTransition, this);	
+			Transition = DuplicateObject(RunningCamera->DefaultTransition, this);
 		}
 
 		RunningCamera = ReactivateCurrentCamera(Transition);
-		RefreshCameraChain();
 	}
 }
 
@@ -184,33 +299,14 @@ UComposableCameraActionBase* AComposableCameraPlayerCameraManager::AddCameraActi
 	Action->PlayerCameraManager = this;
 	CameraActions.Add(Action);
 
-	// Recursively bind delegates, if required.
-	if (bOnlyForCurrentCamera)
+	// Bind delegates to the running camera.
+	if (Action->ExecutionType == EComposableCameraActionExecutionType::PreCameraTick)
 	{
-		if (Action->ExecutionType == EComposableCameraActionExecutionType::PreCameraTick)
-		{
-			RunningCamera->OnActionPreTick.AddDynamic(Action, &UComposableCameraActionBase::OnExecute);
-		}
-		else if (Action->ExecutionType == EComposableCameraActionExecutionType::PostCameraTick)
-		{
-			RunningCamera->OnActionPostTick.AddDynamic(Action, &UComposableCameraActionBase::OnExecute);
-		}
+		RunningCamera->OnActionPreTick.AddDynamic(Action, &UComposableCameraActionBase::OnExecute);
 	}
-	else
+	else if (Action->ExecutionType == EComposableCameraActionExecutionType::PostCameraTick)
 	{
-		AComposableCameraCameraBase* CurrentCamera = RunningCamera;
-		while (CurrentCamera)
-		{
-			if (Action->ExecutionType == EComposableCameraActionExecutionType::PreCameraTick)
-			{
-				CurrentCamera->OnActionPreTick.AddDynamic(Action, &UComposableCameraActionBase::OnExecute);
-			}
-			else if (Action->ExecutionType == EComposableCameraActionExecutionType::PostCameraTick)
-			{
-				CurrentCamera->OnActionPostTick.AddDynamic(Action, &UComposableCameraActionBase::OnExecute);
-			}
-			CurrentCamera = CurrentCamera->ParentPendingCamera.Get();
-		}
+		RunningCamera->OnActionPostTick.AddDynamic(Action, &UComposableCameraActionBase::OnExecute);
 	}
 
 	return Action;
@@ -231,13 +327,10 @@ UComposableCameraActionBase* AComposableCameraPlayerCameraManager::FindCameraAct
 
 void AComposableCameraPlayerCameraManager::RemoveCameraAction(UComposableCameraActionBase* Action)
 {
-	// Recursively unbind delegates.
-	AComposableCameraCameraBase* CurrentCamera = RunningCamera;
-	while (CurrentCamera)
+	if (RunningCamera)
 	{
-		CurrentCamera->OnActionPreTick.RemoveDynamic(Action, &UComposableCameraActionBase::OnExecute);
-		CurrentCamera->OnActionPostTick.RemoveDynamic(Action, &UComposableCameraActionBase::OnExecute);
-		CurrentCamera = CurrentCamera->ParentPendingCamera.Get();
+		RunningCamera->OnActionPreTick.RemoveDynamic(Action, &UComposableCameraActionBase::OnExecute);
+		RunningCamera->OnActionPostTick.RemoveDynamic(Action, &UComposableCameraActionBase::OnExecute);
 	}
 }
 
@@ -303,7 +396,7 @@ void AComposableCameraPlayerCameraManager::ResumeCamera(AComposableCameraCameraB
 		InitialTransform.SetRotation(SpecifiedTransform.GetRotation());
 	}
 	
-	RunningCamera = Director->ResumeCamera(ResumeCamera, Transition, InitialTransform);
+	RunningCamera = ContextStack->GetActiveDirector()->ResumeCamera(ResumeCamera, Transition, InitialTransform);
 }
 
 const TSet<UComposableCameraActionBase*>& AComposableCameraPlayerCameraManager::GetCameraActions()
@@ -347,7 +440,10 @@ void AComposableCameraPlayerCameraManager::DoUpdateCamera(float DeltaTime)
 	// Update camera actions.
 	UpdateActions(DeltaTime);
 	
-	FComposableCameraPose OutPose = Director->Evaluate(DeltaTime);
+	FComposableCameraPose OutPose = ContextStack->Evaluate(DeltaTime);
+	// Update RunningCamera and debug state — may change due to context auto-pop.
+	RunningCamera = ContextStack->GetRunningCamera();
+	CurrentContext = ContextStack->GetActiveContextName();
 	FMinimalViewInfo DesiredView = GetCameraViewFromCameraPose(OutPose);
 	CurrentCameraPose = OutPose;
 
@@ -367,31 +463,6 @@ void AComposableCameraPlayerCameraManager::DoUpdateCamera(float DeltaTime)
 	FillCameraCache(DesiredView);
 }
 
-void AComposableCameraPlayerCameraManager::RefreshCameraChain() const
-{
-	const UComposableCameraProjectSettings* Settings = GetDefault<UComposableCameraProjectSettings>();
-	const int32 MaxCameraChainLength = Settings->MaxCameraChainCleanupDepth;
-
-	int CurrentCameraChainLength = 0;
-	AComposableCameraCameraBase* CurrentCamera = RunningCamera;
-
-	while (CurrentCamera->ParentPendingCamera && CurrentCameraChainLength + 1 < MaxCameraChainLength)
-	{
-		++CurrentCameraChainLength;
-		CurrentCamera = CurrentCamera->ParentPendingCamera.Get();
-	}
-
-	// Recursively destroy camera above the position.
-	CurrentCamera = CurrentCamera->ParentPendingCamera.Get();
-	while (CurrentCamera)
-	{
-		AComposableCameraCameraBase* ParentCamera = CurrentCamera->ParentPendingCamera.Get();
-		CurrentCamera->ParentPendingCamera = nullptr;
-		CurrentCamera->Destroy();
-		CurrentCamera = ParentCamera;
-	}
-}
-
 void AComposableCameraPlayerCameraManager::UpdateActions(float DeltaTime)
 {
 	TSet<UComposableCameraActionBase*> ActionsToRemove;
@@ -400,6 +471,7 @@ void AComposableCameraPlayerCameraManager::UpdateActions(float DeltaTime)
 		if (!Action)
 		{
 			ActionsToRemove.Add(Action);
+			continue;
 		}
 
 		if (!Action->OnCanExecute(DeltaTime, CurrentCameraPose))

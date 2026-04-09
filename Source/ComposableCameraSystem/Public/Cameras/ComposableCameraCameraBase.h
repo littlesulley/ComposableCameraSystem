@@ -12,6 +12,7 @@
 
 class UComposableCameraModifierManager;
 class UComposableCameraTransitionBase;
+class UComposableCameraTransitionDataAsset;
 class UComposableCameraNodeInitializerDataAsset;
 class UComposableCameraVariableCollection;
 class UComposableCameraCameraNodeBase;
@@ -258,10 +259,6 @@ public:
 	// Remaining life time.
 	UPROPERTY(Transient, VisibleAnywhere, Category = "ComposableCameraSystem|Composable Camera")
 	float RemainingLifeTime { 0.f };
-
-	// Pending camera to be resumed. This happens when the running camera is transient and once it finishes, ParentPendingCamera will be resumed.
-	UPROPERTY(Transient, VisibleAnywhere, Category = "ComposableCameraSystem|Composable Camera")
-	TSoftObjectPtr<AComposableCameraCameraBase> ParentPendingCamera;
 
 protected:
 	UPROPERTY(Transient)

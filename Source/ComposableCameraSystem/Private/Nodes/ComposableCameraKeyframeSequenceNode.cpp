@@ -129,14 +129,10 @@ void UComposableCameraKeyframeSequenceNode::OnTickNode_Implementation(float Delt
 	if (ElapsedFrames.FrameNumber >= CameraPlayer->GetFrameDuration())
 	{
 		ElapsedStayAtLastFrameTime = ElapsedTime - CameraPlayer->GetDuration().AsSeconds();
-
 		if (StayAtLastFrameTime >= 0.f && ElapsedStayAtLastFrameTime >= StayAtLastFrameTime)
 		{
-			EComposableCameraResumeCameraTransformSchema ResumeTransformSchema
-				= OwningCamera->bDefaultPreserveCameraPose
-				? EComposableCameraResumeCameraTransformSchema::PreserveCurrent
-				: EComposableCameraResumeCameraTransformSchema::PreserveResumed;
-			UComposableCameraBlueprintLibrary::TerminateCurrentCamera(this, OwningPlayerCameraManager, nullptr, ResumeTransformSchema, FTransform{}, false);
+			// Keyframe sequence finished. Camera resume must be handled explicitly by the user.
+			// TerminateCurrentCamera is deprecated since ParentPendingCamera has been removed.
 		}
 	}
 }

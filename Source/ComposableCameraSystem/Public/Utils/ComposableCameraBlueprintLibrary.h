@@ -4,8 +4,8 @@
 
 #include "CoreMinimal.h"
 #include "Kismet/BlueprintFunctionLibrary.h"
-#include "GameplayTagContainer.h"
 #include "Blueprint/BlueprintExceptionInfo.h"
+#include "Cameras/ComposableCameraCameraBase.h"
 #include "Transitions/ComposableCameraTransitionBase.h"
 #include "Variables/ComposableCameraVariable.h"
 #include "ComposableCameraBlueprintLibrary.generated.h"
@@ -47,10 +47,11 @@ public:
 	 * @param WorldContextObject World context object. \n
 	 * @param PlayerCameraManager The player camera manager, must be a ComposableCameraPlayerCameraManager. \n
 	 * @param CameraClass The camera class to instantiate. \n
+	 * @param ContextName Optional context name. If valid, the camera activates in the specified context (auto-pushing it if needed). If NAME_None, activates in the current active context. \n
 	 * @param TransitionDataAsset The transition data asset. If no transition data asset is provided, camera cut will be used. \n
 	 * @param ActivationParams Parameters to define some of the properties when activating a new camera, e.g., if it's transient and the node initializers. \n
 	 * @param bNewInstance When the current running camera has the same camera class as CameraClass specified here, whether to instantiate a new camera. \n
-	 * @param OnPreBeginplayEvent Do something after the camera is constructed and initialized, before BeginPlay() is called. You should initialize all camera and node parameters here. \n 
+	 * @param OnPreBeginplayEvent Do something after the camera is constructed and initialized, before BeginPlay() is called. You should initialize all camera and node parameters here. \n
 	 * @return The instanced camera.
 	 */
 	UFUNCTION(BlueprintCallable, Category = "ComposableCameraSystem|Camera", meta = (WorldContext = "WorldContextObject", DeterminesOutputType = "CameraClass"))
@@ -58,27 +59,62 @@ public:
 		const UObject* WorldContextObject,
 		AComposableCameraPlayerCameraManager* PlayerCameraManager,
 		TSubclassOf<AComposableCameraCameraBase> CameraClass,
+		UPARAM(meta = (GetOptions = "ComposableCameraSystem.ComposableCameraProjectSettings.GetContextNames")) FName ContextName,
 		UComposableCameraTransitionDataAsset* TransitionDataAsset,
 		FComposableCameraActivateParams ActivationParams,
 		bool bNewInstance,
 		FOnCameraFinishConstructed OnPreBeginplayEvent);
 
-	/** Terminate current camera. Ideally, this should only be used for transient cameras (automatically called) and keyframe cameras that are manually controlled to terminate.
+	/** Terminate the current camera — pops the active (top) context off the stack.
+	 * The previous context resumes with an optional transition. Cannot pop the base context.
 	 * @param WorldContextObject World context object. \n
 	 * @param PlayerCameraManager The player camera manager, must be a ComposableCameraPlayerCameraManager. \n
-	 * @param TransitionDataAsset The transition data asset to use. If no transition is provided, the pending camera's default transition will be used. \n
-	 * @param TransformSchema How to determine the resumed camera's initial transform when terminating the current camera. \n
-	 * @param SpecifiedTransform Specified transform to spawn the camera if TransformSchema is Specified. \n
-	 * @param bUseSpecifiedRotation Whether to use SpecifiedTransform's rotation to override the new camera's rotation, regardless of TransformSchema.
+	 * @param TransitionOverride Optional transition. If nullptr, falls back to the resume camera's DefaultTransition. \n
+	 * @param ActivationParams Optional activation params for the resume camera.
 	 */
-	UFUNCTION(BlueprintCallable, Category = "ComposableCameraSystem|Camera", meta = (WorldContext = "WorldContextObject", AutoCreateRefTerm = "SpecifiedTransform"))
+	UFUNCTION(BlueprintCallable, Category = "ComposableCameraSystem|Context", meta = (WorldContext = "WorldContextObject"))
 	static void TerminateCurrentCamera(
 		const UObject* WorldContextObject,
 		AComposableCameraPlayerCameraManager* PlayerCameraManager,
-		UComposableCameraTransitionDataAsset* TransitionDataAsset,
-		EComposableCameraResumeCameraTransformSchema TransformSchema,
-		const FTransform& SpecifiedTransform,
-		bool bUseSpecifiedRotation);
+		UComposableCameraTransitionDataAsset* TransitionOverride = nullptr,
+		FComposableCameraActivateParams ActivationParams = FComposableCameraActivateParams());
+
+	/** Pop a specific camera context by name.
+	 * If this is the active context, the previous context resumes with an optional transition.
+	 * Cannot pop the base context if it is the last one remaining.
+	 * @param WorldContextObject World context object. \n
+	 * @param PlayerCameraManager The player camera manager, must be a ComposableCameraPlayerCameraManager. \n
+	 * @param ContextName The name identifying which context to pop. \n
+	 * @param TransitionOverride Optional transition. If nullptr, falls back to the resume camera's DefaultTransition. \n
+	 * @param ActivationParams Optional activation params for the resume camera.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "ComposableCameraSystem|Context", meta = (WorldContext = "WorldContextObject"))
+	static void PopCameraContext(
+		const UObject* WorldContextObject,
+		AComposableCameraPlayerCameraManager* PlayerCameraManager,
+		UPARAM(meta = (GetOptions = "ComposableCameraSystem.ComposableCameraProjectSettings.GetContextNames")) FName ContextName,
+		UComposableCameraTransitionDataAsset* TransitionOverride = nullptr,
+		FComposableCameraActivateParams ActivationParams = FComposableCameraActivateParams());
+
+	/** Get the current depth of the camera context stack.
+	 * @param WorldContextObject World context object. \n
+	 * @param PlayerCameraManager The player camera manager, must be a ComposableCameraPlayerCameraManager. \n
+	 * @return The number of contexts on the stack (1 = base context only).
+	 */
+	UFUNCTION(BlueprintPure, Category = "ComposableCameraSystem|Context", meta = (WorldContext = "WorldContextObject"))
+	static int32 GetCameraContextStackDepth(
+		const UObject* WorldContextObject,
+		AComposableCameraPlayerCameraManager* PlayerCameraManager);
+
+	/** Get the name of the currently active (top) context.
+	 * @param WorldContextObject World context object. \n
+	 * @param PlayerCameraManager The player camera manager, must be a ComposableCameraPlayerCameraManager. \n
+	 * @return The active context's name.
+	 */
+	UFUNCTION(BlueprintPure, Category = "ComposableCameraSystem|Context", meta = (WorldContext = "WorldContextObject"))
+	static FName GetActiveContextName(
+		const UObject* WorldContextObject,
+		AComposableCameraPlayerCameraManager* PlayerCameraManager);
 
 	/** Add a modifier data asset.
 	 * @param WorldContextObject World context object. \n

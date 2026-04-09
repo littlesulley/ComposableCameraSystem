@@ -3,6 +3,7 @@
 #include "Utils/ComposableCameraBlueprintLibrary.h"
 
 #include "Cameras/ComposableCameraCameraBase.h"
+#include "ComposableCameraSystemModule.h"
 #include "Core/ComposableCameraPlayerCameraManager.h"
 #include "DataAssets/ComposableCameraTransitionDataAsset.h"
 #include "Kismet/GameplayStatics.h"
@@ -27,6 +28,7 @@ AComposableCameraCameraBase* UComposableCameraBlueprintLibrary::ActivateComposab
 	const UObject* WorldContextObject,
 	AComposableCameraPlayerCameraManager* PlayerCameraManager,
 	TSubclassOf<AComposableCameraCameraBase> CameraClass,
+	FName ContextName,
 	UComposableCameraTransitionDataAsset* TransitionDataAsset,
 	FComposableCameraActivateParams ActivationParams,
 	bool bNewInstance,
@@ -34,23 +36,27 @@ AComposableCameraCameraBase* UComposableCameraBlueprintLibrary::ActivateComposab
 {
 	if (PlayerCameraManager)
 	{
+		auto RunningCamera = PlayerCameraManager->GetRunningCamera();
+		
 		// Return the current running camera, if (1) class is matching, (2) current running camera is not transient,
 		// (3) incoming camera is not transient, and (4) not spawning a new instance.
-		if (PlayerCameraManager->GetRunningCamera()->StaticClass() == CameraClass->StaticClass() &&
-			!PlayerCameraManager->GetRunningCamera()->IsTransient() &&
+		if (RunningCamera &&
+			RunningCamera->StaticClass() == CameraClass->StaticClass() &&
+			!RunningCamera->IsTransient() &&
 			!ActivationParams.bIsTransient &&
 			!bNewInstance)
 		{
-			return PlayerCameraManager->GetRunningCamera();
+			return RunningCamera;
 		}
 
 		AComposableCameraCameraBase* NewCamera = PlayerCameraManager->ActivateNewCamera(
 			CameraClass,
 			TransitionDataAsset,
 			ActivationParams,
-			OnPreBeginplayEvent);
-		
-		return NewCamera; 
+			OnPreBeginplayEvent,
+			ContextName);
+
+		return NewCamera;
 	}
 
 	return nullptr;
@@ -59,29 +65,48 @@ AComposableCameraCameraBase* UComposableCameraBlueprintLibrary::ActivateComposab
 void UComposableCameraBlueprintLibrary::TerminateCurrentCamera(
 	const UObject* WorldContextObject,
 	AComposableCameraPlayerCameraManager* PlayerCameraManager,
-	UComposableCameraTransitionDataAsset* TransitionDataAsset,
-	EComposableCameraResumeCameraTransformSchema TransformSchema,
-	const FTransform& SpecifiedTransform,
-	bool bUseSpecifiedRotation)
+	UComposableCameraTransitionDataAsset* TransitionOverride,
+	FComposableCameraActivateParams ActivationParams)
 {
-	if (!PlayerCameraManager || !PlayerCameraManager->RunningCamera || !PlayerCameraManager->RunningCamera->ParentPendingCamera)
+	if (PlayerCameraManager)
 	{
-		return;
+		PlayerCameraManager->TerminateCurrentCamera(TransitionOverride, ActivationParams);
 	}
+}
 
-	AComposableCameraCameraBase* ResumeCamera = PlayerCameraManager->RunningCamera->ParentPendingCamera.Get();
-
-	UComposableCameraTransitionBase* Transition = nullptr;
-	if (!TransitionDataAsset || !TransitionDataAsset->Transition)
+void UComposableCameraBlueprintLibrary::PopCameraContext(
+	const UObject* WorldContextObject,
+	AComposableCameraPlayerCameraManager* PlayerCameraManager,
+	FName ContextName,
+	UComposableCameraTransitionDataAsset* TransitionOverride,
+	FComposableCameraActivateParams ActivationParams)
+{
+	if (PlayerCameraManager)
 	{
-		Transition = ResumeCamera->DefaultTransition ? DuplicateObject(ResumeCamera->DefaultTransition, PlayerCameraManager) : nullptr;
+		PlayerCameraManager->PopCameraContext(ContextName, TransitionOverride, ActivationParams);
 	}
-	else
-	{
-		Transition = DuplicateObject(TransitionDataAsset->Transition, PlayerCameraManager);
-	}
+}
 
-	PlayerCameraManager->ResumeCamera(ResumeCamera, Transition, TransformSchema, SpecifiedTransform, bUseSpecifiedRotation);
+int32 UComposableCameraBlueprintLibrary::GetCameraContextStackDepth(
+	const UObject* WorldContextObject,
+	AComposableCameraPlayerCameraManager* PlayerCameraManager)
+{
+	if (PlayerCameraManager)
+	{
+		return PlayerCameraManager->GetContextStackDepth();
+	}
+	return 0;
+}
+
+FName UComposableCameraBlueprintLibrary::GetActiveContextName(
+	const UObject* WorldContextObject,
+	AComposableCameraPlayerCameraManager* PlayerCameraManager)
+{
+	if (PlayerCameraManager)
+	{
+		return PlayerCameraManager->GetActiveContextName();
+	}
+	return NAME_None;
 }
 
 void UComposableCameraBlueprintLibrary::AddModifier(const UObject* WorldContextObject,

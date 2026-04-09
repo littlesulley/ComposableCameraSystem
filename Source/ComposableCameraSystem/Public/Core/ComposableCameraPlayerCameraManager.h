@@ -13,6 +13,7 @@ class UComposableCameraTransitionDataAsset;
 class UComposableCameraNodeModifierDataAsset;
 class UComposableCameraModifierManager;
 class UComposableCameraDirector;
+class UComposableCameraContextStack;
 	
 UCLASS(ClassGroup = ComposableCameraSystem, NotPlaceable)
 class COMPOSABLECAMERASYSTEM_API AComposableCameraPlayerCameraManager
@@ -31,12 +32,20 @@ public:
 	AComposableCameraCameraBase* CreateNewCamera(
 		TSubclassOf<AComposableCameraCameraBase> CameraClass,
 		const FComposableCameraActivateParams& ActivationParams);
-	
+
+	/**
+	 * Activate a new camera, optionally specifying which context it belongs to.
+	 * If ContextName is valid and that context isn't on the stack yet, it is auto-pushed.
+	 * If ContextName is NAME_None, the camera activates on the current active context.
+	 * When switching to a different context, the new context's evaluation tree gets a
+	 * reference leaf pointing to the previous context's Director for inter-context blending.
+	 */
 	AComposableCameraCameraBase* ActivateNewCamera(
 		TSubclassOf<AComposableCameraCameraBase> CameraClass,
 		UComposableCameraTransitionDataAsset* Transition,
 		const FComposableCameraActivateParams& ActivationParams,
-		FOnCameraFinishConstructed OnPreBeginplayEvent);
+		FOnCameraFinishConstructed OnPreBeginplayEvent,
+		FName ContextName = NAME_None);
 
 	AComposableCameraCameraBase* ReactivateCurrentCamera(UComposableCameraTransitionBase* Transition);
 
@@ -60,6 +69,44 @@ public:
 	void ExpireCameraAction(TSubclassOf<UComposableCameraActionBase> ActionClass);
 	void BindCameraActionsForNewCamera(AComposableCameraCameraBase* Camera);
 	// ~~~~
+
+	// ~~~~ Context Stack.
+	/**
+	 * Pop a specific camera context by name.
+	 * If this is the active context, the previous context resumes with an optional transition.
+	 * Cannot pop the base context if it is the last one remaining.
+	 *
+	 * @param ContextName The name identifying which context to pop.
+	 * @param TransitionOverride Optional transition. If nullptr, falls back to the resume camera's DefaultTransition.
+	 * @param ActivationParams Optional activation params for the resume camera.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "ComposableCameraSystem|Context")
+	void PopCameraContext(
+		UPARAM(meta = (GetOptions = "ComposableCameraSystem.ComposableCameraProjectSettings.GetContextNames")) FName ContextName,
+		UComposableCameraTransitionDataAsset* TransitionOverride = nullptr,
+		const FComposableCameraActivateParams& ActivationParams = FComposableCameraActivateParams());
+
+	/**
+	 * Terminate the current camera context — pops the active (top) context off the stack.
+	 * The previous context resumes with an optional transition. Cannot pop the base context.
+	 * This is the explicit way to end a context. Transient cameras trigger this automatically.
+	 *
+	 * @param TransitionOverride Optional transition. If nullptr, falls back to the resume camera's DefaultTransition.
+	 * @param ActivationParams Optional activation params for the resume camera.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "ComposableCameraSystem|Context")
+	void TerminateCurrentCamera(
+		UComposableCameraTransitionDataAsset* TransitionOverride = nullptr,
+		const FComposableCameraActivateParams& ActivationParams = FComposableCameraActivateParams());
+
+	/** Get the number of contexts on the stack. */
+	UFUNCTION(BlueprintPure, Category = "ComposableCameraSystem|Context")
+	int32 GetContextStackDepth() const;
+
+	/** Get the name of the currently active (top) context. */
+	UFUNCTION(BlueprintPure, Category = "ComposableCameraSystem|Context")
+	FName GetActiveContextName() const;
+	// ~~~~
 	
 	UFUNCTION(BlueprintPure, Category = "ComposableCameraSystem|Camera")
 	AComposableCameraCameraBase* GetRunningCamera() const
@@ -78,9 +125,6 @@ protected:
 	virtual void DoUpdateCamera(float DeltaTime) override;
 
 private:
-	// Used to maintain a maximum number of parent cameras in the camera chain. Default is 3.
-	void RefreshCameraChain() const;
-
 	// Update camera actions.
 	void UpdateActions(float DeltaTime);
 	
@@ -96,7 +140,11 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ComposableCameraSystem")
 	bool bDrawDebugInformation { false };
 
-	// Current running camera. 
+	// The currently active context name (debug, read-only).
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Transient, Category = "ComposableCameraSystem")
+	FName CurrentContext;
+
+	// Current running camera.
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Transient, Category = "ComposableCameraSystem")
 	AComposableCameraCameraBase* RunningCamera;
 
@@ -116,8 +164,8 @@ public:
 
 private:
 	UPROPERTY(Transient)
-	TObjectPtr<UComposableCameraDirector> Director;
-	
+	TObjectPtr<UComposableCameraContextStack> ContextStack;
+
 	UPROPERTY(Transient)
 	TObjectPtr<UComposableCameraModifierManager> ModifierManager;
 

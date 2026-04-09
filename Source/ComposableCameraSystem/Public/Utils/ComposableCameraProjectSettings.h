@@ -15,10 +15,26 @@ class COMPOSABLECAMERASYSTEM_API UComposableCameraProjectSettings : public UDeve
 	GENERATED_BODY()
 
 public:
-	// Depth for cleaning up camera chains when activating a new camera. \n
-	// For example, current camera chain is C0 -> C1 -> C2 -> C3 -> C4, -> means the order of activation, C_i is the parent of C_{i+1}. \n
-	// If this value is 5, and C5 is now activating, C0 will be erased from current chain, so C1 will have no parent camera, and the chain will be C1 -> ... -> C5. \n
-	// This is useful for UObject garbage collection.
-	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly)
-	int32 MaxCameraChainCleanupDepth { 3 };
+	/**
+	 * Named camera contexts that can be used with ActivateCamera.
+	 * Each entry is just a name (e.g., "Gameplay", "UI", "LevelSequence").
+	 * The first entry is treated as the base context — it is always present and cannot be popped.
+	 * The context stack is strict LIFO: contexts push on top and pop from top.
+	 */
+	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Context Stack")
+	TArray<FName> ContextNames;
+
+	/** Returns true if the given name is a registered context. */
+	bool IsValidContextName(FName ContextName) const
+	{
+		return ContextNames.Contains(ContextName);
+	}
+
+	/** Get all context names as a list (for dropdowns / GetOptions). */
+	UFUNCTION()
+	static TArray<FName> GetContextNames()
+	{
+		const UComposableCameraProjectSettings* Settings = GetDefault<UComposableCameraProjectSettings>();
+		return Settings->ContextNames;
+	}
 };

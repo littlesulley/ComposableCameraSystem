@@ -2,36 +2,14 @@
 
 #include "Transitions/ComposableCameraTransitionBase.h"
 
-FComposableCameraPose UComposableCameraTransitionBase::Evaluate(float DeltaTime, const FComposableCameraPose& CurrentTargetPose)
-{
-	if (bFirstFrame)
-	{
-		OnBeginPlay(DeltaTime, CurrentTargetPose);
-	}
-	
-	// If no time remains, directly return the target pose.
-	RemainingTime -= DeltaTime;
-	if (RemainingTime <= 0.0f)
-	{
-		TransitionFinished();
-		return CurrentTargetPose;
-	}
-
-	// Else, do evaluation.
-	FComposableCameraPose OutResult = OnEvaluate(DeltaTime, CurrentTargetPose);
-	bFirstFrame = false;
-	
-	return OutResult;
-}
-
-FComposableCameraPose UComposableCameraTransitionBase::EvaluateBySource(float DeltaTime,
+FComposableCameraPose UComposableCameraTransitionBase::Evaluate(float DeltaTime,
 	const FComposableCameraPose& CurrentSourcePose, const FComposableCameraPose& CurrentTargetPose)
 {
 	if (bFirstFrame)
 	{
-		OnBeginPlay(DeltaTime, CurrentTargetPose);
+		OnBeginPlay(DeltaTime, CurrentSourcePose, CurrentTargetPose);
 	}
-	
+
 	// If no time remains, directly return the target pose.
 	RemainingTime -= DeltaTime;
 	if (RemainingTime <= 0.0f)
@@ -41,17 +19,15 @@ FComposableCameraPose UComposableCameraTransitionBase::EvaluateBySource(float De
 	}
 
 	// Else, do evaluation.
-	FComposableCameraPose OutResult = OnEvaluateBySource(DeltaTime, CurrentSourcePose, CurrentTargetPose);
+	FComposableCameraPose OutResult = OnEvaluate(DeltaTime, CurrentSourcePose, CurrentTargetPose);
 	bFirstFrame = false;
-	
+
 	return OutResult;
 }
 
-void UComposableCameraTransitionBase::TransitionEnabled(AComposableCameraCameraBase* InSourceCamera, AComposableCameraCameraBase* InTargetCamera, const FComposableCameraPose& CurrentSourceCameraPose)
+void UComposableCameraTransitionBase::TransitionEnabled(const FComposableCameraTransitionInitParams& InInitParams)
 {
-	SourceCamera = InSourceCamera;
-	TargetCamera = InTargetCamera;
-	StartCameraPose = CurrentSourceCameraPose;
+	InitParams = InInitParams;
 	bFinished = false;
 }
 
@@ -64,7 +40,7 @@ void UComposableCameraTransitionBase::TransitionFinished()
 		OnTransitionFinishesDelegate.Broadcast();
 		OnTransitionFinishesDelegate.Clear();
 	}
-	
+
 	OnFinished();
 }
 
@@ -79,4 +55,3 @@ void UComposableCameraTransitionBase::ResetTransitionState()
 	bFinished = false;
 	bFirstFrame = true;
 }
-
