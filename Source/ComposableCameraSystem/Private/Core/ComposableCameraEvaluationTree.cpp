@@ -322,6 +322,89 @@ void UComposableCameraEvaluationTree::DestroySubtreeCameras(
 	}
 }
 
+void UComposableCameraEvaluationTree::BuildDebugString(TStringBuilder<1024>& OutString, int32 IndentLevel) const
+{
+	if (!RootNode)
+	{
+		const FString Indent = FString::ChrN(IndentLevel * 4, ' ');
+		OutString.Appendf(TEXT("%s(empty tree)\n"), *Indent);
+		return;
+	}
+	BuildNodeDebugString(RootNode, OutString, IndentLevel);
+}
+
+void UComposableCameraEvaluationTree::BuildNodeDebugString(
+	const TSharedPtr<FComposableCameraEvaluationTreeNode>& Node,
+	TStringBuilder<1024>& OutString,
+	int32 IndentLevel)
+{
+	if (!Node)
+	{
+		return;
+	}
+
+	const FString Indent = FString::ChrN(IndentLevel * 4, ' ');
+
+	if (Node->IsLeaf())
+	{
+		const auto& Leaf = Node->AsLeaf();
+		AComposableCameraCameraBase* Camera = Leaf.RunningCamera.Get();
+		if (IsValid(Camera))
+		{
+			OutString.Appendf(TEXT("%s[Leaf] %s"), *Indent, *Camera->GetClass()->GetName());
+			if (Camera->IsTransient())
+			{
+				OutString.Appendf(TEXT(" (transient, %.1f/%.1fs)"),
+					Camera->GetLifeTime() - Camera->GetRemainingLifeTime(),
+					Camera->GetLifeTime());
+			}
+			OutString.Append(TEXT("\n"));
+		}
+		else
+		{
+			OutString.Appendf(TEXT("%s[Leaf] (destroyed)\n"), *Indent);
+		}
+	}
+	else if (Node->IsReferenceLeaf())
+	{
+		const auto& RefLeaf = Node->AsReferenceLeaf();
+		if (IsValid(RefLeaf.ReferencedDirector))
+		{
+			OutString.Appendf(TEXT("%s[RefLeaf] -> %s\n"),
+				*Indent, *RefLeaf.ReferencedDirector->GetName());
+		}
+		else
+		{
+			OutString.Appendf(TEXT("%s[RefLeaf] (destroyed)\n"), *Indent);
+		}
+	}
+	else if (Node->IsInner())
+	{
+		const auto& Inner = Node->AsInner();
+		if (Inner.Transition)
+		{
+			OutString.Appendf(TEXT("%s[Transition] %s  %.0f%%  (%.2f/%.2fs)\n"),
+				*Indent,
+				*Inner.Transition->GetClass()->GetName(),
+				Inner.Transition->GetPercentage() * 100.f,
+				Inner.Transition->GetTransitionTime() - Inner.Transition->GetRemainingTime(),
+				Inner.Transition->GetTransitionTime());
+		}
+		else
+		{
+			OutString.Appendf(TEXT("%s[Transition] (null)\n"), *Indent);
+		}
+
+		// Left (source) subtree
+		OutString.Appendf(TEXT("%s  Source:\n"), *Indent);
+		BuildNodeDebugString(Inner.LeftNode, OutString, IndentLevel + 1);
+
+		// Right (target) subtree
+		OutString.Appendf(TEXT("%s  Target:\n"), *Indent);
+		BuildNodeDebugString(Inner.RightNode, OutString, IndentLevel + 1);
+	}
+}
+
 void UComposableCameraEvaluationTree::AddReferencedObjects(UObject* InThis, FReferenceCollector& Collector)
 {
 	UComposableCameraEvaluationTree* This = CastChecked<UComposableCameraEvaluationTree>(InThis);

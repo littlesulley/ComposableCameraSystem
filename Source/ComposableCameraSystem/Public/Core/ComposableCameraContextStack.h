@@ -130,6 +130,9 @@ public:
 	 */
 	[[nodiscard]] FComposableCameraPose Evaluate(float DeltaTime);
 
+	/** Build a debug string showing the full context stack state. */
+	void BuildDebugString(TStringBuilder<1024>& OutString) const;
+
 	// UObject interface.
 	static void AddReferencedObjects(UObject* InThis, FReferenceCollector& Collector);
 

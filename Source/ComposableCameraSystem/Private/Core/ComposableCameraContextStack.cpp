@@ -312,6 +312,36 @@ FComposableCameraPose UComposableCameraContextStack::Evaluate(float DeltaTime)
 	return ResultPose;
 }
 
+void UComposableCameraContextStack::BuildDebugString(TStringBuilder<1024>& OutString) const
+{
+	OutString.Appendf(TEXT("Context Stack (depth: %d, pending destroy: %d)\n"), Entries.Num(), PendingDestroyEntries.Num());
+
+	// Display stack from top to bottom.
+	for (int32 i = Entries.Num() - 1; i >= 0; --i)
+	{
+		const FComposableCameraContextEntry& Entry = Entries[i];
+		const bool bIsActive = (i == Entries.Num() - 1);
+		const TCHAR* ActiveMarker = bIsActive ? TEXT("-> ") : TEXT("   ");
+		const TCHAR* BaseMarker = (i == 0) ? TEXT(" [base]") : TEXT("");
+
+		OutString.Appendf(TEXT("%s[%d] %s%s\n"), ActiveMarker, i, *Entry.ContextName.ToString(), BaseMarker);
+
+		if (Entry.Director)
+		{
+			Entry.Director->BuildDebugString(OutString, 2);
+		}
+	}
+
+	if (PendingDestroyEntries.Num() > 0)
+	{
+		OutString.Append(TEXT("Pending Destroy:\n"));
+		for (const FComposableCameraContextEntry& Entry : PendingDestroyEntries)
+		{
+			OutString.Appendf(TEXT("   [pending] %s\n"), *Entry.ContextName.ToString());
+		}
+	}
+}
+
 void UComposableCameraContextStack::AddReferencedObjects(UObject* InThis, FReferenceCollector& Collector)
 {
 	UComposableCameraContextStack* This = CastChecked<UComposableCameraContextStack>(InThis);

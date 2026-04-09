@@ -92,11 +92,103 @@ void AComposableCameraPlayerCameraManager::ProcessViewRotation(float DeltaTime, 
 void AComposableCameraPlayerCameraManager::DisplayDebug(class UCanvas* Canvas,
 	const FDebugDisplayInfo& DebugDisplay, float& YL, float& YPos)
 {
-	const FMinimalViewInfo& CurrentPOV = GetCameraCacheView();
 	FDisplayDebugManager& DisplayDebugManager = Canvas->DisplayDebugManager;
-	DisplayDebugManager.SetDrawColor(FColor(122, 122, 255));
-	DisplayDebugManager.DrawString(FString::Printf(TEXT("   Camera Location: %s, Camera Rotation :%s, FOV: %f"), *CurrentPOV.Location.ToCompactString(), *CurrentPOV.Rotation.ToCompactString(), CurrentPOV.FOV));
-	DisplayDebugManager.DrawString(FString::Printf(TEXT("   AspectRatio: %1.3f"), CurrentPOV.AspectRatio));
+	const FMinimalViewInfo& CurrentPOV = GetCameraCacheView();
+
+	// Color schema (matching modifier section style):
+	//   Section headers:  purple  FColor(100, 20, 100)  + LargeFont
+	//   Content:          orange  FColor(222, 100, 5)
+
+	// ========== Camera Pose ==========
+	DisplayDebugManager.SetFont(GEngine->GetLargeFont());
+	DisplayDebugManager.SetDrawColor(FColor(100, 20, 100));
+	DisplayDebugManager.DrawString(TEXT("\nCamera Pose"));
+	DisplayDebugManager.SetDrawColor(FColor(222, 100, 5));
+	DisplayDebugManager.DrawString(FString::Printf(TEXT("    Position:  %s"), *CurrentCameraPose.Position.ToCompactString()));
+	DisplayDebugManager.DrawString(FString::Printf(TEXT("    Rotation:  %s"), *CurrentCameraPose.Rotation.ToCompactString()));
+	DisplayDebugManager.DrawString(FString::Printf(TEXT("    FOV:       %.1f"), CurrentCameraPose.FieldOfView));
+	DisplayDebugManager.DrawString(FString::Printf(TEXT("    Aspect:    %.3f"), CurrentPOV.AspectRatio));
+
+	// ========== Running Camera & Nodes ==========
+	DisplayDebugManager.SetDrawColor(FColor(100, 20, 100));
+	DisplayDebugManager.DrawString(TEXT("\nRunning Camera"));
+
+	if (RunningCamera)
+	{
+		DisplayDebugManager.SetDrawColor(FColor(222, 100, 5));
+		DisplayDebugManager.DrawString(FString::Printf(TEXT("    Class:     %s"), *RunningCamera->GetClass()->GetName()));
+		DisplayDebugManager.DrawString(FString::Printf(TEXT("    Tag:       %s"),
+			RunningCamera->CameraTag.IsValid() ? *RunningCamera->CameraTag.ToString() : TEXT("(none)")));
+
+		if (RunningCamera->IsTransient())
+		{
+			DisplayDebugManager.DrawString(FString::Printf(TEXT("    Transient: %.2f / %.2fs remaining"),
+				RunningCamera->GetRemainingLifeTime(), RunningCamera->GetLifeTime()));
+		}
+
+		// Nodes
+		DisplayDebugManager.SetDrawColor(FColor(100, 20, 100));
+		DisplayDebugManager.DrawString(FString::Printf(TEXT("\nCamera Nodes (%d)"), RunningCamera->CameraNodes.Num()));
+		DisplayDebugManager.SetDrawColor(FColor(222, 100, 5));
+		for (int32 i = 0; i < RunningCamera->CameraNodes.Num(); ++i)
+		{
+			if (UComposableCameraCameraNodeBase* Node = RunningCamera->CameraNodes[i])
+			{
+				DisplayDebugManager.DrawString(FString::Printf(TEXT("    [%d] %s"), i, *Node->GetClass()->GetName()));
+			}
+		}
+	}
+	else
+	{
+		DisplayDebugManager.SetDrawColor(FColor(222, 100, 5));
+		DisplayDebugManager.DrawString(TEXT("    (none)"));
+	}
+
+	// ========== Context Stack & Evaluation Tree ==========
+	DisplayDebugManager.SetDrawColor(FColor(100, 20, 100));
+	DisplayDebugManager.DrawString(TEXT("\nContext Stack & Evaluation Tree"));
+
+	if (ContextStack)
+	{
+		TStringBuilder<1024> StackString;
+		ContextStack->BuildDebugString(StackString);
+
+		DisplayDebugManager.SetDrawColor(FColor(222, 100, 5));
+
+		FString FullString = StackString.ToString();
+		TArray<FString> Lines;
+		FullString.ParseIntoArrayLines(Lines);
+
+		for (const FString& Line : Lines)
+		{
+			DisplayDebugManager.DrawString(FString::Printf(TEXT("    %s"), *Line));
+		}
+	}
+
+	// ========== Camera Actions ==========
+	DisplayDebugManager.SetDrawColor(FColor(100, 20, 100));
+	DisplayDebugManager.DrawString(TEXT("\nCamera Actions"));
+
+	if (CameraActions.Num() > 0)
+	{
+		DisplayDebugManager.SetDrawColor(FColor(222, 100, 5));
+		for (const UComposableCameraActionBase* Action : CameraActions)
+		{
+			if (Action)
+			{
+				DisplayDebugManager.DrawString(FString::Printf(TEXT("    %s %s"),
+					*Action->GetClass()->GetName(),
+					Action->bOnlyForCurrentCamera ? TEXT("(camera-scoped)") : TEXT("(persistent)")));
+			}
+		}
+	}
+	else
+	{
+		DisplayDebugManager.SetDrawColor(FColor(222, 100, 5));
+		DisplayDebugManager.DrawString(TEXT("    (none)"));
+	}
+
+	// ========== Modifiers ==========
 	BuildModifierDebugString(DisplayDebugManager);
 }
 

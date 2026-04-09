@@ -140,6 +140,9 @@ public:
 	/** Destroy all cameras in the tree and reset to empty. */
 	void DestroyAll();
 
+	/** Build a debug string representation of the evaluation tree structure. */
+	void BuildDebugString(TStringBuilder<1024>& OutString, int32 IndentLevel = 0) const;
+
 	// UObject interface.
 	static void AddReferencedObjects(UObject* InThis, FReferenceCollector& Collector);
 
@@ -170,6 +173,12 @@ private:
 	 * Recursively destroy all camera actors referenced by a subtree.
 	 */
 	void DestroySubtreeCameras(const TSharedPtr<FComposableCameraEvaluationTreeNode>& Node);
+
+	/** Recursively build a debug string for a subtree. */
+	static void BuildNodeDebugString(
+		const TSharedPtr<FComposableCameraEvaluationTreeNode>& Node,
+		TStringBuilder<1024>& OutString,
+		int32 IndentLevel);
 
 	/** Recursively register UObject references in the tree for garbage collection. */
 	static void AddTreeReferencedObjects(

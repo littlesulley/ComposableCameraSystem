@@ -321,6 +321,28 @@ void UComposableCameraDirector::DestroyAllCameras()
 	RunningCamera = nullptr;
 }
 
+void UComposableCameraDirector::BuildDebugString(TStringBuilder<1024>& OutString, int32 IndentLevel) const
+{
+	const FString Indent = FString::ChrN(IndentLevel * 4, ' ');
+
+	OutString.Appendf(TEXT("%sRunning Camera: %s\n"), *Indent,
+		RunningCamera ? *RunningCamera->GetClass()->GetName() : TEXT("(none)"));
+	OutString.Appendf(TEXT("%sLast Pose: %s  Rot: %s  FOV: %.1f\n"), *Indent,
+		*LastEvaluatedPose.Position.ToCompactString(),
+		*LastEvaluatedPose.Rotation.ToCompactString(),
+		LastEvaluatedPose.FieldOfView);
+	OutString.Appendf(TEXT("%sEvaluation Tree:\n"), *Indent);
+
+	if (EvaluationTree)
+	{
+		EvaluationTree->BuildDebugString(OutString, IndentLevel + 1);
+	}
+	else
+	{
+		OutString.Appendf(TEXT("%s    (no tree)\n"), *Indent);
+	}
+}
+
 void UComposableCameraDirector::ForceCameraPoses(AComposableCameraCameraBase* Camera, const FTransform& Transform)
 {
 	if (Camera)
