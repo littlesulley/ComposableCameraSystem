@@ -6,8 +6,10 @@
 #include "Kismet/KismetMathLibrary.h"
 #include "Kismet/KismetSystemLibrary.h"
 
-void UComposableCameraPivotDampingNode::OnBeginPlayNode_Implementation(const FComposableCameraPose& CurrentCameraPose)
+void UComposableCameraPivotDampingNode::OnInitialize_Implementation()
 {
+	Super::OnInitialize_Implementation();
+
 	UpwardInterpolator_T    = IsValid(UpwardInterpolator)    ? UpwardInterpolator->BuildDoubleInterpolator()    : nullptr;
 	DownwardInterpolator_T  = IsValid(DownwardInterpolator)  ? DownwardInterpolator->BuildDoubleInterpolator()  : nullptr;
 	LeftwardInterpolator_T  = IsValid(LeftwardInterpolator)  ? LeftwardInterpolator->BuildDoubleInterpolator()  : nullptr;
@@ -15,17 +17,13 @@ void UComposableCameraPivotDampingNode::OnBeginPlayNode_Implementation(const FCo
 	ForwardInterpolator_T   = IsValid(ForwardInterpolator)   ? ForwardInterpolator->BuildDoubleInterpolator()   : nullptr;
 	BackwardInterpolator_T  = IsValid(BackwardInterpolator)  ? BackwardInterpolator->BuildDoubleInterpolator()  : nullptr;
 
-	LastPivotPosition = ContextPivotPosition.Variable ? ContextPivotPosition.Variable->RuntimeValue : ContextPivotPosition.Value;
+	LastPivotPosition = GetInputPinValue<FVector>("PivotPosition");
 }
 
 void UComposableCameraPivotDampingNode::OnTickNode_Implementation(float DeltaTime,
 	const FComposableCameraPose& CurrentCameraPose, FComposableCameraPose& OutCameraPose)
 {
-	FVector Pivot = ContextPivotPosition.Value;
-	if (ContextPivotPosition.Variable)
-	{
-		Pivot = ContextPivotPosition.Variable->RuntimeValue;
-	}
+	FVector Pivot = GetInputPinValue<FVector>("PivotPosition");
 
 	FRotator CameraRotation = OutCameraPose.Rotation;
 	
@@ -111,14 +109,7 @@ void UComposableCameraPivotDampingNode::OnTickNode_Implementation(float DeltaTim
 	FVector WorldSpaceDampedPivotPosition = UKismetMathLibrary::GreaterGreater_VectorRotator(
 		CameraSpaceDampedPivotDirection, CameraRotation) + LastPivotPosition;
 	
-	if (ContextPivotPosition.Variable)
-	{
-		ContextPivotPosition.Variable->RuntimeValue = WorldSpaceDampedPivotPosition;
-	}
-	else
-	{
-		ContextPivotPosition.Value = WorldSpaceDampedPivotPosition;
-	}
+	SetOutputPinValue<FVector>("PivotPosition", WorldSpaceDampedPivotPosition);
 
 	LastPivotPosition = WorldSpaceDampedPivotPosition;
 
@@ -128,16 +119,26 @@ void UComposableCameraPivotDampingNode::OnTickNode_Implementation(float DeltaTim
 	}
 }
 
-void UComposableCameraPivotDampingNode::ReceiveInitializerNode(UComposableCameraCameraNodeBase* Initializer)
+void UComposableCameraPivotDampingNode::GetPinDeclarations_Implementation(TArray<FComposableCameraNodePinDeclaration>& OutPins) const
 {
-	if (UComposableCameraPivotDampingNode* CastedInitializer = Cast<UComposableCameraPivotDampingNode>(Initializer))
-	{
-		bMaintainCameraSpacePivotPosition = CastedInitializer->bMaintainCameraSpacePivotPosition;
-		UpwardInterpolator = CastedInitializer->UpwardInterpolator;
-		DownwardInterpolator = CastedInitializer->DownwardInterpolator;
-		LeftwardInterpolator = CastedInitializer->LeftwardInterpolator;
-		RightwardInterpolator = CastedInitializer->RightwardInterpolator;
-		ForwardInterpolator = CastedInitializer->ForwardInterpolator;
-		BackwardInterpolator = CastedInitializer->BackwardInterpolator;
-	}
+	FComposableCameraNodePinDeclaration PinDecl;
+
+	// PivotPosition Input
+	PinDecl.PinName = TEXT("PivotPosition");
+	PinDecl.DisplayName = NSLOCTEXT("ComposableCameraPivotDampingNode", "PivotPosition", "Pivot Position");
+	PinDecl.Direction = EComposableCameraPinDirection::Input;
+	PinDecl.PinType = EComposableCameraPinType::Vector3D;
+	PinDecl.bRequired = true;
+	PinDecl.Tooltip = NSLOCTEXT("ComposableCameraPivotDampingNode", "PivotPositionTip", "Pivot position to damp.");
+	OutPins.Add(PinDecl);
+
+	// PivotPosition Output
+	PinDecl.PinName = TEXT("PivotPosition");
+	PinDecl.DisplayName = NSLOCTEXT("ComposableCameraPivotDampingNode", "PivotPositionOutput", "Pivot Position");
+	PinDecl.Direction = EComposableCameraPinDirection::Output;
+	PinDecl.PinType = EComposableCameraPinType::Vector3D;
+	PinDecl.bRequired = false;
+	PinDecl.Tooltip = NSLOCTEXT("ComposableCameraPivotDampingNode", "PivotPositionOutputTip", "Damped pivot position output.");
+	OutPins.Add(PinDecl);
 }
+

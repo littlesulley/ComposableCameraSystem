@@ -25,8 +25,36 @@ FComposableCameraEditorStyle::FComposableCameraEditorStyle()
 	const FString ContentDir = IPluginManager::Get().FindPlugin(TEXT("ComposableCameraSystem"))->GetContentDir();
 	SetContentRoot(ContentDir);
 	SetCoreContentRoot(FPaths::EngineContentDir() / TEXT("Slate"));
-	
-	Set("CameraContextParameter.VariableBrowser", new IMAGE_BRUSH_SVG("Icons/CameraParameter-Variable", Icon16x16));
+
+	// ── Content Browser thumbnails and class icons ─────────────────────────
+	// The engine resolves these by the naming convention
+	// "ClassIcon.<ClassName>" / "ClassThumbnail.<ClassName>" (without the U
+	// prefix). Registering them here makes the Content Browser pick them up
+	// automatically — no GetThumbnailBrush() override needed.
+
+	// Camera Type Asset
+	Set("ClassIcon.ComposableCameraTypeAsset",
+		new IMAGE_BRUSH_SVG("Icons/ContentBrowser-ComposableCameraType", Icon16x16));
+	Set("ClassThumbnail.ComposableCameraTypeAsset",
+		new IMAGE_BRUSH_SVG("Icons/ContentBrowser-ComposableCameraType", Icon64x64));
+
+	// Transition Table Data Asset
+	Set("ClassIcon.ComposableCameraTransitionTableDataAsset",
+		new IMAGE_BRUSH_SVG("Icons/ContentBrowser-ComposableCameraTransitionTable", Icon16x16));
+	Set("ClassThumbnail.ComposableCameraTransitionTableDataAsset",
+		new IMAGE_BRUSH_SVG("Icons/ContentBrowser-ComposableCameraTransitionTable", Icon64x64));
+
+	// Node Modifier Data Asset
+	Set("ClassIcon.ComposableCameraNodeModifierDataAsset",
+		new IMAGE_BRUSH_SVG("Icons/ContentBrowser-ComposableCameraModifier", Icon16x16));
+	Set("ClassThumbnail.ComposableCameraNodeModifierDataAsset",
+		new IMAGE_BRUSH_SVG("Icons/ContentBrowser-ComposableCameraModifier", Icon64x64));
+
+	// Transition Data Asset
+	Set("ClassIcon.ComposableCameraTransitionDataAsset",
+		new IMAGE_BRUSH_SVG("Icons/ContentBrowser-ComposableCameraTransition", Icon16x16));
+	Set("ClassThumbnail.ComposableCameraTransitionDataAsset",
+		new IMAGE_BRUSH_SVG("Icons/ContentBrowser-ComposableCameraTransition", Icon64x64));
 
 	FSlateStyleRegistry::RegisterSlateStyle(*this);
 }

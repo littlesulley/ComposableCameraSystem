@@ -7,3 +7,8 @@ void UComposableCameraFixedPoseNode::OnTickNode_Implementation(float DeltaTime,
 {
 	OutCameraPose = OwningCamera->CameraPose;
 }
+
+void UComposableCameraFixedPoseNode::GetPinDeclarations_Implementation(TArray<FComposableCameraNodePinDeclaration>& OutPins) const
+{
+	// Trivial passthrough node — no data pins needed.
+}

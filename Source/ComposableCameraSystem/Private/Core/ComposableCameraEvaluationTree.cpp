@@ -3,7 +3,9 @@
 #include "Core/ComposableCameraEvaluationTree.h"
 
 #include "ComposableCameraSystemModule.h"
+#include "Cameras/ComposableCameraCameraBase.h"
 #include "Core/ComposableCameraDirector.h"
+#include "DataAssets/ComposableCameraTypeAsset.h"
 #include "Transitions/ComposableCameraTransitionBase.h"
 
 // -------------------------------------------------------
@@ -351,7 +353,20 @@ void UComposableCameraEvaluationTree::BuildNodeDebugString(
 		AComposableCameraCameraBase* Camera = Leaf.RunningCamera.Get();
 		if (IsValid(Camera))
 		{
-			OutString.Appendf(TEXT("%s[Leaf] %s"), *Indent, *Camera->GetClass()->GetName());
+			FString CameraLabel;
+			if (const UComposableCameraTypeAsset* TA = Camera->SourceTypeAsset.Get())
+			{
+				CameraLabel = TA->GetName();
+			}
+			else if (Camera->CameraTag.IsValid())
+			{
+				CameraLabel = Camera->CameraTag.ToString();
+			}
+			else
+			{
+				CameraLabel = Camera->GetName();
+			}
+			OutString.Appendf(TEXT("%s[Leaf] %s"), *Indent, *CameraLabel);
 			if (Camera->IsTransient())
 			{
 				OutString.Appendf(TEXT(" (transient, %.1f/%.1fs)"),

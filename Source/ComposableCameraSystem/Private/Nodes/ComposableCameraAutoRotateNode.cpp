@@ -7,8 +7,10 @@
 #include "Kismet/KismetMathLibrary.h"
 #include "Math/ComposableCameraMath.h"
 
-void UComposableCameraAutoRotateNode::OnBeginPlayNode_Implementation(const FComposableCameraPose& CurrentCameraPose)
+void UComposableCameraAutoRotateNode::OnInitialize_Implementation()
 {
+	Super::OnInitialize_Implementation();
+
 	InterpolatorYaw_T = RotateInterpolatorForYaw ? RotateInterpolatorForYaw->BuildDoubleInterpolator() : nullptr;
 	InterpolatorPitch_T = RotateInterpolatorForPitch ? RotateInterpolatorForPitch->BuildDoubleInterpolator() : nullptr;
 }
@@ -47,8 +49,8 @@ void UComposableCameraAutoRotateNode::OnTickNode_Implementation(float DeltaTime,
 	FVector2D ValidRangeYaw { MainRotation.Yaw + YawRange[0], MainRotation.Yaw + YawRange[1] };
 	FVector2D ValidRangePitch { MainRotation.Pitch + PitchRange[0], MainRotation.Pitch + PitchRange[1] };
 
-	bool bHasUserInterrupt = ContextCameraRotationInput.Variable && !ContextCameraRotationInput.Variable->RuntimeValue.IsNearlyZero()
-						  || !ContextCameraRotationInput.Value.IsNearlyZero();
+	FVector2D CameraRotationInput = GetInputPinValue<FVector2D>("CameraRotationInput");
+	bool bHasUserInterrupt = !CameraRotationInput.IsNearlyZero();
 
 	if (bHasUserInterrupt)
 	{
@@ -112,18 +114,29 @@ void UComposableCameraAutoRotateNode::OnTickNode_Implementation(float DeltaTime,
 	}
 }
 
-void UComposableCameraAutoRotateNode::ReceiveInitializerNode(UComposableCameraCameraNodeBase* Initializer)
+void UComposableCameraAutoRotateNode::GetPinDeclarations_Implementation(TArray<FComposableCameraNodePinDeclaration>& OutPins) const
 {
-	if (UComposableCameraAutoRotateNode* CastedInitializer = Cast<UComposableCameraAutoRotateNode>(Initializer))
 	{
-		YawRange = CastedInitializer->YawRange;
-		PitchRange = CastedInitializer->PitchRange;
-		bYawOnly = CastedInitializer->bYawOnly;
-		BeyondValidRangeCooldown = CastedInitializer->BeyondValidRangeCooldown;
-		InputInterruptCooldown = CastedInitializer->InputInterruptCooldown;
-		MaxCountAfterInputInterrupt = CastedInitializer->MaxCountAfterInputInterrupt;
-		RotateInterpolatorForYaw = CastedInitializer->RotateInterpolatorForYaw;
-		RotateInterpolatorForPitch = CastedInitializer->RotateInterpolatorForPitch;
+		FComposableCameraNodePinDeclaration PinDecl;
+		PinDecl.PinName = TEXT("MainDirection");
+		PinDecl.DisplayName = NSLOCTEXT("UComposableCameraAutoRotateNode", "MainDirection", "Main Direction");
+		PinDecl.Direction = EComposableCameraPinDirection::Input;
+		PinDecl.PinType = EComposableCameraPinType::Vector3D;
+		PinDecl.bRequired = false;
+		PinDecl.Tooltip = NSLOCTEXT("UComposableCameraAutoRotateNode", "MainDirectionTip", "The main direction for auto-rotation (replaces delegate).");
+		OutPins.Add(PinDecl);
+	}
+
+	{
+		FComposableCameraNodePinDeclaration PinDecl;
+		PinDecl.PinName = TEXT("CameraRotationInput");
+		PinDecl.DisplayName = NSLOCTEXT("UComposableCameraAutoRotateNode", "CameraRotationInput", "Camera Rotation Input");
+		PinDecl.Direction = EComposableCameraPinDirection::Input;
+		PinDecl.PinType = EComposableCameraPinType::Vector2D;
+		PinDecl.bRequired = false;
+		PinDecl.Tooltip = NSLOCTEXT("UComposableCameraAutoRotateNode", "CameraRotationInputTip", "Camera rotation input for this frame.");
+		OutPins.Add(PinDecl);
 	}
 }
+
 

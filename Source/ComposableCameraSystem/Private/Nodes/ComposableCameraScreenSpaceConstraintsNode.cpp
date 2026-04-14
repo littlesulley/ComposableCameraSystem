@@ -10,9 +10,10 @@
 #include "Kismet/KismetMathLibrary.h"
 #include "Nodes/ComposableCameraScreenSpacePivotNode.h"
 
-void UComposableCameraScreenSpaceConstraintsNode::OnBeginPlayNode_Implementation(
-	const FComposableCameraPose& CurrentCameraPose)
+void UComposableCameraScreenSpaceConstraintsNode::OnInitialize_Implementation()
 {
+	Super::OnInitialize_Implementation();
+
 	AHUD* HUD = OwningPlayerCameraManager->GetOwningPlayerController()->GetHUD();
 	DrawDebugHandle = HUD->OnHUDPostRender.AddLambda([this](AHUD* HUD, UCanvas* Canvas)
 	{
@@ -56,16 +57,47 @@ void UComposableCameraScreenSpaceConstraintsNode::BeginDestroy()
 	}
 }
 
-void UComposableCameraScreenSpaceConstraintsNode::ReceiveInitializerNode(UComposableCameraCameraNodeBase* Initializer)
+void UComposableCameraScreenSpaceConstraintsNode::GetPinDeclarations_Implementation(TArray<FComposableCameraNodePinDeclaration>& OutPins) const
 {
-	if (UComposableCameraScreenSpaceConstraintsNode* CastedInitializer = Cast<UComposableCameraScreenSpaceConstraintsNode>(Initializer))
-	{
-		Method = CastedInitializer->Method;
-		SafeZoneCenter = CastedInitializer->SafeZoneCenter;
-		SafeZoneWidth = CastedInitializer->SafeZoneWidth;
-		SafeZoneHeight = CastedInitializer->SafeZoneHeight;
-	}
+	FComposableCameraNodePinDeclaration PinDecl;
+
+	// Input: PivotActor
+	PinDecl.PinName = TEXT("PivotActor");
+	PinDecl.DisplayName = NSLOCTEXT("UComposableCameraScreenSpaceConstraintsNode", "PivotActor", "Pivot Actor");
+	PinDecl.Direction = EComposableCameraPinDirection::Input;
+	PinDecl.PinType = EComposableCameraPinType::Actor;
+	PinDecl.bRequired = true;
+	PinDecl.Tooltip = NSLOCTEXT("UComposableCameraScreenSpaceConstraintsNode", "PivotActorTip", "Actor to constrain in screen space.");
+	OutPins.Add(PinDecl);
+
+	// Input: SafeZoneCenter
+	PinDecl.PinName = TEXT("SafeZoneCenter");
+	PinDecl.DisplayName = NSLOCTEXT("UComposableCameraScreenSpaceConstraintsNode", "SafeZoneCenter", "Safe Zone Center");
+	PinDecl.Direction = EComposableCameraPinDirection::Input;
+	PinDecl.PinType = EComposableCameraPinType::Vector2D;
+	PinDecl.bRequired = false;
+	PinDecl.Tooltip = NSLOCTEXT("UComposableCameraScreenSpaceConstraintsNode", "SafeZoneCenterTip", "Screen space safe zone center.");
+	OutPins.Add(PinDecl);
+
+	// Input: SafeZoneWidth
+	PinDecl.PinName = TEXT("SafeZoneWidth");
+	PinDecl.DisplayName = NSLOCTEXT("UComposableCameraScreenSpaceConstraintsNode", "SafeZoneWidth", "Safe Zone Width");
+	PinDecl.Direction = EComposableCameraPinDirection::Input;
+	PinDecl.PinType = EComposableCameraPinType::Vector2D;
+	PinDecl.bRequired = false;
+	PinDecl.Tooltip = NSLOCTEXT("UComposableCameraScreenSpaceConstraintsNode", "SafeZoneWidthTip", "Safe zone width bounds.");
+	OutPins.Add(PinDecl);
+
+	// Input: SafeZoneHeight
+	PinDecl.PinName = TEXT("SafeZoneHeight");
+	PinDecl.DisplayName = NSLOCTEXT("UComposableCameraScreenSpaceConstraintsNode", "SafeZoneHeight", "Safe Zone Height");
+	PinDecl.Direction = EComposableCameraPinDirection::Input;
+	PinDecl.PinType = EComposableCameraPinType::Vector2D;
+	PinDecl.bRequired = false;
+	PinDecl.Tooltip = NSLOCTEXT("UComposableCameraScreenSpaceConstraintsNode", "SafeZoneHeightTip", "Safe zone height bounds.");
+	OutPins.Add(PinDecl);
 }
+
 
 FVector UComposableCameraScreenSpaceConstraintsNode::EnsureWithinBoundsTranslation(const FVector& Pivot,
                                                                                    const FComposableCameraPose& CurrentPose, const float& AspectRatio, const float& TanHalfHOR)
@@ -253,15 +285,11 @@ std::pair<float, float> UComposableCameraScreenSpaceConstraintsNode::GetTanHalfH
 
 FVector UComposableCameraScreenSpaceConstraintsNode::GetCurrentPivot()
 {
-	if (ContextPivotActor.Variable && ContextPivotActor.Variable->RuntimeValue)
+	AActor* PivotActor = GetInputPinValue<AActor*>("PivotActor");
+	if (IsValid(PivotActor))
 	{
-		return ContextPivotActor.Variable->RuntimeValue->GetActorLocation();
+		return PivotActor->GetActorLocation();
 	}
-	else if (ContextPivotActor.Value)
-	{
-		return ContextPivotActor.Value->GetActorLocation();
-	}
-
 	return FVector::ZeroVector;
 }
 

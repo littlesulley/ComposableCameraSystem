@@ -10,20 +10,22 @@
 #include "EditorHooks/EditorHooks.h"
 #include "Kismet/KismetSystemLibrary.h"
 
-void UComposableCameraCollisionPushNode::OnBeginPlayNode_Implementation(const FComposableCameraPose& CurrentCameraPose)
+void UComposableCameraCollisionPushNode::OnInitialize_Implementation()
 {
+	Super::OnInitialize_Implementation();
+
+	// Subobject pin values (e.g. PushInterpolator.Speed) are auto-applied by
+	// the base class in Initialize(), before this OnInitialize runs.
+
 	PushInterpolator_T = IsValid(PushInterpolator) ? PushInterpolator->BuildDoubleInterpolator() : nullptr;
 	PullInterpolator_T = IsValid(PullInterpolator) ? PullInterpolator->BuildDoubleInterpolator() : nullptr;
 
 	if (bUseBoneForDetection)
 	{
-		if (ContextPivotActor.Variable && ContextPivotActor.Variable->RuntimeValue)
+		AActor* PivotActor = GetInputPinValue<AActor*>("PivotActor");
+		if (IsValid(PivotActor))
 		{
-			SkeletalMeshComponentForPivotActor = ContextPivotActor.Variable->RuntimeValue->GetComponentByClass<USkeletalMeshComponent>();
-		}
-		else if (ContextPivotActor.Value)
-		{
-			SkeletalMeshComponentForPivotActor = ContextPivotActor.Value->GetComponentByClass<USkeletalMeshComponent>();
+			SkeletalMeshComponentForPivotActor = PivotActor->GetComponentByClass<USkeletalMeshComponent>();
 		}
 	}
 }
@@ -34,22 +36,19 @@ void UComposableCameraCollisionPushNode::OnTickNode_Implementation(float DeltaTi
 	OriginalCameraPosition = CurrentCameraPose.Position;
 	FVector PivotPosition = FVector::ZeroVector;
 
-	if (bUseBoneForDetection && SkeletalMeshComponentForPivotActor)
+	if (bUseBoneForDetection && IsValid(SkeletalMeshComponentForPivotActor))
 	{
 		PivotPosition = SkeletalMeshComponentForPivotActor->GetSocketLocation(BoneName);
 	}
-	else if (ContextPivotActor.Variable && ContextPivotActor.Variable->RuntimeValue)
-	{
-		PivotPosition = ContextPivotActor.Variable->RuntimeValue->GetActorLocation() + FVector(0, 0, PivotZOffset);
-	}
-	else if (ContextPivotActor.Value)
-	{
-		PivotPosition = ContextPivotActor.Value->GetActorLocation() + FVector(0, 0, PivotZOffset);
-	}
 	else
 	{
-		UE_LOG(LogComposableCameraSystem, Warning, TEXT("Cannot find a valid context actor for collision push."))
-		return;
+		AActor* PivotActor = GetInputPinValue<AActor*>("PivotActor");
+		if (!IsValid(PivotActor))
+		{
+			UE_LOG(LogComposableCameraSystem, Warning, TEXT("Cannot find a valid pivot actor for collision push."))
+			return;
+		}
+		PivotPosition = PivotActor->GetActorLocation() + FVector(0, 0, PivotZOffset);
 	}
 	
 	if (UWorld* World = GetWorld())
@@ -81,26 +80,23 @@ void UComposableCameraCollisionPushNode::OnPreTick(float DeltaTime, const FCompo
 	}
 }
 
-void UComposableCameraCollisionPushNode::ReceiveInitializerNode(UComposableCameraCameraNodeBase* Initializer)
+void UComposableCameraCollisionPushNode::GetPinDeclarations_Implementation(TArray<FComposableCameraNodePinDeclaration>& OutPins) const
 {
-	if (UComposableCameraCollisionPushNode* CastedInitializer = Cast<UComposableCameraCollisionPushNode>(Initializer))
-	{
-		TraceCollisionChannel = CastedInitializer->TraceCollisionChannel;
-		bTraceUseSphere = CastedInitializer->bTraceUseSphere;
-		TraceSphereRadius = CastedInitializer->TraceSphereRadius;
-		TraceOcclusionExemptionTime = CastedInitializer->TraceOcclusionExemptionTime;
-		SelfCollisionChannel = CastedInitializer->SelfCollisionChannel;
-		SelfSphereRadius = CastedInitializer->SelfSphereRadius;
-		SelfSphereDistanceOffsetFromCenter = CastedInitializer->SelfSphereDistanceOffsetFromCenter;
-		ActorTypesToIgnore = CastedInitializer->ActorTypesToIgnore;
-		ExtraPushDistance = CastedInitializer->ExtraPushDistance;
-		PushInterpolator = CastedInitializer->PushInterpolator;
-		PullInterpolator = CastedInitializer->PullInterpolator;
-		PivotZOffset = CastedInitializer->PivotZOffset;
-		bUseBoneForDetection = CastedInitializer->bUseBoneForDetection;
-		BoneName = CastedInitializer->BoneName;
-	}
+	FComposableCameraNodePinDeclaration PinDecl;
+
+	// PivotActor Input
+	PinDecl.PinName = TEXT("PivotActor");
+	PinDecl.DisplayName = NSLOCTEXT("ComposableCameraCollisionPushNode", "PivotActor", "Pivot Actor");
+	PinDecl.Direction = EComposableCameraPinDirection::Input;
+	PinDecl.PinType = EComposableCameraPinType::Actor;
+	PinDecl.bRequired = true;
+	PinDecl.Tooltip = NSLOCTEXT("ComposableCameraCollisionPushNode", "PivotActorTip", "The actor from which to retrieve collision detection target position.");
+	OutPins.Add(PinDecl);
+
+	// Subobject pins (e.g. PushInterpolator.Speed) are auto-appended by
+	// GatherAllPinDeclarations in the base class — no manual calls needed.
 }
+
 
 FComposableCameraHitResult UComposableCameraCollisionPushNode::FindCollisionPoint(double DeltaTime,  const FVector& PivotPosition, const FVector& CameraPosition, const FRotator& CameraRotation)
 {

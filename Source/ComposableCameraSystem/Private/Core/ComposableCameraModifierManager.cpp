@@ -147,7 +147,7 @@ UComposableCameraModifierManager::FComposableCameraModifierData::UpdateEffective
 			{
 				Transition = OldModifier.Asset->OverrideExitTransition
 						   ? OldModifier.Asset->OverrideExitTransition
-						   : Camera->DefaultTransition;
+						   : Camera->EnterTransition;
 				BestPriorityForTransition = OldModifier.Asset->Priority;
 			}
 		}
@@ -162,7 +162,7 @@ UComposableCameraModifierManager::FComposableCameraModifierData::UpdateEffective
 				{
 					Transition = NewModifier.Asset->OverrideEnterTransition
 							   ? NewModifier.Asset->OverrideEnterTransition
-							   : Camera->DefaultTransition;
+							   : Camera->EnterTransition;
 					BestPriorityForTransition = NewModifier.Asset->Priority;
 				}
 				
@@ -171,7 +171,7 @@ UComposableCameraModifierManager::FComposableCameraModifierData::UpdateEffective
 				{
 					Transition = OldModifier.Asset->OverrideExitTransition
 							   ? OldModifier.Asset->OverrideExitTransition
-							   : Camera->DefaultTransition;
+							   : Camera->EnterTransition;
 					BestPriorityForTransition = OldModifier.Asset->Priority;
 				}
 			}
@@ -192,7 +192,7 @@ UComposableCameraModifierManager::FComposableCameraModifierData::UpdateEffective
 			{
 				Transition = NewModifier.Asset->OverrideEnterTransition
 						   ? NewModifier.Asset->OverrideEnterTransition
-						   : Camera->DefaultTransition;
+						   : Camera->EnterTransition;
 				BestPriorityForTransition = NewModifier.Asset->Priority;
 			}
 		}

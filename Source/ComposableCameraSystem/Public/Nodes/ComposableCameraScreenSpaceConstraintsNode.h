@@ -10,19 +10,19 @@
 /**
  * Node for constraining a pivot position in screen using either translation or rotation.
  */
-UCLASS(NotBlueprintable, ClassGroup = ComposableCameraSystem)
+UCLASS(NotBlueprintable, ClassGroup = ComposableCameraSystem, meta = (ToolTip = "Constrains a pivot actor within a screen-space safe zone."))
 class COMPOSABLECAMERASYSTEM_API UComposableCameraScreenSpaceConstraintsNode : public UComposableCameraCameraNodeBase
 {
 	GENERATED_BODY()
 
 public:
-	virtual void OnBeginPlayNode_Implementation(const FComposableCameraPose& CurrentCameraPose) override;
+	virtual void OnInitialize_Implementation() override;
 	virtual void OnTickNode_Implementation(float DeltaTime, const FComposableCameraPose& CurrentCameraPose, FComposableCameraPose& OutCameraPose) override;
 	virtual void BeginDestroy() override;
+	virtual void GetPinDeclarations_Implementation(TArray<FComposableCameraNodePinDeclaration>& OutPins) const override;
 
 protected:
-	virtual void ReceiveInitializerNode(UComposableCameraCameraNodeBase* Initializer) override;
-	
+
 public:
 	// The method to keep screen space constraints, translation or rotation.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters)
@@ -39,9 +39,6 @@ public:
 	// Screen space safe zone bottom half-height and top half-height, from -1 to 1.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters, meta = (ClampMax = "1", ClampMin = "-1"))
 	FVector2D SafeZoneHeight { -0.1, 0.1 };
-	
-	UPROPERTY(EditAnywhere, Category = ContextParameters)
-	FActorComposableCameraContextParameter ContextPivotActor;
 	
 private:
 	FDelegateHandle DrawDebugHandle;

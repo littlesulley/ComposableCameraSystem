@@ -6,8 +6,16 @@
 #include "Kismet/KismetMathLibrary.h"
 #include "Kismet/KismetSystemLibrary.h"
 
-void UComposableCameraPivotOffsetNode::OnBeginPlayNode_Implementation(const FComposableCameraPose& CurrentCameraPose)
+void UComposableCameraPivotOffsetNode::OnInitialize_Implementation()
 {
+	Super::OnInitialize_Implementation();
+
+	// CurrentCameraPose at Initialize time is the outgoing camera's pose — the same
+	// value AActor::BeginPlay used to pass into BeginPlayCamera. Read it from the PCM
+	// so nodes that previously depended on the BeginPlayNode parameter still work.
+	const FComposableCameraPose CurrentCameraPose = OwningPlayerCameraManager
+		? OwningPlayerCameraManager->GetCurrentCameraPose()
+		: FComposableCameraPose{};
 	UpdatePivotOffset(CurrentCameraPose);
 }
 
@@ -17,24 +25,11 @@ void UComposableCameraPivotOffsetNode::OnTickNode_Implementation(float DeltaTime
 	UpdatePivotOffset(CurrentCameraPose);
 }
 
-void UComposableCameraPivotOffsetNode::ReceiveInitializerNode(UComposableCameraCameraNodeBase* Initializer)
-{
-	if (UComposableCameraPivotOffsetNode* CastedInitializer = Cast<UComposableCameraPivotOffsetNode>(Initializer))
-	{
-		PivotOffsetType = CastedInitializer->PivotOffsetType;
-		ActorForLocalSpace = CastedInitializer->ActorForLocalSpace;
-		PivotOffset = CastedInitializer->PivotOffset;
-	}
-}
 
 void UComposableCameraPivotOffsetNode::UpdatePivotOffset(const FComposableCameraPose& CurrentCameraPose)
 {
-	FVector Pivot = ContextPivotPosition.Value;
-	if (ContextPivotPosition.Variable)
-	{
-		Pivot = ContextPivotPosition.Variable->RuntimeValue;
-	}
-	
+	FVector Pivot = GetInputPinValue<FVector>("PivotPosition");
+
 	switch (PivotOffsetType)
 	{
 	case ECameraPivotOffset::ActorLocalSpace:
@@ -62,17 +57,39 @@ void UComposableCameraPivotOffsetNode::UpdatePivotOffset(const FComposableCamera
 		break;
 	}
 
-	if (ContextPivotPosition.Variable)
-	{
-		ContextPivotPosition.Variable->RuntimeValue = Pivot;
-	}
-	else
-	{
-		ContextPivotPosition.Value = Pivot;
-	}
+	SetOutputPinValue<FVector>("PivotPosition", Pivot);
 
 	if (OwningPlayerCameraManager && OwningPlayerCameraManager->bDrawDebugInformation)
 	{
 		UKismetSystemLibrary::DrawDebugSphere(this, Pivot, 20, 12, FLinearColor::Yellow, 0, 1);
+	}
+}
+
+void UComposableCameraPivotOffsetNode::GetPinDeclarations_Implementation(
+	TArray<FComposableCameraNodePinDeclaration>& OutPins) const
+{
+	// Input: pivot position to offset.
+	{
+		FComposableCameraNodePinDeclaration Pin;
+		Pin.PinName = "PivotPosition";
+		Pin.DisplayName = NSLOCTEXT("ComposableCameraSystem", "PivotPos_In", "Pivot Position");
+		Pin.Direction = EComposableCameraPinDirection::Input;
+		Pin.PinType = EComposableCameraPinType::Vector3D;
+		Pin.bRequired = true;
+		Pin.Tooltip = NSLOCTEXT("ComposableCameraSystem", "PivotPosInTooltip",
+			"The pivot position to apply offset to.");
+		OutPins.Add(Pin);
+	}
+
+	// Output: the offset pivot position.
+	{
+		FComposableCameraNodePinDeclaration Pin;
+		Pin.PinName = "PivotPosition";
+		Pin.DisplayName = NSLOCTEXT("ComposableCameraSystem", "PivotPos_Out", "Pivot Position");
+		Pin.Direction = EComposableCameraPinDirection::Output;
+		Pin.PinType = EComposableCameraPinType::Vector3D;
+		Pin.Tooltip = NSLOCTEXT("ComposableCameraSystem", "PivotPosOutTooltip",
+			"The pivot position after applying the offset.");
+		OutPins.Add(Pin);
 	}
 }

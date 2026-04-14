@@ -83,7 +83,7 @@ public:
 	 *
 	 * @param ContextName The name of the context to pop.
 	 * @param PlayerCameraManager The owning player camera manager (needed for camera creation during transition).
-	 * @param TransitionOverride Optional transition data asset. If nullptr, falls back to the resume camera's DefaultTransition.
+	 * @param TransitionOverride Optional transition data asset. If nullptr, falls back to the resume camera's EnterTransition.
 	 * @param ActivationParams Optional activation params for the resume camera.
 	 */
 	void PopContext(

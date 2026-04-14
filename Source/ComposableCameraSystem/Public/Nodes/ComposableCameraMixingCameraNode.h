@@ -71,10 +71,6 @@ public:
 
 	// Whether to use InitialTransform's rotation to override the new camera's rotation, regardless of bPreserveCameraPose.
 	bool bUseInitialTransformRotation { false };
-	
-	// Data asset for node initializers. If not set, no initializer will be applied.
-	UPROPERTY(EditAnywhere, BlueprintReadWrite)
-	UComposableCameraNodeInitializerDataAsset* NodeInitializerDataAsset { nullptr };
 };
 
 USTRUCT()
@@ -96,17 +92,17 @@ public:
  * During runtime, you should pass in a UpdateWeight function that provides weights for these cameras. Make sure all weights are greater than zero. \n
  * If one camera instance is not valid, its weight will be set to zero, then a squared normalization will be applied to normalize all weights.
  */
-UCLASS(NotBlueprintable, ClassGroup = ComposableCameraSystem)
+UCLASS(NotBlueprintable, ClassGroup = ComposableCameraSystem, meta = (ToolTip = "Blends multiple camera poses using configurable weights and mixing methods."))
 class COMPOSABLECAMERASYSTEM_API UComposableCameraMixingCameraNode :
 	public UComposableCameraCameraNodeBase
 {
 	GENERATED_BODY()
 
 public:
-	virtual void OnBeginPlayNode_Implementation(const FComposableCameraPose& CurrentCameraPose) override;
+	virtual void OnInitialize_Implementation() override;
 	virtual void OnTickNode_Implementation(float DeltaTime, const FComposableCameraPose& CurrentCameraPose, FComposableCameraPose& OutCameraPose) override;
-	virtual void ReceiveInitializerNode(UComposableCameraCameraNodeBase* Initializer) override;
 	virtual void BeginDestroy() override;
+	virtual void GetPinDeclarations_Implementation(TArray<FComposableCameraNodePinDeclaration>& OutPins) const override;
 
 public:
 	// Whether to only mix position, rotation or both.

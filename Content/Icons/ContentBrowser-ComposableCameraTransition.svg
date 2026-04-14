@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="48" height="48" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Camera body (centered) -->
+  <rect x="8" y="18" width="22" height="16" rx="2.5" fill="white"/>
+  <!-- Camera lens -->
+  <path d="M32 21 L40 17 L40 36 L32 32 Z" fill="white"/>
+  <!-- Curved transition path (swooping arc above camera, ends earlier to leave room for arrowhead) -->
+  <path d="M6 12 Q 16 4, 26 10 Q 33 14, 38 11" stroke="white" stroke-width="2" fill="none" stroke-linecap="round" opacity="0.7"/>
+  <!-- Arrow tip — larger, filled triangle, clearly separated from the arc end -->
+  <polygon points="44,7 37,8 39,14" fill="white" opacity="0.7"/>
+  <!-- Blend bar at bottom -->
+  <rect x="8" y="39" width="32" height="3" rx="1.5" fill="white" opacity="0.4"/>
+  <!-- Blend progress indicator -->
+  <rect x="8" y="39" width="18" height="3" rx="1.5" fill="white" opacity="0.7"/>
+</svg>

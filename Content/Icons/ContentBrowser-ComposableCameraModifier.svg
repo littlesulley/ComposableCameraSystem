@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="48" height="48" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Camera body (smaller, shifted left to make room for modifier gear) -->
+  <rect x="3" y="16" width="22" height="18" rx="2.5" fill="white"/>
+  <!-- Camera lens -->
+  <path d="M27 19 L34 15 L34 36 L27 32 Z" fill="white"/>
+  <!-- Gear / modifier overlay (bottom-right) -->
+  <circle cx="37" cy="37" r="7" fill="white" opacity="0.9"/>
+  <circle cx="37" cy="37" r="3.5" fill="#A05AC8" opacity="0.85"/>
+  <!-- Gear teeth -->
+  <rect x="35.5" y="28.5" width="3" height="3" rx="0.5" fill="white" opacity="0.9"/>
+  <rect x="35.5" y="42.5" width="3" height="3" rx="0.5" fill="white" opacity="0.9"/>
+  <rect x="28.5" y="35.5" width="3" height="3" rx="0.5" fill="white" opacity="0.9"/>
+  <rect x="42.5" y="35.5" width="3" height="3" rx="0.5" fill="white" opacity="0.9"/>
+  <!-- Wrench accent lines inside gear -->
+  <line x1="35" y1="35" x2="39" y2="39" stroke="#A05AC8" stroke-width="1.5" stroke-linecap="round" opacity="0.85"/>
+  <line x1="39" y1="35" x2="35" y2="39" stroke="#A05AC8" stroke-width="1.5" stroke-linecap="round" opacity="0.85"/>
+</svg>

@@ -150,10 +150,19 @@ void UComposableCameraContextStack::PopActiveContextInternal(
 	}
 
 	TSubclassOf<AComposableCameraCameraBase> CameraClass = ResumingCamera->GetClass();
-	UComposableCameraTransitionDataAsset* TransitionDataAsset = TransitionOverride;
 	FComposableCameraActivateParams ResumeActivationParams = ActivationParams;
 
-	if (!TransitionDataAsset)
+	// Resolve transition through the five-tier chain:
+	//   1. Caller override → 2. Table → 3. Source exit → 4. Target enter → 5. Cut
+	AComposableCameraCameraBase* PoppedCamera = PoppedEntry.Director->GetRunningCamera();
+	const UComposableCameraTypeAsset* SourceTypeAsset =
+		PoppedCamera ? PoppedCamera->SourceTypeAsset.Get() : nullptr;
+	const UComposableCameraTypeAsset* TargetTypeAsset =
+		ResumingCamera->SourceTypeAsset.Get();
+	UComposableCameraTransitionBase* ResolvedTransition =
+		PlayerCameraManager->ResolveTransition(SourceTypeAsset, TargetTypeAsset, TransitionOverride);
+
+	if (!ResolvedTransition)
 	{
 		// No transition — instant cut. Destroy popped context immediately.
 		if (PoppedEntry.Director)
@@ -166,15 +175,30 @@ void UComposableCameraContextStack::PopActiveContextInternal(
 		return;
 	}
 
+	// Wrap the resolved transition into a data asset for the ActivateNewCameraWithReferenceSource path.
+	UComposableCameraTransitionDataAsset* TransitionDataAsset = NewObject<UComposableCameraTransitionDataAsset>(PlayerCameraManager);
+	TransitionDataAsset->Transition = DuplicateObject(ResolvedTransition, PlayerCameraManager);
+
 	// Transition pop: A's director activates a new camera with B's director as reference source.
 	// B stays alive during the transition so the reference leaf can evaluate it.
+	//
+	// If the resuming camera was originally built from a type asset, we need
+	// the PCM's OnTypeAssetCameraConstructed callback to fire so the new camera
+	// gets fully reconstructed (nodes, data block, exec chains). Without this,
+	// the new camera is an empty shell — same class of bug as the
+	// ReactivateCurrentCamera fix. PrepareResumeCallback restores the PCM's
+	// PendingTypeAsset / PendingParameterBlock from the resuming camera's
+	// stored source and returns the bound callback. For non-type-asset cameras
+	// it returns an empty delegate, matching the original behavior.
+	FOnCameraFinishConstructed ResumeCallback = PlayerCameraManager->PrepareResumeCallback(ResumingCamera);
+
 	UComposableCameraTransitionBase* PopTransition = nullptr;
 	ResumeEntry.Director->ActivateNewCameraWithReferenceSource(
 		PlayerCameraManager,
 		CameraClass,
 		TransitionDataAsset,
 		ResumeActivationParams,
-		FOnCameraFinishConstructed{},
+		ResumeCallback,
 		PoppedEntry.Director,
 		&PopTransition);
 
@@ -294,18 +318,13 @@ FComposableCameraPose UComposableCameraContextStack::Evaluate(float DeltaTime)
 			// Use the PCM from the outer (the PlayerCameraManager that owns this stack).
 			AComposableCameraPlayerCameraManager* PCM = Cast<AComposableCameraPlayerCameraManager>(GetOuter());
 
-			UComposableCameraTransitionDataAsset* TransitionOverride = nullptr;
-			if (RunningCamera->DefaultTransition)
-			{
-				UComposableCameraTransitionBase* DuplicatedTransition = DuplicateObject(RunningCamera->DefaultTransition, PCM);
-				TransitionOverride = NewObject<UComposableCameraTransitionDataAsset>(PCM);
-				TransitionOverride->Transition = DuplicatedTransition;
-			}
-
 			FComposableCameraActivateParams ActiveParams;
 			ActiveParams.bPreserveCameraPose = RunningCamera->bDefaultPreserveCameraPose;
 
-			PopActiveContextInternal(PCM, TransitionOverride, ActiveParams);
+			// Pass nullptr as TransitionOverride — PopActiveContextInternal will
+			// resolve the transition through the five-tier chain (table, source
+			// exit, target enter, etc.) using ResolveTransition.
+			PopActiveContextInternal(PCM, nullptr, ActiveParams);
 		}
 	}
 

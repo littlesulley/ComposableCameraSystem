@@ -16,20 +16,19 @@
  * @InputParameter RightwardInterpolator: Interpolator when the pivot is moving rightward. \n
  * @InputParameter ForwardInterpolator: Interpolator when the pivot is moving forward. \n
  * @InputParameter BackwardInterpolator: Interpolator when the pivot is moving backward. \n
- * @ContextParameter ContextPivotPosition: Pivot position to read. Damping is applied to this value too.
  */
-UCLASS(NotBlueprintable, ClassGroup = ComposableCameraSystem)
+UCLASS(NotBlueprintable, ClassGroup = ComposableCameraSystem, meta = (ToolTip = "Smoothly interpolates pivot position movement with directional damping."))
 class COMPOSABLECAMERASYSTEM_API UComposableCameraPivotDampingNode
 	: public UComposableCameraCameraNodeBase
 {
 	GENERATED_BODY()
 
 public:
-	virtual void OnBeginPlayNode_Implementation(const FComposableCameraPose& CurrentCameraPose) override;
+	virtual void OnInitialize_Implementation() override;
 	virtual void OnTickNode_Implementation(float DeltaTime, const FComposableCameraPose& CurrentCameraPose, FComposableCameraPose& OutCameraPose) override;
+	virtual void GetPinDeclarations_Implementation(TArray<FComposableCameraNodePinDeclaration>& OutPins) const override;
 
 protected:
-	virtual void ReceiveInitializerNode(UComposableCameraCameraNodeBase* Initializer) override;
 	
 public:
 	// Whether to maintain camera space pivot position.
@@ -56,13 +55,9 @@ public:
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Instanced, Category = InputParameters)
 	UComposableCameraInterpolatorBase* ForwardInterpolator;
 
-	// Interpolator when the pivot is moving backward. 
+	// Interpolator when the pivot is moving backward.
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Instanced, Category = InputParameters)
 	UComposableCameraInterpolatorBase* BackwardInterpolator;
-
-	// Pivot position to read. Damping is applied to this value too.
-	UPROPERTY(EditAnywhere, Category = ContextParameters)
-	FVector3dComposableCameraContextParameter ContextPivotPosition;
 
 private:
 	TUniquePtr<TCameraInterpolator<TValueTypeWrapper<double>>> UpwardInterpolator_T;

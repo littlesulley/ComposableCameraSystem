@@ -18,18 +18,18 @@ class UMovieScene3DTransformSection;
  * This can be done by simply clicking the "Create a new camera and set it as the current cut" button on the level sequence panel. \n
  * Only transform and FOV are used. Other parameters bound in the level sequence will not be used.
  */
-UCLASS(NotBlueprintable, ClassGroup = ComposableCameraSystem)
+UCLASS(NotBlueprintable, ClassGroup = ComposableCameraSystem, meta = (ToolTip = "Plays a level sequence containing camera keyframes relative to a transform or actor."))
 class COMPOSABLECAMERASYSTEM_API UComposableCameraKeyframeSequenceNode : public UComposableCameraCameraNodeBase
 {
 	GENERATED_BODY()
 
 public:
-	virtual void OnBeginPlayNode_Implementation(const FComposableCameraPose& CurrentCameraPose) override;
+	virtual void OnInitialize_Implementation() override;
 	virtual void OnTickNode_Implementation(float DeltaTime, const FComposableCameraPose& CurrentCameraPose, FComposableCameraPose& OutCameraPose) override;
+	virtual void GetPinDeclarations_Implementation(TArray<FComposableCameraNodePinDeclaration>& OutPins) const override;
 
 protected:
-	virtual void ReceiveInitializerNode(UComposableCameraCameraNodeBase* Initializer) override;
-	
+
 public:
 	// The level sequence you want to use for setting camera pose.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters)

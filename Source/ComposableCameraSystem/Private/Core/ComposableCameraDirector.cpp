@@ -1,9 +1,10 @@
 // Copyright Sulley. All rights reserved.
 
-#include "ComposableCameraSystemModule.h"
-
 #include "Core/ComposableCameraDirector.h"
+
+#include "ComposableCameraSystemModule.h"
 #include "Cameras/ComposableCameraCameraBase.h"
+#include "DataAssets/ComposableCameraTypeAsset.h"
 #include "Transitions/ComposableCameraTransitionBase.h"
 #include "Core/ComposableCameraEvaluationTree.h"
 #include "Core/ComposableCameraPlayerCameraManager.h"
@@ -51,7 +52,6 @@ AComposableCameraCameraBase* UComposableCameraDirector::CreateNewCamera(
 	bool bPreserveCameraPose = ActivationParams.bPreserveCameraPose;
 	FTransform InitialTransform = ActivationParams.InitialTransform;
 	bool bUseInitialTransformRotation = ActivationParams.bUseInitialTransformRotation;
-	UComposableCameraNodeInitializerDataAsset* NodeInitializerDataAsset = ActivationParams.NodeInitializerDataAsset; 
 	bool bIsTransient = ActivationParams.bIsTransient;
 	float LifeTime = ActivationParams.LifeTime;
 
@@ -85,7 +85,7 @@ AComposableCameraCameraBase* UComposableCameraDirector::CreateNewCamera(
 		
 		ForceCameraPoses(NewCamera, InitialTransform);
 		
-		NewCamera->Initialize(PlayerCameraManager, NodeInitializerDataAsset);
+		NewCamera->Initialize(PlayerCameraManager);
 		NewCamera->FinishSpawning(InitialTransform);
 
 		return NewCamera;
@@ -104,7 +104,6 @@ AComposableCameraCameraBase* UComposableCameraDirector::ActivateNewCamera(
 	bool bPreserveCameraPose = ActivationParams.bPreserveCameraPose;
 	FTransform InitialTransform = ActivationParams.InitialTransform;
 	bool bUseInitialTransformRotation = ActivationParams.bUseInitialTransformRotation;
-	UComposableCameraNodeInitializerDataAsset* NodeInitializerDataAsset = ActivationParams.NodeInitializerDataAsset; 
 	bool bIsTransient = ActivationParams.bIsTransient;
 	float LifeTime = ActivationParams.LifeTime;
 
@@ -141,12 +140,13 @@ AComposableCameraCameraBase* UComposableCameraDirector::ActivateNewCamera(
 		// Initialization order when creating a new camera:
 		//    Construct (SpawnActorDeferred)
 		// -> Initialize (Initialize, node initializers applied here)
-		// -> Modifiers (ApplyModifiers, effective modifiers)
-		// -> PreBeginPlay (OnPreBeginplayEvent, custom user logic)
+		// -> PreBeginPlay (OnPreBeginplayEvent — for type-asset cameras this
+		//    is OnTypeAssetCameraConstructed, which populates CameraNodes)
+		// -> Modifiers (ApplyModifiers — must run after nodes exist)
 		// -> BeginPlay (FinishSpawning).
-		NewCamera->Initialize(PlayerCameraManager, NodeInitializerDataAsset);
-		PlayerCameraManager->ApplyModifiers(NewCamera, true);
+		NewCamera->Initialize(PlayerCameraManager);
 		OnPreBeginplayEvent.ExecuteIfBound(NewCamera);
+		PlayerCameraManager->ApplyModifiers(NewCamera, true);
 		NewCamera->FinishSpawning(InitialTransform);
 
 		UComposableCameraTransitionBase* Transition = nullptr;
@@ -158,6 +158,74 @@ AComposableCameraCameraBase* UComposableCameraDirector::ActivateNewCamera(
 			TransInitParams.DeltaTime = GetWorld()->GetDeltaSeconds();
 			
 			Transition = DuplicateObject(TransitionDataAsset->Transition, this);
+			Transition->TransitionEnabled(TransInitParams);
+			Transition->ResetTransitionState();
+		}
+
+		EvaluationTree->OnActivateNewCamera(NewCamera, Transition);
+		RunningCamera = NewCamera;
+	}
+
+	return RunningCamera;
+}
+
+AComposableCameraCameraBase* UComposableCameraDirector::ActivateNewCamera(
+	AComposableCameraPlayerCameraManager* PlayerCameraManager,
+	TSubclassOf<AComposableCameraCameraBase> CameraClass,
+	UComposableCameraTransitionBase* TransitionInstance,
+	const FComposableCameraActivateParams& ActivationParams,
+	FOnCameraFinishConstructed OnPreBeginplayEvent)
+{
+	bool bPreserveCameraPose = ActivationParams.bPreserveCameraPose;
+	FTransform InitialTransform = ActivationParams.InitialTransform;
+	bool bUseInitialTransformRotation = ActivationParams.bUseInitialTransformRotation;
+	bool bIsTransient = ActivationParams.bIsTransient;
+	float LifeTime = ActivationParams.LifeTime;
+
+	if (bPreserveCameraPose)
+	{
+		InitialTransform.SetLocation(PlayerCameraManager->GetCameraLocation());
+		InitialTransform.SetRotation(PlayerCameraManager->GetCameraRotation().Quaternion());
+	}
+
+	if (bUseInitialTransformRotation)
+	{
+		InitialTransform.SetRotation(ActivationParams.InitialTransform.GetRotation());
+	}
+
+	if (UWorld* World = GetWorld())
+	{
+		AComposableCameraCameraBase* NewCamera = World->SpawnActorDeferred<AComposableCameraCameraBase>(CameraClass, InitialTransform);
+
+		if (bIsTransient)
+		{
+			NewCamera->bIsTransient = true;
+			NewCamera->LifeTime = LifeTime;
+			NewCamera->RemainingLifeTime = LifeTime;
+		}
+		else
+		{
+			NewCamera->bIsTransient = false;
+			NewCamera->LifeTime = -1.f;
+			NewCamera->RemainingLifeTime = -1.f;
+		}
+
+		ForceCameraPoses(NewCamera, InitialTransform);
+
+		NewCamera->Initialize(PlayerCameraManager);
+		OnPreBeginplayEvent.ExecuteIfBound(NewCamera);
+		PlayerCameraManager->ApplyModifiers(NewCamera, true);
+		NewCamera->FinishSpawning(InitialTransform);
+
+		UComposableCameraTransitionBase* Transition = nullptr;
+		if (TransitionInstance && RunningCamera)
+		{
+			FComposableCameraTransitionInitParams TransInitParams;
+			TransInitParams.CurrentSourcePose = LastEvaluatedPose;
+			TransInitParams.PreviousSourcePose = PreviousEvaluatedPose;
+			TransInitParams.DeltaTime = GetWorld()->GetDeltaSeconds();
+
+			Transition = DuplicateObject(TransitionInstance, this);
 			Transition->TransitionEnabled(TransInitParams);
 			Transition->ResetTransitionState();
 		}
@@ -183,7 +251,6 @@ AComposableCameraCameraBase* UComposableCameraDirector::ActivateNewCameraWithRef
 	bool bPreserveCameraPose = ActivationParams.bPreserveCameraPose;
 	FTransform InitialTransform = ActivationParams.InitialTransform;
 	bool bUseInitialTransformRotation = ActivationParams.bUseInitialTransformRotation;
-	UComposableCameraNodeInitializerDataAsset* NodeInitializerDataAsset = ActivationParams.NodeInitializerDataAsset;
 	bool bIsTransient = ActivationParams.bIsTransient;
 	float LifeTime = ActivationParams.LifeTime;
 
@@ -218,9 +285,9 @@ AComposableCameraCameraBase* UComposableCameraDirector::ActivateNewCameraWithRef
 
 		ForceCameraPoses(NewCamera, InitialTransform);
 
-		NewCamera->Initialize(PlayerCameraManager, NodeInitializerDataAsset);
-		PlayerCameraManager->ApplyModifiers(NewCamera, true);
+		NewCamera->Initialize(PlayerCameraManager);
 		OnPreBeginplayEvent.ExecuteIfBound(NewCamera);
+		PlayerCameraManager->ApplyModifiers(NewCamera, true);
 		NewCamera->FinishSpawning(InitialTransform);
 
 		UComposableCameraTransitionBase* Transition = nullptr;
@@ -251,12 +318,81 @@ AComposableCameraCameraBase* UComposableCameraDirector::ActivateNewCameraWithRef
 	return RunningCamera;
 }
 
+AComposableCameraCameraBase* UComposableCameraDirector::ActivateNewCameraWithReferenceSource(
+	AComposableCameraPlayerCameraManager* PlayerCameraManager,
+	TSubclassOf<AComposableCameraCameraBase> CameraClass,
+	UComposableCameraTransitionBase* TransitionInstance,
+	const FComposableCameraActivateParams& ActivationParams,
+	FOnCameraFinishConstructed OnPreBeginplayEvent,
+	UComposableCameraDirector* SourceDirector)
+{
+	check(SourceDirector);
+
+	bool bPreserveCameraPose = ActivationParams.bPreserveCameraPose;
+	FTransform InitialTransform = ActivationParams.InitialTransform;
+	bool bUseInitialTransformRotation = ActivationParams.bUseInitialTransformRotation;
+	bool bIsTransient = ActivationParams.bIsTransient;
+	float LifeTime = ActivationParams.LifeTime;
+
+	if (bPreserveCameraPose)
+	{
+		InitialTransform.SetLocation(PlayerCameraManager->GetCameraLocation());
+		InitialTransform.SetRotation(PlayerCameraManager->GetCameraRotation().Quaternion());
+	}
+
+	if (bUseInitialTransformRotation)
+	{
+		InitialTransform.SetRotation(ActivationParams.InitialTransform.GetRotation());
+	}
+
+	if (UWorld* World = GetWorld())
+	{
+		AComposableCameraCameraBase* NewCamera = World->SpawnActorDeferred<AComposableCameraCameraBase>(CameraClass, InitialTransform);
+
+		if (bIsTransient)
+		{
+			NewCamera->bIsTransient = true;
+			NewCamera->LifeTime = LifeTime;
+			NewCamera->RemainingLifeTime = LifeTime;
+		}
+		else
+		{
+			NewCamera->bIsTransient = false;
+			NewCamera->LifeTime = -1.f;
+			NewCamera->RemainingLifeTime = -1.f;
+		}
+
+		ForceCameraPoses(NewCamera, InitialTransform);
+
+		NewCamera->Initialize(PlayerCameraManager);
+		OnPreBeginplayEvent.ExecuteIfBound(NewCamera);
+		PlayerCameraManager->ApplyModifiers(NewCamera, true);
+		NewCamera->FinishSpawning(InitialTransform);
+
+		UComposableCameraTransitionBase* Transition = nullptr;
+		if (TransitionInstance)
+		{
+			FComposableCameraTransitionInitParams TransInitParams;
+			TransInitParams.CurrentSourcePose = SourceDirector->GetLastEvaluatedPose();
+			TransInitParams.PreviousSourcePose = SourceDirector->GetPreviousEvaluatedPose();
+			TransInitParams.DeltaTime = GetWorld()->GetDeltaSeconds();
+
+			Transition = DuplicateObject(TransitionInstance, this);
+			Transition->TransitionEnabled(TransInitParams);
+			Transition->ResetTransitionState();
+		}
+
+		EvaluationTree->OnActivateNewCameraWithReferenceSource(NewCamera, Transition, SourceDirector);
+		RunningCamera = NewCamera;
+	}
+
+	return RunningCamera;
+}
+
 AComposableCameraCameraBase* UComposableCameraDirector::ReactivateCurrentCamera(
 	AComposableCameraPlayerCameraManager* PlayerCameraManager,
 	TSubclassOf<AComposableCameraCameraBase> CameraClass,
-	UComposableCameraTransitionBase* Transition,
-	UComposableCameraNodeInitializerDataAsset* NodeInitializerDataAsset,
-	const FOnCameraFinishConstructed& OnPreBeginplayEvent)
+	UComposableCameraTransitionBase* Transition,	const FOnCameraFinishConstructed& OnPreBeginplayEvent)
 {
 	if (!RunningCamera || !PlayerCameraManager)
 	{
@@ -279,9 +415,9 @@ AComposableCameraCameraBase* UComposableCameraDirector::ReactivateCurrentCamera(
 		
 		ForceCameraPoses(NewCamera, InitialTransform);
 		
-		NewCamera->Initialize(PlayerCameraManager, NodeInitializerDataAsset);
-		PlayerCameraManager->ApplyModifiers(NewCamera);
+		NewCamera->Initialize(PlayerCameraManager);
 		OnPreBeginplayEvent.ExecuteIfBound(NewCamera);
+		PlayerCameraManager->ApplyModifiers(NewCamera);
 		NewCamera->FinishSpawning(InitialTransform);
 
 		if (Transition)
@@ -325,8 +461,29 @@ void UComposableCameraDirector::BuildDebugString(TStringBuilder<1024>& OutString
 {
 	const FString Indent = FString::ChrN(IndentLevel * 4, ' ');
 
-	OutString.Appendf(TEXT("%sRunning Camera: %s\n"), *Indent,
-		RunningCamera ? *RunningCamera->GetClass()->GetName() : TEXT("(none)"));
+	{
+		FString CameraLabel;
+		if (RunningCamera)
+		{
+			if (const UComposableCameraTypeAsset* TA = RunningCamera->SourceTypeAsset.Get())
+			{
+				CameraLabel = TA->GetName();
+			}
+			else if (RunningCamera->CameraTag.IsValid())
+			{
+				CameraLabel = RunningCamera->CameraTag.ToString();
+			}
+			else
+			{
+				CameraLabel = RunningCamera->GetName();
+			}
+		}
+		else
+		{
+			CameraLabel = TEXT("(none)");
+		}
+		OutString.Appendf(TEXT("%sRunning Camera: %s\n"), *Indent, *CameraLabel);
+	}
 	OutString.Appendf(TEXT("%sLast Pose: %s  Rot: %s  FOV: %.1f\n"), *Indent,
 		*LastEvaluatedPose.Position.ToCompactString(),
 		*LastEvaluatedPose.Rotation.ToCompactString(),

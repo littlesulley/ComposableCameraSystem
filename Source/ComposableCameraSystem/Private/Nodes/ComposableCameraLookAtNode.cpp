@@ -4,8 +4,10 @@
 
 #include "Kismet/KismetMathLibrary.h"
 
-void UComposableCameraLookAtNode::OnBeginPlayNode_Implementation(const FComposableCameraPose& CurrentCameraPose)
+void UComposableCameraLookAtNode::OnInitialize_Implementation()
 {
+	Super::OnInitialize_Implementation();
+
 	Interpolator_T = IsValid(SoftLookAtInterpolator) ? SoftLookAtInterpolator->BuildRotatorInterpolator() : nullptr;
 
 	if (LookAtType == EComposableCameraLookAtType::ByActor)
@@ -79,17 +81,26 @@ void UComposableCameraLookAtNode::OnTickNode_Implementation(float DeltaTime,
 	OutCameraPose.Rotation = ResultRotation;
 }
 
-void UComposableCameraLookAtNode::ReceiveInitializerNode(UComposableCameraCameraNodeBase* Initializer)
+void UComposableCameraLookAtNode::GetPinDeclarations_Implementation(TArray<FComposableCameraNodePinDeclaration>& OutPins) const
 {
-	if (UComposableCameraLookAtNode* CastedInitializer = Cast<UComposableCameraLookAtNode>(Initializer))
-	{
-		LookAtType = CastedInitializer->LookAtType;
-		LookAtPosition = CastedInitializer->LookAtPosition;
-		LookAtActor = CastedInitializer->LookAtActor;
-		LookAtSocket = CastedInitializer->LookAtSocket;
-		LookAtConstraintType = CastedInitializer->LookAtConstraintType;
-		SoftLookAtRange = CastedInitializer->SoftLookAtRange;
-		SoftLookAtWeight = CastedInitializer->SoftLookAtWeight;
-		SoftLookAtInterpolator = CastedInitializer->SoftLookAtInterpolator;
-	}
+	// LookAtPosition — target position (used when LookAtType == ByPosition).
+	FComposableCameraNodePinDeclaration LookAtPositionPin;
+	LookAtPositionPin.PinName = TEXT("LookAtPosition");
+	LookAtPositionPin.DisplayName = NSLOCTEXT("ComposableCameraLookAtNode", "LookAtPosition", "Look At Position");
+	LookAtPositionPin.Direction = EComposableCameraPinDirection::Input;
+	LookAtPositionPin.PinType = EComposableCameraPinType::Vector3D;
+	LookAtPositionPin.bRequired = false;
+	LookAtPositionPin.Tooltip = NSLOCTEXT("ComposableCameraLookAtNode", "LookAtPositionTip", "World position to look at (when LookAtType is ByPosition).");
+	OutPins.Add(LookAtPositionPin);
+
+	// LookAtActor — target actor (used when LookAtType == ByActor).
+	FComposableCameraNodePinDeclaration LookAtActorPin;
+	LookAtActorPin.PinName = TEXT("LookAtActor");
+	LookAtActorPin.DisplayName = NSLOCTEXT("ComposableCameraLookAtNode", "LookAtActor", "Look At Actor");
+	LookAtActorPin.Direction = EComposableCameraPinDirection::Input;
+	LookAtActorPin.PinType = EComposableCameraPinType::Actor;
+	LookAtActorPin.bRequired = false;
+	LookAtActorPin.Tooltip = NSLOCTEXT("ComposableCameraLookAtNode", "LookAtActorTip", "Actor to look at (when LookAtType is ByActor).");
+	OutPins.Add(LookAtActorPin);
 }
+

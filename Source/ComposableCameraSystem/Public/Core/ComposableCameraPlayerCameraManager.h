@@ -6,14 +6,17 @@
 #include "Camera/PlayerCameraManager.h"
 #include "Transitions/ComposableCameraTransitionBase.h"
 #include "ComposableCameraNamespaces.h"
+#include "Core/ComposableCameraParameterBlock.h"
 #include "ComposableCameraPlayerCameraManager.generated.h"
 
 class UComposableCameraActionBase;
 class UComposableCameraTransitionDataAsset;
+class UComposableCameraTypeAsset;
 class UComposableCameraNodeModifierDataAsset;
 class UComposableCameraModifierManager;
 class UComposableCameraDirector;
 class UComposableCameraContextStack;
+struct FComposableCameraRuntimeDataBlock;
 	
 UCLASS(ClassGroup = ComposableCameraSystem, NotPlaceable)
 class COMPOSABLECAMERASYSTEM_API AComposableCameraPlayerCameraManager
@@ -45,6 +48,37 @@ public:
 		UComposableCameraTransitionDataAsset* Transition,
 		const FComposableCameraActivateParams& ActivationParams,
 		FOnCameraFinishConstructed OnPreBeginplayEvent,
+		FName ContextName = NAME_None);
+
+	/**
+	 * Activate a new camera using a raw transition instance (not wrapped in a DataAsset).
+	 * Used internally by ActivateNewCameraFromTypeAsset when the type asset provides its
+	 * own DefaultTransition as an instanced UComposableCameraTransitionBase*.
+	 */
+	AComposableCameraCameraBase* ActivateNewCamera(
+		TSubclassOf<AComposableCameraCameraBase> CameraClass,
+		UComposableCameraTransitionBase* TransitionInstance,
+		const FComposableCameraActivateParams& ActivationParams,
+		FOnCameraFinishConstructed OnPreBeginplayEvent,
+		FName ContextName = NAME_None);
+
+	/**
+	 * Activate a new camera from a Camera Type Asset (data-driven workflow).
+	 * Creates a default AComposableCameraCameraBase, duplicates node templates from the type asset,
+	 * wires the RuntimeDataBlock, and applies caller-provided parameter values.
+	 *
+	 * @param CameraTypeAsset The type asset defining the camera's node composition and parameters.
+	 * @param TransitionOverride Optional transition override. If nullptr, uses the type asset's DefaultTransition.
+	 * @param ActivationParams Standard activation parameters (transient, lifetime, pose preservation).
+	 * @param Parameters The caller-provided parameter block with exposed parameter values.
+	 * @param ContextName Context to activate in (NAME_None = current active context).
+	 * @return The activated camera instance, or nullptr on failure.
+	 */
+	AComposableCameraCameraBase* ActivateNewCameraFromTypeAsset(
+		UComposableCameraTypeAsset* CameraTypeAsset,
+		UComposableCameraTransitionDataAsset* TransitionOverride,
+		const FComposableCameraActivateParams& ActivationParams,
+		const FComposableCameraParameterBlock& Parameters,
 		FName ContextName = NAME_None);
 
 	AComposableCameraCameraBase* ReactivateCurrentCamera(UComposableCameraTransitionBase* Transition);
@@ -127,9 +161,63 @@ protected:
 private:
 	// Update camera actions.
 	void UpdateActions(float DeltaTime);
-	
+
 	// Build debug string for modifiers.
 	void BuildModifierDebugString(FDisplayDebugManager& DisplayDebugManager);
+
+	// ─── Type Asset Activation Helper ─────────────────────────────────────
+	// FOnCameraFinishConstructed is a dynamic delegate that doesn't support BindLambda.
+	// These transient members + UFUNCTION serve as the callback for ActivateNewCameraFromTypeAsset.
+
+	/** Called by the dynamic delegate during type-asset-based camera activation. */
+	UFUNCTION()
+	void OnTypeAssetCameraConstructed(AComposableCameraCameraBase* Camera);
+
+public:
+	/**
+	 * Resolve which transition to use when switching from one type-asset camera
+	 * to another. Implements the five-tier resolution chain:
+	 *
+	 *   1. CallerOverride             (returned directly if non-null)
+	 *   2. Transition table lookup    (exact A→B pair from project settings)
+	 *   3. Source's ExitTransition    (SourceTypeAsset field — "always leave this way")
+	 *   4. Target's EnterTransition   (TargetTypeAsset field — "always enter this way")
+	 *   5. nullptr                    (hard cut)
+	 *
+	 * The table (tier 2) performs exact-match only — no wildcards. Per-camera
+	 * ExitTransition and EnterTransition (tiers 3/4) serve as the per-camera
+	 * fallbacks when no explicit pair is defined in the table.
+	 *
+	 * @param SourceTypeAsset  The type asset of the currently-running camera (may be nullptr).
+	 * @param TargetTypeAsset  The type asset being activated (may be nullptr).
+	 * @param CallerOverride   Explicit caller transition — if non-null, wins unconditionally.
+	 * @return The resolved transition instance (owned by the type asset or table entry),
+	 *         or nullptr for a hard cut. Caller must DuplicateObject before mutating.
+	 */
+	UComposableCameraTransitionBase* ResolveTransition(
+		const UComposableCameraTypeAsset* SourceTypeAsset,
+		const UComposableCameraTypeAsset* TargetTypeAsset,
+		UComposableCameraTransitionDataAsset* CallerOverride) const;
+
+	/**
+	 * Prepare the pending type-asset state for a camera that is being resumed
+	 * (e.g. after a context pop). If the camera was originally built from a type
+	 * asset, this restores PendingTypeAsset / PendingParameterBlock and returns
+	 * a callback bound to OnTypeAssetCameraConstructed. If not a type-asset
+	 * camera, returns an empty (unbound) delegate.
+	 *
+	 * Called by ContextStack::PopActiveContextInternal so the resumed camera
+	 * is fully reconstructed from its original type asset instead of producing
+	 * an empty shell.
+	 */
+	FOnCameraFinishConstructed PrepareResumeCallback(AComposableCameraCameraBase* Camera);
+
+private:
+	UPROPERTY(Transient)
+	TObjectPtr<UComposableCameraTypeAsset> PendingTypeAsset;
+
+	/** Pending parameter block for the type-asset activation callback. Not a UPROPERTY — plain struct. */
+	FComposableCameraParameterBlock PendingParameterBlock;
 
 public:
 	// Whether to sync current camera rotation to ControlRotation.
@@ -157,9 +245,6 @@ public:
 	TSet<UComposableCameraActionBase*> CameraActions;
 
 	UPROPERTY(Transient)
-	UComposableCameraNodeInitializerDataAsset* CurrentNodeInitializerDataAsset;
-
-	UPROPERTY(Transient)
 	FOnCameraFinishConstructed CurrentOnPreBeginplayEvent;
 
 private:
@@ -172,4 +257,4 @@ private:
 	UPROPERTY(Transient)
 	FMinimalViewInfo LastDesiredView;
 };
-	
+	      

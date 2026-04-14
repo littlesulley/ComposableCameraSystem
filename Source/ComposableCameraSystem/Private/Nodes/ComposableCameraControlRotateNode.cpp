@@ -9,17 +9,16 @@
 #include "Kismet/GameplayStatics.h"
 #include "Math/ComposableCameraMath.h"
 
-void UComposableCameraControlRotateNode::OnBeginPlayNode_Implementation(const FComposableCameraPose& CurrentCameraPose)
+void UComposableCameraControlRotateNode::OnInitialize_Implementation()
 {
+	Super::OnInitialize_Implementation();
+
 	LastFrameCameraRotationInput = FVector2D::ZeroVector;
 
-	if (ContextRotationInputActor.Variable && ContextRotationInputActor.Variable->RuntimeValue)
+	AActor* RotationInputActor = GetInputPinValue<AActor*>("RotationInputActor");
+	if (IsValid(RotationInputActor))
 	{
-		InputComponent = Cast<UEnhancedInputComponent>(ContextRotationInputActor.Variable->RuntimeValue->InputComponent);
-	}
-	else if (ContextRotationInputActor.Value)
-	{
-		InputComponent = Cast<UEnhancedInputComponent>(ContextRotationInputActor.Value->InputComponent);
+		InputComponent = Cast<UEnhancedInputComponent>(RotationInputActor->InputComponent);
 	}
 
 	if (InputComponent)
@@ -65,31 +64,37 @@ void UComposableCameraControlRotateNode::OnTickNode_Implementation(
 	FQuat NewCameraRotation = WorldRotationYaw * CurrentCameraRotation * LocalRotationPitch;
 	OutCameraPose.Rotation = NewCameraRotation.GetNormalized().Rotator();
 	
-	// Write into context.
-	if (ContextCameraRotationInput.Variable)
-	{
-		ContextCameraRotationInput.Variable->RuntimeValue = CameraRotationInputForThisFrame;
-	}
-	else
-	{
-		ContextCameraRotationInput.Value = CameraRotationInputForThisFrame;	
-	}
+	// Write rotation input to output pin for downstream nodes.
+	SetOutputPinValue<FVector2D>("CameraRotationInput", CameraRotationInputForThisFrame);
 	
 	LastFrameCameraRotationInput = CameraRotationInputForThisFrame;
 }
 
-void UComposableCameraControlRotateNode::ReceiveInitializerNode(UComposableCameraCameraNodeBase* Initializer)
+void UComposableCameraControlRotateNode::GetPinDeclarations_Implementation(TArray<FComposableCameraNodePinDeclaration>& OutPins) const
 {
-	if (UComposableCameraControlRotateNode* CastedInitializer = Cast<UComposableCameraControlRotateNode>(Initializer))
 	{
-		RotateAction = CastedInitializer->RotateAction;
-		HorizontalSpeed = CastedInitializer->HorizontalSpeed;
-		VerticalSpeed = CastedInitializer->VerticalSpeed;
-		HorizontalDamping = CastedInitializer->HorizontalDamping;
-		VerticalDamping = CastedInitializer->VerticalDamping;
-		bInvertPitch = CastedInitializer->bInvertPitch;
+		FComposableCameraNodePinDeclaration PinDecl;
+		PinDecl.PinName = TEXT("RotationInputActor");
+		PinDecl.DisplayName = NSLOCTEXT("UComposableCameraControlRotateNode", "RotationInputActor", "Rotation Input Actor");
+		PinDecl.Direction = EComposableCameraPinDirection::Input;
+		PinDecl.PinType = EComposableCameraPinType::Actor;
+		PinDecl.bRequired = false;
+		PinDecl.Tooltip = NSLOCTEXT("UComposableCameraControlRotateNode", "RotationInputActorTip", "Actor providing EnhancedInputComponent for camera rotation input.");
+		OutPins.Add(PinDecl);
+	}
+
+	{
+		FComposableCameraNodePinDeclaration PinDecl;
+		PinDecl.PinName = TEXT("CameraRotationInput");
+		PinDecl.DisplayName = NSLOCTEXT("UComposableCameraControlRotateNode", "CameraRotationInput", "Camera Rotation Input");
+		PinDecl.Direction = EComposableCameraPinDirection::Output;
+		PinDecl.PinType = EComposableCameraPinType::Vector2D;
+		PinDecl.bRequired = false;
+		PinDecl.Tooltip = NSLOCTEXT("UComposableCameraControlRotateNode", "CameraRotationInputTip", "Rotation input result for this frame.");
+		OutPins.Add(PinDecl);
 	}
 }
+
 
 void UComposableCameraControlRotateNode::ApplyAcceleration(float DeltaTime, FVector2f Damping, double& ThisFrameRotationInput,
                                                            const double& LastFrameRotationInput)

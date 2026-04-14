@@ -14,15 +14,16 @@ class IComposableCameraImpulseShapeInterface;
 /**
  * Node for resolving impulse shapes including impulse box and impulse sphere.
  */
-UCLASS(NotBlueprintable, ClassGroup = ComposableCameraSystem)
+UCLASS(NotBlueprintable, ClassGroup = ComposableCameraSystem, meta = (ToolTip = "Resolves camera velocity based on impulse shapes with damping."))
 class COMPOSABLECAMERASYSTEM_API UComposableCameraImpulseResolutionNode : public UComposableCameraCameraNodeBase
 {
 	GENERATED_BODY()
 
 public:
-	virtual void OnBeginPlayNode_Implementation(const FComposableCameraPose& CurrentCameraPose) override;
+	virtual void OnInitialize_Implementation() override;
 	virtual void OnTickNode_Implementation(float DeltaTime, const FComposableCameraPose& CurrentCameraPose, FComposableCameraPose& OutCameraPose) override;
 	virtual void BeginDestroy() override;
+	virtual void GetPinDeclarations_Implementation(TArray<FComposableCameraNodePinDeclaration>& OutPins) const override;
 
 public:
 	void AddImpulseShape(AActor* Shape)

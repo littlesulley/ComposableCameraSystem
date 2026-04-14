@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="48" height="48" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Camera body -->
+  <rect x="4" y="14" width="28" height="22" rx="3" fill="white"/>
+  <!-- Lens / viewfinder triangle -->
+  <path d="M35 18 L44 13 L44 38 L35 33 Z" fill="white"/>
+  <!-- Record indicator -->
+  <circle cx="12" cy="21" r="3" fill="#149690" opacity="0.9"/>
+  <!-- Film strip accent on top -->
+  <rect x="10" y="10" width="14" height="4" rx="1.5" fill="white" opacity="0.6"/>
+</svg>

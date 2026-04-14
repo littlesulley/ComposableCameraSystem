@@ -6,16 +6,17 @@
 #include "Kismet/BlueprintFunctionLibrary.h"
 #include "Blueprint/BlueprintExceptionInfo.h"
 #include "Cameras/ComposableCameraCameraBase.h"
+#include "Core/ComposableCameraParameterBlock.h"
 #include "Transitions/ComposableCameraTransitionBase.h"
-#include "Variables/ComposableCameraVariable.h"
 #include "ComposableCameraBlueprintLibrary.generated.h"
 
 class AComposableCameraPlayerCameraManager;
 class UComposableCameraTransitionDataAsset;
+class UComposableCameraTypeAsset;
 class UComposableCameraModifierBase;
 class UComposableCameraActionBase;
 class AComposableCameraCameraBase;
-class UComposableCameraVariable;
+class UDataTable;
 
 #define LOCTEXT_NAMESPACE "ComposableCameraSystemBlueprintLibrary"
 
@@ -28,48 +29,69 @@ class COMPOSABLECAMERASYSTEM_API UComposableCameraBlueprintLibrary : public UBlu
 	GENERATED_BODY()
 
 public:
-	/** Create a composable camera by camera class and activation parameters. This function does not update other states. \n
-	 * The newly created camera has no parent camera, and it does not do transition. \n
+	/** Activate a composable camera from a Camera Type Asset (data-driven workflow). \n
+	 * The type asset defines the node composition, exposed parameters, internal variables, and default transition. \n
+	 *
+	 * This function is hidden from the Blueprint palette because designers should author
+	 * activation calls through UK2Node_ActivateComposableCamera instead — that K2 node
+	 * generates a typed pin per exposed parameter and expands into this call at compile
+	 * time. Exposing the raw FComposableCameraParameterBlock form in the BP menu would
+	 * create a second, untyped, strictly worse workflow alongside the K2 node.
+	 *
 	 * @param WorldContextObject World context object. \n
-	 * @param PlayerCameraManager The player camera manager, must be a ComposableCameraPlayerCameraManager. \n
-	 * @param CameraClass The camera class to instantiate. \n
-	 * @param ActivationParams Parameters to define some of the properties when activating a new camera, e.g., if it's transient and the node initializers. \n
-	 * @return The instanced camera.
+	 * @param PlayerIndex Player index (0 for single player). \n
+	 * @param CameraTypeAsset The camera type data asset to instantiate. \n
+	 * @param ContextName Optional context name. If valid, the camera activates in the specified context (auto-pushing if needed). If NAME_None, activates in the current active context. \n
+	 * @param TransitionOverride Optional transition. If nullptr, the type asset's EnterTransition is used. \n
+	 * @param Parameters Parameter block with exposed parameter values for this camera type. \n
+	 * @param ActivationParams Parameters to define transient, lifetime, and pose preservation behavior. \n
+	 * @return The activated camera instance.
 	 */
-	UFUNCTION(BlueprintCallable, BlueprintInternalUseOnly, Category = "ComposableCameraSystem|Camera", meta = (WorldContext = "WorldContextObject", DeterminesOutputType = "CameraClass"))
-	static AComposableCameraCameraBase* CreateComposableCameraByClass(
+	UFUNCTION(BlueprintCallable, BlueprintInternalUseOnly, Category = "ComposableCameraSystem|Camera", meta = (WorldContext = "WorldContextObject"))
+	static AComposableCameraCameraBase* ActivateComposableCameraFromTypeAsset(
 		const UObject* WorldContextObject,
-		AComposableCameraPlayerCameraManager* PlayerCameraManager,
-		TSubclassOf<AComposableCameraCameraBase> CameraClass,
-		FComposableCameraActivateParams ActivationParams);
-	
-	/** Activate a composable camera by camera class, all derived from ComposableCameraCameraBase. \n
-	 * @param WorldContextObject World context object. \n
-	 * @param PlayerCameraManager The player camera manager, must be a ComposableCameraPlayerCameraManager. \n
-	 * @param CameraClass The camera class to instantiate. \n
-	 * @param ContextName Optional context name. If valid, the camera activates in the specified context (auto-pushing it if needed). If NAME_None, activates in the current active context. \n
-	 * @param TransitionDataAsset The transition data asset. If no transition data asset is provided, camera cut will be used. \n
-	 * @param ActivationParams Parameters to define some of the properties when activating a new camera, e.g., if it's transient and the node initializers. \n
-	 * @param bNewInstance When the current running camera has the same camera class as CameraClass specified here, whether to instantiate a new camera. \n
-	 * @param OnPreBeginplayEvent Do something after the camera is constructed and initialized, before BeginPlay() is called. You should initialize all camera and node parameters here. \n
-	 * @return The instanced camera.
-	 */
-	UFUNCTION(BlueprintCallable, Category = "ComposableCameraSystem|Camera", meta = (WorldContext = "WorldContextObject", DeterminesOutputType = "CameraClass"))
-	static AComposableCameraCameraBase* ActivateComposableCameraByClass(
-		const UObject* WorldContextObject,
-		AComposableCameraPlayerCameraManager* PlayerCameraManager,
-		TSubclassOf<AComposableCameraCameraBase> CameraClass,
+		int32 PlayerIndex,
+		UComposableCameraTypeAsset* CameraTypeAsset,
 		UPARAM(meta = (GetOptions = "ComposableCameraSystem.ComposableCameraProjectSettings.GetContextNames")) FName ContextName,
-		UComposableCameraTransitionDataAsset* TransitionDataAsset,
-		FComposableCameraActivateParams ActivationParams,
-		bool bNewInstance,
-		FOnCameraFinishConstructed OnPreBeginplayEvent);
+		UComposableCameraTransitionDataAsset* TransitionOverride,
+		FComposableCameraParameterBlock Parameters,
+		FComposableCameraActivateParams ActivationParams);
+
+	/** Activate a composable camera from a DataTable row.
+	 *
+	 * The row is expected to be of type FComposableCameraParameterTableRow. The
+	 * row's CameraType is sync-loaded and its Parameters.Values map is parsed via
+	 * FComposableCameraParameterBlock::ApplyStringValue using the type's exposed
+	 * parameters. Parse failures are logged to LogComposableCameraSystem and
+	 * fall back to the node pin's authored default so activation never
+	 * refuses to proceed on a single bad cell; parameters with no valid source
+	 * at all end up at the runtime data block's zero-initialized default.
+	 *
+	 * This function is hidden from the Blueprint palette because designers should
+	 * author DataTable-driven activation calls through UK2Node_ActivateComposableCameraFromDataTable
+	 * instead — that K2 node provides a row-struct-filtered DataTable asset picker
+	 * and a live row-name dropdown, and expands into this call at compile time.
+	 *
+	 * @param WorldContextObject World context object.
+	 * @param PlayerIndex        Player index (0 for single player).
+	 * @param DataTable          DataTable asset containing the row.
+	 * @param RowName            Name of the row to activate.  The row's
+	 *                           ActivationParams struct is used directly.
+	 * @return The activated camera instance, or nullptr on failure.
+	 */
+	UFUNCTION(BlueprintCallable, BlueprintInternalUseOnly, Category = "ComposableCameraSystem|Camera",
+		meta = (WorldContext = "WorldContextObject", DisplayName = "Activate Camera From Data Table"))
+	static AComposableCameraCameraBase* ActivateComposableCameraFromDataTable(
+		const UObject* WorldContextObject,
+		int32 PlayerIndex,
+		UDataTable* DataTable,
+		FName RowName);
 
 	/** Terminate the current camera — pops the active (top) context off the stack.
 	 * The previous context resumes with an optional transition. Cannot pop the base context.
 	 * @param WorldContextObject World context object. \n
 	 * @param PlayerCameraManager The player camera manager, must be a ComposableCameraPlayerCameraManager. \n
-	 * @param TransitionOverride Optional transition. If nullptr, falls back to the resume camera's DefaultTransition. \n
+	 * @param TransitionOverride Optional transition. If nullptr, falls back to the resume camera's EnterTransition. \n
 	 * @param ActivationParams Optional activation params for the resume camera.
 	 */
 	UFUNCTION(BlueprintCallable, Category = "ComposableCameraSystem|Context", meta = (WorldContext = "WorldContextObject"))
@@ -85,7 +107,7 @@ public:
 	 * @param WorldContextObject World context object. \n
 	 * @param PlayerCameraManager The player camera manager, must be a ComposableCameraPlayerCameraManager. \n
 	 * @param ContextName The name identifying which context to pop. \n
-	 * @param TransitionOverride Optional transition. If nullptr, falls back to the resume camera's DefaultTransition. \n
+	 * @param TransitionOverride Optional transition. If nullptr, falls back to the resume camera's EnterTransition. \n
 	 * @param ActivationParams Optional activation params for the resume camera.
 	 */
 	UFUNCTION(BlueprintCallable, Category = "ComposableCameraSystem|Context", meta = (WorldContext = "WorldContextObject"))
@@ -155,16 +177,21 @@ public:
 	UFUNCTION(BlueprintPure, Category = "ComposableCameraSystem|Camera", meta = (WorldContext = "WorldContextObject"))
 	static AComposableCameraPlayerCameraManager* GetComposableCameraPlayerCameraManager(const UObject* WorldContextObject, int Index);
 
-	/** Custom thunk function for setting runtime values of a composable camera variable.
-	 * @param Variable The variable to set.
-	 * @param NewRuntimeValue The new runtime value.
+	/** Custom thunk function for setting a single value in a ParameterBlock.
+	 * Used internally by UK2Node_ActivateComposableCamera to fill the parameter block at compile time.
+	 * @param ParameterBlock The parameter block to modify.
+	 * @param ParameterName The parameter name key.
+	 * @param Value The value to set (type-erased via CustomStructureParam).
 	 */
-	UFUNCTION(BlueprintCallable, CustomThunk, meta = (BlueprintInternalUseOnly = "true", CustomStructureParam = "NewRuntimeValue"))
-	static void SetComposableCameraVariableRuntimeValue(UComposableCameraVariable* Variable, UPARAM(Ref) const int32& NewRuntimeValue);
-	DECLARE_FUNCTION(execSetComposableCameraVariableRuntimeValue)
+	UFUNCTION(BlueprintCallable, CustomThunk, meta = (BlueprintInternalUseOnly = "true", CustomStructureParam = "Value"))
+	static void SetParameterBlockValue(UPARAM(ref) FComposableCameraParameterBlock& ParameterBlock, FName ParameterName, const int32& Value);
+	DECLARE_FUNCTION(execSetParameterBlockValue)
 	{
-		P_GET_OBJECT(UComposableCameraVariable, Variable);
+		// Read the ParameterBlock reference.
+		P_GET_STRUCT_REF(FComposableCameraParameterBlock, ParameterBlock);
+		P_GET_PROPERTY(FNameProperty, ParameterName);
 
+		// Read the type-erased value.
 		Stack.MostRecentPropertyAddress = nullptr;
 		Stack.MostRecentPropertyContainer = nullptr;
 		Stack.StepCompiledIn<FProperty>(nullptr);
@@ -173,67 +200,26 @@ public:
 		void* ValuePtr = Stack.MostRecentPropertyAddress;
 
 		P_FINISH;
-		
+
 		if (ValueProperty == nullptr || ValuePtr == nullptr)
 		{
 			FBlueprintExceptionInfo ExceptionInfo(
 				EBlueprintExceptionType::AbortExecution,
-				LOCTEXT("InvalidSetComposableCameraVariableRuntimeValue", "Failed to resolve NewRuntimeValue for SetComposableCameraVariableRuntimeValue")
+				LOCTEXT("InvalidSetParameterBlockValue", "Failed to resolve Value for SetParameterBlockValue")
 			);
 			FBlueprintCoreDelegates::ThrowScriptException(P_THIS, Stack, ExceptionInfo);
 		}
-		else if (Variable)
-		{
-			P_NATIVE_BEGIN
-			
-			UClass* SourceClass = Variable->GetClass();
-			FProperty* SourceProperty = FindFProperty<FProperty>(SourceClass, TEXT("RuntimeValue"));
-			void* SourcePtr = SourceProperty->ContainerPtrToValuePtr<void>(Variable);
-
-			SourceProperty->CopyCompleteValue(SourcePtr, ValuePtr);
-			
-			P_NATIVE_END
-		}
-		
-	}
-
-	/** Custom thunk function for getting runtime values of a composable camera variable.
-	 * @param Variable The variable to get.
-	 * @param ReturnValue The returned runtime value for this variable.
-	 */
-	UFUNCTION(BlueprintCallable, CustomThunk, meta = (BlueprintInternalUseOnly = "true", CustomStructureParam = "ReturnValue"))
-	static void GetComposableCameraVariableRuntimeValue(UComposableCameraVariable* Variable, int32& ReturnValue);
-	DECLARE_FUNCTION(execGetComposableCameraVariableRuntimeValue)
-	{
-		P_GET_OBJECT(UComposableCameraVariable, Variable);
-
-		Stack.MostRecentPropertyAddress = nullptr;
-		Stack.MostRecentPropertyContainer = nullptr;
-		Stack.StepCompiledIn<FProperty>(nullptr);
-
-		const FProperty* ValueProperty = Stack.MostRecentProperty;
-		void* ValuePtr = Stack.MostRecentPropertyAddress;
-
-		P_FINISH;
-		
-		if (ValueProperty == nullptr || ValuePtr == nullptr)
-		{
-			FBlueprintExceptionInfo ExceptionInfo(
-				EBlueprintExceptionType::AbortExecution,
-				LOCTEXT("InvalidSetComposableCameraVariableRuntimeValue", "Failed to resolve ReturnValue for GetComposableCameraVariableRuntimeValue")
-			);
-			FBlueprintCoreDelegates::ThrowScriptException(P_THIS, Stack, ExceptionInfo);
-		}
-		else if (Variable)
+		else
 		{
 			P_NATIVE_BEGIN
 
-			UClass* SourceClass = Variable->GetClass();
-			FProperty* SourceProperty = FindFProperty<FProperty>(SourceClass, TEXT("RuntimeValue"));
-			void* SourcePtr = SourceProperty->ContainerPtrToValuePtr<void>(Variable);
+			// Copy the raw value bytes into the parameter block.
+			FComposableCameraParameterValue Entry;
+			const int32 Size = ValueProperty->GetSize();
+			Entry.Data.SetNumUninitialized(Size);
+			ValueProperty->CopyCompleteValue(Entry.Data.GetData(), ValuePtr);
+			ParameterBlock.Values.Add(ParameterName, MoveTemp(Entry));
 
-			SourceProperty->CopyCompleteValue(ValuePtr, SourcePtr);
-			
 			P_NATIVE_END
 		}
 	}

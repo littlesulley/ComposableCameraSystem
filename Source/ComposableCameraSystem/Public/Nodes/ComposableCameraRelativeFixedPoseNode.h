@@ -19,18 +19,18 @@ enum class EComposableCameraRelativeFixedPoseMethod : uint8
 /**
  * Node for maintaining a fixed pose relative to some given transform.
  */
-UCLASS(NotBlueprintable, ClassGroup = ComposableCameraSystem)
+UCLASS(NotBlueprintable, ClassGroup = ComposableCameraSystem, meta = (ToolTip = "Maintains a fixed camera pose relative to a specified transform or actor."))
 class COMPOSABLECAMERASYSTEM_API UComposableCameraRelativeFixedPoseNode : public UComposableCameraCameraNodeBase
 {
 	GENERATED_BODY()
 
 public:
-	virtual void OnBeginPlayNode_Implementation(const FComposableCameraPose& CurrentCameraPose) override;
+	virtual void OnInitialize_Implementation() override;
 	virtual void OnTickNode_Implementation(float DeltaTime, const FComposableCameraPose& CurrentCameraPose, FComposableCameraPose& OutCameraPose) override;
+	virtual void GetPinDeclarations_Implementation(TArray<FComposableCameraNodePinDeclaration>& OutPins) const override;
 
 protected:
-	virtual void ReceiveInitializerNode(UComposableCameraCameraNodeBase* Initializer) override;
-	
+
 public:
 	// Method to use for fixed pose.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters)

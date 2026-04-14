@@ -7,11 +7,9 @@
 #include "ComposableCameraCameraOffsetNode.generated.h"
 
 /**
- * Node for applying camera offset to the pivot in camera space. The result in written into OutCameraPose each tick. \n
- * @InputParameter CameraOffset: Offset to apply on the context pivot position in camera space. \n
- * @ContextParameter ContextPivotPosition: The pivot to read position to read.
+ * Applies a positional offset to the camera in camera-local space.
  */
-UCLASS(NotBlueprintable, ClassGroup =  ComposableCameraSystem)
+UCLASS(NotBlueprintable, ClassGroup =  ComposableCameraSystem, meta = (ToolTip = "Applies a positional offset to the camera in camera-local space."))
 class COMPOSABLECAMERASYSTEM_API UComposableCameraCameraOffsetNode
 	: public UComposableCameraCameraNodeBase
 {
@@ -19,16 +17,12 @@ class COMPOSABLECAMERASYSTEM_API UComposableCameraCameraOffsetNode
 
 public:
 	virtual void OnTickNode_Implementation(float DeltaTime, const FComposableCameraPose& CurrentCameraPose, FComposableCameraPose& OutCameraPose) override;
+	virtual void GetPinDeclarations_Implementation(TArray<FComposableCameraNodePinDeclaration>& OutPins) const override;
 
 protected:
-	virtual void ReceiveInitializerNode(UComposableCameraCameraNodeBase* Initializer) override;
 	
 public:
-	// Offset to apply on the context pivot position in camera space.
+	// Offset to apply on the pivot position in camera space.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters)
 	FVector CameraOffset;
-
-	// The pivot to read position to read.
-	UPROPERTY(EditAnywhere, Category = ContextParameters)
-	FVector3dComposableCameraContextParameter ContextPivotPosition;
 };

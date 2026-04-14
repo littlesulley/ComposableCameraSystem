@@ -8,8 +8,10 @@
 #include "Interpolator/ComposableCameraInterpolatorBase.h"
 #include "Kismet/KismetSystemLibrary.h"
 
-void UComposableCameraSplineNode::OnBeginPlayNode_Implementation(const FComposableCameraPose& CurrentCameraPose)
+void UComposableCameraSplineNode::OnInitialize_Implementation()
 {
+	Super::OnInitialize_Implementation();
+
 	MoveInterpolator_T = MoveInterpolator ? MoveInterpolator->BuildDoubleInterpolator() : nullptr;
 }
 
@@ -74,10 +76,42 @@ void UComposableCameraSplineNode::OnTickNode_Implementation(float DeltaTime,
 	}
 }
 
-void UComposableCameraSplineNode::ReceiveInitializerNode(UComposableCameraCameraNodeBase* Initializer)
+void UComposableCameraSplineNode::GetPinDeclarations_Implementation(TArray<FComposableCameraNodePinDeclaration>& OutPins) const
 {
-	
+	{
+		FComposableCameraNodePinDeclaration PinDecl;
+		PinDecl.PinName = TEXT("PivotActor");
+		PinDecl.DisplayName = NSLOCTEXT("UComposableCameraSplineNode", "PivotActor", "Pivot Actor");
+		PinDecl.Direction = EComposableCameraPinDirection::Input;
+		PinDecl.PinType = EComposableCameraPinType::Actor;
+		PinDecl.bRequired = false;
+		PinDecl.Tooltip = NSLOCTEXT("UComposableCameraSplineNode", "PivotActorTip", "Actor for ClosestPoint move method.");
+		OutPins.Add(PinDecl);
+	}
+
+	{
+		FComposableCameraNodePinDeclaration PinDecl;
+		PinDecl.PinName = TEXT("MoveOffset");
+		PinDecl.DisplayName = NSLOCTEXT("UComposableCameraSplineNode", "MoveOffset", "Move Offset");
+		PinDecl.Direction = EComposableCameraPinDirection::Input;
+		PinDecl.PinType = EComposableCameraPinType::Float;
+		PinDecl.bRequired = false;
+		PinDecl.Tooltip = NSLOCTEXT("UComposableCameraSplineNode", "MoveOffsetTip", "Normalized offset [-1,1] applied to movement.");
+		OutPins.Add(PinDecl);
+	}
+
+	{
+		FComposableCameraNodePinDeclaration PinDecl;
+		PinDecl.PinName = TEXT("Duration");
+		PinDecl.DisplayName = NSLOCTEXT("UComposableCameraSplineNode", "Duration", "Duration");
+		PinDecl.Direction = EComposableCameraPinDirection::Input;
+		PinDecl.PinType = EComposableCameraPinType::Float;
+		PinDecl.bRequired = false;
+		PinDecl.Tooltip = NSLOCTEXT("UComposableCameraSplineNode", "DurationTip", "Duration for Automatic move method.");
+		OutPins.Add(PinDecl);
+	}
 }
+
 
 void UComposableCameraSplineNode::UpdateCameraPoseByBuiltInSpline(FVector& OutPosition, FRotator& OutRotation,
 	const FComposableCameraPose& CurrentCameraPose, float DeltaTime)

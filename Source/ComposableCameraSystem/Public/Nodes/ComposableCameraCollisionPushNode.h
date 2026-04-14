@@ -22,19 +22,19 @@ struct FComposableCameraHitResult
  * (2) Carries a sphere around the camera and only resolves occlusion when the sphere collides with objects. \n
  * The first we call it TraceCollision, and the second SelfCollision, both dealt with collision channels. \n
  */
-UCLASS(NotBlueprintable, ClassGroup = ComposableCameraSystem)
+UCLASS(NotBlueprintable, ClassGroup = ComposableCameraSystem, meta = (ToolTip = "Pushes the camera away from obstacles using trace-based collision detection."))
 class COMPOSABLECAMERASYSTEM_API UComposableCameraCollisionPushNode
 	: public UComposableCameraCameraNodeBase
 {
 	GENERATED_BODY()
 
 public:
-	virtual void OnBeginPlayNode_Implementation(const FComposableCameraPose& CurrentCameraPose) override;
+	virtual void OnInitialize_Implementation() override;
 	virtual void OnTickNode_Implementation(float DeltaTime, const FComposableCameraPose& CurrentCameraPose, FComposableCameraPose& OutCameraPose) override;
 	virtual void OnPreTick(float DeltaTime, const FComposableCameraPose& CurrentCameraPose, FComposableCameraPose& OutCameraPose) override;
-	
+	virtual void GetPinDeclarations_Implementation(TArray<FComposableCameraNodePinDeclaration>& OutPins) const override;
+
 protected:
-	virtual void ReceiveInitializerNode(UComposableCameraCameraNodeBase* Initializer) override;
 	
 public:
 	// Collision channel for trace collision.
@@ -81,7 +81,7 @@ public:
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = InputParameters)
 	UComposableCameraInterpolatorBase* PullInterpolator;
 
-	// World space Z offset to the ContextPivotActor, the final position will be the target collision detection point.
+	// World space Z offset to the pivot actor's position, used as the collision detection origin.
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = InputParameters, meta = (EditCondition = "bUseBoneForDetection == false"))
 	double PivotZOffset { 50. };
 
@@ -92,10 +92,6 @@ public:
 	// If use bone, specify the bone name. If we cannot find such a bone, will turn to use PivotZOffset.
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = InputParameters, meta = (EditCondition = "bUseBoneForDetection == true"))
 	FName BoneName;
-	
-	// The context actor from which we retrieve the target collision detection position.
-	UPROPERTY(EditAnywhere, Category = ContextParameters)
-	FActorComposableCameraContextParameter ContextPivotActor;;
 
 private:
 	FComposableCameraHitResult FindCollisionPoint(double DeltaTime,  const FVector& Start, const FVector& End, const FRotator& CameraRotation);

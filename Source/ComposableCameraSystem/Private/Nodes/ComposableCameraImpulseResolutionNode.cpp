@@ -7,9 +7,10 @@
 #include "Kismet/KismetSystemLibrary.h"
 #include "Utils/ComposableCameraImpulseShapeInterface.h"
 
-void UComposableCameraImpulseResolutionNode::OnBeginPlayNode_Implementation(
-	const FComposableCameraPose& CurrentCameraPose)
+void UComposableCameraImpulseResolutionNode::OnInitialize_Implementation()
 {
+	Super::OnInitialize_Implementation();
+
 	Interpolator_T = Interpolator ? Interpolator->BuildVector3dInterpolator() : nullptr;
 	
 	Sphere = NewObject<USphereComponent>(GetOwningCamera());
@@ -45,6 +46,20 @@ void UComposableCameraImpulseResolutionNode::OnTickNode_Implementation(float Del
 	FVector AdditivePosition = NewVelocity * DeltaTime;
 	OutCameraPose.Position += AdditivePosition;
 	OldVelocity = NewVelocity;
+}
+
+void UComposableCameraImpulseResolutionNode::GetPinDeclarations_Implementation(TArray<FComposableCameraNodePinDeclaration>& OutPins) const
+{
+	FComposableCameraNodePinDeclaration PinDecl;
+
+	// Input: VelocityDamping
+	PinDecl.PinName = TEXT("VelocityDamping");
+	PinDecl.DisplayName = NSLOCTEXT("UComposableCameraImpulseResolutionNode", "VelocityDamping", "Velocity Damping");
+	PinDecl.Direction = EComposableCameraPinDirection::Input;
+	PinDecl.PinType = EComposableCameraPinType::Float;
+	PinDecl.bRequired = false;
+	PinDecl.Tooltip = NSLOCTEXT("UComposableCameraImpulseResolutionNode", "VelocityDampingTip", "Controls camera movement speed (default from UPROPERTY).");
+	OutPins.Add(PinDecl);
 }
 
 void UComposableCameraImpulseResolutionNode::BeginDestroy()

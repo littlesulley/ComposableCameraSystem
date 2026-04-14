@@ -14,18 +14,18 @@ DECLARE_DYNAMIC_DELEGATE_RetVal(FVector, FOnReceiveAutoRotateMainDirection);
 /**
  * Node for auto-rotating around a given "main direction." The main direction should be provided each frame through a custom function.
  */
-UCLASS(NotBlueprintable, ClassGroup = ComposableCameraSystem, CollapseCategories)
+UCLASS(NotBlueprintable, ClassGroup = ComposableCameraSystem, CollapseCategories, meta = (ToolTip = "Automatically rotates the camera back towards a specified direction when beyond valid range."))
 class COMPOSABLECAMERASYSTEM_API UComposableCameraAutoRotateNode : public UComposableCameraCameraNodeBase
 {
 	GENERATED_BODY()
 
 public:
-	virtual void OnBeginPlayNode_Implementation(const FComposableCameraPose& CurrentCameraPose) override;
+	virtual void OnInitialize_Implementation() override;
 	virtual void OnTickNode_Implementation(float DeltaTime, const FComposableCameraPose& CurrentCameraPose, FComposableCameraPose& OutCameraPose) override;
+	virtual void GetPinDeclarations_Implementation(TArray<FComposableCameraNodePinDeclaration>& OutPins) const override;
 
 protected:
-	virtual void ReceiveInitializerNode(UComposableCameraCameraNodeBase* Initializer) override;
-	
+
 public:
 	// World space yaw range around the main direction. If current camera is beyond this range, will start to auto-rotate yaw, if other conditions are met.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters)
@@ -61,10 +61,6 @@ public:
 	
 	UPROPERTY()
 	FOnReceiveAutoRotateMainDirection OnReceiveAutoRotateMainDirection;
-
-	// Camera rotation input for this frame (not the final rotation).
-	UPROPERTY(EditAnywhere, Category = ContextParameters)
-	FVector2dComposableCameraContextParameter ContextCameraRotationInput;
 
 public:
 	UFUNCTION(BlueprintCallable, Category = "ComposableCameraSystem|Node")

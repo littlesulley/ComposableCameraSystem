@@ -6,24 +6,25 @@
 
 #include "Algo/MaxElement.h"
 #include "ComposableCameraSystemModule.h"
+#include "Core/ComposableCameraPlayerCameraManager.h"
 #include "Math/ComposableCameraMath.h"
-#include "Utils/ComposableCameraBlueprintLibrary.h"
 
 
-void UComposableCameraMixingCameraNode::OnBeginPlayNode_Implementation(const FComposableCameraPose& CurrentCameraPose)
+void UComposableCameraMixingCameraNode::OnInitialize_Implementation()
 {
+	Super::OnInitialize_Implementation();
+
 	for (const FComposableCameraMixingCameraNodeCameraDefinition& Definition : Cameras)
 	{
 		FComposableCameraActivateParams ActivationParams (
 			Definition.ActivationParams.bPreserveCameraPose,
 			Definition.ActivationParams.InitialTransform,
 			Definition.ActivationParams.bUseInitialTransformRotation,
-			Definition.ActivationParams.NodeInitializerDataAsset,
 			false,
 			0.f
 		);
-		AComposableCameraCameraBase* CameraInstance = UComposableCameraBlueprintLibrary::CreateComposableCameraByClass(
-			this, OwningPlayerCameraManager, Definition.CameraClass, ActivationParams);
+		AComposableCameraCameraBase* CameraInstance = OwningPlayerCameraManager->CreateNewCamera(
+			Definition.CameraClass, ActivationParams);
 
 		CameraInstances.Add(CameraInstance);
 	}
@@ -61,16 +62,13 @@ void UComposableCameraMixingCameraNode::OnTickNode_Implementation(float DeltaTim
 	OutCameraPose.FieldOfView = GetMixedFieldOfView(Poses, Weights);
 }
 
-void UComposableCameraMixingCameraNode::ReceiveInitializerNode(UComposableCameraCameraNodeBase* Initializer)
+void UComposableCameraMixingCameraNode::GetPinDeclarations_Implementation(TArray<FComposableCameraNodePinDeclaration>& OutPins) const
 {
-	if (UComposableCameraMixingCameraNode* CastedInitializer = Cast<UComposableCameraMixingCameraNode>(Initializer))
-	{
-		Cameras = CastedInitializer->Cameras;
-		MixMode = CastedInitializer->MixMode;
-		MixRotationMethod = CastedInitializer->MixRotationMethod;
-		CircularInterpEpsilon = CastedInitializer->CircularInterpEpsilon;
-	}
+	// MixingCamera node uses a delegate for weights and Cameras array as UPROPERTY.
+	// These are runtime-configured and don't map cleanly to the pin system.
+	// Return empty array.
 }
+
 
 void UComposableCameraMixingCameraNode::BeginDestroy()
 {

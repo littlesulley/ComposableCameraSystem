@@ -12,9 +12,10 @@
 #include "Tracks/MovieSceneFloatTrack.h"
 #include "Utils/ComposableCameraBlueprintLibrary.h"
 
-void UComposableCameraKeyframeSequenceNode::OnBeginPlayNode_Implementation(
-	const FComposableCameraPose& CurrentCameraPose)
+void UComposableCameraKeyframeSequenceNode::OnInitialize_Implementation()
 {
+	Super::OnInitialize_Implementation();
+
 	if (Method == EComposableCameraRelativeFixedPoseMethod::RelativeToActor)
 	{
 		if (!RelativeActor)
@@ -137,18 +138,38 @@ void UComposableCameraKeyframeSequenceNode::OnTickNode_Implementation(float Delt
 	}
 }
 
-void UComposableCameraKeyframeSequenceNode::ReceiveInitializerNode(UComposableCameraCameraNodeBase* Initializer)
+void UComposableCameraKeyframeSequenceNode::GetPinDeclarations_Implementation(TArray<FComposableCameraNodePinDeclaration>& OutPins) const
 {
-	if (UComposableCameraKeyframeSequenceNode* CastedInitializer = Cast<UComposableCameraKeyframeSequenceNode>(Initializer))
-	{
-		CameraSequence = CastedInitializer->CameraSequence;
-		Method = CastedInitializer->Method;
-		RelativeTransform = CastedInitializer->RelativeTransform;
-		RelativeActor = CastedInitializer->RelativeActor;
-		RelativeSocket = CastedInitializer->RelativeSocket;
-		StayAtLastFrameTime = CastedInitializer->StayAtLastFrameTime;
-	}
+	FComposableCameraNodePinDeclaration PinDecl;
+
+	// Input: RelativeTransform
+	PinDecl.PinName = TEXT("RelativeTransform");
+	PinDecl.DisplayName = NSLOCTEXT("UComposableCameraKeyframeSequenceNode", "RelativeTransform", "Relative Transform");
+	PinDecl.Direction = EComposableCameraPinDirection::Input;
+	PinDecl.PinType = EComposableCameraPinType::Transform;
+	PinDecl.bRequired = false;
+	PinDecl.Tooltip = NSLOCTEXT("UComposableCameraKeyframeSequenceNode", "RelativeTransformTip", "Base transform when Method is RelativeToTransform.");
+	OutPins.Add(PinDecl);
+
+	// Input: RelativeActor
+	PinDecl.PinName = TEXT("RelativeActor");
+	PinDecl.DisplayName = NSLOCTEXT("UComposableCameraKeyframeSequenceNode", "RelativeActor", "Relative Actor");
+	PinDecl.Direction = EComposableCameraPinDirection::Input;
+	PinDecl.PinType = EComposableCameraPinType::Actor;
+	PinDecl.bRequired = false;
+	PinDecl.Tooltip = NSLOCTEXT("UComposableCameraKeyframeSequenceNode", "RelativeActorTip", "Reference actor when Method is RelativeToActor.");
+	OutPins.Add(PinDecl);
+
+	// Input: StayAtLastFrameTime
+	PinDecl.PinName = TEXT("StayAtLastFrameTime");
+	PinDecl.DisplayName = NSLOCTEXT("UComposableCameraKeyframeSequenceNode", "StayAtLastFrameTime", "Stay At Last Frame Time");
+	PinDecl.Direction = EComposableCameraPinDirection::Input;
+	PinDecl.PinType = EComposableCameraPinType::Float;
+	PinDecl.bRequired = false;
+	PinDecl.Tooltip = NSLOCTEXT("UComposableCameraKeyframeSequenceNode", "StayAtLastFrameTimeTip", "Time to stay at last frame.");
+	OutPins.Add(PinDecl);
 }
+
 
 std::pair<float, FTransform> UComposableCameraKeyframeSequenceNode::GetTargetTransform(FFrameTime FrameTime)
 {

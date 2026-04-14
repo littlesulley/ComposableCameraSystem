@@ -15,8 +15,8 @@ class UComposableCameraModifierBase;
  * All modifiers are defined using blueprints by the users.
  * Modifiers can only be applied to non-transient cameras.
  */
-UCLASS(BlueprintType)
-class UComposableCameraNodeModifierDataAsset
+UCLASS(BlueprintType, ClassGroup = ComposableCameraSystem)
+class COMPOSABLECAMERASYSTEM_API UComposableCameraNodeModifierDataAsset
 	: public UDataAsset
 {
 	GENERATED_BODY()

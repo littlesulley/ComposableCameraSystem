@@ -26,7 +26,9 @@ public class ComposableCameraSystemUncookedOnly : ModuleRules
                 "ToolMenus",
                 "UnrealEd",
                 "GraphEditor",
-                "Slate"
+                "Slate",
+                "ToolWidgets",
+                "ContentBrowser"
             }
         );
     }

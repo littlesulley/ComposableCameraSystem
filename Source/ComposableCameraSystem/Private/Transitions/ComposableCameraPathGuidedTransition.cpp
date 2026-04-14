@@ -35,7 +35,7 @@ void UComposableCameraPathGuidedTransition::OnBeginPlay_Implementation(float Del
 			IntermediateCamera->bIsTransient = false;
 			IntermediateCamera->LifeTime = -1.f;
 			IntermediateCamera->RemainingLifeTime = -1.f;
-			IntermediateCamera->Initialize(UComposableCameraBlueprintLibrary::GetComposableCameraPlayerCameraManager(this, 0), nullptr);
+			IntermediateCamera->Initialize(UComposableCameraBlueprintLibrary::GetComposableCameraPlayerCameraManager(this, 0));
 
 			UComposableCameraSplineNode* SplineNode = NewObject<UComposableCameraSplineNode>(IntermediateCamera, UComposableCameraSplineNode::StaticClass());
 			SplineNode->SplineType = EComposableCameraSplineNodeSplineType::BuiltInSpline;
@@ -45,7 +45,8 @@ void UComposableCameraPathGuidedTransition::OnBeginPlay_Implementation(float Del
 			SplineNode->Duration = TransitionTime;
 			IntermediateCamera->CameraNodes.Add(SplineNode);
 			IntermediateCamera->FinishSpawning(FTransform{});
-			IntermediateCamera->Rename(TEXT("PathGuidedTransition_IntermediateCameraOnSpline"));
+			IntermediateCamera->Rename(*MakeUniqueObjectName(IntermediateCamera->GetOuter(),
+				IntermediateCamera->GetClass(), TEXT("PathGuidedTransition_IntermediateCameraOnSpline")).ToString());
 #if WITH_EDITOR
 			IntermediateCamera->SetActorLabel(
 				TEXT("PathGuidedTransition_IntermediateCameraOnSpline"),
@@ -71,7 +72,8 @@ void UComposableCameraPathGuidedTransition::OnBeginPlay_Implementation(float Del
 			DebugSplineActor->SetRootComponent(Root);
 
 			BuildInternalSpline(CurrentTargetPose, DeltaTime);
-			DebugSplineActor->Rename(TEXT("PathGuidedTransition_DebugSplineActor"));
+			DebugSplineActor->Rename(*MakeUniqueObjectName(DebugSplineActor->GetOuter(),
+				DebugSplineActor->GetClass(), TEXT("PathGuidedTransition_DebugSplineActor")).ToString());
 	#if WITH_EDITOR
 			DebugSplineActor->SetActorLabel(
 				TEXT("PathGuidedTransition_DebugSplineActor"),

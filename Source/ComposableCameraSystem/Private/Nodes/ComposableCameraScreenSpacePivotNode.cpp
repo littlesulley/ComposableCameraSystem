@@ -12,9 +12,10 @@
 #include "Kismet/KismetMathLibrary.h"
 #include "Math/ComposableCameraMath.h"
 
-void UComposableCameraScreenSpacePivotNode::OnBeginPlayNode_Implementation(
-	const FComposableCameraPose& CurrentCameraPose)
+void UComposableCameraScreenSpacePivotNode::OnInitialize_Implementation()
 {
+	Super::OnInitialize_Implementation();
+
 	XInterpolator_T = TranslationParams.XInterpolator ? TranslationParams.XInterpolator->BuildDoubleInterpolator() : nullptr;
 	YInterpolator_T = TranslationParams.YInterpolator ? TranslationParams.YInterpolator->BuildDoubleInterpolator() : nullptr;
 	ZInterpolator_T = TranslationParams.ZInterpolator ? TranslationParams.ZInterpolator->BuildDoubleInterpolator() : nullptr;
@@ -60,18 +61,47 @@ void UComposableCameraScreenSpacePivotNode::BeginDestroy()
 	}
 }
 
-void UComposableCameraScreenSpacePivotNode::ReceiveInitializerNode(UComposableCameraCameraNodeBase* Initializer)
+void UComposableCameraScreenSpacePivotNode::GetPinDeclarations_Implementation(TArray<FComposableCameraNodePinDeclaration>& OutPins) const
 {
-	if (UComposableCameraScreenSpacePivotNode* CastedInitializer = Cast<UComposableCameraScreenSpacePivotNode>(Initializer))
-	{
-		Method = CastedInitializer->Method;
-		TranslationParams = CastedInitializer->TranslationParams;
-		RotationParams = CastedInitializer->RotationParams;
-		SafeZoneCenter = CastedInitializer->SafeZoneCenter;
-		SafeZoneWidth = CastedInitializer->SafeZoneWidth;
-		SafeZoneHeight = CastedInitializer->SafeZoneHeight;
-	}
+	FComposableCameraNodePinDeclaration PinDecl;
+
+	// Input: PivotPosition
+	PinDecl.PinName = TEXT("PivotPosition");
+	PinDecl.DisplayName = NSLOCTEXT("UComposableCameraScreenSpacePivotNode", "PivotPosition", "Pivot Position");
+	PinDecl.Direction = EComposableCameraPinDirection::Input;
+	PinDecl.PinType = EComposableCameraPinType::Vector3D;
+	PinDecl.bRequired = true;
+	PinDecl.Tooltip = NSLOCTEXT("UComposableCameraScreenSpacePivotNode", "PivotPositionTip", "Pivot position in world space.");
+	OutPins.Add(PinDecl);
+
+	// Input: SafeZoneCenter
+	PinDecl.PinName = TEXT("SafeZoneCenter");
+	PinDecl.DisplayName = NSLOCTEXT("UComposableCameraScreenSpacePivotNode", "SafeZoneCenter", "Safe Zone Center");
+	PinDecl.Direction = EComposableCameraPinDirection::Input;
+	PinDecl.PinType = EComposableCameraPinType::Vector2D;
+	PinDecl.bRequired = false;
+	PinDecl.Tooltip = NSLOCTEXT("UComposableCameraScreenSpacePivotNode", "SafeZoneCenterTip", "Screen space safe zone center.");
+	OutPins.Add(PinDecl);
+
+	// Input: SafeZoneWidth
+	PinDecl.PinName = TEXT("SafeZoneWidth");
+	PinDecl.DisplayName = NSLOCTEXT("UComposableCameraScreenSpacePivotNode", "SafeZoneWidth", "Safe Zone Width");
+	PinDecl.Direction = EComposableCameraPinDirection::Input;
+	PinDecl.PinType = EComposableCameraPinType::Vector2D;
+	PinDecl.bRequired = false;
+	PinDecl.Tooltip = NSLOCTEXT("UComposableCameraScreenSpacePivotNode", "SafeZoneWidthTip", "Safe zone width bounds.");
+	OutPins.Add(PinDecl);
+
+	// Input: SafeZoneHeight
+	PinDecl.PinName = TEXT("SafeZoneHeight");
+	PinDecl.DisplayName = NSLOCTEXT("UComposableCameraScreenSpacePivotNode", "SafeZoneHeight", "Safe Zone Height");
+	PinDecl.Direction = EComposableCameraPinDirection::Input;
+	PinDecl.PinType = EComposableCameraPinType::Vector2D;
+	PinDecl.bRequired = false;
+	PinDecl.Tooltip = NSLOCTEXT("UComposableCameraScreenSpacePivotNode", "SafeZoneHeightTip", "Safe zone height bounds.");
+	OutPins.Add(PinDecl);
 }
+
 
 FVector UComposableCameraScreenSpacePivotNode::GetScreenSpaceTranslateAmount(const FVector& Pivot,
                                                                              const FComposableCameraPose& OutCameraPose, float DeltaTime)
@@ -488,14 +518,7 @@ std::pair<float, float> UComposableCameraScreenSpacePivotNode::GetTanHalfHORAndA
 
 FVector UComposableCameraScreenSpacePivotNode::GetCurrentPivot()
 {
-	if (ContextPivotPosition.Variable)
-	{
-		return ContextPivotPosition.Variable->RuntimeValue;
-	}
-	else
-	{
-		return ContextPivotPosition.Value;
-	}
+	return GetInputPinValue<FVector>("PivotPosition");
 }
 
 void UComposableCameraScreenSpacePivotNode::DrawDebugInfo(AHUD* HUD, UCanvas* Canvas)

@@ -20,21 +20,20 @@ enum class ECameraPivotOffset : uint8
  * @ InputParameter PivotOffsetType: In which space you'd like to apply offset, can be world, camera, or actor local. \n
  * @ InputParameter ActorForLocalSpace: The actor determining the local space if you choose actor local space. \n
  * @ InputParameter PivotOffset: The offset. \n
- * @ ContextParameter ContextPivotPosition: The pivot location that is read from and written to after applying offset by this node. \n
  * This node runs every tick.
  */
-UCLASS(NotBlueprintable, ClassGroup = ComposableCameraSystem)
+UCLASS(NotBlueprintable, ClassGroup = ComposableCameraSystem, meta = (ToolTip = "Applies an offset to the pivot position in world, camera, or actor-local space."))
 class COMPOSABLECAMERASYSTEM_API UComposableCameraPivotOffsetNode
 	: public UComposableCameraCameraNodeBase
 {
 	GENERATED_BODY()
 
 public:
-	virtual void OnBeginPlayNode_Implementation(const FComposableCameraPose& CurrentCameraPose) override;
+	virtual void OnInitialize_Implementation() override;
 	virtual void OnTickNode_Implementation(float DeltaTime, const FComposableCameraPose& CurrentCameraPose, FComposableCameraPose& OutCameraPose) override;
+	virtual void GetPinDeclarations_Implementation(TArray<FComposableCameraNodePinDeclaration>& OutPins) const override;
 
 protected:
-	virtual void ReceiveInitializerNode(UComposableCameraCameraNodeBase* Initializer) override;
 	
 public:
 	// In which space you'd like to apply offset, can be world, camera, or actor local.
@@ -48,10 +47,6 @@ public:
 	// The offset.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters)
 	FVector PivotOffset = FVector::ZeroVector;
-
-	// The pivot location that is read from and written to after applying offset by this node.
-	UPROPERTY(EditAnywhere, Category = ContextParameters)
-	FVector3dComposableCameraContextParameter ContextPivotPosition;
 
 private:
 	void UpdatePivotOffset(const FComposableCameraPose& CurrentCameraPose);

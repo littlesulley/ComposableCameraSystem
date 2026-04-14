@@ -4,9 +4,10 @@
 
 #include "Kismet/KismetMathLibrary.h"
 
-void UComposableCameraRelativeFixedPoseNode::OnBeginPlayNode_Implementation(
-	const FComposableCameraPose& CurrentCameraPose)
+void UComposableCameraRelativeFixedPoseNode::OnInitialize_Implementation()
 {
+	Super::OnInitialize_Implementation();
+
 	if (Method == EComposableCameraRelativeFixedPoseMethod::RelativeToActor)
 	{
 		if (!RelativeActor)
@@ -49,14 +50,39 @@ void UComposableCameraRelativeFixedPoseNode::OnTickNode_Implementation(float Del
 	OutCameraPose.Rotation = TargetRotation;
 }
 
-void UComposableCameraRelativeFixedPoseNode::ReceiveInitializerNode(UComposableCameraCameraNodeBase* Initializer)
+void UComposableCameraRelativeFixedPoseNode::GetPinDeclarations_Implementation(TArray<FComposableCameraNodePinDeclaration>& OutPins) const
 {
-	if (UComposableCameraRelativeFixedPoseNode* CastedInitializer = Cast<UComposableCameraRelativeFixedPoseNode>(Initializer))
 	{
-		Method = CastedInitializer->Method;
-		RelativeTransform = CastedInitializer->RelativeTransform;
-		RelativeActor = CastedInitializer->RelativeActor;
-		RelativeSocket = CastedInitializer->RelativeSocket;
-		TargetTransform = CastedInitializer->TargetTransform;
+		FComposableCameraNodePinDeclaration PinDecl;
+		PinDecl.PinName = TEXT("RelativeTransform");
+		PinDecl.DisplayName = NSLOCTEXT("UComposableCameraRelativeFixedPoseNode", "RelativeTransform", "Relative Transform");
+		PinDecl.Direction = EComposableCameraPinDirection::Input;
+		PinDecl.PinType = EComposableCameraPinType::Transform;
+		PinDecl.bRequired = false;
+		PinDecl.Tooltip = NSLOCTEXT("UComposableCameraRelativeFixedPoseNode", "RelativeTransformTip", "The base transform when Method is RelativeToTransform.");
+		OutPins.Add(PinDecl);
+	}
+
+	{
+		FComposableCameraNodePinDeclaration PinDecl;
+		PinDecl.PinName = TEXT("RelativeActor");
+		PinDecl.DisplayName = NSLOCTEXT("UComposableCameraRelativeFixedPoseNode", "RelativeActor", "Relative Actor");
+		PinDecl.Direction = EComposableCameraPinDirection::Input;
+		PinDecl.PinType = EComposableCameraPinType::Actor;
+		PinDecl.bRequired = false;
+		PinDecl.Tooltip = NSLOCTEXT("UComposableCameraRelativeFixedPoseNode", "RelativeActorTip", "Reference actor when Method is RelativeToActor.");
+		OutPins.Add(PinDecl);
+	}
+
+	{
+		FComposableCameraNodePinDeclaration PinDecl;
+		PinDecl.PinName = TEXT("TargetTransform");
+		PinDecl.DisplayName = NSLOCTEXT("UComposableCameraRelativeFixedPoseNode", "TargetTransform", "Target Transform");
+		PinDecl.Direction = EComposableCameraPinDirection::Input;
+		PinDecl.PinType = EComposableCameraPinType::Transform;
+		PinDecl.bRequired = false;
+		PinDecl.Tooltip = NSLOCTEXT("UComposableCameraRelativeFixedPoseNode", "TargetTransformTip", "The target transform applied in local space.");
+		OutPins.Add(PinDecl);
 	}
 }
+

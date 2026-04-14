@@ -3,14 +3,18 @@
 #include "ComposableCameraSystemEditorModule.h"
 
 #include "AssetToolsModule.h"
+#include "ComposableCameraEditorStyle.h"
+#include "EdGraphUtilities.h"
 #include "IAssetTools.h"
-#include "AssetTools/ComposableCameraCameraAssetEditor.h"
-#include "AssetTools/ComposableCameraVariableCollectionEditor.h"
-#include "Customizations/ComposableCameraContextParameterDetailsCustomization.h"
+#include "AssetTools/ComposableCameraTypeAssetEditor.h"
+#include "Customizations/ComposableCameraInternalVariableCustomization.h"
+#include "Customizations/ComposableCameraNodeGraphNodeDetails.h"
+#include "Customizations/ComposableCameraParameterTableRowCustomization.h"
 #include "EditorHooks/EditorHooks.h"
-#include "Widgets/ComposableCameraVariablePicker.h"
+#include "Editors/ComposableCameraNodeGraphPinFactory.h"
+#include "Editors/ComposableCameraGraphNodeFactory.h"
 
-class UComposableCameraCameraAsset;
+class UComposableCameraTypeAsset;
 
 #define LOCTEXT_NAMESPACE "FComposableCameraSystemEditorModule"
 
@@ -28,7 +32,13 @@ void FComposableCameraSystemEditorModule::StartupModule()
         return false;
     });
 #endif
+    // Initialize the editor style early so ClassIcon / ClassThumbnail brushes
+    // are registered before the Content Browser renders any asset tiles.
+    FComposableCameraEditorStyle::Get();
+
     RegisterDetailsCustomizations();
+    RegisterNodeGraphPinFactory();
+    RegisterGraphNodeFactory();
 }
 
 void FComposableCameraSystemEditorModule::ShutdownModule()
@@ -36,41 +46,28 @@ void FComposableCameraSystemEditorModule::ShutdownModule()
 #if WITH_EDITOR
     FIsSimulatingInEditor::GetIsSimulatingInEditorDelegate.Unbind();
 #endif
+    UnregisterGraphNodeFactory();
+    UnregisterNodeGraphPinFactory();
     UnregisterDetailsCustomizations();
 }
 
-UComposableCameraCameraAssetEditor* FComposableCameraSystemEditorModule::
-CreateComposableCameraCameraAssetEditor(const EToolkitMode::Type Mode,
-    const TSharedPtr<IToolkitHost>& InitToolkitHost, UComposableCameraCameraAsset* CameraAsset)
+UComposableCameraTypeAssetEditor* FComposableCameraSystemEditorModule::
+CreateComposableCameraTypeAssetEditor(const EToolkitMode::Type Mode,
+    const TSharedPtr<IToolkitHost>& InitToolkitHost, UComposableCameraTypeAsset* TypeAsset)
 {
     UAssetEditorSubsystem* AssetEditorSubsystem = GEditor->GetEditorSubsystem<UAssetEditorSubsystem>();
-    UComposableCameraCameraAssetEditor* AssetEditor = NewObject<UComposableCameraCameraAssetEditor>(AssetEditorSubsystem, NAME_None, RF_Transient);
-    AssetEditor->Initialize(CameraAsset);
+    UComposableCameraTypeAssetEditor* AssetEditor = NewObject<UComposableCameraTypeAssetEditor>(AssetEditorSubsystem, NAME_None, RF_Transient);
+    AssetEditor->Initialize(TypeAsset);
     return AssetEditor;
-}
-
-UComposableCameraVariableCollectionEditor* FComposableCameraSystemEditorModule::
-CreateComposableCameraVariableCollectionEditor(const EToolkitMode::Type Mode,
-    const TSharedPtr<IToolkitHost>& InitToolkitHost, UComposableCameraVariableCollection* CameraVariableCollection)
-{
-    UAssetEditorSubsystem* AssetEditorSubsystem = GEditor->GetEditorSubsystem<UAssetEditorSubsystem>();
-    UComposableCameraVariableCollectionEditor* AssetEditor = NewObject<UComposableCameraVariableCollectionEditor>(AssetEditorSubsystem, NAME_None, RF_Transient);
-    AssetEditor->Initialize(CameraVariableCollection);
-    return AssetEditor;
-}
-
-TSharedRef<SWidget> FComposableCameraSystemEditorModule::CreateCameraVariablePicker(
-    const FComposableCameraVariablePickerConfig& InPickerConfig)
-{
-    return SNew(SComposableCameraVariablePicker)
-            .ComposableCameraVariablePickerConfig(InPickerConfig);
 }
 
 void FComposableCameraSystemEditorModule::RegisterDetailsCustomizations()
 {
     FPropertyEditorModule& PropertyEditorModule = FModuleManager::GetModuleChecked<FPropertyEditorModule>("PropertyEditor");
 
-    FComposableCameraContextParameterDetailsCustomization::Register(PropertyEditorModule);
+    FComposableCameraInternalVariableCustomization::Register(PropertyEditorModule);
+    FComposableCameraParameterTableRowCustomization::Register(PropertyEditorModule);
+    FComposableCameraNodeGraphNodeDetails::Register(PropertyEditorModule);
 }
 
 void FComposableCameraSystemEditorModule::UnregisterDetailsCustomizations()
@@ -79,7 +76,43 @@ void FComposableCameraSystemEditorModule::UnregisterDetailsCustomizations()
 
     if (PropertyEditorModule)
     {
-        FComposableCameraContextParameterDetailsCustomization::Unregister(*PropertyEditorModule);
+        FComposableCameraInternalVariableCustomization::Unregister(*PropertyEditorModule);
+        FComposableCameraParameterTableRowCustomization::Unregister(*PropertyEditorModule);
+        FComposableCameraNodeGraphNodeDetails::Unregister(*PropertyEditorModule);
+    }
+}
+
+void FComposableCameraSystemEditorModule::RegisterNodeGraphPinFactory()
+{
+    // FEdGraphUtilities holds a TWeakPtr to each registered visual pin
+    // factory, so the module must retain a TSharedPtr for the factory to
+    // survive past this function. Stored in NodeGraphPinFactory and reset in
+    // UnregisterNodeGraphPinFactory.
+    NodeGraphPinFactory = MakeShared<FComposableCameraNodeGraphPinFactory>();
+    FEdGraphUtilities::RegisterVisualPinFactory(NodeGraphPinFactory);
+}
+
+void FComposableCameraSystemEditorModule::UnregisterNodeGraphPinFactory()
+{
+    if (NodeGraphPinFactory.IsValid())
+    {
+        FEdGraphUtilities::UnregisterVisualPinFactory(NodeGraphPinFactory);
+        NodeGraphPinFactory.Reset();
+    }
+}
+
+void FComposableCameraSystemEditorModule::RegisterGraphNodeFactory()
+{
+    GraphNodeFactory = MakeShared<FComposableCameraGraphNodeFactory>();
+    FEdGraphUtilities::RegisterVisualNodeFactory(GraphNodeFactory);
+}
+
+void FComposableCameraSystemEditorModule::UnregisterGraphNodeFactory()
+{
+    if (GraphNodeFactory.IsValid())
+    {
+        FEdGraphUtilities::UnregisterVisualNodeFactory(GraphNodeFactory);
+        GraphNodeFactory.Reset();
     }
 }
 

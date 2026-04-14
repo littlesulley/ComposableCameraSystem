@@ -32,18 +32,18 @@ enum class EComposableCameraLookAtConstraintType : uint8
 /**
  * Node for looking at some target position.
  */
-UCLASS(NotBlueprintable, ClassGroup = ComposableCameraSystem)
+UCLASS(NotBlueprintable, ClassGroup = ComposableCameraSystem, meta = (ToolTip = "Orients the camera to look at a target position or actor with optional soft constraints."))
 class COMPOSABLECAMERASYSTEM_API UComposableCameraLookAtNode : public UComposableCameraCameraNodeBase
 {
 	GENERATED_BODY()
 
 public:
-	virtual void OnBeginPlayNode_Implementation(const FComposableCameraPose& CurrentCameraPose) override;
+	virtual void OnInitialize_Implementation() override;
 	virtual void OnTickNode_Implementation(float DeltaTime, const FComposableCameraPose& CurrentCameraPose, FComposableCameraPose& OutCameraPose) override;
+	virtual void GetPinDeclarations_Implementation(TArray<FComposableCameraNodePinDeclaration>& OutPins) const override;
 
 protected:
-	virtual void ReceiveInitializerNode(UComposableCameraCameraNodeBase* Initializer) override;
-	
+
 public:
 	// Look at type, to look at a specified position or by an actor's position.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters)

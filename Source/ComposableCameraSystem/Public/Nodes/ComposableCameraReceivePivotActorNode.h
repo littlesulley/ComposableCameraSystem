@@ -7,37 +7,28 @@
 #include "ComposableCameraReceivePivotActorNode.generated.h"
 
 /**
- * Node for reading a context pivot target actor and getting its location as the pivot location. \n
- * @ ContextParameter ContextPivotActor: The actor you'd want to maintain during the node's life cycle. The input PivotActor will be read into here, without validity check. \n 
- * @ ContextParameter ContextPivotPosition: The location of the PivotActor. \n
+ * Reads a pivot actor's location and publishes it as the pivot position for downstream nodes.
  * This node runs every tick.
  */
-UCLASS(NotBlueprintable, ClassGroup = ComposableCameraSystem)
+UCLASS(NotBlueprintable, ClassGroup = ComposableCameraSystem, meta = (ToolTip = "Reads a pivot actor's location and publishes it as the pivot position for downstream nodes."))
 class COMPOSABLECAMERASYSTEM_API UComposableCameraReceivePivotActorNode
 	: public UComposableCameraCameraNodeBase
 {
 	GENERATED_BODY()
 	
 public:
-	virtual void OnBeginPlayNode_Implementation(const FComposableCameraPose& CurrentCameraPose) override;
+	virtual void OnInitialize_Implementation() override;
 	virtual void OnTickNode_Implementation(float DeltaTime, const FComposableCameraPose& CurrentCameraPose, FComposableCameraPose& OutCameraPose) override;
+	virtual void GetPinDeclarations_Implementation(TArray<FComposableCameraNodePinDeclaration>& OutPins) const override;
 
 public:
 	// Whether to use a bone as the target pivot point.
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = InputParameters)
 	bool bUseBoneForPivot { false };
 
-	// If use bone, specify the bone name. If we cannot find such a bone, will turn to use the context pivot actor's own position.
+	// If use bone, specify the bone name. If we cannot find such a bone, will use the pivot actor's root position.
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = InputParameters, meta = (EditCondition = "bUseBoneForPivot == true"))
 	FName BoneName;
-	
-	// The actor you'd want to maintain during the node's life cycle. The input PivotActor will be read into here, without validity check.
-	UPROPERTY(EditAnywhere, Category = ContextParameters)
-	FActorComposableCameraContextParameter ContextPivotActor;
-
-	// The location of the PivotActor.
-	UPROPERTY(EditAnywhere, Category = ContextParameters)
-	FVector3dComposableCameraContextParameter ContextPivotPosition;
 
 private:
 	USkeletalMeshComponent* SkeletalMeshComponentForPivotActor { nullptr };

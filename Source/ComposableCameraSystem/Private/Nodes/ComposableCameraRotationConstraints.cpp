@@ -81,22 +81,47 @@ void UComposableCameraRotationConstraints::OnTickNode_Implementation(float Delta
 	OutCameraPose.Rotation = FRotator(WorldTargetPitch, WorldTargetYaw, CurrentCameraRotation.Roll);
 }
 
-void UComposableCameraRotationConstraints::ReceiveInitializerNode(UComposableCameraCameraNodeBase* Initializer)
+void UComposableCameraRotationConstraints::GetPinDeclarations_Implementation(TArray<FComposableCameraNodePinDeclaration>& OutPins) const
 {
-	if (UComposableCameraRotationConstraints* CastedInitializer = Cast<UComposableCameraRotationConstraints>(Initializer))
-	{
-		bConstrainYaw = CastedInitializer->bConstrainYaw;
-		YawRange = CastedInitializer->YawRange;
-		ConstrainYawType = CastedInitializer->ConstrainYawType;
-		ActorForYawConstrain = CastedInitializer->ActorForYawConstrain;
-		VectorForYawConstrain = CastedInitializer->VectorForYawConstrain;
-		bConstrainPitch = CastedInitializer->bConstrainPitch;
-		PitchRange = CastedInitializer->PitchRange;
-		ConstrainPitchType = CastedInitializer->ConstrainPitchType;
-		ActorForPitchConstrain = CastedInitializer->ActorForPitchConstrain;
-		VectorForPitchConstrain = CastedInitializer->VectorForPitchConstrain;
-	}
+	FComposableCameraNodePinDeclaration PinDecl;
+
+	// YawRange Input
+	PinDecl.PinName = TEXT("YawRange");
+	PinDecl.DisplayName = NSLOCTEXT("ComposableCameraRotationConstraints", "YawRange", "Yaw Range");
+	PinDecl.Direction = EComposableCameraPinDirection::Input;
+	PinDecl.PinType = EComposableCameraPinType::Vector2D;
+	PinDecl.bRequired = false;
+	PinDecl.Tooltip = NSLOCTEXT("ComposableCameraRotationConstraints", "YawRangeTip", "Yaw range in reference frame.");
+	OutPins.Add(PinDecl);
+
+	// PitchRange Input
+	PinDecl.PinName = TEXT("PitchRange");
+	PinDecl.DisplayName = NSLOCTEXT("ComposableCameraRotationConstraints", "PitchRange", "Pitch Range");
+	PinDecl.Direction = EComposableCameraPinDirection::Input;
+	PinDecl.PinType = EComposableCameraPinType::Vector2D;
+	PinDecl.bRequired = false;
+	PinDecl.Tooltip = NSLOCTEXT("ComposableCameraRotationConstraints", "PitchRangeTip", "Pitch range in reference frame.");
+	OutPins.Add(PinDecl);
+
+	// ActorForYawConstrain Input
+	PinDecl.PinName = TEXT("ActorForYawConstrain");
+	PinDecl.DisplayName = NSLOCTEXT("ComposableCameraRotationConstraints", "ActorForYawConstrain", "Actor For Yaw Constrain");
+	PinDecl.Direction = EComposableCameraPinDirection::Input;
+	PinDecl.PinType = EComposableCameraPinType::Actor;
+	PinDecl.bRequired = false;
+	PinDecl.Tooltip = NSLOCTEXT("ComposableCameraRotationConstraints", "ActorForYawConstrainTip", "Reference actor for yaw when ActorSpace.");
+	OutPins.Add(PinDecl);
+
+	// ActorForPitchConstrain Input
+	PinDecl.PinName = TEXT("ActorForPitchConstrain");
+	PinDecl.DisplayName = NSLOCTEXT("ComposableCameraRotationConstraints", "ActorForPitchConstrain", "Actor For Pitch Constrain");
+	PinDecl.Direction = EComposableCameraPinDirection::Input;
+	PinDecl.PinType = EComposableCameraPinType::Actor;
+	PinDecl.bRequired = false;
+	PinDecl.Tooltip = NSLOCTEXT("ComposableCameraRotationConstraints", "ActorForPitchConstrainTip", "Reference actor for pitch when ActorSpace.");
+	OutPins.Add(PinDecl);
 }
+
 
 double UComposableCameraRotationConstraints::FindTargetYawInRange(const double WorldCurrentYaw,
                                                                   const FVector2D& WorldTargetYawRange)

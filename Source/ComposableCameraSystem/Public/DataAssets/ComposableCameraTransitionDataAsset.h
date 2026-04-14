@@ -3,6 +3,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Engine/DataAsset.h"
 
 #include "ComposableCameraTransitionDataAsset.generated.h"
 
@@ -11,8 +12,8 @@ class UComposableCameraTransitionBase;
 /**
  * Data asset for defining an instanced transition.
  */
-UCLASS(ClassGroup = ComposableCameraSystem)
-class UComposableCameraTransitionDataAsset
+UCLASS(BlueprintType, ClassGroup = ComposableCameraSystem)
+class COMPOSABLECAMERASYSTEM_API UComposableCameraTransitionDataAsset
 	: public UDataAsset
 {
 	GENERATED_BODY()

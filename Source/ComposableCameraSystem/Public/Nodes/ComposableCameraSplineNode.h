@@ -44,17 +44,17 @@ enum class EComposableCameraSplineNodeMoveMethod : uint8
 /**
  * Node for placing the camera on a given spline.
  */
-UCLASS(NotBlueprintable, ClassGroup = ComposableCameraSystem)
+UCLASS(NotBlueprintable, ClassGroup = ComposableCameraSystem, meta = (ToolTip = "Positions the camera along a spline path with automatic or manual movement."))
 class COMPOSABLECAMERASYSTEM_API UComposableCameraSplineNode : public UComposableCameraCameraNodeBase
 {
 	GENERATED_BODY()
 
 public:
-	virtual void OnBeginPlayNode_Implementation(const FComposableCameraPose& CurrentCameraPose) override;
+	virtual void OnInitialize_Implementation() override;
 	virtual void OnTickNode_Implementation(float DeltaTime, const FComposableCameraPose& CurrentCameraPose, FComposableCameraPose& OutCameraPose) override;
+	virtual void GetPinDeclarations_Implementation(TArray<FComposableCameraNodePinDeclaration>& OutPins) const override;
 
 protected:
-	virtual void ReceiveInitializerNode(UComposableCameraCameraNodeBase* Initializer) override;
 
 public:
 	// Spline type. The typical use is BuiltInSpline, i.e., the Unreal's built-in Bézier curve.

@@ -8,6 +8,7 @@ public class ComposableCameraSystemEditor : ModuleRules
             new string[]
             {
                 "ComposableCameraSystem",
+                "ComposableCameraSystemUncookedOnly",
                 "ApplicationCore",
                 "AssetDefinition",
                 "AssetRegistry",

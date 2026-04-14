@@ -9,7 +9,7 @@
 /**
  * Node for adjusting field of view. This FOV is directly set to the CameraPose each frame.
  */
-UCLASS(NotBlueprintable, ClassGroup = ComposableCameraSystem)
+UCLASS(NotBlueprintable, ClassGroup = ComposableCameraSystem, meta = (ToolTip = "Sets or adjusts the camera field of view."))
 class COMPOSABLECAMERASYSTEM_API UComposableCameraFieldOfViewNode
 	: public UComposableCameraCameraNodeBase
 {
@@ -17,9 +17,9 @@ class COMPOSABLECAMERASYSTEM_API UComposableCameraFieldOfViewNode
 
 public:
 	virtual void OnTickNode_Implementation(float DeltaTime, const FComposableCameraPose& CurrentCameraPose, FComposableCameraPose& OutCameraPose) override;
+	virtual void GetPinDeclarations_Implementation(TArray<FComposableCameraNodePinDeclaration>& OutPins) const override;
 
 protected:
-	virtual void ReceiveInitializerNode(UComposableCameraCameraNodeBase* Initializer) override;
 	
 public:
 	// The default FOV.

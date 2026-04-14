@@ -106,7 +106,6 @@ bool FDirectorReactivateNoRunningCameraTest::RunTest(const FString& Parameters)
 		nullptr,
 		AComposableCameraCameraBase::StaticClass(),
 		nullptr,
-		nullptr,
 		FOnCameraFinishConstructed{});
 
 	UTEST_EQUAL("Returns nullptr when no running camera",

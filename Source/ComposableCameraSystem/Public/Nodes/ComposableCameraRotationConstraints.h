@@ -35,16 +35,16 @@ enum class EComposableCameraRotationConstrainType : uint8
  *  @ InputParameter VectorForPitchConstrain: Reference vector when VectorSpace is used. It will serve as the forward vector of the reference frame. \n
  *  @ InputParameter PitchRange: Pitch range in the reference frame. Use the world space, actor space or vector space as the reference frame. 
  */
-UCLASS(NotBlueprintable, ClassGroup = ComposableCameraSystem)
+UCLASS(NotBlueprintable, ClassGroup = ComposableCameraSystem, meta = (ToolTip = "Constrains camera yaw and pitch rotation within specified ranges."))
 class COMPOSABLECAMERASYSTEM_API UComposableCameraRotationConstraints : public UComposableCameraCameraNodeBase
 {
 	GENERATED_BODY()
 
 public:
 	virtual void OnTickNode_Implementation(float DeltaTime, const FComposableCameraPose& CurrentCameraPose, FComposableCameraPose& OutCameraPose) override;
+	virtual void GetPinDeclarations_Implementation(TArray<FComposableCameraNodePinDeclaration>& OutPins) const override;
 
 protected:
-	virtual void ReceiveInitializerNode(UComposableCameraCameraNodeBase* Initializer) override;
 	
 public:
 	// Whether to enable yaw constraint.

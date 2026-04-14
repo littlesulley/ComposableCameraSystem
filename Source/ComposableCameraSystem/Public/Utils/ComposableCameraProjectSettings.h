@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "Engine/DeveloperSettings.h"
+#include "DataAssets/ComposableCameraTransitionTableDataAsset.h"
 #include "ComposableCameraProjectSettings.generated.h"
 
 /**
@@ -15,6 +16,13 @@ class COMPOSABLECAMERASYSTEM_API UComposableCameraProjectSettings : public UDeve
 	GENERATED_BODY()
 
 public:
+	/** Optional project-wide transition routing table.
+	 *  Consulted when switching between camera types to resolve the
+	 *  transition before falling back to per-camera-type defaults.
+	 *  @see UComposableCameraTransitionTableDataAsset for the resolution chain. */
+	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Transition")
+	TSoftObjectPtr<UComposableCameraTransitionTableDataAsset> TransitionTable;
+
 	/**
 	 * Named camera contexts that can be used with ActivateCamera.
 	 * Each entry is just a name (e.g., "Gameplay", "UI", "LevelSequence").
