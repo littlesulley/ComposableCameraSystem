@@ -11,7 +11,8 @@ namespace ComposableCameraEdGraphPinTypeUtils
 {
 	FEdGraphPinType MakeEdGraphPinTypeFromCameraPinType(
 		EComposableCameraPinType PinType,
-		UScriptStruct* StructType)
+		UScriptStruct* StructType,
+		UEnum* EnumType)
 	{
 		FEdGraphPinType Result;
 
@@ -73,6 +74,21 @@ namespace ComposableCameraEdGraphPinTypeUtils
 		case EComposableCameraPinType::Struct:
 			Result.PinCategory = UEdGraphSchema_K2::PC_Struct;
 			Result.PinSubCategoryObject = StructType;
+			break;
+
+		case EComposableCameraPinType::Name:
+			Result.PinCategory = UEdGraphSchema_K2::PC_Name;
+			break;
+
+		case EComposableCameraPinType::Enum:
+			// Blueprint represents enum-typed pins as PC_Byte with a UEnum
+			// sub-category object. The K2 schema lights up the enum dropdown
+			// based purely on PinSubCategoryObject being a UEnum, so we don't
+			// need to set PinSubCategory or anything else. nullptr produces an
+			// unbound byte pin — valid but visually wrong; the binding-table
+			// build path already rejects unbound enums upstream.
+			Result.PinCategory = UEdGraphSchema_K2::PC_Byte;
+			Result.PinSubCategoryObject = EnumType;
 			break;
 
 		default:

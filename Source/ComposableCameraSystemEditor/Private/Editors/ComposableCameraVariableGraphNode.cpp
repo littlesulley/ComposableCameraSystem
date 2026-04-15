@@ -27,7 +27,7 @@ void UComposableCameraVariableGraphNode::AllocateDefaultPins()
 	if (const FComposableCameraInternalVariable* Variable = FindVariable())
 	{
 		PinType = ComposableCameraEdGraphPinTypeUtils::MakeEdGraphPinTypeFromCameraPinType(
-			Variable->VariableType, Variable->StructType);
+			Variable->VariableType, Variable->StructType, Variable->EnumType);
 	}
 	else
 	{

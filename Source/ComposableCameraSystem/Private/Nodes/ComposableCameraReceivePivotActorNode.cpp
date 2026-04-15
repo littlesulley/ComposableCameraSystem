@@ -10,10 +10,10 @@ void UComposableCameraReceivePivotActorNode::OnInitialize_Implementation()
 
 	if (bUseBoneForPivot)
 	{
-		AActor* PivotActor = GetInputPinValue<AActor*>("PivotActor");
-		if (IsValid(PivotActor))
+		AActor* InPivotActor = GetInputPinValue<AActor*>("PivotActor");
+		if (IsValid(InPivotActor))
 		{
-			SkeletalMeshComponentForPivotActor = PivotActor->GetComponentByClass<USkeletalMeshComponent>();
+			SkeletalMeshComponentForPivotActor = InPivotActor->GetComponentByClass<USkeletalMeshComponent>();
 		}
 	}
 }
@@ -23,23 +23,24 @@ void UComposableCameraReceivePivotActorNode::OnTickNode_Implementation(
 	const FComposableCameraPose& CurrentCameraPose,
 	FComposableCameraPose& OutCameraPose)
 {
-	AActor* PivotActor = GetInputPinValue<AActor*>("PivotActor");
-	FVector PivotPosition = FVector::ZeroVector;
+	// PivotActor and bUseBoneForPivot are pin-matched UPROPERTYs — already resolved
+	// by the base TickNode prologue. Read the member directly.
+	AActor* InPivotActor = PivotActor.Get();
+	FVector OutPivotPosition = FVector::ZeroVector;
 
-	// Use IsValid() for Actor pointers from the RuntimeDataBlock — they are
-	// stored as type-erased bytes invisible to GC. A destroyed actor leaves
-	// a dangling pointer, not null.
+	// Use IsValid() for Actor pointers — a destroyed actor may leave a dangling
+	// pointer even via TObjectPtr for non-UPROPERTY copies.
 	if (bUseBoneForPivot && IsValid(SkeletalMeshComponentForPivotActor))
 	{
-		PivotPosition = SkeletalMeshComponentForPivotActor->GetSocketLocation(BoneName);
+		OutPivotPosition = SkeletalMeshComponentForPivotActor->GetSocketLocation(BoneName);
 	}
-	else if (IsValid(PivotActor))
+	else if (IsValid(InPivotActor))
 	{
-		PivotPosition = PivotActor->GetActorLocation();
+		OutPivotPosition = InPivotActor->GetActorLocation();
 	}
 
-	SetOutputPinValue<FVector>("PivotPosition", PivotPosition);
-	SetOutputPinValue<AActor*>("PivotActor_Out", IsValid(PivotActor) ? PivotActor : nullptr);
+	SetOutputPinValue<FVector>("PivotPosition", OutPivotPosition);
+	SetOutputPinValue<AActor*>("PivotActor_Out", IsValid(InPivotActor) ? InPivotActor : nullptr);
 }
 
 void UComposableCameraReceivePivotActorNode::GetPinDeclarations_Implementation(
@@ -53,8 +54,24 @@ void UComposableCameraReceivePivotActorNode::GetPinDeclarations_Implementation(
 		Pin.Direction = EComposableCameraPinDirection::Input;
 		Pin.PinType = EComposableCameraPinType::Actor;
 		Pin.bRequired = true;
+		Pin.DefaultValueString = FString();
 		Pin.Tooltip = NSLOCTEXT("ComposableCameraSystem", "PivotActorTooltip",
 			"The actor whose position is used as the camera pivot point.");
+		OutPins.Add(Pin);
+	}
+
+	// Input: toggle bone-based pivot resolution.
+	{
+		FComposableCameraNodePinDeclaration Pin;
+		Pin.PinName = "bUseBoneForPivot";
+		Pin.DisplayName = NSLOCTEXT("ComposableCameraSystem", "UseBoneForPivot", "Use Bone For Pivot");
+		Pin.Direction = EComposableCameraPinDirection::Input;
+		Pin.PinType = EComposableCameraPinType::Bool;
+		Pin.bRequired = false;
+		Pin.bDefaultAsPin = false;
+		Pin.DefaultValueString = bUseBoneForPivot ? TEXT("true") : TEXT("false");
+		Pin.Tooltip = NSLOCTEXT("ComposableCameraSystem", "UseBoneForPivotTooltip",
+			"When true, use the named bone on the pivot actor's skeletal mesh as the pivot position.");
 		OutPins.Add(Pin);
 	}
 

@@ -12,6 +12,7 @@
 #include "Nodes/ComposableCameraNodePinTypes.h"
 #include "PropertyEditorModule.h"
 #include "PropertyHandle.h"
+#include "SEnumCombo.h"
 #include "Widgets/Input/SCheckBox.h"
 #include "Widgets/Input/SEditableTextBox.h"
 #include "Widgets/Input/SNumericEntryBox.h"
@@ -85,6 +86,8 @@ void FComposableCameraInternalVariableCustomization::CustomizeChildren(
 		PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FComposableCameraInternalVariable, VariableType));
 	TSharedPtr<IPropertyHandle> StructTypeHandle =
 		PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FComposableCameraInternalVariable, StructType));
+	TSharedPtr<IPropertyHandle> EnumTypeHandle =
+		PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FComposableCameraInternalVariable, EnumType));
 	TSharedPtr<IPropertyHandle> InitialValueHandle =
 		PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FComposableCameraInternalVariable, InitialValueString));
 
@@ -106,6 +109,20 @@ void FComposableCameraInternalVariableCustomization::CustomizeChildren(
 	if (StructTypeHandle.IsValid())
 	{
 		StructTypeHandle->SetOnPropertyValueChanged(
+			FSimpleDelegate::CreateLambda([Utils = PropertyUtilities]()
+			{
+				if (Utils.IsValid())
+				{
+					Utils->ForceRefresh();
+				}
+			}));
+	}
+
+	// Also rebuild when EnumType changes (for Enum pin type) so the
+	// SEnumComboBox rebuilds against the new UEnum.
+	if (EnumTypeHandle.IsValid())
+	{
+		EnumTypeHandle->SetOnPropertyValueChanged(
 			FSimpleDelegate::CreateLambda([Utils = PropertyUtilities]()
 			{
 				if (Utils.IsValid())
@@ -163,6 +180,15 @@ void FComposableCameraInternalVariableCustomization::CustomizeChildren(
 				CurrentStructType = Cast<UScriptStruct>(ObjValue);
 			}
 
+			// Read current EnumType (for Enum pin type).
+			UEnum* CurrentEnumType = nullptr;
+			if (EnumTypeHandle.IsValid())
+			{
+				UObject* ObjValue = nullptr;
+				EnumTypeHandle->GetValue(ObjValue);
+				CurrentEnumType = Cast<UEnum>(ObjValue);
+			}
+
 			// Struct with a known UScriptStruct gets a full inline struct
 			// editor. All other types use a single typed widget row.
 			if (PinType == EComposableCameraPinType::Struct && CurrentStructType)
@@ -182,7 +208,7 @@ void FComposableCameraInternalVariableCustomization::CustomizeChildren(
 				.MinDesiredWidth(200.f)
 				.MaxDesiredWidth(600.f)
 				[
-					BuildTypedDefaultValueWidget(InitialValueHandle, PinType, CurrentStructType)
+					BuildTypedDefaultValueWidget(InitialValueHandle, PinType, CurrentStructType, CurrentEnumType)
 				];
 			}
 
@@ -199,7 +225,8 @@ void FComposableCameraInternalVariableCustomization::CustomizeChildren(
 TSharedRef<SWidget> FComposableCameraInternalVariableCustomization::BuildTypedDefaultValueWidget(
 	TSharedPtr<IPropertyHandle> InitialValueHandle,
 	EComposableCameraPinType PinType,
-	UScriptStruct* StructType)
+	UScriptStruct* StructType,
+	UEnum* EnumType)
 {
 	if (!InitialValueHandle.IsValid())
 	{
@@ -380,6 +407,59 @@ TSharedRef<SWidget> FComposableCameraInternalVariableCustomization::BuildTypedDe
 			];
 		}
 		return Box;
+	}
+
+	// ── Name ─────────────────────────────────────────────────────────
+	case EComposableCameraPinType::Name:
+	{
+		return SNew(SEditableTextBox)
+			.Text_Lambda([InitialValueHandle]() -> FText
+			{
+				FString Value;
+				InitialValueHandle->GetValue(Value);
+				return FText::FromString(Value);
+			})
+			.OnTextCommitted_Lambda([InitialValueHandle](const FText& NewText, ETextCommit::Type)
+			{
+				InitialValueHandle->SetValue(NewText.ToString());
+			})
+			.HintText(LOCTEXT("NameHint", "Enter FName"))
+			.SelectAllTextWhenFocused(true)
+			.ClearKeyboardFocusOnCommit(false);
+	}
+
+	// ── Enum ─────────────────────────────────────────────────────────
+	// Persists the entry's authored name (e.g. "EMyEnum::Alpha") rather
+	// than its int value. Names are SCM-friendly and survive enum
+	// renumbering. The runtime side parses via UEnum::GetValueByNameString.
+	case EComposableCameraPinType::Enum:
+	{
+		if (!EnumType)
+		{
+			return SNew(STextBlock)
+				.Text(LOCTEXT("EnumTypeMissing", "Set an Enum Type to enable selection."))
+				.Font(IDetailLayoutBuilder::GetDetailFontItalic())
+				.ColorAndOpacity(FSlateColor::UseSubduedForeground());
+		}
+
+		return SNew(SEnumComboBox, EnumType)
+			.CurrentValue_Lambda([InitialValueHandle, EnumType]() -> int32
+			{
+				FString Value;
+				InitialValueHandle->GetValue(Value);
+				int64 Parsed = EnumType->GetValueByNameString(Value);
+				if (Parsed == INDEX_NONE)
+				{
+					Parsed = Value.IsNumeric() ? FCString::Atoi64(*Value) : 0;
+				}
+				return static_cast<int32>(Parsed);
+			})
+			.OnEnumSelectionChanged_Lambda(
+				[InitialValueHandle, EnumType](int32 NewIndex, ESelectInfo::Type)
+			{
+				const FName EntryName = EnumType->GetNameByValue(static_cast<int64>(NewIndex));
+				InitialValueHandle->SetValue(EntryName.ToString());
+			});
 	}
 
 	// ── Actor / Object — not supported ──────────────────────────────

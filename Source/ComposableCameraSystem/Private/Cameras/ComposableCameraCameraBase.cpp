@@ -8,10 +8,178 @@
 #include "Core/ComposableCameraDebugSnapshot.h"
 #include "DataAssets/ComposableCameraTypeAsset.h"
 #include "Core/ComposableCameraPlayerCameraManager.h"
+#include "Engine/Scene.h"
 #include "Modifiers/ComposableCameraModifierBase.h"
 #include "Nodes/ComposableCameraCameraNodeBase.h"
 #include "Nodes/ComposableCameraComputeNodeBase.h"
 #include "Utils/ComposableCameraDebugFormatUtils.h"
+
+namespace ComposableCameraPosePrivate
+{
+	/** Default fallback focal length used when both FocalLength and FieldOfView are unset. */
+	constexpr float DefaultFallbackFocalLengthMM = 35.f;
+
+	/**
+	 * Lerp a "sentinel-aware" float field where values <= 0 mean "unset / inherit".
+	 * If both sides are valid, regular lerp. If only one side is valid, the valid side's value is used
+	 * across the blend (no interpolation, to avoid dragging through the meaningless negative-sentinel range).
+	 * If both are unset, the sentinel is preserved.
+	 */
+	FORCEINLINE float LerpOptional(float From, float To, float Factor)
+	{
+		const bool bFromValid = (From > 0.f);
+		const bool bToValid   = (To   > 0.f);
+
+		if (bFromValid && bToValid) { return FMath::Lerp(From, To, Factor); }
+		if (bToValid)               { return To; }
+		if (bFromValid)             { return From; }
+		return From;
+	}
+}
+
+// -------------------------------------------------------------------
+// FComposableCameraPose
+// -------------------------------------------------------------------
+
+double FComposableCameraPose::GetEffectiveFieldOfView() const
+{
+	const bool bValidFocalLength = (FocalLength > 0.f);
+	const bool bValidFieldOfView = (FieldOfView > 0.0);
+
+	float EffectiveFocalLength = FocalLength;
+	if (!bValidFocalLength && !bValidFieldOfView)
+	{
+		// Neither specified — fall back to a reasonable default so we never return garbage.
+		EffectiveFocalLength = ComposableCameraPosePrivate::DefaultFallbackFocalLengthMM;
+	}
+
+	if (EffectiveFocalLength > 0.f && !bValidFieldOfView)
+	{
+		// Physical mode: compute FOV from focal length and sensor, matching UCineCameraComponent's approach.
+		double CroppedSensorWidth = static_cast<double>(SensorWidth) * static_cast<double>(SqueezeFactor);
+		const double AspectRatio = (SensorHeight > 0.f) ? (static_cast<double>(SensorWidth) / static_cast<double>(SensorHeight)) : 0.0;
+		if (AspectRatio > 0.0)
+		{
+			const double DesqueezeAspectRatio = AspectRatio * static_cast<double>(SqueezeFactor);
+			if (AspectRatio < DesqueezeAspectRatio)
+			{
+				CroppedSensorWidth *= AspectRatio / DesqueezeAspectRatio;
+			}
+		}
+
+		const double EffectiveOverscan = 1.0 + static_cast<double>(Overscan);
+		return FMath::RadiansToDegrees(2.0 * FMath::Atan(CroppedSensorWidth * EffectiveOverscan / (2.0 * static_cast<double>(EffectiveFocalLength))));
+	}
+
+	// Degrees mode: return stored FOV directly.
+	return FieldOfView;
+}
+
+void FComposableCameraPose::SetFieldOfViewDegrees(double InFieldOfViewDegrees)
+{
+	FieldOfView = InFieldOfViewDegrees;
+	// Clear the focal-length side of the dual-mode so GetEffectiveFieldOfView() returns our degrees value directly.
+	FocalLength = -1.f;
+}
+
+bool FComposableCameraPose::ApplyPhysicalCameraSettings(FPostProcessSettings& PostProcessSettings, bool bOverwriteSettings) const
+{
+	if (PhysicalCameraBlendWeight <= 0.f)
+	{
+		return false;
+	}
+
+#define CCS_LERP_PP(SettingName, Value) \
+	if (!PostProcessSettings.bOverride_##SettingName || bOverwriteSettings) \
+	{ \
+		PostProcessSettings.bOverride_##SettingName = true; \
+		PostProcessSettings.SettingName = FMath::Lerp(PostProcessSettings.SettingName, static_cast<decltype(PostProcessSettings.SettingName)>(Value), PhysicalCameraBlendWeight); \
+	}
+
+	// Auto-exposure inputs.
+	CCS_LERP_PP(CameraISO, ISO);
+	CCS_LERP_PP(CameraShutterSpeed, ShutterSpeed);
+
+	// DoF inputs.
+	CCS_LERP_PP(DepthOfFieldFstop, Aperture);
+	CCS_LERP_PP(DepthOfFieldBladeCount, DiaphragmBladeCount);
+
+	// Only apply focus distance if the pose has a valid one; otherwise leave whatever was already set.
+	if (FocusDistance > 0.f)
+	{
+		CCS_LERP_PP(DepthOfFieldFocalDistance, FocusDistance);
+	}
+
+	const float EffectiveOverscan = 1.f + Overscan;
+	CCS_LERP_PP(DepthOfFieldSensorWidth, SensorWidth * EffectiveOverscan);
+	CCS_LERP_PP(DepthOfFieldSqueezeFactor, SqueezeFactor);
+
+#undef CCS_LERP_PP
+
+	return true;
+}
+
+void FComposableCameraPose::BlendBy(const FComposableCameraPose& Other, float OtherWeight)
+{
+	using namespace ComposableCameraPosePrivate;
+
+	OtherWeight = FMath::Clamp(OtherWeight, 0.f, 1.f);
+
+	// --- Transform ---
+
+	Position = FMath::Lerp(Position, Other.Position, OtherWeight);
+
+	const FRotator DeltaAng = (Other.Rotation - Rotation).GetNormalized();
+	Rotation = (Rotation + OtherWeight * DeltaAng).GetNormalized();
+
+	// --- FOV (resolved BEFORE blend; see DesignDoc "FOV resolution invariant") ---
+	//
+	// Each side's effective FOV is computed in its own mode (degrees or physical),
+	// then the two degree values are lerped and stored. FocalLength is cleared so
+	// the blended pose is unambiguously in degrees mode — nothing downstream should
+	// re-derive FOV from the (now-stale) FocalLength.
+
+	const double FromFOV = GetEffectiveFieldOfView();
+	const double ToFOV   = Other.GetEffectiveFieldOfView();
+	FieldOfView = FMath::Lerp(FromFOV, ToFOV, static_cast<double>(OtherWeight));
+	FocalLength = -1.f;
+
+	// --- Physical camera numerics (always lerped; gated at apply-time by PhysicalCameraBlendWeight) ---
+
+	SensorWidth   = FMath::Lerp(SensorWidth,  Other.SensorWidth,  OtherWeight);
+	SensorHeight  = FMath::Lerp(SensorHeight, Other.SensorHeight, OtherWeight);
+	Aperture      = FMath::Lerp(Aperture,     Other.Aperture,     OtherWeight);
+	ShutterSpeed  = FMath::Lerp(ShutterSpeed, Other.ShutterSpeed, OtherWeight);
+	ISO           = FMath::Lerp(ISO,          Other.ISO,          OtherWeight);
+	SqueezeFactor = FMath::Lerp(SqueezeFactor,Other.SqueezeFactor,OtherWeight);
+	Overscan      = FMath::Lerp(Overscan,     Other.Overscan,     OtherWeight);
+	DiaphragmBladeCount = FMath::RoundToInt(FMath::Lerp(static_cast<float>(DiaphragmBladeCount), static_cast<float>(Other.DiaphragmBladeCount), OtherWeight));
+	PhysicalCameraBlendWeight = FMath::Lerp(PhysicalCameraBlendWeight, Other.PhysicalCameraBlendWeight, OtherWeight);
+
+	// Sentinel-aware: keep a valid focus distance alive across mixed blends.
+	FocusDistance = LerpOptional(FocusDistance, Other.FocusDistance, OtherWeight);
+
+	// --- Projection & aspect ---
+
+	// Numerics lerp normally (only used when in their corresponding mode).
+	OrthographicWidth  = FMath::Lerp(OrthographicWidth,  Other.OrthographicWidth,  OtherWeight);
+	OrthoNearClipPlane = FMath::Lerp(OrthoNearClipPlane, Other.OrthoNearClipPlane, OtherWeight);
+	OrthoFarClipPlane  = FMath::Lerp(OrthoFarClipPlane,  Other.OrthoFarClipPlane,  OtherWeight);
+
+	// Booleans and enums can't be linearly interpolated — snap at 50% blend factor.
+	if (OtherWeight >= 0.5f)
+	{
+		ProjectionMode                     = Other.ProjectionMode;
+		ConstrainAspectRatio               = Other.ConstrainAspectRatio;
+		OverrideAspectRatioAxisConstraint  = Other.OverrideAspectRatioAxisConstraint;
+		AspectRatioAxisConstraint          = Other.AspectRatioAxisConstraint;
+	}
+}
+
+// -------------------------------------------------------------------
+// AComposableCameraCameraBase
+// -------------------------------------------------------------------
+
 
 AComposableCameraCameraBase::AComposableCameraCameraBase(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
@@ -336,7 +504,7 @@ FComposableCameraDebugSnapshot AComposableCameraCameraBase::SnapshotDebugState()
 				if (Pin.Direction == EComposableCameraPinDirection::Output)
 				{
 					FString Formatted = ComposableCameraDebug::FormatOutputPinValue(
-						*OwnedRuntimeDataBlock, i, Pin.PinName, Pin.PinType);
+						*OwnedRuntimeDataBlock, i, Pin.PinName, Pin.PinType, Pin.EnumType);
 					Entry.OutputPinValues.Emplace(Pin.PinName, MoveTemp(Formatted));
 				}
 			}
@@ -357,17 +525,19 @@ FComposableCameraDebugSnapshot AComposableCameraCameraBase::SnapshotDebugState()
 		for (const auto& Pair : OwnedRuntimeDataBlock->ExposedParameterOffsets)
 		{
 			EComposableCameraPinType ParamType = EComposableCameraPinType::Float;
+			const UEnum* ParamEnum = nullptr;
 			for (const FComposableCameraExposedParameter& Param : TypeAsset->ExposedParameters)
 			{
 				if (Param.ParameterName == Pair.Key)
 				{
 					ParamType = Param.PinType;
+					ParamEnum = Param.EnumType;
 					break;
 				}
 			}
 			Snapshot.ExposedParameterValues.Emplace(
 				Pair.Key,
-				ComposableCameraDebug::FormatTypedValue(*OwnedRuntimeDataBlock, Pair.Value, ParamType));
+				ComposableCameraDebug::FormatTypedValue(*OwnedRuntimeDataBlock, Pair.Value, ParamType, ParamEnum));
 		}
 	}
 
@@ -379,27 +549,32 @@ FComposableCameraDebugSnapshot AComposableCameraCameraBase::SnapshotDebugState()
 
 	if (OwnedRuntimeDataBlock && OwnedRuntimeDataBlock->IsValid() && TypeAsset)
 	{
-		// Build a quick name→type lookup across both variable arrays.
-		TMap<FName, EComposableCameraPinType> VarTypes;
+		// Build a quick name→(type, enum) lookup across both variable arrays.
+		// EnumType is meaningful only for the Enum pin type but keeping it in
+		// the same map avoids a second walk over the variable arrays.
+		struct FVarTypeInfo { EComposableCameraPinType PinType; const UEnum* EnumType; };
+		TMap<FName, FVarTypeInfo> VarTypes;
 		for (const FComposableCameraInternalVariable& Var : TypeAsset->InternalVariables)
 		{
-			VarTypes.Add(Var.VariableName, Var.VariableType);
+			VarTypes.Add(Var.VariableName, { Var.VariableType, Var.EnumType });
 		}
 		for (const FComposableCameraInternalVariable& Var : TypeAsset->ExposedVariables)
 		{
-			VarTypes.Add(Var.VariableName, Var.VariableType);
+			VarTypes.Add(Var.VariableName, { Var.VariableType, Var.EnumType });
 		}
 
 		for (const auto& Pair : OwnedRuntimeDataBlock->InternalVariableOffsets)
 		{
 			EComposableCameraPinType VarType = EComposableCameraPinType::Float;
-			if (const EComposableCameraPinType* Found = VarTypes.Find(Pair.Key))
+			const UEnum* VarEnum = nullptr;
+			if (const FVarTypeInfo* Found = VarTypes.Find(Pair.Key))
 			{
-				VarType = *Found;
+				VarType = Found->PinType;
+				VarEnum = Found->EnumType;
 			}
 			Snapshot.InternalVariableValues.Emplace(
 				Pair.Key,
-				ComposableCameraDebug::FormatTypedValue(*OwnedRuntimeDataBlock, Pair.Value, VarType));
+				ComposableCameraDebug::FormatTypedValue(*OwnedRuntimeDataBlock, Pair.Value, VarType, VarEnum));
 		}
 	}
 

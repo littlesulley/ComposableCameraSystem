@@ -67,15 +67,32 @@ void UComposableCameraScreenSpaceConstraintsNode::GetPinDeclarations_Implementat
 	PinDecl.Direction = EComposableCameraPinDirection::Input;
 	PinDecl.PinType = EComposableCameraPinType::Actor;
 	PinDecl.bRequired = true;
+	PinDecl.DefaultValueString = FString();
 	PinDecl.Tooltip = NSLOCTEXT("UComposableCameraScreenSpaceConstraintsNode", "PivotActorTip", "Actor to constrain in screen space.");
 	OutPins.Add(PinDecl);
 
+	// Input: Method — Translate vs Rotate strategy for keeping the pivot on-screen.
+	PinDecl = {};
+	PinDecl.PinName = TEXT("Method");
+	PinDecl.DisplayName = NSLOCTEXT("UComposableCameraScreenSpaceConstraintsNode", "Method", "Method");
+	PinDecl.Direction = EComposableCameraPinDirection::Input;
+	PinDecl.PinType = EComposableCameraPinType::Enum;
+	PinDecl.EnumType = StaticEnum<EComposableCameraScreenSpaceMethod>();
+	PinDecl.bRequired = false;
+	PinDecl.bDefaultAsPin = false;
+	PinDecl.DefaultValueString = PinDecl.EnumType ? PinDecl.EnumType->GetNameStringByValue(static_cast<int64>(Method)) : FString();
+	PinDecl.Tooltip = NSLOCTEXT("UComposableCameraScreenSpaceConstraintsNode", "MethodTip",
+		"How to keep the pivot within the safe zone — Translate moves the camera, Rotate turns the camera.");
+	OutPins.Add(PinDecl);
+
 	// Input: SafeZoneCenter
+	PinDecl = {};
 	PinDecl.PinName = TEXT("SafeZoneCenter");
 	PinDecl.DisplayName = NSLOCTEXT("UComposableCameraScreenSpaceConstraintsNode", "SafeZoneCenter", "Safe Zone Center");
 	PinDecl.Direction = EComposableCameraPinDirection::Input;
 	PinDecl.PinType = EComposableCameraPinType::Vector2D;
 	PinDecl.bRequired = false;
+	PinDecl.bDefaultAsPin = false;
 	PinDecl.Tooltip = NSLOCTEXT("UComposableCameraScreenSpaceConstraintsNode", "SafeZoneCenterTip", "Screen space safe zone center.");
 	OutPins.Add(PinDecl);
 
@@ -85,6 +102,7 @@ void UComposableCameraScreenSpaceConstraintsNode::GetPinDeclarations_Implementat
 	PinDecl.Direction = EComposableCameraPinDirection::Input;
 	PinDecl.PinType = EComposableCameraPinType::Vector2D;
 	PinDecl.bRequired = false;
+	PinDecl.bDefaultAsPin = false;
 	PinDecl.Tooltip = NSLOCTEXT("UComposableCameraScreenSpaceConstraintsNode", "SafeZoneWidthTip", "Safe zone width bounds.");
 	OutPins.Add(PinDecl);
 
@@ -94,6 +112,7 @@ void UComposableCameraScreenSpaceConstraintsNode::GetPinDeclarations_Implementat
 	PinDecl.Direction = EComposableCameraPinDirection::Input;
 	PinDecl.PinType = EComposableCameraPinType::Vector2D;
 	PinDecl.bRequired = false;
+	PinDecl.bDefaultAsPin = false;
 	PinDecl.Tooltip = NSLOCTEXT("UComposableCameraScreenSpaceConstraintsNode", "SafeZoneHeightTip", "Safe zone height bounds.");
 	OutPins.Add(PinDecl);
 }
@@ -241,8 +260,12 @@ std::pair<float, float> UComposableCameraScreenSpaceConstraintsNode::GetTanHalfH
 	int32 ViewportX, ViewportY;
 	OwningPlayerCameraManager->GetOwningPlayerController()->GetViewportSize(ViewportX, ViewportY);
 
-	float DegTanHalfHOR = UKismetMathLibrary::DegTan(OutCameraPose.FieldOfView / 2.0f);;
-	float AspectRatio = 1.0f * ViewportX / ViewportY;;
+	// Resolve effective FOV once so this math works whether the pose is in degrees-mode
+	// (FieldOfView > 0) or physical-mode (FocalLength > 0).
+	const float EffectiveFOV = static_cast<float>(OutCameraPose.GetEffectiveFieldOfView());
+
+	float DegTanHalfHOR = UKismetMathLibrary::DegTan(EffectiveFOV / 2.0f);
+	float AspectRatio = 1.0f * ViewportX / ViewportY;
 
 	// Aspect ratio is different when bConstrainAspectRatio is true or false.
 	// If bConstrainAspectRatio is false, ViewportX / ViewportY is the real aspect ratio, and FOV is computed according to AspectRatioAxisConstraint.
@@ -254,23 +277,23 @@ std::pair<float, float> UComposableCameraScreenSpaceConstraintsNode::GetTanHalfH
 			switch (OwningCamera->GetCameraComponent()->AspectRatioAxisConstraint)
 			{
 			case AspectRatio_MaintainXFOV:
-				DegTanHalfHOR = UKismetMathLibrary::DegTan(OutCameraPose.FieldOfView / 2.0f);
+				DegTanHalfHOR = UKismetMathLibrary::DegTan(EffectiveFOV / 2.0f);
 				break;
 			case AspectRatio_MaintainYFOV:
-				DegTanHalfHOR = UKismetMathLibrary::DegTan(OutCameraPose.FieldOfView / 2.0f) / OwningCamera->GetCameraComponent()->AspectRatio * AspectRatio;
+				DegTanHalfHOR = UKismetMathLibrary::DegTan(EffectiveFOV / 2.0f) / OwningCamera->GetCameraComponent()->AspectRatio * AspectRatio;
 				break;
 			case AspectRatio_MajorAxisFOV:
 				if (ViewportX > ViewportY)
 				{
-					DegTanHalfHOR = UKismetMathLibrary::DegTan(OutCameraPose.FieldOfView / 2.0f);
+					DegTanHalfHOR = UKismetMathLibrary::DegTan(EffectiveFOV / 2.0f);
 				}
 				else
 				{
-					DegTanHalfHOR = UKismetMathLibrary::DegTan(OutCameraPose.FieldOfView / 2.0f) / OwningCamera->GetCameraComponent()->AspectRatio * AspectRatio;
+					DegTanHalfHOR = UKismetMathLibrary::DegTan(EffectiveFOV / 2.0f) / OwningCamera->GetCameraComponent()->AspectRatio * AspectRatio;
 				}
 				break;
 			default:
-				DegTanHalfHOR = UKismetMathLibrary::DegTan(OutCameraPose.FieldOfView / 2.0f);
+				DegTanHalfHOR = UKismetMathLibrary::DegTan(EffectiveFOV / 2.0f);
 				break;
 			}
 		}
@@ -285,10 +308,13 @@ std::pair<float, float> UComposableCameraScreenSpaceConstraintsNode::GetTanHalfH
 
 FVector UComposableCameraScreenSpaceConstraintsNode::GetCurrentPivot()
 {
-	AActor* PivotActor = GetInputPinValue<AActor*>("PivotActor");
-	if (IsValid(PivotActor))
+	// PivotActor is a pin-matched UPROPERTY — resolved by the base TickNode prologue.
+	// This is also called from the HUD-post-render callback, which runs after the
+	// frame's tick, so the member already reflects the current frame's resolved value.
+	AActor* InPivotActor = PivotActor.Get();
+	if (IsValid(InPivotActor))
 	{
-		return PivotActor->GetActorLocation();
+		return InPivotActor->GetActorLocation();
 	}
 	return FVector::ZeroVector;
 }

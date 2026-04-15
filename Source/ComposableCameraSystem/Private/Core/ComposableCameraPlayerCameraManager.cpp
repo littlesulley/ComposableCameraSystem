@@ -126,7 +126,7 @@ void AComposableCameraPlayerCameraManager::DisplayDebug(class UCanvas* Canvas,
 	DisplayDebugManager.SetDrawColor(FColor(222, 100, 5));
 	DisplayDebugManager.DrawString(FString::Printf(TEXT("    Position:  %s"), *CurrentCameraPose.Position.ToCompactString()));
 	DisplayDebugManager.DrawString(FString::Printf(TEXT("    Rotation:  %s"), *CurrentCameraPose.Rotation.ToCompactString()));
-	DisplayDebugManager.DrawString(FString::Printf(TEXT("    FOV:       %.1f"), CurrentCameraPose.FieldOfView));
+	DisplayDebugManager.DrawString(FString::Printf(TEXT("    FOV:       %.1f"), CurrentCameraPose.GetEffectiveFieldOfView()));
 	DisplayDebugManager.DrawString(FString::Printf(TEXT("    Aspect:    %.3f"), CurrentPOV.AspectRatio));
 
 	// ========== Running Camera ==========
@@ -217,7 +217,7 @@ void AComposableCameraPlayerCameraManager::DisplayDebug(class UCanvas* Canvas,
 					const int32* Offset = DataBlock.ExposedParameterOffsets.Find(Param.ParameterName);
 					if (Offset)
 					{
-						ValueStr = ComposableCameraDebug::FormatTypedValue(DataBlock, *Offset, Param.PinType);
+						ValueStr = ComposableCameraDebug::FormatTypedValue(DataBlock, *Offset, Param.PinType, Param.EnumType);
 					}
 					else
 					{
@@ -234,15 +234,18 @@ void AComposableCameraPlayerCameraManager::DisplayDebug(class UCanvas* Canvas,
 		{
 			const FComposableCameraRuntimeDataBlock& DataBlock = *RunningCamera->OwnedRuntimeDataBlock;
 
-			// Build name→type map
-			TMap<FName, EComposableCameraPinType> VarTypes;
+			// Build name→(type, enum) map. EnumType is meaningful only for the
+			// Enum pin type but keeping it in the same lookup avoids a second
+			// pass over the variable arrays per debug frame.
+			struct FVarTypeInfo { EComposableCameraPinType PinType; const UEnum* EnumType; };
+			TMap<FName, FVarTypeInfo> VarTypes;
 			for (const FComposableCameraInternalVariable& Var : TypeAsset->InternalVariables)
 			{
-				VarTypes.Add(Var.VariableName, Var.VariableType);
+				VarTypes.Add(Var.VariableName, { Var.VariableType, Var.EnumType });
 			}
 			for (const FComposableCameraInternalVariable& Var : TypeAsset->ExposedVariables)
 			{
-				VarTypes.Add(Var.VariableName, Var.VariableType);
+				VarTypes.Add(Var.VariableName, { Var.VariableType, Var.EnumType });
 			}
 
 			if (DataBlock.InternalVariableOffsets.Num() > 0)
@@ -252,11 +255,13 @@ void AComposableCameraPlayerCameraManager::DisplayDebug(class UCanvas* Canvas,
 				for (const auto& Pair : DataBlock.InternalVariableOffsets)
 				{
 					EComposableCameraPinType VarType = EComposableCameraPinType::Float;
-					if (const EComposableCameraPinType* Found = VarTypes.Find(Pair.Key))
+					const UEnum* VarEnum = nullptr;
+					if (const FVarTypeInfo* Found = VarTypes.Find(Pair.Key))
 					{
-						VarType = *Found;
+						VarType = Found->PinType;
+						VarEnum = Found->EnumType;
 					}
-					FString ValueStr = ComposableCameraDebug::FormatTypedValue(DataBlock, Pair.Value, VarType);
+					FString ValueStr = ComposableCameraDebug::FormatTypedValue(DataBlock, Pair.Value, VarType, VarEnum);
 					DisplayDebugManager.DrawString(FString::Printf(TEXT("    %-24s = %s"),
 						*Pair.Key.ToString(), *ValueStr));
 				}
@@ -1092,38 +1097,67 @@ FMinimalViewInfo AComposableCameraPlayerCameraManager::GetCameraViewFromCameraPo
 {
 	FMinimalViewInfo DesiredView = GetCameraCacheView();
 
-	DesiredView.Location = OutPose.Position;
-	DesiredView.Rotation = OutPose.Rotation;
-	DesiredView.FOV = OutPose.FieldOfView;
-	DesiredView.DesiredFOV = OutPose.FieldOfView;
+	// Transform & FOV: pose is authoritative. Resolve FOV to degrees via GetEffectiveFieldOfView()
+	// so physical-mode poses (FocalLength-based) and degrees-mode poses (FieldOfView-based) both work,
+	// and so the blended-output invariant (FocalLength = -1, FieldOfView in degrees) is respected.
+	DesiredView.Location   = OutPose.Position;
+	DesiredView.Rotation   = OutPose.Rotation;
+	const double EffectiveFOV = OutPose.GetEffectiveFieldOfView();
+	DesiredView.FOV        = static_cast<float>(EffectiveFOV);
+	DesiredView.DesiredFOV = static_cast<float>(EffectiveFOV);
+
+	// Projection & aspect: pose-authoritative. Nodes can override per-camera, otherwise defaults apply.
+	DesiredView.ProjectionMode        = OutPose.ProjectionMode;
+	DesiredView.bConstrainAspectRatio = OutPose.ConstrainAspectRatio;
+	DesiredView.OrthoWidth            = OutPose.OrthographicWidth;
+	DesiredView.OrthoNearClipPlane    = OutPose.OrthoNearClipPlane;
+	DesiredView.OrthoFarClipPlane     = OutPose.OrthoFarClipPlane;
+	if (OutPose.OverrideAspectRatioAxisConstraint)
+	{
+		DesiredView.AspectRatioAxisConstraint = OutPose.AspectRatioAxisConstraint;
+	}
 
 	if (RunningCamera)
 	{
 		UCameraComponent* CameraComponent = RunningCamera->GetCameraComponent();
+		// AspectRatio value itself is still owned by the component (it's a viewport-shape property,
+		// not a per-frame blendable one). Axis-constraint override above takes precedence if set.
 		DesiredView.AspectRatio = CameraComponent->AspectRatio;
-		DesiredView.bConstrainAspectRatio = CameraComponent->bConstrainAspectRatio;
-		DesiredView.AspectRatioAxisConstraint = CameraComponent->AspectRatioAxisConstraint;
-		DesiredView.ProjectionMode = CameraComponent->ProjectionMode;
-		DesiredView.OrthoWidth = CameraComponent->OrthoWidth;
-		DesiredView.OrthoNearClipPlane = CameraComponent->OrthoNearClipPlane;
-		DesiredView.OrthoFarClipPlane = CameraComponent->OrthoFarClipPlane;
-		DesiredView.PostProcessSettings = CameraComponent->PostProcessSettings;
+		if (!OutPose.OverrideAspectRatioAxisConstraint)
+		{
+			DesiredView.AspectRatioAxisConstraint = CameraComponent->AspectRatioAxisConstraint;
+		}
+		DesiredView.PostProcessSettings    = CameraComponent->PostProcessSettings;
 		DesiredView.PostProcessBlendWeight = CameraComponent->PostProcessBlendWeight;
 	}
-	
+
+	// Apply physical camera settings (DoF, exposure) on top of the component's post-process.
+	// No-op when PhysicalCameraBlendWeight <= 0, so non-physical cameras pay no cost.
+	OutPose.ApplyPhysicalCameraSettings(DesiredView.PostProcessSettings, /*bOverwriteSettings=*/false);
+
 	return DesiredView;
 }
 
 void AComposableCameraPlayerCameraManager::DoUpdateCamera(float DeltaTime)
 {
+	// We still call Super so engine-level PCM bookkeeping (its own modifier stack, ViewTarget
+	// plumbing, post-process blendable accumulation) runs, but Super also writes its own view
+	// into the camera cache, which we do NOT want to be authoritative. Instead, our
+	// ContextStack->Evaluate output is authoritative.
+	//
+	// The cache is double-filled per frame on purpose:
+	//   (1) FillCameraCache(LastDesiredView) here — restores last frame's pose, because
+	//       UpdateActions / ContextStack->Evaluate may call GetCameraCacheView() and must
+	//       see the prior-frame camera view, not whatever Super just wrote.
+	//   (2) FillCameraCache(DesiredView) at the bottom — publishes this frame's evaluated
+	//       pose so the engine renders from it.
+	// Do not collapse one of these fills away; the intermediate stale-restore is load-bearing.
 	Super::DoUpdateCamera(DeltaTime);
-
-	// Must call FillCameraCache, since the call to Super::DoUpdateCamera will override the true camera view.
 	FillCameraCache(LastDesiredView);
 
 	// Update camera actions.
 	UpdateActions(DeltaTime);
-	
+
 	FComposableCameraPose OutPose = ContextStack->Evaluate(DeltaTime);
 	// Update RunningCamera and debug state — may change due to context auto-pop.
 	RunningCamera = ContextStack->GetRunningCamera();
@@ -1131,6 +1165,12 @@ void AComposableCameraPlayerCameraManager::DoUpdateCamera(float DeltaTime)
 	FMinimalViewInfo DesiredView = GetCameraViewFromCameraPose(OutPose);
 	CurrentCameraPose = OutPose;
 
+	// Actor writeback is intentionally limited to Location / Rotation / FOV — i.e. things an
+	// external observer would reasonably query on the camera actor. ProjectionMode, ortho
+	// params, and PostProcessSettings are NOT pushed back onto the component: the component
+	// holds the designer-authored post-process settings that GetCameraViewFromCameraPose reads
+	// each frame, and nodes layer physical-camera/PP modifications transiently per-frame.
+	// Writing PP back onto the component would create a feedback loop.
 	if (RunningCamera)
 	{
 		RunningCamera->SetActorLocation(DesiredView.Location);
@@ -1140,7 +1180,10 @@ void AComposableCameraPlayerCameraManager::DoUpdateCamera(float DeltaTime)
 
 	if (bSyncToControlRotation)
 	{
-		GetOwningPlayerController()->SetControlRotation(DesiredView.Rotation);
+		if (APlayerController* PC = GetOwningPlayerController())
+		{
+			PC->SetControlRotation(DesiredView.Rotation);
+		}
 	}
 
 	LastDesiredView = DesiredView;

@@ -19,6 +19,17 @@ enum class EComposableCameraScreenSpaceMethod : uint8
 	Rotate
 };
 
+UENUM()
+enum class EComposableCameraScreenSpacePivotSource : uint8
+{
+	// Pivot is a world-space FVector authored on the node (or wired from upstream).
+	WorldPosition,
+
+	// Pivot is derived from an actor's world location plus a world-up offset.
+	// Useful when the pivot should track a character / prop at runtime.
+	ActorPosition
+};
+
 USTRUCT(BlueprintType)
 struct FComposableCameraScreenSpaceTranslationParams
 {
@@ -72,6 +83,33 @@ public:
 protected:
 
 public:
+	// How the pivot world-space position is resolved at runtime.
+	// WorldPosition → use PivotWorldPosition directly.
+	// ActorPosition → read PivotActor's world location and add PivotWorldUpOffset along world up.
+	// Declared as a pin with bDefaultAsPin = false: it renders in the Details panel
+	// as a design-time choice by default, but individual node instances can
+	// promote it to a wired pin when runtime variation is actually required.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters)
+	EComposableCameraScreenSpacePivotSource PivotSource { EComposableCameraScreenSpacePivotSource::WorldPosition };
+
+	// Pivot in world space. Used when PivotSource == WorldPosition.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters,
+		meta = (EditCondition = "PivotSource == EComposableCameraScreenSpacePivotSource::WorldPosition", EditConditionHides))
+	FVector PivotWorldPosition { FVector::ZeroVector };
+
+	// Actor whose world location supplies the pivot. Used when PivotSource == ActorPosition.
+	// If unresolved at runtime, GetCurrentPivot() falls back to FVector::ZeroVector.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters,
+		meta = (EditCondition = "PivotSource == EComposableCameraScreenSpacePivotSource::ActorPosition", EditConditionHides))
+	TObjectPtr<AActor> PivotActor;
+
+	// World-up offset added to PivotActor->GetActorLocation(). Useful for targeting a
+	// character's head / chest when the actor origin is at their feet. Used when
+	// PivotSource == ActorPosition.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters,
+		meta = (EditCondition = "PivotSource == EComposableCameraScreenSpacePivotSource::ActorPosition", EditConditionHides))
+	float PivotWorldUpOffset { 0.f };
+
 	// The method to keep screen space constraints, translation or rotation.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters)
 	EComposableCameraScreenSpaceMethod Method;

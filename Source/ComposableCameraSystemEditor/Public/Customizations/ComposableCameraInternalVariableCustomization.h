@@ -9,6 +9,7 @@ class IPropertyUtilities;
 class IStructureDetailsView;
 class FPropertyEditorModule;
 class FStructOnScope;
+class UEnum;
 enum class EComposableCameraPinType : uint8;
 
 /**
@@ -46,11 +47,13 @@ public:
 		IPropertyTypeCustomizationUtils& Utils) override;
 
 private:
-	/** Build a type-appropriate value widget for InitialValueString. */
+	/** Build a type-appropriate value widget for InitialValueString.
+	 *  EnumType is consulted only when PinType == Enum; ignored otherwise. */
 	TSharedRef<SWidget> BuildTypedDefaultValueWidget(
 		TSharedPtr<IPropertyHandle> InitialValueHandle,
 		EComposableCameraPinType PinType,
-		UScriptStruct* StructType);
+		UScriptStruct* StructType,
+		UEnum* EnumType);
 
 	/** Build a 3-row (Location / Rotation / Scale) widget for Transform. */
 	TSharedRef<SWidget> BuildTransformWidget(TSharedPtr<IPropertyHandle> InitialValueHandle);

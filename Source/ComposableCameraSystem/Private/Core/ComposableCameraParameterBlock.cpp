@@ -56,6 +56,7 @@ bool FComposableCameraParameterBlock::ApplyStringValue(
 	FName ParameterName,
 	EComposableCameraPinType PinType,
 	UScriptStruct* StructType,
+	UEnum* EnumType,
 	const FString& ValueString,
 	FString* OutError)
 {
@@ -177,6 +178,61 @@ bool FComposableCameraParameterBlock::ApplyStringValue(
 				TEXT("Object path '%s' could not be resolved; stored null"),
 				*ValueString));
 		}
+		return true;
+	}
+
+	case EComposableCameraPinType::Name:
+	{
+		// FName construction from an arbitrary string is lossy for Unicode
+		// (FName tables are 8-bit + comparison-hash). Names authored through the
+		// editor should be ASCII. We accept any string here without rejection —
+		// if the user writes garbage we still produce a valid (garbage) FName.
+		FComposableCameraParameterValue Entry;
+		Entry.Set<FName>(PinType, FName(*ValueString));
+		OutBlock.Values.Add(ParameterName, MoveTemp(Entry));
+		return true;
+	}
+
+	case EComposableCameraPinType::Enum:
+	{
+		if (!EnumType)
+		{
+			WriteError(OutError, TEXT("Enum pin type requires an EnumType"));
+			return false;
+		}
+
+		// The authored string is expected to match one of the enum's entry names
+		// (either the short name like "EFoo::Bar" or the qualified form). We also
+		// accept a numeric literal as a fallback so raw integer authoring still
+		// round-trips — this matches how the editor-side parameter table row
+		// customization exports the selected enum value.
+		int64 ParsedValue = EnumType->GetValueByNameString(ValueString);
+		if (ParsedValue == INDEX_NONE)
+		{
+			// Fallback: accept bare integer literals.
+			if (ValueString.IsNumeric())
+			{
+				ParsedValue = FCString::Atoi64(*ValueString);
+				if (!EnumType->IsValidEnumValue(ParsedValue))
+				{
+					WriteError(OutError, FString::Printf(
+						TEXT("Numeric value '%s' is not a valid entry for enum %s"),
+						*ValueString, *EnumType->GetName()));
+					return false;
+				}
+			}
+			else
+			{
+				WriteError(OutError, FString::Printf(
+					TEXT("'%s' does not match any entry of enum %s"),
+					*ValueString, *EnumType->GetName()));
+				return false;
+			}
+		}
+
+		FComposableCameraParameterValue Entry;
+		Entry.Set<int64>(PinType, ParsedValue);
+		OutBlock.Values.Add(ParameterName, MoveTemp(Entry));
 		return true;
 	}
 

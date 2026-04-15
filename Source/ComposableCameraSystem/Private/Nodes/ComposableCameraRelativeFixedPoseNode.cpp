@@ -54,11 +54,27 @@ void UComposableCameraRelativeFixedPoseNode::GetPinDeclarations_Implementation(T
 {
 	{
 		FComposableCameraNodePinDeclaration PinDecl;
+		PinDecl.PinName = TEXT("Method");
+		PinDecl.DisplayName = NSLOCTEXT("UComposableCameraRelativeFixedPoseNode", "Method", "Method");
+		PinDecl.Direction = EComposableCameraPinDirection::Input;
+		PinDecl.PinType = EComposableCameraPinType::Enum;
+		PinDecl.EnumType = StaticEnum<EComposableCameraRelativeFixedPoseMethod>();
+		PinDecl.bRequired = false;
+		PinDecl.bDefaultAsPin = false;
+		PinDecl.DefaultValueString = PinDecl.EnumType ? PinDecl.EnumType->GetNameStringByValue(static_cast<int64>(Method)) : FString();
+		PinDecl.Tooltip = NSLOCTEXT("UComposableCameraRelativeFixedPoseNode", "MethodTip",
+			"Selects whether the reference frame is RelativeTransform or RelativeActor.");
+		OutPins.Add(PinDecl);
+	}
+
+	{
+		FComposableCameraNodePinDeclaration PinDecl;
 		PinDecl.PinName = TEXT("RelativeTransform");
 		PinDecl.DisplayName = NSLOCTEXT("UComposableCameraRelativeFixedPoseNode", "RelativeTransform", "Relative Transform");
 		PinDecl.Direction = EComposableCameraPinDirection::Input;
 		PinDecl.PinType = EComposableCameraPinType::Transform;
 		PinDecl.bRequired = false;
+		PinDecl.bDefaultAsPin = false;
 		PinDecl.Tooltip = NSLOCTEXT("UComposableCameraRelativeFixedPoseNode", "RelativeTransformTip", "The base transform when Method is RelativeToTransform.");
 		OutPins.Add(PinDecl);
 	}
@@ -70,7 +86,22 @@ void UComposableCameraRelativeFixedPoseNode::GetPinDeclarations_Implementation(T
 		PinDecl.Direction = EComposableCameraPinDirection::Input;
 		PinDecl.PinType = EComposableCameraPinType::Actor;
 		PinDecl.bRequired = false;
+		PinDecl.bDefaultAsPin = false;
 		PinDecl.Tooltip = NSLOCTEXT("UComposableCameraRelativeFixedPoseNode", "RelativeActorTip", "Reference actor when Method is RelativeToActor.");
+		OutPins.Add(PinDecl);
+	}
+
+	{
+		FComposableCameraNodePinDeclaration PinDecl;
+		PinDecl.PinName = TEXT("RelativeSocket");
+		PinDecl.DisplayName = NSLOCTEXT("UComposableCameraRelativeFixedPoseNode", "RelativeSocket", "Relative Socket");
+		PinDecl.Direction = EComposableCameraPinDirection::Input;
+		PinDecl.PinType = EComposableCameraPinType::Name;
+		PinDecl.bRequired = false;
+		PinDecl.bDefaultAsPin = false;
+		PinDecl.DefaultValueString = RelativeSocket.ToString();
+		PinDecl.Tooltip = NSLOCTEXT("UComposableCameraRelativeFixedPoseNode", "RelativeSocketTip",
+			"Skeletal-mesh socket on RelativeActor used as the reference frame. If unresolved, the actor's transform is used instead.");
 		OutPins.Add(PinDecl);
 	}
 

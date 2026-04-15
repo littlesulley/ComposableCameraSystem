@@ -16,19 +16,23 @@ void UComposableCameraPivotOffsetNode::OnInitialize_Implementation()
 	const FComposableCameraPose CurrentCameraPose = OwningPlayerCameraManager
 		? OwningPlayerCameraManager->GetCurrentCameraPose()
 		: FComposableCameraPose{};
-	UpdatePivotOffset(CurrentCameraPose);
+	// Auto-resolve has not yet written into the pin-matched UPROPERTYs at Initialize
+	// time, so read the pin explicitly via the fallback-aware GetInputPinValue path.
+	UpdatePivotOffset(GetInputPinValue<FVector>("PivotPosition"), CurrentCameraPose);
 }
 
 void UComposableCameraPivotOffsetNode::OnTickNode_Implementation(float DeltaTime,
                                                                  const FComposableCameraPose& CurrentCameraPose, FComposableCameraPose& OutCameraPose)
 {
-	UpdatePivotOffset(CurrentCameraPose);
+	// PivotPosition and PivotOffset are pin-matched UPROPERTYs — already resolved
+	// by the base TickNode prologue. Read them directly.
+	UpdatePivotOffset(PivotPosition, CurrentCameraPose);
 }
 
 
-void UComposableCameraPivotOffsetNode::UpdatePivotOffset(const FComposableCameraPose& CurrentCameraPose)
+void UComposableCameraPivotOffsetNode::UpdatePivotOffset(const FVector& InPivot, const FComposableCameraPose& CurrentCameraPose)
 {
-	FVector Pivot = GetInputPinValue<FVector>("PivotPosition");
+	FVector Pivot = InPivot;
 
 	switch (PivotOffsetType)
 	{
@@ -76,8 +80,24 @@ void UComposableCameraPivotOffsetNode::GetPinDeclarations_Implementation(
 		Pin.Direction = EComposableCameraPinDirection::Input;
 		Pin.PinType = EComposableCameraPinType::Vector3D;
 		Pin.bRequired = true;
+		Pin.DefaultValueString = PivotPosition.ToString();
 		Pin.Tooltip = NSLOCTEXT("ComposableCameraSystem", "PivotPosInTooltip",
 			"The pivot position to apply offset to.");
+		OutPins.Add(Pin);
+	}
+
+	// Input: the offset amount (interpreted per PivotOffsetType).
+	{
+		FComposableCameraNodePinDeclaration Pin;
+		Pin.PinName = "PivotOffset";
+		Pin.DisplayName = NSLOCTEXT("ComposableCameraSystem", "PivotOffset_In", "Pivot Offset");
+		Pin.Direction = EComposableCameraPinDirection::Input;
+		Pin.PinType = EComposableCameraPinType::Vector3D;
+		Pin.bRequired = false;
+		Pin.bDefaultAsPin = false;
+		Pin.DefaultValueString = PivotOffset.ToString();
+		Pin.Tooltip = NSLOCTEXT("ComposableCameraSystem", "PivotOffset_InTooltip",
+			"Offset applied to the pivot position. Interpreted as world / actor-local / camera space per PivotOffsetType.");
 		OutPins.Add(Pin);
 	}
 

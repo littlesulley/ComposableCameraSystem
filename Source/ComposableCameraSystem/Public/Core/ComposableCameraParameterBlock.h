@@ -131,6 +131,26 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraParameterBlock
 		Values.Add(Name, MoveTemp(Entry));
 	}
 
+	/** Set an FName parameter. FName is POD (NAME_INDEX + NAME_NUMBER, 8 bytes) and
+	 *  is memcpy-safe in the type-erased data storage. */
+	void SetName(FName Name, FName Value)
+	{
+		FComposableCameraParameterValue Entry;
+		Entry.Set<FName>(EComposableCameraPinType::Name, Value);
+		Values.Add(Name, MoveTemp(Entry));
+	}
+
+	/** Set an enum parameter. Enums are always normalized to int64 in the data
+	 *  storage, regardless of the backing property's actual underlying width.
+	 *  The narrow-cast into the final storage happens at resolve time, where the
+	 *  owning FProperty is known (see WriteEnumInt64ToProperty). */
+	void SetEnum(FName Name, int64 Value)
+	{
+		FComposableCameraParameterValue Entry;
+		Entry.Set<int64>(EComposableCameraPinType::Enum, Value);
+		Values.Add(Name, MoveTemp(Entry));
+	}
+
 	/** Check if a parameter exists by name. */
 	bool HasValue(FName Name) const
 	{
@@ -176,6 +196,8 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraParameterBlock
 	 *   Vector2D/3D/4, Rotator, Transform — ImportText on the matching core struct
 	 *   Struct                      — ImportText on the provided StructType
 	 *   Object                      — resolved via FSoftObjectPath and sync-loaded
+	 *   Name                        — FName::FromString (no Unicode canonicalization)
+	 *   Enum                        — UEnum::GetValueByNameString, stored as int64
 	 *
 	 * Unsupported (returns false, writes OutError):
 	 *   Actor — actors are world-scoped and cannot be resolved from a DataTable
@@ -186,6 +208,9 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraParameterBlock
 	 * @param ParameterName   Key the entry is stored under in OutBlock.Values.
 	 * @param PinType         Target pin type — dispatches the parse branch.
 	 * @param StructType      Only read when PinType == Struct; ignored otherwise.
+	 * @param EnumType        Only read when PinType == Enum; ignored otherwise.
+	 *                        Used to parse the display / authored name back to an
+	 *                        int64 value (UEnum::GetValueByNameString).
 	 * @param ValueString     The serialized value. Empty input is treated as a
 	 *                        parse failure so callers can decide whether to fall
 	 *                        back to the node pin's authored default.
@@ -198,6 +223,7 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraParameterBlock
 		FName ParameterName,
 		EComposableCameraPinType PinType,
 		UScriptStruct* StructType,
+		UEnum* EnumType,
 		const FString& ValueString,
 		FString* OutError = nullptr);
 };

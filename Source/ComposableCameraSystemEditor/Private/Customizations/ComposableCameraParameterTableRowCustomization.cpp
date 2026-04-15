@@ -15,6 +15,7 @@
 #include "UObject/StructOnScope.h"
 #include "ScopedTransaction.h"
 #include "Nodes/ComposableCameraNodePinTypes.h"
+#include "SEnumCombo.h"
 #include "Widgets/Input/SCheckBox.h"
 #include "Widgets/Input/SEditableTextBox.h"
 #include "Widgets/Input/SNumericEntryBox.h"
@@ -199,6 +200,7 @@ void FComposableCameraParameterTableRowCustomization::CustomizeChildren(
 			const FName ParamName = Param.ParameterName;
 			const EComposableCameraPinType PinType = Param.PinType;
 			UScriptStruct* StructType = Param.StructType;
+			UEnum* EnumType = Param.EnumType;
 			const FString ParamDefault = TypeAsset->GetExposedParameterDefaultValue(Param);
 
 			const FText DisplayName = Param.DisplayName.IsEmpty()
@@ -206,11 +208,11 @@ void FComposableCameraParameterTableRowCustomization::CustomizeChildren(
 				: Param.DisplayName;
 
 			const FText Tooltip = Param.Tooltip.IsEmpty()
-				? GetFormatHint(PinType, StructType)
+				? GetFormatHint(PinType, StructType, EnumType)
 				: FText::Format(
 					LOCTEXT("ParameterTooltipWithFormat", "{0}\n\nExpected format: {1}"),
 					Param.Tooltip,
-					GetFormatHint(PinType, StructType));
+					GetFormatHint(PinType, StructType, EnumType));
 
 			ParamsGroup.AddWidgetRow()
 			.NameContent()
@@ -255,7 +257,7 @@ void FComposableCameraParameterTableRowCustomization::CustomizeChildren(
 					return IsParameterOverridden(ParamName);
 				})
 				[
-					BuildTypedValueWidget(ParamName, PinType, StructType, ParamDefault)
+					BuildTypedValueWidget(ParamName, PinType, StructType, EnumType, ParamDefault)
 				]
 			];
 		}
@@ -288,6 +290,7 @@ void FComposableCameraParameterTableRowCustomization::CustomizeChildren(
 			const FName VarName = Var.VariableName;
 			const EComposableCameraPinType PinType = Var.VariableType;
 			UScriptStruct* StructType = Var.StructType;
+			UEnum* EnumType = Var.EnumType;
 			const FString VarDefault = Var.InitialValueString;
 
 			// FComposableCameraInternalVariable has no DisplayName — the
@@ -296,11 +299,11 @@ void FComposableCameraParameterTableRowCustomization::CustomizeChildren(
 			const FText DisplayName = FText::FromName(VarName);
 
 			const FText Tooltip = Var.Tooltip.IsEmpty()
-				? GetFormatHint(PinType, StructType)
+				? GetFormatHint(PinType, StructType, EnumType)
 				: FText::Format(
 					LOCTEXT("VariableTooltipWithFormat", "{0}\n\nExpected format: {1}"),
 					Var.Tooltip,
-					GetFormatHint(PinType, StructType));
+					GetFormatHint(PinType, StructType, EnumType));
 
 			VarsGroup.AddWidgetRow()
 			.NameContent()
@@ -345,7 +348,7 @@ void FComposableCameraParameterTableRowCustomization::CustomizeChildren(
 					return IsParameterOverridden(VarName);
 				})
 				[
-					BuildTypedValueWidget(VarName, PinType, StructType, VarDefault)
+					BuildTypedValueWidget(VarName, PinType, StructType, EnumType, VarDefault)
 				]
 			];
 		}
@@ -517,6 +520,7 @@ TSharedRef<SWidget> FComposableCameraParameterTableRowCustomization::BuildTypedV
 	FName ParameterName,
 	EComposableCameraPinType PinType,
 	UScriptStruct* StructType,
+	UEnum* EnumType,
 	const FString& DefaultValue)
 {
 	switch (PinType)
@@ -670,6 +674,85 @@ TSharedRef<SWidget> FComposableCameraParameterTableRowCustomization::BuildTypedV
 				"Actor/Object types cannot be set from a DataTable row."))
 			.Font(IDetailLayoutBuilder::GetDetailFontItalic())
 			.ColorAndOpacity(FSlateColor::UseSubduedForeground());
+	}
+
+	// ── Name ──────────────────────────────────────────────────────────────
+	case EComposableCameraPinType::Name:
+	{
+		// FName values are authored as plain text. The runtime parser
+		// (ApplyStringValue) calls FName(*ValueString) which round-trips any
+		// ASCII string and most Unicode (lossy comparison-hash for non-ASCII).
+		// We surface the same text editor as the generic fallback, just with
+		// a more helpful hint so authors know they're editing a Name not a
+		// free-form string.
+		return SNew(SEditableTextBox)
+			.Text_Lambda([this, ParameterName, DefaultValue]() -> FText
+			{
+				return FText::FromString(GetParameterString(ParameterName, DefaultValue));
+			})
+			.OnTextCommitted_Lambda([this, ParameterName](const FText& NewText, ETextCommit::Type CommitType)
+			{
+				if (CommitType == ETextCommit::OnEnter || CommitType == ETextCommit::OnUserMovedFocus)
+				{
+					SetParameterString(ParameterName, NewText.ToString());
+				}
+			})
+			.HintText(LOCTEXT("NameHint", "Enter FName"))
+			.SelectAllTextWhenFocused(true)
+			.ClearKeyboardFocusOnCommit(false);
+	}
+
+	// ── Enum — dropdown driven by the bound UEnum ─────────────────────────
+	case EComposableCameraPinType::Enum:
+	{
+		if (!EnumType)
+		{
+			// No UEnum attached — the parameter declaration on the type asset
+			// is incomplete. Render a diagnostic so the author can spot the
+			// missing metadata rather than silently falling through to a
+			// text editor that would write invalid values.
+			return SNew(STextBlock)
+				.Text(LOCTEXT("EnumTypeUnset",
+					"Enum type not set on this parameter — re-expose from the camera node."))
+				.Font(IDetailLayoutBuilder::GetDetailFontItalic())
+				.ColorAndOpacity(FSlateColor::UseSubduedForeground());
+		}
+
+		// SEnumComboBox stores int32 internally. The runtime parser writes
+		// int64 to the parameter block (normalized) but in the row's string
+		// form we use the entry's authored name (NOT the integer) so the
+		// row reads cleanly in source control and survives enum value
+		// renumbering. The fallback numeric path in ApplyStringValue still
+		// catches any rows that were authored numerically by hand.
+		return SNew(SEnumComboBox, EnumType)
+			.CurrentValue_Lambda([this, ParameterName, DefaultValue, EnumType]() -> int32
+			{
+				const FString Val = GetParameterString(ParameterName, DefaultValue);
+				if (Val.IsEmpty())
+				{
+					return 0;
+				}
+				int64 Parsed = EnumType->GetValueByNameString(Val);
+				if (Parsed == INDEX_NONE)
+				{
+					// Author wrote a numeric literal — round-trip through the
+					// numeric fallback so the dropdown picks the matching entry.
+					Parsed = Val.IsNumeric() ? FCString::Atoi64(*Val) : 0;
+				}
+				return static_cast<int32>(Parsed);
+			})
+			.OnEnumSelectionChanged_Lambda([this, ParameterName, EnumType](int32 NewIndex, ESelectInfo::Type)
+			{
+				// Persist the entry's authored name string. The runtime parser
+				// (ApplyStringValue Enum branch) reads it via
+				// UEnum::GetValueByNameString, so this round-trips losslessly.
+				if (EnumType)
+				{
+					const FName EntryName = EnumType->GetNameByValue(static_cast<int64>(NewIndex));
+					SetParameterString(ParameterName, EntryName.ToString());
+				}
+			})
+			.Font(IDetailLayoutBuilder::GetDetailFont());
 	}
 
 	// ── Struct — inline details view if type is known ─────────────────────
@@ -994,7 +1077,7 @@ TSharedRef<SWidget> FComposableCameraParameterTableRowCustomization::BuildStruct
 }
 
 FText FComposableCameraParameterTableRowCustomization::GetFormatHint(
-	EComposableCameraPinType PinType, UScriptStruct* StructType) const
+	EComposableCameraPinType PinType, UScriptStruct* StructType, UEnum* EnumType) const
 {
 	switch (PinType)
 	{
@@ -1029,6 +1112,14 @@ FText FComposableCameraParameterTableRowCustomization::GetFormatHint(
 				LOCTEXT("HintStruct", "Struct literal for {0} (use Unreal's ImportText format)"),
 				FText::FromString(StructType->GetName()))
 			: LOCTEXT("HintStructNoType", "Struct literal (StructType unset — invalid pin)");
+	case EComposableCameraPinType::Name:
+		return LOCTEXT("HintName", "FName text (e.g. MyTag)");
+	case EComposableCameraPinType::Enum:
+		return EnumType
+			? FText::Format(
+				LOCTEXT("HintEnum", "Enum entry name for {0} (e.g. {0}::SomeValue)"),
+				FText::FromString(EnumType->GetName()))
+			: LOCTEXT("HintEnumNoType", "Enum entry name (EnumType unset — invalid pin)");
 	default:
 		return FText::GetEmpty();
 	}

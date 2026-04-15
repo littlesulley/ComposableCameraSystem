@@ -34,7 +34,14 @@ enum class EComposableCameraPinType : uint8
 	Actor,
 	Object,
 	/** Custom USTRUCT type. When this is selected, StructType must be set. */
-	Struct
+	Struct,
+	/** FName value. Stored as FName in the data block (POD: NAME_INDEX + NAME_NUMBER). */
+	Name,
+	/** UENUM value. Stored as a normalized int64 in the data block; the owning
+	 *  UEnum* is carried on the declaration and used to narrow-cast into the
+	 *  actual property's underlying width (uint8 / int32 / int64) at write time.
+	 *  When this is selected, EnumType must be set. */
+	Enum
 };
 
 /**
@@ -67,12 +74,32 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraNodePinDeclaration
 
 	/** For PinType == Struct: the specific USTRUCT type. Ignored for other pin types. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pin")
-	UScriptStruct* StructType = nullptr;
+	TObjectPtr<UScriptStruct> StructType = nullptr;
+
+	/** For PinType == Enum: the specific UEnum the pin represents. Ignored for other
+	 *  pin types. The data block always stores this pin's value as a normalized
+	 *  int64; this metadata is used at write time to narrow-cast into the actual
+	 *  backing property (uint8 / int32 / int64) and by the editor to render the
+	 *  enum's display names. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pin")
+	TObjectPtr<UEnum> EnumType = nullptr;
 
 	/** Whether this input is required. If true, the editor shows an error when the pin
 	 *  is neither wired nor exposed and has no default value. Ignored for output pins. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pin")
 	bool bRequired = false;
+
+	/** Class-level default for whether this pin is exposed as a wire on the
+	 *  graph node when a freshly-placed instance has no per-instance override.
+	 *  When false, new instances start out as Details-only (no graph wire, not
+	 *  exposable as a parameter); the user can still flip it on per-instance
+	 *  via the Details panel — same channel as toggling it off on a pin that
+	 *  defaulted to true. The per-instance toggle lives on
+	 *  FComposableCameraPinOverride::bAsPin and, when present, supersedes
+	 *  this default. Defaults to true so existing pin declarations keep their
+	 *  current behavior with no asset migration. Ignored for output pins. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pin")
+	bool bDefaultAsPin = true;
 
 	/** Default value for input pins when unwired and not exposed. Stored as serialized string. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pin")
@@ -102,11 +129,11 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraNodePinDeclaration
  *      exposed as an ExposedParameter.
  *
  * Overrides are stored per-(node-instance, pin-name). Pins that never get an
- * override use the C++ declaration's defaults for both fields (bAsPin = true,
- * DefaultValueString = the class-level default). Storing overrides as a sparse
- * array indexed by PinName means adding a new pin declaration in C++ doesn't
- * require any asset migration — the new pin simply defaults to (visible, class
- * default).
+ * override use the C++ declaration's defaults for both fields (bAsPin =
+ * Decl.bDefaultAsPin, DefaultValueString = the class-level default). Storing
+ * overrides as a sparse array indexed by PinName means adding a new pin
+ * declaration in C++ doesn't require any asset migration — the new pin
+ * simply defaults to (Decl.bDefaultAsPin, class default).
  *
  * The source of truth lives on UComposableCameraTypeAsset::NodePinOverrides
  * (parallel array to NodeTemplates). The editor graph node also caches the
@@ -165,8 +192,8 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraNodeTemplatePinOverrides
 	GENERATED_BODY()
 
 	/** Sparse list of pin overrides for this node instance. Pins without an
-	 *  entry here use their C++ declaration defaults (bAsPin = true,
-	 *  DefaultValueString from the class). */
+	 *  entry here use their C++ declaration defaults (bAsPin =
+	 *  Decl.bDefaultAsPin, DefaultValueString from the class). */
 	UPROPERTY()
 	TArray<FComposableCameraPinOverride> Overrides;
 };
@@ -400,19 +427,51 @@ struct FComposableCameraPinKey
  * Attempt to map an FProperty (from UClass reflection) to an EComposableCameraPinType.
  *
  * Returns true if the property type has a direct pin-type mapping. Returns false for
- * unsupported types (arrays, maps, sets, Instanced object properties, etc.).
+ * unsupported types (arrays, maps, sets, Instanced object properties, FString, etc.).
+ *
+ * For Enum-typed properties (`FEnumProperty` for `enum class`, or `FByteProperty` whose
+ * IntPropertyEnum is set), OutEnumType receives the backing UEnum*. For Struct-typed
+ * properties that aren't one of the hard-coded math types, OutStructType receives the
+ * specific UScriptStruct*. Both are cleared on entry.
  *
  * Used by DeclareSubobjectPins to auto-discover exposable sub-properties of an
  * Instanced UObject, and by ApplySubobjectPinValues to dispatch typed reads.
  */
-inline bool TryMapPropertyToPinType(const FProperty* Property, EComposableCameraPinType& OutPinType, UScriptStruct*& OutStructType)
+inline bool TryMapPropertyToPinType(const FProperty* Property, EComposableCameraPinType& OutPinType, UScriptStruct*& OutStructType, UEnum*& OutEnumType)
 {
 	OutStructType = nullptr;
+	OutEnumType = nullptr;
 
 	if (Property->IsA<FBoolProperty>())       { OutPinType = EComposableCameraPinType::Bool;      return true; }
 	if (Property->IsA<FIntProperty>())         { OutPinType = EComposableCameraPinType::Int32;     return true; }
 	if (Property->IsA<FFloatProperty>())       { OutPinType = EComposableCameraPinType::Float;     return true; }
 	if (Property->IsA<FDoubleProperty>())      { OutPinType = EComposableCameraPinType::Double;    return true; }
+	if (Property->IsA<FNameProperty>())        { OutPinType = EComposableCameraPinType::Name;      return true; }
+
+	// C++ `enum class` properties — reflected as FEnumProperty wrapping a numeric
+	// underlying property. The enum object tells us the display names + value set;
+	// the underlying property tells us the actual storage width (uint8 / int32 /
+	// int64). We normalize to int64 in the data block and narrow-cast on write.
+	if (const FEnumProperty* EnumProp = CastField<FEnumProperty>(Property))
+	{
+		OutPinType = EComposableCameraPinType::Enum;
+		OutEnumType = EnumProp->GetEnum();
+		return OutEnumType != nullptr;
+	}
+
+	// Legacy `UENUM() TEnumAsByte<E>`-style properties — reflected as FByteProperty
+	// with an attached UEnum*. Plain FByteProperty without an enum is rejected (we
+	// don't expose raw byte pins).
+	if (const FByteProperty* ByteProp = CastField<FByteProperty>(Property))
+	{
+		if (UEnum* Enum = ByteProp->GetIntPropertyEnum())
+		{
+			OutPinType = EComposableCameraPinType::Enum;
+			OutEnumType = Enum;
+			return true;
+		}
+		return false;
+	}
 
 	if (const FStructProperty* StructProp = CastField<FStructProperty>(Property))
 	{
@@ -435,6 +494,15 @@ inline bool TryMapPropertyToPinType(const FProperty* Property, EComposableCamera
 		{
 			return false;
 		}
+		// Soft / weak / lazy object properties have a different memory layout than
+		// raw UObject*/AActor*, so they are NOT safe to drive through the Actor /
+		// Object pin types (both the subobject pin dispatch and the top-level
+		// auto-resolver write raw pointers directly into the field's memory). Only
+		// plain FObjectProperty / FClassProperty are accepted here.
+		if (!Property->IsA<FObjectProperty>() && !Property->IsA<FClassProperty>())
+		{
+			return false;
+		}
 		if (ObjProp->PropertyClass && ObjProp->PropertyClass->IsChildOf(AActor::StaticClass()))
 		{
 			OutPinType = EComposableCameraPinType::Actor;
@@ -444,8 +512,9 @@ inline bool TryMapPropertyToPinType(const FProperty* Property, EComposableCamera
 		return true;
 	}
 
-	// Byte-as-enum is not handled for subobject pins (enums on interpolators are
-	// typically mode selectors, not runtime-tunable values).
+	// FStrProperty / FText / arrays / maps / sets are intentionally rejected. The
+	// data block is POD-only (memcpy transport), and these carry heap-owned storage
+	// or non-trivial layout.
 	return false;
 }
 
@@ -468,6 +537,8 @@ inline int32 GetPinTypeSize(EComposableCameraPinType PinType, UScriptStruct* Str
 	case EComposableCameraPinType::Transform: return sizeof(FTransform);
 	case EComposableCameraPinType::Actor:     return sizeof(AActor*);
 	case EComposableCameraPinType::Object:    return sizeof(UObject*);
+	case EComposableCameraPinType::Name:      return sizeof(FName);
+	case EComposableCameraPinType::Enum:      return sizeof(int64); // always normalized to int64 in the block
 	case EComposableCameraPinType::Struct:
 		return StructType ? StructType->GetStructureSize() : 0;
 	default:
@@ -493,6 +564,8 @@ inline int32 GetPinTypeAlignment(EComposableCameraPinType PinType, UScriptStruct
 	case EComposableCameraPinType::Transform: return alignof(FTransform);
 	case EComposableCameraPinType::Actor:     return alignof(AActor*);
 	case EComposableCameraPinType::Object:    return alignof(UObject*);
+	case EComposableCameraPinType::Name:      return alignof(FName);
+	case EComposableCameraPinType::Enum:      return alignof(int64);
 	case EComposableCameraPinType::Struct:
 		return StructType ? StructType->GetMinAlignment() : 1;
 	default:

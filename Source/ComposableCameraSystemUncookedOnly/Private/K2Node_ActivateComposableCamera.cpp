@@ -886,7 +886,7 @@ void UK2Node_ActivateComposableCamera::CreateDynamicParameterPins()
 		}
 
 		FEdGraphPinType PinType = ComposableCameraEdGraphPinTypeUtils::MakeEdGraphPinTypeFromCameraPinType(
-			Param.PinType, Param.StructType);
+			Param.PinType, Param.StructType, Param.EnumType);
 		UEdGraphPin* NewPin = CreatePin(EGPD_Input, PinType, Param.ParameterName);
 
 		// PinFriendlyName precedence:
@@ -1008,7 +1008,7 @@ void UK2Node_ActivateComposableCamera::CreateDynamicParameterPins()
 		}
 
 		FEdGraphPinType PinType = ComposableCameraEdGraphPinTypeUtils::MakeEdGraphPinTypeFromCameraPinType(
-			Var.VariableType, Var.StructType);
+			Var.VariableType, Var.StructType, Var.EnumType);
 		UEdGraphPin* NewPin = CreatePin(EGPD_Input, PinType, Var.VariableName);
 
 		// FComposableCameraInternalVariable has no DisplayName field — use

@@ -31,33 +31,40 @@ public:
 protected:
 	
 public:
+	// The pivot position to damp. Almost always driven by an upstream pivot-producing
+	// node via wire (or a context parameter); kept as a UPROPERTY so the Details
+	// panel renders a native FVector widget and an authored default is available
+	// when unwired.
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = InputParameters)
+	FVector PivotPosition { FVector::ZeroVector };
+
 	// Whether to maintain camera space pivot position.
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = InputParameters)
 	bool bMaintainCameraSpacePivotPosition { true };
 	
 	// Interpolator when the pivot is moving upward.
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Instanced, Category = InputParameters)
-	UComposableCameraInterpolatorBase* UpwardInterpolator;
+	TObjectPtr<UComposableCameraInterpolatorBase> UpwardInterpolator;
 
 	// Interpolator when the pivot is moving downward.
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Instanced, Category = InputParameters)
-	UComposableCameraInterpolatorBase* DownwardInterpolator;
+	TObjectPtr<UComposableCameraInterpolatorBase> DownwardInterpolator;
 
-	// Interpolator when the pivot is moving leftward. 
+	// Interpolator when the pivot is moving leftward.
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Instanced, Category = InputParameters)
-	UComposableCameraInterpolatorBase* LeftwardInterpolator;
+	TObjectPtr<UComposableCameraInterpolatorBase> LeftwardInterpolator;
 
 	// Interpolator when the pivot is moving rightward.
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Instanced, Category = InputParameters)
-	UComposableCameraInterpolatorBase* RightwardInterpolator;
+	TObjectPtr<UComposableCameraInterpolatorBase> RightwardInterpolator;
 
-	// Interpolator when the pivot is moving forward. 
+	// Interpolator when the pivot is moving forward.
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Instanced, Category = InputParameters)
-	UComposableCameraInterpolatorBase* ForwardInterpolator;
+	TObjectPtr<UComposableCameraInterpolatorBase> ForwardInterpolator;
 
 	// Interpolator when the pivot is moving backward.
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Instanced, Category = InputParameters)
-	UComposableCameraInterpolatorBase* BackwardInterpolator;
+	TObjectPtr<UComposableCameraInterpolatorBase> BackwardInterpolator;
 
 private:
 	TUniquePtr<TCameraInterpolator<TValueTypeWrapper<double>>> UpwardInterpolator_T;

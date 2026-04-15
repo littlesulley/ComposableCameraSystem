@@ -58,6 +58,7 @@ void UComposableCameraImpulseResolutionNode::GetPinDeclarations_Implementation(T
 	PinDecl.Direction = EComposableCameraPinDirection::Input;
 	PinDecl.PinType = EComposableCameraPinType::Float;
 	PinDecl.bRequired = false;
+	PinDecl.bDefaultAsPin = false;
 	PinDecl.Tooltip = NSLOCTEXT("UComposableCameraImpulseResolutionNode", "VelocityDampingTip", "Controls camera movement speed (default from UPROPERTY).");
 	OutPins.Add(PinDecl);
 }

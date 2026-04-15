@@ -5,11 +5,15 @@
 #include "CoreMinimal.h"
 #include "GameplayTagContainer.h"
 #include "Camera/CameraActor.h"
+#include "Camera/CameraTypes.h"
+#include "Engine/EngineTypes.h"
 #include "UObject/Object.h"
 #include "Core/ComposableCameraRuntimeDataBlock.h"
 #include "Core/ComposableCameraParameterBlock.h"
 #include "ComposableCameraNamespaces.h"
 #include "ComposableCameraCameraBase.generated.h"
+
+struct FPostProcessSettings;
 
 class UComposableCameraModifierManager;
 class UComposableCameraTransitionBase;
@@ -35,32 +39,169 @@ enum class EComposableCameraResumeCameraTransformSchema : uint8
 	Specified
 };
 
+/**
+ * Camera pose state produced by node evaluation and consumed by the PCM.
+ *
+ * Field categories:
+ *   - Transform (Position, Rotation) — always lerped.
+ *   - FOV dual-mode (FieldOfView, FocalLength) — a pose expresses FOV either in
+ *     degrees (FieldOfView > 0) or via physical optics (FocalLength > 0), never
+ *     both. Use GetEffectiveFieldOfView() to resolve to degrees. BlendBy()
+ *     resolves both sides to degrees BEFORE lerping and emits a degrees-mode
+ *     result (FocalLength = -1). See "FOV resolution invariant" in DesignDoc.
+ *   - Physical camera (SensorWidth/Height, Aperture, FocusDistance, ISO, etc.)
+ *     — always lerped; only applied to post-process when
+ *     PhysicalCameraBlendWeight > 0 via ApplyPhysicalCameraSettings().
+ *   - Projection & aspect (ProjectionMode, ConstrainAspectRatio, ...) —
+ *     booleans and enums snap at 50% blend factor; numerics (OrthographicWidth
+ *     etc.) lerp normally.
+ *
+ * Sentinel semantics (<= 0 means "unset"):
+ *   - FieldOfView: -1 means "use FocalLength".
+ *   - FocusDistance: -1 means "no DoF override".
+ *   These fields use LerpOptional semantics in BlendBy(): if one side is unset,
+ *   the valid side's value is inherited across the blend rather than lerped
+ *   through a meaningless range.
+ */
 USTRUCT(BlueprintType)
 struct FComposableCameraPose
 {
 	GENERATED_BODY()
 
 public:
-	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "ComposableCameraSystem|CameraPose")
+	// --- Transform ---
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "ComposableCameraSystem|CameraPose|Transform")
 	FVector Position { 0, 0, 0 };
 
-	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "ComposableCameraSystem|CameraPose")
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "ComposableCameraSystem|CameraPose|Transform")
 	FRotator Rotation { 0, 0, 0 };
 
-	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "ComposableCameraSystem|CameraPose")
-	double FieldOfView { 75.f };
+	// --- FOV (dual-mode: specify either FieldOfView OR FocalLength, not both) ---
 
-	void BlendBy(const FComposableCameraPose& Other, float OtherWeight)
-	{
-		OtherWeight = FMath::Clamp(OtherWeight, 0.f, 1.f);
-		
-		Position = FMath::Lerp(Position, Other.Position, OtherWeight);
-		
-		const FRotator DeltaAng = (Other.Rotation - Rotation).GetNormalized();
-		Rotation = (Rotation + OtherWeight * DeltaAng).GetNormalized();
+	/** Horizontal FOV in degrees. If <= 0, FocalLength is used instead. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "ComposableCameraSystem|CameraPose|FOV")
+	double FieldOfView { -1.0 };
 
-		FieldOfView = FMath::Lerp(FieldOfView, Other.FieldOfView, OtherWeight);
-	}
+	/** Focal length in mm. If <= 0, FieldOfView (in degrees) is used instead. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "ComposableCameraSystem|CameraPose|FOV")
+	float FocalLength { 35.f };
+
+	// --- Physical camera (DoF / exposure inputs) ---
+
+	/** Sensor width in mm. Super35 default. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "ComposableCameraSystem|CameraPose|Physical")
+	float SensorWidth { 24.89f };
+
+	/** Sensor height in mm. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "ComposableCameraSystem|CameraPose|Physical")
+	float SensorHeight { 18.67f };
+
+	/** Lens aperture in f-stops. Used for DoF when PhysicalCameraBlendWeight > 0. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "ComposableCameraSystem|CameraPose|Physical")
+	float Aperture { 2.8f };
+
+	/** Focus distance in world units. <= 0 means "no DoF override" (sentinel). */
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "ComposableCameraSystem|CameraPose|Physical")
+	float FocusDistance { -1.f };
+
+	/** Shutter speed in 1/seconds. Used for auto-exposure when PhysicalCameraBlendWeight > 0. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "ComposableCameraSystem|CameraPose|Physical")
+	float ShutterSpeed { 60.f };
+
+	/** Sensor sensitivity in ISO. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "ComposableCameraSystem|CameraPose|Physical")
+	float ISO { 100.f };
+
+	/** Number of blades in the lens diaphragm (affects bokeh shape). */
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "ComposableCameraSystem|CameraPose|Physical")
+	int32 DiaphragmBladeCount { 8 };
+
+	/** Anamorphic squeeze factor. 1.0 = spherical. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "ComposableCameraSystem|CameraPose|Physical")
+	float SqueezeFactor { 1.f };
+
+	/** Sensor overscan percentage (0 = none). */
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "ComposableCameraSystem|CameraPose|Physical")
+	float Overscan { 0.f };
+
+	/**
+	 * Blend weight for physical-camera post-process contribution.
+	 * 0 = skip ApplyPhysicalCameraSettings entirely (no DoF/exposure override).
+	 * 1 = apply physical settings at full strength.
+	 * Naturally gates the fade-in of DoF during non-physical -> physical transitions.
+	 */
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "ComposableCameraSystem|CameraPose|Physical")
+	float PhysicalCameraBlendWeight { 0.f };
+
+	// --- Projection & aspect ---
+
+	/** Projection mode (Perspective or Orthographic). Snapped at 50% blend. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "ComposableCameraSystem|CameraPose|Projection")
+	TEnumAsByte<ECameraProjectionMode::Type> ProjectionMode { ECameraProjectionMode::Perspective };
+
+	/** Whether to constrain aspect ratio (letterbox). Snapped at 50% blend. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "ComposableCameraSystem|CameraPose|Projection")
+	bool ConstrainAspectRatio { false };
+
+	/** Whether to override the default aspect ratio axis constraint. Snapped at 50% blend. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "ComposableCameraSystem|CameraPose|Projection")
+	bool OverrideAspectRatioAxisConstraint { false };
+
+	/** Axis constraint (only honored when OverrideAspectRatioAxisConstraint is true). Snapped at 50% blend. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "ComposableCameraSystem|CameraPose|Projection")
+	TEnumAsByte<EAspectRatioAxisConstraint> AspectRatioAxisConstraint { EAspectRatioAxisConstraint::AspectRatio_MaintainYFOV };
+
+	/** Orthographic view width in world units (only honored when ProjectionMode = Orthographic). */
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "ComposableCameraSystem|CameraPose|Projection")
+	float OrthographicWidth { 512.f };
+
+	/** Ortho near clip plane (only honored when ProjectionMode = Orthographic). */
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "ComposableCameraSystem|CameraPose|Projection")
+	float OrthoNearClipPlane { 0.f };
+
+	/** Ortho far clip plane (only honored when ProjectionMode = Orthographic). */
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "ComposableCameraSystem|CameraPose|Projection")
+	float OrthoFarClipPlane { 10000.f };
+
+public:
+	// --- API ---
+
+	/**
+	 * Resolve the effective horizontal FOV in degrees.
+	 * Uses FocalLength + SensorWidth if FocalLength > 0, otherwise uses FieldOfView directly.
+	 * Falls back to a reasonable default if both are unset.
+	 */
+	COMPOSABLECAMERASYSTEM_API double GetEffectiveFieldOfView() const;
+
+	/**
+	 * Set FOV in degrees, clearing the FocalLength sentinel so this pose is unambiguously in degrees mode.
+	 * Nodes that produce an FOV in degrees (like FieldOfViewNode) should call this instead of assigning FieldOfView directly.
+	 */
+	COMPOSABLECAMERASYSTEM_API void SetFieldOfViewDegrees(double InFieldOfViewDegrees);
+
+	/**
+	 * Apply physical-camera-derived settings (DoF, auto-exposure) to a post-process settings block.
+	 * No-op if PhysicalCameraBlendWeight <= 0. Scales contribution by PhysicalCameraBlendWeight.
+	 * Mirrors GameplayCameras' FCameraPose::ApplyPhysicalCameraSettings.
+	 *
+	 * @param PostProcessSettings  Target to modify.
+	 * @param bOverwriteSettings   If true, overwrites already-set post-process entries; else only writes unset ones.
+	 * @return true if any settings were written, false if the call was a no-op.
+	 */
+	COMPOSABLECAMERASYSTEM_API bool ApplyPhysicalCameraSettings(FPostProcessSettings& PostProcessSettings, bool bOverwriteSettings = false) const;
+
+	/**
+	 * Blend this pose toward Other by OtherWeight in [0, 1].
+	 * Blend rules (see struct comment for categories):
+	 *   - Position: linear lerp.
+	 *   - Rotation: delta-angle lerp (normalized).
+	 *   - FOV: resolve both sides via GetEffectiveFieldOfView(), lerp degrees, emit degrees-mode result (FocalLength = -1).
+	 *   - Physical numerics: linear lerp.
+	 *   - Sentinel fields (FocusDistance): LerpOptional — inherit valid side if the other is unset.
+	 *   - Projection booleans/enums: snap at OtherWeight >= 0.5.
+	 */
+	COMPOSABLECAMERASYSTEM_API void BlendBy(const FComposableCameraPose& Other, float OtherWeight);
 };
 
 /**

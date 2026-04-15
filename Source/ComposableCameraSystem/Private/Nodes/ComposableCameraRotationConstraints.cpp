@@ -85,39 +85,125 @@ void UComposableCameraRotationConstraints::GetPinDeclarations_Implementation(TAr
 {
 	FComposableCameraNodePinDeclaration PinDecl;
 
+	// bConstrainYaw Input
+	PinDecl = {};
+	PinDecl.PinName = TEXT("bConstrainYaw");
+	PinDecl.DisplayName = NSLOCTEXT("ComposableCameraRotationConstraints", "bConstrainYaw", "Constrain Yaw");
+	PinDecl.Direction = EComposableCameraPinDirection::Input;
+	PinDecl.PinType = EComposableCameraPinType::Bool;
+	PinDecl.bRequired = false;
+	PinDecl.bDefaultAsPin = false;
+	PinDecl.DefaultValueString = bConstrainYaw ? TEXT("true") : TEXT("false");
+	PinDecl.Tooltip = NSLOCTEXT("ComposableCameraRotationConstraints", "bConstrainYawTip", "Enable yaw constraint.");
+	OutPins.Add(PinDecl);
+
+	// ConstrainYawType Input
+	PinDecl = {};
+	PinDecl.PinName = TEXT("ConstrainYawType");
+	PinDecl.DisplayName = NSLOCTEXT("ComposableCameraRotationConstraints", "ConstrainYawType", "Constrain Yaw Type");
+	PinDecl.Direction = EComposableCameraPinDirection::Input;
+	PinDecl.PinType = EComposableCameraPinType::Enum;
+	PinDecl.EnumType = StaticEnum<EComposableCameraRotationConstrainType>();
+	PinDecl.bRequired = false;
+	PinDecl.bDefaultAsPin = false;
+	PinDecl.DefaultValueString = PinDecl.EnumType ? PinDecl.EnumType->GetNameStringByValue(static_cast<int64>(ConstrainYawType)) : FString();
+	PinDecl.Tooltip = NSLOCTEXT("ComposableCameraRotationConstraints", "ConstrainYawTypeTip",
+		"Selects the reference frame for the yaw constraint — WorldSpace, ActorSpace, or VectorSpace.");
+	OutPins.Add(PinDecl);
+
 	// YawRange Input
+	PinDecl = {};
 	PinDecl.PinName = TEXT("YawRange");
 	PinDecl.DisplayName = NSLOCTEXT("ComposableCameraRotationConstraints", "YawRange", "Yaw Range");
 	PinDecl.Direction = EComposableCameraPinDirection::Input;
 	PinDecl.PinType = EComposableCameraPinType::Vector2D;
 	PinDecl.bRequired = false;
+	PinDecl.bDefaultAsPin = false;
+	PinDecl.DefaultValueString = YawRange.ToString();
 	PinDecl.Tooltip = NSLOCTEXT("ComposableCameraRotationConstraints", "YawRangeTip", "Yaw range in reference frame.");
 	OutPins.Add(PinDecl);
 
-	// PitchRange Input
-	PinDecl.PinName = TEXT("PitchRange");
-	PinDecl.DisplayName = NSLOCTEXT("ComposableCameraRotationConstraints", "PitchRange", "Pitch Range");
+	// VectorForYawConstrain Input
+	PinDecl = {};
+	PinDecl.PinName = TEXT("VectorForYawConstrain");
+	PinDecl.DisplayName = NSLOCTEXT("ComposableCameraRotationConstraints", "VectorForYawConstrain", "Vector For Yaw Constrain");
 	PinDecl.Direction = EComposableCameraPinDirection::Input;
-	PinDecl.PinType = EComposableCameraPinType::Vector2D;
+	PinDecl.PinType = EComposableCameraPinType::Vector3D;
 	PinDecl.bRequired = false;
-	PinDecl.Tooltip = NSLOCTEXT("ComposableCameraRotationConstraints", "PitchRangeTip", "Pitch range in reference frame.");
+	PinDecl.bDefaultAsPin = false;
+	PinDecl.DefaultValueString = VectorForYawConstrain.ToString();
+	PinDecl.Tooltip = NSLOCTEXT("ComposableCameraRotationConstraints", "VectorForYawConstrainTip", "Forward vector for the yaw reference frame when ConstrainYawType is VectorSpace.");
 	OutPins.Add(PinDecl);
 
 	// ActorForYawConstrain Input
+	PinDecl = {};
 	PinDecl.PinName = TEXT("ActorForYawConstrain");
 	PinDecl.DisplayName = NSLOCTEXT("ComposableCameraRotationConstraints", "ActorForYawConstrain", "Actor For Yaw Constrain");
 	PinDecl.Direction = EComposableCameraPinDirection::Input;
 	PinDecl.PinType = EComposableCameraPinType::Actor;
 	PinDecl.bRequired = false;
+	PinDecl.bDefaultAsPin = false;
 	PinDecl.Tooltip = NSLOCTEXT("ComposableCameraRotationConstraints", "ActorForYawConstrainTip", "Reference actor for yaw when ActorSpace.");
 	OutPins.Add(PinDecl);
 
+	// bConstrainPitch Input
+	PinDecl = {};
+	PinDecl.PinName = TEXT("bConstrainPitch");
+	PinDecl.DisplayName = NSLOCTEXT("ComposableCameraRotationConstraints", "bConstrainPitch", "Constrain Pitch");
+	PinDecl.Direction = EComposableCameraPinDirection::Input;
+	PinDecl.PinType = EComposableCameraPinType::Bool;
+	PinDecl.bRequired = false;
+	PinDecl.bDefaultAsPin = false;
+	PinDecl.DefaultValueString = bConstrainPitch ? TEXT("true") : TEXT("false");
+	PinDecl.Tooltip = NSLOCTEXT("ComposableCameraRotationConstraints", "bConstrainPitchTip", "Enable pitch constraint.");
+	OutPins.Add(PinDecl);
+
+	// ConstrainPitchType Input
+	PinDecl = {};
+	PinDecl.PinName = TEXT("ConstrainPitchType");
+	PinDecl.DisplayName = NSLOCTEXT("ComposableCameraRotationConstraints", "ConstrainPitchType", "Constrain Pitch Type");
+	PinDecl.Direction = EComposableCameraPinDirection::Input;
+	PinDecl.PinType = EComposableCameraPinType::Enum;
+	PinDecl.EnumType = StaticEnum<EComposableCameraRotationConstrainType>();
+	PinDecl.bRequired = false;
+	PinDecl.bDefaultAsPin = false;
+	PinDecl.DefaultValueString = PinDecl.EnumType ? PinDecl.EnumType->GetNameStringByValue(static_cast<int64>(ConstrainPitchType)) : FString();
+	PinDecl.Tooltip = NSLOCTEXT("ComposableCameraRotationConstraints", "ConstrainPitchTypeTip",
+		"Selects the reference frame for the pitch constraint — WorldSpace, ActorSpace, or VectorSpace.");
+	OutPins.Add(PinDecl);
+
+	// PitchRange Input
+	PinDecl = {};
+	PinDecl.PinName = TEXT("PitchRange");
+	PinDecl.DisplayName = NSLOCTEXT("ComposableCameraRotationConstraints", "PitchRange", "Pitch Range");
+	PinDecl.Direction = EComposableCameraPinDirection::Input;
+	PinDecl.PinType = EComposableCameraPinType::Vector2D;
+	PinDecl.bRequired = false;
+	PinDecl.bDefaultAsPin = false;
+	PinDecl.DefaultValueString = PitchRange.ToString();
+	PinDecl.Tooltip = NSLOCTEXT("ComposableCameraRotationConstraints", "PitchRangeTip", "Pitch range in reference frame.");
+	OutPins.Add(PinDecl);
+
+	// VectorForPitchConstrain Input
+	PinDecl = {};
+	PinDecl.PinName = TEXT("VectorForPitchConstrain");
+	PinDecl.DisplayName = NSLOCTEXT("ComposableCameraRotationConstraints", "VectorForPitchConstrain", "Vector For Pitch Constrain");
+	PinDecl.Direction = EComposableCameraPinDirection::Input;
+	PinDecl.PinType = EComposableCameraPinType::Vector3D;
+	PinDecl.bRequired = false;
+	PinDecl.bDefaultAsPin = false;
+	PinDecl.DefaultValueString = VectorForPitchConstrain.ToString();
+	PinDecl.Tooltip = NSLOCTEXT("ComposableCameraRotationConstraints", "VectorForPitchConstrainTip", "Forward vector for the pitch reference frame when ConstrainPitchType is VectorSpace.");
+	OutPins.Add(PinDecl);
+
 	// ActorForPitchConstrain Input
+	PinDecl = {};
 	PinDecl.PinName = TEXT("ActorForPitchConstrain");
 	PinDecl.DisplayName = NSLOCTEXT("ComposableCameraRotationConstraints", "ActorForPitchConstrain", "Actor For Pitch Constrain");
 	PinDecl.Direction = EComposableCameraPinDirection::Input;
 	PinDecl.PinType = EComposableCameraPinType::Actor;
 	PinDecl.bRequired = false;
+	PinDecl.bDefaultAsPin = false;
 	PinDecl.Tooltip = NSLOCTEXT("ComposableCameraRotationConstraints", "ActorForPitchConstrainTip", "Reference actor for pitch when ActorSpace.");
 	OutPins.Add(PinDecl);
 }

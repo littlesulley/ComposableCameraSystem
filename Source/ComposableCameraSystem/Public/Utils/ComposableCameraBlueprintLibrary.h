@@ -8,6 +8,7 @@
 #include "Cameras/ComposableCameraCameraBase.h"
 #include "Core/ComposableCameraParameterBlock.h"
 #include "Transitions/ComposableCameraTransitionBase.h"
+#include "UObject/UnrealType.h"
 #include "ComposableCameraBlueprintLibrary.generated.h"
 
 class AComposableCameraPlayerCameraManager;
@@ -213,11 +214,52 @@ public:
 		{
 			P_NATIVE_BEGIN
 
-			// Copy the raw value bytes into the parameter block.
+			// Enum pin special case: the runtime data block stores enum slots as
+			// normalized int64 (see the EComposableCameraPinType::Enum branch of
+			// GetPinTypeSize and the WriteEnumInt64ToProperty helper in
+			// ComposableCameraCameraNodeBase.cpp). Blueprint enum pins, however,
+			// arrive here as either FEnumProperty (underlying numeric width
+			// uint8/int32/int64) or FByteProperty-with-Enum (always 1 byte). If
+			// we copied the native bytes verbatim the slot would be the wrong
+			// width and the eventual ApplyParameterBlock memcpy would either
+			// truncate or short-write. Instead, read the value as int64 via the
+			// numeric property API and store the canonical 8-byte form so the
+			// downstream copy and the ResolveAllInputPins narrow-cast both find
+			// what they expect.
 			FComposableCameraParameterValue Entry;
-			const int32 Size = ValueProperty->GetSize();
-			Entry.Data.SetNumUninitialized(Size);
-			ValueProperty->CopyCompleteValue(Entry.Data.GetData(), ValuePtr);
+			bool bHandled = false;
+			if (const FEnumProperty* EnumProp = CastField<FEnumProperty>(ValueProperty))
+			{
+				if (const FNumericProperty* Underlying = EnumProp->GetUnderlyingProperty())
+				{
+					const int64 Value = Underlying->GetSignedIntPropertyValue(ValuePtr);
+					Entry.PinType = EComposableCameraPinType::Enum;
+					Entry.Data.SetNumUninitialized(sizeof(int64));
+					FMemory::Memcpy(Entry.Data.GetData(), &Value, sizeof(int64));
+					bHandled = true;
+				}
+			}
+			else if (const FByteProperty* ByteProp = CastField<FByteProperty>(ValueProperty))
+			{
+				if (ByteProp->GetIntPropertyEnum() != nullptr)
+				{
+					const int64 Value = ByteProp->GetSignedIntPropertyValue(ValuePtr);
+					Entry.PinType = EComposableCameraPinType::Enum;
+					Entry.Data.SetNumUninitialized(sizeof(int64));
+					FMemory::Memcpy(Entry.Data.GetData(), &Value, sizeof(int64));
+					bHandled = true;
+				}
+			}
+
+			if (!bHandled)
+			{
+				// Default path: any non-enum POD-shaped value (including FName,
+				// which is 8 bytes and memcpy-safe). Copy the property's bytes
+				// verbatim — the data block slot's GetPinTypeSize matches.
+				const int32 Size = ValueProperty->GetSize();
+				Entry.Data.SetNumUninitialized(Size);
+				ValueProperty->CopyCompleteValue(Entry.Data.GetData(), ValuePtr);
+			}
 			ParameterBlock.Values.Add(ParameterName, MoveTemp(Entry));
 
 			P_NATIVE_END

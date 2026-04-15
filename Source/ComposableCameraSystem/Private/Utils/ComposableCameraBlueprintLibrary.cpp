@@ -105,7 +105,7 @@ AComposableCameraCameraBase* UComposableCameraBlueprintLibrary::ActivateComposab
 
 		FString ParseError;
 		const bool bOk = FComposableCameraParameterBlock::ApplyStringValue(
-			Params, Param.ParameterName, Param.PinType, Param.StructType, ValueString, &ParseError);
+			Params, Param.ParameterName, Param.PinType, Param.StructType, Param.EnumType, ValueString, &ParseError);
 
 		if (!bOk)
 		{
@@ -122,7 +122,7 @@ AComposableCameraCameraBase* UComposableCameraBlueprintLibrary::ActivateComposab
 			{
 				FString FallbackError;
 				FComposableCameraParameterBlock::ApplyStringValue(
-					Params, Param.ParameterName, Param.PinType, Param.StructType,
+					Params, Param.ParameterName, Param.PinType, Param.StructType, Param.EnumType,
 					ParamDefault, &FallbackError);
 			}
 		}
@@ -154,7 +154,7 @@ AComposableCameraCameraBase* UComposableCameraBlueprintLibrary::ActivateComposab
 
 		FString ParseError;
 		const bool bOk = FComposableCameraParameterBlock::ApplyStringValue(
-			Params, Var.VariableName, Var.VariableType, Var.StructType, ValueString, &ParseError);
+			Params, Var.VariableName, Var.VariableType, Var.StructType, Var.EnumType, ValueString, &ParseError);
 
 		if (!bOk)
 		{
@@ -168,7 +168,7 @@ AComposableCameraCameraBase* UComposableCameraBlueprintLibrary::ActivateComposab
 			{
 				FString FallbackError;
 				FComposableCameraParameterBlock::ApplyStringValue(
-					Params, Var.VariableName, Var.VariableType, Var.StructType,
+					Params, Var.VariableName, Var.VariableType, Var.StructType, Var.EnumType,
 					Var.InitialValueString, &FallbackError);
 			}
 		}

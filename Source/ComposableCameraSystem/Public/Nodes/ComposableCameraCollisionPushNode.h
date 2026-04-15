@@ -37,6 +37,13 @@ public:
 protected:
 	
 public:
+	// Actor from which collision detection originates (pivot). Typically driven at
+	// runtime via a context parameter (e.g. the player pawn); kept as a UPROPERTY
+	// so the Details panel renders a proper object picker and an authored default
+	// is available when unwired.
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = InputParameters)
+	TObjectPtr<AActor> PivotActor;
+
 	// Collision channel for trace collision.
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = InputParameters)
 	TEnumAsByte<ETraceTypeQuery> TraceCollisionChannel;
@@ -75,11 +82,11 @@ public:
 
 	// Push interpolator when triggering collision resolution. For both self collision and trace collision.
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = InputParameters)
-	UComposableCameraInterpolatorBase* PushInterpolator;
+	TObjectPtr<UComposableCameraInterpolatorBase> PushInterpolator;
 
 	// Pull interpolator when resuming from collision resolution. For both self collision and trace collision.
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = InputParameters)
-	UComposableCameraInterpolatorBase* PullInterpolator;
+	TObjectPtr<UComposableCameraInterpolatorBase> PullInterpolator;
 
 	// World space Z offset to the pivot actor's position, used as the collision detection origin.
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = InputParameters, meta = (EditCondition = "bUseBoneForDetection == false"))

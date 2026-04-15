@@ -17,6 +17,7 @@ struct FComposableCameraParameterTableRow;
 class FStructOnScope;
 class UComposableCameraTypeAsset;
 class UScriptStruct;
+class UEnum;
 
 /**
  * Property type customization for FComposableCameraExposedParameterValues —
@@ -100,11 +101,13 @@ private:
 	void SetParameterString(FName ParameterName, const FString& NewValue);
 
 	/** Build a type-appropriate value widget that reads/writes a named entry in
-	 *  the wrapper's Values map. Falls back to a text box for unsupported types. */
+	 *  the wrapper's Values map. Falls back to a text box for unsupported types.
+	 *  EnumType is consulted only when PinType == Enum; ignored otherwise. */
 	TSharedRef<SWidget> BuildTypedValueWidget(
 		FName ParameterName,
 		EComposableCameraPinType PinType,
 		UScriptStruct* StructType,
+		UEnum* EnumType,
 		const FString& DefaultValue);
 
 	/** Build a horizontal row of N labelled numeric spinners for multi-component
@@ -129,8 +132,9 @@ private:
 		UScriptStruct* InStructType,
 		const FString& DefaultValue);
 
-	/** Tooltip describing the expected serialized format for a given pin type. */
-	FText GetFormatHint(EComposableCameraPinType PinType, UScriptStruct* StructType) const;
+	/** Tooltip describing the expected serialized format for a given pin type.
+	 *  EnumType is consulted only when PinType == Enum; ignored otherwise. */
+	FText GetFormatHint(EComposableCameraPinType PinType, UScriptStruct* StructType, UEnum* EnumType) const;
 
 	/** Unbind the asset-change delegate if currently bound. */
 	void UnbindAssetChangeDelegate();

@@ -47,11 +47,13 @@ FComposableCameraPose UComposableCameraCylindricalTransition::OnEvaluate_Impleme
 		UKismetMathLibrary::FindLookAtRotation(ResultPosition, ResultPivot) :
 		(CurrentSourcePose.Rotation + BlendPct * (CurrentTargetPose.Rotation - CurrentSourcePose.Rotation).GetNormalized()).GetNormalized();
 
-	// Returns output pose.
-	FComposableCameraPose ResultPose {};
+	// Blend ALL pose fields (FOV, physical camera, projection, etc.) using the shared BlendBy rule.
+	// Position/Rotation are then overwritten below with the cylindrical path values — this transition's
+	// whole point is that positional/rotational blending follow a curved trajectory, not a straight lerp.
+	FComposableCameraPose ResultPose = CurrentSourcePose;
+	ResultPose.BlendBy(CurrentTargetPose, BlendPct);
 	ResultPose.Position = ResultPosition;
 	ResultPose.Rotation = ResultRotation;
-	ResultPose.FieldOfView = FMath::Lerp(CurrentSourcePose.FieldOfView, CurrentTargetPose.FieldOfView, BlendPct);
 
 	// Draw debug info.
 	if (AComposableCameraPlayerCameraManager* PCM = UComposableCameraBlueprintLibrary::GetComposableCameraPlayerCameraManager(this, 0))

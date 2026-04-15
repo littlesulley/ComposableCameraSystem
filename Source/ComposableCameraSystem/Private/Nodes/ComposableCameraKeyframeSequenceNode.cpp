@@ -16,30 +16,36 @@ void UComposableCameraKeyframeSequenceNode::OnInitialize_Implementation()
 {
 	Super::OnInitialize_Implementation();
 
+	// OnInitialize runs before TickNode's auto-resolve prologue, so we read the
+	// pin-backed UPROPERTYs through the fallback-aware GetInputPinValue path
+	// (wire / exposed / override / UPROPERTY).
+	AActor* InRelativeActor = GetInputPinValue<AActor*>("RelativeActor");
+	ULevelSequence* InCameraSequence = GetInputPinValue<ULevelSequence*>("CameraSequence");
+
 	if (Method == EComposableCameraRelativeFixedPoseMethod::RelativeToActor)
 	{
-		if (!RelativeActor)
+		if (!IsValid(InRelativeActor))
 		{
 			return;
 		}
-		
-		if (USkeletalMeshComponent* Comp = RelativeActor->GetComponentByClass<USkeletalMeshComponent>())
+
+		if (USkeletalMeshComponent* Comp = InRelativeActor->GetComponentByClass<USkeletalMeshComponent>())
 		{
 			SkeletalMeshComponentForRelativeActor = Comp;
 		}
 	}
 
-	if (CameraSequence)
+	if (InCameraSequence)
 	{
 		ALevelSequenceActor* LevelSequenceActor = nullptr;
 		CameraPlayer = ULevelSequencePlayer::CreateLevelSequencePlayer(
 			GetWorld(),
-			CameraSequence,
+			InCameraSequence,
 			FMovieSceneSequencePlaybackSettings{},
 			LevelSequenceActor
 		);
 
-		if (UMovieScene* MovieScene = CameraSequence->GetMovieScene())
+		if (UMovieScene* MovieScene = InCameraSequence->GetMovieScene())
 		{
 			for (const FMovieSceneBinding& Binding : MovieScene->GetBindings())
 			{
@@ -69,7 +75,7 @@ void UComposableCameraKeyframeSequenceNode::OnInitialize_Implementation()
 		}
 	}
 
-	bValidCameraSequence = CameraSequence && CameraPlayer && FOVSection && TransformSection;
+	bValidCameraSequence = InCameraSequence && CameraPlayer && FOVSection && TransformSection;
 }
 
 void UComposableCameraKeyframeSequenceNode::OnTickNode_Implementation(float DeltaTime,
@@ -111,9 +117,11 @@ void UComposableCameraKeyframeSequenceNode::OnTickNode_Implementation(float Delt
 	auto [TargetFOV, TargetTransform] = GetTargetTransform(TickTime);
 
 	// Apply fov and transform.
+	// Use SetFieldOfViewDegrees so the FocalLength sentinel is cleared and this pose is unambiguously
+	// in degrees mode — required so GetEffectiveFieldOfView() returns our value, not a derived focal-length FOV.
 	if (TargetFOV != -1.f)
 	{
-		OutCameraPose.FieldOfView = TargetFOV;
+		OutCameraPose.SetFieldOfViewDegrees(TargetFOV);
 	}
 	OutCameraPose.Position = UKismetMathLibrary::TransformLocation(CurrentRelativeTransform, TargetTransform.GetLocation());
 	OutCameraPose.Rotation = UKismetMathLibrary::TransformRotation(CurrentRelativeTransform, TargetTransform.GetRotation().Rotator());
@@ -142,12 +150,38 @@ void UComposableCameraKeyframeSequenceNode::GetPinDeclarations_Implementation(TA
 {
 	FComposableCameraNodePinDeclaration PinDecl;
 
+	// Input: CameraSequence
+	PinDecl = {};
+	PinDecl.PinName = TEXT("CameraSequence");
+	PinDecl.DisplayName = NSLOCTEXT("UComposableCameraKeyframeSequenceNode", "CameraSequence", "Camera Sequence");
+	PinDecl.Direction = EComposableCameraPinDirection::Input;
+	PinDecl.PinType = EComposableCameraPinType::Object;
+	PinDecl.bRequired = false;
+	PinDecl.Tooltip = NSLOCTEXT("UComposableCameraKeyframeSequenceNode", "CameraSequenceTip", "Level sequence asset containing camera keyframes (transform + optional FOV).");
+	OutPins.Add(PinDecl);
+
+	// Input: Method — selects whether the reference frame comes from RelativeTransform or RelativeActor.
+	PinDecl = {};
+	PinDecl.PinName = TEXT("Method");
+	PinDecl.DisplayName = NSLOCTEXT("UComposableCameraKeyframeSequenceNode", "Method", "Method");
+	PinDecl.Direction = EComposableCameraPinDirection::Input;
+	PinDecl.PinType = EComposableCameraPinType::Enum;
+	PinDecl.EnumType = StaticEnum<EComposableCameraRelativeFixedPoseMethod>();
+	PinDecl.bRequired = false;
+	PinDecl.bDefaultAsPin = false;
+	PinDecl.DefaultValueString = PinDecl.EnumType ? PinDecl.EnumType->GetNameStringByValue(static_cast<int64>(Method)) : FString();
+	PinDecl.Tooltip = NSLOCTEXT("UComposableCameraKeyframeSequenceNode", "MethodTip",
+		"Selects whether the sequence plays relative to RelativeTransform or to RelativeActor.");
+	OutPins.Add(PinDecl);
+
 	// Input: RelativeTransform
+	PinDecl = {};
 	PinDecl.PinName = TEXT("RelativeTransform");
 	PinDecl.DisplayName = NSLOCTEXT("UComposableCameraKeyframeSequenceNode", "RelativeTransform", "Relative Transform");
 	PinDecl.Direction = EComposableCameraPinDirection::Input;
 	PinDecl.PinType = EComposableCameraPinType::Transform;
 	PinDecl.bRequired = false;
+	PinDecl.bDefaultAsPin = false;
 	PinDecl.Tooltip = NSLOCTEXT("UComposableCameraKeyframeSequenceNode", "RelativeTransformTip", "Base transform when Method is RelativeToTransform.");
 	OutPins.Add(PinDecl);
 
@@ -160,12 +194,27 @@ void UComposableCameraKeyframeSequenceNode::GetPinDeclarations_Implementation(TA
 	PinDecl.Tooltip = NSLOCTEXT("UComposableCameraKeyframeSequenceNode", "RelativeActorTip", "Reference actor when Method is RelativeToActor.");
 	OutPins.Add(PinDecl);
 
+	// Input: RelativeSocket — skeletal-mesh socket on RelativeActor (optional).
+	PinDecl = {};
+	PinDecl.PinName = TEXT("RelativeSocket");
+	PinDecl.DisplayName = NSLOCTEXT("UComposableCameraKeyframeSequenceNode", "RelativeSocket", "Relative Socket");
+	PinDecl.Direction = EComposableCameraPinDirection::Input;
+	PinDecl.PinType = EComposableCameraPinType::Name;
+	PinDecl.bRequired = false;
+	PinDecl.bDefaultAsPin = false;
+	PinDecl.DefaultValueString = RelativeSocket.ToString();
+	PinDecl.Tooltip = NSLOCTEXT("UComposableCameraKeyframeSequenceNode", "RelativeSocketTip",
+		"Skeletal-mesh socket on RelativeActor used as the reference frame. If unresolved, the actor's transform is used instead.");
+	OutPins.Add(PinDecl);
+
 	// Input: StayAtLastFrameTime
+	PinDecl = {};
 	PinDecl.PinName = TEXT("StayAtLastFrameTime");
 	PinDecl.DisplayName = NSLOCTEXT("UComposableCameraKeyframeSequenceNode", "StayAtLastFrameTime", "Stay At Last Frame Time");
 	PinDecl.Direction = EComposableCameraPinDirection::Input;
 	PinDecl.PinType = EComposableCameraPinType::Float;
 	PinDecl.bRequired = false;
+	PinDecl.bDefaultAsPin = false;
 	PinDecl.Tooltip = NSLOCTEXT("UComposableCameraKeyframeSequenceNode", "StayAtLastFrameTimeTip", "Time to stay at last frame.");
 	OutPins.Add(PinDecl);
 }

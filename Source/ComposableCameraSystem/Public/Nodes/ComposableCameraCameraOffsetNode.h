@@ -22,6 +22,13 @@ public:
 protected:
 	
 public:
+	// Pivot position the camera offset is applied from. Almost always driven by an
+	// upstream pivot-producing node via wire (or a context parameter); kept as a
+	// UPROPERTY so the Details panel renders a native FVector widget and an
+	// authored default is available when unwired.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters)
+	FVector PivotPosition { FVector::ZeroVector };
+
 	// Offset to apply on the pivot position in camera space.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters)
 	FVector CameraOffset;

@@ -36,6 +36,13 @@ public:
 protected:
 	
 public:
+	// The pivot position to apply the offset to. Almost always driven by an upstream
+	// pivot-producing node via wire (or a context parameter); kept as a UPROPERTY
+	// so the Details panel renders a native FVector widget and an authored default
+	// is available when unwired.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters)
+	FVector PivotPosition { FVector::ZeroVector };
+
 	// In which space you'd like to apply offset, can be world, camera, or actor local.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters)
 	ECameraPivotOffset PivotOffsetType = ECameraPivotOffset::WorldSpace;
@@ -49,5 +56,5 @@ public:
 	FVector PivotOffset = FVector::ZeroVector;
 
 private:
-	void UpdatePivotOffset(const FComposableCameraPose& CurrentCameraPose);
+	void UpdatePivotOffset(const FVector& InPivot, const FComposableCameraPose& CurrentCameraPose);
 };

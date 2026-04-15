@@ -341,6 +341,18 @@ void FComposableCameraNodeGraphNodeDetails::CustomizeDetails(IDetailLayoutBuilde
 				{
 					MatchedPinNames.Add(CompoundPinName);
 
+					// Same decoupling pattern as Category A: REPLACE the row's
+					// underlying EditCondition with an always-true attribute so
+					// the pin control strip stays interactive regardless of
+					// meta=EditCondition on the subobject child property.
+					// IDetailPropertyRow::IsEnabled only narrows, it cannot
+					// widen — EditCondition override is the only way to break
+					// the auto-disable cascade. The native value widget below
+					// is still greyed via IPropertyHandle::IsEditable() when
+					// the real EditCondition evaluates to false.
+					SubRow->EditCondition(TAttribute<bool>(true), FOnBooleanValueChanged());
+					TSharedPtr<IPropertyHandle> SubRowHandle = SubRow->GetPropertyHandle();
+
 					// Pin-matched child: indented name + value + pin controls.
 					SubRow->CustomWidget(/*bShowChildren=*/ true)
 					.NameContent()
@@ -355,7 +367,14 @@ void FComposableCameraNodeGraphNodeDetails::CustomizeDetails(IDetailLayoutBuilde
 						.FillWidth(1.f)
 						.VAlign(VAlign_Center)
 						[
-							SubValueWidget.ToSharedRef()
+							SNew(SBox)
+							.IsEnabled_Lambda([SubRowHandle]()
+							{
+								return SubRowHandle.IsValid() && SubRowHandle->IsEditable();
+							})
+							[
+								SubValueWidget.ToSharedRef()
+							]
 						]
 
 						+ SHorizontalBox::Slot()
@@ -444,6 +463,22 @@ void FComposableCameraNodeGraphNodeDetails::CustomizeDetails(IDetailLayoutBuilde
 		// Category A: top-level pin-matched property.
 		const FName PinName = *FoundPinName;
 
+		// Decouple the row-wide enabled state from the property's
+		// meta=EditCondition so the inline "As Pin" checkbox never greys out
+		// even when a sibling EditCondition evaluates to false (e.g.
+		// FilmbackNode's AspectRatioAxisConstraint gated by
+		// bOverrideAspectRatioAxisConstraint). IDetailPropertyRow::IsEnabled
+		// AND-combines with the auto-computed enabled state, so it can only
+		// narrow, not widen — instead we REPLACE the underlying EditCondition
+		// with an always-true attribute and no setter. This breaks the row's
+		// auto-disable cascade entirely. The native ValueWidget below is
+		// wrapped in an IsEnabled-driven SBox keyed off IPropertyHandle::
+		// IsEditable(), which still reflects the real metadata-driven state
+		// independent of this override — so only the pin control strip stays
+		// interactive when the property is non-editable.
+		Row->EditCondition(TAttribute<bool>(true), FOnBooleanValueChanged());
+		TSharedPtr<IPropertyHandle> RowHandle = Row->GetPropertyHandle();
+
 		// Extract the default value widget from the native row BEFORE
 		// switching to CustomWidget mode. The name widget is built
 		// manually — GetDefaultWidgets yields an empty/broken name for
@@ -468,7 +503,16 @@ void FComposableCameraNodeGraphNodeDetails::CustomizeDetails(IDetailLayoutBuilde
 			.FillWidth(1.f)
 			.VAlign(VAlign_Center)
 			[
-				ValueWidget.ToSharedRef()
+				// EditCondition / CPF_EditConst greying applied ONLY here, not
+				// to the pin control strip to the right.
+				SNew(SBox)
+				.IsEnabled_Lambda([RowHandle]()
+				{
+					return RowHandle.IsValid() && RowHandle->IsEditable();
+				})
+				[
+					ValueWidget.ToSharedRef()
+				]
 			]
 
 			+ SHorizontalBox::Slot()

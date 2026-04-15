@@ -23,7 +23,9 @@ void UComposableCameraPivotDampingNode::OnInitialize_Implementation()
 void UComposableCameraPivotDampingNode::OnTickNode_Implementation(float DeltaTime,
 	const FComposableCameraPose& CurrentCameraPose, FComposableCameraPose& OutCameraPose)
 {
-	FVector Pivot = GetInputPinValue<FVector>("PivotPosition");
+	// PivotPosition and bMaintainCameraSpacePivotPosition are pin-matched UPROPERTYs —
+	// already resolved by the base TickNode prologue. Read PivotPosition directly.
+	const FVector Pivot = PivotPosition;
 
 	FRotator CameraRotation = OutCameraPose.Rotation;
 	
@@ -129,15 +131,31 @@ void UComposableCameraPivotDampingNode::GetPinDeclarations_Implementation(TArray
 	PinDecl.Direction = EComposableCameraPinDirection::Input;
 	PinDecl.PinType = EComposableCameraPinType::Vector3D;
 	PinDecl.bRequired = true;
+	PinDecl.DefaultValueString = PivotPosition.ToString();
 	PinDecl.Tooltip = NSLOCTEXT("ComposableCameraPivotDampingNode", "PivotPositionTip", "Pivot position to damp.");
 	OutPins.Add(PinDecl);
 
+	// bMaintainCameraSpacePivotPosition Input
+	PinDecl = {};
+	PinDecl.PinName = TEXT("bMaintainCameraSpacePivotPosition");
+	PinDecl.DisplayName = NSLOCTEXT("ComposableCameraPivotDampingNode", "MaintainCSP", "Maintain Camera Space Pivot Position");
+	PinDecl.Direction = EComposableCameraPinDirection::Input;
+	PinDecl.PinType = EComposableCameraPinType::Bool;
+	PinDecl.bRequired = false;
+	PinDecl.bDefaultAsPin = false;
+	PinDecl.DefaultValueString = bMaintainCameraSpacePivotPosition ? TEXT("true") : TEXT("false");
+	PinDecl.Tooltip = NSLOCTEXT("ComposableCameraPivotDampingNode", "MaintainCSPTip",
+		"When true, keeps the pivot's camera-space position stable across camera-rotation changes before damping.");
+	OutPins.Add(PinDecl);
+
 	// PivotPosition Output
+	PinDecl = {};
 	PinDecl.PinName = TEXT("PivotPosition");
 	PinDecl.DisplayName = NSLOCTEXT("ComposableCameraPivotDampingNode", "PivotPositionOutput", "Pivot Position");
 	PinDecl.Direction = EComposableCameraPinDirection::Output;
 	PinDecl.PinType = EComposableCameraPinType::Vector3D;
 	PinDecl.bRequired = false;
+	PinDecl.DefaultValueString = FString();
 	PinDecl.Tooltip = NSLOCTEXT("ComposableCameraPivotDampingNode", "PivotPositionOutputTip", "Damped pivot position output.");
 	OutPins.Add(PinDecl);
 }

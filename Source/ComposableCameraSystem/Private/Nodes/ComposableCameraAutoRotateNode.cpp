@@ -11,14 +11,8 @@ void UComposableCameraAutoRotateNode::OnInitialize_Implementation()
 {
 	Super::OnInitialize_Implementation();
 
-	InterpolatorYaw_T = RotateInterpolatorForYaw ? RotateInterpolatorForYaw->BuildDoubleInterpolator() : nullptr;
-	InterpolatorPitch_T = RotateInterpolatorForPitch ? RotateInterpolatorForPitch->BuildDoubleInterpolator() : nullptr;
-}
-
-void UComposableCameraAutoRotateNode::SetAutoRotateMainDirectionFunction(
-	FOnReceiveAutoRotateMainDirection OnUpdateAutoRotateMainDirection)
-{
-	OnReceiveAutoRotateMainDirection = OnUpdateAutoRotateMainDirection;
+	InterpolatorYaw_T = IsValid(RotateInterpolatorForYaw) ? RotateInterpolatorForYaw->BuildDoubleInterpolator() : nullptr;
+	InterpolatorPitch_T = IsValid(RotateInterpolatorForPitch) ? RotateInterpolatorForPitch->BuildDoubleInterpolator() : nullptr;
 }
 
 std::pair<bool, bool> UComposableCameraAutoRotateNode::CheckIfInValidRange(const FVector2D& ValidRangeYaw, const FVector2D& ValidRangePitch, const FRotator& Rotation)
@@ -34,23 +28,27 @@ std::pair<bool, bool> UComposableCameraAutoRotateNode::CheckIfInValidRange(const
 void UComposableCameraAutoRotateNode::OnTickNode_Implementation(float DeltaTime,
                                                                 const FComposableCameraPose& CurrentCameraPose, FComposableCameraPose& OutCameraPose)
 {
-	if (!OnReceiveAutoRotateMainDirection.IsBound())
+	// MainDirection is a pin-matched UPROPERTY — the base TickNode prologue
+	// calls ResolveAllInputPins() before OnTickNode_Implementation runs, so the
+	// member already reflects the wired / exposed / default value for this frame.
+	if (MainDirection.IsNearlyZero())
 	{
-		UE_LOG(LogComposableCameraSystem, Error, TEXT("Delegate OnReceiveAutoRotateMainDirection is not bound to any function, will not proceed."))
+		UE_LOG(LogComposableCameraSystem, Error, TEXT("MainDirection is zero in AutoRotate node, will not proceed."))
 		return;
 	}
 
 	InputInterruptCooldownRemaining = FMath::Max(InputInterruptCooldownRemaining - DeltaTime, 0.f);
 	BeyondValidRangeCooldownRemaining = FMath::Max(BeyondValidRangeCooldownRemaining - DeltaTime, 0.f);
 
-	FVector MainDirection = OnReceiveAutoRotateMainDirection.Execute();
 	FRotator MainRotation = UKismetMathLibrary::MakeRotFromX(MainDirection);
 
 	FVector2D ValidRangeYaw { MainRotation.Yaw + YawRange[0], MainRotation.Yaw + YawRange[1] };
 	FVector2D ValidRangePitch { MainRotation.Pitch + PitchRange[0], MainRotation.Pitch + PitchRange[1] };
 
-	FVector2D CameraRotationInput = GetInputPinValue<FVector2D>("CameraRotationInput");
-	bool bHasUserInterrupt = !CameraRotationInput.IsNearlyZero();
+	// CameraRotationInput is a pin-matched UPROPERTY — the base TickNode prologue
+	// calls ResolveAllInputPins() before OnTickNode_Implementation runs, so the
+	// member already reflects the wired / exposed / default value for this frame.
+	const bool bHasUserInterrupt = !CameraRotationInput.IsNearlyZero();
 
 	if (bHasUserInterrupt)
 	{
@@ -123,7 +121,8 @@ void UComposableCameraAutoRotateNode::GetPinDeclarations_Implementation(TArray<F
 		PinDecl.Direction = EComposableCameraPinDirection::Input;
 		PinDecl.PinType = EComposableCameraPinType::Vector3D;
 		PinDecl.bRequired = false;
-		PinDecl.Tooltip = NSLOCTEXT("UComposableCameraAutoRotateNode", "MainDirectionTip", "The main direction for auto-rotation (replaces delegate).");
+		PinDecl.DefaultValueString = MainDirection.ToString();
+		PinDecl.Tooltip = NSLOCTEXT("UComposableCameraAutoRotateNode", "MainDirectionTip", "Reference forward direction the camera auto-rotates toward.");
 		OutPins.Add(PinDecl);
 	}
 
@@ -134,7 +133,86 @@ void UComposableCameraAutoRotateNode::GetPinDeclarations_Implementation(TArray<F
 		PinDecl.Direction = EComposableCameraPinDirection::Input;
 		PinDecl.PinType = EComposableCameraPinType::Vector2D;
 		PinDecl.bRequired = false;
+		PinDecl.DefaultValueString = CameraRotationInput.ToString();
 		PinDecl.Tooltip = NSLOCTEXT("UComposableCameraAutoRotateNode", "CameraRotationInputTip", "Camera rotation input for this frame.");
+		OutPins.Add(PinDecl);
+	}
+
+	{
+		FComposableCameraNodePinDeclaration PinDecl;
+		PinDecl.PinName = TEXT("YawRange");
+		PinDecl.DisplayName = NSLOCTEXT("UComposableCameraAutoRotateNode", "YawRange", "Yaw Range");
+		PinDecl.Direction = EComposableCameraPinDirection::Input;
+		PinDecl.PinType = EComposableCameraPinType::Vector2D;
+		PinDecl.bRequired = false;
+		PinDecl.bDefaultAsPin = false;
+		PinDecl.DefaultValueString = YawRange.ToString();
+		PinDecl.Tooltip = NSLOCTEXT("UComposableCameraAutoRotateNode", "YawRangeTip", "Yaw range around the main direction; beyond this range auto-rotation engages.");
+		OutPins.Add(PinDecl);
+	}
+
+	{
+		FComposableCameraNodePinDeclaration PinDecl;
+		PinDecl.PinName = TEXT("PitchRange");
+		PinDecl.DisplayName = NSLOCTEXT("UComposableCameraAutoRotateNode", "PitchRange", "Pitch Range");
+		PinDecl.Direction = EComposableCameraPinDirection::Input;
+		PinDecl.PinType = EComposableCameraPinType::Vector2D;
+		PinDecl.bRequired = false;
+		PinDecl.bDefaultAsPin = false;
+		PinDecl.DefaultValueString = PitchRange.ToString();
+		PinDecl.Tooltip = NSLOCTEXT("UComposableCameraAutoRotateNode", "PitchRangeTip", "Pitch range around the main direction; beyond this range auto-rotation engages (when bYawOnly is false).");
+		OutPins.Add(PinDecl);
+	}
+
+	{
+		FComposableCameraNodePinDeclaration PinDecl;
+		PinDecl.PinName = TEXT("bYawOnly");
+		PinDecl.DisplayName = NSLOCTEXT("UComposableCameraAutoRotateNode", "bYawOnly", "Yaw Only");
+		PinDecl.Direction = EComposableCameraPinDirection::Input;
+		PinDecl.PinType = EComposableCameraPinType::Bool;
+		PinDecl.bRequired = false;
+		PinDecl.bDefaultAsPin = false;
+		PinDecl.DefaultValueString = bYawOnly ? TEXT("true") : TEXT("false");
+		PinDecl.Tooltip = NSLOCTEXT("UComposableCameraAutoRotateNode", "bYawOnlyTip", "When true, only yaw is auto-rotated; pitch is left unchanged.");
+		OutPins.Add(PinDecl);
+	}
+
+	{
+		FComposableCameraNodePinDeclaration PinDecl;
+		PinDecl.PinName = TEXT("BeyondValidRangeCooldown");
+		PinDecl.DisplayName = NSLOCTEXT("UComposableCameraAutoRotateNode", "BeyondValidRangeCooldown", "Beyond Valid Range Cooldown");
+		PinDecl.Direction = EComposableCameraPinDirection::Input;
+		PinDecl.PinType = EComposableCameraPinType::Float;
+		PinDecl.bRequired = false;
+		PinDecl.bDefaultAsPin = false;
+		PinDecl.DefaultValueString = FString::SanitizeFloat(BeyondValidRangeCooldown);
+		PinDecl.Tooltip = NSLOCTEXT("UComposableCameraAutoRotateNode", "BeyondValidRangeCooldownTip", "Minimum time the camera must remain beyond the valid range before auto-rotation engages.");
+		OutPins.Add(PinDecl);
+	}
+
+	{
+		FComposableCameraNodePinDeclaration PinDecl;
+		PinDecl.PinName = TEXT("InputInterruptCooldown");
+		PinDecl.DisplayName = NSLOCTEXT("UComposableCameraAutoRotateNode", "InputInterruptCooldown", "Input Interrupt Cooldown");
+		PinDecl.Direction = EComposableCameraPinDirection::Input;
+		PinDecl.PinType = EComposableCameraPinType::Float;
+		PinDecl.bRequired = false;
+		PinDecl.bDefaultAsPin = false;
+		PinDecl.DefaultValueString = FString::SanitizeFloat(InputInterruptCooldown);
+		PinDecl.Tooltip = NSLOCTEXT("UComposableCameraAutoRotateNode", "InputInterruptCooldownTip", "After a user input interrupt, the minimum time to wait before auto-rotation re-engages.");
+		OutPins.Add(PinDecl);
+	}
+
+	{
+		FComposableCameraNodePinDeclaration PinDecl;
+		PinDecl.PinName = TEXT("MaxCountAfterInputInterrupt");
+		PinDecl.DisplayName = NSLOCTEXT("UComposableCameraAutoRotateNode", "MaxCountAfterInputInterrupt", "Max Count After Input Interrupt");
+		PinDecl.Direction = EComposableCameraPinDirection::Input;
+		PinDecl.PinType = EComposableCameraPinType::Int32;
+		PinDecl.bRequired = false;
+		PinDecl.bDefaultAsPin = false;
+		PinDecl.DefaultValueString = FString::FromInt(MaxCountAfterInputInterrupt);
+		PinDecl.Tooltip = NSLOCTEXT("UComposableCameraAutoRotateNode", "MaxCountAfterInputInterruptTip", "Maximum number of auto-rotations permitted after a user input interrupt (-1 for unlimited).");
 		OutPins.Add(PinDecl);
 	}
 }

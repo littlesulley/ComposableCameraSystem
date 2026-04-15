@@ -31,11 +31,11 @@ protected:
 		const FComposableCameraPose& CurrentSourcePose,
 		const FComposableCameraPose& CurrentTargetPose) override
 	{
-		// Simple linear interpolation for predictable test output.
-		FComposableCameraPose Result;
-		Result.Position = FMath::Lerp(CurrentSourcePose.Position, CurrentTargetPose.Position, BlendFactor);
-		Result.Rotation = FMath::Lerp(CurrentSourcePose.Rotation, CurrentTargetPose.Rotation, BlendFactor);
-		Result.FieldOfView = FMath::Lerp(CurrentSourcePose.FieldOfView, CurrentTargetPose.FieldOfView, BlendFactor);
+		// Simple linear interpolation for predictable test output. Delegating to BlendBy
+		// ensures we cover all pose fields (FOV, physical, projection) and respect the
+		// "resolve FOV before blending" invariant.
+		FComposableCameraPose Result = CurrentSourcePose;
+		Result.BlendBy(CurrentTargetPose, BlendFactor);
 		return Result;
 	}
 };

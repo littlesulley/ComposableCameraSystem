@@ -487,7 +487,7 @@ void UComposableCameraDirector::BuildDebugString(TStringBuilder<1024>& OutString
 	OutString.Appendf(TEXT("%sLast Pose: %s  Rot: %s  FOV: %.1f\n"), *Indent,
 		*LastEvaluatedPose.Position.ToCompactString(),
 		*LastEvaluatedPose.Rotation.ToCompactString(),
-		LastEvaluatedPose.FieldOfView);
+		LastEvaluatedPose.GetEffectiveFieldOfView());
 	OutString.Appendf(TEXT("%sEvaluation Tree:\n"), *Indent);
 
 	if (EvaluationTree)

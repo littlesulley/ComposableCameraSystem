@@ -87,7 +87,7 @@ public:
 
 	// Interpolator for all move methods.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters, Instanced)
-	UComposableCameraInterpolatorBase* MoveInterpolator;
+	TObjectPtr<UComposableCameraInterpolatorBase> MoveInterpolator;
 	
 	// Move offset normalized in [-1,1], applied to all move methods.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters, meta = (ClampMin = "-1", ClampMax = "1"))

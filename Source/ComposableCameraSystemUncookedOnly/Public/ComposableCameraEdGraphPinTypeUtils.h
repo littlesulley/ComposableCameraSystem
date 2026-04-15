@@ -7,6 +7,7 @@
 
 enum class EComposableCameraPinType : uint8;
 class UScriptStruct;
+class UEnum;
 
 /**
  * Editor-side conversion helpers between the runtime camera-pin type enum and
@@ -39,12 +40,18 @@ class UScriptStruct;
 namespace ComposableCameraEdGraphPinTypeUtils
 {
 	/**
-	 * Build an FEdGraphPinType for the given camera pin type. For Struct pins,
-	 * pass the script struct that PinType resolves to; nullptr is tolerated and
-	 * produces a Struct pin with no sub-category object (UE will render it as
-	 * an unbound struct pin).
+	 * Build an FEdGraphPinType for the given camera pin type.
+	 *
+	 *  - Struct pins use StructType as the sub-category object (nullptr produces
+	 *    an unbound struct pin).
+	 *  - Enum pins use EnumType as the sub-category object on a PC_Byte pin
+	 *    (Blueprint represents enums as PC_Byte with an Enum sub-object — this
+	 *    matches how K2 nodes expose enum-typed parameters and how the engine
+	 *    serializes them). nullptr produces an unbound byte pin and an ensure
+	 *    fires elsewhere; pin authors should always supply the UEnum.
 	 */
 	COMPOSABLECAMERASYSTEMUNCOOKEDONLY_API FEdGraphPinType MakeEdGraphPinTypeFromCameraPinType(
 		EComposableCameraPinType PinType,
-		UScriptStruct* StructType = nullptr);
+		UScriptStruct* StructType = nullptr,
+		UEnum* EnumType = nullptr);
 }

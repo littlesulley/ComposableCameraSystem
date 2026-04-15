@@ -83,7 +83,11 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraExposedParameter
 
 	/** For Struct types: the specific USTRUCT. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Parameter")
-	UScriptStruct* StructType = nullptr;
+	TObjectPtr<UScriptStruct> StructType = nullptr;
+
+	/** For Enum types: the specific UEnum. Mirrors the source node pin's EnumType. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Parameter")
+	TObjectPtr<UEnum> EnumType = nullptr;
 
 	/** Which node this parameter feeds into (index in NodeTemplates). */
 	UPROPERTY()
@@ -157,7 +161,12 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraInternalVariable
 	EComposableCameraPinType VariableType = EComposableCameraPinType::Float;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Variable")
-	UScriptStruct* StructType = nullptr;
+	TObjectPtr<UScriptStruct> StructType = nullptr;
+
+	/** For VariableType == Enum: the specific UEnum this variable represents.
+	 *  Stored internally as a normalized int64 (matching Enum pin behavior). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Variable")
+	TObjectPtr<UEnum> EnumType = nullptr;
 
 	/** Initial value at camera instantiation (serialized string). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Variable")

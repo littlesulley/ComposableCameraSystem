@@ -59,7 +59,10 @@ void UComposableCameraMixingCameraNode::OnTickNode_Implementation(float DeltaTim
 		break;
 	}
 
-	OutCameraPose.FieldOfView = GetMixedFieldOfView(Poses, Weights);
+	// Mix FOV through effective-degrees so each mixed pose contributes its resolved FOV
+	// regardless of whether it was expressed via FieldOfView or FocalLength. Emit the result
+	// as a degrees-mode pose (FocalLength cleared) — same invariant as BlendBy().
+	OutCameraPose.SetFieldOfViewDegrees(GetMixedFieldOfView(Poses, Weights));
 }
 
 void UComposableCameraMixingCameraNode::GetPinDeclarations_Implementation(TArray<FComposableCameraNodePinDeclaration>& OutPins) const
@@ -186,7 +189,9 @@ double UComposableCameraMixingCameraNode::GetMixedFieldOfView(const TArray<FComp
 
 	for (int32 Index = 0; Index < Poses.Num(); Index++)
 	{
-		OutFieldOfView += Weights[Index] * Poses[Index].FieldOfView;
+		// Resolve each pose's effective FOV (handles both degrees-mode and physical-mode poses)
+		// before weighting, so mixing correctly handles a mix of physical and non-physical cameras.
+		OutFieldOfView += Weights[Index] * Poses[Index].GetEffectiveFieldOfView();
 	}
 
 	return OutFieldOfView;

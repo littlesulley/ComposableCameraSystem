@@ -24,6 +24,13 @@ public:
 protected:
 
 public:
+	// Actor to constrain in screen space. World location is used as the pivot.
+	// Typically driven at runtime via a context parameter or an upstream pin;
+	// kept as a UPROPERTY so the Details panel renders a proper object picker
+	// and an authored default is available when unwired.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters)
+	TObjectPtr<AActor> PivotActor;
+
 	// The method to keep screen space constraints, translation or rotation.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters)
 	EComposableCameraScreenSpaceMethod Method;

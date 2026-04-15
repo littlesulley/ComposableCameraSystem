@@ -55,7 +55,7 @@ public:
 
 	// Target look-at actor.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters, meta = (EditCondition = "LookAtType == EComposableCameraLookAtType::ByActor", EditConditionHides))
-	AActor* LookAtActor;
+	TObjectPtr<AActor> LookAtActor;
 
 	// Target look-at socket when the actor has a SkeletalMeshComponent. If no such component exists, will use LookAtActor's position.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters, meta = (EditCondition = "LookAtType == EComposableCameraLookAtType::ByActor", EditConditionHides))

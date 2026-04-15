@@ -15,10 +15,14 @@ void UComposableCameraControlRotateNode::OnInitialize_Implementation()
 
 	LastFrameCameraRotationInput = FVector2D::ZeroVector;
 
-	AActor* RotationInputActor = GetInputPinValue<AActor*>("RotationInputActor");
-	if (IsValid(RotationInputActor))
+	// Auto-resolve has not yet run at Initialize time, so read the pin via the
+	// fallback-aware GetInputPinValue path. RotationInputActor is both a pin and
+	// a UPROPERTY — GetInputPinValue returns wire / exposed / override / UPROPERTY
+	// in precedence order.
+	AActor* InRotationInputActor = GetInputPinValue<AActor*>("RotationInputActor");
+	if (IsValid(InRotationInputActor))
 	{
-		InputComponent = Cast<UEnhancedInputComponent>(RotationInputActor->InputComponent);
+		InputComponent = Cast<UEnhancedInputComponent>(InRotationInputActor->InputComponent);
 	}
 
 	if (InputComponent)
@@ -79,7 +83,75 @@ void UComposableCameraControlRotateNode::GetPinDeclarations_Implementation(TArra
 		PinDecl.Direction = EComposableCameraPinDirection::Input;
 		PinDecl.PinType = EComposableCameraPinType::Actor;
 		PinDecl.bRequired = false;
+		PinDecl.DefaultValueString = FString();
 		PinDecl.Tooltip = NSLOCTEXT("UComposableCameraControlRotateNode", "RotationInputActorTip", "Actor providing EnhancedInputComponent for camera rotation input.");
+		OutPins.Add(PinDecl);
+	}
+
+	{
+		FComposableCameraNodePinDeclaration PinDecl;
+		PinDecl.PinName = TEXT("HorizontalSpeed");
+		PinDecl.DisplayName = NSLOCTEXT("UComposableCameraControlRotateNode", "HorizontalSpeed", "Horizontal Speed");
+		PinDecl.Direction = EComposableCameraPinDirection::Input;
+		PinDecl.PinType = EComposableCameraPinType::Float;
+		PinDecl.bRequired = false;
+		PinDecl.bDefaultAsPin = false;
+		PinDecl.DefaultValueString = FString::SanitizeFloat(HorizontalSpeed);
+		PinDecl.Tooltip = NSLOCTEXT("UComposableCameraControlRotateNode", "HorizontalSpeedTip", "Yaw input speed multiplier.");
+		OutPins.Add(PinDecl);
+	}
+
+	{
+		FComposableCameraNodePinDeclaration PinDecl;
+		PinDecl.PinName = TEXT("VerticalSpeed");
+		PinDecl.DisplayName = NSLOCTEXT("UComposableCameraControlRotateNode", "VerticalSpeed", "Vertical Speed");
+		PinDecl.Direction = EComposableCameraPinDirection::Input;
+		PinDecl.PinType = EComposableCameraPinType::Float;
+		PinDecl.bRequired = false;
+		PinDecl.bDefaultAsPin = false;
+		PinDecl.DefaultValueString = FString::SanitizeFloat(VerticalSpeed);
+		PinDecl.Tooltip = NSLOCTEXT("UComposableCameraControlRotateNode", "VerticalSpeedTip", "Pitch input speed multiplier.");
+		OutPins.Add(PinDecl);
+	}
+
+	{
+		FComposableCameraNodePinDeclaration PinDecl;
+		PinDecl.PinName = TEXT("HorizontalDamping");
+		PinDecl.DisplayName = NSLOCTEXT("UComposableCameraControlRotateNode", "HorizontalDamping", "Horizontal Damping");
+		PinDecl.Direction = EComposableCameraPinDirection::Input;
+		PinDecl.PinType = EComposableCameraPinType::Vector2D;
+		PinDecl.bRequired = false;
+		PinDecl.bDefaultAsPin = false;
+		PinDecl.DefaultValueString = HorizontalDamping.ToString();
+		PinDecl.Tooltip = NSLOCTEXT("UComposableCameraControlRotateNode", "HorizontalDampingTip",
+			"Accel (X) / decel (Y) time for yaw input in seconds.");
+		OutPins.Add(PinDecl);
+	}
+
+	{
+		FComposableCameraNodePinDeclaration PinDecl;
+		PinDecl.PinName = TEXT("VerticalDamping");
+		PinDecl.DisplayName = NSLOCTEXT("UComposableCameraControlRotateNode", "VerticalDamping", "Vertical Damping");
+		PinDecl.Direction = EComposableCameraPinDirection::Input;
+		PinDecl.PinType = EComposableCameraPinType::Vector2D;
+		PinDecl.bRequired = false;
+		PinDecl.bDefaultAsPin = false;
+		PinDecl.DefaultValueString = VerticalDamping.ToString();
+		PinDecl.Tooltip = NSLOCTEXT("UComposableCameraControlRotateNode", "VerticalDampingTip",
+			"Accel (X) / decel (Y) time for pitch input in seconds.");
+		OutPins.Add(PinDecl);
+	}
+
+	{
+		FComposableCameraNodePinDeclaration PinDecl;
+		PinDecl.PinName = TEXT("bInvertPitch");
+		PinDecl.DisplayName = NSLOCTEXT("UComposableCameraControlRotateNode", "bInvertPitch", "Invert Pitch");
+		PinDecl.Direction = EComposableCameraPinDirection::Input;
+		PinDecl.PinType = EComposableCameraPinType::Bool;
+		PinDecl.bRequired = false;
+		PinDecl.bDefaultAsPin = false;
+		PinDecl.DefaultValueString = bInvertPitch ? TEXT("true") : TEXT("false");
+		PinDecl.Tooltip = NSLOCTEXT("UComposableCameraControlRotateNode", "bInvertPitchTip", "Invert the pitch axis direction.");
 		OutPins.Add(PinDecl);
 	}
 
@@ -96,13 +168,13 @@ void UComposableCameraControlRotateNode::GetPinDeclarations_Implementation(TArra
 }
 
 
-void UComposableCameraControlRotateNode::ApplyAcceleration(float DeltaTime, FVector2f Damping, double& ThisFrameRotationInput,
+void UComposableCameraControlRotateNode::ApplyAcceleration(float DeltaTime, const FVector2D& Damping, double& ThisFrameRotationInput,
                                                            const double& LastFrameRotationInput)
 {
-	float DampTime = FMath::Abs(ThisFrameRotationInput) > FMath::Abs(LastFrameRotationInput)
+	const double DampTime = FMath::Abs(ThisFrameRotationInput) > FMath::Abs(LastFrameRotationInput)
 			? Damping.X
 			: Damping.Y;
 
-	double Increment = ComposableCameraSystem::SimpleExpDamp(DeltaTime, DampTime, ThisFrameRotationInput - LastFrameRotationInput);
+	double Increment = ComposableCameraSystem::SimpleExpDamp(DeltaTime, static_cast<float>(DampTime), ThisFrameRotationInput - LastFrameRotationInput);
 	ThisFrameRotationInput = LastFrameRotationInput + Increment;
 }

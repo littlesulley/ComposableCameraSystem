@@ -22,6 +22,13 @@ public:
 	virtual void GetPinDeclarations_Implementation(TArray<FComposableCameraNodePinDeclaration>& OutPins) const override;
 
 public:
+	// Actor whose location is published as the pivot position. Typically driven
+	// at runtime via a context parameter (e.g. the player pawn); kept as a
+	// UPROPERTY so the Details panel renders a proper object picker and an
+	// authored default is available when unwired.
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = InputParameters)
+	TObjectPtr<AActor> PivotActor;
+
 	// Whether to use a bone as the target pivot point.
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = InputParameters)
 	bool bUseBoneForPivot { false };

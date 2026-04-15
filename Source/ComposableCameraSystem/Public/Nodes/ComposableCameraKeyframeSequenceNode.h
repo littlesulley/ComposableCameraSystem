@@ -33,8 +33,8 @@ protected:
 public:
 	// The level sequence you want to use for setting camera pose.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters)
-	ULevelSequence* CameraSequence { nullptr };
-	
+	TObjectPtr<ULevelSequence> CameraSequence { nullptr };
+
 	// Method to use for selecting the target transform.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters)
 	EComposableCameraRelativeFixedPoseMethod Method;
@@ -45,7 +45,7 @@ public:
 
 	// Relative actor when method is RelativeToActor.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters, meta = (EditCondition = "Method == EComposableCameraRelativeFixedPoseMethod::RelativeToActor", EditConditionHides))
-	AActor* RelativeActor;
+	TObjectPtr<AActor> RelativeActor;
 
 	// Relative socket when method is RelativeToActor and the actor has a SkeletalMeshComponent. If no such component exists, will use RelativeActor's transform.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters, meta = (EditCondition = "Method == EComposableCameraRelativeFixedPoseMethod::RelativeToActor", EditConditionHides))

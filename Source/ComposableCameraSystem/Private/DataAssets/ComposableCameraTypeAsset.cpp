@@ -42,6 +42,7 @@ namespace ComposableCameraTypeAssetPrivate
 			Var.VariableName,
 			Var.VariableType,
 			Var.StructType,
+			Var.EnumType,
 			Var.InitialValueString,
 			&ParseError);
 
@@ -501,6 +502,7 @@ FComposableCameraRuntimeDataBlock UComposableCameraTypeAsset::BuildRuntimeDataLa
 					Override.PinName,
 					Decl->PinType,
 					Decl->StructType,
+					Decl->EnumType,
 					Override.DefaultValueOverride,
 					&ParseError);
 				if (!bOk)
@@ -586,6 +588,7 @@ FComposableCameraRuntimeDataBlock UComposableCameraTypeAsset::BuildRuntimeDataLa
 					Override.PinName,
 					Decl->PinType,
 					Decl->StructType,
+					Decl->EnumType,
 					Override.DefaultValueOverride,
 					&ParseError);
 				if (!bOk)

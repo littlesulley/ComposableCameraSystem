@@ -389,6 +389,7 @@ void UComposableCameraNodeGraphNode::ExposePinAsParameter(FName PinName)
 			NewParam.DisplayName = FoundDecl->DisplayName;
 			NewParam.PinType = FoundDecl->PinType;
 			NewParam.StructType = FoundDecl->StructType;
+			NewParam.EnumType = FoundDecl->EnumType;
 			NewParam.TargetNodeIndex = NodeIndex;
 			// TargetNodeIndex / TargetPinName still point at the underlying
 			// camera node pin — only ParameterName is suffixed. The pin
@@ -502,7 +503,23 @@ bool UComposableCameraNodeGraphNode::GetEffectivePinAsPin(FName PinName) const
 	{
 		return Override->bAsPin;
 	}
-	// Default: pin is visible on the graph.
+	// No per-instance override: fall back to the C++ declaration's class-level
+	// default. This lets node authors mark a pin as Details-only by default
+	// (bDefaultAsPin = false on FComposableCameraNodePinDeclaration) without
+	// every fresh placement having to flip the toggle by hand. A missing or
+	// unresolvable declaration falls back to the historical default of true.
+	if (NodeTemplate)
+	{
+		TArray<FComposableCameraNodePinDeclaration> Declarations;
+		NodeTemplate->GatherAllPinDeclarations(Declarations);
+		for (const FComposableCameraNodePinDeclaration& Decl : Declarations)
+		{
+			if (Decl.PinName == PinName)
+			{
+				return Decl.bDefaultAsPin;
+			}
+		}
+	}
 	return true;
 }
 
@@ -513,10 +530,13 @@ void UComposableCameraNodeGraphNode::SetPinDefaultOverride(FName PinName, const 
 	FComposableCameraPinOverride* Override = FindPinOverride(PinName);
 	if (!Override)
 	{
-		// Lazily create a sparse entry.
+		// Lazily create a sparse entry. Seed bAsPin from the *current
+		// effective* state (which already consults Decl.bDefaultAsPin) so
+		// that authoring a default value on a pin that was hidden by class
+		// default doesn't accidentally surface it as a wire.
 		FComposableCameraPinOverride NewOverride;
 		NewOverride.PinName = PinName;
-		NewOverride.bAsPin = true;
+		NewOverride.bAsPin = GetEffectivePinAsPin(PinName);
 		NewOverride.bHasDefaultOverride = true;
 		NewOverride.DefaultValueOverride = NewDefault;
 		RuntimePinOverrides.Add(NewOverride);
@@ -615,7 +635,7 @@ UEdGraphPin* UComposableCameraNodeGraphNode::CreatePinFromDeclaration(const FCom
 	// editing one switch. See ComposableCameraEdGraphPinTypeUtils.h for the
 	// rationale and the location of the single source of truth.
 	FEdGraphPinType PinType = ComposableCameraEdGraphPinTypeUtils::MakeEdGraphPinTypeFromCameraPinType(
-		Declaration.PinType, Declaration.StructType);
+		Declaration.PinType, Declaration.StructType, Declaration.EnumType);
 
 	UEdGraphPin* NewPin = CreatePin(Direction, PinType, Declaration.PinName);
 	if (NewPin)

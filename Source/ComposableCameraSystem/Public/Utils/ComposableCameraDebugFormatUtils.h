@@ -5,6 +5,7 @@
 #include "CoreMinimal.h"
 #include "Core/ComposableCameraRuntimeDataBlock.h"
 #include "Nodes/ComposableCameraNodePinTypes.h"
+#include "UObject/Class.h"
 
 /**
  * Namespace for debug formatting utilities used by both the ShowDebug HUD
@@ -42,11 +43,15 @@ namespace ComposableCameraDebug
 			*FormatVector(T.GetScale3D()));
 	}
 
-	/** Read a typed value at a known byte offset from the data block and format as string. */
+	/** Read a typed value at a known byte offset from the data block and format as string.
+	 *  EnumType is consulted only when PinType == Enum; when supplied, the int64 slot is
+	 *  formatted as the corresponding entry name (e.g. "EMyEnum::Alpha"). When omitted
+	 *  for an Enum slot the raw int64 value is printed instead — debug-only fallback. */
 	inline FString FormatTypedValue(
 		const FComposableCameraRuntimeDataBlock& DataBlock,
 		int32 Offset,
-		EComposableCameraPinType PinType)
+		EComposableCameraPinType PinType,
+		const UEnum* EnumType = nullptr)
 	{
 		switch (PinType)
 		{
@@ -84,6 +89,25 @@ namespace ComposableCameraDebug
 			UObject* Obj = DataBlock.ReadValue<UObject*>(Offset);
 			return IsValid(Obj) ? Obj->GetName() : TEXT("null");
 		}
+		case EComposableCameraPinType::Name:
+		{
+			const FName N = DataBlock.ReadValue<FName>(Offset);
+			return N.IsNone() ? TEXT("None") : N.ToString();
+		}
+		case EComposableCameraPinType::Enum:
+		{
+			// Enum slots are normalized to int64 in the data block — see the
+			// EComposableCameraPinType::Enum branch of GetPinTypeSize and the
+			// thunk in ComposableCameraBlueprintLibrary.h. Resolve to the
+			// authored entry name when we know the UEnum, otherwise print the
+			// raw integer so debug output never silently lies about the slot.
+			const int64 IntVal = DataBlock.ReadValue<int64>(Offset);
+			if (EnumType)
+			{
+				return EnumType->GetNameStringByValue(IntVal);
+			}
+			return FString::Printf(TEXT("%lld"), IntVal);
+		}
 		default:
 			return TEXT("(struct)");
 		}
@@ -94,7 +118,8 @@ namespace ComposableCameraDebug
 		const FComposableCameraRuntimeDataBlock& DataBlock,
 		int32 NodeIndex,
 		FName PinName,
-		EComposableCameraPinType PinType)
+		EComposableCameraPinType PinType,
+		const UEnum* EnumType = nullptr)
 	{
 		const FComposableCameraPinKey Key{ NodeIndex, PinName };
 		const int32* Offset = DataBlock.OutputPinOffsets.Find(Key);
@@ -102,6 +127,6 @@ namespace ComposableCameraDebug
 		{
 			return TEXT("(no data)");
 		}
-		return FormatTypedValue(DataBlock, *Offset, PinType);
+		return FormatTypedValue(DataBlock, *Offset, PinType, EnumType);
 	}
 }

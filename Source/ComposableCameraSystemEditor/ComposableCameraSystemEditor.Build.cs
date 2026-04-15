@@ -22,6 +22,7 @@ public class ComposableCameraSystemEditor : ModuleRules
                 "DeveloperSettings",
                 "EditorFramework",
                 "EditorSubsystem",
+                "EditorWidgets",
                 "Engine",
                 "GraphEditor",
                 "InputCore",

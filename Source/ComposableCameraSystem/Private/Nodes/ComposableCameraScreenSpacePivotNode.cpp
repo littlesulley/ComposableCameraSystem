@@ -65,21 +65,85 @@ void UComposableCameraScreenSpacePivotNode::GetPinDeclarations_Implementation(TA
 {
 	FComposableCameraNodePinDeclaration PinDecl;
 
-	// Input: PivotPosition
-	PinDecl.PinName = TEXT("PivotPosition");
-	PinDecl.DisplayName = NSLOCTEXT("UComposableCameraScreenSpacePivotNode", "PivotPosition", "Pivot Position");
+	// NOTE: PivotSource and Method are declared as pins with bDefaultAsPin = false
+	// so they render in the Details panel by default (design-time choice), but
+	// remain individually promotable per-instance via the pin override toggle.
+	// All pin names match their backing UPROPERTY FNames verbatim so the node
+	// Details customization pairs them into single unified rows.
+
+	// Input: PivotSource — selects WorldPosition vs ActorPosition pivot resolution.
+	PinDecl = {};
+	PinDecl.PinName = TEXT("PivotSource");
+	PinDecl.DisplayName = NSLOCTEXT("UComposableCameraScreenSpacePivotNode", "PivotSource", "Pivot Source");
+	PinDecl.Direction = EComposableCameraPinDirection::Input;
+	PinDecl.PinType = EComposableCameraPinType::Enum;
+	PinDecl.EnumType = StaticEnum<EComposableCameraScreenSpacePivotSource>();
+	PinDecl.bRequired = false;
+	PinDecl.bDefaultAsPin = false;
+	PinDecl.DefaultValueString = PinDecl.EnumType ? PinDecl.EnumType->GetNameStringByValue(static_cast<int64>(PivotSource)) : FString();
+	PinDecl.Tooltip = NSLOCTEXT("UComposableCameraScreenSpacePivotNode", "PivotSourceTip",
+		"Selects whether the pivot is read from PivotWorldPosition (WorldPosition) or derived from PivotActor + PivotWorldUpOffset (ActorPosition).");
+	OutPins.Add(PinDecl);
+
+	// Input: PivotWorldPosition — consumed when PivotSource == WorldPosition.
+	PinDecl = {};
+	PinDecl.PinName = TEXT("PivotWorldPosition");
+	PinDecl.DisplayName = NSLOCTEXT("UComposableCameraScreenSpacePivotNode", "PivotWorldPosition", "Pivot World Position");
 	PinDecl.Direction = EComposableCameraPinDirection::Input;
 	PinDecl.PinType = EComposableCameraPinType::Vector3D;
-	PinDecl.bRequired = true;
-	PinDecl.Tooltip = NSLOCTEXT("UComposableCameraScreenSpacePivotNode", "PivotPositionTip", "Pivot position in world space.");
+	PinDecl.bRequired = false;
+	PinDecl.bDefaultAsPin = false;
+	PinDecl.DefaultValueString = PivotWorldPosition.ToString();
+	PinDecl.Tooltip = NSLOCTEXT("UComposableCameraScreenSpacePivotNode", "PivotWorldPositionTip",
+		"Pivot in world space. Used when PivotSource == WorldPosition.");
+	OutPins.Add(PinDecl);
+
+	// Input: PivotActor — consumed when PivotSource == ActorPosition.
+	PinDecl.PinName = TEXT("PivotActor");
+	PinDecl.DisplayName = NSLOCTEXT("UComposableCameraScreenSpacePivotNode", "PivotActor", "Pivot Actor");
+	PinDecl.Direction = EComposableCameraPinDirection::Input;
+	PinDecl.PinType = EComposableCameraPinType::Actor;
+	PinDecl.bRequired = false;
+	PinDecl.bDefaultAsPin = false;
+	PinDecl.DefaultValueString = FString();
+	PinDecl.Tooltip = NSLOCTEXT("UComposableCameraScreenSpacePivotNode", "PivotActorTip",
+		"Actor whose world location supplies the pivot. Used when PivotSource == ActorPosition.");
+	OutPins.Add(PinDecl);
+
+	// Input: PivotWorldUpOffset — consumed when PivotSource == ActorPosition.
+	PinDecl.PinName = TEXT("PivotWorldUpOffset");
+	PinDecl.DisplayName = NSLOCTEXT("UComposableCameraScreenSpacePivotNode", "PivotWorldUpOffset", "Pivot World Up Offset");
+	PinDecl.Direction = EComposableCameraPinDirection::Input;
+	PinDecl.PinType = EComposableCameraPinType::Float;
+	PinDecl.bRequired = false;
+	PinDecl.bDefaultAsPin = false;
+	PinDecl.DefaultValueString = FString::SanitizeFloat(PivotWorldUpOffset);
+	PinDecl.Tooltip = NSLOCTEXT("UComposableCameraScreenSpacePivotNode", "PivotWorldUpOffsetTip",
+		"World-up offset added to PivotActor->GetActorLocation(). Used when PivotSource == ActorPosition.");
+	OutPins.Add(PinDecl);
+
+	// Input: Method — Translate vs Rotate strategy for keeping the pivot on-screen.
+	PinDecl = {};
+	PinDecl.PinName = TEXT("Method");
+	PinDecl.DisplayName = NSLOCTEXT("UComposableCameraScreenSpacePivotNode", "Method", "Method");
+	PinDecl.Direction = EComposableCameraPinDirection::Input;
+	PinDecl.PinType = EComposableCameraPinType::Enum;
+	PinDecl.EnumType = StaticEnum<EComposableCameraScreenSpaceMethod>();
+	PinDecl.bRequired = false;
+	PinDecl.bDefaultAsPin = false;
+	PinDecl.DefaultValueString = PinDecl.EnumType ? PinDecl.EnumType->GetNameStringByValue(static_cast<int64>(Method)) : FString();
+	PinDecl.Tooltip = NSLOCTEXT("UComposableCameraScreenSpacePivotNode", "MethodTip",
+		"How to keep the pivot within the safe zone — Translate moves the camera, Rotate turns the camera.");
 	OutPins.Add(PinDecl);
 
 	// Input: SafeZoneCenter
+	PinDecl = {};
 	PinDecl.PinName = TEXT("SafeZoneCenter");
 	PinDecl.DisplayName = NSLOCTEXT("UComposableCameraScreenSpacePivotNode", "SafeZoneCenter", "Safe Zone Center");
 	PinDecl.Direction = EComposableCameraPinDirection::Input;
 	PinDecl.PinType = EComposableCameraPinType::Vector2D;
 	PinDecl.bRequired = false;
+	PinDecl.bDefaultAsPin = false;
 	PinDecl.Tooltip = NSLOCTEXT("UComposableCameraScreenSpacePivotNode", "SafeZoneCenterTip", "Screen space safe zone center.");
 	OutPins.Add(PinDecl);
 
@@ -89,6 +153,7 @@ void UComposableCameraScreenSpacePivotNode::GetPinDeclarations_Implementation(TA
 	PinDecl.Direction = EComposableCameraPinDirection::Input;
 	PinDecl.PinType = EComposableCameraPinType::Vector2D;
 	PinDecl.bRequired = false;
+	PinDecl.bDefaultAsPin = false;
 	PinDecl.Tooltip = NSLOCTEXT("UComposableCameraScreenSpacePivotNode", "SafeZoneWidthTip", "Safe zone width bounds.");
 	OutPins.Add(PinDecl);
 
@@ -98,6 +163,7 @@ void UComposableCameraScreenSpacePivotNode::GetPinDeclarations_Implementation(TA
 	PinDecl.Direction = EComposableCameraPinDirection::Input;
 	PinDecl.PinType = EComposableCameraPinType::Vector2D;
 	PinDecl.bRequired = false;
+	PinDecl.bDefaultAsPin = false;
 	PinDecl.Tooltip = NSLOCTEXT("UComposableCameraScreenSpacePivotNode", "SafeZoneHeightTip", "Safe zone height bounds.");
 	OutPins.Add(PinDecl);
 }
@@ -474,8 +540,12 @@ std::pair<float, float> UComposableCameraScreenSpacePivotNode::GetTanHalfHORAndA
 	int32 ViewportX, ViewportY;
 	OwningPlayerCameraManager->GetOwningPlayerController()->GetViewportSize(ViewportX, ViewportY);
 
-	float DegTanHalfHOR = UKismetMathLibrary::DegTan(OutCameraPose.FieldOfView / 2.0f);;
-	float AspectRatio = 1.0f * ViewportX / ViewportY;;
+	// Resolve effective FOV once so this math works whether the pose is in degrees-mode
+	// (FieldOfView > 0) or physical-mode (FocalLength > 0).
+	const float EffectiveFOV = static_cast<float>(OutCameraPose.GetEffectiveFieldOfView());
+
+	float DegTanHalfHOR = UKismetMathLibrary::DegTan(EffectiveFOV / 2.0f);
+	float AspectRatio = 1.0f * ViewportX / ViewportY;
 
 	// Aspect ratio is different when bConstrainAspectRatio is true or false.
 	// If bConstrainAspectRatio is false, ViewportX / ViewportY is the real aspect ratio, and FOV is computed according to AspectRatioAxisConstraint.
@@ -487,23 +557,23 @@ std::pair<float, float> UComposableCameraScreenSpacePivotNode::GetTanHalfHORAndA
 			switch (OwningCamera->GetCameraComponent()->AspectRatioAxisConstraint)
 			{
 			case AspectRatio_MaintainXFOV:
-				DegTanHalfHOR = UKismetMathLibrary::DegTan(OutCameraPose.FieldOfView / 2.0f);
+				DegTanHalfHOR = UKismetMathLibrary::DegTan(EffectiveFOV / 2.0f);
 				break;
 			case AspectRatio_MaintainYFOV:
-				DegTanHalfHOR = UKismetMathLibrary::DegTan(OutCameraPose.FieldOfView / 2.0f) / OwningCamera->GetCameraComponent()->AspectRatio * AspectRatio;
+				DegTanHalfHOR = UKismetMathLibrary::DegTan(EffectiveFOV / 2.0f) / OwningCamera->GetCameraComponent()->AspectRatio * AspectRatio;
 				break;
 			case AspectRatio_MajorAxisFOV:
 				if (ViewportX > ViewportY)
 				{
-					DegTanHalfHOR = UKismetMathLibrary::DegTan(OutCameraPose.FieldOfView / 2.0f);
+					DegTanHalfHOR = UKismetMathLibrary::DegTan(EffectiveFOV / 2.0f);
 				}
 				else
 				{
-					DegTanHalfHOR = UKismetMathLibrary::DegTan(OutCameraPose.FieldOfView / 2.0f) / OwningCamera->GetCameraComponent()->AspectRatio * AspectRatio;
+					DegTanHalfHOR = UKismetMathLibrary::DegTan(EffectiveFOV / 2.0f) / OwningCamera->GetCameraComponent()->AspectRatio * AspectRatio;
 				}
 				break;
 			default:
-				DegTanHalfHOR = UKismetMathLibrary::DegTan(OutCameraPose.FieldOfView / 2.0f);
+				DegTanHalfHOR = UKismetMathLibrary::DegTan(EffectiveFOV / 2.0f);
 				break;
 			}
 		}
@@ -518,7 +588,28 @@ std::pair<float, float> UComposableCameraScreenSpacePivotNode::GetTanHalfHORAndA
 
 FVector UComposableCameraScreenSpacePivotNode::GetCurrentPivot()
 {
-	return GetInputPinValue<FVector>("PivotPosition");
+	switch (PivotSource)
+	{
+	case EComposableCameraScreenSpacePivotSource::WorldPosition:
+		return GetInputPinValue<FVector>("PivotWorldPosition");
+
+	case EComposableCameraScreenSpacePivotSource::ActorPosition:
+		{
+			// PivotActor may be null if no default is authored and no upstream wire
+			// resolved; fall back to the authored world-position default so screen-space
+			// math doesn't pathologically target the world origin.
+			AActor* Actor = GetInputPinValue<AActor*>("PivotActor");
+			const float UpOffset = GetInputPinValue<float>("PivotWorldUpOffset");
+			if (Actor)
+			{
+				return Actor->GetActorLocation() + FVector::UpVector * UpOffset;
+			}
+			return PivotWorldPosition;
+		}
+	}
+
+	// Defensive: new enum case added without a branch above.
+	return FVector::ZeroVector;
 }
 
 void UComposableCameraScreenSpacePivotNode::DrawDebugInfo(AHUD* HUD, UCanvas* Canvas)

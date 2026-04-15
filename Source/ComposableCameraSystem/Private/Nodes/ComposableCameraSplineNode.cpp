@@ -80,12 +80,93 @@ void UComposableCameraSplineNode::GetPinDeclarations_Implementation(TArray<FComp
 {
 	{
 		FComposableCameraNodePinDeclaration PinDecl;
-		PinDecl.PinName = TEXT("PivotActor");
-		PinDecl.DisplayName = NSLOCTEXT("UComposableCameraSplineNode", "PivotActor", "Pivot Actor");
+		PinDecl.PinName = TEXT("SplineType");
+		PinDecl.DisplayName = NSLOCTEXT("UComposableCameraSplineNode", "SplineType", "Spline Type");
+		PinDecl.Direction = EComposableCameraPinDirection::Input;
+		PinDecl.PinType = EComposableCameraPinType::Enum;
+		PinDecl.EnumType = StaticEnum<EComposableCameraSplineNodeSplineType>();
+		PinDecl.bRequired = false;
+		PinDecl.bDefaultAsPin = false;
+		PinDecl.DefaultValueString = PinDecl.EnumType ? PinDecl.EnumType->GetNameStringByValue(static_cast<int64>(SplineType)) : FString();
+		PinDecl.Tooltip = NSLOCTEXT("UComposableCameraSplineNode", "SplineTypeTip",
+			"Which spline representation the camera follows (BuiltInSpline, Bezier, CubicHermite, BasicSpline, or NURBS).");
+		OutPins.Add(PinDecl);
+	}
+
+	{
+		FComposableCameraNodePinDeclaration PinDecl;
+		PinDecl.PinName = TEXT("Rail");
+		PinDecl.DisplayName = NSLOCTEXT("UComposableCameraSplineNode", "Rail", "Rail");
 		PinDecl.Direction = EComposableCameraPinDirection::Input;
 		PinDecl.PinType = EComposableCameraPinType::Actor;
 		PinDecl.bRequired = false;
-		PinDecl.Tooltip = NSLOCTEXT("UComposableCameraSplineNode", "PivotActorTip", "Actor for ClosestPoint move method.");
+		PinDecl.bDefaultAsPin = false;
+		PinDecl.Tooltip = NSLOCTEXT("UComposableCameraSplineNode", "RailTip", "Rail actor whose spline the camera should follow (BuiltInSpline type).");
+		OutPins.Add(PinDecl);
+	}
+
+	{
+		FComposableCameraNodePinDeclaration PinDecl;
+		PinDecl.PinName = TEXT("MoveMethod");
+		PinDecl.DisplayName = NSLOCTEXT("UComposableCameraSplineNode", "MoveMethod", "Move Method");
+		PinDecl.Direction = EComposableCameraPinDirection::Input;
+		PinDecl.PinType = EComposableCameraPinType::Enum;
+		PinDecl.EnumType = StaticEnum<EComposableCameraSplineNodeMoveMethod>();
+		PinDecl.bRequired = false;
+		PinDecl.bDefaultAsPin = false;
+		PinDecl.DefaultValueString = PinDecl.EnumType ? PinDecl.EnumType->GetNameStringByValue(static_cast<int64>(MoveMethod)) : FString();
+		PinDecl.Tooltip = NSLOCTEXT("UComposableCameraSplineNode", "MoveMethodTip",
+			"How the camera moves along the spline — Automatic (time-driven) or ClosestPoint (tracks an actor's projection).");
+		OutPins.Add(PinDecl);
+	}
+
+	{
+		FComposableCameraNodePinDeclaration PinDecl;
+		PinDecl.PinName = TEXT("ClosestMoveMethodPivotActor");
+		PinDecl.DisplayName = NSLOCTEXT("UComposableCameraSplineNode", "ClosestMoveMethodPivotActor", "Closest Move Method Pivot Actor");
+		PinDecl.Direction = EComposableCameraPinDirection::Input;
+		PinDecl.PinType = EComposableCameraPinType::Actor;
+		PinDecl.bRequired = false;
+		PinDecl.bDefaultAsPin = false;
+		PinDecl.Tooltip = NSLOCTEXT("UComposableCameraSplineNode", "ClosestMoveMethodPivotActorTip", "Actor used for ClosestPoint move method; the camera tracks the closest spline point to this actor.");
+		OutPins.Add(PinDecl);
+	}
+
+	{
+		FComposableCameraNodePinDeclaration PinDecl;
+		PinDecl.PinName = TEXT("AutomaticMoveCurve");
+		PinDecl.DisplayName = NSLOCTEXT("UComposableCameraSplineNode", "AutomaticMoveCurve", "Automatic Move Curve");
+		PinDecl.Direction = EComposableCameraPinDirection::Input;
+		PinDecl.PinType = EComposableCameraPinType::Object;
+		PinDecl.bRequired = false;
+		PinDecl.bDefaultAsPin = false;
+		PinDecl.Tooltip = NSLOCTEXT("UComposableCameraSplineNode", "AutomaticMoveCurveTip", "Curve asset (X: normalized time [0,1], Y: normalized distance [0,1]) used for the Automatic move method.");
+		OutPins.Add(PinDecl);
+	}
+
+	{
+		FComposableCameraNodePinDeclaration PinDecl;
+		PinDecl.PinName = TEXT("bLoop");
+		PinDecl.DisplayName = NSLOCTEXT("UComposableCameraSplineNode", "bLoop", "Loop");
+		PinDecl.Direction = EComposableCameraPinDirection::Input;
+		PinDecl.PinType = EComposableCameraPinType::Bool;
+		PinDecl.bRequired = false;
+		PinDecl.bDefaultAsPin = false;
+		PinDecl.DefaultValueString = bLoop ? TEXT("true") : TEXT("false");
+		PinDecl.Tooltip = NSLOCTEXT("UComposableCameraSplineNode", "bLoopTip", "Whether the Automatic move method loops after Duration seconds.");
+		OutPins.Add(PinDecl);
+	}
+
+	{
+		FComposableCameraNodePinDeclaration PinDecl;
+		PinDecl.PinName = TEXT("bLockOrientationOnSpline");
+		PinDecl.DisplayName = NSLOCTEXT("UComposableCameraSplineNode", "bLockOrientationOnSpline", "Lock Orientation On Spline");
+		PinDecl.Direction = EComposableCameraPinDirection::Input;
+		PinDecl.PinType = EComposableCameraPinType::Bool;
+		PinDecl.bRequired = false;
+		PinDecl.bDefaultAsPin = false;
+		PinDecl.DefaultValueString = bLockOrientationOnSpline ? TEXT("true") : TEXT("false");
+		PinDecl.Tooltip = NSLOCTEXT("UComposableCameraSplineNode", "bLockOrientationOnSplineTip", "When true, camera orientation follows the spline's tangent direction.");
 		OutPins.Add(PinDecl);
 	}
 
@@ -96,6 +177,8 @@ void UComposableCameraSplineNode::GetPinDeclarations_Implementation(TArray<FComp
 		PinDecl.Direction = EComposableCameraPinDirection::Input;
 		PinDecl.PinType = EComposableCameraPinType::Float;
 		PinDecl.bRequired = false;
+		PinDecl.bDefaultAsPin = false;
+		PinDecl.DefaultValueString = FString::SanitizeFloat(MoveOffset);
 		PinDecl.Tooltip = NSLOCTEXT("UComposableCameraSplineNode", "MoveOffsetTip", "Normalized offset [-1,1] applied to movement.");
 		OutPins.Add(PinDecl);
 	}
@@ -107,6 +190,8 @@ void UComposableCameraSplineNode::GetPinDeclarations_Implementation(TArray<FComp
 		PinDecl.Direction = EComposableCameraPinDirection::Input;
 		PinDecl.PinType = EComposableCameraPinType::Float;
 		PinDecl.bRequired = false;
+		PinDecl.bDefaultAsPin = false;
+		PinDecl.DefaultValueString = FString::SanitizeFloat(Duration);
 		PinDecl.Tooltip = NSLOCTEXT("UComposableCameraSplineNode", "DurationTip", "Duration for Automatic move method.");
 		OutPins.Add(PinDecl);
 	}

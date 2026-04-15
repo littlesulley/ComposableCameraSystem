@@ -79,7 +79,7 @@ void SComposableCameraGraphNode::PaintDebugFooter(
 				TEXT("Pos (%.0f, %.0f, %.0f)  Rot (P=%.1f, Y=%.1f)  FOV %.0f"),
 				Pose.Position.X, Pose.Position.Y, Pose.Position.Z,
 				Pose.Rotation.Pitch, Pose.Rotation.Yaw,
-				Pose.FieldOfView),
+				Pose.GetEffectiveFieldOfView()),
 			FLinearColor(0.4f, 0.85f, 1.0f));
 	}
 

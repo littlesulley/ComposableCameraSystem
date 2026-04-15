@@ -29,11 +29,15 @@ FComposableCameraPose UComposableCameraInertializedTransition::OnEvaluate_Implem
                                                                                          const FComposableCameraPose& CurrentSourcePose,
                                                                                          const FComposableCameraPose& CurrentTargetPose)
 {
-	FComposableCameraPose OutPose {};
-
-	float BlendDuration = TransitionTime - RemainingTime;
-	float BlendPct = BlendDuration / TransitionTime;
+	const float BlendDuration = TransitionTime - RemainingTime;
+	const float BlendPct = BlendDuration / TransitionTime;
 	Percentage = BlendPct;
+
+	// Blend ALL pose fields (FOV, physical camera, projection, etc.) using the shared BlendBy rule.
+	// Position/Rotation are then overwritten below with the inertialized values — this transition's
+	// whole point is that transform blending is governed by velocity/acceleration, not linear lerp.
+	FComposableCameraPose OutPose = CurrentSourcePose;
+	OutPose.BlendBy(CurrentTargetPose, BlendPct);
 
 	if (AdditiveCurve)
 	{
@@ -45,8 +49,6 @@ FComposableCameraPose UComposableCameraInertializedTransition::OnEvaluate_Implem
 		OutPose.Position = PositionalInertializer.Evaluate(BlendDuration, CurrentTargetPose.Position);
 		OutPose.Rotation = RotationalInertializer.Evaluate(BlendDuration, CurrentTargetPose.Rotation);
 	}
-
-	OutPose.FieldOfView = CurrentSourcePose.FieldOfView + BlendPct * (CurrentTargetPose.FieldOfView - CurrentSourcePose.FieldOfView);
 
 	return OutPose;
 }

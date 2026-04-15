@@ -47,9 +47,9 @@ namespace ComposableCameraTest
 				AComposableCameraCameraBase::StaticClass(), Transform);
 
 			Camera->CameraPose.Position = Location;
-			Camera->CameraPose.FieldOfView = FOV;
+			Camera->CameraPose.SetFieldOfViewDegrees(FOV);
 			Camera->LastFrameCameraPose.Position = Location;
-			Camera->LastFrameCameraPose.FieldOfView = FOV;
+			Camera->LastFrameCameraPose.SetFieldOfViewDegrees(FOV);
 
 			Camera->FinishSpawning(Transform);
 
@@ -386,7 +386,7 @@ bool FExecMockBlendVerificationTest::RunTest(const FString& Parameters)
 		UTEST_TRUE(*FString::Printf(TEXT("Frame %d: X position ~%.0f"), i, ExpectedX),
 			FMath::IsNearlyEqual(Pose.Position.X, static_cast<double>(ExpectedX), 1.0));
 		UTEST_TRUE(*FString::Printf(TEXT("Frame %d: FOV ~%.0f"), i, ExpectedFOV),
-			FMath::IsNearlyEqual(Pose.FieldOfView, static_cast<double>(ExpectedFOV), 1.0));
+			FMath::IsNearlyEqual(Pose.GetEffectiveFieldOfView(), static_cast<double>(ExpectedFOV), 1.0));
 	}
 
 	// Mark finished and collapse.
@@ -400,7 +400,7 @@ bool FExecMockBlendVerificationTest::RunTest(const FString& Parameters)
 	// Post-collapse, pose should be pure target.
 	FComposableCameraPose FinalPose = Tree->Evaluate(DT);
 	UTEST_TRUE("Final X is 1000", FMath::IsNearlyEqual(FinalPose.Position.X, 1000.0, 1.0));
-	UTEST_TRUE("Final FOV is 120", FMath::IsNearlyEqual(FinalPose.FieldOfView, 120.0, 1.0));
+	UTEST_TRUE("Final FOV is 120", FMath::IsNearlyEqual(FinalPose.GetEffectiveFieldOfView(), 120.0, 1.0));
 
 	return true;
 }
