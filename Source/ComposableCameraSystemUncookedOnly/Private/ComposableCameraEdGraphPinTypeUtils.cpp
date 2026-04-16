@@ -12,7 +12,8 @@ namespace ComposableCameraEdGraphPinTypeUtils
 	FEdGraphPinType MakeEdGraphPinTypeFromCameraPinType(
 		EComposableCameraPinType PinType,
 		UScriptStruct* StructType,
-		UEnum* EnumType)
+		UEnum* EnumType,
+		UFunction* SignatureFunction)
 	{
 		FEdGraphPinType Result;
 
@@ -89,6 +90,20 @@ namespace ComposableCameraEdGraphPinTypeUtils
 			// build path already rejects unbound enums upstream.
 			Result.PinCategory = UEdGraphSchema_K2::PC_Byte;
 			Result.PinSubCategoryObject = EnumType;
+			break;
+
+		case EComposableCameraPinType::Delegate:
+			// Blueprint represents single-cast delegates as PC_Delegate with a
+			// MemberReference pointing at the signature UFunction. The K2 schema
+			// uses this to validate wiring and generate the correct thunk. The
+			// MemberParent is the UClass owning the signature function (typically
+			// the node class that declared the DECLARE_DYNAMIC_DELEGATE).
+			Result.PinCategory = UEdGraphSchema_K2::PC_Delegate;
+			if (SignatureFunction)
+			{
+				Result.PinSubCategoryMemberReference.MemberParent = SignatureFunction->GetOwnerClass();
+				Result.PinSubCategoryMemberReference.MemberName = SignatureFunction->GetFName();
+			}
 			break;
 
 		default:

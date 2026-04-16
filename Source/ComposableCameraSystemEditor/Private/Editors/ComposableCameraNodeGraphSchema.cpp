@@ -767,6 +767,22 @@ FLinearColor UComposableCameraNodeGraphSchema::GetPinTypeColor(
 	{
 		return FLinearColor(0.0f, 0.4f, 0.9f, 1.0f); // Blue for object/actor
 	}
+	if (PinType.PinCategory == UEdGraphSchema_K2::PC_Name)
+	{
+		return FLinearColor(1.0f, 0.7529f, 0.7960f, 1.0f); // Pink (#FFC0CB) for FName — per EditorDesignDoc spec
+	}
+	if (PinType.PinCategory == UEdGraphSchema_K2::PC_Byte)
+	{
+		// Enums are PC_Byte with a UEnum sub-category object (see
+		// ComposableCameraEdGraphPinTypeUtils::MakeEdGraphPinTypeFromCameraPinType).
+		// Plain (non-enum) byte pins also land here — visually distinct from every
+		// other category in the schema, so the shared color is fine.
+		return FLinearColor(0.0f, 0.7490f, 1.0f, 1.0f); // Bright cyan (#00BFFF) for enum / byte — per EditorDesignDoc spec
+	}
+	if (PinType.PinCategory == UEdGraphSchema_K2::PC_Delegate)
+	{
+		return FLinearColor(1.0f, 0.0f, 0.0f, 1.0f); // Red for delegate — distinct from bool's darker red (0.9)
+	}
 
 	return FLinearColor::White;
 }

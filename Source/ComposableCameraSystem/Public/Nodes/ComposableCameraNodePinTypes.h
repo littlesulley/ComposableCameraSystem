@@ -41,7 +41,15 @@ enum class EComposableCameraPinType : uint8
 	 *  UEnum* is carried on the declaration and used to narrow-cast into the
 	 *  actual property's underlying width (uint8 / int32 / int64) at write time.
 	 *  When this is selected, EnumType must be set. */
-	Enum
+	Enum,
+	/** Single-cast dynamic delegate (FScriptDelegate). NOT stored in the data
+	 *  block — delegates carry heap-owned state and cannot be memcpy'd. Instead
+	 *  they are stored in a parallel map on FComposableCameraParameterBlock and
+	 *  applied at activation time via reflection (FDelegateProperty). Per-frame
+	 *  auto-resolve skips this type. When this is selected, SignatureFunction
+	 *  must be set to the UFunction defining the delegate's parameter/return
+	 *  signature. */
+	Delegate
 };
 
 /**
@@ -83,6 +91,15 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraNodePinDeclaration
 	 *  enum's display names. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pin")
 	TObjectPtr<UEnum> EnumType = nullptr;
+
+	/** For PinType == Delegate: the UFunction defining the delegate signature
+	 *  (parameter types and return type). Extracted from the FDelegateProperty's
+	 *  SignatureFunction at declaration time. The editor uses this to emit a
+	 *  PC_Delegate pin with the correct MemberReference, and the K2 compiler
+	 *  validates that wired Custom Events match the signature. Ignored for other
+	 *  pin types. */
+	UPROPERTY()
+	TObjectPtr<UFunction> SignatureFunction = nullptr;
 
 	/** Whether this input is required. If true, the editor shows an error when the pin
 	 *  is neither wired nor exposed and has no default value. Ignored for output pins. */
@@ -437,10 +454,11 @@ struct FComposableCameraPinKey
  * Used by DeclareSubobjectPins to auto-discover exposable sub-properties of an
  * Instanced UObject, and by ApplySubobjectPinValues to dispatch typed reads.
  */
-inline bool TryMapPropertyToPinType(const FProperty* Property, EComposableCameraPinType& OutPinType, UScriptStruct*& OutStructType, UEnum*& OutEnumType)
+inline bool TryMapPropertyToPinType(const FProperty* Property, EComposableCameraPinType& OutPinType, UScriptStruct*& OutStructType, UEnum*& OutEnumType, UFunction** OutSignatureFunction = nullptr)
 {
 	OutStructType = nullptr;
 	OutEnumType = nullptr;
+	if (OutSignatureFunction) { *OutSignatureFunction = nullptr; }
 
 	if (Property->IsA<FBoolProperty>())       { OutPinType = EComposableCameraPinType::Bool;      return true; }
 	if (Property->IsA<FIntProperty>())         { OutPinType = EComposableCameraPinType::Int32;     return true; }
@@ -512,6 +530,20 @@ inline bool TryMapPropertyToPinType(const FProperty* Property, EComposableCamera
 		return true;
 	}
 
+	// Single-cast dynamic delegates (DECLARE_DYNAMIC_DELEGATE*). Only accepted when
+	// the caller opts in by passing OutSignatureFunction — auto-discovery paths
+	// (subobject pins, per-frame auto-resolve) default to nullptr, causing delegates
+	// to be silently skipped. This is intentional: delegates are bound once at
+	// activation, not per-frame, and subobject delegates are an unusual pattern
+	// better left to explicit GetPinDeclarations overrides.
+	if (const FDelegateProperty* DelegateProp = CastField<FDelegateProperty>(Property))
+	{
+		if (!OutSignatureFunction) { return false; }
+		OutPinType = EComposableCameraPinType::Delegate;
+		*OutSignatureFunction = DelegateProp->SignatureFunction;
+		return *OutSignatureFunction != nullptr;
+	}
+
 	// FStrProperty / FText / arrays / maps / sets are intentionally rejected. The
 	// data block is POD-only (memcpy transport), and these carry heap-owned storage
 	// or non-trivial layout.
@@ -539,6 +571,7 @@ inline int32 GetPinTypeSize(EComposableCameraPinType PinType, UScriptStruct* Str
 	case EComposableCameraPinType::Object:    return sizeof(UObject*);
 	case EComposableCameraPinType::Name:      return sizeof(FName);
 	case EComposableCameraPinType::Enum:      return sizeof(int64); // always normalized to int64 in the block
+	case EComposableCameraPinType::Delegate:  return 0; // delegates don't live in the data block
 	case EComposableCameraPinType::Struct:
 		return StructType ? StructType->GetStructureSize() : 0;
 	default:
@@ -566,6 +599,7 @@ inline int32 GetPinTypeAlignment(EComposableCameraPinType PinType, UScriptStruct
 	case EComposableCameraPinType::Object:    return alignof(UObject*);
 	case EComposableCameraPinType::Name:      return alignof(FName);
 	case EComposableCameraPinType::Enum:      return alignof(int64);
+	case EComposableCameraPinType::Delegate:  return 1; // no data block allocation
 	case EComposableCameraPinType::Struct:
 		return StructType ? StructType->GetMinAlignment() : 1;
 	default:

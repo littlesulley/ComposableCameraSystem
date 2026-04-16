@@ -20,6 +20,12 @@ FComposableCameraPose FComposableCameraEvaluationTreeLeafNodeWrapper::Evaluate(f
 		return FComposableCameraPose{};
 	}
 
+	if (bFrozen)
+	{
+		// Source camera is frozen: return its last pose without ticking nodes or updating state.
+		return RunningCamera->CameraPose;
+	}
+
 	return RunningCamera->TickCamera(DeltaTime);
 }
 
@@ -35,6 +41,13 @@ FComposableCameraPose FComposableCameraEvaluationTreeReferenceLeafNodeWrapper::E
 		return FComposableCameraPose{};
 	}
 
+	if (bFrozen)
+	{
+		// Source context is frozen: return the Director's last evaluated pose
+		// without re-evaluating its entire tree.
+		return ReferencedDirector->GetLastEvaluatedPose();
+	}
+
 	// Evaluate the source context's Director live. This keeps the source context ticking
 	// during inter-context transitions rather than freezing it.
 	return ReferencedDirector->Evaluate(DeltaTime);
@@ -46,6 +59,8 @@ FComposableCameraPose FComposableCameraEvaluationTreeReferenceLeafNodeWrapper::E
 
 FComposableCameraPose FComposableCameraEvaluationTreeInnerNodeWrapper::Evaluate(float DeltaTime)
 {
+	TRACE_CPUPROFILER_EVENT_SCOPE(CCS_EvalTree_InnerNode_Evaluate);
+
 	if (!RightNode)
 	{
 		UE_LOG(LogComposableCameraSystem, Error, TEXT("RightNode is null in inner evaluation node."));
@@ -139,6 +154,8 @@ UComposableCameraEvaluationTree::UComposableCameraEvaluationTree(const FObjectIn
 
 FComposableCameraPose UComposableCameraEvaluationTree::Evaluate(float DeltaTime)
 {
+	TRACE_CPUPROFILER_EVENT_SCOPE(CCS_EvaluationTree_Evaluate);
+
 	if (!RootNode)
 	{
 		UE_LOG(LogComposableCameraSystem, Warning, TEXT("EvaluationTree has no root node. Has a camera been activated?"));
@@ -157,7 +174,8 @@ FComposableCameraPose UComposableCameraEvaluationTree::Evaluate(float DeltaTime)
 
 void UComposableCameraEvaluationTree::OnActivateNewCamera(
 	AComposableCameraCameraBase* NewCamera,
-	UComposableCameraTransitionBase* InTransition)
+	UComposableCameraTransitionBase* InTransition,
+	bool bFreezeSourceCamera)
 {
 	check(NewCamera);
 
@@ -174,6 +192,13 @@ void UComposableCameraEvaluationTree::OnActivateNewCamera(
 	}
 	else
 	{
+		// Freeze the source subtree if requested — all leaves hold their last pose
+		// and stop ticking for the duration of the transition.
+		if (bFreezeSourceCamera)
+		{
+			FreezeSubtree(RootNode, true);
+		}
+
 		// Transition: create an inner node that blends from the current tree (source) to the new camera (target).
 		FComposableCameraEvaluationTreeInnerNodeWrapper InnerWrapper;
 		InnerWrapper.Transition = InTransition;
@@ -191,7 +216,8 @@ void UComposableCameraEvaluationTree::OnActivateNewCamera(
 void UComposableCameraEvaluationTree::OnActivateNewCameraWithReferenceSource(
 	AComposableCameraCameraBase* NewCamera,
 	UComposableCameraTransitionBase* InTransition,
-	UComposableCameraDirector* SourceDirector)
+	UComposableCameraDirector* SourceDirector,
+	bool bFreezeSourceCamera)
 {
 	check(NewCamera);
 	check(SourceDirector);
@@ -209,10 +235,11 @@ void UComposableCameraEvaluationTree::OnActivateNewCameraWithReferenceSource(
 	}
 	else
 	{
-		// Create a reference leaf that evaluates the source context's Director live.
+		// Create a reference leaf that evaluates the source context's Director live
+		// (or frozen, if bFreezeSourceCamera is set).
 		TSharedPtr<FComposableCameraEvaluationTreeNode> RefLeaf = MakeShared<FComposableCameraEvaluationTreeNode>();
 		RefLeaf->Wrapper.Set<FComposableCameraEvaluationTreeReferenceLeafNodeWrapper>(
-			FComposableCameraEvaluationTreeReferenceLeafNodeWrapper{ SourceDirector });
+			FComposableCameraEvaluationTreeReferenceLeafNodeWrapper{ SourceDirector, bFreezeSourceCamera });
 
 		// Build the inner node: reference leaf (source) → transition → new camera (target).
 		FComposableCameraEvaluationTreeInnerNodeWrapper InnerWrapper;
@@ -321,6 +348,30 @@ void UComposableCameraEvaluationTree::DestroySubtreeCameras(
 		FComposableCameraEvaluationTreeInnerNodeWrapper& Inner = Node->AsInner();
 		DestroySubtreeCameras(Inner.LeftNode);
 		DestroySubtreeCameras(Inner.RightNode);
+	}
+}
+
+void UComposableCameraEvaluationTree::FreezeSubtree(
+	const TSharedPtr<FComposableCameraEvaluationTreeNode>& Node, bool bFrozen)
+{
+	if (!Node)
+	{
+		return;
+	}
+
+	if (Node->IsLeaf())
+	{
+		Node->AsLeaf().bFrozen = bFrozen;
+	}
+	else if (Node->IsReferenceLeaf())
+	{
+		Node->AsReferenceLeaf().bFrozen = bFrozen;
+	}
+	else if (Node->IsInner())
+	{
+		FComposableCameraEvaluationTreeInnerNodeWrapper& Inner = Node->AsInner();
+		FreezeSubtree(Inner.LeftNode, bFrozen);
+		FreezeSubtree(Inner.RightNode, bFrozen);
 	}
 }
 

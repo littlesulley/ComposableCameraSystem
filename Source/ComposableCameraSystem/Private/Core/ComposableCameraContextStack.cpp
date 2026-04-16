@@ -280,6 +280,8 @@ FName UComposableCameraContextStack::GetActiveContextName() const
 
 FComposableCameraPose UComposableCameraContextStack::Evaluate(float DeltaTime)
 {
+	TRACE_CPUPROFILER_EVENT_SCOPE(CCS_ContextStack_Evaluate);
+
 	if (Entries.Num() == 0)
 	{
 		UE_LOG(LogComposableCameraSystem, Warning, TEXT("Context stack is empty."));

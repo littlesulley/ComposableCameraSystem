@@ -72,6 +72,9 @@ void UComposableCameraCameraNodeBase::Initialize(AComposableCameraCameraBase* In
 
 void UComposableCameraCameraNodeBase::TickNode(float DeltaTime, const FComposableCameraPose CurrentCameraPose, FComposableCameraPose& OutCameraPose)
 {
+	TRACE_CPUPROFILER_EVENT_SCOPE(CCS_Node_TickNode);
+	TRACE_CPUPROFILER_EVENT_SCOPE_STR(*GetClass()->GetName());
+
 	// Auto-resolve declared input pins into their matching UPROPERTY fields so
 	// that OnTickNode can read members directly instead of calling GetInputPinValue<T>().
 	// Subclasses that manage their own pin reads can opt out via ShouldAutoResolveInputPins.
@@ -295,6 +298,8 @@ const FComposableCameraNodePinBindingTable& UComposableCameraCameraNodeBase::Get
 
 void UComposableCameraCameraNodeBase::ResolveAllInputPins()
 {
+	TRACE_CPUPROFILER_EVENT_SCOPE(CCS_Node_ResolveAllInputPins);
+
 	if (!RuntimeDataBlock)
 	{
 		return;
@@ -381,6 +386,11 @@ void UComposableCameraCameraNodeBase::ResolveAllInputPins()
 		case EComposableCameraPinType::Struct:
 			// Generic struct pins need memcpy with size/alignment validation.
 			// Matches ApplySubobjectPinValues: deferred until a concrete use case appears.
+			break;
+		case EComposableCameraPinType::Delegate:
+			// Delegates are not POD — they bypass the data block entirely and are
+			// written directly into the node's UPROPERTY at activation time via
+			// ApplyDelegateBindings. Nothing to resolve per-frame here.
 			break;
 		}
 	}
@@ -551,6 +561,11 @@ void UComposableCameraCameraNodeBase::ApplySubobjectPinValues(
 			// Struct pin resolution uses raw memcpy at the data block level.
 			// For subobject properties this would require size/alignment validation.
 			// Deferred until there is a concrete use case.
+			break;
+		case EComposableCameraPinType::Delegate:
+			// Delegates are not POD — they bypass the data block entirely and are
+			// written directly into the node's UPROPERTY at activation time via
+			// ApplyDelegateBindings. Nothing to resolve per-frame here.
 			break;
 		}
 	}

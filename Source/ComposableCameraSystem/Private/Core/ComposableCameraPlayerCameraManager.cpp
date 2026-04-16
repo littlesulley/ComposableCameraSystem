@@ -789,6 +789,12 @@ void AComposableCameraPlayerCameraManager::OnTypeAssetCameraConstructed(AComposa
 	// Apply caller-provided parameter values.
 	TypeAsset->ApplyParameterBlock(*Camera->OwnedRuntimeDataBlock, PendingParameterBlock);
 
+	// Apply delegate bindings from the parameter block. Delegates are not POD
+	// and cannot live in the data block's byte array — they are stored in a
+	// parallel map on the parameter block and written directly into the target
+	// node's FDelegateProperty UPROPERTY via reflection.
+	TypeAsset->ApplyDelegateBindings(Camera, PendingParameterBlock);
+
 	// Wire the data block to each node instance.
 	// Nodes hold raw pointers — they never outlive the camera that owns the block.
 	FComposableCameraRuntimeDataBlock* DataBlock = Camera->OwnedRuntimeDataBlock.Get();
@@ -1140,6 +1146,8 @@ FMinimalViewInfo AComposableCameraPlayerCameraManager::GetCameraViewFromCameraPo
 
 void AComposableCameraPlayerCameraManager::DoUpdateCamera(float DeltaTime)
 {
+	TRACE_CPUPROFILER_EVENT_SCOPE(CCS_PCM_DoUpdateCamera);
+
 	// We still call Super so engine-level PCM bookkeeping (its own modifier stack, ViewTarget
 	// plumbing, post-process blendable accumulation) runs, but Super also writes its own view
 	// into the camera cache, which we do NOT want to be authoritative. Instead, our
@@ -1192,6 +1200,13 @@ void AComposableCameraPlayerCameraManager::DoUpdateCamera(float DeltaTime)
 
 void AComposableCameraPlayerCameraManager::UpdateActions(float DeltaTime)
 {
+	TRACE_CPUPROFILER_EVENT_SCOPE(CCS_PCM_UpdateActions);
+
+	if (CameraActions.IsEmpty())
+	{
+		return;
+	}
+
 	TSet<UComposableCameraActionBase*> ActionsToRemove;
 	for (auto* Action : CameraActions)
 	{

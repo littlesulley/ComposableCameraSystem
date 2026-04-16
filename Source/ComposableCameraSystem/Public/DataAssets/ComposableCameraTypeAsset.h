@@ -89,6 +89,12 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraExposedParameter
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Parameter")
 	TObjectPtr<UEnum> EnumType = nullptr;
 
+	/** For Delegate types: the UFunction defining the delegate signature. Mirrors
+	 *  the source node pin's SignatureFunction. Used by the editor to emit a
+	 *  PC_Delegate pin with the correct MemberReference. Ignored for other pin types. */
+	UPROPERTY()
+	TObjectPtr<UFunction> SignatureFunction = nullptr;
+
 	/** Which node this parameter feeds into (index in NodeTemplates). */
 	UPROPERTY()
 	int32 TargetNodeIndex = INDEX_NONE;
@@ -592,6 +598,18 @@ public:
 	 */
 	void ApplyParameterBlock(FComposableCameraRuntimeDataBlock& DataBlock,
 							 const FComposableCameraParameterBlock& Parameters) const;
+
+	/** Apply delegate bindings from the parameter block to the camera's node UPROPERTYs.
+	 *
+	 *  Called after ApplyParameterBlock. Iterates exposed parameters that are
+	 *  Delegate-typed and, for each one that has an entry in
+	 *  Parameters.DelegateValues, writes the FScriptDelegate into the target
+	 *  node's FDelegateProperty via reflection.
+	 *
+	 *  Delegates cannot go through the data block (they're not POD) so this is
+	 *  a separate pass that operates directly on node instances. */
+	void ApplyDelegateBindings(class AComposableCameraCameraBase* Camera,
+							   const FComposableCameraParameterBlock& Parameters) const;
 
 #if WITH_EDITOR
 	/**

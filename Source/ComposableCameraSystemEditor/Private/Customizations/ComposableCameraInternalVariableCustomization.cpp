@@ -479,6 +479,15 @@ TSharedRef<SWidget> FComposableCameraInternalVariableCustomization::BuildTypedDe
 		return BuildTransformWidget(InitialValueHandle);
 	}
 
+	// ── Delegate — not applicable as a variable default ─────────────
+	case EComposableCameraPinType::Delegate:
+	{
+		return SNew(STextBlock)
+			.Text(LOCTEXT("DelegateNoDefault",
+				"Delegate parameters are bound at activation time."))
+			.ColorAndOpacity(FSlateColor::UseSubduedForeground());
+	}
+
 	// ── Struct — text fallback ──────────────────────────────────────
 	case EComposableCameraPinType::Struct:
 	default:

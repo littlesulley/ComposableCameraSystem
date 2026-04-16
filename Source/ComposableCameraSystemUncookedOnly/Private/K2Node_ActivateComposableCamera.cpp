@@ -886,7 +886,7 @@ void UK2Node_ActivateComposableCamera::CreateDynamicParameterPins()
 		}
 
 		FEdGraphPinType PinType = ComposableCameraEdGraphPinTypeUtils::MakeEdGraphPinTypeFromCameraPinType(
-			Param.PinType, Param.StructType, Param.EnumType);
+			Param.PinType, Param.StructType, Param.EnumType, Param.SignatureFunction);
 		UEdGraphPin* NewPin = CreatePin(EGPD_Input, PinType, Param.ParameterName);
 
 		// PinFriendlyName precedence:
@@ -957,6 +957,10 @@ void UK2Node_ActivateComposableCamera::CreateDynamicParameterPins()
 		// see the "suggested" value at a glance, but the runtime
 		// ApplyParameterBlock will still reject the activation if the caller
 		// doesn't supply one — required means required.
+		// Delegate pins have no textual default — they are bound at activation
+		// time, not authored as a string. Skip the default-value resolution to
+		// avoid showing a stale text box on the K2 node.
+		if (Param.PinType != EComposableCameraPinType::Delegate)
 		{
 			const FString PinDefault = CachedTypeAsset->GetExposedParameterDefaultValue(Param);
 			if (!PinDefault.IsEmpty())
@@ -1115,6 +1119,15 @@ void UK2Node_ActivateComposableCamera::ExpandNode(
 	{
 		UEdGraphPin* DynamicPin = FindPin(ParamPinName);
 		if (!DynamicPin)
+		{
+			continue;
+		}
+
+		// Delegate pins that are not connected have no meaningful default value —
+		// an unbound FScriptDelegate is a no-op. Skip the SetParameterBlockValue
+		// call entirely so we don't emit a thunk for an empty delegate.
+		if (DynamicPin->PinType.PinCategory == UEdGraphSchema_K2::PC_Delegate
+			&& DynamicPin->LinkedTo.Num() == 0)
 		{
 			continue;
 		}

@@ -240,6 +240,12 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	bool bUseInitialTransformRotation { false };
 
+	// Whether to freeze the outgoing (source) camera during the transition.
+	// When true, the source camera stops ticking and holds its last evaluated pose
+	// while the transition blends to the new camera. Has no effect if there is no transition.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	bool bFreezeSourceCamera { false };
+
 	// Whether this camera is transient.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	bool bIsTransient = false;

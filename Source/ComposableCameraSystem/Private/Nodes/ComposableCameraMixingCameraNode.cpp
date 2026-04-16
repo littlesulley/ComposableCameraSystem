@@ -67,9 +67,93 @@ void UComposableCameraMixingCameraNode::OnTickNode_Implementation(float DeltaTim
 
 void UComposableCameraMixingCameraNode::GetPinDeclarations_Implementation(TArray<FComposableCameraNodePinDeclaration>& OutPins) const
 {
-	// MixingCamera node uses a delegate for weights and Cameras array as UPROPERTY.
-	// These are runtime-configured and don't map cleanly to the pin system.
-	// Return empty array.
+	// Cameras (TArray of struct) is intentionally not exposed as a pin — it is consumed once at
+	// OnInitialize. The four enum/float knobs below ARE per-frame relevant and follow the same
+	// Details-only-by-default convention as the other nodes (bDefaultAsPin = false).
+	// OnReceiveMixingCameraWeights is exposed as a delegate pin so callers can bind it at
+	// activation time through the K2 ActivateComposableCamera node.
+	{
+		FComposableCameraNodePinDeclaration PinDecl;
+		PinDecl.PinName = TEXT("MixMode");
+		PinDecl.DisplayName = NSLOCTEXT("ComposableCameraMixingCameraNode", "MixMode", "Mix Mode");
+		PinDecl.Direction = EComposableCameraPinDirection::Input;
+		PinDecl.PinType = EComposableCameraPinType::Enum;
+		PinDecl.EnumType = StaticEnum<EComposableCameraMixingCameraMode>();
+		PinDecl.bRequired = false;
+		PinDecl.bDefaultAsPin = false;
+		PinDecl.DefaultValueString = PinDecl.EnumType ? PinDecl.EnumType->GetNameStringByValue(static_cast<int64>(MixMode)) : FString();
+		PinDecl.Tooltip = NSLOCTEXT("ComposableCameraMixingCameraNode", "MixModeTip",
+			"Selects whether to mix position only, rotation only, or both. Note: when promoted to a context parameter, the value can change per frame regardless of the editor EditCondition cascade.");
+		OutPins.Add(PinDecl);
+	}
+
+	{
+		FComposableCameraNodePinDeclaration PinDecl;
+		PinDecl.PinName = TEXT("WeightNormalizationMethod");
+		PinDecl.DisplayName = NSLOCTEXT("ComposableCameraMixingCameraNode", "WeightNormalizationMethod", "Weight Normalization Method");
+		PinDecl.Direction = EComposableCameraPinDirection::Input;
+		PinDecl.PinType = EComposableCameraPinType::Enum;
+		PinDecl.EnumType = StaticEnum<EComposableCameraMixingCameraWeightNormalizationMethod>();
+		PinDecl.bRequired = false;
+		PinDecl.bDefaultAsPin = false;
+		PinDecl.DefaultValueString = PinDecl.EnumType ? PinDecl.EnumType->GetNameStringByValue(static_cast<int64>(WeightNormalizationMethod)) : FString();
+		PinDecl.Tooltip = NSLOCTEXT("ComposableCameraMixingCameraNode", "WeightNormalizationMethodTip",
+			"Method used to normalize the per-camera weights before mixing — L1, L2, or SoftMax.");
+		OutPins.Add(PinDecl);
+	}
+
+	{
+		FComposableCameraNodePinDeclaration PinDecl;
+		PinDecl.PinName = TEXT("MixRotationMethod");
+		PinDecl.DisplayName = NSLOCTEXT("ComposableCameraMixingCameraNode", "MixRotationMethod", "Mix Rotation Method");
+		PinDecl.Direction = EComposableCameraPinDirection::Input;
+		PinDecl.PinType = EComposableCameraPinType::Enum;
+		PinDecl.EnumType = StaticEnum<EComposableCameraMixingCameraRotationMethod>();
+		PinDecl.bRequired = false;
+		PinDecl.bDefaultAsPin = false;
+		PinDecl.DefaultValueString = PinDecl.EnumType ? PinDecl.EnumType->GetNameStringByValue(static_cast<int64>(MixRotationMethod)) : FString();
+		PinDecl.Tooltip = NSLOCTEXT("ComposableCameraMixingCameraNode", "MixRotationMethodTip",
+			"Algorithm used to average rotations across mixed cameras — only consulted when Mix Mode is RotationOnly or Both.");
+		OutPins.Add(PinDecl);
+	}
+
+	{
+		FComposableCameraNodePinDeclaration PinDecl;
+		PinDecl.PinName = TEXT("CircularInterpEpsilon");
+		PinDecl.DisplayName = NSLOCTEXT("ComposableCameraMixingCameraNode", "CircularInterpEpsilon", "Circular Interp Epsilon");
+		PinDecl.Direction = EComposableCameraPinDirection::Input;
+		PinDecl.PinType = EComposableCameraPinType::Float;
+		PinDecl.bRequired = false;
+		PinDecl.bDefaultAsPin = false;
+		PinDecl.DefaultValueString = FString::SanitizeFloat(CircularInterpEpsilon);
+		PinDecl.Tooltip = NSLOCTEXT("ComposableCameraMixingCameraNode", "CircularInterpEpsilonTip",
+			"Epsilon used by the Circular Interpolation rotation method. Only consulted when Mix Rotation Method is CircularInterp.");
+		OutPins.Add(PinDecl);
+	}
+
+	// Delegate pin: OnReceiveMixingCameraWeights — bound at activation time via
+	// ApplyDelegateBindings. The signature function is retrieved from the
+	// FDelegateProperty on this node's class; it carries the return type
+	// (TArray<float>) that the K2 schema needs to validate wiring.
+	{
+		FComposableCameraNodePinDeclaration PinDecl;
+		PinDecl.PinName = TEXT("OnReceiveMixingCameraWeights");
+		PinDecl.DisplayName = NSLOCTEXT("ComposableCameraMixingCameraNode", "OnReceiveWeights", "On Receive Mixing Camera Weights");
+		PinDecl.Direction = EComposableCameraPinDirection::Input;
+		PinDecl.PinType = EComposableCameraPinType::Delegate;
+		PinDecl.bRequired = false;
+		PinDecl.bDefaultAsPin = true; // Delegates are meaningfully bindable only as pins, not from the Details panel.
+		PinDecl.Tooltip = NSLOCTEXT("ComposableCameraMixingCameraNode", "OnReceiveWeightsTip",
+			"Delegate called each tick to provide per-camera mixing weights. Must return a TArray<float> with one entry per camera.");
+
+		// Extract the signature UFunction from the FDelegateProperty via reflection.
+		if (const FDelegateProperty* DelegateProp = CastField<FDelegateProperty>(
+				GetClass()->FindPropertyByName(TEXT("OnReceiveMixingCameraWeights"))))
+		{
+			PinDecl.SignatureFunction = DelegateProp->SignatureFunction;
+		}
+		OutPins.Add(PinDecl);
+	}
 }
 
 
@@ -90,6 +174,11 @@ void UComposableCameraMixingCameraNode::SetUpdateWeights(FOnReceiveMixingCameraW
 
 void UComposableCameraMixingCameraNode::NormalizeWeights(TArray<float>& Weights)
 {
+	if (Weights.IsEmpty())
+	{
+		return;
+	}
+
 	float Accumulation = 0.f;
 	const float MaxWeight = *Algo::MaxElement(Weights);
 	

@@ -34,7 +34,8 @@ AComposableCameraCameraBase* UComposableCameraBlueprintLibrary::ActivateComposab
 	const UObject* WorldContextObject,
 	int32 PlayerIndex,
 	UDataTable* DataTable,
-	FName RowName)
+	FName RowName,
+	FComposableCameraParameterBlock OverrideParameters)
 {
 	if (!DataTable)
 	{
@@ -185,6 +186,19 @@ AComposableCameraCameraBase* UComposableCameraBlueprintLibrary::ActivateComposab
 				TEXT("ActivateComposableCameraFromDataTable: Row '%s' has orphaned entry '%s' not present on CameraType '%s'."),
 				*RowName.ToString(), *Entry.Key.ToString(), *TypeAsset->GetName());
 		}
+	}
+
+	// Merge per-call-site overrides on top of the row-parsed values. An override
+	// entry for a given name replaces the row value entirely — this is how the
+	// K2 node's "Add Override Pin" feature works: the row provides the base
+	// configuration, and the override block carries per-call-site adjustments.
+	for (TPair<FName, FComposableCameraParameterValue>& Entry : OverrideParameters.Values)
+	{
+		Params.Values.Add(Entry.Key, MoveTemp(Entry.Value));
+	}
+	for (TPair<FName, FScriptDelegate>& Entry : OverrideParameters.DelegateValues)
+	{
+		Params.DelegateValues.Add(Entry.Key, MoveTemp(Entry.Value));
 	}
 
 	// Resolve the transition override. Sync-load only if a path is set so we

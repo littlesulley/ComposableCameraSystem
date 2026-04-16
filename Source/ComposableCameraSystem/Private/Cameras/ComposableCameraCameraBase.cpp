@@ -347,6 +347,9 @@ void AComposableCameraCameraBase::BeginPlayCamera()
 
 FComposableCameraPose AComposableCameraCameraBase::TickCamera(float DeltaTime)
 {
+	TRACE_CPUPROFILER_EVENT_SCOPE(CCS_Camera_TickCamera);
+	TRACE_CPUPROFILER_EVENT_SCOPE_STR(*CameraTag.ToString());
+
 #if WITH_EDITOR
 	ClearNodeDebugFlags();
 #endif

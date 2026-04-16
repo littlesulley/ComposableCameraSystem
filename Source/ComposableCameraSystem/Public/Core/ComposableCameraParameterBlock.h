@@ -55,9 +55,17 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraParameterBlock
 {
 	GENERATED_BODY()
 
-	/** Type-erased parameter storage, keyed by parameter name. */
+	/** Type-erased parameter storage, keyed by parameter name.
+	 *  POD-only — delegates are stored in DelegateValues instead. */
 	UPROPERTY()
 	TMap<FName, FComposableCameraParameterValue> Values;
+
+	/** Parallel storage for single-cast delegate bindings. Delegates are not
+	 *  POD and cannot be stored in the byte-array-based FComposableCameraParameterValue.
+	 *  They are applied at activation time via ApplyDelegateBindings (on the type
+	 *  asset), which writes them into the target node's FDelegateProperty UPROPERTY
+	 *  via reflection. */
+	TMap<FName, FScriptDelegate> DelegateValues;
 
 	/** Set a bool parameter. */
 	void SetBool(FName Name, bool Value)
@@ -151,10 +159,18 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraParameterBlock
 		Values.Add(Name, MoveTemp(Entry));
 	}
 
-	/** Check if a parameter exists by name. */
+	/** Set a single-cast delegate binding. The delegate is stored in a parallel
+	 *  map (not the POD byte array) and applied at activation time via
+	 *  ApplyDelegateBindings on the type asset. */
+	void SetDelegate(FName Name, const FScriptDelegate& Value)
+	{
+		DelegateValues.Add(Name, Value);
+	}
+
+	/** Check if a parameter exists by name (either POD or delegate). */
 	bool HasValue(FName Name) const
 	{
-		return Values.Contains(Name);
+		return Values.Contains(Name) || DelegateValues.Contains(Name);
 	}
 
 	/** Try to get a typed value. Returns false if not found or type mismatch. */

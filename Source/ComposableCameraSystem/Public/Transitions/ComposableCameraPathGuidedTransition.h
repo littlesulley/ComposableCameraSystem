@@ -77,6 +77,5 @@ private:
 	AActor* DebugSplineActor;
 	
 private:
-	void DrawDebugSplinePoints(const TArray<FVector>& SplinePoints);
 	void BuildInternalSpline(const FComposableCameraPose& CurrentTargetPose, float DeltaTime);
 };

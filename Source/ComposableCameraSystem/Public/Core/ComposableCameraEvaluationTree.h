@@ -20,6 +20,10 @@ struct FComposableCameraEvaluationTreeNode;
 struct FComposableCameraEvaluationTreeLeafNodeWrapper
 {
 	TObjectPtr<AComposableCameraCameraBase> RunningCamera { nullptr };
+
+	/** When true, Evaluate returns the camera's cached pose without ticking it. */
+	bool bFrozen { false };
+
 	FComposableCameraPose Evaluate(float DeltaTime);
 };
 
@@ -35,6 +39,10 @@ struct FComposableCameraEvaluationTreeReferenceLeafNodeWrapper
 {
 	/** The Director from another context that this node evaluates. */
 	TObjectPtr<UComposableCameraDirector> ReferencedDirector { nullptr };
+
+	/** When true, Evaluate returns the Director's last evaluated pose without re-evaluating it. */
+	bool bFrozen { false };
+
 	FComposableCameraPose Evaluate(float DeltaTime);
 };
 
@@ -115,7 +123,7 @@ public:
 	[[nodiscard]] FComposableCameraPose Evaluate(float DeltaTime);
 
 	/** Called when a new camera is activated, optionally with a transition from the current state. */
-	void OnActivateNewCamera(AComposableCameraCameraBase* NewCamera, UComposableCameraTransitionBase* Transition);
+	void OnActivateNewCamera(AComposableCameraCameraBase* NewCamera, UComposableCameraTransitionBase* Transition, bool bFreezeSourceCamera = false);
 
 	/**
 	 * Activate a new camera with a reference to another context's Director as the transition source.
@@ -129,7 +137,8 @@ public:
 	void OnActivateNewCameraWithReferenceSource(
 		AComposableCameraCameraBase* NewCamera,
 		UComposableCameraTransitionBase* Transition,
-		UComposableCameraDirector* SourceDirector);
+		UComposableCameraDirector* SourceDirector,
+		bool bFreezeSourceCamera = false);
 
 	/** Returns true if the tree has at least one active camera. */
 	bool HasActiveCamera() const;
@@ -173,6 +182,13 @@ private:
 	 * Recursively destroy all camera actors referenced by a subtree.
 	 */
 	void DestroySubtreeCameras(const TSharedPtr<FComposableCameraEvaluationTreeNode>& Node);
+
+	/**
+	 * Recursively set bFrozen on all leaf and reference-leaf nodes in a subtree.
+	 * Used when bFreezeSourceCamera is set on activation — the entire outgoing
+	 * blend tree holds its last pose during the transition.
+	 */
+	static void FreezeSubtree(const TSharedPtr<FComposableCameraEvaluationTreeNode>& Node, bool bFrozen);
 
 	/** Recursively build a debug string for a subtree. */
 	static void BuildNodeDebugString(

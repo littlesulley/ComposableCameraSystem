@@ -163,24 +163,16 @@ FComposableCameraPose UComposableCameraPathGuidedTransition::OnEvaluate_Implemen
 		}
 	}
 
-	// Draw debug spline.
+	// Draw debug point — single DrawDebugPoint call, no intermediate TArray.
 	if (AComposableCameraPlayerCameraManager* PCM = UComposableCameraBlueprintLibrary::GetComposableCameraPlayerCameraManager(this, 0))
 	{
 		if (PCM->bDrawDebugInformation)
 		{
-			DrawDebugSplinePoints(TArray{ ResultPose.Position });
+			DrawDebugPoint(GetWorld(), ResultPose.Position, 8.f, FColor::Cyan, false, 2.f, 1.f);
 		}
 	}
 
 	return ResultPose;
-}
-
-void UComposableCameraPathGuidedTransition::DrawDebugSplinePoints(const TArray<FVector>& SplinePoints)
-{
-	for (const FVector& Point : SplinePoints)
-	{
-		DrawDebugPoint(GetWorld(), Point, 8.f, FColor::Cyan, false, 2.f, 1.f);
-	}
 }
 
 void UComposableCameraPathGuidedTransition::BuildInternalSpline(const FComposableCameraPose& CurrentTargetPose, float DeltaTime)

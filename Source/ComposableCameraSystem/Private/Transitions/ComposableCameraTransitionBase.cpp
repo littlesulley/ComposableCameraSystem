@@ -5,6 +5,9 @@
 FComposableCameraPose UComposableCameraTransitionBase::Evaluate(float DeltaTime,
 	const FComposableCameraPose& CurrentSourcePose, const FComposableCameraPose& CurrentTargetPose)
 {
+	TRACE_CPUPROFILER_EVENT_SCOPE(CCS_Transition_Evaluate);
+	TRACE_CPUPROFILER_EVENT_SCOPE_STR(*GetClass()->GetName());
+
 	if (bFirstFrame)
 	{
 		OnBeginPlay(DeltaTime, CurrentSourcePose, CurrentTargetPose);

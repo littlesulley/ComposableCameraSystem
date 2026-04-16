@@ -390,6 +390,7 @@ void UComposableCameraNodeGraphNode::ExposePinAsParameter(FName PinName)
 			NewParam.PinType = FoundDecl->PinType;
 			NewParam.StructType = FoundDecl->StructType;
 			NewParam.EnumType = FoundDecl->EnumType;
+			NewParam.SignatureFunction = FoundDecl->SignatureFunction;
 			NewParam.TargetNodeIndex = NodeIndex;
 			// TargetNodeIndex / TargetPinName still point at the underlying
 			// camera node pin — only ParameterName is suffixed. The pin
@@ -635,7 +636,7 @@ UEdGraphPin* UComposableCameraNodeGraphNode::CreatePinFromDeclaration(const FCom
 	// editing one switch. See ComposableCameraEdGraphPinTypeUtils.h for the
 	// rationale and the location of the single source of truth.
 	FEdGraphPinType PinType = ComposableCameraEdGraphPinTypeUtils::MakeEdGraphPinTypeFromCameraPinType(
-		Declaration.PinType, Declaration.StructType, Declaration.EnumType);
+		Declaration.PinType, Declaration.StructType, Declaration.EnumType, Declaration.SignatureFunction);
 
 	UEdGraphPin* NewPin = CreatePin(Direction, PinType, Declaration.PinName);
 	if (NewPin)
@@ -643,7 +644,8 @@ UEdGraphPin* UComposableCameraNodeGraphNode::CreatePinFromDeclaration(const FCom
 		NewPin->PinFriendlyName = Declaration.DisplayName;
 		NewPin->PinToolTip = Declaration.Tooltip.ToString();
 
-		if (!Declaration.DefaultValueString.IsEmpty() && Direction == EGPD_Input)
+		if (!Declaration.DefaultValueString.IsEmpty() && Direction == EGPD_Input
+			&& Declaration.PinType != EComposableCameraPinType::Delegate)
 		{
 			NewPin->DefaultValue = Declaration.DefaultValueString;
 		}

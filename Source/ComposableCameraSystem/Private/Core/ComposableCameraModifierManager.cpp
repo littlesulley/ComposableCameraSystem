@@ -84,6 +84,8 @@ void UComposableCameraModifierManager::RemoveModifier(UComposableCameraNodeModif
 std::pair<bool, UComposableCameraTransitionBase*>
 UComposableCameraModifierManager::FComposableCameraModifierData::UpdateEffectiveModifiers(AComposableCameraCameraBase* Camera)
 {
+	TRACE_CPUPROFILER_EVENT_SCOPE(CCS_ModifierManager_UpdateEffectiveModifiers);
+
 	FGameplayTag CameraTag = Camera->CameraTag;
 
 	// Build new effective camera modifiers.

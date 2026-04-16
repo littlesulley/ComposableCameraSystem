@@ -865,6 +865,66 @@ void UComposableCameraTypeAsset::ApplyParameterBlock(
 	}
 }
 
+void UComposableCameraTypeAsset::ApplyDelegateBindings(
+	AComposableCameraCameraBase* Camera,
+	const FComposableCameraParameterBlock& Parameters) const
+{
+	if (!Camera || Parameters.DelegateValues.Num() == 0)
+	{
+		return;
+	}
+
+	for (const FComposableCameraExposedParameter& Param : ExposedParameters)
+	{
+		if (Param.PinType != EComposableCameraPinType::Delegate)
+		{
+			continue;
+		}
+
+		const FScriptDelegate* SourceDelegate = Parameters.DelegateValues.Find(Param.ParameterName);
+		if (!SourceDelegate)
+		{
+			if (Param.bRequired)
+			{
+				UE_LOG(LogComposableCameraSystem, Warning,
+					TEXT("ApplyDelegateBindings: Required delegate parameter '%s' was not provided by the caller."),
+					*Param.ParameterName.ToString());
+			}
+			continue;
+		}
+
+		if (!Camera->CameraNodes.IsValidIndex(Param.TargetNodeIndex))
+		{
+			continue;
+		}
+
+		UComposableCameraCameraNodeBase* Node = Camera->CameraNodes[Param.TargetNodeIndex];
+		if (!Node)
+		{
+			continue;
+		}
+
+		// Find the FDelegateProperty on the node by the pin's target name and write
+		// the bound delegate directly into the node's UPROPERTY via reflection.
+		FProperty* Prop = Node->GetClass()->FindPropertyByName(Param.TargetPinName);
+		FDelegateProperty* DelegateProp = CastField<FDelegateProperty>(Prop);
+		if (!DelegateProp)
+		{
+			UE_LOG(LogComposableCameraSystem, Warning,
+				TEXT("ApplyDelegateBindings: Could not find FDelegateProperty '%s' on node class '%s'."),
+				*Param.TargetPinName.ToString(),
+				*Node->GetClass()->GetName());
+			continue;
+		}
+
+		FScriptDelegate* DestDelegate = DelegateProp->GetPropertyValuePtr_InContainer(Node);
+		if (DestDelegate)
+		{
+			*DestDelegate = *SourceDelegate;
+		}
+	}
+}
+
 #if WITH_EDITOR
 void UComposableCameraTypeAsset::Build()
 {

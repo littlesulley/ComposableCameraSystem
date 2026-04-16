@@ -49,9 +49,13 @@ namespace ComposableCameraEdGraphPinTypeUtils
 	 *    matches how K2 nodes expose enum-typed parameters and how the engine
 	 *    serializes them). nullptr produces an unbound byte pin and an ensure
 	 *    fires elsewhere; pin authors should always supply the UEnum.
+	 *  - Delegate pins use SignatureFunction to set the PC_Delegate category
+	 *    with a PinSubCategoryMemberReference pointing at the signature UFunction.
+	 *    nullptr produces a typeless delegate pin that the K2 schema can't wire.
 	 */
 	COMPOSABLECAMERASYSTEMUNCOOKEDONLY_API FEdGraphPinType MakeEdGraphPinTypeFromCameraPinType(
 		EComposableCameraPinType PinType,
 		UScriptStruct* StructType = nullptr,
-		UEnum* EnumType = nullptr);
+		UEnum* EnumType = nullptr,
+		UFunction* SignatureFunction = nullptr);
 }

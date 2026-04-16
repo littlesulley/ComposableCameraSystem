@@ -71,7 +71,7 @@ struct FComposableCameraNodePinBindingTable
 /**
  * Base node for all camera nodes.
  */
-UCLASS(Abstract, DefaultToInstanced, EditInlineNew, BlueprintType, NotBlueprintable, CollapseCategories, ClassGroup = ComposableCameraSystem)
+UCLASS(Abstract, DefaultToInstanced, EditInlineNew, BlueprintType, Blueprintable, CollapseCategories, ClassGroup = ComposableCameraSystem)
 class COMPOSABLECAMERASYSTEM_API UComposableCameraCameraNodeBase
 	: public UObject
 {

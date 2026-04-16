@@ -68,7 +68,7 @@ This lets one node write a pivot position into `ContextPivotPosition`, and the n
 | `LookAtNode` | Aims camera at pivot |
 | `CollisionPushNode` | Resolves collision (trace + self-sphere) |
 | `FieldOfViewNode` | Sets FOV |
-| `FixedPoseNode` / `RelativeFixedPoseNode` | Fixed camera poses |
+| `RelativeFixedPoseNode` | Fixed camera pose relative to a transform or actor |
 | `ScreenSpacePivotNode` / `ScreenSpaceConstraintsNode` | Screen-space positioning |
 | `RotationConstraints` | Clamps rotation ranges |
 | `SplineNode` | Camera along a spline path |

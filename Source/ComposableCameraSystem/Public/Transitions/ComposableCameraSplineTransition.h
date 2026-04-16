@@ -83,5 +83,4 @@ public:
 private:
 
 	void DrawDebugSpline(const FComposableCameraPose& StartPose, const FComposableCameraPose& TargetPose);
-	void DrawDebugSplinePoints(const TArray<FVector>& SplinePoints);
 };

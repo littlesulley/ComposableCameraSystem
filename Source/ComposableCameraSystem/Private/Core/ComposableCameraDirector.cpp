@@ -162,7 +162,7 @@ AComposableCameraCameraBase* UComposableCameraDirector::ActivateNewCamera(
 			Transition->ResetTransitionState();
 		}
 
-		EvaluationTree->OnActivateNewCamera(NewCamera, Transition);
+		EvaluationTree->OnActivateNewCamera(NewCamera, Transition, ActivationParams.bFreezeSourceCamera);
 		RunningCamera = NewCamera;
 	}
 
@@ -230,7 +230,7 @@ AComposableCameraCameraBase* UComposableCameraDirector::ActivateNewCamera(
 			Transition->ResetTransitionState();
 		}
 
-		EvaluationTree->OnActivateNewCamera(NewCamera, Transition);
+		EvaluationTree->OnActivateNewCamera(NewCamera, Transition, ActivationParams.bFreezeSourceCamera);
 		RunningCamera = NewCamera;
 	}
 
@@ -310,8 +310,8 @@ AComposableCameraCameraBase* UComposableCameraDirector::ActivateNewCameraWithRef
 			*OutTransition = Transition;
 		}
 
-		// Wire up the reference leaf: source Director is referenced live in the evaluation tree.
-		EvaluationTree->OnActivateNewCameraWithReferenceSource(NewCamera, Transition, SourceDirector);
+		// Wire up the reference leaf: source Director is referenced live (or frozen) in the evaluation tree.
+		EvaluationTree->OnActivateNewCameraWithReferenceSource(NewCamera, Transition, SourceDirector, ActivationParams.bFreezeSourceCamera);
 		RunningCamera = NewCamera;
 	}
 
@@ -382,7 +382,7 @@ AComposableCameraCameraBase* UComposableCameraDirector::ActivateNewCameraWithRef
 			Transition->ResetTransitionState();
 		}
 
-		EvaluationTree->OnActivateNewCameraWithReferenceSource(NewCamera, Transition, SourceDirector);
+		EvaluationTree->OnActivateNewCameraWithReferenceSource(NewCamera, Transition, SourceDirector, ActivationParams.bFreezeSourceCamera);
 		RunningCamera = NewCamera;
 	}
 
@@ -441,6 +441,8 @@ AComposableCameraCameraBase* UComposableCameraDirector::ReactivateCurrentCamera(
 
 FComposableCameraPose UComposableCameraDirector::Evaluate(float DeltaTime)
 {
+	TRACE_CPUPROFILER_EVENT_SCOPE(CCS_Director_Evaluate);
+
 	PreviousEvaluatedPose = LastEvaluatedPose;
 	LastEvaluatedPose = EvaluationTree->Evaluate(DeltaTime);
 	// Sync RunningCamera — the tree may have changed it during collapse.

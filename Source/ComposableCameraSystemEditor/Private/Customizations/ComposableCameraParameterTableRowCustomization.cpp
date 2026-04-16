@@ -770,6 +770,15 @@ TSharedRef<SWidget> FComposableCameraParameterTableRowCustomization::BuildTypedV
 			.ColorAndOpacity(FSlateColor::UseSubduedForeground());
 	}
 
+	// ── Delegate — not editable from DataTable rows ──────────────────────
+	case EComposableCameraPinType::Delegate:
+	{
+		return SNew(STextBlock)
+			.Text(LOCTEXT("DelegateNotEditable",
+				"Delegate parameters are bound at activation time, not from DataTable rows."))
+			.ColorAndOpacity(FSlateColor::UseSubduedForeground());
+	}
+
 	// ── Unknown type — raw text fallback ──────────────────────────────────
 	default:
 	{
@@ -1120,6 +1129,9 @@ FText FComposableCameraParameterTableRowCustomization::GetFormatHint(
 				LOCTEXT("HintEnum", "Enum entry name for {0} (e.g. {0}::SomeValue)"),
 				FText::FromString(EnumType->GetName()))
 			: LOCTEXT("HintEnumNoType", "Enum entry name (EnumType unset — invalid pin)");
+	case EComposableCameraPinType::Delegate:
+		return LOCTEXT("HintDelegate",
+			"Delegates cannot be set from DataTable rows — bind at activation time through the K2 node.");
 	default:
 		return FText::GetEmpty();
 	}

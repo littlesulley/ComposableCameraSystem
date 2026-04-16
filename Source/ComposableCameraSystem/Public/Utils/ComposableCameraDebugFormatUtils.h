@@ -108,6 +108,10 @@ namespace ComposableCameraDebug
 			}
 			return FString::Printf(TEXT("%lld"), IntVal);
 		}
+		case EComposableCameraPinType::Delegate:
+			// Delegates have no data block representation — they are written
+			// directly into the node's UPROPERTY at activation time.
+			return TEXT("(delegate)");
 		default:
 			return TEXT("(struct)");
 		}

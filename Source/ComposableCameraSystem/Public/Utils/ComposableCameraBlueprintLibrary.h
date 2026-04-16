@@ -68,16 +68,24 @@ public:
 	 * refuses to proceed on a single bad cell; parameters with no valid source
 	 * at all end up at the runtime data block's zero-initialized default.
 	 *
+	 * If OverrideParameters is non-empty, its entries take precedence over the
+	 * row-parsed values — an override entry for a given name replaces the row
+	 * value entirely. This is how the K2 node's "Add Override Pin" feature works:
+	 * the row provides the base configuration, and the override block carries
+	 * per-call-site adjustments authored on the K2 node's dynamic pins.
+	 *
 	 * This function is hidden from the Blueprint palette because designers should
 	 * author DataTable-driven activation calls through UK2Node_ActivateComposableCameraFromDataTable
 	 * instead — that K2 node provides a row-struct-filtered DataTable asset picker
 	 * and a live row-name dropdown, and expands into this call at compile time.
 	 *
-	 * @param WorldContextObject World context object.
-	 * @param PlayerIndex        Player index (0 for single player).
-	 * @param DataTable          DataTable asset containing the row.
-	 * @param RowName            Name of the row to activate.  The row's
-	 *                           ActivationParams struct is used directly.
+	 * @param WorldContextObject   World context object.
+	 * @param PlayerIndex          Player index (0 for single player).
+	 * @param DataTable            DataTable asset containing the row.
+	 * @param RowName              Name of the row to activate.  The row's
+	 *                             ActivationParams struct is used directly.
+	 * @param OverrideParameters   Optional per-call-site overrides that take
+	 *                             precedence over the row's string-map values.
 	 * @return The activated camera instance, or nullptr on failure.
 	 */
 	UFUNCTION(BlueprintCallable, BlueprintInternalUseOnly, Category = "ComposableCameraSystem|Camera",
@@ -86,7 +94,8 @@ public:
 		const UObject* WorldContextObject,
 		int32 PlayerIndex,
 		UDataTable* DataTable,
-		FName RowName);
+		FName RowName,
+		FComposableCameraParameterBlock OverrideParameters);
 
 	/** Terminate the current camera — pops the active (top) context off the stack.
 	 * The previous context resumes with an optional transition. Cannot pop the base context.
@@ -212,6 +221,20 @@ public:
 		}
 		else
 		{
+			// Delegate properties are routed to the parallel DelegateValues
+			// map — they are not POD and cannot be memcpy'd into the byte
+			// array. ApplyDelegateBindings writes them to the node's
+			// UPROPERTY at activation time via reflection.
+			// Handled before P_NATIVE_BEGIN so the early return doesn't
+			// break the paired P_NATIVE_BEGIN / P_NATIVE_END macros (which
+			// expand to try/catch in editor builds).
+			if (const FDelegateProperty* DelegateProp = CastField<FDelegateProperty>(ValueProperty))
+			{
+				const FScriptDelegate& Delegate = *static_cast<const FScriptDelegate*>(ValuePtr);
+				ParameterBlock.SetDelegate(ParameterName, Delegate);
+				return; // early out — delegate stored, nothing else to do
+			}
+
 			P_NATIVE_BEGIN
 
 			// Enum pin special case: the runtime data block stores enum slots as
@@ -226,6 +249,7 @@ public:
 			// numeric property API and store the canonical 8-byte form so the
 			// downstream copy and the ResolveAllInputPins narrow-cast both find
 			// what they expect.
+
 			FComposableCameraParameterValue Entry;
 			bool bHandled = false;
 			if (const FEnumProperty* EnumProp = CastField<FEnumProperty>(ValueProperty))

@@ -549,20 +549,28 @@ void FComposableCameraNodeGraphNodeDetails::CustomizeDetails(IDetailLayoutBuilde
 		const FString ClassDefault = Decl.DefaultValueString;
 
 		// Build the value widget: text editor for scalars, read-only label
-		// for Actor/Object types that can only be wired or exposed.
+		// for Actor/Object/Delegate types that can only be wired or exposed.
 		const bool bIsObjectType =
 			Decl.PinType == EComposableCameraPinType::Actor ||
 			Decl.PinType == EComposableCameraPinType::Object;
+		const bool bIsDelegateType =
+			Decl.PinType == EComposableCameraPinType::Delegate;
 
-		TSharedRef<SWidget> ValueWidget = bIsObjectType
+		TSharedRef<SWidget> ValueWidget = (bIsObjectType || bIsDelegateType)
 			? StaticCastSharedRef<SWidget>(
 				SNew(STextBlock)
-				.Text(LOCTEXT("ObjectPinNone", "None"))
+				.Text(bIsDelegateType
+					? LOCTEXT("DelegatePinNone", "Bind at activation")
+					: LOCTEXT("ObjectPinNone", "None"))
 				.Font(IDetailLayoutBuilder::GetDetailFont())
 				.ColorAndOpacity(FSlateColor::UseSubduedForeground())
-				.ToolTipText(LOCTEXT("ObjectPinFallbackTooltip",
-					"Actor/Object pins cannot have a default value. "
-					"Wire this pin or expose it as a camera parameter.")))
+				.ToolTipText(bIsDelegateType
+					? LOCTEXT("DelegatePinFallbackTooltip",
+						"Delegate pins are bound at activation time through the K2 Activate Composable Camera node. "
+						"Expose this pin as a camera parameter to make it available to callers.")
+					: LOCTEXT("ObjectPinFallbackTooltip",
+						"Actor/Object pins cannot have a default value. "
+						"Wire this pin or expose it as a camera parameter.")))
 			: StaticCastSharedRef<SWidget>(
 				SNew(SEditableTextBox)
 				.Text_Lambda([this, PinName, ClassDefault]()

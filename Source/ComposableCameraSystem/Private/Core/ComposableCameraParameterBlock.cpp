@@ -285,6 +285,16 @@ bool FComposableCameraParameterBlock::ApplyStringValue(
 		return true;
 	}
 
+	case EComposableCameraPinType::Delegate:
+	{
+		// Delegates cannot be serialized from a string — they are bound at
+		// activation time through the K2 ActivateComposableCamera node, not
+		// through DataTable rows. Return false so the caller can fall back
+		// to the node pin's authored default (which for delegates is "unbound").
+		WriteError(OutError, TEXT("Delegate parameters cannot be set from a string value"));
+		return false;
+	}
+
 	default:
 	{
 		WriteError(OutError, FString::Printf(
