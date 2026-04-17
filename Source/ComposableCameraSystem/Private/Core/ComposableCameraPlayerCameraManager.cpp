@@ -1160,42 +1160,53 @@ void AComposableCameraPlayerCameraManager::DoUpdateCamera(float DeltaTime)
 	//   (2) FillCameraCache(DesiredView) at the bottom — publishes this frame's evaluated
 	//       pose so the engine renders from it.
 	// Do not collapse one of these fills away; the intermediate stale-restore is load-bearing.
-	Super::DoUpdateCamera(DeltaTime);
-	FillCameraCache(LastDesiredView);
+	{
+		TRACE_CPUPROFILER_EVENT_SCOPE(CCS_PCM_Super_DoUpdateCamera);
+		Super::DoUpdateCamera(DeltaTime);
+	}
+	{
+		TRACE_CPUPROFILER_EVENT_SCOPE(CCS_PCM_RestorePriorFrameCache);
+		FillCameraCache(LastDesiredView);
+	}
 
 	// Update camera actions.
 	UpdateActions(DeltaTime);
 
 	FComposableCameraPose OutPose = ContextStack->Evaluate(DeltaTime);
-	// Update RunningCamera and debug state — may change due to context auto-pop.
-	RunningCamera = ContextStack->GetRunningCamera();
-	CurrentContext = ContextStack->GetActiveContextName();
-	FMinimalViewInfo DesiredView = GetCameraViewFromCameraPose(OutPose);
-	CurrentCameraPose = OutPose;
 
-	// Actor writeback is intentionally limited to Location / Rotation / FOV — i.e. things an
-	// external observer would reasonably query on the camera actor. ProjectionMode, ortho
-	// params, and PostProcessSettings are NOT pushed back onto the component: the component
-	// holds the designer-authored post-process settings that GetCameraViewFromCameraPose reads
-	// each frame, and nodes layer physical-camera/PP modifications transiently per-frame.
-	// Writing PP back onto the component would create a feedback loop.
-	if (RunningCamera)
 	{
-		RunningCamera->SetActorLocation(DesiredView.Location);
-		RunningCamera->SetActorRotation(DesiredView.Rotation);
-		RunningCamera->GetCameraComponent()->FieldOfView = DesiredView.FOV;
-	}
+		TRACE_CPUPROFILER_EVENT_SCOPE(CCS_PCM_PostEvaluate);
 
-	if (bSyncToControlRotation)
-	{
-		if (APlayerController* PC = GetOwningPlayerController())
+		// Update RunningCamera and debug state — may change due to context auto-pop.
+		RunningCamera = ContextStack->GetRunningCamera();
+		CurrentContext = ContextStack->GetActiveContextName();
+		FMinimalViewInfo DesiredView = GetCameraViewFromCameraPose(OutPose);
+		CurrentCameraPose = OutPose;
+
+		// Actor writeback is intentionally limited to Location / Rotation / FOV — i.e. things an
+		// external observer would reasonably query on the camera actor. ProjectionMode, ortho
+		// params, and PostProcessSettings are NOT pushed back onto the component: the component
+		// holds the designer-authored post-process settings that GetCameraViewFromCameraPose reads
+		// each frame, and nodes layer physical-camera/PP modifications transiently per-frame.
+		// Writing PP back onto the component would create a feedback loop.
+		if (RunningCamera)
 		{
-			PC->SetControlRotation(DesiredView.Rotation);
+			RunningCamera->SetActorLocation(DesiredView.Location);
+			RunningCamera->SetActorRotation(DesiredView.Rotation);
+			RunningCamera->GetCameraComponent()->FieldOfView = DesiredView.FOV;
 		}
-	}
 
-	LastDesiredView = DesiredView;
-	FillCameraCache(DesiredView);
+		if (bSyncToControlRotation)
+		{
+			if (APlayerController* PC = GetOwningPlayerController())
+			{
+				PC->SetControlRotation(DesiredView.Rotation);
+			}
+		}
+
+		LastDesiredView = DesiredView;
+		FillCameraCache(DesiredView);
+	}
 }
 
 void AComposableCameraPlayerCameraManager::UpdateActions(float DeltaTime)

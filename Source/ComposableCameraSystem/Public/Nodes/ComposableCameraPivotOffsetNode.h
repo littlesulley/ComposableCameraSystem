@@ -48,7 +48,7 @@ public:
 	ECameraPivotOffset PivotOffsetType = ECameraPivotOffset::WorldSpace;
 
 	// The actor determining the local space if you choose actor local space.
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters, meta = (EditCondition = "PivotOffsetType == ECameraPivotOffset::ActorLocalSpace", EditConditionHides))
 	TSoftObjectPtr<AActor> ActorForLocalSpace = nullptr;
 
 	// The offset.

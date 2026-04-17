@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "EdGraph/EdGraphNode.h"
+#include "Nodes/ComposableCameraNodePinTypes.h"
 #include "ComposableCameraVariableGraphNode.generated.h"
 
 struct FComposableCameraInternalVariable;
@@ -59,6 +60,40 @@ public:
 	UPROPERTY(VisibleAnywhere, Category = "Variable")
 	bool bIsSetter = false;
 
+	// ─── Cached Variable Metadata (survives copy/paste) ────────────────
+	//
+	// Populated opportunistically whenever FindVariable() succeeds.
+	// When the node is pasted into a different graph where the original
+	// variable no longer exists, these cached values let the "Create
+	// Variable" context-menu action recreate a matching variable without
+	// guessing the type.
+
+	/** Cached pin type of the variable. */
+	UPROPERTY()
+	EComposableCameraPinType CachedVariableType = EComposableCameraPinType::Float;
+
+	/** Cached struct type (only meaningful when CachedVariableType == Struct). */
+	UPROPERTY()
+	TObjectPtr<UScriptStruct> CachedStructType = nullptr;
+
+	/** Cached enum type (only meaningful when CachedVariableType == Enum). */
+	UPROPERTY()
+	TObjectPtr<UEnum> CachedEnumType = nullptr;
+
+	/** Whether the source variable lived in ExposedVariables (true) or InternalVariables (false). */
+	UPROPERTY()
+	bool bCachedIsExposed = false;
+
+	/**
+	 * True once CacheVariableMetadata has run at least once (i.e. FindVariable()
+	 * succeeded at some point). Used by AllocateDefaultPins to distinguish
+	 * "we have real cached type info" from "fields are still at their defaults".
+	 * Without this, a Float variable's cache is indistinguishable from the
+	 * default-constructed state and falls through to a wildcard pin.
+	 */
+	UPROPERTY()
+	bool bHasValidCachedType = false;
+
 	// ─── Well-Known Pin Names ──────────────────────────────────────────
 
 	/** Output pin on Get nodes / input pin on Set nodes. */
@@ -79,6 +114,7 @@ public:
 	virtual bool CanUserDeleteNode() const override { return true; }
 	virtual bool CanDuplicateNode() const override { return true; }
 	virtual void PostPasteNode() override;
+	virtual void GetNodeContextMenuActions(class UToolMenu* Menu, class UGraphNodeContextMenuContext* Context) const override;
 
 	// ─── Helpers ───────────────────────────────────────────────────────
 
@@ -90,6 +126,37 @@ public:
 
 	/** Rebuild pins from the current variable lookup (call after renames / type changes). */
 	void ReconstructPins();
+
+	/**
+	 * Try to auto-associate this node with an existing variable on the target
+	 * type asset by matching VariableName + CachedVariableType. Returns true
+	 * if a match was found and the node was rebound.
+	 */
+	bool TryAutoAssociateWithExistingVariable();
+
+	/**
+	 * Create a new variable on the owning type asset from the cached metadata,
+	 * then rebind this node to the newly created variable and reconstruct pins.
+	 */
+	void CreateVariableFromCachedInfo();
+
+	/**
+	 * Called from PostPasteNode when a name match with type mismatch is detected
+	 * (TryAutoAssociateWithExistingVariable already failed). Shows a modal dialog
+	 * offering three resolution strategies:
+	 *   (1) Adopt existing — rebind to the same-name variable, change pin type
+	 *   (2) Change existing — modify the existing variable's type to match the pasted node
+	 *   (3) Rename — create a new variable with a unique suffix (e.g. "Speed_1")
+	 * Does nothing if no name conflict exists.
+	 */
+	void HandleVariableTypeConflictIfAny();
+
+	/**
+	 * Create a new variable with a unique suffix appended to VariableName
+	 * (e.g. "Speed_1"), then rebind this node to it. Used by the type
+	 * conflict dialog's "rename" option.
+	 */
+	void RenameWithUniqueSuffix();
 
 	// ─── Runtime Debug State ──────────────────────────────────────────────
 

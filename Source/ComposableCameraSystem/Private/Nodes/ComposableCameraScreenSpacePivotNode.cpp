@@ -22,11 +22,13 @@ void UComposableCameraScreenSpacePivotNode::OnInitialize_Implementation()
 	YawInterpolator_T = RotationParams.YawInterpolator ? RotationParams.YawInterpolator->BuildDoubleInterpolator() : nullptr;
 	PitchInterpolator_T = RotationParams.PitchInterpolator ? RotationParams.PitchInterpolator->BuildDoubleInterpolator() : nullptr;
 	
+#if ENABLE_DRAW_DEBUG
 	AHUD* HUD = OwningPlayerCameraManager->GetOwningPlayerController()->GetHUD();
 	DrawDebugHandle = HUD->OnHUDPostRender.AddLambda([this](AHUD* HUD, UCanvas* Canvas)
 	{
 		DrawDebugInfo(HUD, Canvas);
 	});
+#endif
 }
 
 void UComposableCameraScreenSpacePivotNode::OnTickNode_Implementation(float DeltaTime,
@@ -54,11 +56,13 @@ void UComposableCameraScreenSpacePivotNode::BeginDestroy()
 {
 	Super::BeginDestroy();
 
+#if ENABLE_DRAW_DEBUG
 	if (OwningPlayerCameraManager)
 	{
 		AHUD* HUD = OwningPlayerCameraManager->GetOwningPlayerController()->GetHUD();
 		HUD->OnHUDPostRender.Remove(DrawDebugHandle);
 	}
+#endif
 }
 
 void UComposableCameraScreenSpacePivotNode::GetPinDeclarations_Implementation(TArray<FComposableCameraNodePinDeclaration>& OutPins) const
@@ -612,6 +616,7 @@ FVector UComposableCameraScreenSpacePivotNode::GetCurrentPivot()
 	return FVector::ZeroVector;
 }
 
+#if ENABLE_DRAW_DEBUG
 void UComposableCameraScreenSpacePivotNode::DrawDebugInfo(AHUD* HUD, UCanvas* Canvas)
 {
 	if (OwningPlayerCameraManager && OwningPlayerCameraManager->bDrawDebugInformation)
@@ -687,4 +692,5 @@ void UComposableCameraScreenSpacePivotNode::DrawDebugInfo(AHUD* HUD, UCanvas* Ca
 			HUD->DrawRect(PivotCenterColor, ScreenPosition.X - Radius, ScreenPosition.Y - Radius, 2 * Radius, 2 * Radius);
 		}
 	}
-} 
+}
+#endif

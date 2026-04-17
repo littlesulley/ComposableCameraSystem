@@ -61,6 +61,9 @@ void UComposableCameraCameraNodeBase::Initialize(AComposableCameraCameraBase* In
 {
 	OwningCamera = InOwningCamera;
 	OwningPlayerCameraManager = InPlayerCameraManager;
+#if CPUPROFILERTRACE_ENABLED
+	CachedNodeClassName = GetClass()->GetName();
+#endif
 
 	// Auto-apply subobject pin values before the subclass's OnInitialize,
 	// so that interpolator/subobject properties reflect any wired or exposed
@@ -73,7 +76,9 @@ void UComposableCameraCameraNodeBase::Initialize(AComposableCameraCameraBase* In
 void UComposableCameraCameraNodeBase::TickNode(float DeltaTime, const FComposableCameraPose CurrentCameraPose, FComposableCameraPose& OutCameraPose)
 {
 	TRACE_CPUPROFILER_EVENT_SCOPE(CCS_Node_TickNode);
-	TRACE_CPUPROFILER_EVENT_SCOPE_STR(*GetClass()->GetName());
+#if CPUPROFILERTRACE_ENABLED
+	FCpuProfilerTrace::FEventScope __NodeClassScope(CachedProfilerSpecId, *CachedNodeClassName, true, __FILE__, __LINE__);
+#endif
 
 	// Auto-resolve declared input pins into their matching UPROPERTY fields so
 	// that OnTickNode can read members directly instead of calling GetInputPinValue<T>().

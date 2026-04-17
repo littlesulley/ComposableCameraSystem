@@ -48,7 +48,9 @@ public:
 	FVector2D SafeZoneHeight { -0.1, 0.1 };
 	
 private:
+#if ENABLE_DRAW_DEBUG
 	FDelegateHandle DrawDebugHandle;
+#endif
 
 private:
 	FVector EnsureWithinBoundsTranslation(const FVector& Pivot, const FComposableCameraPose& CurrentPose, const float& AspectRatio, const float& TanHalfHOR);
@@ -57,5 +59,7 @@ private:
 	std::pair<float, float> CalibrateRotationOffsetNewton(float TanHalfHOR, float AspectRatio, FVector Direction, FRotator LookAtRotation, float ScreenX, float ScreenY);
 
 	FVector GetCurrentPivot();
+#if ENABLE_DRAW_DEBUG
 	void DrawDebugInfo(AHUD* HUD, UCanvas* Canvas);
+#endif
 };

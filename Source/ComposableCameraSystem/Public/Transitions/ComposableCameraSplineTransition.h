@@ -82,5 +82,7 @@ public:
 
 private:
 
+#if ENABLE_DRAW_DEBUG
 	void DrawDebugSpline(const FComposableCameraPose& StartPose, const FComposableCameraPose& TargetPose);
+#endif
 };

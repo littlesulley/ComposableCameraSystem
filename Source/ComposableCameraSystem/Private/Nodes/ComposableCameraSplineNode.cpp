@@ -246,9 +246,16 @@ void UComposableCameraSplineNode::UpdateCameraPoseByBuiltInSpline(FVector& OutPo
 			}
 
 			ElapsedTimeForAutomaticMethod += DeltaTime;
-			if (bLoop && ElapsedTimeForAutomaticMethod > Duration)
+			if (ElapsedTimeForAutomaticMethod > Duration)
 			{
-				ElapsedTimeForAutomaticMethod -= Duration;
+				if (bLoop)
+				{
+					ElapsedTimeForAutomaticMethod -= Duration;
+				}
+				else
+				{
+					ElapsedTimeForAutomaticMethod = Duration;
+				}
 			}
 			
 			USplineComponent* Spline = Rail->GetRailSplineComponent();
@@ -286,19 +293,26 @@ void UComposableCameraSplineNode::UpdateCameraPoseByBuiltInSpline(FVector& OutPo
 				TargetPosition = MoveInterpolator_T->Run(DeltaTime);
 			}
 
-			if (TargetPosition >= 1.f)
+			if (bLoop)
 			{
-				TargetPosition -= 1.0f;
+				if (TargetPosition >= 1.f)
+				{
+					TargetPosition -= 1.0f;
+				}
 			}
-			
+			else
+			{
+				TargetPosition = FMath::Clamp(TargetPosition, 0.f, 1.f);
+			}
+
 			Rail->CurrentPositionOnRail = TargetPosition;
-			
+
 			OutPosition = Spline->GetLocationAtDistanceAlongSpline(SplineLength * TargetPosition, ESplineCoordinateSpace::World);
 			if (bLockOrientationOnSpline)
 			{
 				OutRotation = Spline->GetQuaternionAtDistanceAlongSpline(SplineLength * TargetPosition, ESplineCoordinateSpace::World).Rotator();
 			}
-			
+
 			break;
 		}
 	}

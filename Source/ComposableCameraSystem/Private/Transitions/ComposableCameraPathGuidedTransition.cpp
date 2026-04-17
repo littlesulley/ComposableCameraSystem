@@ -163,6 +163,7 @@ FComposableCameraPose UComposableCameraPathGuidedTransition::OnEvaluate_Implemen
 		}
 	}
 
+#if ENABLE_DRAW_DEBUG
 	// Draw debug point — single DrawDebugPoint call, no intermediate TArray.
 	if (AComposableCameraPlayerCameraManager* PCM = UComposableCameraBlueprintLibrary::GetComposableCameraPlayerCameraManager(this, 0))
 	{
@@ -171,6 +172,7 @@ FComposableCameraPose UComposableCameraPathGuidedTransition::OnEvaluate_Implemen
 			DrawDebugPoint(GetWorld(), ResultPose.Position, 8.f, FColor::Cyan, false, 2.f, 1.f);
 		}
 	}
+#endif
 
 	return ResultPose;
 }

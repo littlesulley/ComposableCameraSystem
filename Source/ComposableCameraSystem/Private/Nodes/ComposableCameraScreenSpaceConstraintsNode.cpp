@@ -14,11 +14,13 @@ void UComposableCameraScreenSpaceConstraintsNode::OnInitialize_Implementation()
 {
 	Super::OnInitialize_Implementation();
 
+#if ENABLE_DRAW_DEBUG
 	AHUD* HUD = OwningPlayerCameraManager->GetOwningPlayerController()->GetHUD();
 	DrawDebugHandle = HUD->OnHUDPostRender.AddLambda([this](AHUD* HUD, UCanvas* Canvas)
 	{
 		DrawDebugInfo(HUD, Canvas);
 	});
+#endif
 }
 
 void UComposableCameraScreenSpaceConstraintsNode::OnTickNode_Implementation(float DeltaTime,
@@ -50,11 +52,13 @@ void UComposableCameraScreenSpaceConstraintsNode::BeginDestroy()
 {
 	Super::BeginDestroy();
 
+#if ENABLE_DRAW_DEBUG
 	if (OwningPlayerCameraManager)
 	{
 		AHUD* HUD = OwningPlayerCameraManager->GetOwningPlayerController()->GetHUD();
 		HUD->OnHUDPostRender.Remove(DrawDebugHandle);
 	}
+#endif
 }
 
 void UComposableCameraScreenSpaceConstraintsNode::GetPinDeclarations_Implementation(TArray<FComposableCameraNodePinDeclaration>& OutPins) const
@@ -319,6 +323,7 @@ FVector UComposableCameraScreenSpaceConstraintsNode::GetCurrentPivot()
 	return FVector::ZeroVector;
 }
 
+#if ENABLE_DRAW_DEBUG
 void UComposableCameraScreenSpaceConstraintsNode::DrawDebugInfo(AHUD* HUD, UCanvas* Canvas)
 {
 	if (OwningPlayerCameraManager && OwningPlayerCameraManager->bDrawDebugInformation)
@@ -395,3 +400,4 @@ void UComposableCameraScreenSpaceConstraintsNode::DrawDebugInfo(AHUD* HUD, UCanv
 		}
 	}
 }
+#endif

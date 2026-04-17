@@ -139,7 +139,9 @@ private:
 	TUniquePtr<TCameraInterpolator<TValueTypeWrapper<double>>> YawInterpolator_T;
 	TUniquePtr<TCameraInterpolator<TValueTypeWrapper<double>>> PitchInterpolator_T;
 
+#if ENABLE_DRAW_DEBUG
 	FDelegateHandle DrawDebugHandle;
+#endif
 
 private:
 	void EnsureWithinBoundsTranslation(const FVector& CameraSpacePivotPosition, FVector& CameraSpaceDampedOffset, const float& AspectRatio, const float& TanHalfHOR, const float& CameraDistance);
@@ -151,5 +153,7 @@ private:
 	FRotator GetScreenSpaceRotateAmount(const FVector& Pivot, const FComposableCameraPose& OutCameraPose, float DeltaTime);
 
 	FVector GetCurrentPivot();
+#if ENABLE_DRAW_DEBUG
 	void DrawDebugInfo(AHUD* HUD, UCanvas* Canvas);
+#endif
 };

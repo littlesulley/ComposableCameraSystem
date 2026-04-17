@@ -115,10 +115,12 @@ void UComposableCameraPivotDampingNode::OnTickNode_Implementation(float DeltaTim
 
 	LastPivotPosition = WorldSpaceDampedPivotPosition;
 
+#if ENABLE_DRAW_DEBUG
 	if (OwningPlayerCameraManager && OwningPlayerCameraManager->bDrawDebugInformation)
 	{
 		UKismetSystemLibrary::DrawDebugSphere(this, WorldSpaceDampedPivotPosition, 20, 12, FLinearColor::Green, 0, 1);
 	}
+#endif
 }
 
 void UComposableCameraPivotDampingNode::GetPinDeclarations_Implementation(TArray<FComposableCameraNodePinDeclaration>& OutPins) const

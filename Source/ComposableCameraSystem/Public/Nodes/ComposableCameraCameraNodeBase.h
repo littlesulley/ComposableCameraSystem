@@ -200,6 +200,15 @@ protected:
 	virtual bool ShouldAutoResolveInputPins() const { return true; }
 
 private:
+#if CPUPROFILERTRACE_ENABLED
+	/** Cached class name for the one-shot spec ID registration on first tick. */
+	FString CachedNodeClassName;
+	/** Per-instance Insights spec ID. Starts at 0; lazily registered by
+	 *  FEventScope::BeginEventCommon on the first tick, then reused with
+	 *  zero string work on every subsequent tick. */
+	uint32 CachedProfilerSpecId = 0;
+#endif
+
 	/** Auto-iterate all Instanced UPROPERTY fields and declare their child pins. */
 	void AutoDeclareSubobjectPins(TArray<FComposableCameraNodePinDeclaration>& OutPins) const;
 

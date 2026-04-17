@@ -63,10 +63,12 @@ void UComposableCameraPivotOffsetNode::UpdatePivotOffset(const FVector& InPivot,
 
 	SetOutputPinValue<FVector>("PivotPosition", Pivot);
 
+#if ENABLE_DRAW_DEBUG
 	if (OwningPlayerCameraManager && OwningPlayerCameraManager->bDrawDebugInformation)
 	{
 		UKismetSystemLibrary::DrawDebugSphere(this, Pivot, 20, 12, FLinearColor::Yellow, 0, 1);
 	}
+#endif
 }
 
 void UComposableCameraPivotOffsetNode::GetPinDeclarations_Implementation(

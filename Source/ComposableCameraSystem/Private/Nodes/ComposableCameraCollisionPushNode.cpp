@@ -215,16 +215,20 @@ FComposableCameraHitResult UComposableCameraCollisionPushNode::FindCollisionPoin
 	}
 
 	FHitResult TraceCollisionHit;
+#if ENABLE_DRAW_DEBUG
 	EDrawDebugTrace::Type DrawDebugType =
 		OwningPlayerCameraManager->bDrawDebugInformation ?
 		EDrawDebugTrace::ForOneFrame :
 		EDrawDebugTrace::None;
-		
+
 #if WITH_EDITOR
 	if (!FIsSimulatingInEditor::GetIsSimulatingInEditor())
 	{
 		DrawDebugType = EDrawDebugTrace::None;
 	}
+#endif
+#else
+	EDrawDebugTrace::Type DrawDebugType = EDrawDebugTrace::None;
 #endif
 	
 	if (bTraceUseSphere)

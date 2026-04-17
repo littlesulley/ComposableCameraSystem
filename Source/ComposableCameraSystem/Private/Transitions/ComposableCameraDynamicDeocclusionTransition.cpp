@@ -20,6 +20,7 @@ void UComposableCameraDynamicDeocclusionTransition::OnBeginPlay_Implementation(f
 
 	// DrawDebugType.
 	DrawDebugType = EDrawDebugTrace::None;
+#if ENABLE_DRAW_DEBUG
 	if (AComposableCameraPlayerCameraManager* PCM = UComposableCameraBlueprintLibrary::GetComposableCameraPlayerCameraManager(this, 0))
 	{
 		if (PCM->bDrawDebugInformation)
@@ -33,6 +34,7 @@ void UComposableCameraDynamicDeocclusionTransition::OnBeginPlay_Implementation(f
 	{
 		DrawDebugType = EDrawDebugTrace::None;
 	}
+#endif
 #endif
 
 	// Ignored actors.

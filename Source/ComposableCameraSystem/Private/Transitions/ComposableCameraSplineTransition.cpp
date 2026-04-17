@@ -158,6 +158,7 @@ FComposableCameraPose UComposableCameraSplineTransition::OnEvaluate_Implementati
 		break;
 	}
 
+#if ENABLE_DRAW_DEBUG
 	// Draw debug spline points.
 	if (AComposableCameraPlayerCameraManager* PCM = UComposableCameraBlueprintLibrary::GetComposableCameraPlayerCameraManager(this, 0))
 	{
@@ -166,10 +167,12 @@ FComposableCameraPose UComposableCameraSplineTransition::OnEvaluate_Implementati
 			DrawDebugSpline(CurrentSourcePose, CurrentTargetPose);
 		}
 	}
+#endif
 	
 	return ResultPose;
 }
 
+#if ENABLE_DRAW_DEBUG
 void UComposableCameraSplineTransition::DrawDebugSpline(const FComposableCameraPose& StartPose, const FComposableCameraPose& TargetPose)
 {
 	// Draw debug points inline — no intermediate TArray allocation.
@@ -291,3 +294,4 @@ void UComposableCameraSplineTransition::DrawDebugSpline(const FComposableCameraP
 		break;
 	}
 }
+#endif

@@ -55,6 +55,7 @@ FComposableCameraPose UComposableCameraCylindricalTransition::OnEvaluate_Impleme
 	ResultPose.Position = ResultPosition;
 	ResultPose.Rotation = ResultRotation;
 
+#if ENABLE_DRAW_DEBUG
 	// Draw debug info.
 	if (AComposableCameraPlayerCameraManager* PCM = UComposableCameraBlueprintLibrary::GetComposableCameraPlayerCameraManager(this, 0))
 	{
@@ -68,6 +69,7 @@ FComposableCameraPose UComposableCameraCylindricalTransition::OnEvaluate_Impleme
 			UKismetSystemLibrary::DrawDebugString(this, ResultPivot + FVector(0, 0, 30), "Result Pivot", nullptr, FLinearColor::Red, 0.f);
 		}
 	}
+#endif
 
 	return ResultPose;
 }
