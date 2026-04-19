@@ -16,13 +16,14 @@
 #include "DataAssets/ComposableCameraTypeAsset.h"
 #include "Utils/ComposableCameraProjectSettings.h"
 #include "Engine/Canvas.h"
+#include "Engine/PostProcessUtils.h"
 #include "Modifiers/ComposableCameraModifierBase.h"
 #include "Nodes/ComposableCameraCameraNodeBase.h"
 #include "Nodes/ComposableCameraComputeNodeBase.h"
 #include "Transitions/ComposableCameraTransitionBase.h"
+#include "Nodes/ComposableCameraViewTargetProxyNode.h"
+#include "Transitions/ComposableCameraViewTargetTransition.h"
 #include "Utils/ComposableCameraDebugFormatUtils.h"
-
-class UComposableCameraTransitionBase;
 
 AComposableCameraPlayerCameraManager::AComposableCameraPlayerCameraManager(const  FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
@@ -86,7 +87,146 @@ void AComposableCameraPlayerCameraManager::InitializeFor(APlayerController* Play
 void AComposableCameraPlayerCameraManager::SetViewTarget(AActor* NewViewTarget,
 	FViewTargetTransitionParams TransitionParams)
 {
-	Super::SetViewTarget(NewViewTarget, TransitionParams);
+	UE_LOG(LogComposableCameraSystem, Verbose,
+		TEXT("SetViewTarget called: NewViewTarget='%s'"),
+		NewViewTarget ? *NewViewTarget->GetName() : TEXT("(null)"));
+
+	// Guard against re-entrant calls. When we call ActivateNewCamera below,
+	// the Director's internal bookkeeping may trigger Super::SetViewTarget,
+	// which must not recurse back into implicit activation.
+	if (bIsImplicitlyActivating)
+	{
+		Super::SetViewTarget(NewViewTarget, TransitionParams);
+		return;
+	}
+
+	// Always pass through to Super with EMPTY transition params — we never
+	// want the PCM's built-in PendingViewTarget blend. CCS handles all
+	// blending through its own evaluation tree and transition system.
+	// This keeps the PCM's ViewTarget in sync for external queries.
+	Super::SetViewTarget(NewViewTarget, FViewTargetTransitionParams());
+
+	// Only create a proxy for actors that have a top-level UCameraComponent —
+	// one that IS the root component or is a direct child of root. This filters
+	// out internal camera components buried inside other components (e.g.,
+	// GameplayCameraComponent's OutputCameraComponent). Actors without a
+	// qualifying camera (e.g., the player pawn) fall through — CCS continues
+	// evaluating whatever cameras are already active.
+	if (!NewViewTarget)
+	{
+		return;
+	}
+
+	UCameraComponent* ImplicitCameraComp = Cast<UCameraComponent>(NewViewTarget->GetRootComponent());
+	if (!ImplicitCameraComp)
+	{
+		// Check direct children of root.
+		USceneComponent* Root = NewViewTarget->GetRootComponent();
+		if (Root)
+		{
+			TArray<USceneComponent*> RootChildren;
+			Root->GetChildrenComponents(false, RootChildren);
+			for (USceneComponent* Child : RootChildren)
+			{
+				if (UCameraComponent* Cam = Cast<UCameraComponent>(Child))
+				{
+					ImplicitCameraComp = Cam;
+					break;
+				}
+			}
+		}
+	}
+
+	if (!ImplicitCameraComp)
+	{
+		return;
+	}
+
+	// Don't activate if there's no context stack / director yet.
+	if (!ContextStack || !ContextStack->GetActiveDirector())
+	{
+		return;
+	}
+
+	TGuardValue<bool> ReentrancyGuard(bIsImplicitlyActivating, true);
+
+	// Create a proxy camera with a ViewTargetProxyNode that reads from the
+	// new view target's UCameraComponent each tick. NOT transient — the
+	// context lifecycle is managed by whoever pushed it (PlayCutsceneSequence
+	// pops explicitly; for arbitrary SetViewTarget, the user returns manually).
+	FComposableCameraActivateParams ActivationParams;
+
+	// Build the OnPreBeginplay callback that creates and wires the proxy node.
+	// We capture NewViewTarget by weak pointer to guard against the actor being
+	// destroyed between now and the callback (which fires synchronously, but
+	// defensive coding is cheap here).
+	TWeakObjectPtr<AActor> WeakTarget = NewViewTarget;
+	FOnCameraFinishConstructed OnPreBeginplay;
+
+	// FOnCameraFinishConstructed is a dynamic delegate — cannot use BindLambda.
+	// Instead, store the target and use a UFUNCTION-style callback. But we
+	// don't want to add a UFUNCTION for this on the PCM (it's a hot path and
+	// the target varies per call). Instead, we create the proxy node inline
+	// after ActivateNewCamera returns, since the camera is already spawned
+	// at that point and we have access to it.
+
+	// Convert FViewTargetTransitionParams to a CCS transition.
+	UComposableCameraTransitionBase* Transition = nullptr;
+	if (TransitionParams.BlendTime > 0.f)
+	{
+		UComposableCameraViewTargetTransition* VTTransition =
+			NewObject<UComposableCameraViewTargetTransition>(this);
+		VTTransition->InitFromViewTargetParams(TransitionParams);
+		Transition = VTTransition;
+	}
+
+	// Activate through the current active context's director (same-context activation).
+	UComposableCameraDirector* ActiveDirector = ContextStack->GetActiveDirector();
+	AComposableCameraCameraBase* ProxyCamera = ActiveDirector->ActivateNewCamera(
+		this,
+		AComposableCameraCameraBase::StaticClass(),
+		Transition,
+		ActivationParams,
+		FOnCameraFinishConstructed());
+
+	if (!ProxyCamera)
+	{
+		UE_LOG(LogComposableCameraSystem, Warning,
+			TEXT("SetViewTarget: Failed to create proxy camera for '%s'."),
+			*NewViewTarget->GetName());
+		return;
+	}
+
+	// Wire the proxy node to the camera. The camera was spawned with no nodes
+	// (default AComposableCameraCameraBase has no nodes). We add a single
+	// ViewTargetProxyNode pointing at the target actor.
+	ProxyCamera->CameraNodes.Empty();
+	ProxyCamera->ComputeNodes.Empty();
+
+	UComposableCameraViewTargetProxyNode* ProxyNode =
+		NewObject<UComposableCameraViewTargetProxyNode>(ProxyCamera);
+	ProxyNode->SetViewTargetActor(NewViewTarget);
+	ProxyCamera->CameraNodes.Add(ProxyNode);
+	ProxyCamera->InitializeNodes();
+
+	// Name the camera for debug identification.
+	{
+		const FName DesiredName(*FString::Printf(TEXT("ViewTargetProxy_%s"),
+			*NewViewTarget->GetName()));
+		const FName UniqueName = MakeUniqueObjectName(
+			ProxyCamera->GetOuter(), ProxyCamera->GetClass(), DesiredName);
+		ProxyCamera->Rename(*UniqueName.ToString());
+#if WITH_EDITOR
+		ProxyCamera->SetActorLabel(FString::Printf(TEXT("ViewTargetProxy_%s"),
+			*NewViewTarget->GetName()));
+#endif
+	}
+
+	RunningCamera = ProxyCamera;
+
+	UE_LOG(LogComposableCameraSystem, Log,
+		TEXT("SetViewTarget: Implicitly activated proxy camera for '%s' (BlendTime=%.2fs)."),
+		*NewViewTarget->GetName(), TransitionParams.BlendTime);
 }
 
 void AComposableCameraPlayerCameraManager::ProcessViewRotation(float DeltaTime, FRotator& OutViewRotation,
@@ -1133,11 +1273,17 @@ FMinimalViewInfo AComposableCameraPlayerCameraManager::GetCameraViewFromCameraPo
 		{
 			DesiredView.AspectRatioAxisConstraint = CameraComponent->AspectRatioAxisConstraint;
 		}
+		// Start from the component's designer-authored post-process as the base layer.
 		DesiredView.PostProcessSettings    = CameraComponent->PostProcessSettings;
 		DesiredView.PostProcessBlendWeight = CameraComponent->PostProcessBlendWeight;
 	}
 
-	// Apply physical camera settings (DoF, exposure) on top of the component's post-process.
+	// Layer 1: Apply pose's post-process settings on top of the component's base.
+	// Only properties whose bOverride_* flag is true in the pose are overridden;
+	// cameras without a PostProcess node have all overrides off and this is a no-op.
+	FPostProcessUtils::OverridePostProcessSettings(DesiredView.PostProcessSettings, OutPose.PostProcessSettings);
+
+	// Layer 2: Apply physical camera settings (DoF, exposure) on top.
 	// No-op when PhysicalCameraBlendWeight <= 0, so non-physical cameras pay no cost.
 	OutPose.ApplyPhysicalCameraSettings(DesiredView.PostProcessSettings, /*bOverwriteSettings=*/false);
 

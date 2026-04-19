@@ -16,6 +16,7 @@ class UComposableCameraNodeModifierDataAsset;
 class UComposableCameraModifierManager;
 class UComposableCameraDirector;
 class UComposableCameraContextStack;
+class UComposableCameraTransitionBase;
 struct FComposableCameraRuntimeDataBlock;
 	
 UCLASS(ClassGroup = ComposableCameraSystem, NotPlaceable)
@@ -220,6 +221,16 @@ private:
 	FComposableCameraParameterBlock PendingParameterBlock;
 
 public:
+	// ~~~~ Implicit Camera Activation (SetViewTarget bridge).
+	//
+	// When external code calls SetViewTarget (engine CameraCut handler, Possess,
+	// SetViewTargetWithBlend, etc.) on an actor with a UCameraComponent, the PCM
+	// automatically creates a transient proxy camera wrapping that actor and
+	// activates it in the current context's director with a CCS transition
+	// converted from FViewTargetTransitionParams. This is "implicit activation"
+	// as opposed to the explicit ActivateCamera / ActivateNewCameraFromTypeAsset path.
+	// ~~~~
+
 	// Whether to sync current camera rotation to ControlRotation.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ComposableCameraSystem")
 	bool bSyncToControlRotation { false };
@@ -256,5 +267,11 @@ private:
 
 	UPROPERTY(Transient)
 	FMinimalViewInfo LastDesiredView;
-};
-	      
+
+	// ─── Implicit Camera Activation State ────────────────────────────────
+	/** Guard against re-entrant SetViewTarget calls during implicit activation.
+	 *  When the PCM calls ActivateNewCamera internally, the Director may call
+	 *  Super::SetViewTarget as part of its bookkeeping — the guard prevents
+	 *  that from recursing back into implicit activation. */
+	bool bIsImplicitlyActivating { false };
+};         

@@ -10,10 +10,9 @@ void UComposableCameraReceivePivotActorNode::OnInitialize_Implementation()
 
 	if (bUseBoneForPivot)
 	{
-		AActor* InPivotActor = GetInputPinValue<AActor*>("PivotActor");
-		if (IsValid(InPivotActor))
+		if (IsValid(PivotActor))
 		{
-			SkeletalMeshComponentForPivotActor = InPivotActor->GetComponentByClass<USkeletalMeshComponent>();
+			SkeletalMeshComponentForPivotActor = PivotActor->GetComponentByClass<USkeletalMeshComponent>();
 		}
 	}
 }

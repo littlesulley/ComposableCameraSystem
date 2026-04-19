@@ -19,6 +19,8 @@ public class ComposableCameraSystemUncookedOnly : ModuleRules
                 "Core",
                 "CoreUObject",
                 "Engine",
+                "LevelSequence",
+                "MovieScene",
                 "BlueprintGraph",
                 "Kismet",
                 "KismetCompiler",

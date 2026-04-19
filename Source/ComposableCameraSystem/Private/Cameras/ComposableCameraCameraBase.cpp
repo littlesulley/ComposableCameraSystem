@@ -8,6 +8,7 @@
 #include "Core/ComposableCameraDebugSnapshot.h"
 #include "DataAssets/ComposableCameraTypeAsset.h"
 #include "Core/ComposableCameraPlayerCameraManager.h"
+#include "Engine/PostProcessUtils.h"
 #include "Engine/Scene.h"
 #include "Modifiers/ComposableCameraModifierBase.h"
 #include "Nodes/ComposableCameraCameraNodeBase.h"
@@ -82,7 +83,7 @@ void FComposableCameraPose::SetFieldOfViewDegrees(double InFieldOfViewDegrees)
 	FocalLength = -1.f;
 }
 
-bool FComposableCameraPose::ApplyPhysicalCameraSettings(FPostProcessSettings& PostProcessSettings, bool bOverwriteSettings) const
+bool FComposableCameraPose::ApplyPhysicalCameraSettings(FPostProcessSettings& InOutPostProcessSettings, bool bOverwriteSettings) const
 {
 	if (PhysicalCameraBlendWeight <= 0.f)
 	{
@@ -90,10 +91,10 @@ bool FComposableCameraPose::ApplyPhysicalCameraSettings(FPostProcessSettings& Po
 	}
 
 #define CCS_LERP_PP(SettingName, Value) \
-	if (!PostProcessSettings.bOverride_##SettingName || bOverwriteSettings) \
+	if (!InOutPostProcessSettings.bOverride_##SettingName || bOverwriteSettings) \
 	{ \
-		PostProcessSettings.bOverride_##SettingName = true; \
-		PostProcessSettings.SettingName = FMath::Lerp(PostProcessSettings.SettingName, static_cast<decltype(PostProcessSettings.SettingName)>(Value), PhysicalCameraBlendWeight); \
+		InOutPostProcessSettings.bOverride_##SettingName = true; \
+		InOutPostProcessSettings.SettingName = FMath::Lerp(InOutPostProcessSettings.SettingName, static_cast<decltype(InOutPostProcessSettings.SettingName)>(Value), PhysicalCameraBlendWeight); \
 	}
 
 	// Auto-exposure inputs.
@@ -166,14 +167,25 @@ void FComposableCameraPose::BlendBy(const FComposableCameraPose& Other, float Ot
 	OrthoNearClipPlane = FMath::Lerp(OrthoNearClipPlane, Other.OrthoNearClipPlane, OtherWeight);
 	OrthoFarClipPlane  = FMath::Lerp(OrthoFarClipPlane,  Other.OrthoFarClipPlane,  OtherWeight);
 
-	// Booleans and enums can't be linearly interpolated — snap at 50% blend factor.
-	if (OtherWeight >= 0.5f)
+	// Booleans and enums can't be linearly interpolated — target wins immediately
+	// once the blend starts (OtherWeight > 0). This ensures that projection mode,
+	// aspect ratio constraints, etc. take effect at the start of a transition into
+	// a camera that sets them, rather than snapping mid-blend.
+	if (OtherWeight > 0.f)
 	{
 		ProjectionMode                     = Other.ProjectionMode;
 		ConstrainAspectRatio               = Other.ConstrainAspectRatio;
 		OverrideAspectRatioAxisConstraint  = Other.OverrideAspectRatioAxisConstraint;
 		AspectRatioAxisConstraint          = Other.AspectRatioAxisConstraint;
 	}
+
+	// --- Post-process ---
+	//
+	// Blend all post-process properties (including bOverride_* flags).
+	// A default-constructed FPostProcessSettings has all overrides off, so blending
+	// against a camera with no PostProcess node naturally fades overridden values
+	// toward off. The bOverride_* booleans snap at 50% (integer lerp behavior).
+	FPostProcessUtils::BlendPostProcessSettings(PostProcessSettings, Other.PostProcessSettings, OtherWeight);
 }
 
 // -------------------------------------------------------------------

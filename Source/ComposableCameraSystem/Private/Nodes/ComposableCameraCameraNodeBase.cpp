@@ -70,6 +70,14 @@ void UComposableCameraCameraNodeBase::Initialize(AComposableCameraCameraBase* In
 	// overrides before the subclass builds typed instances from them.
 	AutoApplySubobjectPinValues();
 
+	// Resolve exposed/wired/overridden pin values into matching UPROPERTYs so
+	// that OnInitialize implementations can read members directly — same as
+	// the TickNode prologue does before OnTickNode.
+	ResolveAllInputPins();
+
+	// Reset so OnFirstTickNode fires again on the first tick of this activation.
+	bHasHadFirstTick = false;
+
 	OnInitialize();
 }
 
@@ -86,6 +94,14 @@ void UComposableCameraCameraNodeBase::TickNode(float DeltaTime, const FComposabl
 	if (ShouldAutoResolveInputPins())
 	{
 		ResolveAllInputPins();
+	}
+
+	// OnFirstTickNode fires exactly once per activation, after pins are resolved
+	// but before the main tick — the correct place to seed state from live pin values.
+	if (!bHasHadFirstTick)
+	{
+		bHasHadFirstTick = true;
+		OnFirstTickNode();
 	}
 
 	OnTickNode(DeltaTime, CurrentCameraPose, OutCameraPose);

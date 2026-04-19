@@ -7,6 +7,7 @@
 
 #include "K2Node_ActivateComposableCamera.h"
 #include "K2Node_ActivateComposableCameraFromDataTable.h"
+#include "K2Node_PlayCutsceneSequence.h"
 #include "SGraphPinComposableCameraContextName.h"
 #include "SGraphPinComposableCameraDataTable.h"
 #include "SGraphPinComposableCameraRowName.h"
@@ -56,6 +57,18 @@ TSharedPtr<class SGraphPin> FComposableCameraGraphPanelPinFactory::CreatePin(cla
 	{
 		if (InPin->Direction == EGPD_Input
 			&& InPin->PinName == UK2Node_ActivateComposableCamera::PN_ContextName
+			&& InPin->PinType.PinCategory == UEdGraphSchema_K2::PC_Name)
+		{
+			return SNew(SGraphPinComposableCameraContextName, InPin);
+		}
+	}
+
+	// ── UK2Node_PlayCutsceneSequence — ContextName pin ─────────────────
+	if (UK2Node_PlayCutsceneSequence* CutsceneNode =
+			Cast<UK2Node_PlayCutsceneSequence>(Outer))
+	{
+		if (InPin->Direction == EGPD_Input
+			&& InPin->PinName == UK2Node_PlayCutsceneSequence::PN_ContextName
 			&& InPin->PinType.PinCategory == UEdGraphSchema_K2::PC_Name)
 		{
 			return SNew(SGraphPinComposableCameraContextName, InPin);

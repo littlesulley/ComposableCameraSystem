@@ -1282,6 +1282,41 @@ UK2Node_CallFunction* UK2Node_ActivateComposableCamera::MakeLiteralValueForPin(
 		CCS_LITERAL_BY_STRUCT(TBaseStructure<FTransform>::Get(), MakeLiteralTransform)
 	}
 
+	// Object references (Actor, UObject). Without a MakeLiteral node, a null-default
+	// Object pin on a CustomStructureParam function doesn't generate valid bytecode —
+	// the K2 compiler may skip the value operand entirely, desynchronising the
+	// bytecode stream and causing StepCompiledIn in subsequent SetParameterBlockValue
+	// calls to resolve the wrong FProperty.
+	if (SourceValuePin->PinType.PinCategory == UEdGraphSchema_K2::PC_Object)
+	{
+		return CCS_MAKE_LITERAL(UComposableCameraBlueprintLibrary, MakeLiteralObject);
+	}
+
+	// FName.
+	if (SourceValuePin->PinType.PinCategory == UEdGraphSchema_K2::PC_Name)
+	{
+		return CCS_MAKE_LITERAL(UComposableCameraBlueprintLibrary, MakeLiteralName);
+	}
+
+	// Enum (PC_Byte with a UEnum subtype). Without a MakeLiteral node the
+	// compiler skips the value operand for CustomStructureParam functions,
+	// desynchronising the bytecode stream — same issue as Object literals.
+	if (SourceValuePin->PinType.PinCategory == UEdGraphSchema_K2::PC_Byte
+		&& SourceValuePin->PinType.PinSubCategoryObject.IsValid())
+	{
+		UK2Node_CallFunction* MakeLiteralNode = CreateMakeLiteralNode(
+			CompilerContext, SourceGraph, this,
+			UComposableCameraBlueprintLibrary::StaticClass(),
+			TEXT("MakeLiteralByte"), SourceValuePin);
+		// Override the Value and Return pin types to carry the enum subtype so
+		// the DefaultValue string (e.g. "HoldLastFrame") parses correctly
+		// instead of being rejected as an invalid uint8.
+		UEdGraphPin* ValPin = MakeLiteralNode->FindPinChecked(TEXT("Value"));
+		ValPin->PinType = SourceValuePin->PinType;
+		MakeLiteralNode->GetReturnValuePin()->PinType = SourceValuePin->PinType;
+		return MakeLiteralNode;
+	}
+
 	return nullptr;
 
 #undef CCS_MAKE_LITERAL

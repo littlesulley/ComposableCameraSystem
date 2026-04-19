@@ -16,22 +16,22 @@ struct FComposableCameraRayFeeler
 
 public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (ClampMin = "-180", ClampMax = "180"))
-	float Yaw;
+	float Yaw { 0.f };
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (ClampMin = "-90", ClampMax = "90"))
-	float Pitch;
+	float Pitch { 0.f };
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
-	float Length;
+	float Length { 100.f };
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
-	float Radius;
+	float Radius { 0.f };
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
-	FVector Offset;
+	FVector Offset { FVector::ZeroVector };
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
-	UCurveFloat* StrengthCurve;
+	TObjectPtr<UCurveFloat> StrengthCurve { nullptr };
 
 public:
 	FVector GetRayStartPosition(const FComposableCameraPose& Pose) const

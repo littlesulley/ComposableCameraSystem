@@ -22,10 +22,9 @@ void UComposableCameraCollisionPushNode::OnInitialize_Implementation()
 
 	if (bUseBoneForDetection)
 	{
-		AActor* InPivotActor = GetInputPinValue<AActor*>("PivotActor");
-		if (IsValid(InPivotActor))
+		if (IsValid(PivotActor))
 		{
-			SkeletalMeshComponentForPivotActor = InPivotActor->GetComponentByClass<USkeletalMeshComponent>();
+			SkeletalMeshComponentForPivotActor = PivotActor->GetComponentByClass<USkeletalMeshComponent>();
 		}
 	}
 }
@@ -258,10 +257,10 @@ FComposableCameraHitResult UComposableCameraCollisionPushNode::FindCollisionPoin
 	}
 
 	FVector SelfCollisionStart = PendingTargetPosition + CameraRotation.RotateVector(FVector::ForwardVector) * SelfSphereDistanceOffsetFromCenter;
-	FVector SelfCollisionEnd = SelfCollisionStart;
+	FVector SelfCollisionEnd = PendingTargetPosition + CameraRotation.RotateVector(FVector::ForwardVector + FVector{0.1, 0., 0 }) * SelfSphereDistanceOffsetFromCenter;
 	
 	FHitResult SelfCollisionHit;
-	UKismetSystemLibrary::SphereTraceSingle(this, SelfCollisionStart, SelfCollisionEnd, SelfSphereRadius, SelfCollisionChannel, true, ActorsToIgnore, DrawDebugType, SelfCollisionHit, true);
+	UKismetSystemLibrary::SphereTraceSingle(this, SelfCollisionStart, SelfCollisionEnd, SelfSphereRadius, SelfCollisionChannel, false, ActorsToIgnore, DrawDebugType, SelfCollisionHit, true);
 
 	if (SelfCollisionHit.bBlockingHit)
 	{

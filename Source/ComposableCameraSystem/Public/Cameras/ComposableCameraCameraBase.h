@@ -7,13 +7,12 @@
 #include "Camera/CameraActor.h"
 #include "Camera/CameraTypes.h"
 #include "Engine/EngineTypes.h"
+#include "Engine/Scene.h"
 #include "UObject/Object.h"
 #include "Core/ComposableCameraRuntimeDataBlock.h"
 #include "Core/ComposableCameraParameterBlock.h"
 #include "ComposableCameraNamespaces.h"
 #include "ComposableCameraCameraBase.generated.h"
-
-struct FPostProcessSettings;
 
 class UComposableCameraModifierManager;
 class UComposableCameraTransitionBase;
@@ -55,6 +54,13 @@ enum class EComposableCameraResumeCameraTransformSchema : uint8
  *   - Projection & aspect (ProjectionMode, ConstrainAspectRatio, ...) —
  *     booleans and enums snap at 50% blend factor; numerics (OrthographicWidth
  *     etc.) lerp normally.
+ *   - Post-process (PostProcessSettings) — blended via
+ *     FPostProcessUtils::BlendPostProcessSettings in BlendBy(). Individual
+ *     properties are only active when their corresponding bOverride_* flag is
+ *     true; a default-constructed FPostProcessSettings (all overrides off)
+ *     contributes nothing, so cameras without a PostProcess node pay no cost.
+ *     At apply-time in GetCameraViewFromCameraPose, pose PP is layered on top
+ *     of the camera component's PP using OverridePostProcessSettings.
  *
  * Sentinel semantics (<= 0 means "unset"):
  *   - FieldOfView: -1 means "use FocalLength".
@@ -164,6 +170,21 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "ComposableCameraSystem|CameraPose|Projection")
 	float OrthoFarClipPlane { 10000.f };
 
+	// --- Post-process ---
+
+	/**
+	 * Post-process settings carried by this pose.
+	 * Default-constructed: all bOverride_* flags are false, meaning "no opinion".
+	 * Nodes (e.g., PostProcessNode) set specific bOverride_* flags + values.
+	 *
+	 * BlendBy() uses FPostProcessUtils::BlendPostProcessSettings to lerp all
+	 * properties (including override flags). At apply-time, only properties
+	 * whose bOverride_* flag is true layer on top of the camera component's
+	 * designer-authored post-process via OverridePostProcessSettings.
+	 */
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "ComposableCameraSystem|CameraPose|PostProcess")
+	FPostProcessSettings PostProcessSettings;
+
 public:
 	// --- API ---
 
@@ -185,11 +206,11 @@ public:
 	 * No-op if PhysicalCameraBlendWeight <= 0. Scales contribution by PhysicalCameraBlendWeight.
 	 * Mirrors GameplayCameras' FCameraPose::ApplyPhysicalCameraSettings.
 	 *
-	 * @param PostProcessSettings  Target to modify.
-	 * @param bOverwriteSettings   If true, overwrites already-set post-process entries; else only writes unset ones.
+	 * @param InOutPostProcessSettings  Target to modify.
+	 * @param bOverwriteSettings        If true, overwrites already-set post-process entries; else only writes unset ones.
 	 * @return true if any settings were written, false if the call was a no-op.
 	 */
-	COMPOSABLECAMERASYSTEM_API bool ApplyPhysicalCameraSettings(FPostProcessSettings& PostProcessSettings, bool bOverwriteSettings = false) const;
+	COMPOSABLECAMERASYSTEM_API bool ApplyPhysicalCameraSettings(FPostProcessSettings& InOutPostProcessSettings, bool bOverwriteSettings = false) const;
 
 	/**
 	 * Blend this pose toward Other by OtherWeight in [0, 1].

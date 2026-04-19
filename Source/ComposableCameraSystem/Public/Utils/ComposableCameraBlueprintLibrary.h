@@ -8,11 +8,14 @@
 #include "Cameras/ComposableCameraCameraBase.h"
 #include "Core/ComposableCameraParameterBlock.h"
 #include "Transitions/ComposableCameraTransitionBase.h"
+#include "MovieSceneSequencePlaybackSettings.h"
 #include "UObject/UnrealType.h"
 #include "ComposableCameraBlueprintLibrary.generated.h"
 
 class AComposableCameraPlayerCameraManager;
 class UComposableCameraTransitionDataAsset;
+class UAsyncPlayCutsceneSequence;
+class ULevelSequence;
 class UComposableCameraTypeAsset;
 class UComposableCameraModifierBase;
 class UComposableCameraActionBase;
@@ -96,6 +99,26 @@ public:
 		UDataTable* DataTable,
 		FName RowName,
 		FComposableCameraParameterBlock OverrideParameters);
+
+	/**
+	 * Create and register a PlayCutsceneSequence action. Does NOT call Activate().
+	 *
+	 * This is BlueprintInternalUseOnly because the Blueprint entry point is
+	 * UK2Node_PlayCutsceneSequence, which calls this function in its ExpandNode
+	 * and then binds delegates + calls Activate() as separate expansion steps.
+	 *
+	 * The factory lives here (not on UAsyncPlayCutsceneSequence) to prevent
+	 * UK2Node_AsyncAction from auto-registering a second, broken async node.
+	 */
+	UFUNCTION(BlueprintCallable, BlueprintInternalUseOnly,
+		Category = "ComposableCameraSystem|LevelSequence",
+		meta = (WorldContext = "WorldContextObject"))
+	static UAsyncPlayCutsceneSequence* PlayCutsceneSequence(
+		UObject* WorldContextObject,
+		ULevelSequence* InLevelSequence,
+		UPARAM(meta = (GetOptions = "ComposableCameraSystem.ComposableCameraProjectSettings.GetContextNames")) FName ContextName,
+		UComposableCameraTransitionDataAsset* EnterTransition = nullptr,
+		FMovieSceneSequencePlaybackSettings PlaybackSettings = FMovieSceneSequencePlaybackSettings());
 
 	/** Terminate the current camera — pops the active (top) context off the stack.
 	 * The previous context resumes with an optional transition. Cannot pop the base context.
@@ -202,12 +225,23 @@ public:
 		P_GET_PROPERTY(FNameProperty, ParameterName);
 
 		// Read the type-erased value.
+		// StepCompiledIn needs a write buffer for literal values (const enum,
+		// const object, etc.) that have no backing property address. 64 bytes
+		// covers all pin-supported types (largest is FTransform at ~48 bytes).
+		uint8 ValueBuffer[64];
+		FMemory::Memzero(ValueBuffer, sizeof(ValueBuffer));
+
 		Stack.MostRecentPropertyAddress = nullptr;
 		Stack.MostRecentPropertyContainer = nullptr;
-		Stack.StepCompiledIn<FProperty>(nullptr);
+		Stack.StepCompiledIn<FProperty>(ValueBuffer);
 
 		const FProperty* ValueProperty = Stack.MostRecentProperty;
 		void* ValuePtr = Stack.MostRecentPropertyAddress;
+		if (!ValuePtr)
+		{
+			// Literal value was written into our buffer.
+			ValuePtr = ValueBuffer;
+		}
 
 		P_FINISH;
 
@@ -252,14 +286,18 @@ public:
 
 			FComposableCameraParameterValue Entry;
 			bool bHandled = false;
+
+			// ── Enum ────────────────────────────────────────────────
+			// Normalize to int64 regardless of the backing property's
+			// native width (uint8 for FByteProperty, variable for
+			// FEnumProperty). The data block always stores enums as
+			// 8-byte int64 slots.
 			if (const FEnumProperty* EnumProp = CastField<FEnumProperty>(ValueProperty))
 			{
 				if (const FNumericProperty* Underlying = EnumProp->GetUnderlyingProperty())
 				{
 					const int64 Value = Underlying->GetSignedIntPropertyValue(ValuePtr);
-					Entry.PinType = EComposableCameraPinType::Enum;
-					Entry.Data.SetNumUninitialized(sizeof(int64));
-					FMemory::Memcpy(Entry.Data.GetData(), &Value, sizeof(int64));
+					Entry.Set<int64>(EComposableCameraPinType::Enum, Value);
 					bHandled = true;
 				}
 			}
@@ -268,18 +306,51 @@ public:
 				if (ByteProp->GetIntPropertyEnum() != nullptr)
 				{
 					const int64 Value = ByteProp->GetSignedIntPropertyValue(ValuePtr);
-					Entry.PinType = EComposableCameraPinType::Enum;
-					Entry.Data.SetNumUninitialized(sizeof(int64));
-					FMemory::Memcpy(Entry.Data.GetData(), &Value, sizeof(int64));
+					Entry.Set<int64>(EComposableCameraPinType::Enum, Value);
 					bHandled = true;
 				}
 			}
 
+			// ── Object / Actor ──────────────────────────────────────
+			// FObjectProperty operates on TObjectPtr<T> whose memory
+			// layout may differ from a raw UObject* in some engine
+			// configurations. Extract the resolved pointer via the
+			// property API to guarantee we store a plain UObject*.
 			if (!bHandled)
 			{
-				// Default path: any non-enum POD-shaped value (including FName,
-				// which is 8 bytes and memcpy-safe). Copy the property's bytes
-				// verbatim — the data block slot's GetPinTypeSize matches.
+				if (const FObjectPropertyBase* ObjectProp = CastField<FObjectPropertyBase>(ValueProperty))
+				{
+					UObject* ObjValue = ObjectProp->GetObjectPropertyValue(ValuePtr);
+					const EComposableCameraPinType ObjPinType =
+						(ObjectProp->PropertyClass && ObjectProp->PropertyClass->IsChildOf(AActor::StaticClass()))
+						? EComposableCameraPinType::Actor
+						: EComposableCameraPinType::Object;
+					Entry.Set<UObject*>(ObjPinType, ObjValue);
+					bHandled = true;
+				}
+			}
+
+			// ── Bool ────────────────────────────────────────────────
+			// FBoolProperty may be a bitfield; GetPropertyValue
+			// handles the mask and returns a clean bool.
+			if (!bHandled)
+			{
+				if (const FBoolProperty* BoolProp = CastField<FBoolProperty>(ValueProperty))
+				{
+					const bool Value = BoolProp->GetPropertyValue(ValuePtr);
+					Entry.Set<bool>(EComposableCameraPinType::Bool, Value);
+					bHandled = true;
+				}
+			}
+
+			// ── Default (POD) ───────────────────────────────────────
+			// Covers Int32, Float, Double, FName, FVector, FRotator,
+			// FTransform, and any other memcpy-safe type. The data
+			// block slot's GetPinTypeSize matches GetSize() for all
+			// of these. PinType is left at the default (Float) —
+			// it's unused in the CopyRawTo → ReadValue path.
+			if (!bHandled)
+			{
 				const int32 Size = ValueProperty->GetSize();
 				Entry.Data.SetNumUninitialized(Size);
 				ValueProperty->CopyCompleteValue(Entry.Data.GetData(), ValuePtr);
@@ -304,6 +375,15 @@ public:
 
 	UFUNCTION(BlueprintPure, meta=(BlueprintThreadSafe, BlueprintInternalUseOnly="true"))
 	static FTransform MakeLiteralTransform(FTransform Value);
+
+	UFUNCTION(BlueprintPure, meta=(BlueprintInternalUseOnly="true"))
+	static UObject* MakeLiteralObject(UObject* Value);
+
+	UFUNCTION(BlueprintPure, meta=(BlueprintThreadSafe, BlueprintInternalUseOnly="true"))
+	static FName MakeLiteralName(FName Value);
+
+	UFUNCTION(BlueprintPure, meta=(BlueprintThreadSafe, BlueprintInternalUseOnly="true"))
+	static uint8 MakeLiteralByte(uint8 Value);
 };
 
 

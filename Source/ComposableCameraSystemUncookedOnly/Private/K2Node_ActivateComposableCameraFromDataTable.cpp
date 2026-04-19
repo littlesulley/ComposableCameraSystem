@@ -1173,6 +1173,18 @@ UK2Node_CallFunction* UK2Node_ActivateComposableCameraFromDataTable::MakeLiteral
 		CCS_LITERAL_BY_STRUCT(TBaseStructure<FTransform>::Get(), MakeLiteralTransform)
 	}
 
+	// Object references (Actor, UObject).
+	if (SourceValuePin->PinType.PinCategory == UEdGraphSchema_K2::PC_Object)
+	{
+		return CCS_MAKE_LITERAL(UComposableCameraBlueprintLibrary, MakeLiteralObject);
+	}
+
+	// FName.
+	if (SourceValuePin->PinType.PinCategory == UEdGraphSchema_K2::PC_Name)
+	{
+		return CCS_MAKE_LITERAL(UComposableCameraBlueprintLibrary, MakeLiteralName);
+	}
+
 	return nullptr;
 
 #undef CCS_MAKE_LITERAL

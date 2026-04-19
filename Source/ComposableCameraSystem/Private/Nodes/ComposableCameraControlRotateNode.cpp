@@ -15,14 +15,9 @@ void UComposableCameraControlRotateNode::OnInitialize_Implementation()
 
 	LastFrameCameraRotationInput = FVector2D::ZeroVector;
 
-	// Auto-resolve has not yet run at Initialize time, so read the pin via the
-	// fallback-aware GetInputPinValue path. RotationInputActor is both a pin and
-	// a UPROPERTY — GetInputPinValue returns wire / exposed / override / UPROPERTY
-	// in precedence order.
-	AActor* InRotationInputActor = GetInputPinValue<AActor*>("RotationInputActor");
-	if (IsValid(InRotationInputActor))
+	if (IsValid(RotationInputActor))
 	{
-		InputComponent = Cast<UEnhancedInputComponent>(InRotationInputActor->InputComponent);
+		InputComponent = Cast<UEnhancedInputComponent>(RotationInputActor->InputComponent);
 	}
 
 	if (InputComponent)

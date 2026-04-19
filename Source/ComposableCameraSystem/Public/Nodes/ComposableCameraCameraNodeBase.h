@@ -200,6 +200,10 @@ protected:
 	virtual bool ShouldAutoResolveInputPins() const { return true; }
 
 private:
+	/** Set to true after the first TickNode call. Cleared by Initialize() so
+	 *  re-activation re-triggers OnFirstTickNode on the new first frame. */
+	bool bHasHadFirstTick = false;
+
 #if CPUPROFILERTRACE_ENABLED
 	/** Cached class name for the one-shot spec ID registration on first tick. */
 	FString CachedNodeClassName;
@@ -503,10 +507,35 @@ protected:
 	 * BlueprintNativeEvent: Blueprint subclasses can override "InitializeNode"
 	 * to replace the C++ implementation. C++ subclasses override
 	 * OnInitialize_Implementation and should call Super when chaining.
+	 *
+	 * NOTE: Input pin values are NOT yet resolved when this is called. Do not
+	 * read pin-backed UPROPERTYs here to seed per-frame state — use
+	 * OnFirstTickNode instead, which runs after the first ResolveAllInputPins().
 	 */
 	UFUNCTION(BlueprintNativeEvent, DisplayName = "InitializeNode", Category = "ComposableCameraSystem|Node")
 	void OnInitialize();
 	virtual void OnInitialize_Implementation() {}
+
+	/**
+	 * Called exactly once on the first TickNode after activation, immediately
+	 * after ResolveAllInputPins() and immediately before OnTickNode().
+	 *
+	 * This is the correct place to seed per-frame state that depends on live
+	 * input pin values (e.g. initializing a "last position" tracker to the
+	 * actual runtime position rather than the UPROPERTY default). By the time
+	 * this fires, all pin-backed UPROPERTYs on this node already hold their
+	 * resolved runtime values.
+	 *
+	 * The flag is reset in Initialize(), so re-activating the camera triggers
+	 * this hook again on the new first frame.
+	 *
+	 * Default implementation is empty. C++ subclasses override
+	 * OnFirstTickNode_Implementation. Blueprint subclasses override
+	 * "FirstTickNode".
+	 */
+	UFUNCTION(BlueprintNativeEvent, DisplayName = "FirstTickNode", Category = "ComposableCameraSystem|Node")
+	void OnFirstTickNode();
+	virtual void OnFirstTickNode_Implementation() {}
 
 	/**
 	 * Main node logic implemented here. This node can read/write pin values and/or CameraPose.

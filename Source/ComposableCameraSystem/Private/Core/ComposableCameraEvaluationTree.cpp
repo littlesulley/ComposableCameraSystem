@@ -184,14 +184,76 @@ void UComposableCameraEvaluationTree::OnActivateNewCamera(
 	NewLeaf->Wrapper.Set<FComposableCameraEvaluationTreeLeafNodeWrapper>(
 		FComposableCameraEvaluationTreeLeafNodeWrapper{ NewCamera });
 
-	if (!InTransition || !RootNode)
+	if (!RootNode)
 	{
-		// Camera cut (no transition) or first camera: destroy old tree cameras, then replace with the new leaf.
+		// First camera ever: just set it as root.
+		RootNode = NewLeaf;
+	}
+	else if (!InTransition)
+	{
+		// Camera cut (no transition). If the root is an inter-context transition
+		// (left child is a reference leaf), replace only the RIGHT subtree to
+		// preserve the inter-context blend. Otherwise destroy the whole tree.
+		if (RootNode->IsInner())
+		{
+			FComposableCameraEvaluationTreeInnerNodeWrapper& RootInner = RootNode->AsInner();
+			if (RootInner.LeftNode && RootInner.LeftNode->IsReferenceLeaf())
+			{
+				// Hard cut within an inter-context blend: destroy the right
+				// subtree's cameras and replace with the new leaf.
+				DestroySubtreeCameras(RootInner.RightNode);
+				RootInner.RightNode = NewLeaf;
+				RunningCamera = NewCamera;
+				return;
+			}
+		}
+
+		// No inter-context root: full tree replacement (standard hard cut).
 		DestroySubtreeCameras(RootNode);
 		RootNode = NewLeaf;
 	}
 	else
 	{
+		// Check if the root is an inter-context transition (left child is a reference leaf).
+		// If so, nest the new intra-context activation under the RIGHT subtree instead of
+		// wrapping the entire tree. This preserves the inter-context blend at the root.
+		//
+		// Example: Gameplay --(inter-ctx)--> CamB1, then LS fires CamB2:
+		//   Before:  [InterCtx] → RefLeaf | CamB1
+		//   After:   [InterCtx] → RefLeaf | [IntraCtx] → CamB1 | CamB2
+		//
+		// When the inter-context transition finishes, the right subtree (intra-blend) survives.
+		// When the intra-context transition finishes, it collapses to CamB2.
+		if (RootNode->IsInner())
+		{
+			FComposableCameraEvaluationTreeInnerNodeWrapper& RootInner = RootNode->AsInner();
+			if (RootInner.LeftNode && RootInner.LeftNode->IsReferenceLeaf())
+			{
+				// Nested activation: wrap the current right subtree with the new camera.
+				TSharedPtr<FComposableCameraEvaluationTreeNode> CurrentRight = RootInner.RightNode;
+
+				if (bFreezeSourceCamera && CurrentRight)
+				{
+					FreezeSubtree(CurrentRight, true);
+				}
+
+				FComposableCameraEvaluationTreeInnerNodeWrapper IntraWrapper;
+				IntraWrapper.Transition = InTransition;
+				IntraWrapper.LeftNode = CurrentRight;
+				IntraWrapper.RightNode = NewLeaf;
+
+				TSharedPtr<FComposableCameraEvaluationTreeNode> NewIntraNode = MakeShared<FComposableCameraEvaluationTreeNode>();
+				NewIntraNode->Wrapper.Set<FComposableCameraEvaluationTreeInnerNodeWrapper>(MoveTemp(IntraWrapper));
+
+				// Replace the right subtree with the new intra-context blend.
+				RootInner.RightNode = NewIntraNode;
+
+				RunningCamera = NewCamera;
+				return;
+			}
+		}
+
+		// Default path: no inter-context root, or root isn't an inner node.
 		// Freeze the source subtree if requested — all leaves hold their last pose
 		// and stop ticking for the duration of the transition.
 		if (bFreezeSourceCamera)
@@ -315,10 +377,18 @@ TSharedPtr<FComposableCameraEvaluationTreeNode> UComposableCameraEvaluationTree:
 		return CollapseFinishedTransitions(Inner.RightNode);
 	}
 
-	// Transition still active — collapse finished sub-transitions in the source chain
+	// Transition still active — collapse finished sub-transitions in both subtrees
 	// so they don't linger while we keep this node alive.
-	// e.g., D->B, E->B, B->A, C->A: when B finishes, B collapses to E even while A is still blending.
+	//
+	// Left subtree collapse: e.g., D->B, E->B, B->A, C->A: when B finishes,
+	// B collapses to E even while A is still blending.
+	//
+	// Right subtree collapse: with nested activation, the right child can be an
+	// intra-context inner node (e.g., inter-ctx root's right child is CamB1->CamB2).
+	// When CamB1->CamB2 finishes, it should collapse to CamB2 while the inter-ctx
+	// transition is still active.
 	Inner.LeftNode = CollapseFinishedTransitions(Inner.LeftNode);
+	Inner.RightNode = CollapseFinishedTransitions(Inner.RightNode);
 
 	return Node;
 }

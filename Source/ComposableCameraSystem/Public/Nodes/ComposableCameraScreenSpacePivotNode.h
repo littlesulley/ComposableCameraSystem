@@ -41,15 +41,15 @@ struct FComposableCameraScreenSpaceTranslationParams
 	
 	// X axis interpolator in the camera space.
 	UPROPERTY(EditAnywhere, Instanced)
-	UComposableCameraInterpolatorBase* XInterpolator;
+	TObjectPtr<UComposableCameraInterpolatorBase> XInterpolator { nullptr };
 
 	// Y axis interpolator in the camera space.
 	UPROPERTY(EditAnywhere, Instanced)
-	UComposableCameraInterpolatorBase* YInterpolator;
+	TObjectPtr<UComposableCameraInterpolatorBase> YInterpolator { nullptr };
 
 	// Z axis interpolator in the camera space.
 	UPROPERTY(EditAnywhere, Instanced)
-	UComposableCameraInterpolatorBase* ZInterpolator;
+	TObjectPtr<UComposableCameraInterpolatorBase> ZInterpolator { nullptr };
 };
 
 USTRUCT(BlueprintType)
@@ -59,11 +59,11 @@ struct FComposableCameraScreenSpaceRotationParams
 	
 	// Yaw axis interpolator in the world space.
 	UPROPERTY(EditAnywhere, Instanced)
-	UComposableCameraInterpolatorBase* YawInterpolator;
+	TObjectPtr<UComposableCameraInterpolatorBase> YawInterpolator { nullptr };
 
 	// Pitch axis interpolator in the camera space.
 	UPROPERTY(EditAnywhere, Instanced)
-	UComposableCameraInterpolatorBase* PitchInterpolator;
+	TObjectPtr<UComposableCameraInterpolatorBase> PitchInterpolator { nullptr };
 };
 
 /**

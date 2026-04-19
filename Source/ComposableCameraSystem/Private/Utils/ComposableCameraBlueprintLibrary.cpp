@@ -2,6 +2,7 @@
 
 #include "Utils/ComposableCameraBlueprintLibrary.h"
 
+#include "AsyncActions/AsyncPlayCutsceneSequence.h"
 #include "Cameras/ComposableCameraCameraBase.h"
 #include "ComposableCameraSystemModule.h"
 #include "Core/ComposableCameraPlayerCameraManager.h"
@@ -28,6 +29,17 @@ AComposableCameraCameraBase* UComposableCameraBlueprintLibrary::ActivateComposab
 	}
 
 	return nullptr;
+}
+
+UAsyncPlayCutsceneSequence* UComposableCameraBlueprintLibrary::PlayCutsceneSequence(
+	UObject* WorldContextObject,
+	ULevelSequence* InLevelSequence,
+	FName ContextName,
+	UComposableCameraTransitionDataAsset* EnterTransition,
+	FMovieSceneSequencePlaybackSettings PlaybackSettings)
+{
+	return UAsyncPlayCutsceneSequence::Create(
+		WorldContextObject, InLevelSequence, ContextName, EnterTransition, PlaybackSettings);
 }
 
 AComposableCameraCameraBase* UComposableCameraBlueprintLibrary::ActivateComposableCameraFromDataTable(
@@ -332,6 +344,21 @@ FRotator UComposableCameraBlueprintLibrary::MakeLiteralRotator(FRotator Value)
 }
 
 FTransform UComposableCameraBlueprintLibrary::MakeLiteralTransform(FTransform Value)
+{
+	return Value;
+}
+
+UObject* UComposableCameraBlueprintLibrary::MakeLiteralObject(UObject* Value)
+{
+	return Value;
+}
+
+FName UComposableCameraBlueprintLibrary::MakeLiteralName(FName Value)
+{
+	return Value;
+}
+
+uint8 UComposableCameraBlueprintLibrary::MakeLiteralByte(uint8 Value)
 {
 	return Value;
 }

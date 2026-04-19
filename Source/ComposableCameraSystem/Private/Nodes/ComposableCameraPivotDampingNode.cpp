@@ -16,8 +16,14 @@ void UComposableCameraPivotDampingNode::OnInitialize_Implementation()
 	RightwardInterpolator_T = IsValid(RightwardInterpolator) ? RightwardInterpolator->BuildDoubleInterpolator() : nullptr;
 	ForwardInterpolator_T   = IsValid(ForwardInterpolator)   ? ForwardInterpolator->BuildDoubleInterpolator()   : nullptr;
 	BackwardInterpolator_T  = IsValid(BackwardInterpolator)  ? BackwardInterpolator->BuildDoubleInterpolator()  : nullptr;
+}
 
-	LastPivotPosition = GetInputPinValue<FVector>("PivotPosition");
+void UComposableCameraPivotDampingNode::OnFirstTickNode_Implementation()
+{
+	// PivotPosition is already resolved by the base-class ResolveAllInputPins()
+	// prologue at this point. Seed LastPivotPosition to the actual runtime
+	// position so the first frame produces zero delta and no damping artifact.
+	LastPivotPosition = PivotPosition;
 }
 
 void UComposableCameraPivotDampingNode::OnTickNode_Implementation(float DeltaTime,
@@ -27,6 +33,8 @@ void UComposableCameraPivotDampingNode::OnTickNode_Implementation(float DeltaTim
 	// already resolved by the base TickNode prologue. Read PivotPosition directly.
 	const FVector Pivot = PivotPosition;
 
+	// The rotation must be determined before this node. 
+	// If you are using the ControlRotation node, place it before this node.
 	FRotator CameraRotation = OutCameraPose.Rotation;
 	
 	if (bMaintainCameraSpacePivotPosition)
