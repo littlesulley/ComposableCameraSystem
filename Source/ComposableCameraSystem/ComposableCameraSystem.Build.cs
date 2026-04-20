@@ -21,7 +21,10 @@ public class ComposableCameraSystem : ModuleRules
                 "MovieScene",
                 "GameplayTags",
                 "MovieSceneTracks",
-                "DeveloperSettings"
+                "DeveloperSettings",
+                // FInstancedPropertyBag used by FComposableCameraTypeAssetReference
+                // (the Level Sequence component's designer-facing parameter / variable surface).
+                "StructUtils"
             }
 			);
 	}

@@ -224,7 +224,15 @@ void AComposableCameraCameraBase::Initialize(AComposableCameraPlayerCameraManage
 	// later, once OnTypeAssetCameraConstructed has populated CameraNodes.
 	InitializeNodes();
 
-	Manager->BindCameraActionsForNewCamera(this);
+	// PCM is optional: the Level Sequence component path drives cameras without
+	// a PCM (evaluation happens inside UComposableCameraLevelSequenceComponent,
+	// which owns the camera directly). Action binding is PCM-only — it hooks
+	// the camera into the action system living on the PCM — so skip it when
+	// there is no PCM to hook into.
+	if (Manager)
+	{
+		Manager->BindCameraActionsForNewCamera(this);
+	}
 }
 
 void AComposableCameraCameraBase::InitializeNodes()

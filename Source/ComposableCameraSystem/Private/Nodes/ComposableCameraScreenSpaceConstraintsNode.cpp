@@ -9,17 +9,31 @@
 #include "Kismet/GameplayStatics.h"
 #include "Kismet/KismetMathLibrary.h"
 #include "Nodes/ComposableCameraScreenSpacePivotNode.h"
+#include "Utils/ComposableCameraViewportUtils.h"
 
 void UComposableCameraScreenSpaceConstraintsNode::OnInitialize_Implementation()
 {
 	Super::OnInitialize_Implementation();
 
 #if ENABLE_DRAW_DEBUG
-	AHUD* HUD = OwningPlayerCameraManager->GetOwningPlayerController()->GetHUD();
-	DrawDebugHandle = HUD->OnHUDPostRender.AddLambda([this](AHUD* HUD, UCanvas* Canvas)
+	// PCM + PlayerController + HUD are all required for the debug draw lambda.
+	// In the Level Sequence component path the PCM is null (see node's
+	// GetLevelSequenceCompatibility() == RequiresPCM); fall through without
+	// registering the debug-draw hook. The node's tick path is similarly
+	// guarded in GetTanHalfHORAndAspectRatio.
+	if (OwningPlayerCameraManager)
 	{
-		DrawDebugInfo(HUD, Canvas);
-	});
+		if (APlayerController* PC = OwningPlayerCameraManager->GetOwningPlayerController())
+		{
+			if (AHUD* HUD = PC->GetHUD())
+			{
+				DrawDebugHandle = HUD->OnHUDPostRender.AddLambda([this](AHUD* HUD, UCanvas* Canvas)
+				{
+					DrawDebugInfo(HUD, Canvas);
+				});
+			}
+		}
+	}
 #endif
 }
 
@@ -261,8 +275,14 @@ std::pair<float, float> UComposableCameraScreenSpaceConstraintsNode::CalibrateRo
 std::pair<float, float> UComposableCameraScreenSpaceConstraintsNode::GetTanHalfHORAndAspectRatio(
 	const FComposableCameraPose& OutCameraPose)
 {
-	int32 ViewportX, ViewportY;
-	OwningPlayerCameraManager->GetOwningPlayerController()->GetViewportSize(ViewportX, ViewportY);
+	// Viewport size is resolved through a general helper (PCM → GameViewport
+	// → fallback) rather than hard-wiring a PCM deref — this lets the node
+	// evaluate correctly in the Level Sequence component path where there is
+	// no PCM. See UE::ComposableCameras::TryGetEffectiveViewportSize.
+	FIntPoint ViewportSize;
+	UE::ComposableCameras::TryGetEffectiveViewportSize(OwningPlayerCameraManager, ViewportSize);
+	const int32 ViewportX = ViewportSize.X;
+	const int32 ViewportY = ViewportSize.Y;
 
 	// Resolve effective FOV once so this math works whether the pose is in degrees-mode
 	// (FieldOfView > 0) or physical-mode (FocalLength > 0).

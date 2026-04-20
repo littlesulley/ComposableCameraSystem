@@ -40,6 +40,18 @@ private:
     /** Kept alive for the lifetime of the module so the node factory registration
      *  stays valid. Reset in ShutdownModule after unregister. */
     TSharedPtr<FComposableCameraGraphNodeFactory> GraphNodeFactory;
+
+    /** Registers FComposableCameraLevelSequenceComponentTrackEditor with
+     *  ISequencerModule so right-clicking a ComposableCameraLevelSequence
+     *  binding (actor or component) in Sequencer shows "Camera Parameters"
+     *  and "Camera Variables" submenus driven by the bound TypeAsset. */
+    void RegisterSequencerTrackEditor();
+    void UnregisterSequencerTrackEditor();
+
+    /** Handle returned by ISequencerModule::RegisterTrackEditor; passed back
+     *  to UnregisterTrackEditor on shutdown so Sequencer stops routing menu
+     *  extensions through our factory. */
+    FDelegateHandle LevelSequenceComponentTrackEditorHandle;
 };
 
 DECLARE_LOG_CATEGORY_EXTERN(LogComposableCameraSystemEditor, Log, All);

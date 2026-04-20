@@ -11,6 +11,7 @@
 #include "Kismet/GameplayStatics.h"
 #include "Kismet/KismetMathLibrary.h"
 #include "Math/ComposableCameraMath.h"
+#include "Utils/ComposableCameraViewportUtils.h"
 
 void UComposableCameraScreenSpacePivotNode::OnInitialize_Implementation()
 {
@@ -21,13 +22,25 @@ void UComposableCameraScreenSpacePivotNode::OnInitialize_Implementation()
 	ZInterpolator_T = TranslationParams.ZInterpolator ? TranslationParams.ZInterpolator->BuildDoubleInterpolator() : nullptr;
 	YawInterpolator_T = RotationParams.YawInterpolator ? RotationParams.YawInterpolator->BuildDoubleInterpolator() : nullptr;
 	PitchInterpolator_T = RotationParams.PitchInterpolator ? RotationParams.PitchInterpolator->BuildDoubleInterpolator() : nullptr;
-	
+
 #if ENABLE_DRAW_DEBUG
-	AHUD* HUD = OwningPlayerCameraManager->GetOwningPlayerController()->GetHUD();
-	DrawDebugHandle = HUD->OnHUDPostRender.AddLambda([this](AHUD* HUD, UCanvas* Canvas)
+	// PCM + PlayerController + HUD are all required for the debug draw lambda.
+	// In the Level Sequence component path the PCM is null (see node's
+	// GetLevelSequenceCompatibility() == RequiresPCM); fall through without
+	// registering the debug-draw hook.
+	if (OwningPlayerCameraManager)
 	{
-		DrawDebugInfo(HUD, Canvas);
-	});
+		if (APlayerController* PC = OwningPlayerCameraManager->GetOwningPlayerController())
+		{
+			if (AHUD* HUD = PC->GetHUD())
+			{
+				DrawDebugHandle = HUD->OnHUDPostRender.AddLambda([this](AHUD* HUD, UCanvas* Canvas)
+				{
+					DrawDebugInfo(HUD, Canvas);
+				});
+			}
+		}
+	}
 #endif
 }
 
@@ -541,8 +554,14 @@ void UComposableCameraScreenSpacePivotNode::EnsureWithinBoundsRotation(const FRo
 
 std::pair<float, float> UComposableCameraScreenSpacePivotNode::GetTanHalfHORAndAspectRatio(const FComposableCameraPose& OutCameraPose)
 {
-	int32 ViewportX, ViewportY;
-	OwningPlayerCameraManager->GetOwningPlayerController()->GetViewportSize(ViewportX, ViewportY);
+	// Viewport size is resolved through a general helper (PCM → GameViewport
+	// → fallback) rather than hard-wiring a PCM deref — this lets the node
+	// evaluate correctly in the Level Sequence component path where there is
+	// no PCM. See UE::ComposableCameras::TryGetEffectiveViewportSize.
+	FIntPoint ViewportSize;
+	UE::ComposableCameras::TryGetEffectiveViewportSize(OwningPlayerCameraManager, ViewportSize);
+	const int32 ViewportX = ViewportSize.X;
+	const int32 ViewportY = ViewportSize.Y;
 
 	// Resolve effective FOV once so this math works whether the pose is in degrees-mode
 	// (FieldOfView > 0) or physical-mode (FocalLength > 0).

@@ -104,6 +104,14 @@ public:
 	virtual void BeginDestroy() override;
 	virtual void GetPinDeclarations_Implementation(TArray<FComposableCameraNodePinDeclaration>& OutPins) const override;
 
+	// Calls PCM::CreateNewCamera during OnInitialize to spawn child cameras for
+	// mixing; cannot run in the Level Sequence component path. LS Details panel
+	// will warn; the node's OnInitialize early-returns when PCM is null.
+	virtual EComposableCameraNodeLevelSequenceCompatibility GetLevelSequenceCompatibility_Implementation() const override
+	{
+		return EComposableCameraNodeLevelSequenceCompatibility::RequiresPCM;
+	}
+
 public:
 	// Whether to only mix position, rotation or both.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters)

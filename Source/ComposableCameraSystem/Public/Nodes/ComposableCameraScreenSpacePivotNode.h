@@ -80,6 +80,12 @@ public:
 	virtual void BeginDestroy() override;
 	virtual void GetPinDeclarations_Implementation(TArray<FComposableCameraNodePinDeclaration>& OutPins) const override;
 
+	// Compatible with the Level Sequence path. Viewport size for screen-space
+	// math is resolved through UE::ComposableCameras::TryGetEffectiveViewportSize
+	// (PCM → GameViewport → 16:9 fallback), so the node no longer requires a
+	// PlayerCameraManager. Debug-draw via HUD is still guarded on PCM
+	// existence but is non-evaluation cosmetic only.
+
 protected:
 
 public:

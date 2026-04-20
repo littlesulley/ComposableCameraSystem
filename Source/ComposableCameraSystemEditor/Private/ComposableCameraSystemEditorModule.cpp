@@ -6,13 +6,16 @@
 #include "ComposableCameraEditorStyle.h"
 #include "EdGraphUtilities.h"
 #include "IAssetTools.h"
+#include "ISequencerModule.h"
 #include "AssetTools/ComposableCameraTypeAssetEditor.h"
 #include "Customizations/ComposableCameraInternalVariableCustomization.h"
 #include "Customizations/ComposableCameraNodeGraphNodeDetails.h"
 #include "Customizations/ComposableCameraParameterTableRowCustomization.h"
+#include "Customizations/ComposableCameraTypeAssetReferenceCustomization.h"
 #include "EditorHooks/EditorHooks.h"
 #include "Editors/ComposableCameraNodeGraphPinFactory.h"
 #include "Editors/ComposableCameraGraphNodeFactory.h"
+#include "Sequencer/ComposableCameraLevelSequenceComponentTrackEditor.h"
 
 class UComposableCameraTypeAsset;
 
@@ -39,6 +42,7 @@ void FComposableCameraSystemEditorModule::StartupModule()
     RegisterDetailsCustomizations();
     RegisterNodeGraphPinFactory();
     RegisterGraphNodeFactory();
+    RegisterSequencerTrackEditor();
 }
 
 void FComposableCameraSystemEditorModule::ShutdownModule()
@@ -46,6 +50,7 @@ void FComposableCameraSystemEditorModule::ShutdownModule()
 #if WITH_EDITOR
     FIsSimulatingInEditor::GetIsSimulatingInEditorDelegate.Unbind();
 #endif
+    UnregisterSequencerTrackEditor();
     UnregisterGraphNodeFactory();
     UnregisterNodeGraphPinFactory();
     UnregisterDetailsCustomizations();
@@ -68,6 +73,7 @@ void FComposableCameraSystemEditorModule::RegisterDetailsCustomizations()
     FComposableCameraInternalVariableCustomization::Register(PropertyEditorModule);
     FComposableCameraParameterTableRowCustomization::Register(PropertyEditorModule);
     FComposableCameraNodeGraphNodeDetails::Register(PropertyEditorModule);
+    FComposableCameraTypeAssetReferenceCustomization::Register(PropertyEditorModule);
 }
 
 void FComposableCameraSystemEditorModule::UnregisterDetailsCustomizations()
@@ -79,6 +85,7 @@ void FComposableCameraSystemEditorModule::UnregisterDetailsCustomizations()
         FComposableCameraInternalVariableCustomization::Unregister(*PropertyEditorModule);
         FComposableCameraParameterTableRowCustomization::Unregister(*PropertyEditorModule);
         FComposableCameraNodeGraphNodeDetails::Unregister(*PropertyEditorModule);
+        FComposableCameraTypeAssetReferenceCustomization::Unregister(*PropertyEditorModule);
     }
 }
 
@@ -113,6 +120,26 @@ void FComposableCameraSystemEditorModule::UnregisterGraphNodeFactory()
     {
         FEdGraphUtilities::UnregisterVisualNodeFactory(GraphNodeFactory);
         GraphNodeFactory.Reset();
+    }
+}
+
+void FComposableCameraSystemEditorModule::RegisterSequencerTrackEditor()
+{
+    ISequencerModule& SequencerModule = FModuleManager::LoadModuleChecked<ISequencerModule>("Sequencer");
+    LevelSequenceComponentTrackEditorHandle = SequencerModule.RegisterTrackEditor(
+        FOnCreateTrackEditor::CreateStatic(
+            &FComposableCameraLevelSequenceComponentTrackEditor::CreateTrackEditor));
+}
+
+void FComposableCameraSystemEditorModule::UnregisterSequencerTrackEditor()
+{
+    if (LevelSequenceComponentTrackEditorHandle.IsValid())
+    {
+        if (ISequencerModule* SequencerModule = FModuleManager::GetModulePtr<ISequencerModule>("Sequencer"))
+        {
+            SequencerModule->UnRegisterTrackEditor(LevelSequenceComponentTrackEditorHandle);
+        }
+        LevelSequenceComponentTrackEditorHandle.Reset();
     }
 }
 

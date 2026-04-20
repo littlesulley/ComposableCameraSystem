@@ -14,6 +14,17 @@ void UComposableCameraMixingCameraNode::OnInitialize_Implementation()
 {
 	Super::OnInitialize_Implementation();
 
+	// Mixing cameras depend on the PCM to spawn and manage their child camera
+	// instances — there is no PCM-less equivalent for CreateNewCamera. The
+	// Level Sequence path uses GetLevelSequenceCompatibility() == RequiresPCM
+	// and will warn in the Details panel before activation; this guard is the
+	// safety net in case a TypeAsset with a MixingCamera node is still evaluated
+	// via the LS component path.
+	if (!OwningPlayerCameraManager)
+	{
+		return;
+	}
+
 	for (const FComposableCameraMixingCameraNodeCameraDefinition& Definition : Cameras)
 	{
 		FComposableCameraActivateParams ActivationParams (

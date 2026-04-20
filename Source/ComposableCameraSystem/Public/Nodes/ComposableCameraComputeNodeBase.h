@@ -93,4 +93,15 @@ public:
 	 * OnTickNode on the parent class.
 	 */
 	virtual void ExecuteBeginPlay() {}
+
+	// Compute nodes are never evaluated in the Level Sequence path — LS skips
+	// the entire BeginPlay compute chain because scrubbing a timeline with
+	// one-shot initialization logic is ambiguous. Values the compute chain
+	// would publish must instead be re-sourced as exposed parameters. The
+	// Details-panel customization uses this to show an informational warning
+	// when a TypeAsset containing compute nodes is assigned to an LS actor.
+	virtual EComposableCameraNodeLevelSequenceCompatibility GetLevelSequenceCompatibility_Implementation() const override
+	{
+		return EComposableCameraNodeLevelSequenceCompatibility::ComputeOnly;
+	}
 };

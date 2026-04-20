@@ -69,6 +69,32 @@ struct FComposableCameraNodePinBindingTable
 };
 
 /**
+ * How a node class behaves when evaluated in a Level-Sequence context, where
+ * the camera is driven by a UComposableCameraLevelSequenceComponent and no
+ * UComposableCameraPlayerCameraManager is present.
+ *
+ * Queried by the LS Details-panel customization (to warn the designer) and by
+ * the LS component's tick path (to decide whether to evaluate the node at all).
+ *
+ * Default is Compatible; override in node classes that cannot run without a
+ * PCM, or on compute-chain nodes that are never evaluated in LS by design.
+ */
+UENUM()
+enum class EComposableCameraNodeLevelSequenceCompatibility : uint8
+{
+	/** Node evaluates correctly without a PCM. Safe in Level Sequence. */
+	Compatible,
+
+	/** Node requires a live PCM (viewport, player controller, HUD, spawn new cameras
+	 *  mid-init, etc.). In LS the node is a no-op and the Details panel warns. */
+	RequiresPCM,
+
+	/** Node lives on the BeginPlay compute chain and is never per-frame-evaluated
+	 *  in LS (LS skips the compute chain). Warning is informational. */
+	ComputeOnly,
+};
+
+/**
  * Base node for all camera nodes.
  */
 UCLASS(Abstract, DefaultToInstanced, EditInlineNew, BlueprintType, Blueprintable, CollapseCategories, ClassGroup = ComposableCameraSystem)
@@ -89,6 +115,26 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "ComposableCameraSystem|Node")
 	AComposableCameraPlayerCameraManager* GetOwningPlayerCameraManager() const { return OwningPlayerCameraManager; }
+
+	/**
+	 * Declare how this node behaves when evaluated without a PCM (Level Sequence path).
+	 * Default: Compatible. Override on nodes that need the viewport / player controller
+	 * / HUD, or that spawn new cameras through the PCM. See the enum comment.
+	 *
+	 * BlueprintNativeEvent so BP-authored camera nodes (subclasses of
+	 * UComposableCameraBlueprintCameraNode) can declare their compatibility
+	 * alongside native nodes. C++ overrides go on the _Implementation below;
+	 * Blueprint subclasses override via a "Get Level Sequence Compatibility"
+	 * BlueprintImplementableEvent node in their graph. External callers use
+	 * the plain method name — the generated dispatcher routes to the BP
+	 * override if present, else the _Implementation.
+	 */
+	UFUNCTION(BlueprintNativeEvent, BlueprintPure, Category = "ComposableCameraSystem|Node")
+	EComposableCameraNodeLevelSequenceCompatibility GetLevelSequenceCompatibility() const;
+	virtual EComposableCameraNodeLevelSequenceCompatibility GetLevelSequenceCompatibility_Implementation() const
+	{
+		return EComposableCameraNodeLevelSequenceCompatibility::Compatible;
+	}
 
 	// ─── Pin System ──────────────────────────────────────────────────────
 

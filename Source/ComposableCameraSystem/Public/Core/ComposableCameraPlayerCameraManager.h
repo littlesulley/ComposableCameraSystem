@@ -274,4 +274,4 @@ private:
 	 *  Super::SetViewTarget as part of its bookkeeping — the guard prevents
 	 *  that from recursing back into implicit activation. */
 	bool bIsImplicitlyActivating { false };
-};         
+};
