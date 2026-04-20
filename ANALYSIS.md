@@ -149,19 +149,15 @@ Rotation = FQuat::Slerp(Rotation.Quaternion(), Other.Rotation.Quaternion(), Othe
 
 `AComposableCameraPlayerCamaraManager` is missing an 'e'. Add a redirector in `DefaultEngine.ini` before the API is shipped to users.
 
-### 4. Implement or remove `PreNodeTick` / `PostNodeTick` action execution types
-
-`EComposableCameraActionExecutionType::PreNodeTick` and `PostNodeTick` are exposed in Blueprint but marked `@TODO: Currently not implemented`. Remove them from the enum or implement them using the existing `OnPreTick`/`OnPostTick` node virtuals.
-
-### 5. `FComposableCameraVariableID` INVALID sentinel can collide with a real hash
+### 4. `FComposableCameraVariableID` INVALID sentinel can collide with a real hash
 
 `INVALID = uint32(-1)` (`0xFFFFFFFF`) is a valid output of `HashCombineFast`. A variable whose GUID hashes to this value will silently never resolve. Use a separate `bIsValid` flag or `TOptional<uint32>`.
 
-### 6. `UComposableCameraModifierBase::ApplyModifier` has no C++ path
+### 5. `UComposableCameraModifierBase::ApplyModifier` has no C++ path
 
 It's a `BlueprintImplementableEvent` with no `_Implementation`. C++ modifier subclasses cannot override logic without going through Blueprint. Change to `BlueprintNativeEvent`.
 
-### 7. `ContextVariables` soft pointer can silently return null
+### 6. `ContextVariables` soft pointer can silently return null
 
 ```cpp
 TSoftObjectPtr<UComposableCameraVariableCollection> ContextVariables;
@@ -169,10 +165,10 @@ TSoftObjectPtr<UComposableCameraVariableCollection> ContextVariables;
 
 If the asset isn't loaded when a node tries to read it, context lookups silently return default values. Switch to a hard `TObjectPtr<>` — the collection is needed every tick and should always be loaded.
 
-### 8. `MixingCameraNode` weight update binding is fragile
+### 7. `MixingCameraNode` weight update binding is fragile
 
 The node requires external code to bind `FOnReceiveMixingCameraWeights` before the first tick. There is no fallback if nobody binds it. Expose a `BlueprintNativeEvent GetMixingWeights()` that camera subclasses can implement directly, eliminating the external binding ceremony.
 
-### 9. Silent camera chain truncation
+### 8. Silent camera chain truncation
 
 `RefreshCameraChain()` caps the parent camera chain length at 3 with no user-visible warning. Add a `UE_LOG(LogComposableCameraSystem, Warning, ...)` so designers know when cameras are silently dropped.

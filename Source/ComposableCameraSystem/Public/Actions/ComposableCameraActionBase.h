@@ -7,6 +7,7 @@
 #include "ComposableCameraActionBase.generated.h"
 
 class AComposableCameraPlayerCameraManager;
+class UComposableCameraCameraNodeBase;
 
 UENUM(BlueprintType, meta = (Bitflags, UseEnumValuesAsMaskValuesInEditor = "true"))
 enum class EComposableCameraActionExpirationType : uint8
@@ -34,12 +35,12 @@ enum class EComposableCameraActionExecutionType : uint8
 	// This action is executed before camera is evaluated.
 	PreCameraTick,
 	
-	// This action is executed before some node is evaluated. If no such node exists, this action is ignored. \n
-	// @TODO: Currently not implemented.
+	// This action is executed before the node whose class matches TargetNodeClass is evaluated.
+	// If TargetNodeClass is unset or no matching node exists on the camera, this action is ignored.
 	PreNodeTick,
-	
-	// This action is executed after some node is evaluated. If no such node exists, this action is ignored. \n
-	// @TODO: Currently not implemented.
+
+	// This action is executed after the node whose class matches TargetNodeClass is evaluated.
+	// If TargetNodeClass is unset or no matching node exists on the camera, this action is ignored.
 	PostNodeTick,
 	
 	// This action is executed after camera is evaluated.
@@ -58,7 +59,14 @@ public:
 	// When will this action get executed.
 	UPROPERTY(EditAnywhere, BlueprintReadOnly)
 	EComposableCameraActionExecutionType ExecutionType { EComposableCameraActionExecutionType::PreCameraTick };
-	
+
+	// Target node class for node-scoped execution. Exact class match, matching the Modifier system.
+	// Only meaningful when ExecutionType is PreNodeTick or PostNodeTick.
+	UPROPERTY(EditAnywhere, BlueprintReadOnly,
+		meta = (EditCondition = "ExecutionType == EComposableCameraActionExecutionType::PreNodeTick || ExecutionType == EComposableCameraActionExecutionType::PostNodeTick",
+				EditConditionHides))
+	TSubclassOf<UComposableCameraCameraNodeBase> TargetNodeClass;
+
 	// How will this action get expired.
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, meta = (Bitmask, BitmaskEnum = EComposableCameraActionExpirationType))
 	uint8 ExpirationType { static_cast<uint8>(EComposableCameraActionExpirationType::Duration | EComposableCameraActionExpirationType::Condition) };

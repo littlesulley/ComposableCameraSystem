@@ -900,13 +900,21 @@ UComposableCameraActionBase* AComposableCameraPlayerCameraManager::AddCameraActi
 	CameraActions.Add(Action);
 
 	// Bind delegates to the running camera.
-	if (Action->ExecutionType == EComposableCameraActionExecutionType::PreCameraTick)
+	if (RunningCamera)
 	{
-		RunningCamera->OnActionPreTick.AddDynamic(Action, &UComposableCameraActionBase::OnExecute);
-	}
-	else if (Action->ExecutionType == EComposableCameraActionExecutionType::PostCameraTick)
-	{
-		RunningCamera->OnActionPostTick.AddDynamic(Action, &UComposableCameraActionBase::OnExecute);
+		switch (Action->ExecutionType)
+		{
+		case EComposableCameraActionExecutionType::PreCameraTick:
+			RunningCamera->OnActionPreTick.AddDynamic(Action, &UComposableCameraActionBase::OnExecute);
+			break;
+		case EComposableCameraActionExecutionType::PostCameraTick:
+			RunningCamera->OnActionPostTick.AddDynamic(Action, &UComposableCameraActionBase::OnExecute);
+			break;
+		case EComposableCameraActionExecutionType::PreNodeTick:
+		case EComposableCameraActionExecutionType::PostNodeTick:
+			RunningCamera->RegisterNodeAction(Action);
+			break;
+		}
 	}
 
 	return Action;
@@ -931,6 +939,7 @@ void AComposableCameraPlayerCameraManager::RemoveCameraAction(UComposableCameraA
 	{
 		RunningCamera->OnActionPreTick.RemoveDynamic(Action, &UComposableCameraActionBase::OnExecute);
 		RunningCamera->OnActionPostTick.RemoveDynamic(Action, &UComposableCameraActionBase::OnExecute);
+		RunningCamera->UnregisterNodeAction(Action);
 	}
 }
 
@@ -963,10 +972,12 @@ void AComposableCameraPlayerCameraManager::BindCameraActionsForNewCamera(ACompos
 				Camera->OnActionPostTick.AddDynamic(Action, &UComposableCameraActionBase::OnExecute);
 				break;
 			}
-		// @TODO: TO BE IMPLEMENTED.
 		case EComposableCameraActionExecutionType::PreNodeTick:
 		case EComposableCameraActionExecutionType::PostNodeTick:
-			{ break; }
+			{
+				Camera->RegisterNodeAction(Action);
+				break;
+			}
 		}
 	}
 }

@@ -214,6 +214,9 @@ void AComposableCameraCameraBase::EndPlay(const EEndPlayReason::Type EndPlayReas
 	OnPostTick.Clear();
 	OnActionPreTick.Clear();
 	OnActionPostTick.Clear();
+
+	PreNodeTickActions.Reset();
+	PostNodeTickActions.Reset();
 }
 
 void AComposableCameraCameraBase::Initialize(AComposableCameraPlayerCameraManager* Manager)
@@ -365,6 +368,67 @@ void AComposableCameraCameraBase::BeginPlayCamera()
 	}
 }
 
+namespace
+{
+	// Fire every node-scoped action whose TargetNodeClass matches Node's class.
+	// Pose is passed as the same in/out slot (matching TickNode's convention —
+	// actions mutate the pose in place and the next node/action sees the update).
+	FORCEINLINE void BroadcastNodeActions(
+		const TArray<UComposableCameraActionBase*>& NodeActions,
+		UComposableCameraCameraNodeBase* Node,
+		float DeltaTime,
+		FComposableCameraPose& InOutPose)
+	{
+		if (NodeActions.Num() == 0)
+		{
+			return;
+		}
+
+		UClass* NodeClass = Node->GetClass();
+		for (UComposableCameraActionBase* Action : NodeActions)
+		{
+			if (Action && Action->TargetNodeClass == NodeClass)
+			{
+				Action->OnExecute(DeltaTime, InOutPose, InOutPose);
+			}
+		}
+	}
+}
+
+void AComposableCameraCameraBase::RegisterNodeAction(UComposableCameraActionBase* Action)
+{
+	if (!Action)
+	{
+		return;
+	}
+
+	// Ignore actions without a target class — matches the "ignored" ergonomic
+	// documented on EComposableCameraActionExecutionType::PreNodeTick/PostNodeTick.
+	if (!Action->TargetNodeClass)
+	{
+		return;
+	}
+
+	if (Action->ExecutionType == EComposableCameraActionExecutionType::PreNodeTick)
+	{
+		PreNodeTickActions.AddUnique(Action);
+	}
+	else if (Action->ExecutionType == EComposableCameraActionExecutionType::PostNodeTick)
+	{
+		PostNodeTickActions.AddUnique(Action);
+	}
+}
+
+void AComposableCameraCameraBase::UnregisterNodeAction(UComposableCameraActionBase* Action)
+{
+	if (!Action)
+	{
+		return;
+	}
+	PreNodeTickActions.RemoveSingleSwap(Action);
+	PostNodeTickActions.RemoveSingleSwap(Action);
+}
+
 FComposableCameraPose AComposableCameraCameraBase::TickCamera(float DeltaTime)
 {
 	TRACE_CPUPROFILER_EVENT_SCOPE(CCS_Camera_TickCamera);
@@ -400,7 +464,9 @@ FComposableCameraPose AComposableCameraCameraBase::TickCamera(float DeltaTime)
 					UComposableCameraCameraNodeBase* Node = CameraNodes[Entry.CameraNodeIndex];
 					if (Node)
 					{
+						BroadcastNodeActions(PreNodeTickActions, Node, DeltaTime, NewCameraPose);
 						Node->TickNode(DeltaTime, NewCameraPose, NewCameraPose);
+						BroadcastNodeActions(PostNodeTickActions, Node, DeltaTime, NewCameraPose);
 					}
 				}
 				break;
@@ -437,7 +503,9 @@ FComposableCameraPose AComposableCameraCameraBase::TickCamera(float DeltaTime)
 			UComposableCameraCameraNodeBase* Node = CameraNodes[LegIdx];
 			if (Node)
 			{
+				BroadcastNodeActions(PreNodeTickActions, Node, DeltaTime, NewCameraPose);
 				Node->TickNode(DeltaTime, NewCameraPose, NewCameraPose);
+				BroadcastNodeActions(PostNodeTickActions, Node, DeltaTime, NewCameraPose);
 			}
 		}
 	}

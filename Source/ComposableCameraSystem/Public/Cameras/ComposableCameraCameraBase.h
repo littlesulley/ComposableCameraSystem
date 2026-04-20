@@ -17,6 +17,7 @@
 class UComposableCameraModifierManager;
 class UComposableCameraTransitionBase;
 struct FComposableCameraDebugSnapshot;
+class UComposableCameraActionBase;
 class UComposableCameraTransitionDataAsset;
 class UComposableCameraCameraNodeBase;
 class UComposableCameraTypeAsset;
@@ -383,6 +384,24 @@ public:
 	FOnPostTick		  OnPostTick;
 	FOnActionPreTick  OnActionPreTick;
 	FOnActionPostTick OnActionPostTick;
+
+	/**
+	 * Node-scoped actions fired around each node's TickNode. The PCM registers
+	 * actions here when their ExecutionType is PreNodeTick / PostNodeTick (see
+	 * AComposableCameraPlayerCameraManager::AddCameraAction /
+	 * BindCameraActionsForNewCamera). Matching is by exact class (Node->GetClass()
+	 * == Action->TargetNodeClass), same rule as the Modifier system.
+	 *
+	 * These are NOT UPROPERTY — ownership lives on the PCM's CameraActions
+	 * UPROPERTY TSet, which is the GC root. This camera-local view is just a
+	 * hot-path iteration cache; the PCM clears it via UnregisterNodeAction when
+	 * an action expires, and EndPlay clears it defensively.
+	 */
+	TArray<UComposableCameraActionBase*> PreNodeTickActions;
+	TArray<UComposableCameraActionBase*> PostNodeTickActions;
+
+	void RegisterNodeAction(UComposableCameraActionBase* Action);
+	void UnregisterNodeAction(UComposableCameraActionBase* Action);
 	
 public:
 	// Get the owning node by class. If no such node exists, returns nullptr.
