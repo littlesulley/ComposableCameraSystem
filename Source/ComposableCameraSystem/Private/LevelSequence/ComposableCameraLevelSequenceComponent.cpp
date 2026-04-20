@@ -52,17 +52,18 @@ void UComposableCameraLevelSequenceComponent::OnRegister()
 	// preserves existing values for surviving names + types.
 	TypeAssetReference.RebuildBagsFromTypeAsset();
 
-	// Phase D simplified: component-exists = participates. When a Sequencer
-	// Spawnable instantiates the owning actor, OnRegister fires, and we
-	// auto-enable evaluation so the tick path runs and picks up animated
-	// parameter values from the bag.
+	// Evaluation gate semantics: unconditionally ON by default. The ECS gate
+	// (UMovieSceneComposableCameraGateInstantiator) does not "open" the gate —
+	// it CLOSES it, turning inactive components off for tracked Spawnables
+	// whose owning actor isn't the Camera Cut Track's current target or a
+	// blend participant. Entities it cannot reach (non-Sequencer hosts like
+	// BlueprintSpawnableComponent on a plain actor) stay at the default (on).
 	//
-	// TRADE-OFF: the Phase plan envisioned cut/blend-only gating via an ECS
-	// Instantiator; the simplified model ticks every spawned LS Actor. For
-	// typical scenes (<10 cameras) the overhead is minimal. If you later add
-	// the Instantiator for strict gating, flip this back to leaving
-	// bEvaluationEnabled at its default (false) and have the Instantiator
-	// drive it.
+	// First-frame setup-then-teardown: for a gated entity that isn't in the
+	// Camera Cut Track's current target the first time the instantiator sees
+	// it, OnRegister enables → tick runs briefly → instantiator flips to false
+	// on its next OnRun. Visually imperceptible; avoids the "component goes
+	// silent forever" trap a default-off model creates.
 	SetEvaluationEnabled(true);
 }
 
@@ -72,6 +73,23 @@ void UComposableCameraLevelSequenceComponent::BeginPlay()
 	// InternalCamera is created lazily on the first tick that actually needs it,
 	// so a dormant LS actor (Spawnable inactive, or Phase C "not participating")
 	// pays no camera-construction cost.
+}
+
+void UComposableCameraLevelSequenceComponent::OnUnregister()
+{
+	// Editor-world counterpart to EndPlay. Sequencer Spawnable actors live in
+	// the editor preview world (and in various transient worlds during asset
+	// save / cook). Those worlds never invoke BeginPlay → the actor's EndPlay
+	// is never called → our EndPlay override never runs → InternalCamera
+	// leaks every time the Spawnable is destroyed and re-created. OnRegister /
+	// OnUnregister fire reliably in both the editor and PIE, so cleaning up
+	// here guarantees pairing.
+	//
+	// In PIE / Standalone, OnUnregister fires alongside the actor teardown
+	// that also triggers EndPlay. The second DestroyInternalCamera is a no-op
+	// because InternalCamera is already null. No double-free risk.
+	DestroyInternalCamera();
+	Super::OnUnregister();
 }
 
 void UComposableCameraLevelSequenceComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
@@ -91,6 +109,13 @@ void UComposableCameraLevelSequenceComponent::TickComponent(
 	{
 		return;
 	}
+
+	// Per-frame diagnostic — enable with `Log LogComposableCameraSystem Verbose`
+	// to see exactly which Spawnables are ticking each frame. Noisy at Verbose;
+	// default Log level filters this out.
+	UE_LOG(LogComposableCameraSystem, Verbose,
+		TEXT("LS tick [%s]"),
+		GetOwner() ? *GetOwner()->GetName() : TEXT("<no owner>"));
 
 	if (!TypeAssetReference.TypeAsset)
 	{
@@ -171,6 +196,19 @@ void UComposableCameraLevelSequenceComponent::PostEditChangeProperty(FPropertyCh
 
 void UComposableCameraLevelSequenceComponent::SetEvaluationEnabled(bool bEnabled)
 {
+	if (bEvaluationEnabled != bEnabled)
+	{
+		// Diagnostic: log every gate transition with the owning actor's name
+		// so you can follow which Spawnables the ECS gate is actually closing.
+		// Enable with `Log LogComposableCameraSystem Log` (default) — these
+		// fire only on change, so they're low-noise.
+		UE_LOG(LogComposableCameraSystem, Log,
+			TEXT("LS gate [%s]: %s → %s"),
+			GetOwner() ? *GetOwner()->GetName() : TEXT("<no owner>"),
+			bEvaluationEnabled ? TEXT("ON") : TEXT("OFF"),
+			bEnabled ? TEXT("ON") : TEXT("OFF"));
+	}
+
 	bEvaluationEnabled = bEnabled;
 	SetComponentTickEnabled(bEnabled);
 	if (!bEnabled)

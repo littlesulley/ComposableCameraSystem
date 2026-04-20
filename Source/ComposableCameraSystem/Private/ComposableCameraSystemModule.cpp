@@ -8,14 +8,12 @@ DEFINE_LOG_CATEGORY(LogComposableCameraSystem)
 
 void FComposableCameraSystemModule::StartupModule()
 {
-
 }
 
 void FComposableCameraSystemModule::ShutdownModule()
 {
-	
 }
-	
+
 IMPLEMENT_MODULE(FComposableCameraSystemModule, ComposableCameraSystem)
 
 #undef LOCTEXT_NAMESPACE
