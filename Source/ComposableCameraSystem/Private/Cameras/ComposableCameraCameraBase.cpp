@@ -182,11 +182,55 @@ void FComposableCameraPose::BlendBy(const FComposableCameraPose& Other, float Ot
 
 	// --- Post-process ---
 	//
-	// Blend all post-process properties (including bOverride_* flags).
-	// A default-constructed FPostProcessSettings has all overrides off, so blending
-	// against a camera with no PostProcess node naturally fades overridden values
-	// toward off. The bOverride_* booleans snap at 50% (integer lerp behavior).
+	// Blend all post-process properties via the engine helper. Most fields use
+	// `UE_LERP_PP` / `UE_SET_PP` macros that correctly flip `bOverride_X = true`
+	// on the result whenever either side had the override — so a field that is
+	// overridden only on one side fades in/out smoothly with its flag honoured.
 	FPostProcessUtils::BlendPostProcessSettings(PostProcessSettings, Other.PostProcessSettings, OtherWeight);
+
+	// Engine asymmetry workaround. Four fields in
+	// `FPostProcessUtils::BlendPostProcessSettings` are hand-rolled outside the
+	// `UE_LERP_PP` / `UE_SET_PP` macro path and *read* `OtherTo.bOverride_X`
+	// without ever writing `ThisFrom.bOverride_X = true`. Consequences:
+	//
+	//   - `DepthOfFieldFocalDistance` — most critical. When blending from a
+	//     pose with no DoF override (e.g. a gameplay camera) to a pose that
+	//     has one (e.g. `ViewTargetProxyNode` forwarding a `UCineCameraComponent`
+	//     → Sequencer Camera Cut Track to an LS Actor), the value snaps to the
+	//     new focal distance on frame 0 but `bOverride_DepthOfFieldFocalDistance`
+	//     stays at `false` for the whole blend. The renderer ignores the value,
+	//     DoF doesn't draw, and only when `CollapseFinishedTransitions` replaces
+	//     the blended pose with the proxy pose directly does `bOverride = true`
+	//     reappear — DoF "snaps on" at the very end of the transition.
+	//   - `DepthOfFieldMatteBoxFlags`, `LensFlareTints`, `MobileHQGaussian` —
+	//     same pattern, less commonly hit but same bug.
+	//
+	// Fix: match the `UE_LERP_PP` "either-side-had-it" semantic by OR-ing the
+	// source override into the blended result. For the first three (numeric /
+	// array / linear-color) fields the VALUE was already written by the engine
+	// helper and we only need to fix the flag.
+	//
+	// `MobileHQGaussian` is a bool — it follows the "target wins at OtherWeight
+	// > 0" rule used above for `ProjectionMode` / `ConstrainAspectRatio` etc.
+	// (see the Projection & aspect block). The engine helper snaps its value at
+	// 50 %, which is exactly the mid-blend snap our convention rejects: a bool
+	// has no meaningful intermediate state, so deferring the flip to the
+	// midpoint produces a visible discontinuity instead of just moving the
+	// discontinuity to the start of the blend where it is naturally hidden by
+	// the Transition's accompanying numeric ramp. We therefore overwrite both
+	// value AND flag at `OtherWeight > 0`.
+	if (OtherWeight > 0.f)
+	{
+		PostProcessSettings.bOverride_DepthOfFieldFocalDistance |= Other.PostProcessSettings.bOverride_DepthOfFieldFocalDistance;
+		PostProcessSettings.bOverride_DepthOfFieldMatteBoxFlags |= Other.PostProcessSettings.bOverride_DepthOfFieldMatteBoxFlags;
+		PostProcessSettings.bOverride_LensFlareTints            |= Other.PostProcessSettings.bOverride_LensFlareTints;
+
+		if (Other.PostProcessSettings.bOverride_MobileHQGaussian)
+		{
+			PostProcessSettings.bOverride_MobileHQGaussian = true;
+			PostProcessSettings.bMobileHQGaussian          = Other.PostProcessSettings.bMobileHQGaussian;
+		}
+	}
 }
 
 // -------------------------------------------------------------------

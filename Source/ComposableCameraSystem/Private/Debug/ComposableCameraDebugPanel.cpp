@@ -5,6 +5,7 @@
 #include "Actions/ComposableCameraActionBase.h"
 #include "Cameras/ComposableCameraCameraBase.h"
 #include "CanvasItem.h"
+#include "CineCameraComponent.h"
 #include "ComposableCameraSystemModule.h"
 #include "Core/ComposableCameraContextStack.h"
 #include "Core/ComposableCameraModifierManager.h"
@@ -248,12 +249,26 @@ namespace
 		{}
 	};
 
+	/** One labelled group inside the Current Pose region. The Pose region
+	 *  doesn't use the flat `Lines` path — it packs groups into two columns
+	 *  to keep the panel compact (a single column would push every other
+	 *  region ~15 lines further down). Each group renders as a `-- Header --`
+	 *  label followed by its own KV lines with per-group value alignment. */
+	struct FPoseGroup
+	{
+		FString            Header;
+		TArray<FPanelLine> Lines;
+	};
+
 	/** Per-region render data. Most regions emit simple text lines (Lines).
 	 *  The Context Stack & Tree region uses a structured snapshot instead
 	 *  (bIsStackAndTree = true, StackBodyHeight pre-computed) so it can
 	 *  draw progress bars, tree connector lines, and active-leaf highlights.
 	 *  The Legend region also uses a structured path (bIsLegend = true) so
-	 *  it can paint color swatches next to labels in a two-column layout. */
+	 *  it can paint color swatches next to labels in a two-column layout.
+	 *  The Current Pose region uses `bIsPose = true` to flow labelled groups
+	 *  across two columns (PoseGroups[0..PoseLeftGroupCount) go in the left
+	 *  column; the rest in the right). */
 	struct FRegionLines
 	{
 		FString Title;
@@ -266,6 +281,12 @@ namespace
 		// Legend region.
 		bool  bIsLegend       = false;
 		float LegendBodyHeight = 0.f;
+
+		// Current Pose region.
+		bool  bIsPose            = false;
+		TArray<FPoseGroup> PoseGroups;
+		float PoseBodyHeight     = 0.f;
+		int32 PoseLeftGroupCount = 0;
 
 		// Warnings region reuses the plain Lines path — no new flag needed.
 		// Each line carries its own verbosity-colored FLinearColor, which
@@ -332,32 +353,228 @@ namespace
 	}
 
 	// ---- Region: Current Pose -----------------------------------------
-	static void BuildPoseLines(const FPanelCtx& Ctx, FRegionLines& Out)
+	/** Populate the Current Pose region as four labelled groups, laid out
+	 *  across two columns by the renderer:
+	 *    Left column  — Transform, Context
+	 *    Right column — Projection, Physical
+	 *
+	 *  Left/right split is controlled by `PoseLeftGroupCount`. The Physical
+	 *  group collapses to a single `Status: off` line when the pose's
+	 *  `PhysicalCameraBlendWeight <= 0` (the common case), so the right
+	 *  column stays short unless DoF / auto-exposure are actually active.
+	 *
+	 *  All reads go through the same public pose / POV accessors the
+	 *  single-column version used — no new state, no hot-path allocation
+	 *  concerns beyond the existing debug-panel baseline. */
+	static void BuildPoseGroups(const FPanelCtx& Ctx, FRegionLines& Out)
 	{
-		Out.Title = TEXT("Current Pose");
+		Out.Title   = TEXT("Current Pose");
+		Out.bIsPose = true;
+
 		const FComposableCameraPose& Pose = Ctx.PCM->CurrentCameraPose;
 		const FMinimalViewInfo POV = Ctx.PCM->GetCameraCacheView();
 
+		auto AddGroup = [&](const TCHAR* HeaderStr) -> FPoseGroup&
+		{
+			FPoseGroup& G = Out.PoseGroups.AddDefaulted_GetRef();
+			G.Header = HeaderStr;
+			return G;
+		};
+
 		TStringBuilder<128> B;
 
-		B.Reset();
-		ComposableCameraDebug::AppendVector(B, Pose.Position);
-		Out.Lines.Add({ TEXT("Position"), FString(B), CValue });
+		// ---- Transform (left) ----
+		{
+			FPoseGroup& Transform = AddGroup(TEXT("Transform"));
 
-		B.Reset();
-		ComposableCameraDebug::AppendRotator(B, Pose.Rotation);
-		Out.Lines.Add({ TEXT("Rotation"), FString(B), CValue });
+			B.Reset(); ComposableCameraDebug::AppendVector(B, Pose.Position);
+			Transform.Lines.Add({ TEXT("Position"), FString(B), CValue });
 
-		B.Reset();
-		ComposableCameraDebug::AppendFloat(B, Pose.GetEffectiveFieldOfView());
-		Out.Lines.Add({ TEXT("FOV"), FString(B), CValue });
+			B.Reset(); ComposableCameraDebug::AppendRotator(B, Pose.Rotation);
+			Transform.Lines.Add({ TEXT("Rotation"), FString(B), CValue });
 
-		B.Reset(); B.Appendf(TEXT("%.3f"), POV.AspectRatio);
-		Out.Lines.Add({ TEXT("Aspect"), FString(B), CValue });
+			B.Reset(); ComposableCameraDebug::AppendVector(B, Pose.Rotation.Vector());
+			Transform.Lines.Add({ TEXT("Forward"), FString(B), CValue });
+		}
 
-		B.Reset();
-		Ctx.PCM->CurrentContext.AppendString(B);
-		Out.Lines.Add({ TEXT("Context"), FString(B), CValue });
+		// ---- Context (left) ----
+		{
+			FPoseGroup& Context = AddGroup(TEXT("Context"));
+
+			B.Reset();
+			if (Ctx.PCM->CurrentContext.IsNone())
+			{
+				B.Append(TEXT("None"));
+			}
+			else
+			{
+				Ctx.PCM->CurrentContext.AppendString(B);
+			}
+			Context.Lines.Add({ TEXT("Active"), FString(B), CValue });
+		}
+
+		Out.PoseLeftGroupCount = Out.PoseGroups.Num();
+
+		// ---- Projection (right) ----
+		{
+			FPoseGroup& Proj = AddGroup(TEXT("Projection"));
+
+			const bool bOrtho = (Pose.ProjectionMode == ECameraProjectionMode::Orthographic);
+			Proj.Lines.Add({ TEXT("Mode"),
+				FString(bOrtho ? TEXT("Orthographic") : TEXT("Perspective")),
+				CValue });
+
+			// FOV dual-mode: show degrees + parenthetical focal length when
+			// the pose is in FocalLength mode (sentinel: FieldOfView <= 0).
+			B.Reset();
+			B.Appendf(TEXT("%.1f"), Pose.GetEffectiveFieldOfView());
+			if (Pose.FieldOfView <= 0.0 && Pose.FocalLength > 0.f)
+			{
+				B.Appendf(TEXT("  (from %.0fmm)"), Pose.FocalLength);
+			}
+			Proj.Lines.Add({ TEXT("FOV"), FString(B), CValue });
+
+			B.Reset(); B.Appendf(TEXT("%.3f"), POV.AspectRatio);
+			Proj.Lines.Add({ TEXT("Aspect"), FString(B), CValue });
+
+			if (bOrtho)
+			{
+				B.Reset(); B.Appendf(TEXT("%.0f"), Pose.OrthographicWidth);
+				Proj.Lines.Add({ TEXT("Ortho W"), FString(B), CValue });
+
+				B.Reset(); B.Appendf(TEXT("%.0f"), Pose.OrthoNearClipPlane);
+				Proj.Lines.Add({ TEXT("Ortho Near"), FString(B), CValue });
+
+				B.Reset(); B.Appendf(TEXT("%.0f"), Pose.OrthoFarClipPlane);
+				Proj.Lines.Add({ TEXT("Ortho Far"), FString(B), CValue });
+			}
+		}
+
+		// ---- Physical (right) ----
+		//
+		// Three-way data source. The pose's Physical block is the "CCS-side
+		// physical contribution gate" — it only carries meaningful values
+		// when a LensNode (or similar) has driven `PhysicalCameraBlendWeight`
+		// above 0. In the proxy-via-CineCamera path (e.g. Level Sequence
+		// Camera Cut Track → LS Actor → ViewTargetProxyNode writes the pose),
+		// the CineCamera already bakes DoF / exposure into PostProcessSettings
+		// itself, so the pose's BlendWeight stays 0 and the raw Aperture /
+		// Focus / ISO etc. fields keep their struct defaults (not real values).
+		// Showing those defaults would be misleading. Instead we detect the
+		// CineCamera on the PCM's current view target and read physical info
+		// straight off it.
+		//
+		//   1. `PhysicalCameraBlendWeight > 0`     → pose-driven (6 rows).
+		//   2. BlendWeight == 0 AND ViewTarget has UCineCameraComponent
+		//                                           → CineCamera-driven (6 rows).
+		//   3. neither                              → single "Status: off" row.
+		{
+			const bool bPoseDriven = (Pose.PhysicalCameraBlendWeight > 0.f);
+
+			UCineCameraComponent* CineCam = nullptr;
+			if (!bPoseDriven)
+			{
+				if (AActor* ViewTarget = Ctx.PCM->GetViewTarget())
+				{
+					CineCam = ViewTarget->FindComponentByClass<UCineCameraComponent>();
+				}
+			}
+
+			// Header discriminator — the "(CineCamera)" suffix makes the
+			// data source visible at a glance without spending an extra
+			// full row on a "Source:" line.
+			FPoseGroup& Phys = AddGroup(
+				bPoseDriven ? TEXT("Physical")
+				: (CineCam  ? TEXT("Physical (CineCamera)")
+				            : TEXT("Physical")));
+
+			if (bPoseDriven)
+			{
+				B.Reset(); B.Appendf(TEXT("%.2f"), Pose.PhysicalCameraBlendWeight);
+				Phys.Lines.Add({ TEXT("Weight"), FString(B), CValue });
+
+				B.Reset(); B.Appendf(TEXT("f/%.1f"), Pose.Aperture);
+				Phys.Lines.Add({ TEXT("Aperture"), FString(B), CValue });
+
+				B.Reset();
+				if (Pose.FocusDistance > 0.f)
+				{
+					B.Appendf(TEXT("%.0f cm"), Pose.FocusDistance);
+				}
+				else
+				{
+					B.Append(TEXT("auto"));
+				}
+				Phys.Lines.Add({ TEXT("Focus"), FString(B), CValue });
+
+				B.Reset(); B.Appendf(TEXT("%.0f"), Pose.ISO);
+				Phys.Lines.Add({ TEXT("ISO"), FString(B), CValue });
+
+				B.Reset(); B.Appendf(TEXT("1/%.0fs"), Pose.ShutterSpeed);
+				Phys.Lines.Add({ TEXT("Shutter"), FString(B), CValue });
+
+				B.Reset(); B.Appendf(TEXT("%.1f x %.1f mm"), Pose.SensorWidth, Pose.SensorHeight);
+				Phys.Lines.Add({ TEXT("Sensor"), FString(B), CValue });
+			}
+			else if (CineCam)
+			{
+				// Focal length is in the Physical group on this branch (not
+				// the Projection group's `FOV (from Nmm)` annotation) because
+				// the proxy writes FOV in degrees-mode via SetFieldOfViewDegrees
+				// — the pose no longer knows the underlying focal length, but
+				// the CineCamera still does and it's physical-optics info.
+				B.Reset(); B.Appendf(TEXT("%.1f mm"), CineCam->CurrentFocalLength);
+				Phys.Lines.Add({ TEXT("Focal"), FString(B), CValue });
+
+				B.Reset(); B.Appendf(TEXT("f/%.1f"), CineCam->CurrentAperture);
+				Phys.Lines.Add({ TEXT("Aperture"), FString(B), CValue });
+
+				B.Reset(); B.Appendf(TEXT("%.0f cm"), CineCam->CurrentFocusDistance);
+				Phys.Lines.Add({ TEXT("Focus"), FString(B), CValue });
+
+				// ISO / Shutter on a CineCamera come from PostProcessSettings
+				// overrides. No override = engine default / auto-exposure —
+				// show "auto" rather than the uninitialized numeric slot.
+				const FPostProcessSettings& PP = CineCam->PostProcessSettings;
+
+				B.Reset();
+				if (PP.bOverride_CameraISO) { B.Appendf(TEXT("%.0f"), PP.CameraISO); }
+				else                        { B.Append(TEXT("auto")); }
+				Phys.Lines.Add({ TEXT("ISO"), FString(B), CValue });
+
+				B.Reset();
+				if (PP.bOverride_CameraShutterSpeed) { B.Appendf(TEXT("1/%.0fs"), PP.CameraShutterSpeed); }
+				else                                 { B.Append(TEXT("auto")); }
+				Phys.Lines.Add({ TEXT("Shutter"), FString(B), CValue });
+
+				B.Reset(); B.Appendf(TEXT("%.1f x %.1f mm"),
+					CineCam->Filmback.SensorWidth,
+					CineCam->Filmback.SensorHeight);
+				Phys.Lines.Add({ TEXT("Sensor"), FString(B), CValue });
+			}
+			else
+			{
+				// Collapsed form — pose has no physical contribution and the
+				// view target isn't a CineCamera we could mine data from.
+				Phys.Lines.Add({ TEXT("Status"), TEXT("off"), CNeutral });
+			}
+		}
+
+		// Body height = tallest column. Each group contributes
+		// 1 (header) + Lines.Num() lines of KLineH.
+		auto GroupLineCount = [](const FPoseGroup& G) -> int32
+		{
+			return 1 + G.Lines.Num();
+		};
+		int32 LeftLines = 0;
+		int32 RightLines = 0;
+		for (int32 i = 0; i < Out.PoseGroups.Num(); ++i)
+		{
+			const int32 N = GroupLineCount(Out.PoseGroups[i]);
+			if (i < Out.PoseLeftGroupCount) { LeftLines  += N; }
+			else                            { RightLines += N; }
+		}
+		Out.PoseBodyHeight = KLineH * static_cast<float>(FMath::Max(LeftLines, RightLines));
 	}
 
 	// ---- Region: Context Stack & Evaluation Tree (structured) ---------
@@ -1619,6 +1836,80 @@ namespace
 		DrawColumn(NodeRows,  RightX);
 	}
 
+	// ---- Structured render for the Current Pose region ---------------
+	//
+	// Splits the body area in two equal columns separated by KPadding, then
+	// walks `R.PoseGroups`: indices [0..PoseLeftGroupCount) render into the
+	// left column, the rest into the right. Each group emits `-- Header --`
+	// in CLabel followed by its KV lines; the Value-column X is computed
+	// per-group from the widest label in that group so values align cleanly
+	// within a group without pushing short-label groups' values far right.
+	//
+	// Rows are line-clipped vertically against the column's bottom edge so
+	// a too-tall group (e.g. a vertically-cramped viewport) silently drops
+	// trailing lines rather than overdrawing neighbouring regions. The
+	// height estimator in PaintPanel sizes the region to the tallest
+	// column, so under normal conditions every row has room.
+	static void DrawPoseStructured(
+		const FPanelCtx& Ctx,
+		const FRegionLines& R,
+		const FVector2D& BodyPos,
+		const FVector2D& BodySize)
+	{
+		UCanvas* Canvas = Ctx.Canvas;
+		UFont*   Font   = Ctx.BodyFont;
+
+		constexpr float KColumnGap     = KPadding;
+		constexpr float KLabelValueGap = 10.f;
+
+		const float ColumnW = FMath::Max(0.f, (BodySize.X - KColumnGap) * 0.5f);
+		const float LeftX   = BodyPos.X;
+		const float RightX  = BodyPos.X + ColumnW + KColumnGap;
+		const float MaxY    = BodyPos.Y + BodySize.Y;
+
+		auto DrawColumn = [&](float ColX, int32 StartIdx, int32 EndExclusive)
+		{
+			const float ColRightX = ColX + ColumnW;
+			float Y = BodyPos.Y;
+
+			for (int32 GI = StartIdx; GI < EndExclusive; ++GI)
+			{
+				const FPoseGroup& G = R.PoseGroups[GI];
+
+				// Group header — matches the `-- Section --` style used by
+				// the Running Camera region for visual consistency.
+				if (Y + KLineH > MaxY) { return; }
+				const FString Header = FString::Printf(TEXT("-- %s --"), *G.Header);
+				DrawTextLineClipped(Canvas, Font, Header, ColX, Y, ColRightX, CLabel);
+				Y += KLineH;
+
+				// Per-group label alignment. Proportional font ⇒ measure
+				// the widest label in this group so all values in the group
+				// line up at the same X.
+				float MaxLabelPx = 0.f;
+				for (const FPanelLine& L : G.Lines)
+				{
+					MaxLabelPx = FMath::Max(MaxLabelPx,
+						MeasureTextWidth(Canvas, Font, L.Label));
+				}
+				const float ValueX = ColX + MaxLabelPx + KLabelValueGap;
+
+				for (const FPanelLine& L : G.Lines)
+				{
+					if (Y + KLineH > MaxY) { return; }
+					DrawTextLineClipped(Canvas, Font, L.Label,
+						ColX, Y, ValueX, L.Color);
+					DrawTextLineClipped(Canvas, Font, L.Value,
+						ValueX, Y, ColRightX, L.Color);
+					Y += KLineH;
+				}
+			}
+		};
+
+		DrawColumn(LeftX,  0,                          R.PoseLeftGroupCount);
+		DrawColumn(RightX, R.PoseLeftGroupCount,       R.PoseGroups.Num());
+	}
+
 	// Find a ComposableCamera PCM. `UDebugDrawService::Draw`'s PC parameter is
 	// nullptr on some call paths in UE 5.6 (the World-less `Draw(Flags, Canvas)`
 	// overload, and some editor-PIE timings), so we fall back to scanning world
@@ -2180,7 +2471,7 @@ namespace
 		const int32 NumRegions = 5 + (bHasWarnings ? 1 : 0) + (bHasLegend ? 1 : 0);
 		TArray<FRegionLines, TInlineAllocator<8>> Regions;
 		Regions.SetNum(NumRegions);
-		BuildPoseLines          (Ctx, Regions[0]);
+		BuildPoseGroups         (Ctx, Regions[0]);
 
 		// Region[1] — Context Stack & Evaluation Tree (structured, not text).
 		Regions[1].Title            = TEXT("Context Stack & Evaluation Tree");
@@ -2217,6 +2508,7 @@ namespace
 			float RawH;
 			if (R.bIsStackAndTree)      { RawH = R.StackBodyHeight; }
 			else if (R.bIsLegend)       { RawH = R.LegendBodyHeight; }
+			else if (R.bIsPose)         { RawH = R.PoseBodyHeight; }
 			else                        { RawH = R.Lines.Num() * KLineH; }
 			return RawH + KPadding * 2.f;
 		};
@@ -2268,6 +2560,10 @@ namespace
 			else if (R.bIsLegend)
 			{
 				DrawLegendStructured(Ctx, LegendTransRows, LegendNodeRows, BodyPos, BodySize);
+			}
+			else if (R.bIsPose)
+			{
+				DrawPoseStructured(Ctx, R, BodyPos, BodySize);
 			}
 			else
 			{

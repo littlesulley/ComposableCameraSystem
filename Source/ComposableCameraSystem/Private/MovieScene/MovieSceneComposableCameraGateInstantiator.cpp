@@ -10,6 +10,8 @@
 #include "EntitySystem/MovieSceneInstanceRegistry.h"
 #include "EntitySystem/MovieSceneSequenceInstance.h"
 #include "EntitySystem/TrackInstance/MovieSceneTrackInstanceSystem.h"
+#include "Engine/EngineTypes.h"
+#include "Engine/World.h"
 #include "GameFramework/Actor.h"
 #include "LevelSequence/ComposableCameraLevelSequenceComponent.h"
 #include "MovieSceneObjectBindingID.h"
@@ -411,6 +413,36 @@ void UMovieSceneComposableCameraGateInstantiator::OnRun(FSystemTaskPrerequisites
 	// For each tracked component, enable iff its owning actor is in ActiveActors.
 	// SetEvaluationEnabled(false) tears down the internal camera so idle
 	// Spawnables genuinely drop to zero runtime cost.
+	//
+	// Defensive guard: if we couldn't see ANY UMovieSceneCameraCutTrackInstance
+	// in the linker this frame, we have no ground truth for the active set and
+	// must NOT flip any gates. Two concrete scenarios this protects:
+	//
+	// 1) First-frame race on Spawnable creation. The gate system links as soon
+	//    as a Spawn section imports its SpawnableBinding entity, which can
+	//    happen a frame BEFORE UMovieSceneCameraCutTrackInstance registers via
+	//    the TrackInstance system. Without this guard, OnRun runs with
+	//    CutTrackInstanceCount=0, produces an empty ActiveActors, and closes
+	//    the freshly-OnRegistered Spawnable. If the cut track then links on a
+	//    later frame but the section's binding resolution is delayed a tick
+	//    (common with Spawnable re-targeting), the gate misses its window to
+	//    re-open and the component stays stuck OFF for the rest of the section.
+	//
+	// 2) Level Sequences with no Camera Cut Track at all. A CCS LS Spawnable
+	//    can still be meaningful (its pose-projection drives a CineCamera that
+	//    an actor-bound UE camera cut on a DIFFERENT track or a manual
+	//    SetViewTarget picks up). Under the original logic, these entries
+	//    would sit permanently OFF because ActiveActors was always empty.
+	//    Skipping the flip entirely lets them run at OnRegister's default-ON.
+	//
+	// The design document's "close-only" invariant is preserved: the gate still
+	// only closes entries it observes to be inactive via real cut track state.
+	// What's new is that "no observable cut track state" now means "leave alone"
+	// instead of "treat as inactive".
+	if (CutTrackInstanceCount == 0)
+	{
+		return;
+	}
 
 	for (TPair<FGateKey, FGateEntry>& Pair : TrackedComponents)
 	{
@@ -421,6 +453,45 @@ void UMovieSceneComposableCameraGateInstantiator::OnRun(FSystemTaskPrerequisites
 		}
 
 		AActor* Owner = Comp->GetOwner();
+
+		// Editor-world bypass: in the Sequencer editor preview path, the gate
+		// must not close the component. The gate's close-on-inactive semantic
+		// is a performance optimization for PIE / runtime (N Spawnables alive,
+		// only 1–2 actually driving the viewport at any given time). In the
+		// editor, the user is actively authoring / scrubbing, and two concrete
+		// quirks of editor evaluation make gate-close catastrophic there:
+		//
+		//   (i)  When the scrubber leaves the Camera Cut section, Sequencer
+		//        evaluates the cut track's instance at a pre-animate time
+		//        (typically one display frame before the section start, e.g.
+		//        tick -800 at 30 fps / 24000 tick-res). The gate sees
+		//        `contains=no` at this time and closes the component — which
+		//        is fine on its own, mirroring the runtime behavior.
+		//
+		//   (ii) After the scrubber moves back INTO the section, the cut
+		//        track's context time can remain stuck at that pre-animate
+		//        sample across idle frames (the user is hovering the scrubber,
+		//        not actively dragging). The gate keeps seeing `contains=no`,
+		//        component stays OFF, scrubbing shows no camera motion even
+		//        though Sequencer IS writing to the property-bag (verified via
+		//        Details-panel inspection: bag leaves update live).
+		//
+		// The combination makes the gate's close-in-editor behavior actively
+		// destructive to scrubbing preview. Bypass entirely for editor worlds
+		// (Editor, EditorPreview). PIE / Game / GamePreview still flow through
+		// the full flip logic.
+		if (Owner)
+		{
+			if (UWorld* World = Owner->GetWorld())
+			{
+				const EWorldType::Type WorldType = World->WorldType;
+				if (WorldType == EWorldType::Editor || WorldType == EWorldType::EditorPreview)
+				{
+					continue;
+				}
+			}
+		}
+
 		const bool bShouldBeActive = Owner && ActiveActors.Contains(Owner);
 		if (bShouldBeActive != Comp->IsEvaluationEnabled())
 		{
