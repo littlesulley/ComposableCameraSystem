@@ -83,6 +83,33 @@ public:
 	 *  OnGraphChanged fired by SyncToTypeAsset itself doesn't recurse. */
 	bool bIsSyncingToTypeAsset = false;
 
+	/**
+	 * Depth of the currently-active "Details rebuild" scopes. Nonzero means
+	 * a property-change lambda in the Details customization is mid-flight and
+	 * the toolkit's `OnGraphChanged` handler should *coalesce* — record that a
+	 * sync is pending (via `bPendingSyncDuringDetailsRebuild` below) and skip
+	 * the immediate `SyncToTypeAsset` call. The outermost scope runs the
+	 * coalesced sync exactly once on destruction when the pending flag is set.
+	 *
+	 * Why a counter and not a bool: a single user property edit on a compound
+	 * pin triggers `DetailBuilder.ForceRefreshDetails` inside the outer
+	 * `SetOnPropertyValueChanged` lambda. The refresh re-binds every sub-row
+	 * and re-fires child property change events, which land in *other* Details
+	 * lambdas that also open a scope. Depth-counting lets those nested scopes
+	 * participate in the same coalescing window without the outer scope's
+	 * pending flag being clobbered on nested construction / destruction.
+	 *
+	 * Use `FComposableCameraDetailsRebuildScope` at every call site; do not
+	 * touch these fields directly. See comment above that struct for the
+	 * intended usage pattern.
+	 */
+	int32 DetailsRebuildScopeDepth = 0;
+
+	/** Set by `OnGraphChanged` when a sync is requested while
+	 *  `DetailsRebuildScopeDepth > 0`. Cleared and consumed by the outermost
+	 *  `FComposableCameraDetailsRebuildScope` destructor. */
+	bool bPendingSyncDuringDetailsRebuild = false;
+
 	/** Rebuild the graph from the type asset's NodeTemplates and PinConnections.
 	 *  Called when the asset is first opened or after structural changes.
 	 *  Internally orchestrates the RebuildPhase_* functions in order. */
@@ -90,8 +117,27 @@ public:
 
 	/** Synchronize the type asset's data from the graph state.
 	 *  Called after graph edits (node add/remove/reorder, pin connect/disconnect).
-	 *  Internally orchestrates the SyncPhase_* functions in order. */
+	 *  Internally orchestrates the SyncPhase_* functions in order.
+	 *
+	 *  Also runs a silent validation pass (`OwningTypeAsset->Build(false)`) at
+	 *  the tail and pushes the resulting BuildMessages onto the graph nodes'
+	 *  UEdGraphNode `ErrorMsg` / `bHasCompilerMessage` / `ErrorType` fields,
+	 *  which `SComposableCameraGraphNode::OnPaint` reads to render inline
+	 *  warning / error badges during editing. */
 	void SyncToTypeAsset();
+
+	/** Map the current `OwningTypeAsset->BuildMessages` back onto the live graph
+	 *  nodes' UEdGraphNode error fields. Clears those fields on every node
+	 *  first, then walks BuildMessages and groups them by `NodeIndex` — each
+	 *  camera graph node's `ErrorType` becomes the highest severity among its
+	 *  messages and `ErrorMsg` is the concatenation (one per line). Messages
+	 *  with `NodeIndex == INDEX_NONE` are asset-level and ignored here; they
+	 *  remain visible in the Build Messages tab.
+	 *
+	 *  Safe to call without `OwningTypeAsset` — becomes a no-op. Does not
+	 *  trigger any graph-change notification of its own; the OnPaint widget
+	 *  path reads the fields every frame. */
+	void ApplyBuildMessagesToGraphNodes();
 
 private:
 	/**
@@ -104,6 +150,33 @@ private:
 	 */
 	UPROPERTY(Transient)
 	bool bPinContextMenuRequested = false;
+
+	/** Denormalized per-variable metadata used by the exec-chain phases to
+	 *  translate a variable's `FGuid` to its name + data-block slot size when
+	 *  emitting `SetVariable` entries into the asset's FullExecChain.
+	 *
+	 *  Kept as a stand-alone struct rather than reusing
+	 *  `FComposableCameraInternalVariable` so the lookup doesn't pull in the
+	 *  full variable record (metadata, default values, categorisation) when
+	 *  only the two fields below are needed on the hot path. */
+	struct FVariableLookupInfo
+	{
+		FName Name;
+		int32 SlotSize = 0;
+	};
+
+	/** Build a `{FGuid -> (Name, SlotSize)}` map from
+	 *  `OwningTypeAsset->InternalVariables` ∪ `ExposedVariables`.
+	 *
+	 *  The two exec-chain sync phases (`SyncPhase_RebuildExecutionChain` and
+	 *  `SyncPhase_RebuildComputeExecutionChain`) each need to resolve a
+	 *  variable GUID once per Set-variable exec entry they encounter while
+	 *  walking the chain. Before this helper existed, each phase inlined a
+	 *  nested-lambda linear scan, producing O(N_nodes * M_vars) scans per
+	 *  sync. This helper builds the map once (O(N_vars)) and hands it to
+	 *  both phases for O(1) GUID lookups. Kept const because it only reads
+	 *  the type asset and does not mutate graph state. */
+	void BuildVariableLookup(TMap<FGuid, FVariableLookupInfo>& OutLookup) const;
 
 	// ─── SyncToTypeAsset phases ────────────────────────────────────────────
 	//
@@ -349,4 +422,65 @@ private:
 		UComposableCameraBeginPlayStartGraphNode* BeginPlayStartNode,
 		const TArray<UComposableCameraNodeGraphNode*>& CreatedComputeGraphNodes,
 		const TMap<FGuid, UComposableCameraVariableGraphNode*>& VariableGuidToGraphNode);
+};
+
+/**
+ * RAII helper that brackets a Details-panel property-change lambda so every
+ * `NotifyGraphChanged` it transitively triggers is coalesced into a single
+ * `SyncToTypeAsset` call when the outermost scope unwinds.
+ *
+ * Motivation. A single user edit on a compound pin (e.g. `Interpolator.Speed`)
+ * flows through: one top-level `SetOnPropertyValueChanged` lambda runs, which
+ * calls `ReconstructPins` → `NotifyGraphChanged` → toolkit `OnGraphChanged`
+ * → `SyncToTypeAsset` (the 12-phase graph walk), then finishes by calling
+ * `DetailBuilder.ForceRefreshDetails`. The forced refresh re-binds every
+ * subobject/child row and re-fires child property-change events, which in turn
+ * invoke a *different* `SetOnPropertyValueChanged` lambda that also calls
+ * `NotifyGraphChanged`. Three to four sync passes per compound edit is typical.
+ *
+ * Mechanism. The scope increments a counter on the graph; while the counter is
+ * nonzero the toolkit's `OnGraphChanged` handler flips the pending flag and
+ * returns without syncing. When the outermost scope unwinds and the pending
+ * flag is set, it runs `SyncToTypeAsset` once — collapsing the cascade into a
+ * single 12-phase pass. Nested scopes (when `ForceRefreshDetails` re-enters
+ * via a child lambda) participate in the same coalescing window thanks to the
+ * counter.
+ *
+ * Intended usage at each `SetOnPropertyValueChanged` call site that calls
+ * `NotifyGraphChanged` + `ForceRefreshDetails`:
+ *
+ *     FSimpleDelegate::CreateLambda([this, &DetailBuilder]()
+ *     {
+ *         if (UComposableCameraNodeGraphNode* GN = GetGraphNode())
+ *         {
+ *             FComposableCameraDetailsRebuildScope Scope(
+ *                 Cast<UComposableCameraNodeGraph>(GN->GetGraph()));
+ *             GN->ReconstructPins();
+ *             if (UEdGraph* Graph = GN->GetGraph())
+ *             {
+ *                 Graph->NotifyGraphChanged();
+ *             }
+ *             DetailBuilder.ForceRefreshDetails();
+ *             // ~Scope runs the coalesced SyncToTypeAsset here.
+ *         }
+ *     });
+ *
+ * The scope must wrap `ForceRefreshDetails` — that is the call that re-enters
+ * child lambdas. A scope that ends before `ForceRefreshDetails` would defeat
+ * the entire coalescing, because the re-entered sync would happen outside the
+ * active scope.
+ *
+ * Null graph is tolerated; the scope becomes a no-op, preserving the existing
+ * null-graph fallthrough in the original lambdas.
+ */
+struct COMPOSABLECAMERASYSTEMEDITOR_API FComposableCameraDetailsRebuildScope
+{
+	FComposableCameraDetailsRebuildScope(UComposableCameraNodeGraph* InGraph);
+	~FComposableCameraDetailsRebuildScope();
+
+	FComposableCameraDetailsRebuildScope(const FComposableCameraDetailsRebuildScope&) = delete;
+	FComposableCameraDetailsRebuildScope& operator=(const FComposableCameraDetailsRebuildScope&) = delete;
+
+private:
+	TWeakObjectPtr<UComposableCameraNodeGraph> Graph;
 };

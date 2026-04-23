@@ -12,6 +12,7 @@
 #include "Nodes/ComposableCameraComputeNodeBase.h"
 #include "Nodes/ComposableCameraNodePinTypes.h"
 #include "EdGraphSchema_K2.h"
+#include "Logging/TokenizedMessage.h"
 
 #define LOCTEXT_NAMESPACE "ComposableCameraNodeGraph"
 
@@ -36,6 +37,101 @@ bool UComposableCameraNodeGraph::ConsumePinContextMenuRequested()
 	const bool bWasRequested = bPinContextMenuRequested;
 	bPinContextMenuRequested = false;
 	return bWasRequested;
+}
+
+void UComposableCameraNodeGraph::BuildVariableLookup(
+	TMap<FGuid, FVariableLookupInfo>& OutLookup) const
+{
+	OutLookup.Reset();
+	if (!OwningTypeAsset)
+	{
+		return;
+	}
+
+	OutLookup.Reserve(
+		OwningTypeAsset->InternalVariables.Num() +
+		OwningTypeAsset->ExposedVariables.Num());
+
+	auto AddArray = [&OutLookup](const TArray<FComposableCameraInternalVariable>& Array)
+	{
+		for (const FComposableCameraInternalVariable& Var : Array)
+		{
+			if (!Var.VariableGuid.IsValid())
+			{
+				continue;
+			}
+			FVariableLookupInfo Info;
+			Info.Name = Var.VariableName;
+			Info.SlotSize = GetPinTypeSize(Var.VariableType, Var.StructType);
+			OutLookup.Add(Var.VariableGuid, Info);
+		}
+	};
+
+	// Internal first so a GUID collision (shouldn't happen, but defensive)
+	// resolves to the Internal record — matching the original lambda's
+	// "InternalVariables before ExposedVariables" search order.
+	AddArray(OwningTypeAsset->InternalVariables);
+	for (const FComposableCameraInternalVariable& Var : OwningTypeAsset->ExposedVariables)
+	{
+		if (!Var.VariableGuid.IsValid() || OutLookup.Contains(Var.VariableGuid))
+		{
+			continue;
+		}
+		FVariableLookupInfo Info;
+		Info.Name = Var.VariableName;
+		Info.SlotSize = GetPinTypeSize(Var.VariableType, Var.StructType);
+		OutLookup.Add(Var.VariableGuid, Info);
+	}
+}
+
+// =============================================================================
+//  Details-rebuild coalescing scope
+// =============================================================================
+//
+// See the struct's header comment for the motivation and call-site pattern.
+// The work here is intentionally minimal: increment on entry, decrement on
+// exit, and run one coalesced SyncToTypeAsset if the toolkit's OnGraphChanged
+// recorded a pending request while the outermost scope was active.
+
+FComposableCameraDetailsRebuildScope::FComposableCameraDetailsRebuildScope(
+	UComposableCameraNodeGraph* InGraph)
+	: Graph(InGraph)
+{
+	if (UComposableCameraNodeGraph* G = Graph.Get())
+	{
+		++G->DetailsRebuildScopeDepth;
+	}
+}
+
+FComposableCameraDetailsRebuildScope::~FComposableCameraDetailsRebuildScope()
+{
+	UComposableCameraNodeGraph* G = Graph.Get();
+	if (!G)
+	{
+		return;
+	}
+
+	// Guard against underflow even though construction always increments.
+	// A graph being garbage-collected between ctor and dtor would have made
+	// Graph.Get() return null above, not produced a dangling pointer — so the
+	// only way to reach here with depth <= 0 is a misuse of the struct.
+	if (G->DetailsRebuildScopeDepth > 0)
+	{
+		--G->DetailsRebuildScopeDepth;
+	}
+
+	if (G->DetailsRebuildScopeDepth > 0)
+	{
+		// Inner scope unwinding; leave the pending flag for the outermost
+		// scope to consume.
+		return;
+	}
+
+	if (G->bPendingSyncDuringDetailsRebuild)
+	{
+		G->bPendingSyncDuringDetailsRebuild = false;
+		G->SyncToTypeAsset();
+	}
 }
 
 // =============================================================================
@@ -110,6 +206,16 @@ void UComposableCameraNodeGraph::RebuildFromTypeAsset()
 	// schema construction, so neither phase needs to know about the other.
 	// Needs the VariableGuidToGraphNode lookup for Set-variable exec entries.
 	RebuildPhase_RestoreComputeExecutionChain(BeginPlayStartNode, CreatedComputeGraphNodes, VariableGuidToGraphNode);
+
+	// Run a silent validation pass so the freshly-opened graph already shows
+	// its inline warning / error badges without the user having to edit or
+	// click Build first. BuildMessages is `UPROPERTY(Transient)`, so at this
+	// point it is always empty regardless of what the last session showed.
+	if (OwningTypeAsset)
+	{
+		OwningTypeAsset->Build(/* bLogResult = */ false);
+		ApplyBuildMessagesToGraphNodes();
+	}
 }
 
 void UComposableCameraNodeGraph::SyncToTypeAsset()
@@ -198,6 +304,102 @@ void UComposableCameraNodeGraph::SyncToTypeAsset()
 	SyncPhase_RebuildComputeNodePinOverrides(ComputeGraphNodes);
 
 	OwningTypeAsset->MarkPackageDirty();
+
+	// Post-sync validation drives the inline warning / error badges rendered
+	// by SComposableCameraGraphNode::OnPaint. Build() is silent in this path
+	// (bLogResult = false) — spamming the log on every keystroke isn't useful
+	// and the badges themselves are the ambient status indicator. The Build
+	// Messages tab repopulates on the same BuildMessages array, but it only
+	// refreshes its widget on explicit OnBuild() / SaveAsset_Execute, so
+	// running the tail validation here does not overwrite a user-visible
+	// tab with stale-looking data.
+	OwningTypeAsset->Build(/* bLogResult = */ false);
+	ApplyBuildMessagesToGraphNodes();
+}
+
+void UComposableCameraNodeGraph::ApplyBuildMessagesToGraphNodes()
+{
+	if (!OwningTypeAsset)
+	{
+		return;
+	}
+
+	// Collect every camera graph node once so we can both clear existing error
+	// state and look up by NodeIndex without repeated scans of Nodes[]. Only
+	// camera-chain graph nodes are indexed by `NodeIndex` into
+	// OwningTypeAsset->NodeTemplates — variable and sentinel graph nodes are
+	// not addressed by BuildMessages in v1 and keep their error fields as-is
+	// (which is empty from the clear pass below for any node we do touch).
+	TMap<int32, UComposableCameraNodeGraphNode*> IndexToCameraNode;
+	IndexToCameraNode.Reserve(Nodes.Num());
+
+	for (UEdGraphNode* EdNode : Nodes)
+	{
+		if (!EdNode)
+		{
+			continue;
+		}
+		// Clear every node unconditionally so stale errors from a previous
+		// validation don't linger after the user fixes the underlying issue.
+		EdNode->bHasCompilerMessage = false;
+		EdNode->ErrorType = EMessageSeverity::Info;
+		EdNode->ErrorMsg.Reset();
+
+		if (UComposableCameraNodeGraphNode* CameraNode = Cast<UComposableCameraNodeGraphNode>(EdNode))
+		{
+			if (CameraNode->NodeIndex != INDEX_NONE)
+			{
+				IndexToCameraNode.Add(CameraNode->NodeIndex, CameraNode);
+			}
+		}
+	}
+
+	// Walk BuildMessages and deposit each into the corresponding graph node's
+	// error fields. We aggregate by node: highest severity wins for the icon,
+	// all messages concatenate (newline-separated) for the tooltip / Details.
+	//
+	// Severity mapping between FComposableCameraBuildMessage::Severity (0/1/2)
+	// and EMessageSeverity (0=CriticalError / 1=Error / 2=PerformanceWarning /
+	// 3=Warning / 4=Info) picks the UE severity that matches UE's own Blueprint
+	// compiler output: 2 → Error (EMessageSeverity::Error), 1 → Warning, 0 →
+	// Info. "Highest" here means the numerically lowest EMessageSeverity (UE's
+	// enum is ordered severity-descending).
+	for (const FComposableCameraBuildMessage& Msg : OwningTypeAsset->BuildMessages)
+	{
+		if (Msg.NodeIndex == INDEX_NONE)
+		{
+			// Asset-level — stays in the Build Messages tab only.
+			continue;
+		}
+
+		UComposableCameraNodeGraphNode** Found = IndexToCameraNode.Find(Msg.NodeIndex);
+		if (!Found || !*Found)
+		{
+			continue;
+		}
+
+		UComposableCameraNodeGraphNode* Target = *Found;
+		const int32 MappedSeverity = (Msg.Severity >= 2)
+			? EMessageSeverity::Error
+			: (Msg.Severity == 1 ? EMessageSeverity::Warning : EMessageSeverity::Info);
+
+		// UE's EMessageSeverity is ordered with Error < Warning < Info, so the
+		// strictest-so-far message on this node is the one with the smallest
+		// integer value. The first time we touch the node we adopt its mapped
+		// severity verbatim; subsequent messages only escalate, never downgrade.
+		const bool bFirstMessageOnTarget = !Target->bHasCompilerMessage;
+		if (bFirstMessageOnTarget || MappedSeverity < Target->ErrorType)
+		{
+			Target->ErrorType = MappedSeverity;
+		}
+		Target->bHasCompilerMessage = true;
+
+		if (!Target->ErrorMsg.IsEmpty())
+		{
+			Target->ErrorMsg += TEXT("\n");
+		}
+		Target->ErrorMsg += Msg.Message.ToString();
+	}
 }
 
 // =============================================================================
@@ -512,26 +714,17 @@ void UComposableCameraNodeGraph::SyncPhase_RebuildExecutionChain(
 	OwningTypeAsset->ExecutionOrder.Empty();
 	OwningTypeAsset->FullExecChain.Empty();
 
-	// Helper: resolve a variable GUID to its name and slot size from the
-	// owning type asset's variable arrays (InternalVariables ∪ ExposedVariables).
-	auto ResolveVariable = [this](const FGuid& Guid, FName& OutName, int32& OutSlotSize)
+	// Build the GUID → (name, slot-size) lookup once so each SetVariable exec
+	// entry in the walk below becomes an O(1) map probe instead of the old
+	// O(N_vars) linear scan.
+	TMap<FGuid, FVariableLookupInfo> VariableLookup;
+	BuildVariableLookup(VariableLookup);
+	auto ResolveVariable = [&VariableLookup](const FGuid& Guid, FName& OutName, int32& OutSlotSize)
 	{
-		auto SearchArray = [&](const TArray<FComposableCameraInternalVariable>& Array) -> bool
+		if (const FVariableLookupInfo* Info = VariableLookup.Find(Guid))
 		{
-			for (const FComposableCameraInternalVariable& Var : Array)
-			{
-				if (Var.VariableGuid == Guid)
-				{
-					OutName = Var.VariableName;
-					OutSlotSize = GetPinTypeSize(Var.VariableType, Var.StructType);
-					return true;
-				}
-			}
-			return false;
-		};
-		if (!SearchArray(OwningTypeAsset->InternalVariables))
-		{
-			SearchArray(OwningTypeAsset->ExposedVariables);
+			OutName = Info->Name;
+			OutSlotSize = Info->SlotSize;
 		}
 	};
 
@@ -666,26 +859,16 @@ void UComposableCameraNodeGraph::SyncPhase_RebuildComputeExecutionChain(
 		return;
 	}
 
-	// Helper: resolve a variable GUID to its name and slot size from the
-	// owning type asset's variable arrays (InternalVariables ∪ ExposedVariables).
-	auto ResolveVariable = [this](const FGuid& Guid, FName& OutName, int32& OutSlotSize)
+	// Shared lookup with the camera exec-chain phase — see that phase for the
+	// rationale (O(1) GUID probe instead of linear scan per Set entry).
+	TMap<FGuid, FVariableLookupInfo> VariableLookup;
+	BuildVariableLookup(VariableLookup);
+	auto ResolveVariable = [&VariableLookup](const FGuid& Guid, FName& OutName, int32& OutSlotSize)
 	{
-		auto SearchArray = [&](const TArray<FComposableCameraInternalVariable>& Array) -> bool
+		if (const FVariableLookupInfo* Info = VariableLookup.Find(Guid))
 		{
-			for (const FComposableCameraInternalVariable& Var : Array)
-			{
-				if (Var.VariableGuid == Guid)
-				{
-					OutName = Var.VariableName;
-					OutSlotSize = GetPinTypeSize(Var.VariableType, Var.StructType);
-					return true;
-				}
-			}
-			return false;
-		};
-		if (!SearchArray(OwningTypeAsset->InternalVariables))
-		{
-			SearchArray(OwningTypeAsset->ExposedVariables);
+			OutName = Info->Name;
+			OutSlotSize = Info->SlotSize;
 		}
 	};
 

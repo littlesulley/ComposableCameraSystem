@@ -64,4 +64,15 @@ private:
 		const FSlateRect& MyCullingRect,
 		FSlateWindowElementList& OutDrawElements,
 		int32 LayerId) const;
+
+	/** Paint a small warning / error icon at the top-right of the node header
+	 *  when the backing GraphNode has a non-empty `ErrorMsg`. Driven by the
+	 *  build messages pushed onto GraphNode via
+	 *  `UComposableCameraNodeGraph::ApplyBuildMessagesToGraphNodes`. Reads the
+	 *  fields fresh every frame, so fixing a validation issue removes the
+	 *  badge on the next `SyncToTypeAsset`. */
+	void PaintValidationBadge(
+		const FGeometry& AllottedGeometry,
+		FSlateWindowElementList& OutDrawElements,
+		int32 LayerId) const;
 };

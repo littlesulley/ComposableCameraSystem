@@ -926,7 +926,7 @@ void UComposableCameraTypeAsset::ApplyDelegateBindings(
 }
 
 #if WITH_EDITOR
-void UComposableCameraTypeAsset::Build()
+void UComposableCameraTypeAsset::Build(bool bLogResult)
 {
 	BuildMessages.Reset();
 	BuildStatus = EComposableCameraBuildStatus::Success;
@@ -1222,6 +1222,35 @@ void UComposableCameraTypeAsset::Build()
 						BuildMessages.Add(Msg);
 						BuildStatus = EComposableCameraBuildStatus::Failed;
 					}
+					else if (Pin.bRequired && (bHasDefaultValue || bHasPropertyDefault))
+					{
+						// Required pin with a static fallback (declaration
+						// DefaultValueString or same-named EditAnywhere
+						// UPROPERTY), but no wire / exposure / variable-get /
+						// per-instance default override. The asset still runs
+						// — the runtime resolves the pin from whichever
+						// fallback is present — but the author declared
+						// `bRequired = true` to signal "this value matters",
+						// and relying on an implicit fallback usually means
+						// the author *intended* to supply a value and just
+						// forgot. A warning gives the inline badge path
+						// something to surface without blocking saves the
+						// way an Error would.
+						FComposableCameraBuildMessage Msg;
+						Msg.Severity = 1;
+						Msg.Message = FText::Format(
+							FText::FromString(TEXT("Required input pin '{0}' on node {1} ({2}) has no connection, exposure, or per-instance override. It will use the pin declaration's default or the node's same-named UPROPERTY. Wire it, expose it as a parameter, or set a default override to make the intent explicit.")),
+							FText::FromString(Pin.PinName.ToString()),
+							FText::AsNumber(NodeIdx),
+							FText::FromString(Node->GetClass()->GetDisplayNameText().ToString()));
+						Msg.NodeIndex = NodeIdx;
+						Msg.PinName = Pin.PinName;
+						BuildMessages.Add(Msg);
+						if (BuildStatus == EComposableCameraBuildStatus::Success)
+						{
+							BuildStatus = EComposableCameraBuildStatus::SuccessWithWarnings;
+						}
+					}
 					else if (!Pin.bRequired && !bHasDefaultValue && !bHasPropertyDefault)
 					{
 						FComposableCameraBuildMessage Msg;
@@ -1244,11 +1273,14 @@ void UComposableCameraTypeAsset::Build()
 		}
 	}
 
-	UE_LOG(LogComposableCameraSystem, Log, TEXT("Build complete for '%s': %s (%d messages)."),
-		*GetName(),
-		BuildStatus == EComposableCameraBuildStatus::Success ? TEXT("Success") :
-		BuildStatus == EComposableCameraBuildStatus::SuccessWithWarnings ? TEXT("Warnings") : TEXT("Failed"),
-		BuildMessages.Num());
+	if (bLogResult)
+	{
+		UE_LOG(LogComposableCameraSystem, Log, TEXT("Build complete for '%s': %s (%d messages)."),
+			*GetName(),
+			BuildStatus == EComposableCameraBuildStatus::Success ? TEXT("Success") :
+			BuildStatus == EComposableCameraBuildStatus::SuccessWithWarnings ? TEXT("Warnings") : TEXT("Failed"),
+			BuildMessages.Num());
+	}
 }
 
 void UComposableCameraTypeAsset::EnsureInternalVariableGuids()

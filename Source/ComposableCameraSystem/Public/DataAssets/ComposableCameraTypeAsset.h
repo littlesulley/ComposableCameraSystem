@@ -615,8 +615,14 @@ public:
 	/**
 	 * Validate the asset. Checks for unwired required pins, type mismatches,
 	 * duplicate names, etc. Populates BuildStatus and BuildMessages.
+	 *
+	 * @param bLogResult When true (default), prints a one-line summary to
+	 *        `LogComposableCameraSystem` after validation. The editor toolkit's
+	 *        graph-sync path passes `false` so continuous editing doesn't spam
+	 *        the log — the per-node error badges driven by the same
+	 *        BuildMessages serve as the ambient status indicator instead.
 	 */
-	void Build();
+	void Build(bool bLogResult = true);
 
 	/** Ensure every internal variable has a valid VariableGuid, generating
 	 *  one for any legacy entry whose GUID is invalid. Safe to call multiple

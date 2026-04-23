@@ -2,6 +2,7 @@
 
 #include "Customizations/ComposableCameraNodeGraphNodeDetails.h"
 
+#include "Editors/ComposableCameraNodeGraph.h"
 #include "Editors/ComposableCameraNodeGraphNode.h"
 #include "Nodes/ComposableCameraCameraNodeBase.h"
 #include "Nodes/ComposableCameraNodePinTypes.h"
@@ -258,13 +259,24 @@ void FComposableCameraNodeGraphNodeDetails::CustomizeDetails(IDetailLayoutBuilde
 					// (and therefore the compound pins) change entirely. Reconstruct
 					// the graph node's pins first so the new declarations are in
 					// place, then refresh the Details panel to show the new children.
+					//
+					// FComposableCameraDetailsRebuildScope coalesces the sync cascade
+					// that ForceRefreshDetails triggers when it re-fires child
+					// property-change lambdas. See the struct comment in
+					// ComposableCameraNodeGraph.h for the full explanation.
 					Handle->SetOnPropertyValueChanged(
 						FSimpleDelegate::CreateLambda([this, &DetailBuilder]()
 						{
-							if (UComposableCameraNodeGraphNode* GN = GetGraphNode())
+							UComposableCameraNodeGraphNode* GN = GetGraphNode();
+							UComposableCameraNodeGraph* OwningGraph = GN
+								? Cast<UComposableCameraNodeGraph>(GN->GetGraph())
+								: nullptr;
+							FComposableCameraDetailsRebuildScope Scope(OwningGraph);
+
+							if (GN)
 							{
 								GN->ReconstructPins();
-								if (UEdGraph* OwningGraph = GN->GetGraph())
+								if (OwningGraph)
 								{
 									OwningGraph->NotifyGraphChanged();
 								}
@@ -429,13 +441,23 @@ void FComposableCameraNodeGraphNodeDetails::CustomizeDetails(IDetailLayoutBuilde
 		{
 			if (bIsInstancedRef)
 			{
+				// See the compound-pin class picker site above for why this lambda
+				// uses FComposableCameraDetailsRebuildScope: ForceRefreshDetails
+				// re-fires child lambdas that would otherwise each run a full
+				// SyncToTypeAsset.
 				Handle->SetOnPropertyValueChanged(
 					FSimpleDelegate::CreateLambda([this, &DetailBuilder]()
 					{
-						if (UComposableCameraNodeGraphNode* GN = GetGraphNode())
+						UComposableCameraNodeGraphNode* GN = GetGraphNode();
+						UComposableCameraNodeGraph* OwningGraph = GN
+							? Cast<UComposableCameraNodeGraph>(GN->GetGraph())
+							: nullptr;
+						FComposableCameraDetailsRebuildScope Scope(OwningGraph);
+
+						if (GN)
 						{
 							GN->ReconstructPins();
-							if (UEdGraph* OwningGraph = GN->GetGraph())
+							if (OwningGraph)
 							{
 								OwningGraph->NotifyGraphChanged();
 							}
@@ -682,16 +704,21 @@ void FComposableCameraNodeGraphNodeDetails::OnAsPinCheckChanged(ECheckBoxState N
 
 	const bool bNewAsPin = (NewState == ECheckBoxState::Checked);
 
+	UComposableCameraNodeGraph* OwningGraph =
+		Cast<UComposableCameraNodeGraph>(GraphNode->GetGraph());
+	FComposableCameraDetailsRebuildScope Scope(OwningGraph);
+
 	{
 		FScopedTransaction Transaction(LOCTEXT("ToggleAsPin", "Toggle Pin Visibility"));
 		GraphNode->SetPinAsPin(PinName, bNewAsPin);
 		GraphNode->ReconstructPins();
 	}
 
-	if (UEdGraph* OwningGraph = GraphNode->GetGraph())
+	if (OwningGraph)
 	{
 		OwningGraph->NotifyGraphChanged();
 	}
+	// ~Scope runs the coalesced SyncToTypeAsset here.
 }
 
 EVisibility FComposableCameraNodeGraphNodeDetails::GetExposedChipVisibility(FName PinName) const
@@ -735,15 +762,20 @@ void FComposableCameraNodeGraphNodeDetails::OnPinDefaultValueCommitted(
 		return;
 	}
 
+	UComposableCameraNodeGraph* OwningGraph =
+		Cast<UComposableCameraNodeGraph>(GraphNode->GetGraph());
+	FComposableCameraDetailsRebuildScope Scope(OwningGraph);
+
 	{
 		FScopedTransaction Transaction(LOCTEXT("EditPinDefault", "Edit Pin Default Value"));
 		GraphNode->SetPinDefaultOverride(PinName, NewText.ToString());
 	}
 
-	if (UEdGraph* OwningGraph = GraphNode->GetGraph())
+	if (OwningGraph)
 	{
 		OwningGraph->NotifyGraphChanged();
 	}
+	// ~Scope runs the coalesced SyncToTypeAsset here.
 }
 
 #undef LOCTEXT_NAMESPACE

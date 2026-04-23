@@ -608,11 +608,24 @@ void FComposableCameraTypeAssetEditorToolkit::OnGraphNodeDoubleClicked(UEdGraphN
 
 void FComposableCameraTypeAssetEditorToolkit::OnGraphChanged(const FEdGraphEditAction& Action)
 {
-	// Sync graph state back to the type asset whenever the graph changes.
-	if (NodeGraph)
+	if (!NodeGraph)
 	{
-		NodeGraph->SyncToTypeAsset();
+		return;
 	}
+
+	// If a Details-rebuild scope is active, coalesce: the outermost scope's
+	// destructor will run SyncToTypeAsset once. Without this, a single user
+	// edit on a compound pin can trigger 3-4 full 12-phase syncs per edit
+	// (one from the outer SetOnPropertyValueChanged lambda, then one per
+	// child lambda re-fired by DetailBuilder.ForceRefreshDetails). See
+	// FComposableCameraDetailsRebuildScope in ComposableCameraNodeGraph.h.
+	if (NodeGraph->DetailsRebuildScopeDepth > 0)
+	{
+		NodeGraph->bPendingSyncDuringDetailsRebuild = true;
+		return;
+	}
+
+	NodeGraph->SyncToTypeAsset();
 }
 
 void FComposableCameraTypeAssetEditorToolkit::OnTypeAssetPropertyChanged(
@@ -920,13 +933,26 @@ void FComposableCameraTypeAssetEditorToolkit::OnBuild()
 #if WITH_EDITOR
 	if (TypeAsset)
 	{
-		// Sync the latest graph state before building.
+		// Sync the latest graph state before building. SyncToTypeAsset also
+		// runs a silent Build(false) at its tail to drive the inline node
+		// badges; we still re-run Build(true) here so the toolbar Build click
+		// prints the summary log the user expects to see.
 		if (NodeGraph)
 		{
 			NodeGraph->SyncToTypeAsset();
 		}
 
 		TypeAsset->Build();
+
+		// Re-push the now-definitive BuildMessages onto the graph nodes. In
+		// the common case this is idempotent (Build produced the same
+		// messages as the silent pass inside Sync), but keeping the call
+		// here insulates the badges from any future divergence between the
+		// two Build invocations.
+		if (NodeGraph)
+		{
+			NodeGraph->ApplyBuildMessagesToGraphNodes();
+		}
 
 		// Refresh the build messages tab. Exposed parameters, internal
 		// variables, and the default transition now live in the main Details

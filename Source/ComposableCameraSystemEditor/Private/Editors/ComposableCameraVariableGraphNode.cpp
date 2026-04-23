@@ -2,6 +2,7 @@
 
 #include "Editors/ComposableCameraVariableGraphNode.h"
 #include "ComposableCameraEdGraphPinTypeUtils.h"
+#include "ComposableCameraEditorStyle.h"
 #include "DataAssets/ComposableCameraTypeAsset.h"
 #include "Editors/ComposableCameraNodeGraph.h"
 #include "Nodes/ComposableCameraNodePinTypes.h"
@@ -96,7 +97,8 @@ FText UComposableCameraVariableGraphNode::GetNodeTitle(ENodeTitleType::Type Titl
 FLinearColor UComposableCameraVariableGraphNode::GetNodeTitleColor() const
 {
 	// Purple — distinct from camera nodes (teal) and Start/Output sentinels.
-	return FLinearColor(0.45f, 0.25f, 0.6f);
+	// Palette lives in FComposableCameraEditorColors (ComposableCameraEditorStyle.h).
+	return FComposableCameraEditorColors::VariableNodeTitle;
 }
 
 FText UComposableCameraVariableGraphNode::GetTooltipText() const
@@ -535,7 +537,11 @@ void UComposableCameraVariableGraphNode::HandleVariableTypeConflictIfAny()
 			SNew(SVerticalBox)
 
 			+ SVerticalBox::Slot()
-			.Padding(16.f, 16.f, 16.f, 12.f)
+			.Padding(
+				FComposableCameraEditorPaddings::DialogLR,
+				FComposableCameraEditorPaddings::DialogTB,
+				FComposableCameraEditorPaddings::DialogLR,
+				FComposableCameraEditorPaddings::DialogBetweenRowsTB)
 			.AutoHeight()
 			[
 				SNew(STextBlock)
@@ -545,7 +551,11 @@ void UComposableCameraVariableGraphNode::HandleVariableTypeConflictIfAny()
 			]
 
 			+ SVerticalBox::Slot()
-			.Padding(16.f, 0.f, 16.f, 16.f)
+			.Padding(
+				FComposableCameraEditorPaddings::DialogLR,
+				0.f,
+				FComposableCameraEditorPaddings::DialogLR,
+				FComposableCameraEditorPaddings::DialogTB)
 			.AutoHeight()
 			.HAlign(HAlign_Right)
 			[
@@ -553,7 +563,7 @@ void UComposableCameraVariableGraphNode::HandleVariableTypeConflictIfAny()
 
 				+ SHorizontalBox::Slot()
 				.AutoWidth()
-				.Padding(0.f, 0.f, 4.f, 0.f)
+				.Padding(0.f, 0.f, FComposableCameraEditorPaddings::InnerGap, 0.f)
 				[
 					SNew(SButton)
 					.Text(FText::Format(
@@ -568,7 +578,7 @@ void UComposableCameraVariableGraphNode::HandleVariableTypeConflictIfAny()
 
 				+ SHorizontalBox::Slot()
 				.AutoWidth()
-				.Padding(4.f, 0.f)
+				.Padding(FComposableCameraEditorPaddings::InnerGap, 0.f)
 				[
 					SNew(SButton)
 					.Text(FText::Format(
@@ -583,7 +593,7 @@ void UComposableCameraVariableGraphNode::HandleVariableTypeConflictIfAny()
 
 				+ SHorizontalBox::Slot()
 				.AutoWidth()
-				.Padding(4.f, 0.f, 0.f, 0.f)
+				.Padding(FComposableCameraEditorPaddings::InnerGap, 0.f, 0.f, 0.f)
 				[
 					SNew(SButton)
 					.Text(FText::Format(

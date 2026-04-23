@@ -12,6 +12,35 @@
 
 TSharedPtr<FComposableCameraEditorStyle> FComposableCameraEditorStyle::Singleton;
 
+// ─── FComposableCameraEditorColors ───────────────────────────────────────────
+//
+// The literals below are the same values that used to live inline in the
+// schema's GetPinTypeColor switch and on each sentinel / variable / regular
+// node's GetNodeTitleColor override. Keeping all of them in one place makes
+// the palette inspectable at a glance and gives design-doc readers one
+// symbol to reference per color.
+
+const FLinearColor FComposableCameraEditorColors::PinExec              = FLinearColor::White;
+const FLinearColor FComposableCameraEditorColors::PinBool              = FLinearColor(0.9f, 0.0f, 0.0f, 1.0f);
+const FLinearColor FComposableCameraEditorColors::PinInt               = FLinearColor(0.0f, 0.8f, 0.6f, 1.0f);
+const FLinearColor FComposableCameraEditorColors::PinFloat             = FLinearColor(0.35f, 0.85f, 0.0f, 1.0f);
+const FLinearColor FComposableCameraEditorColors::PinVector            = FLinearColor(1.0f, 0.85f, 0.0f, 1.0f);
+const FLinearColor FComposableCameraEditorColors::PinRotator           = FLinearColor(0.5f, 0.5f, 1.0f, 1.0f);
+const FLinearColor FComposableCameraEditorColors::PinTransform         = FLinearColor(1.0f, 0.5f, 0.0f, 1.0f);
+const FLinearColor FComposableCameraEditorColors::PinStructGeneric     = FLinearColor(0.0f, 0.6f, 0.9f, 1.0f);
+const FLinearColor FComposableCameraEditorColors::PinObject            = FLinearColor(0.0f, 0.4f, 0.9f, 1.0f);
+const FLinearColor FComposableCameraEditorColors::PinName              = FLinearColor(1.0f, 0.7529f, 0.7960f, 1.0f);
+const FLinearColor FComposableCameraEditorColors::PinByteEnum          = FLinearColor(0.0f, 0.7490f, 1.0f, 1.0f);
+const FLinearColor FComposableCameraEditorColors::PinDelegate          = FLinearColor(1.0f, 0.0f, 0.0f, 1.0f);
+const FLinearColor FComposableCameraEditorColors::PinDefault           = FLinearColor::White;
+
+const FLinearColor FComposableCameraEditorColors::CameraNodeTitle       = FLinearColor(FColor(20, 150, 140));
+const FLinearColor FComposableCameraEditorColors::ComputeNodeTitle      = FLinearColor(0.75f, 0.5f, 0.15f);
+const FLinearColor FComposableCameraEditorColors::VariableNodeTitle     = FLinearColor(0.45f, 0.25f, 0.6f);
+const FLinearColor FComposableCameraEditorColors::StartNodeTitle        = FLinearColor(0.1f, 0.6f, 0.1f);
+const FLinearColor FComposableCameraEditorColors::OutputNodeTitle       = FLinearColor(0.7f, 0.1f, 0.1f);
+const FLinearColor FComposableCameraEditorColors::BeginPlayStartNodeTitle = FLinearColor(0.85f, 0.55f, 0.1f);
+
 FComposableCameraEditorStyle::FComposableCameraEditorStyle()
 	: FSlateStyleSet("ComposableCameraEditorStyle")
 {

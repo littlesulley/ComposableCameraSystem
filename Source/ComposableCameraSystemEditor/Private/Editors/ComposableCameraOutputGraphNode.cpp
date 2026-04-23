@@ -1,6 +1,7 @@
 // Copyright Sulley. All rights reserved.
 
 #include "Editors/ComposableCameraOutputGraphNode.h"
+#include "ComposableCameraEditorStyle.h"
 
 #define LOCTEXT_NAMESPACE "ComposableCameraOutputGraphNode"
 
@@ -18,8 +19,9 @@ FText UComposableCameraOutputGraphNode::GetNodeTitle(ENodeTitleType::Type TitleT
 
 FLinearColor UComposableCameraOutputGraphNode::GetNodeTitleColor() const
 {
-	// Red to indicate the terminal point.
-	return FLinearColor(0.7f, 0.1f, 0.1f);
+	// Red to indicate the terminal point. Palette lives in
+	// FComposableCameraEditorColors (ComposableCameraEditorStyle.h).
+	return FComposableCameraEditorColors::OutputNodeTitle;
 }
 
 FText UComposableCameraOutputGraphNode::GetTooltipText() const

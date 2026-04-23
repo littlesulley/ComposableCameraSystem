@@ -1,6 +1,7 @@
 // Copyright Sulley. All rights reserved.
 
 #include "Editors/ComposableCameraNodeGraphSchema.h"
+#include "ComposableCameraEditorStyle.h"
 #include "Editors/ComposableCameraConnectionDrawingPolicy.h"
 #include "Editors/ComposableCameraNodeGraph.h"
 #include "Editors/ComposableCameraNodeGraphNode.h"
@@ -725,66 +726,66 @@ void UComposableCameraNodeGraphSchema::BuildNodeContextMenuActions(
 FLinearColor UComposableCameraNodeGraphSchema::GetPinTypeColor(
 	const FEdGraphPinType& PinType) const
 {
-	// Execution pins: white like Blueprint exec pins.
+	// The palette itself lives in `FComposableCameraEditorColors` — see
+	// ComposableCameraEditorStyle.h for the full table and the rationale
+	// for keeping pin colors centralised.
+
 	if (PinType.PinCategory == UEdGraphSchema_K2::PC_Exec)
 	{
-		return FLinearColor::White;
+		return FComposableCameraEditorColors::PinExec;
 	}
-
-	// Match Blueprint-style colors for familiar types.
 	if (PinType.PinCategory == UEdGraphSchema_K2::PC_Boolean)
 	{
-		return FLinearColor(0.9f, 0.0f, 0.0f, 1.0f); // Red for bool
+		return FComposableCameraEditorColors::PinBool;
 	}
 	if (PinType.PinCategory == UEdGraphSchema_K2::PC_Int)
 	{
-		return FLinearColor(0.0f, 0.8f, 0.6f, 1.0f); // Teal for int
+		return FComposableCameraEditorColors::PinInt;
 	}
 	if (PinType.PinCategory == UEdGraphSchema_K2::PC_Real)
 	{
-		return FLinearColor(0.35f, 0.85f, 0.0f, 1.0f); // Green for float/double
+		return FComposableCameraEditorColors::PinFloat;
 	}
 	if (PinType.PinCategory == UEdGraphSchema_K2::PC_Struct)
 	{
-		// Struct pins: specific colors for common math types.
 		if (PinType.PinSubCategoryObject == TBaseStructure<FVector>::Get()
 			|| PinType.PinSubCategoryObject == TBaseStructure<FVector2D>::Get()
 			|| PinType.PinSubCategoryObject == TBaseStructure<FVector4>::Get())
 		{
-			return FLinearColor(1.0f, 0.85f, 0.0f, 1.0f); // Gold for vectors
+			return FComposableCameraEditorColors::PinVector;
 		}
 		if (PinType.PinSubCategoryObject == TBaseStructure<FRotator>::Get())
 		{
-			return FLinearColor(0.5f, 0.5f, 1.0f, 1.0f); // Blue-purple for rotator
+			return FComposableCameraEditorColors::PinRotator;
 		}
 		if (PinType.PinSubCategoryObject == TBaseStructure<FTransform>::Get())
 		{
-			return FLinearColor(1.0f, 0.5f, 0.0f, 1.0f); // Orange for transform
+			return FComposableCameraEditorColors::PinTransform;
 		}
-		return FLinearColor(0.0f, 0.6f, 0.9f, 1.0f); // Blue for generic struct
+		return FComposableCameraEditorColors::PinStructGeneric;
 	}
 	if (PinType.PinCategory == UEdGraphSchema_K2::PC_Object)
 	{
-		return FLinearColor(0.0f, 0.4f, 0.9f, 1.0f); // Blue for object/actor
+		return FComposableCameraEditorColors::PinObject;
 	}
 	if (PinType.PinCategory == UEdGraphSchema_K2::PC_Name)
 	{
-		return FLinearColor(1.0f, 0.7529f, 0.7960f, 1.0f); // Pink (#FFC0CB) for FName — per EditorDesignDoc spec
+		return FComposableCameraEditorColors::PinName;
 	}
 	if (PinType.PinCategory == UEdGraphSchema_K2::PC_Byte)
 	{
 		// Enums are PC_Byte with a UEnum sub-category object (see
 		// ComposableCameraEdGraphPinTypeUtils::MakeEdGraphPinTypeFromCameraPinType).
-		// Plain (non-enum) byte pins also land here — visually distinct from every
-		// other category in the schema, so the shared color is fine.
-		return FLinearColor(0.0f, 0.7490f, 1.0f, 1.0f); // Bright cyan (#00BFFF) for enum / byte — per EditorDesignDoc spec
+		// Plain (non-enum) byte pins also land here — visually distinct from
+		// every other category in the schema, so the shared color is fine.
+		return FComposableCameraEditorColors::PinByteEnum;
 	}
 	if (PinType.PinCategory == UEdGraphSchema_K2::PC_Delegate)
 	{
-		return FLinearColor(1.0f, 0.0f, 0.0f, 1.0f); // Red for delegate — distinct from bool's darker red (0.9)
+		return FComposableCameraEditorColors::PinDelegate;
 	}
 
-	return FLinearColor::White;
+	return FComposableCameraEditorColors::PinDefault;
 }
 
 // ─── Connection Drawing ───────────────────────────────────────────────────────

@@ -9,6 +9,7 @@
 #include "Widgets/Text/STextBlock.h"
 #include "Styling/AppStyle.h"
 #include "Fonts/FontMeasure.h"
+#include "Logging/TokenizedMessage.h"
 
 #define LOCTEXT_NAMESPACE "SComposableCameraGraphNode"
 
@@ -47,6 +48,14 @@ int32 SComposableCameraGraphNode::OnPaint(
 	if (IsDebugActive())
 	{
 		PaintDebugFooter(AllottedGeometry, MyCullingRect, OutDrawElements, LayerId);
+	}
+
+	// Paint an inline warning / error badge if the backing GraphNode has a
+	// validation message. Reads the UEdGraphNode error fields fresh every
+	// frame, so fixing the issue removes the badge on the next sync.
+	if (CameraGraphNode && CameraGraphNode->bHasCompilerMessage)
+	{
+		PaintValidationBadge(AllottedGeometry, OutDrawElements, LayerId);
 	}
 
 	return LayerId;
@@ -151,6 +160,75 @@ void SComposableCameraGraphNode::PaintDebugFooter(
 			ESlateDrawEffect::None,
 			Lines[i].Value);
 	}
+}
+
+void SComposableCameraGraphNode::PaintValidationBadge(
+	const FGeometry& AllottedGeometry,
+	FSlateWindowElementList& OutDrawElements,
+	int32 LayerId) const
+{
+	if (!CameraGraphNode)
+	{
+		return;
+	}
+
+	// Severity -> brush + tint. ErrorType stores a raw EMessageSeverity
+	// integer; any value at or below Error (CriticalError also maps here) is
+	// treated as an error, Warning is its own tier, and anything else (Info /
+	// PerformanceWarning) uses the neutral info icon so authors still see
+	// that the node has something the Build Messages tab wants to tell them.
+	//
+	// The no-suffix `Icons.{Error,Warning,Info}` brushes are monochrome
+	// glyphs that always exist in every FAppStyle flavour we target; we tint
+	// them at draw time with `FSlateDrawElement::MakeBox`'s InTint so the
+	// badge colour tracks severity without depending on the `*WithColor`
+	// brush variants (which come and go across UE versions).
+	const FSlateBrush* BadgeBrush = nullptr;
+	FLinearColor BadgeTint = FLinearColor::White;
+	if (CameraGraphNode->ErrorType <= EMessageSeverity::Error)
+	{
+		BadgeBrush = FAppStyle::GetBrush("Icons.Error");
+		BadgeTint = FLinearColor(1.0f, 0.2f, 0.2f);
+	}
+	else if (CameraGraphNode->ErrorType == EMessageSeverity::Warning)
+	{
+		BadgeBrush = FAppStyle::GetBrush("Icons.Warning");
+		BadgeTint = FLinearColor(1.0f, 0.8f, 0.0f);
+	}
+	else
+	{
+		BadgeBrush = FAppStyle::GetBrush("Icons.Info");
+		BadgeTint = FLinearColor(0.4f, 0.7f, 1.0f);
+	}
+
+	if (!BadgeBrush)
+	{
+		return;
+	}
+
+	// Anchor the badge to the top-right of the node with a small inset so it
+	// overlaps the title bar border without spilling past the node's click
+	// area. The node's own width comes from AllottedGeometry; we size the
+	// badge in local space so SGraphPanel's zoom transform handles scaling
+	// automatically.
+	constexpr float BadgeSize = 16.0f;
+	constexpr float Inset = 2.0f;
+	const FVector2D NodeSize = AllottedGeometry.GetLocalSize();
+	const FVector2f BadgePos(
+		static_cast<float>(NodeSize.X) - BadgeSize - Inset,
+		Inset);
+
+	const FPaintGeometry BadgeGeometry = AllottedGeometry.ToPaintGeometry(
+		FVector2f(BadgeSize, BadgeSize),
+		FSlateLayoutTransform(BadgePos));
+
+	FSlateDrawElement::MakeBox(
+		OutDrawElements,
+		LayerId + 10, // above content, below any debug footer overlays
+		BadgeGeometry,
+		BadgeBrush,
+		ESlateDrawEffect::None,
+		BadgeTint);
 }
 
 #undef LOCTEXT_NAMESPACE

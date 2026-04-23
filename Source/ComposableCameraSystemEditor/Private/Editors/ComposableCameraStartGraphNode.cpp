@@ -1,6 +1,7 @@
 // Copyright Sulley. All rights reserved.
 
 #include "Editors/ComposableCameraStartGraphNode.h"
+#include "ComposableCameraEditorStyle.h"
 
 #define LOCTEXT_NAMESPACE "ComposableCameraStartGraphNode"
 
@@ -18,8 +19,9 @@ FText UComposableCameraStartGraphNode::GetNodeTitle(ENodeTitleType::Type TitleTy
 
 FLinearColor UComposableCameraStartGraphNode::GetNodeTitleColor() const
 {
-	// Green to indicate the entry point.
-	return FLinearColor(0.1f, 0.6f, 0.1f);
+	// Green to indicate the entry point. Palette lives in
+	// FComposableCameraEditorColors (ComposableCameraEditorStyle.h).
+	return FComposableCameraEditorColors::StartNodeTitle;
 }
 
 FText UComposableCameraStartGraphNode::GetTooltipText() const

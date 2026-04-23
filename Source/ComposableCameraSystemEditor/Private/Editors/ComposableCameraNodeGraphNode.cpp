@@ -6,6 +6,7 @@
 #include "Nodes/ComposableCameraNodePinTypes.h"
 #include "DataAssets/ComposableCameraTypeAsset.h"
 #include "ComposableCameraEdGraphPinTypeUtils.h"
+#include "ComposableCameraEditorStyle.h"
 #include "ComposableCameraSystemEditorModule.h"
 #include "EdGraph/EdGraphPin.h"
 #include "EdGraphSchema_K2.h"
@@ -72,12 +73,16 @@ void UComposableCameraNodeGraphNode::AllocateDefaultPins()
 			}
 		}
 
-		// Issue 1: Mark exposed input pins with a visual indicator.
+		// Issue 1: Mark exposed input pins with a visual indicator. Use the
+		// label already on NewPin (set in CreatePinFromDeclaration) rather
+		// than Decl.DisplayName, so the `*` suffix for required pins is
+		// preserved — e.g. `ArmLength* (Exposed)` rather than dropping back
+		// to `ArmLength (Exposed)`.
 		if (Decl.Direction == EComposableCameraPinDirection::Input
 			&& IsInputPinExposed(Decl.PinName))
 		{
 			NewPin->PinFriendlyName = FText::Format(
-				LOCTEXT("ExposedPinLabel", "{0} (Exposed)"), Decl.DisplayName);
+				LOCTEXT("ExposedPinLabel", "{0} (Exposed)"), NewPin->PinFriendlyName);
 		}
 	}
 
@@ -98,19 +103,21 @@ FText UComposableCameraNodeGraphNode::GetNodeTitle(ENodeTitleType::Type TitleTyp
 FLinearColor UComposableCameraNodeGraphNode::GetNodeTitleColor() const
 {
 	// Compute nodes use warm amber — same family as the BeginPlay Start
-	// sentinel (0.85, 0.55, 0.1) but slightly lighter to distinguish the
-	// sentinel from its payload nodes while keeping visual grouping clear.
+	// sentinel but slightly lighter to distinguish the sentinel from its
+	// payload nodes while keeping visual grouping clear. Regular camera
+	// nodes use teal to match the type asset color. Palette lives in
+	// FComposableCameraEditorColors (ComposableCameraEditorStyle.h).
 	if (NodeTemplate && NodeTemplate->IsA<UComposableCameraComputeNodeBase>())
 	{
-		return FLinearColor(0.75f, 0.5f, 0.15f);
+		return FComposableCameraEditorColors::ComputeNodeTitle;
 	}
-
-	// Regular camera nodes: teal to match the type asset color.
-	return FLinearColor(FColor(20, 150, 140));
+	return FComposableCameraEditorColors::CameraNodeTitle;
 }
 
 FText UComposableCameraNodeGraphNode::GetTooltipText() const
 {
+	FString Tooltip;
+
 	if (NodeTemplate)
 	{
 		const UClass* NodeClass = NodeTemplate->GetClass();
@@ -118,15 +125,25 @@ FText UComposableCameraNodeGraphNode::GetTooltipText() const
 		// Prefer the UCLASS(meta = (ToolTip = "...")) description when available.
 		// Falls back to the class DisplayName, then the raw class name.
 		const FString& ClassToolTip = NodeClass->GetMetaData(TEXT("ToolTip"));
-		if (!ClassToolTip.IsEmpty())
-		{
-			return FText::FromString(ClassToolTip);
-		}
-
-		// No ToolTip meta — fall back to DisplayName or class name.
-		return FText::FromString(NodeClass->GetDisplayNameText().ToString());
+		Tooltip = !ClassToolTip.IsEmpty()
+			? ClassToolTip
+			: NodeClass->GetDisplayNameText().ToString();
 	}
-	return FText::GetEmpty();
+
+	// When the post-sync validation pass has flagged this node, surface the
+	// accumulated messages in the tooltip so hovering the node (or its
+	// inline warning / error badge) reveals what's wrong. The badge itself
+	// is the visual cue; the tooltip carries the details.
+	if (bHasCompilerMessage && !ErrorMsg.IsEmpty())
+	{
+		if (!Tooltip.IsEmpty())
+		{
+			Tooltip += TEXT("\n\n");
+		}
+		Tooltip += ErrorMsg;
+	}
+
+	return Tooltip.IsEmpty() ? FText::GetEmpty() : FText::FromString(Tooltip);
 }
 
 void UComposableCameraNodeGraphNode::PrepareForCopying()
@@ -641,8 +658,29 @@ UEdGraphPin* UComposableCameraNodeGraphNode::CreatePinFromDeclaration(const FCom
 	UEdGraphPin* NewPin = CreatePin(Direction, PinType, Declaration.PinName);
 	if (NewPin)
 	{
-		NewPin->PinFriendlyName = Declaration.DisplayName;
-		NewPin->PinToolTip = Declaration.Tooltip.ToString();
+		// Required input pins get a trailing `*` on their display label and an
+		// explicit "(Required)" line appended to the tooltip so authors know
+		// — *before* they see a validation error — that the pin has to be
+		// satisfied somehow (wire, Expose-as-Parameter, or a default). Output
+		// and optional input pins render as-is. Exposed-pin decoration is
+		// applied on top of this in AllocateDefaultPins so the `*` survives
+		// the `(Exposed)` suffix rewrite.
+		const bool bIsRequiredInput =
+			(Direction == EGPD_Input) && Declaration.bRequired;
+		NewPin->PinFriendlyName = bIsRequiredInput
+			? FText::Format(LOCTEXT("RequiredPinLabel", "{0}*"), Declaration.DisplayName)
+			: Declaration.DisplayName;
+
+		FString TooltipText = Declaration.Tooltip.ToString();
+		if (bIsRequiredInput)
+		{
+			if (!TooltipText.IsEmpty())
+			{
+				TooltipText += TEXT("\n");
+			}
+			TooltipText += LOCTEXT("RequiredPinTooltipSuffix", "(Required)").ToString();
+		}
+		NewPin->PinToolTip = TooltipText;
 
 		if (!Declaration.DefaultValueString.IsEmpty() && Direction == EGPD_Input
 			&& Declaration.PinType != EComposableCameraPinType::Delegate)

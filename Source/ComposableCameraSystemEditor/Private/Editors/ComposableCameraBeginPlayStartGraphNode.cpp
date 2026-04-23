@@ -1,6 +1,7 @@
 // Copyright Sulley. All rights reserved.
 
 #include "Editors/ComposableCameraBeginPlayStartGraphNode.h"
+#include "ComposableCameraEditorStyle.h"
 
 #define LOCTEXT_NAMESPACE "ComposableCameraBeginPlayStartGraphNode"
 
@@ -23,8 +24,9 @@ FLinearColor UComposableCameraBeginPlayStartGraphNode::GetNodeTitleColor() const
 {
 	// Amber — visually distinct from the green main Start sentinel so the
 	// two execution chains read at a glance on the canvas without the user
-	// having to squint at titles.
-	return FLinearColor(0.85f, 0.55f, 0.1f);
+	// having to squint at titles. Palette lives in
+	// FComposableCameraEditorColors (ComposableCameraEditorStyle.h).
+	return FComposableCameraEditorColors::BeginPlayStartNodeTitle;
 }
 
 FText UComposableCameraBeginPlayStartGraphNode::GetTooltipText() const
