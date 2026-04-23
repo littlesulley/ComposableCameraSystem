@@ -271,6 +271,13 @@ public:
 	virtual void OnBeginPlay_Implementation(float DeltaTime, const FComposableCameraPose& CurrentSourcePose, const FComposableCameraPose& CurrentTargetPose) override;
 	virtual FComposableCameraPose OnEvaluate_Implementation(float DeltaTime, const FComposableCameraPose& CurrentSourcePose, const FComposableCameraPose& CurrentTargetPose) override;
 
+#if !UE_BUILD_SHIPPING
+	// Gated on `CCS.Debug.Viewport.Transitions.Inertialized`. Pure standard
+	// visualization — the inertialized path deviates substantially from
+	// the white lerp baseline, which is exactly the point of watching it.
+	virtual void DrawTransitionDebug(UWorld* World, bool bViewerIsOutsideCamera) const override;
+#endif
+
 public:
 	// Whether to use automatic transition time. If true, will compute the transition time according to MaxAcceleration, else, will use TransitionTime.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
@@ -297,4 +304,18 @@ private:
 	ComposableCameraInitializer<FVector, ComposableCameraIndependentPositionalInertializer> PositionalInertializer;
 
 	float GetActualBlendTime(float DeltaTime, const FComposableCameraPose& LastSourceCameraPose, const FComposableCameraPose& ThisSourceCameraPose, const FComposableCameraPose& CurrentTargetPose);
+
+#if !UE_BUILD_SHIPPING
+private:
+	// 33 polynomial offsets (t = 0/32, 1/32, ..., 32/32) precomputed at
+	// OnBeginPlay. They encode "position relative to target" — the real
+	// runtime formula is `Poly.Evaluate(blendDuration) + CurrentTarget`, so
+	// the offset alone is target-independent and therefore safe to cache
+	// once. DrawTransitionDebug adds `LastDebugTarget.Position` at draw
+	// time to produce the final path in world space.
+	//
+	// Caching offsets (not full positions) means a moving target pose
+	// during the transition is reflected correctly without re-sampling.
+	TArray<FVector> DebugPathOffsets;
+#endif
 };

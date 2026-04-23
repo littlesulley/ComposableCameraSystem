@@ -4,7 +4,25 @@
 
 #include "Core/ComposableCameraPlayerCameraManager.h"
 #include "Kismet/KismetMathLibrary.h"
-#include "Kismet/KismetSystemLibrary.h"
+
+#if !UE_BUILD_SHIPPING
+#include "Debug/ComposableCameraViewportDebug.h"
+#include "DrawDebugHelpers.h"
+#include "HAL/IConsoleManager.h"
+
+namespace
+{
+	// Per-node opt-in toggle. The master `CCS.Debug.Viewport` CVar gates whether
+	// *any* viewport debug draws at all; this CVar then controls whether this
+	// specific node contributes its gizmo. Default off — users opt in per node.
+	static TAutoConsoleVariable<int32> CVarShowPivotOffsetGizmo(
+		TEXT("CCS.Debug.Viewport.PivotOffset"),
+		0,
+		TEXT("Show PivotOffsetNode gizmo (yellow sphere at the post-offset pivot).\n")
+		TEXT("Requires `CCS.Debug.Viewport 1`. Works in both possessed play and F8 eject."),
+		ECVF_Default);
+}
+#endif
 
 void UComposableCameraPivotOffsetNode::OnInitialize_Implementation()
 {
@@ -63,13 +81,24 @@ void UComposableCameraPivotOffsetNode::UpdatePivotOffset(const FVector& InPivot,
 
 	SetOutputPinValue<FVector>("PivotPosition", Pivot);
 
-#if ENABLE_DRAW_DEBUG
-	if (OwningPlayerCameraManager && OwningPlayerCameraManager->bDrawDebugInformation)
-	{
-		UKismetSystemLibrary::DrawDebugSphere(this, Pivot, 20, 12, FLinearColor::Yellow, 0, 1);
-	}
+#if !UE_BUILD_SHIPPING
+	LastComputedPivot = Pivot;
 #endif
 }
+
+#if !UE_BUILD_SHIPPING
+void UComposableCameraPivotOffsetNode::DrawNodeDebug(UWorld* World, bool /*bViewerIsOutsideCamera*/) const
+{
+	if (!World) { return; }
+	if (CVarShowPivotOffsetGizmo.GetValueOnGameThread() == 0
+		&& !FComposableCameraViewportDebug::ShouldShowAllNodeGizmos()) { return; }
+	// Pivot is out at the character / world target — never sits on top of
+	// the camera, so the occlusion gate doesn't apply here.
+	FComposableCameraViewportDebug::DrawSolidDebugSphere(
+		World, LastComputedPivot, /*Radius=*/10.f, FColor::Yellow,
+		/*Alpha=*/100, /*Segments=*/12, /*DepthPriority=*/0);
+}
+#endif
 
 void UComposableCameraPivotOffsetNode::GetPinDeclarations_Implementation(
 	TArray<FComposableCameraNodePinDeclaration>& OutPins) const

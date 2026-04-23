@@ -4,7 +4,22 @@
 
 #include "Core/ComposableCameraPlayerCameraManager.h"
 #include "Kismet/KismetMathLibrary.h"
-#include "Kismet/KismetSystemLibrary.h"
+
+#if !UE_BUILD_SHIPPING
+#include "Debug/ComposableCameraViewportDebug.h"
+#include "DrawDebugHelpers.h"
+#include "HAL/IConsoleManager.h"
+
+namespace
+{
+	static TAutoConsoleVariable<int32> CVarShowPivotDampingGizmo(
+		TEXT("CCS.Debug.Viewport.PivotDamping"),
+		0,
+		TEXT("Show PivotDampingNode gizmo (green sphere at the damped pivot — lags behind raw pivot under motion).\n")
+		TEXT("Requires `CCS.Debug.Viewport 1`. Works in both possessed play and F8 eject."),
+		ECVF_Default);
+}
+#endif
 
 void UComposableCameraPivotDampingNode::OnInitialize_Implementation()
 {
@@ -122,14 +137,23 @@ void UComposableCameraPivotDampingNode::OnTickNode_Implementation(float DeltaTim
 	SetOutputPinValue<FVector>("PivotPosition", WorldSpaceDampedPivotPosition);
 
 	LastPivotPosition = WorldSpaceDampedPivotPosition;
-
-#if ENABLE_DRAW_DEBUG
-	if (OwningPlayerCameraManager && OwningPlayerCameraManager->bDrawDebugInformation)
-	{
-		UKismetSystemLibrary::DrawDebugSphere(this, WorldSpaceDampedPivotPosition, 20, 12, FLinearColor::Green, 0, 1);
-	}
-#endif
 }
+
+#if !UE_BUILD_SHIPPING
+void UComposableCameraPivotDampingNode::DrawNodeDebug(UWorld* World, bool /*bViewerIsOutsideCamera*/) const
+{
+	if (!World) { return; }
+	if (CVarShowPivotDampingGizmo.GetValueOnGameThread() == 0
+		&& !FComposableCameraViewportDebug::ShouldShowAllNodeGizmos()) { return; }
+	// Damped pivot sits at the same character / world target location as the
+	// raw pivot — not on the camera. Occlusion gate doesn't apply.
+	// Magenta to stay distinct from the green CollisionPush trace (same hue
+	// family would blur together when both nodes are enabled at once).
+	FComposableCameraViewportDebug::DrawSolidDebugSphere(
+		World, LastPivotPosition, /*Radius=*/10.f, FColor(255, 0, 255),
+		/*Alpha=*/100, /*Segments=*/12, /*DepthPriority=*/0);
+}
+#endif
 
 void UComposableCameraPivotDampingNode::GetPinDeclarations_Implementation(TArray<FComposableCameraNodePinDeclaration>& OutPins) const
 {

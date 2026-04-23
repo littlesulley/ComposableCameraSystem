@@ -10,6 +10,30 @@
 #include "Nodes/ComposableCameraSplineNode.h"
 #include "Utils/ComposableCameraBlueprintLibrary.h"
 
+#if !UE_BUILD_SHIPPING
+#include "Debug/ComposableCameraViewportDebug.h"
+#include "DrawDebugHelpers.h"
+#include "Engine/World.h"
+#include "HAL/IConsoleManager.h"
+#include "SceneManagement.h"   // SDPG_Foreground
+
+namespace
+{
+	static TAutoConsoleVariable<int32> CVarShowPathGuidedTransitionGizmo(
+		TEXT("CCS.Debug.Viewport.Transitions.PathGuided"),
+		0,
+		TEXT("Show PathGuidedTransition gizmo:\n")
+		TEXT("  - Standard source/target/progress triplet in coral accent.\n")
+		TEXT("  - The rail spline the camera travels along, sampled as a\n")
+		TEXT("    32-segment polyline. For Type=Inertialized this is the\n")
+		TEXT("    authored RailActor's spline; for Type=Auto it is the\n")
+		TEXT("    internally-generated spline that blends into / out of the\n")
+		TEXT("    rail at the source/target positions.\n")
+		TEXT("Requires `CCS.Debug.Viewport 1`. Gizmo disappears when the transition finishes."),
+		ECVF_Default);
+}
+#endif
+
 void UComposableCameraPathGuidedTransition::OnBeginPlay_Implementation(float DeltaTime,
                                                                        const FComposableCameraPose& CurrentSourcePose,
                                                                        const FComposableCameraPose& CurrentTargetPose)
@@ -163,16 +187,12 @@ FComposableCameraPose UComposableCameraPathGuidedTransition::OnEvaluate_Implemen
 		}
 	}
 
-#if ENABLE_DRAW_DEBUG
-	// Draw debug point — single DrawDebugPoint call, no intermediate TArray.
-	if (AComposableCameraPlayerCameraManager* PCM = UComposableCameraBlueprintLibrary::GetComposableCameraPlayerCameraManager(this, 0))
-	{
-		if (PCM->bDrawDebugInformation)
-		{
-			DrawDebugPoint(GetWorld(), ResultPose.Position, 8.f, FColor::Cyan, false, 2.f, 1.f);
-		}
-	}
-#endif
+	// Transition-level debug draws were previously gated on the legacy
+	// `PCM->bDrawDebugInformation` flag. That flag is removed as part of the
+	// unified `CCS.Debug.Viewport` framework; transition-specific gizmos can
+	// be re-added via a future `DrawTransitionDebug(UWorld*)` virtual on
+	// UComposableCameraTransitionBase, mirroring the per-node pattern on
+	// UComposableCameraCameraNodeBase.
 
 	return ResultPose;
 }
@@ -243,3 +263,71 @@ void UComposableCameraPathGuidedTransition::BuildInternalSpline(const FComposabl
 
 	InternalSpline->UpdateSpline();
 }
+
+float UComposableCameraPathGuidedTransition::GetBlendWeightAt(float NormalizedTime) const
+{
+	// Timing curve delegates to the inner driving transition since
+	// PathGuided only substitutes the spatial path. No driving transition
+	// set (authoring incomplete) → fall back to linear so the panel still
+	// renders something rather than a flat zero.
+	if (DrivingTransition)
+	{
+		return DrivingTransition->GetBlendWeightAt(NormalizedTime);
+	}
+	return FMath::Clamp(NormalizedTime, 0.f, 1.f);
+}
+
+#if !UE_BUILD_SHIPPING
+void UComposableCameraPathGuidedTransition::DrawTransitionDebug(UWorld* World, bool bViewerIsOutsideCamera) const
+{
+	if (!World) { return; }
+	if (CVarShowPathGuidedTransitionGizmo.GetValueOnGameThread() == 0
+		&& !FComposableCameraViewportDebug::ShouldShowAllTransitionGizmos()) { return; }
+
+	// Coral accent — warm but clearly distinct from Ease orange and
+	// DynamicDeocclusion red.
+	static const FColor AccentColor { 255, 130, 130 };
+
+	DrawStandardTransitionDebug(World, bViewerIsOutsideCamera, AccentColor);
+
+	// Pick whichever spline is actually driving motion this frame.
+	// Inertialized → IntermediateCamera's spline node owns the rail; we
+	// simply walk the RailActor's spline here, same effect.
+	// Auto        → InternalSpline, built at OnBeginPlay in world space.
+	const USplineComponent* SplineToDraw = nullptr;
+	if (Type == EComposableCameraPathGuidedTransitionType::Auto)
+	{
+		SplineToDraw = InternalSpline;
+	}
+	else if (Rail)
+	{
+		SplineToDraw = Rail->GetRailSplineComponent();
+	}
+
+	if (!SplineToDraw)
+	{
+		return;
+	}
+
+	// Sample the spline end-to-end in world space. 32 segments matches the
+	// Spline transition's resolution so the two look visually similar when
+	// both are enabled.
+	constexpr int32 NumSamples = 32;
+	const float SplineLength = SplineToDraw->GetSplineLength();
+	if (SplineLength <= 0.f)
+	{
+		return;
+	}
+
+	FVector PrevPoint = SplineToDraw->GetLocationAtDistanceAlongSpline(0.f, ESplineCoordinateSpace::World);
+	for (int32 i = 1; i <= NumSamples; ++i)
+	{
+		const float D = SplineLength * (static_cast<float>(i) / static_cast<float>(NumSamples));
+		const FVector NextPoint = SplineToDraw->GetLocationAtDistanceAlongSpline(D, ESplineCoordinateSpace::World);
+		DrawDebugLine(World, PrevPoint, NextPoint, AccentColor,
+			/*bPersistent=*/false, /*LifeTime=*/-1.f,
+			/*DepthPriority=*/SDPG_Foreground, /*Thickness=*/1.f);
+		PrevPoint = NextPoint;
+	}
+}
+#endif

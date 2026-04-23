@@ -352,20 +352,20 @@ void AComposableCameraPlayerCameraManager::DisplayDebug(class UCanvas* Canvas,
 			{
 				DrawSubHeader(*FString::Printf(TEXT("  Exposed Parameters (%d)"), Params.Num()));
 				DisplayDebugManager.SetDrawColor(FColor(240, 210, 80));
+				TStringBuilder<192> Line;
 				for (const FComposableCameraExposedParameter& Param : Params)
 				{
-					FString ValueStr;
-					const int32* Offset = DataBlock.ExposedParameterOffsets.Find(Param.ParameterName);
-					if (Offset)
+					Line.Reset();
+					Line.Appendf(TEXT("    %-24s = "), *Param.ParameterName.ToString());
+					if (const int32* Offset = DataBlock.ExposedParameterOffsets.Find(Param.ParameterName))
 					{
-						ValueStr = ComposableCameraDebug::FormatTypedValue(DataBlock, *Offset, Param.PinType, Param.EnumType);
+						ComposableCameraDebug::AppendTypedValue(Line, DataBlock, *Offset, Param.PinType, Param.EnumType);
 					}
 					else
 					{
-						ValueStr = TEXT("(unresolved)");
+						Line.Append(TEXT("(unresolved)"));
 					}
-					DisplayDebugManager.DrawString(FString::Printf(TEXT("    %-24s = %s"),
-						*Param.ParameterName.ToString(), *ValueStr));
+					DisplayDebugManager.DrawString(FString(Line));
 				}
 			}
 		}
@@ -393,6 +393,7 @@ void AComposableCameraPlayerCameraManager::DisplayDebug(class UCanvas* Canvas,
 			{
 				DrawSubHeader(*FString::Printf(TEXT("  Variables (%d)"), DataBlock.InternalVariableOffsets.Num()));
 				DisplayDebugManager.SetDrawColor(FColor(240, 210, 80));
+				TStringBuilder<192> Line;
 				for (const auto& Pair : DataBlock.InternalVariableOffsets)
 				{
 					EComposableCameraPinType VarType = EComposableCameraPinType::Float;
@@ -402,9 +403,10 @@ void AComposableCameraPlayerCameraManager::DisplayDebug(class UCanvas* Canvas,
 						VarType = Found->PinType;
 						VarEnum = Found->EnumType;
 					}
-					FString ValueStr = ComposableCameraDebug::FormatTypedValue(DataBlock, Pair.Value, VarType, VarEnum);
-					DisplayDebugManager.DrawString(FString::Printf(TEXT("    %-24s = %s"),
-						*Pair.Key.ToString(), *ValueStr));
+					Line.Reset();
+					Line.Appendf(TEXT("    %-24s = "), *Pair.Key.ToString());
+					ComposableCameraDebug::AppendTypedValue(Line, DataBlock, Pair.Value, VarType, VarEnum);
+					DisplayDebugManager.DrawString(FString(Line));
 				}
 			}
 		}
@@ -420,18 +422,79 @@ void AComposableCameraPlayerCameraManager::DisplayDebug(class UCanvas* Canvas,
 
 	if (ContextStack)
 	{
-		TStringBuilder<1024> StackString;
-		ContextStack->BuildDebugString(StackString);
+		FComposableCameraContextStackSnapshot Snapshot;
+		ContextStack->BuildDebugSnapshot(Snapshot);
 
 		DisplayDebugManager.SetDrawColor(FColor(222, 100, 5));
 
-		FString FullString = StackString.ToString();
-		TArray<FString> Lines;
-		FullString.ParseIntoArrayLines(Lines);
+		TStringBuilder<192> Line;
 
-		for (const FString& Line : Lines)
+		Line.Reset();
+		Line.Appendf(TEXT("    Context Stack (depth: %d, pending destroy: %d)"),
+			Snapshot.LiveStackDepth, Snapshot.PendingDestroyCount);
+		DisplayDebugManager.DrawString(FString(Line));
+
+		// Walk live contexts first (emitted top → base by BuildDebugSnapshot),
+		// then pending-destroy ones. The `bIsPendingDestroy` flag distinguishes
+		// them so we can render the "Pending Destroy:" sub-header once.
+		bool bPendingHeaderEmitted = false;
+		for (int32 LiveIdx = Snapshot.LiveStackDepth - 1, Ci = 0;
+		     Ci < Snapshot.Contexts.Num(); ++Ci)
 		{
-			DisplayDebugManager.DrawString(FString::Printf(TEXT("    %s"), *Line));
+			const FComposableCameraContextSnapshot& Context = Snapshot.Contexts[Ci];
+
+			if (Context.bIsPendingDestroy)
+			{
+				if (!bPendingHeaderEmitted)
+				{
+					DisplayDebugManager.DrawString(TEXT("    Pending Destroy:"));
+					bPendingHeaderEmitted = true;
+				}
+				Line.Reset();
+				Line.Append(TEXT("       [pending] "));
+				Context.ContextName.AppendString(Line);
+				DisplayDebugManager.DrawString(FString(Line));
+				continue;
+			}
+
+			// Live context header line. LiveIdx decrements as we walk top → base,
+			// so it matches the old `[N]` index labels.
+			Line.Reset();
+			Line.Append(Context.bIsActive ? TEXT("    -> [") : TEXT("       ["));
+			Line.Appendf(TEXT("%d] "), LiveIdx--);
+			Context.ContextName.AppendString(Line);
+			if (Context.bIsBase) { Line.Append(TEXT(" [base]")); }
+			DisplayDebugManager.DrawString(FString(Line));
+
+			// Director body — running camera + last pose + tree.
+			Line.Reset();
+			Line.Append(TEXT("        Running Camera: "));
+			Line.Append(Context.RunningCameraDisplay);
+			DisplayDebugManager.DrawString(FString(Line));
+
+			Line.Reset();
+			Line.Append(TEXT("        Last Pose: "));
+			Line.Append(Context.LastPose.Position.ToCompactString());
+			Line.Append(TEXT("  Rot: "));
+			Line.Append(Context.LastPose.Rotation.ToCompactString());
+			Line.Appendf(TEXT("  FOV: %.1f"), Context.LastPose.GetEffectiveFieldOfView());
+			DisplayDebugManager.DrawString(FString(Line));
+
+			DisplayDebugManager.DrawString(TEXT("        Evaluation Tree:"));
+
+			if (Context.TreeNodes.Num() == 0)
+			{
+				DisplayDebugManager.DrawString(TEXT("            (empty tree)"));
+			}
+			else
+			{
+				for (const FComposableCameraTreeNodeSnapshot& TreeNode : Context.TreeNodes)
+				{
+					Line.Reset();
+					ComposableCameraDebug::AppendTreeNodeLine(Line, TreeNode, /*BaseIndentCols=*/12);
+					DisplayDebugManager.DrawString(FString(Line));
+				}
+			}
 		}
 	}
 
@@ -566,8 +629,16 @@ AComposableCameraCameraBase* AComposableCameraPlayerCameraManager::ActivateNewCa
 		// Inter-context activation: route through ActivateNewCameraWithReferenceSource.
 		// Whether there's a transition or a camera cut is handled internally —
 		// the key distinction is that we're switching contexts and need the reference leaf path.
+		UComposableCameraTransitionBase* ActivatingTransition = nullptr;
 		NewCamera = TargetDirector->ActivateNewCameraWithReferenceSource(
-			this, CameraClass, Transition, ActivationParams, OnPreBeginplayEvent, PreviousActiveDirector);
+			this, CameraClass, Transition, ActivationParams, OnPreBeginplayEvent, PreviousActiveDirector,
+			&ActivatingTransition);
+
+		// Any transient context that got demoted from the top by EnsureContext
+		// (e.g. we're switching back to an existing context below a transient
+		// one) needs an implicit pop — its auto-pop loop is top-only, so
+		// without this step it would be stranded on the stack.
+		ContextStack->DemoteNonTopTransientContextsToPending(ActivatingTransition);
 	}
 	else
 	{
@@ -687,8 +758,16 @@ AComposableCameraCameraBase* AComposableCameraPlayerCameraManager::ActivateNewCa
 	if (bContextSwitched && PreviousActiveDirector)
 	{
 		// Inter-context activation with raw transition instance.
+		UComposableCameraTransitionBase* ActivatingTransition = nullptr;
 		NewCamera = TargetDirector->ActivateNewCameraWithReferenceSource(
-			this, CameraClass, TransitionInstance, ActivationParams, OnPreBeginplayEvent, PreviousActiveDirector);
+			this, CameraClass, TransitionInstance, ActivationParams, OnPreBeginplayEvent, PreviousActiveDirector,
+			&ActivatingTransition);
+
+		// See DesignDoc §17 invariant #27 — transient contexts demoted from
+		// the top by this activation are implicitly popped, cleanup bound to
+		// the activating transition. No-op if no transient context was
+		// demoted or if no blend (cut path destroys immediately).
+		ContextStack->DemoteNonTopTransientContextsToPending(ActivatingTransition);
 	}
 	else
 	{
@@ -1066,8 +1145,12 @@ FMinimalViewInfo AComposableCameraPlayerCameraManager::GetCameraViewFromCameraPo
 	return DesiredView;
 }
 
+DECLARE_CYCLE_STAT(TEXT("PCM DoUpdateCamera"), STAT_CCS_PCM_DoUpdateCamera, STATGROUP_CCS);
+DECLARE_CYCLE_STAT(TEXT("PCM UpdateActions"),  STAT_CCS_PCM_UpdateActions,  STATGROUP_CCS);
+
 void AComposableCameraPlayerCameraManager::DoUpdateCamera(float DeltaTime)
 {
+	SCOPE_CYCLE_COUNTER(STAT_CCS_PCM_DoUpdateCamera);
 	TRACE_CPUPROFILER_EVENT_SCOPE(CCS_PCM_DoUpdateCamera);
 
 	// We still call Super so engine-level PCM bookkeeping (its own modifier stack, ViewTarget
@@ -1129,10 +1212,19 @@ void AComposableCameraPlayerCameraManager::DoUpdateCamera(float DeltaTime)
 		LastDesiredView = DesiredView;
 		FillCameraCache(DesiredView);
 	}
+
+#if !UE_BUILD_SHIPPING
+	// Pose history capture happens AFTER the frame's pose is finalized so
+	// the ring buffer holds the exact value the engine renders from, not
+	// an intermediate. Gated at compile time — shipping builds strip the
+	// ring entirely (see header guard on the members).
+	CaptureCurrentFrameToPoseHistory();
+#endif
 }
 
 void AComposableCameraPlayerCameraManager::UpdateActions(float DeltaTime)
 {
+	SCOPE_CYCLE_COUNTER(STAT_CCS_PCM_UpdateActions);
 	TRACE_CPUPROFILER_EVENT_SCOPE(CCS_PCM_UpdateActions);
 
 	if (CameraActions.IsEmpty())
@@ -1264,4 +1356,102 @@ void AComposableCameraPlayerCameraManager::BuildModifierDebugString(FDisplayDebu
 	
 	DisplayDebugManager.DrawString(EffectiveModifiersString.ToString());
 }
+
+void AComposableCameraPlayerCameraManager::GetPoseHistory(TArray<FComposableCameraPoseHistoryEntry>& OutHistory) const
+{
+	OutHistory.Reset();
+#if !UE_BUILD_SHIPPING
+	if (PoseHistoryCountUsed == 0)
+	{
+		return;
+	}
+
+	OutHistory.Reserve(PoseHistoryCountUsed);
+
+	// When the ring is partially full (early frames) the oldest entry
+	// sits at index 0 and the newest at PoseHistoryCountUsed - 1. When
+	// full, the oldest is at PoseHistoryHead (the next-write slot, which
+	// overwrote the oldest last tick) and we walk forward wrapping.
+	const int32 Start = (PoseHistoryCountUsed == PoseHistoryCapacity)
+		? PoseHistoryHead
+		: 0;
+
+	for (int32 i = 0; i < PoseHistoryCountUsed; ++i)
+	{
+		const int32 SrcIdx = (Start + i) % PoseHistoryCapacity;
+		OutHistory.Add(PoseHistoryRing[SrcIdx]);
+	}
+#endif
+}
+
+#if !UE_BUILD_SHIPPING
+
+/**
+ * Freeze switch for the pose-history ring buffer.
+ *
+ * When set to 1, `CaptureCurrentFrameToPoseHistory` becomes a no-op —
+ * the ring buffer stops receiving new entries, so the Pose History
+ * debug panel's sparklines freeze in place. Intended for inspecting
+ * the exact shape of a transition after the fact without the curves
+ * scrolling away.
+ *
+ * The ring buffer is NOT cleared when freeze toggles back off. Capture
+ * just resumes writing at the current head, which means the first frames
+ * after unfreezing are mixed with up-to-2s-old pre-freeze content until
+ * the ring rolls over. Acceptable trade-off for a debug tool — clearing
+ * would lose any "what led up to this" context the user might want.
+ *
+ * Lives here (not in the debug-panel cpp) because the gate is applied
+ * at the capture site; the panel doesn't need to know about it.
+ */
+static TAutoConsoleVariable<int32> CVarPoseHistoryFreeze(
+	TEXT("CCS.Debug.Panel.PoseHistory.Freeze"),
+	0,
+	TEXT("Freeze the pose-history ring buffer. 0=capture live (default), 1=stop capturing new entries so the sparkline panel holds its current shape."),
+	ECVF_Default);
+
+/** Read-only accessor for the debug panel so it can render a [FROZEN]
+ *  indicator without duplicating the CVar declaration. Debug-only,
+ *  compiled out in shipping along with the rest of the panel. */
+bool AComposableCameraPlayerCameraManager::IsPoseHistoryFrozen()
+{
+	return CVarPoseHistoryFreeze.GetValueOnGameThread() != 0;
+}
+
+void AComposableCameraPlayerCameraManager::CaptureCurrentFrameToPoseHistory()
+{
+	// Freeze gate: when on, do nothing — the sparkline panel keeps
+	// rendering whatever was in the ring at the moment the freeze
+	// engaged. See the CVar comment for the resume-from-head rationale.
+	if (CVarPoseHistoryFreeze.GetValueOnGameThread() != 0)
+	{
+		return;
+	}
+
+	// Lazy allocation: reserve the full capacity on first call so the
+	// steady-state ring never reallocates. We don't pre-reserve in the
+	// constructor because that'd pay 6 KB of memory in non-shipping even
+	// when the Pose History panel is never shown — pushing it to the
+	// first real tick delays it until the camera is actually running.
+	if (PoseHistoryRing.Num() == 0)
+	{
+		PoseHistoryRing.SetNum(PoseHistoryCapacity);
+	}
+
+	FComposableCameraPoseHistoryEntry& Slot = PoseHistoryRing[PoseHistoryHead];
+	Slot.Position     = CurrentCameraPose.Position;
+	Slot.Rotation     = CurrentCameraPose.Rotation;
+	Slot.FOVDegrees   = static_cast<float>(CurrentCameraPose.GetEffectiveFieldOfView());
+	Slot.GameTime     = GetWorld() ? static_cast<float>(GetWorld()->GetTimeSeconds()) : 0.f;
+	Slot.ContextName  = CurrentContext;
+
+	// Advance the head; wrap via modulo.
+	PoseHistoryHead = (PoseHistoryHead + 1) % PoseHistoryCapacity;
+	// PoseHistoryCountUsed grows until it hits capacity, then stays.
+	if (PoseHistoryCountUsed < PoseHistoryCapacity)
+	{
+		++PoseHistoryCountUsed;
+	}
+}
+#endif // !UE_BUILD_SHIPPING
 

@@ -2,11 +2,28 @@
 
 #include "Nodes/ComposableCameraSplineNode.h"
 
+#include "Cameras/ComposableCameraCameraBase.h"
 #include "CameraRig_Rail.h"
 #include "ComposableCameraSystemModule.h"
 #include "Components/SplineComponent.h"
 #include "Interpolator/ComposableCameraInterpolatorBase.h"
 #include "Kismet/KismetSystemLibrary.h"
+
+#if !UE_BUILD_SHIPPING
+#include "Debug/ComposableCameraViewportDebug.h"
+#include "DrawDebugHelpers.h"
+#include "HAL/IConsoleManager.h"
+
+namespace
+{
+	static TAutoConsoleVariable<int32> CVarShowSplineGizmo(
+		TEXT("CCS.Debug.Viewport.Spline"),
+		0,
+		TEXT("Show SplineNode gizmo (violet polyline sampled 64 times along the spline + sphere at current camera position).\n")
+		TEXT("Requires `CCS.Debug.Viewport 1`. Works in both possessed play and F8 eject."),
+		ECVF_Default);
+}
+#endif
 
 void UComposableCameraSplineNode::OnInitialize_Implementation()
 {
@@ -337,3 +354,43 @@ void UComposableCameraSplineNode::UpdateCameraPoseByNURBSpline(FVector& OutPosit
 	const FComposableCameraPose& CurrentCameraPose, float DeltaTime)
 {
 }
+
+#if !UE_BUILD_SHIPPING
+void UComposableCameraSplineNode::DrawNodeDebug(UWorld* World, bool /*bViewerIsOutsideCamera*/) const
+{
+	if (!World || !SplineInterface) { return; }
+	if (CVarShowSplineGizmo.GetValueOnGameThread() == 0
+		&& !FComposableCameraViewportDebug::ShouldShowAllNodeGizmos()) { return; }
+	// The spline polyline is laid out in the world where the camera travels;
+	// the small current-position sphere is ~18 units (a dot at typical FOV).
+	// Neither piece occludes the view meaningfully, so no gate.
+
+	// Sample the spline at a fixed number of steps and chain them into a
+	// polyline. 64 samples balances smoothness with draw cost — closed-loop
+	// splines still read correctly because each segment is drawn independently.
+	constexpr int32 SampleCount = 64;
+	const float TotalLength = SplineInterface->GetSplineLength();
+	if (TotalLength <= SMALL_NUMBER) { return; }
+
+	const FColor SplineColor(170, 120, 255); // violet, distinct from every other gizmo hue
+	FVector PrevPoint = SplineInterface->GetWorldSpacePositionByDistanceOnSpline(0.f);
+	for (int32 i = 1; i <= SampleCount; ++i)
+	{
+		const float Distance = TotalLength * (static_cast<float>(i) / static_cast<float>(SampleCount));
+		const FVector NextPoint = SplineInterface->GetWorldSpacePositionByDistanceOnSpline(Distance);
+		DrawDebugLine(World, PrevPoint, NextPoint, SplineColor,
+			/*bPersistentLines=*/false, /*LifeTime=*/-1.f, /*DepthPriority=*/0, /*Thickness=*/1.5f);
+		PrevPoint = NextPoint;
+	}
+
+	// Sphere at the camera's current position on the spline so the reader can
+	// see where along the path evaluation currently is.
+	if (OwningCamera)
+	{
+		FComposableCameraViewportDebug::DrawSolidDebugSphere(
+			World, OwningCamera->GetCameraPose().Position,
+			/*Radius=*/9.f, SplineColor,
+			/*Alpha=*/120, /*Segments=*/12, /*DepthPriority=*/0);
+	}
+}
+#endif

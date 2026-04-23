@@ -18,6 +18,18 @@ class COMPOSABLECAMERASYSTEM_API UComposableCameraSmoothTransition
 public:
 	virtual FComposableCameraPose OnEvaluate_Implementation(float DeltaTime, const FComposableCameraPose& CurrentSourcePose, const FComposableCameraPose& CurrentTargetPose) override;
 
+	// SmoothStep (3t² - 2t³) or SmootherStep (6t⁵ - 15t⁴ + 10t³),
+	// selected by `bSmootherStep`. Matches the curve OnEvaluate applies
+	// to BlendWeight every frame — the debug panel renders this exact
+	// shape as a sparkline so the user can compare smooth vs smoother
+	// visually before tweaking the flag.
+	virtual float GetBlendWeightAt(float NormalizedTime) const override;
+
+#if !UE_BUILD_SHIPPING
+	// Gated on `CCS.Debug.Viewport.Transitions.Smooth`.
+	virtual void DrawTransitionDebug(UWorld* World, bool bViewerIsOutsideCamera) const override;
+#endif
+
 public:
 	// Whether to use smoother step, a fifth-order polynomial algorithm for transition.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)

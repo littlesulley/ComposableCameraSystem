@@ -4,6 +4,23 @@
 
 #include "Cameras/ComposableCameraCameraBase.h"
 
+#if !UE_BUILD_SHIPPING
+#include "Components/SkeletalMeshComponent.h"
+#include "Debug/ComposableCameraViewportDebug.h"
+#include "DrawDebugHelpers.h"
+#include "HAL/IConsoleManager.h"
+
+namespace
+{
+	static TAutoConsoleVariable<int32> CVarShowReceivePivotActorGizmo(
+		TEXT("CCS.Debug.Viewport.ReceivePivotActor"),
+		0,
+		TEXT("Show ReceivePivotActorNode gizmo (white sphere at the pivot actor / bone position).\n")
+		TEXT("Requires `CCS.Debug.Viewport 1`."),
+		ECVF_Default);
+}
+#endif
+
 void UComposableCameraReceivePivotActorNode::OnInitialize_Implementation()
 {
 	Super::OnInitialize_Implementation();
@@ -41,6 +58,36 @@ void UComposableCameraReceivePivotActorNode::OnTickNode_Implementation(
 	SetOutputPinValue<FVector>("PivotPosition", OutPivotPosition);
 	SetOutputPinValue<AActor*>("PivotActor_Out", IsValid(InPivotActor) ? InPivotActor : nullptr);
 }
+
+#if !UE_BUILD_SHIPPING
+void UComposableCameraReceivePivotActorNode::DrawNodeDebug(UWorld* World, bool /*bViewerIsOutsideCamera*/) const
+{
+	if (!World) { return; }
+	if (CVarShowReceivePivotActorGizmo.GetValueOnGameThread() == 0
+		&& !FComposableCameraViewportDebug::ShouldShowAllNodeGizmos()) { return; }
+
+	// Resolve pivot position the same way OnTickNode does — sphere at the
+	// bone socket if configured, otherwise at the actor origin. White sphere
+	// so it's distinct from PivotOffset's yellow / PivotDamping's magenta.
+	constexpr uint8 KForeground = 1;
+	FVector PivotPos = FVector::ZeroVector;
+	if (bUseBoneForPivot && IsValid(SkeletalMeshComponentForPivotActor))
+	{
+		PivotPos = SkeletalMeshComponentForPivotActor->GetSocketLocation(BoneName);
+	}
+	else if (IsValid(PivotActor.Get()))
+	{
+		PivotPos = PivotActor->GetActorLocation();
+	}
+	else
+	{
+		return; // no valid anchor to draw
+	}
+	FComposableCameraViewportDebug::DrawSolidDebugSphere(
+		World, PivotPos, /*Radius=*/9.f, FColor::White,
+		/*Alpha=*/100, /*Segments=*/12, KForeground);
+}
+#endif
 
 void UComposableCameraReceivePivotActorNode::GetPinDeclarations_Implementation(
 	TArray<FComposableCameraNodePinDeclaration>& OutPins) const

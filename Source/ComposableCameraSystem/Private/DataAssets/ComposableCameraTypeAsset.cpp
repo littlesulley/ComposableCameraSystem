@@ -1066,25 +1066,9 @@ void UComposableCameraTypeAsset::Build()
 		}
 	}
 
-	// Check: forward-only connections and valid indices.
+	// Check: valid indices only.
 	for (const FComposableCameraPinConnection& Conn : PinConnections)
 	{
-		if (Conn.SourceNodeIndex >= Conn.TargetNodeIndex)
-		{
-			FComposableCameraBuildMessage Msg;
-			Msg.Severity = 2;
-			Msg.Message = FText::Format(
-				FText::FromString(TEXT("Backward connection: node {0} pin '{1}' → node {2} pin '{3}'. Data must flow forward only.")),
-				FText::AsNumber(Conn.SourceNodeIndex),
-				FText::FromName(Conn.SourcePinName),
-				FText::AsNumber(Conn.TargetNodeIndex),
-				FText::FromName(Conn.TargetPinName));
-			Msg.NodeIndex = Conn.TargetNodeIndex;
-			Msg.PinName = Conn.TargetPinName;
-			BuildMessages.Add(Msg);
-			BuildStatus = EComposableCameraBuildStatus::Failed;
-		}
-
 		if (Conn.SourceNodeIndex < 0 || Conn.SourceNodeIndex >= NodeTemplates.Num()
 			|| Conn.TargetNodeIndex < 0 || Conn.TargetNodeIndex >= NodeTemplates.Num())
 		{

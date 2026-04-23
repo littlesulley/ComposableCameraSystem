@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "Cameras/ComposableCameraCameraBase.h"
+#include "Debug/ComposableCameraDebugPanelData.h"
 #include "UObject/Object.h"
 #include "ComposableCameraContextStack.generated.h"
 
@@ -130,8 +131,59 @@ public:
 	 */
 	[[nodiscard]] FComposableCameraPose Evaluate(float DeltaTime);
 
-	/** Build a debug string showing the full context stack state. */
-	void BuildDebugString(TStringBuilder<1024>& OutString) const;
+	/**
+	 * After an inter-context activation, demote every non-top entry whose
+	 * running camera is transient into `PendingDestroyEntries`, treating each
+	 * one as an implicit pop whose cleanup is bound to `ActivatingTransition`.
+	 *
+	 * Motivating scenario (the reason this exists):
+	 *   1. Gameplay runs camera A.
+	 *   2. Push Transient context with transient camera B (LifeTime 4s,
+	 *      transition 5s).
+	 *   3. Mid-push-transition, the caller invokes ActivateCamera(A, Gameplay)
+	 *      to flip back to Gameplay. `EnsureContext(Gameplay)` rearranges the
+	 *      stack to `[Transient, Gameplay]` — Transient drops off the top.
+	 *   4. With only-top-scans-for-auto-pop semantics, Transient is now
+	 *      permanently stuck on the stack: its camera B is no longer at the
+	 *      top so the auto-pop loop in `Evaluate` never inspects it, and its
+	 *      LifeTime expiring does not trigger any cleanup.
+	 *
+	 * Fix: at the end of the inter-context activation that caused the
+	 * demotion, call this method with the activation's blend transition.
+	 * Each non-top entry with a transient `RunningCamera` is removed from
+	 * `Entries`, inserted into `PendingDestroyEntries`, and a lambda is
+	 * registered on `ActivatingTransition->OnTransitionFinishesDelegate` so
+	 * its director is destroyed + the pending entry removed exactly when the
+	 * blend resolves. Matches the semantics of an explicit `PopContext` for
+	 * that context.
+	 *
+	 * Why the delegate (instead of immediate destruction): the activation's
+	 * new tree captures the Transient director's tree root as a RefLeaf
+	 * snapshot. Destroying the transient camera immediately would leave the
+	 * RefLeaf chain walking into `PendingKill` leaves during the blend — the
+	 * same class of bug the `PendingDestroyOldRoots` defer fix addresses on
+	 * the target-director side. The blend finish is the earliest moment the
+	 * transient camera is reachable from no live tree.
+	 *
+	 * Non-transient entries that happen to be below the top are left alone —
+	 * they are the caller's responsibility (e.g. a UI context temporarily
+	 * suspended behind gameplay stays suspended).
+	 *
+	 * No-op if `ActivatingTransition` is null (camera-cut inter-context
+	 * activation); in that case nothing is blending so any transient entry
+	 * pushed below the top is destroyed immediately to match the single-
+	 * frame semantics of a cut.
+	 */
+	void DemoteNonTopTransientContextsToPending(UComposableCameraTransitionBase* ActivatingTransition);
+
+	/** Build a structured snapshot of the stack + each director's tree. The
+	 *  snapshot is the single source of truth for every debug consumer: the
+	 *  in-viewport 2D panel, the `showdebug camera` HUD, and any future dump
+	 *  command all format their text by walking this snapshot through
+	 *  `ComposableCameraDebug::AppendTreeNodeLine`. Contexts are emitted
+	 *  top → base (index 0 of OutSnapshot.Contexts = active/top) followed by
+	 *  all PendingDestroyEntries flagged bIsPendingDestroy = true. */
+	void BuildDebugSnapshot(FComposableCameraContextStackSnapshot& OutSnapshot) const;
 
 	// UObject interface.
 	static void AddReferencedObjects(UObject* InThis, FReferenceCollector& Collector);

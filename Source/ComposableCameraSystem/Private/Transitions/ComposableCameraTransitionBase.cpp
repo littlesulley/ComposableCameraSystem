@@ -2,9 +2,21 @@
 
 #include "Transitions/ComposableCameraTransitionBase.h"
 
+#include "ComposableCameraSystemModule.h"   // STATGROUP_CCS
+
+#if !UE_BUILD_SHIPPING
+#include "Debug/ComposableCameraViewportDebug.h"
+#include "DrawDebugHelpers.h"
+#include "Engine/World.h"
+#include "SceneManagement.h"   // SDPG_Foreground
+#endif
+
+DECLARE_CYCLE_STAT(TEXT("Transition Evaluate"), STAT_CCS_Transition_Evaluate, STATGROUP_CCS);
+
 FComposableCameraPose UComposableCameraTransitionBase::Evaluate(float DeltaTime,
 	const FComposableCameraPose& CurrentSourcePose, const FComposableCameraPose& CurrentTargetPose)
 {
+	SCOPE_CYCLE_COUNTER(STAT_CCS_Transition_Evaluate);
 	TRACE_CPUPROFILER_EVENT_SCOPE(CCS_Transition_Evaluate);
 	TRACE_CPUPROFILER_EVENT_SCOPE_STR(*GetClass()->GetName());
 
@@ -58,3 +70,64 @@ void UComposableCameraTransitionBase::ResetTransitionState()
 	bFinished = false;
 	bFirstFrame = true;
 }
+
+#if !UE_BUILD_SHIPPING
+void UComposableCameraTransitionBase::DrawStandardTransitionDebug(
+	UWorld* World, bool bViewerIsOutsideCamera, const FColor& AccentColor) const
+{
+	if (!World) { return; }
+
+	// Color legend (fixed across every transition type):
+	//   Source  → green  — where the blend is coming FROM this frame
+	//   Target  → blue   — where the blend is going TO this frame
+	//   Progress→ accent — the actual blended camera position this frame
+	//                      (the per-transition AccentColor also identifies
+	//                       which transition type is contributing when
+	//                       multiple are active simultaneously)
+	//
+	// This helper is deliberately silent about the PATH between source
+	// and target. Path shape depends on the transition type (straight for
+	// Linear/Smooth/Ease/Cubic, arc for Cylindrical, polynomial for
+	// Inertialized, authored curve for Spline, rail for PathGuided). Each
+	// concrete override draws its own path polyline in the same AccentColor
+	// on top of this helper's markers — see §3.20.4 in TechDoc.
+	static const FColor SourceColor { 80, 220, 120 };
+	static const FColor TargetColor { 80, 170, 255 };
+
+	const FVector SrcPos   = LastDebugSource.Position;
+	const FVector TgtPos   = LastDebugTarget.Position;
+	const FVector BlendPos = LastDebugBlended.Position;
+
+	// Sphere markers. Solid translucent via DrawSolidDebugSphere so the
+	// gizmo reads as a filled VOLUME rather than a busy wireframe. The
+	// source/target endpoint spheres stay subtle (alpha 100 = ~39 %)
+	// while the accent progress sphere is bumped up a touch (alpha 130)
+	// so the camera's live position POPs relative to the fixed endpoints.
+	// DepthPriority=SDPG_Foreground so the ball draws above scene
+	// geometry even when sitting inside a mesh (e.g. camera embedded
+	// in a character), same rule as the retired wireframe path.
+	FComposableCameraViewportDebug::DrawSolidDebugSphere(
+		World, SrcPos, /*Radius=*/7.5f, SourceColor,
+		/*Alpha=*/100, /*Segments=*/12, /*DepthPriority=*/SDPG_Foreground);
+	FComposableCameraViewportDebug::DrawSolidDebugSphere(
+		World, TgtPos, 7.5f, TargetColor,
+		100, 12, SDPG_Foreground);
+	FComposableCameraViewportDebug::DrawSolidDebugSphere(
+		World, BlendPos, 10.f, AccentColor,
+		/*Alpha=*/130, 12, SDPG_Foreground);
+
+	// Frustums only outside possess. The blended frustum is already painted
+	// by the camera-level pass (AComposableCameraCameraBase::DrawCameraDebug
+	// with bDrawFrustum=true) so we skip it here to avoid stacking on the
+	// same pose. In possessed play the frustums would occlude the near
+	// plane even at half scale, so they're gated out.
+	if (bViewerIsOutsideCamera)
+	{
+		DrawDebugCamera(World, SrcPos, LastDebugSource.Rotation, LastDebugSource.FOVDegrees,
+			/*Scale=*/0.5f, SourceColor, /*bPersistent=*/false, /*LifeTime=*/-1.f,
+			/*DepthPriority=*/0);
+		DrawDebugCamera(World, TgtPos, LastDebugTarget.Rotation, LastDebugTarget.FOVDegrees,
+			0.5f, TargetColor, false, -1.f, 0);
+	}
+}
+#endif // !UE_BUILD_SHIPPING

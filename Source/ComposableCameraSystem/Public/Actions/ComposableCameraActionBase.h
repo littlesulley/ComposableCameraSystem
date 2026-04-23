@@ -98,15 +98,23 @@ public:
 public:
 	UPROPERTY(BlueprintReadOnly, EditDefaultsOnly)
 	bool bOnlyForCurrentCamera { true };
-	
+
 	UPROPERTY(BlueprintReadOnly)
 	AComposableCameraPlayerCameraManager* PlayerCameraManager{};
+
+	/** Time since this action began ticking, in seconds. Only meaningful when
+	 *  ExpirationType has the Duration bit set (Duration expiration fires
+	 *  when ElapsedTime >= Duration). Exposed for debug tooling (the
+	 *  Actions panel region); gameplay code should not poll it — use the
+	 *  lifecycle hooks instead. */
+	UFUNCTION(BlueprintPure, Category = "ComposableCameraSystem|Action")
+	float GetElapsedTime() const { return ElapsedTime; }
 
 private:
 	bool bCanExecuteInstant { true };
 	bool bCanExecuteDuration { true };
 	bool bCanExecuteManual { true };
 	bool bCanExecuteCondition { true };
-	
+
 	float ElapsedTime { 0.f };
 };

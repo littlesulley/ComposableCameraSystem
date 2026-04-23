@@ -2,7 +2,25 @@
 
 #include "Nodes/ComposableCameraLookAtNode.h"
 
+#include "Cameras/ComposableCameraCameraBase.h"
 #include "Kismet/KismetMathLibrary.h"
+
+#if !UE_BUILD_SHIPPING
+#include "Components/SkeletalMeshComponent.h"
+#include "Debug/ComposableCameraViewportDebug.h"
+#include "DrawDebugHelpers.h"
+#include "HAL/IConsoleManager.h"
+
+namespace
+{
+	static TAutoConsoleVariable<int32> CVarShowLookAtGizmo(
+		TEXT("CCS.Debug.Viewport.LookAt"),
+		0,
+		TEXT("Show LookAtNode gizmo (cyan sphere at the resolved look-at target).\n")
+		TEXT("Requires `CCS.Debug.Viewport 1`."),
+		ECVF_Default);
+}
+#endif
 
 void UComposableCameraLookAtNode::OnInitialize_Implementation()
 {
@@ -80,6 +98,61 @@ void UComposableCameraLookAtNode::OnTickNode_Implementation(float DeltaTime,
 
 	OutCameraPose.Rotation = ResultRotation;
 }
+
+#if !UE_BUILD_SHIPPING
+void UComposableCameraLookAtNode::DrawNodeDebug(UWorld* World, bool bViewerIsOutsideCamera) const
+{
+	if (!World) { return; }
+	if (CVarShowLookAtGizmo.GetValueOnGameThread() == 0
+		&& !FComposableCameraViewportDebug::ShouldShowAllNodeGizmos()) { return; }
+	// Possessed play: target sphere only. A line from camera to target is
+	// by definition along the view axis and all variants tried (thin line,
+	// thick line, arrow, manual arrow, line+box) either vanish via view
+	// alignment or get occluded by the mesh they pass through. The sphere
+	// alone is the reliable gizmo in this mode.
+	// F8 eject: draw a plain thin line from camera to target (viewer is
+	// outside the camera, line is NOT view-aligned from this viewpoint, so
+	// Thickness=0 + SDPG_Foreground reads fine).
+
+	// Resolve current target position — mirrors OnTickNode's resolution chain.
+	// Kept duplicated here so DrawNodeDebug stays side-effect-free and doesn't
+	// need any cached state written by the tick path.
+	FVector TargetPosition = FVector::ZeroVector;
+	if (LookAtType == EComposableCameraLookAtType::ByPosition)
+	{
+		TargetPosition = LookAtPosition;
+	}
+	else if (LookAtType == EComposableCameraLookAtType::ByActor)
+	{
+		if (SkeletalMeshComponentForLookAtActor && SkeletalMeshComponentForLookAtActor->DoesSocketExist(LookAtSocket))
+		{
+			TargetPosition = SkeletalMeshComponentForLookAtActor->GetSocketLocation(LookAtSocket);
+		}
+		else if (LookAtActor)
+		{
+			TargetPosition = LookAtActor->GetActorLocation();
+		}
+		else
+		{
+			return; // nothing resolvable to draw
+		}
+	}
+
+	// DepthPriority=1 (SDPG_Foreground) draws above scene geometry — without
+	// it, a target anchored on a bone socket would be occluded by the mesh.
+	constexpr uint8 KForeground = 1;
+	const FColor TargetColor(30, 200, 255);
+	FComposableCameraViewportDebug::DrawSolidDebugSphere(
+		World, TargetPosition, /*Radius=*/7.5f, TargetColor,
+		/*Alpha=*/110, /*Segments=*/12, KForeground);
+
+	if (bViewerIsOutsideCamera && OwningCamera)
+	{
+		DrawDebugLine(World, OwningCamera->GetCameraPose().Position, TargetPosition,
+			TargetColor, /*bPersistentLines=*/false, /*LifeTime=*/-1.f, KForeground, /*Thickness=*/0.f);
+	}
+}
+#endif
 
 void UComposableCameraLookAtNode::GetPinDeclarations_Implementation(TArray<FComposableCameraNodePinDeclaration>& OutPins) const
 {

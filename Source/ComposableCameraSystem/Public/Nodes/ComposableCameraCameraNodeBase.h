@@ -620,6 +620,53 @@ public:
 	 *  TickCamera so the editor can distinguish active vs. skipped nodes. */
 	bool bDebugWasTickedThisFrame = false;
 #endif
+
+#if !UE_BUILD_SHIPPING
+public:
+	/**
+	 * Called each frame when the `CCS.Debug.Viewport` CVar is enabled, for
+	 * every node on the currently running camera. Override to draw world-space
+	 * debug gizmos via `DrawDebugHelpers` (DrawDebugSphere, DrawDebugLine, etc.)
+	 * that visualise this node's runtime state — e.g. a pivot sphere for
+	 * PivotOffsetNode, a look-at line for LookAtNode, the collision trace for
+	 * CollisionPushNode, a sampled spline path for SplineNode.
+	 *
+	 * Access the owning camera via `OwningCamera` and current-frame pin values
+	 * via the usual `GetInputPinValue<T>()` / member-read path — this hook
+	 * fires AFTER TickNode, so pin-backed UPROPERTYs still hold the resolved
+	 * values from the most recent evaluation.
+	 *
+	 * `bViewerIsOutsideCamera` mirrors the ticker's frustum-draw flag: true
+	 * when the viewer is observing the camera from outside (F8 eject, SIE, or
+	 * `CCS.Debug.Viewport.AlwaysShow`), false when the player is looking
+	 * through the camera. Most gizmos (pivot spheres at distant characters,
+	 * lines to look-at targets, spline polylines far in the world) can ignore
+	 * this and draw unconditionally. Gizmos that sit AT the camera's own
+	 * position (e.g. `CollisionPushNode`'s self-collision sphere) should gate
+	 * on this bool so they don't hermetically seal the player inside the
+	 * wireframe during live gameplay.
+	 *
+	 * Default implementation does nothing. Compiled out in shipping builds.
+	 */
+	virtual void DrawNodeDebug(class UWorld* World, bool bViewerIsOutsideCamera) const {}
+
+	/**
+	 * 2D counterpart to DrawNodeDebug. Fires from a separate UDebugDrawService
+	 * hook on the "Game" channel — which means it runs during PIE-possessed
+	 * play (and standalone), NOT during F8 eject (editor viewport doesn't
+	 * route through the game channel). That lines up with what 2D overlays
+	 * are good for: screen-space debug that the player-eye perspective
+	 * answers and an external view cannot (safe-zone rectangles, projected
+	 * pivot markers, HUD-space gizmos).
+	 *
+	 * Canvas provides the 2D surface; PC is the local player controller
+	 * whose view is being rendered (for ProjectWorldToScreen and aspect
+	 * ratio queries). Either may be null in edge cases — always check.
+	 *
+	 * Default implementation does nothing. Compiled out in shipping builds.
+	 */
+	virtual void DrawNodeDebug2D(class UCanvas* Canvas, class APlayerController* PC) const {}
+#endif
 };
 
 // ─── Template Implementations ──────────────────────────────────────────

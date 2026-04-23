@@ -2,6 +2,7 @@
 
 #include "Core/ComposableCameraModifierManager.h"
 
+#include "ComposableCameraSystemModule.h"   // STATGROUP_CCS
 #include "DataAssets/ComposableCameraModifierDataAsset.h"
 #include "Modifiers/ComposableCameraModifierBase.h"
 #include "Nodes/ComposableCameraCameraNodeBase.h"
@@ -81,9 +82,12 @@ void UComposableCameraModifierManager::RemoveModifier(UComposableCameraNodeModif
 	}
 }
 
+DECLARE_CYCLE_STAT(TEXT("ModifierManager UpdateEffective"), STAT_CCS_ModifierManager_UpdateEffectiveModifiers, STATGROUP_CCS);
+
 std::pair<bool, UComposableCameraTransitionBase*>
 UComposableCameraModifierManager::FComposableCameraModifierData::UpdateEffectiveModifiers(AComposableCameraCameraBase* Camera)
 {
+	SCOPE_CYCLE_COUNTER(STAT_CCS_ModifierManager_UpdateEffectiveModifiers);
 	TRACE_CPUPROFILER_EVENT_SCOPE(CCS_ModifierManager_UpdateEffectiveModifiers);
 
 	FGameplayTag CameraTag = Camera->CameraTag;

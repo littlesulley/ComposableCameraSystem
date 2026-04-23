@@ -60,6 +60,18 @@ public:
 	virtual void OnBeginPlay_Implementation(float DeltaTime, const FComposableCameraPose& CurrentSourcePose, const FComposableCameraPose& CurrentTargetPose) override;
 	virtual FComposableCameraPose OnEvaluate_Implementation(float DeltaTime, const FComposableCameraPose& CurrentSourcePose, const FComposableCameraPose& CurrentTargetPose) override;
 
+	// Deocclusion wraps a DrivingTransition and layers dynamic feeler
+	// offsets on top — the timing curve IS the driving transition's.
+	// Falls back to linear when DrivingTransition is unset.
+	virtual float GetBlendWeightAt(float NormalizedTime) const override;
+
+#if !UE_BUILD_SHIPPING
+	// Gated on `CCS.Debug.Viewport.Transitions.DynamicDeocclusion`.
+	// Standard triplet in red accent, plus the feeler rays emanating from
+	// the current blended pose — essential for tuning feeler angles.
+	virtual void DrawTransitionDebug(UWorld* World, bool bViewerIsOutsideCamera) const override;
+#endif
+
 public:
 	// The driving transition.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Instanced)

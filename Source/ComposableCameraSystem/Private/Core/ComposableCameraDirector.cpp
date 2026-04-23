@@ -324,7 +324,8 @@ AComposableCameraCameraBase* UComposableCameraDirector::ActivateNewCameraWithRef
 	UComposableCameraTransitionBase* TransitionInstance,
 	const FComposableCameraActivateParams& ActivationParams,
 	FOnCameraFinishConstructed OnPreBeginplayEvent,
-	UComposableCameraDirector* SourceDirector)
+	UComposableCameraDirector* SourceDirector,
+	UComposableCameraTransitionBase** OutTransition)
 {
 	check(SourceDirector);
 
@@ -380,6 +381,11 @@ AComposableCameraCameraBase* UComposableCameraDirector::ActivateNewCameraWithRef
 			Transition = DuplicateObject(TransitionInstance, this);
 			Transition->TransitionEnabled(TransInitParams);
 			Transition->ResetTransitionState();
+		}
+
+		if (OutTransition)
+		{
+			*OutTransition = Transition;
 		}
 
 		EvaluationTree->OnActivateNewCameraWithReferenceSource(NewCamera, Transition, SourceDirector, ActivationParams.bFreezeSourceCamera);
@@ -439,10 +445,64 @@ AComposableCameraCameraBase* UComposableCameraDirector::ReactivateCurrentCamera(
 	return RunningCamera;
 }
 
+AComposableCameraCameraBase* UComposableCameraDirector::ResumeCurrentCameraWithReferenceSource(
+	AComposableCameraPlayerCameraManager* PlayerCameraManager,
+	UComposableCameraTransitionBase* TransitionInstance,
+	UComposableCameraDirector* SourceDirector,
+	bool bFreezeSourceCamera)
+{
+	check(SourceDirector);
+
+	if (!EvaluationTree || !EvaluationTree->HasActiveCamera())
+	{
+		// Nothing to resume — caller must take the ActivateNew path.
+		UE_LOG(LogComposableCameraSystem, Warning,
+			TEXT("ResumeCurrentCameraWithReferenceSource: Director has no running camera to resume. Use ActivateNewCameraWithReferenceSource instead."));
+		return nullptr;
+	}
+
+	// Configure the transition's InitParams from SourceDirector's blended
+	// output so transitions like Inertialized get the right initial
+	// velocity — source context's render output is exactly what the user
+	// was just seeing, so the new pop transition blends FROM that into
+	// our existing tree's output.
+	if (TransitionInstance)
+	{
+		FComposableCameraTransitionInitParams TransInitParams;
+		TransInitParams.CurrentSourcePose  = SourceDirector->GetLastEvaluatedPose();
+		TransInitParams.PreviousSourcePose = SourceDirector->GetPreviousEvaluatedPose();
+		TransInitParams.DeltaTime          = GetWorld() ? GetWorld()->GetDeltaSeconds() : 0.f;
+
+		TransitionInstance->TransitionEnabled(TransInitParams);
+		TransitionInstance->ResetTransitionState();
+	}
+
+	EvaluationTree->OnResumeCurrentTreeWithReferenceSource(
+		TransitionInstance, SourceDirector, bFreezeSourceCamera);
+
+	// RunningCamera unchanged — it was already the correct camera before
+	// this call and remains so after the tree is rewrapped.
+	return RunningCamera;
+}
+
+DECLARE_CYCLE_STAT(TEXT("Director Evaluate"), STAT_CCS_Director_Evaluate, STATGROUP_CCS);
+
 FComposableCameraPose UComposableCameraDirector::Evaluate(float DeltaTime)
 {
+	SCOPE_CYCLE_COUNTER(STAT_CCS_Director_Evaluate);
 	TRACE_CPUPROFILER_EVENT_SCOPE(CCS_Director_Evaluate);
 
+	// No reentrancy guard is needed here. Inter-context ReferenceLeaves
+	// now hold a TSharedPtr SNAPSHOT of the source tree rather than a
+	// live pointer to the source Director — they re-evaluate the captured
+	// subtree directly, never calling back into Director::Evaluate. The
+	// resulting reachable graph is a pure DAG (same original leaf may be
+	// reached via multiple paths; per-node memoization at the wrapper
+	// layer collapses duplicate work), so Director::Evaluate is invoked
+	// at most once per director per frame — by the ContextStack on the
+	// single active director. Pending-destroy directors are never ticked
+	// via Evaluate; their trees only contribute through the snapshot
+	// TSharedPtrs held by the active tree.
 	PreviousEvaluatedPose = LastEvaluatedPose;
 	LastEvaluatedPose = EvaluationTree->Evaluate(DeltaTime);
 	// Sync RunningCamera — the tree may have changed it during collapse.
@@ -459,46 +519,35 @@ void UComposableCameraDirector::DestroyAllCameras()
 	RunningCamera = nullptr;
 }
 
-void UComposableCameraDirector::BuildDebugString(TStringBuilder<1024>& OutString, int32 IndentLevel) const
+void UComposableCameraDirector::BuildDebugSnapshot(FComposableCameraContextSnapshot& OutSnapshot) const
 {
-	const FString Indent = FString::ChrN(IndentLevel * 4, ' ');
-
+	// Running camera display name: type asset → gameplay tag → UObject name → "(none)".
+	if (RunningCamera)
 	{
-		FString CameraLabel;
-		if (RunningCamera)
+		if (const UComposableCameraTypeAsset* TA = RunningCamera->SourceTypeAsset.Get())
 		{
-			if (const UComposableCameraTypeAsset* TA = RunningCamera->SourceTypeAsset.Get())
-			{
-				CameraLabel = TA->GetName();
-			}
-			else if (RunningCamera->CameraTag.IsValid())
-			{
-				CameraLabel = RunningCamera->CameraTag.ToString();
-			}
-			else
-			{
-				CameraLabel = RunningCamera->GetName();
-			}
+			OutSnapshot.RunningCameraDisplay = TA->GetName();
+		}
+		else if (RunningCamera->CameraTag.IsValid())
+		{
+			OutSnapshot.RunningCameraDisplay = RunningCamera->CameraTag.ToString();
 		}
 		else
 		{
-			CameraLabel = TEXT("(none)");
+			OutSnapshot.RunningCameraDisplay = RunningCamera->GetName();
 		}
-		OutString.Appendf(TEXT("%sRunning Camera: %s\n"), *Indent, *CameraLabel);
-	}
-	OutString.Appendf(TEXT("%sLast Pose: %s  Rot: %s  FOV: %.1f\n"), *Indent,
-		*LastEvaluatedPose.Position.ToCompactString(),
-		*LastEvaluatedPose.Rotation.ToCompactString(),
-		LastEvaluatedPose.GetEffectiveFieldOfView());
-	OutString.Appendf(TEXT("%sEvaluation Tree:\n"), *Indent);
-
-	if (EvaluationTree)
-	{
-		EvaluationTree->BuildDebugString(OutString, IndentLevel + 1);
 	}
 	else
 	{
-		OutString.Appendf(TEXT("%s    (no tree)\n"), *Indent);
+		OutSnapshot.RunningCameraDisplay = TEXT("(none)");
+	}
+
+	OutSnapshot.LastPose = LastEvaluatedPose;
+
+	OutSnapshot.TreeNodes.Reset();
+	if (EvaluationTree)
+	{
+		EvaluationTree->BuildDebugSnapshot(OutSnapshot.TreeNodes);
 	}
 }
 

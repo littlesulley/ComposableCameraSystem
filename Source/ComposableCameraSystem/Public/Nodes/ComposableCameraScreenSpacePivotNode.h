@@ -77,14 +77,24 @@ class COMPOSABLECAMERASYSTEM_API UComposableCameraScreenSpacePivotNode : public 
 public:
 	virtual void OnInitialize_Implementation() override;
 	virtual void OnTickNode_Implementation(float DeltaTime, const FComposableCameraPose& CurrentCameraPose, FComposableCameraPose& OutCameraPose) override;
-	virtual void BeginDestroy() override;
 	virtual void GetPinDeclarations_Implementation(TArray<FComposableCameraNodePinDeclaration>& OutPins) const override;
+
+#if !UE_BUILD_SHIPPING
+	// 3D: teal sphere at the resolved world-space pivot.
+	virtual void DrawNodeDebug(UWorld* World, bool bViewerIsOutsideCamera) const override;
+
+	// 2D: safe-zone rectangle + center marker + projected-pivot marker on
+	// the HUD. Handles both `bConstrainAspectRatio = false` (whole viewport)
+	// and `bConstrainAspectRatio = true` (letterboxed — uses ProjectionData
+	// to account for the editor viewport offset) cases, matching the logic
+	// the node itself uses for its screen-space math.
+	virtual void DrawNodeDebug2D(UCanvas* Canvas, APlayerController* PC) const override;
+#endif
 
 	// Compatible with the Level Sequence path. Viewport size for screen-space
 	// math is resolved through UE::ComposableCameras::TryGetEffectiveViewportSize
 	// (PCM → GameViewport → 16:9 fallback), so the node no longer requires a
-	// PlayerCameraManager. Debug-draw via HUD is still guarded on PCM
-	// existence but is non-evaluation cosmetic only.
+	// PlayerCameraManager.
 
 protected:
 
@@ -145,10 +155,6 @@ private:
 	TUniquePtr<TCameraInterpolator<TValueTypeWrapper<double>>> YawInterpolator_T;
 	TUniquePtr<TCameraInterpolator<TValueTypeWrapper<double>>> PitchInterpolator_T;
 
-#if ENABLE_DRAW_DEBUG
-	FDelegateHandle DrawDebugHandle;
-#endif
-
 private:
 	void EnsureWithinBoundsTranslation(const FVector& CameraSpacePivotPosition, FVector& CameraSpaceDampedOffset, const float& AspectRatio, const float& TanHalfHOR, const float& CameraDistance);
 	void EnsureWithinBoundsRotation(const FRotator& CameraRotation, const FVector& LookAtRotation, FRotator& DeltaRotation, float AspectRatio, float DegTanHalfHor);
@@ -158,8 +164,5 @@ private:
 	std::pair<float, float> CalibrateRotationOffsetNewton(float TanHalfHOR, float AspectRatio, FVector Direction, FRotator LookAtRotation, float ScreenX, float ScreenY);
 	FRotator GetScreenSpaceRotateAmount(const FVector& Pivot, const FComposableCameraPose& OutCameraPose, float DeltaTime);
 
-	FVector GetCurrentPivot();
-#if ENABLE_DRAW_DEBUG
-	void DrawDebugInfo(AHUD* HUD, UCanvas* Canvas);
-#endif
+	FVector GetCurrentPivot() const;
 };

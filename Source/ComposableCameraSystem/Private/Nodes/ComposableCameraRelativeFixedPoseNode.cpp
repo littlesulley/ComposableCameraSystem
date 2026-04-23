@@ -4,6 +4,23 @@
 
 #include "Kismet/KismetMathLibrary.h"
 
+#if !UE_BUILD_SHIPPING
+#include "Components/SkeletalMeshComponent.h"
+#include "Debug/ComposableCameraViewportDebug.h"
+#include "DrawDebugHelpers.h"
+#include "HAL/IConsoleManager.h"
+
+namespace
+{
+	static TAutoConsoleVariable<int32> CVarShowRelativeFixedPoseGizmo(
+		TEXT("CCS.Debug.Viewport.RelativeFixedPose"),
+		0,
+		TEXT("Show RelativeFixedPoseNode gizmo (orange sphere at the reference transform / actor origin).\n")
+		TEXT("Requires `CCS.Debug.Viewport 1`."),
+		ECVF_Default);
+}
+#endif
+
 void UComposableCameraRelativeFixedPoseNode::OnInitialize_Implementation()
 {
 	Super::OnInitialize_Implementation();
@@ -49,6 +66,49 @@ void UComposableCameraRelativeFixedPoseNode::OnTickNode_Implementation(float Del
 	OutCameraPose.Position = TargetLocation;
 	OutCameraPose.Rotation = TargetRotation;
 }
+
+#if !UE_BUILD_SHIPPING
+void UComposableCameraRelativeFixedPoseNode::DrawNodeDebug(UWorld* World, bool /*bViewerIsOutsideCamera*/) const
+{
+	if (!World) { return; }
+	if (CVarShowRelativeFixedPoseGizmo.GetValueOnGameThread() == 0
+		&& !FComposableCameraViewportDebug::ShouldShowAllNodeGizmos()) { return; }
+
+	// Resolve the reference transform origin the same way OnTickNode does —
+	// a sphere at that origin is the "what am I relative TO?" marker.
+	// The output pose itself (target camera pose) is already visible via
+	// the frustum when in F8 eject, so we don't double up there.
+	constexpr uint8 KForeground = 1;
+	FVector OriginPos = FVector::ZeroVector;
+	bool bHasOrigin = false;
+
+	if (Method == EComposableCameraRelativeFixedPoseMethod::RelativeToTransform)
+	{
+		OriginPos = RelativeTransform.GetLocation();
+		bHasOrigin = true;
+	}
+	else if (Method == EComposableCameraRelativeFixedPoseMethod::RelativeToActor)
+	{
+		if (SkeletalMeshComponentForRelativeActor && SkeletalMeshComponentForRelativeActor->DoesSocketExist(RelativeSocket))
+		{
+			OriginPos = SkeletalMeshComponentForRelativeActor->GetSocketLocation(RelativeSocket);
+			bHasOrigin = true;
+		}
+		else if (IsValid(RelativeActor))
+		{
+			OriginPos = RelativeActor->GetActorLocation();
+			bHasOrigin = true;
+		}
+	}
+
+	if (bHasOrigin)
+	{
+		FComposableCameraViewportDebug::DrawSolidDebugSphere(
+			World, OriginPos, /*Radius=*/8.f, FColor(255, 140, 0),
+			/*Alpha=*/100, /*Segments=*/12, KForeground);
+	}
+}
+#endif
 
 void UComposableCameraRelativeFixedPoseNode::GetPinDeclarations_Implementation(TArray<FComposableCameraNodePinDeclaration>& OutPins) const
 {

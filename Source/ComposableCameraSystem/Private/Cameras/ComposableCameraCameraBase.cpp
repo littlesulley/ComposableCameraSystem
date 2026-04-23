@@ -8,6 +8,7 @@
 #include "Core/ComposableCameraDebugSnapshot.h"
 #include "DataAssets/ComposableCameraTypeAsset.h"
 #include "Core/ComposableCameraPlayerCameraManager.h"
+#include "DrawDebugHelpers.h"
 #include "Engine/PostProcessUtils.h"
 #include "Engine/Scene.h"
 #include "Modifiers/ComposableCameraModifierBase.h"
@@ -429,10 +430,29 @@ void AComposableCameraCameraBase::UnregisterNodeAction(UComposableCameraActionBa
 	PostNodeTickActions.RemoveSingleSwap(Action);
 }
 
+DECLARE_CYCLE_STAT(TEXT("Camera TickCamera"), STAT_CCS_Camera_TickCamera, STATGROUP_CCS);
+
 FComposableCameraPose AComposableCameraCameraBase::TickCamera(float DeltaTime)
 {
+	SCOPE_CYCLE_COUNTER(STAT_CCS_Camera_TickCamera);
 	TRACE_CPUPROFILER_EVENT_SCOPE(CCS_Camera_TickCamera);
 	TRACE_CPUPROFILER_EVENT_SCOPE_STR(*CameraTag.ToString());
+
+	// Per-frame memoization. Under the snapshot-DAG evaluation topology,
+	// a single camera can be reached via multiple paths in one frame
+	// (two RefLeaves in different branches both ultimately reach the
+	// same underlying leaf). Ticking twice would double-advance per-node
+	// state (damping, interpolator `bStartFrame`, spline progress, etc.)
+	// AND double-decrement RemainingLifeTime for transient cameras — both
+	// observable bugs. The first call in a given frame does the real
+	// tick and stores the result; any subsequent same-frame call returns
+	// the cached CameraPose verbatim. GFrameCounter monotonically
+	// increases, so the counter value never collides across frames.
+	const uint64 CurrentFrame = GFrameCounter;
+	if (LastTickedFrameCounter == CurrentFrame)
+	{
+		return CameraPose;
+	}
 
 #if WITH_EDITOR
 	ClearNodeDebugFlags();
@@ -525,6 +545,9 @@ FComposableCameraPose AComposableCameraCameraBase::TickCamera(float DeltaTime)
 	{
 		RemainingLifeTime = FMath::Max(0.f, RemainingLifeTime - DeltaTime);
 	}
+
+	// Memoization stamp — see note at top of function.
+	LastTickedFrameCounter = CurrentFrame;
 
 	return CameraPose;
 }
@@ -675,4 +698,60 @@ FComposableCameraDebugSnapshot AComposableCameraCameraBase::SnapshotDebugState()
 
 #endif // WITH_EDITOR
 
+#if !UE_BUILD_SHIPPING
+void AComposableCameraCameraBase::DrawCameraDebug(UWorld* World, bool bDrawFrustum) const
+{
+	if (!World)
+	{
+		return;
+	}
+
+	if (bDrawFrustum)
+	{
+		// Camera frustum at the pose this camera evaluated to this frame.
+		// `CameraPose` is the leaf-local pose — during a transition it may
+		// differ from the PCM's blended output pose, which is what the user
+		// wants to see (source vs target contributions). Only invoked when
+		// the caller determined the player isn't looking through this camera.
+		const float FOV = CameraPose.GetEffectiveFieldOfView();
+		DrawDebugCamera(
+			World,
+			CameraPose.Position,
+			CameraPose.Rotation,
+			FOV,
+			/*Scale=*/1.f,
+			/*Color=*/FColor::Yellow,
+			/*bPersistentLines=*/false,
+			/*LifeTime=*/-1.f,
+			/*DepthPriority=*/0);
+	}
+
+	// Per-node gizmos are always walked — each override consults its own
+	// `CCS.Debug.Viewport.<NodeName>` CVar and early-outs when zero, so
+	// node-level gizmos show in both possessed play and F8 eject.
+	// `bDrawFrustum` doubles as "viewer is outside the camera": nodes that
+	// have a gizmo sitting at the camera's own position (e.g. the self-
+	// collision sphere on CollisionPushNode) use this to skip their
+	// occluding parts during live gameplay.
+	for (const UComposableCameraCameraNodeBase* Node : CameraNodes)
+	{
+		if (Node)
+		{
+			Node->DrawNodeDebug(World, /*bViewerIsOutsideCamera=*/bDrawFrustum);
+		}
+	}
+}
+
+void AComposableCameraCameraBase::DrawCameraDebug2D(UCanvas* Canvas, APlayerController* PC) const
+{
+	if (!Canvas) { return; }
+	for (const UComposableCameraCameraNodeBase* Node : CameraNodes)
+	{
+		if (Node)
+		{
+			Node->DrawNodeDebug2D(Canvas, PC);
+		}
+	}
+}
+#endif // !UE_BUILD_SHIPPING
 

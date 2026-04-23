@@ -21,6 +21,10 @@ public:
 	virtual void OnTickNode_Implementation(float DeltaTime, const FComposableCameraPose& CurrentCameraPose, FComposableCameraPose& OutCameraPose) override;
 	virtual void GetPinDeclarations_Implementation(TArray<FComposableCameraNodePinDeclaration>& OutPins) const override;
 
+#if !UE_BUILD_SHIPPING
+	virtual void DrawNodeDebug(UWorld* World, bool bViewerIsOutsideCamera) const override;
+#endif
+
 public:
 	// Actor whose location is published as the pivot position. Typically driven
 	// at runtime via a context parameter (e.g. the player pawn); kept as a

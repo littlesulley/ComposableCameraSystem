@@ -17,6 +17,16 @@ class COMPOSABLECAMERASYSTEM_API UComposableCameraEaseTransition : public UCompo
 public:
 	virtual FComposableCameraPose OnEvaluate_Implementation(float DeltaTime, const FComposableCameraPose& CurrentSourcePose, const FComposableCameraPose& CurrentTargetPose) override;
 
+	// InterpEaseInOut with the authored `Exp`. Exposed so the debug
+	// panel can preview exactly how steep the ease-in / ease-out shoulders
+	// are for the current Exp value — invaluable when tuning Exp by eye.
+	virtual float GetBlendWeightAt(float NormalizedTime) const override;
+
+#if !UE_BUILD_SHIPPING
+	// Gated on `CCS.Debug.Viewport.Transitions.Ease`.
+	virtual void DrawTransitionDebug(UWorld* World, bool bViewerIsOutsideCamera) const override;
+#endif
+
 public:
 	// Exponential for EaseInOut transition.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)

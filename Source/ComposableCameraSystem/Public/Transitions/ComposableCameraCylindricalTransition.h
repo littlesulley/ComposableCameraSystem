@@ -171,6 +171,18 @@ public:
 	virtual void OnBeginPlay_Implementation(float DeltaTime, const FComposableCameraPose& CurrentSourcePose, const FComposableCameraPose& CurrentTargetPose) override;
 	virtual FComposableCameraPose OnEvaluate_Implementation(float DeltaTime, const FComposableCameraPose& CurrentSourcePose, const FComposableCameraPose& CurrentTargetPose) override;
 
+	// Cylindrical uses SmootherStep on its timing axis (the arc path
+	// blend) — the spatial curve is separate (see DrawTransitionDebug).
+	virtual float GetBlendWeightAt(float NormalizedTime) const override;
+
+#if !UE_BUILD_SHIPPING
+	// Gated on `CCS.Debug.Viewport.Transitions.Cylindrical`. Standard
+	// source/target/progress markers in aqua accent. The curved path is
+	// not explicitly polylined — users can read the curvature off the
+	// progress sphere's deviation from the white lerp baseline.
+	virtual void DrawTransitionDebug(UWorld* World, bool bViewerIsOutsideCamera) const override;
+#endif
+
 public:
 	// Maintaining a minimum distance from origin along the camera's looking direction.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)

@@ -36,6 +36,20 @@ public:
 	virtual void OnBeginPlay_Implementation(float DeltaTime, const FComposableCameraPose& CurrentSourcePose, const FComposableCameraPose& CurrentTargetPose) override;
 	virtual FComposableCameraPose OnEvaluate_Implementation(float DeltaTime, const FComposableCameraPose& CurrentSourcePose, const FComposableCameraPose& CurrentTargetPose) override;
 
+	// Delegates to the inner DrivingTransition's curve — PathGuided just
+	// bends the spatial path, the timing is whatever the driving transition
+	// authored. Falls back to linear if DrivingTransition is unset.
+	virtual float GetBlendWeightAt(float NormalizedTime) const override;
+
+#if !UE_BUILD_SHIPPING
+	// Gated on `CCS.Debug.Viewport.Transitions.PathGuided`. Standard triplet
+	// in coral accent, plus the rail / internal spline the camera is
+	// actually travelling along. For Type=Auto the internal spline is
+	// procedurally generated at OnBeginPlay; for Type=Inertialized the
+	// rail spline is what drives motion.
+	virtual void DrawTransitionDebug(UWorld* World, bool bViewerIsOutsideCamera) const override;
+#endif
+
 public:
 	// Driving transition for base camera transition. Used for both Inertialized and Auto.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Instanced)

@@ -17,4 +17,14 @@ class COMPOSABLECAMERASYSTEM_API UComposableCameraCubicTransition
 
 public:
 	virtual FComposableCameraPose OnEvaluate_Implementation(float DeltaTime, const FComposableCameraPose& CurrentSourcePose, const FComposableCameraPose& CurrentTargetPose) override;
+
+	// `FMath::CubicInterp(0, 0, 1, 0, t)` — matches OnEvaluate's curve
+	// so the debug sparkline reads as the same cubic shape the camera
+	// actually blends with.
+	virtual float GetBlendWeightAt(float NormalizedTime) const override;
+
+#if !UE_BUILD_SHIPPING
+	// Gated on `CCS.Debug.Viewport.Transitions.Cubic`.
+	virtual void DrawTransitionDebug(UWorld* World, bool bViewerIsOutsideCamera) const override;
+#endif
 };

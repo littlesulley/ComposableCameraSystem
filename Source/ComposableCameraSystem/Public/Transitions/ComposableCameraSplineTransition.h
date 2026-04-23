@@ -80,9 +80,33 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (ClampMin = "-180", ClampMax = "180", EditCondition = "SplineType == EComposableCameraSplineTransitionType::Arc", EditConditionHides))
 	float ArcRoll { 0.f };
 
-private:
+public:
+	// The spline's TIMING curve (separate from its SPATIAL curve) is
+	// picked by `EvaluationCurveType`: Linear / Smooth / Smoother / Cubic.
+	// Exposed to the debug panel so the sparkline reads as the right
+	// shape for the authored timing mode.
+	virtual float GetBlendWeightAt(float NormalizedTime) const override;
 
-#if ENABLE_DRAW_DEBUG
-	void DrawDebugSpline(const FComposableCameraPose& StartPose, const FComposableCameraPose& TargetPose);
+#if !UE_BUILD_SHIPPING
+public:
+	// Gated on `CCS.Debug.Viewport.Transitions.Spline`. Draws the full
+	// spline curve as a 32-segment polyline in the accent color on top of
+	// the standard source/target/progress markers. Seeing the whole path
+	// is the whole point — this transition type's purpose is the shape.
+	virtual void DrawTransitionDebug(UWorld* World, bool bViewerIsOutsideCamera) const override;
+
+private:
+	/**
+	 * Evaluate the current spline configuration at parameter t ∈ [0, 1].
+	 * Used by both OnEvaluate (with `t = BlendWeight`) and DrawTransitionDebug
+	 * (to sample the whole curve). The two call sites must agree exactly or
+	 * the debug draw would lie about where the camera will go, so they share
+	 * one helper.
+	 *
+	 * @param t      Normalized curve parameter.
+	 * @param StartPos Spline start (source pose position for the active blend).
+	 * @param EndPos   Spline end   (target pose position for the active blend).
+	 */
+	FVector EvaluatePositionOnCurve(float t, const FVector& StartPos, const FVector& EndPos) const;
 #endif
 };

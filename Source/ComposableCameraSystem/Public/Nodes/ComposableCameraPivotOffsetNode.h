@@ -33,6 +33,10 @@ public:
 	virtual void OnTickNode_Implementation(float DeltaTime, const FComposableCameraPose& CurrentCameraPose, FComposableCameraPose& OutCameraPose) override;
 	virtual void GetPinDeclarations_Implementation(TArray<FComposableCameraNodePinDeclaration>& OutPins) const override;
 
+#if !UE_BUILD_SHIPPING
+	virtual void DrawNodeDebug(UWorld* World, bool bViewerIsOutsideCamera) const override;
+#endif
+
 protected:
 	
 public:
@@ -57,4 +61,11 @@ public:
 
 private:
 	void UpdatePivotOffset(const FVector& InPivot, const FComposableCameraPose& CurrentCameraPose);
+
+#if !UE_BUILD_SHIPPING
+	/** Cache of the final post-offset pivot this frame, written in UpdatePivotOffset
+	 *  and read by DrawNodeDebug. Output pins are not re-readable by name so we
+	 *  keep a mirror; only present in non-shipping builds. */
+	FVector LastComputedPivot { FVector::ZeroVector };
+#endif
 };

@@ -34,6 +34,10 @@ public:
 	virtual void OnPreTick(float DeltaTime, const FComposableCameraPose& CurrentCameraPose, FComposableCameraPose& OutCameraPose) override;
 	virtual void GetPinDeclarations_Implementation(TArray<FComposableCameraNodePinDeclaration>& OutPins) const override;
 
+#if !UE_BUILD_SHIPPING
+	virtual void DrawNodeDebug(UWorld* World, bool bViewerIsOutsideCamera) const override;
+#endif
+
 protected:
 	
 public:
@@ -114,4 +118,15 @@ private:
 	double CurrentDistanceFromCamera { 0. };
 
 	FVector OriginalCameraPosition;
+
+#if !UE_BUILD_SHIPPING
+	/** Cache populated in FindCollisionPoint each frame so DrawNodeDebug can
+	 *  repaint the trace + self-collision sphere without re-running the
+	 *  physics queries. All fields reset to ZeroVector / false each tick. */
+	mutable FVector LastTraceStart        { FVector::ZeroVector };
+	mutable FVector LastTraceEnd          { FVector::ZeroVector };
+	mutable FVector LastTraceHitLocation  { FVector::ZeroVector };
+	mutable FVector LastSelfSphereCenter  { FVector::ZeroVector };
+	mutable bool    bLastTraceBlocked     { false };
+#endif
 };

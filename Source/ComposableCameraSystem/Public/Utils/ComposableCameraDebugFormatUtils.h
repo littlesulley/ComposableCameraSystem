@@ -4,50 +4,63 @@
 
 #include "CoreMinimal.h"
 #include "Core/ComposableCameraRuntimeDataBlock.h"
+#include "Debug/ComposableCameraDebugPanelData.h"
+#include "Misc/StringBuilder.h"
 #include "Nodes/ComposableCameraNodePinTypes.h"
 #include "UObject/Class.h"
 
 /**
- * Namespace for debug formatting utilities used by both the ShowDebug HUD
- * (runtime) and the editor debug overlay (WITH_EDITOR).
+ * Debug formatters used by the ShowDebug HUD (runtime) and the editor debug
+ * overlay (WITH_EDITOR). Two faces per formatter:
  *
- * All functions allocate FStrings — they are intended for debug display,
- * not hot-path evaluation.
+ *   AppendX(Builder, ...)  — writes into a caller-provided FStringBuilderBase.
+ *                            Zero-alloc as long as the builder's inline buffer
+ *                            is big enough (TStringBuilder<256> comfortably
+ *                            fits any single pin value). Use this on any hot
+ *                            path that produces one text line per tick.
+ *
+ *   FormatX(...)           — returns a freshly-allocated FString. Thin
+ *                            wrapper around AppendX. Kept for cold call sites
+ *                            (property customizations, tests, showdebug
+ *                            sub-headers). Do NOT introduce new hot-path uses.
  */
 namespace ComposableCameraDebug
 {
-	/** Format a float to a compact display string. */
-	inline FString FormatFloat(double Value)
+	/** Append a float to the builder with 2-decimal precision. */
+	inline void AppendFloat(FStringBuilderBase& Builder, double Value)
 	{
-		return FString::Printf(TEXT("%.2f"), Value);
+		Builder.Appendf(TEXT("%.2f"), Value);
 	}
 
-	/** Format an FVector to a compact display string. */
-	inline FString FormatVector(const FVector& V)
+	/** Append an FVector in `(X, Y, Z)` form, 1-decimal precision. */
+	inline void AppendVector(FStringBuilderBase& Builder, const FVector& V)
 	{
-		return FString::Printf(TEXT("(%.1f, %.1f, %.1f)"), V.X, V.Y, V.Z);
+		Builder.Appendf(TEXT("(%.1f, %.1f, %.1f)"), V.X, V.Y, V.Z);
 	}
 
-	/** Format an FRotator to a compact display string. */
-	inline FString FormatRotator(const FRotator& R)
+	/** Append an FRotator in `(P=..., Y=..., R=...)` form, 1-decimal precision. */
+	inline void AppendRotator(FStringBuilderBase& Builder, const FRotator& R)
 	{
-		return FString::Printf(TEXT("(P=%.1f, Y=%.1f, R=%.1f)"), R.Pitch, R.Yaw, R.Roll);
+		Builder.Appendf(TEXT("(P=%.1f, Y=%.1f, R=%.1f)"), R.Pitch, R.Yaw, R.Roll);
 	}
 
-	/** Format an FTransform to a compact display string. */
-	inline FString FormatTransform(const FTransform& T)
+	/** Append an FTransform with Loc/Rot/Scale components. */
+	inline void AppendTransform(FStringBuilderBase& Builder, const FTransform& T)
 	{
-		return FString::Printf(TEXT("Loc %s Rot %s Scale %s"),
-			*FormatVector(T.GetLocation()),
-			*FormatRotator(T.GetRotation().Rotator()),
-			*FormatVector(T.GetScale3D()));
+		Builder.Append(TEXT("Loc "));
+		AppendVector(Builder, T.GetLocation());
+		Builder.Append(TEXT(" Rot "));
+		AppendRotator(Builder, T.GetRotation().Rotator());
+		Builder.Append(TEXT(" Scale "));
+		AppendVector(Builder, T.GetScale3D());
 	}
 
-	/** Read a typed value at a known byte offset from the data block and format as string.
-	 *  EnumType is consulted only when PinType == Enum; when supplied, the int64 slot is
-	 *  formatted as the corresponding entry name (e.g. "EMyEnum::Alpha"). When omitted
-	 *  for an Enum slot the raw int64 value is printed instead — debug-only fallback. */
-	inline FString FormatTypedValue(
+	/** Read a typed value at a byte offset from the data block and append as text.
+	 *  EnumType is consulted only when PinType == Enum; when supplied, the int64 slot
+	 *  is rendered as the authored entry name. When omitted for an Enum slot, the
+	 *  raw int64 is printed so debug output never silently lies about the slot. */
+	inline void AppendTypedValue(
+		FStringBuilderBase& Builder,
 		const FComposableCameraRuntimeDataBlock& DataBlock,
 		int32 Offset,
 		EComposableCameraPinType PinType,
@@ -56,69 +69,102 @@ namespace ComposableCameraDebug
 		switch (PinType)
 		{
 		case EComposableCameraPinType::Bool:
-			return DataBlock.ReadValue<bool>(Offset) ? TEXT("true") : TEXT("false");
+			Builder.Append(DataBlock.ReadValue<bool>(Offset) ? TEXT("true") : TEXT("false"));
+			break;
 		case EComposableCameraPinType::Int32:
-			return FString::FromInt(DataBlock.ReadValue<int32>(Offset));
+			Builder.Appendf(TEXT("%d"), DataBlock.ReadValue<int32>(Offset));
+			break;
 		case EComposableCameraPinType::Float:
-			return FormatFloat(DataBlock.ReadValue<float>(Offset));
+			AppendFloat(Builder, DataBlock.ReadValue<float>(Offset));
+			break;
 		case EComposableCameraPinType::Double:
-			return FormatFloat(DataBlock.ReadValue<double>(Offset));
+			AppendFloat(Builder, DataBlock.ReadValue<double>(Offset));
+			break;
 		case EComposableCameraPinType::Vector2D:
 		{
-			FVector2D V = DataBlock.ReadValue<FVector2D>(Offset);
-			return FString::Printf(TEXT("(%.1f, %.1f)"), V.X, V.Y);
+			const FVector2D V = DataBlock.ReadValue<FVector2D>(Offset);
+			Builder.Appendf(TEXT("(%.1f, %.1f)"), V.X, V.Y);
+			break;
 		}
 		case EComposableCameraPinType::Vector3D:
-			return FormatVector(DataBlock.ReadValue<FVector>(Offset));
+			AppendVector(Builder, DataBlock.ReadValue<FVector>(Offset));
+			break;
 		case EComposableCameraPinType::Vector4:
 		{
-			FVector4 V = DataBlock.ReadValue<FVector4>(Offset);
-			return FString::Printf(TEXT("(%.1f, %.1f, %.1f, %.1f)"), V.X, V.Y, V.Z, V.W);
+			const FVector4 V = DataBlock.ReadValue<FVector4>(Offset);
+			Builder.Appendf(TEXT("(%.1f, %.1f, %.1f, %.1f)"), V.X, V.Y, V.Z, V.W);
+			break;
 		}
 		case EComposableCameraPinType::Rotator:
-			return FormatRotator(DataBlock.ReadValue<FRotator>(Offset));
+			AppendRotator(Builder, DataBlock.ReadValue<FRotator>(Offset));
+			break;
 		case EComposableCameraPinType::Transform:
-			return FormatTransform(DataBlock.ReadValue<FTransform>(Offset));
+			AppendTransform(Builder, DataBlock.ReadValue<FTransform>(Offset));
+			break;
 		case EComposableCameraPinType::Actor:
 		{
 			AActor* Actor = DataBlock.ReadValue<AActor*>(Offset);
-			return IsValid(Actor) ? Actor->GetName() : TEXT("null");
+			if (IsValid(Actor))
+			{
+				Actor->GetFName().AppendString(Builder);
+			}
+			else
+			{
+				Builder.Append(TEXT("null"));
+			}
+			break;
 		}
 		case EComposableCameraPinType::Object:
 		{
 			UObject* Obj = DataBlock.ReadValue<UObject*>(Offset);
-			return IsValid(Obj) ? Obj->GetName() : TEXT("null");
+			if (IsValid(Obj))
+			{
+				Obj->GetFName().AppendString(Builder);
+			}
+			else
+			{
+				Builder.Append(TEXT("null"));
+			}
+			break;
 		}
 		case EComposableCameraPinType::Name:
 		{
 			const FName N = DataBlock.ReadValue<FName>(Offset);
-			return N.IsNone() ? TEXT("None") : N.ToString();
+			if (N.IsNone())
+			{
+				Builder.Append(TEXT("None"));
+			}
+			else
+			{
+				N.AppendString(Builder);
+			}
+			break;
 		}
 		case EComposableCameraPinType::Enum:
 		{
-			// Enum slots are normalized to int64 in the data block — see the
-			// EComposableCameraPinType::Enum branch of GetPinTypeSize and the
-			// thunk in ComposableCameraBlueprintLibrary.h. Resolve to the
-			// authored entry name when we know the UEnum, otherwise print the
-			// raw integer so debug output never silently lies about the slot.
 			const int64 IntVal = DataBlock.ReadValue<int64>(Offset);
 			if (EnumType)
 			{
-				return EnumType->GetNameStringByValue(IntVal);
+				Builder.Append(EnumType->GetNameStringByValue(IntVal));
 			}
-			return FString::Printf(TEXT("%lld"), IntVal);
+			else
+			{
+				Builder.Appendf(TEXT("%lld"), IntVal);
+			}
+			break;
 		}
 		case EComposableCameraPinType::Delegate:
-			// Delegates have no data block representation — they are written
-			// directly into the node's UPROPERTY at activation time.
-			return TEXT("(delegate)");
+			Builder.Append(TEXT("(delegate)"));
+			break;
 		default:
-			return TEXT("(struct)");
+			Builder.Append(TEXT("(struct)"));
+			break;
 		}
 	}
 
-	/** Read a typed output pin value from the data block and format as string. */
-	inline FString FormatOutputPinValue(
+	/** Read a typed output pin value from the data block and append as text. */
+	inline void AppendOutputPinValue(
+		FStringBuilderBase& Builder,
 		const FComposableCameraRuntimeDataBlock& DataBlock,
 		int32 NodeIndex,
 		FName PinName,
@@ -129,8 +175,123 @@ namespace ComposableCameraDebug
 		const int32* Offset = DataBlock.OutputPinOffsets.Find(Key);
 		if (!Offset)
 		{
-			return TEXT("(no data)");
+			Builder.Append(TEXT("(no data)"));
+			return;
 		}
-		return FormatTypedValue(DataBlock, *Offset, PinType, EnumType);
+		AppendTypedValue(Builder, DataBlock, *Offset, PinType, EnumType);
+	}
+
+	/** Append `N` spaces to the builder. */
+	inline void AppendIndent(FStringBuilderBase& Builder, int32 N)
+	{
+		for (int32 i = 0; i < N; ++i)
+		{
+			Builder.AppendChar(TEXT(' '));
+		}
+	}
+
+	/** Append one tree-node snapshot as a single text line (no trailing newline).
+	 *  `BaseIndentCols` is the number of spaces prefixed before the per-depth
+	 *  indent (2 spaces per Depth level). Used by both `showdebug camera` and
+	 *  any future dump command that emits the tree as text. */
+	inline void AppendTreeNodeLine(
+		FStringBuilderBase& Builder,
+		const FComposableCameraTreeNodeSnapshot& Node,
+		int32 BaseIndentCols)
+	{
+		AppendIndent(Builder, BaseIndentCols + Node.Depth * 2);
+
+		switch (Node.Kind)
+		{
+		case EComposableCameraTreeNodeKind::Leaf:
+			if (Node.bDestroyed)
+			{
+				Builder.Append(TEXT("[Leaf] (destroyed)"));
+			}
+			else
+			{
+				Builder.Append(TEXT("[Leaf] "));
+				Builder.Append(Node.DisplayLabel);
+				if (Node.bIsTransient)
+				{
+					Builder.Appendf(TEXT(" (transient, %.1f/%.1fs)"), Node.LifeElapsed, Node.LifeTotal);
+				}
+			}
+			break;
+
+		case EComposableCameraTreeNodeKind::ReferenceLeaf:
+			Builder.Append(TEXT("[RefLeaf] snapshot of "));
+			Builder.Append(Node.DisplayLabel);
+			break;
+
+		case EComposableCameraTreeNodeKind::InnerTransition:
+			if (Node.TransitionProgress >= 0.f)
+			{
+				Builder.Appendf(TEXT("[Transition] %s  %.0f%%  (%.2f/%.2fs)"),
+					*Node.DisplayLabel,
+					Node.TransitionProgress * 100.f,
+					Node.TransitionElapsed,
+					Node.TransitionTotal);
+			}
+			else
+			{
+				Builder.Append(TEXT("[Transition] (null)"));
+			}
+			break;
+		}
+	}
+
+	// ---- FString-returning wrappers — cold call sites only. ------------------
+	// These allocate. Prefer AppendX on any code that runs once per frame.
+
+	inline FString FormatFloat(double Value)
+	{
+		TStringBuilder<32> Builder;
+		AppendFloat(Builder, Value);
+		return FString(Builder);
+	}
+
+	inline FString FormatVector(const FVector& V)
+	{
+		TStringBuilder<64> Builder;
+		AppendVector(Builder, V);
+		return FString(Builder);
+	}
+
+	inline FString FormatRotator(const FRotator& R)
+	{
+		TStringBuilder<64> Builder;
+		AppendRotator(Builder, R);
+		return FString(Builder);
+	}
+
+	inline FString FormatTransform(const FTransform& T)
+	{
+		TStringBuilder<192> Builder;
+		AppendTransform(Builder, T);
+		return FString(Builder);
+	}
+
+	inline FString FormatTypedValue(
+		const FComposableCameraRuntimeDataBlock& DataBlock,
+		int32 Offset,
+		EComposableCameraPinType PinType,
+		const UEnum* EnumType = nullptr)
+	{
+		TStringBuilder<192> Builder;
+		AppendTypedValue(Builder, DataBlock, Offset, PinType, EnumType);
+		return FString(Builder);
+	}
+
+	inline FString FormatOutputPinValue(
+		const FComposableCameraRuntimeDataBlock& DataBlock,
+		int32 NodeIndex,
+		FName PinName,
+		EComposableCameraPinType PinType,
+		const UEnum* EnumType = nullptr)
+	{
+		TStringBuilder<192> Builder;
+		AppendOutputPinValue(Builder, DataBlock, NodeIndex, PinName, PinType, EnumType);
+		return FString(Builder);
 	}
 }

@@ -7,8 +7,25 @@
 #include "Kismet/GameplayStatics.h"
 #include "Kismet/KismetMathLibrary.h"
 #include "KismetTraceUtils.h"
-#include "EditorHooks/EditorHooks.h"
 #include "Kismet/KismetSystemLibrary.h"
+
+#if !UE_BUILD_SHIPPING
+#include "Debug/ComposableCameraViewportDebug.h"
+#include "DrawDebugHelpers.h"
+#include "HAL/IConsoleManager.h"
+
+namespace
+{
+	static TAutoConsoleVariable<int32> CVarShowCollisionPushGizmo(
+		TEXT("CCS.Debug.Viewport.CollisionPush"),
+		0,
+		TEXT("Show CollisionPushNode gizmos. Possessed play: trace sphere at pivot\n")
+		TEXT("(green = clear, red = blocked) + hit sphere if blocked. F8 eject:\n")
+		TEXT("adds the full pivot -> camera trace line and the self-collision\n")
+		TEXT("sphere around the camera. Requires `CCS.Debug.Viewport 1`."),
+		ECVF_Default);
+}
+#endif
 
 void UComposableCameraCollisionPushNode::OnInitialize_Implementation()
 {
@@ -214,22 +231,13 @@ FComposableCameraHitResult UComposableCameraCollisionPushNode::FindCollisionPoin
 	}
 
 	FHitResult TraceCollisionHit;
-#if ENABLE_DRAW_DEBUG
-	EDrawDebugTrace::Type DrawDebugType =
-		OwningPlayerCameraManager->bDrawDebugInformation ?
-		EDrawDebugTrace::ForOneFrame :
-		EDrawDebugTrace::None;
+	// Trace-builtin debug draw is intentionally disabled — visualisation is
+	// now routed through `UComposableCameraCameraNodeBase::DrawNodeDebug`
+	// (enabled via the `CCS.Debug.Viewport` CVar + F8 eject), using the
+	// cached trace state below. Letting KismetSystemLibrary paint its own
+	// debug here would stack two independent draw paths for the same trace.
+	constexpr EDrawDebugTrace::Type DrawDebugType = EDrawDebugTrace::None;
 
-#if WITH_EDITOR
-	if (!FIsSimulatingInEditor::GetIsSimulatingInEditor())
-	{
-		DrawDebugType = EDrawDebugTrace::None;
-	}
-#endif
-#else
-	EDrawDebugTrace::Type DrawDebugType = EDrawDebugTrace::None;
-#endif
-	
 	if (bTraceUseSphere)
 	{
 		UKismetSystemLibrary::SphereTraceSingle(this, Start, End, TraceSphereRadius, TraceCollisionChannel, true, ActorsToIgnore, DrawDebugType, TraceCollisionHit, true);
@@ -313,11 +321,82 @@ FComposableCameraHitResult UComposableCameraCollisionPushNode::FindCollisionPoin
 		}
 	}
 
+#if !UE_BUILD_SHIPPING
+	LastTraceStart       = Start;
+	LastTraceEnd         = End;
+	LastSelfSphereCenter = SelfCollisionStart;
+	bLastTraceBlocked    = TraceCollisionHit.bBlockingHit;
+	LastTraceHitLocation = TraceCollisionHit.bBlockingHit ? TraceCollisionHit.Location : End;
+#endif
+
 	return FComposableCameraHitResult  {
 		.bHasHit = PendingTargetPosition != CameraPosition,
 		.HitTargetLocation = PendingTargetPosition
 	};
 }
+
+#if !UE_BUILD_SHIPPING
+void UComposableCameraCollisionPushNode::DrawNodeDebug(UWorld* World, bool bViewerIsOutsideCamera) const
+{
+	if (!World) { return; }
+	if (CVarShowCollisionPushGizmo.GetValueOnGameThread() == 0
+		&& !FComposableCameraViewportDebug::ShouldShowAllNodeGizmos()) { return; }
+
+	// DepthPriority=1 (SDPG_Foreground) on every piece so the gizmos aren't
+	// occluded by the character mesh or world geometry they sit on/inside.
+	constexpr uint8 KForeground = 1;
+
+	// Possessed play: just the pivot sphere (and hit sphere if blocked). A
+	// line/arrow from pivot to camera is view-aligned in a standard 3rd-
+	// person setup and every variant tried failed to read reliably — the
+	// colour of the pivot sphere alone conveys "trace blocked this frame".
+	// F8 eject: draw the full pivot→camera trace line so the reader can see
+	// what the trace is checking from the outside viewpoint.
+	const FColor TraceColor = bLastTraceBlocked ? FColor(255, 80, 80) : FColor(80, 255, 120);
+
+	if (bViewerIsOutsideCamera)
+	{
+		DrawDebugLine(World, LastTraceStart, LastTraceEnd, TraceColor,
+			/*bPersistentLines=*/false, /*LifeTime=*/-1.f, KForeground, /*Thickness=*/0.f);
+	}
+
+	// Trace sphere at pivot (start) when using sphere trace — shows the actual
+	// query geometry. Line trace: just a small marker.
+	if (bTraceUseSphere)
+	{
+		FComposableCameraViewportDebug::DrawSolidDebugSphere(
+			World, LastTraceStart, static_cast<float>(TraceSphereRadius),
+			TraceColor, /*Alpha=*/90, /*Segments=*/16, KForeground);
+	}
+	else
+	{
+		DrawDebugPoint(World, LastTraceStart, /*Size=*/8.f, TraceColor,
+			/*bPersistentLines=*/false, /*LifeTime=*/-1.f, KForeground);
+	}
+
+	// Hit location — red sphere when blocked, to show where the push resolved to.
+	if (bLastTraceBlocked)
+	{
+		FComposableCameraViewportDebug::DrawSolidDebugSphere(
+			World, LastTraceHitLocation, /*Radius=*/5.f, FColor(255, 0, 0),
+			/*Alpha=*/140, /*Segments=*/12, KForeground);
+	}
+
+	// Self-collision sphere sits AT the camera's position — hermetically
+	// encloses the player's view during live gameplay. Only useful from
+	// outside the camera, so suppress unless the viewer IS outside
+	// (F8 eject / SIE / AlwaysShow). Same rationale as the frustum.
+	// Extra-low alpha (60) because this is the LARGEST sphere in the
+	// plugin (SelfSphereRadius can be 100+ units) — a solid translucent
+	// ball that big needs to stay ghost-like to not drown the view.
+	if (bViewerIsOutsideCamera)
+	{
+		FComposableCameraViewportDebug::DrawSolidDebugSphere(
+			World, LastSelfSphereCenter, static_cast<float>(SelfSphereRadius),
+			FColor(80, 200, 255), /*Alpha=*/60, /*Segments=*/16, KForeground);
+	}
+}
+#endif
 
 FVector UComposableCameraCollisionPushNode::StartResolveCollision(double DeltaTime, const FVector& TargetLocation,
 	const FVector& CameraPosition)

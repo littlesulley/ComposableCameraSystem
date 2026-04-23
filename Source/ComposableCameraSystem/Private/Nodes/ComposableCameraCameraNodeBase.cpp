@@ -81,8 +81,12 @@ void UComposableCameraCameraNodeBase::Initialize(AComposableCameraCameraBase* In
 	OnInitialize();
 }
 
+DECLARE_CYCLE_STAT(TEXT("Node TickNode"),            STAT_CCS_Node_TickNode,            STATGROUP_CCS);
+DECLARE_CYCLE_STAT(TEXT("Node ResolveAllInputPins"), STAT_CCS_Node_ResolveAllInputPins, STATGROUP_CCS);
+
 void UComposableCameraCameraNodeBase::TickNode(float DeltaTime, const FComposableCameraPose CurrentCameraPose, FComposableCameraPose& OutCameraPose)
 {
+	SCOPE_CYCLE_COUNTER(STAT_CCS_Node_TickNode);
 	TRACE_CPUPROFILER_EVENT_SCOPE(CCS_Node_TickNode);
 #if CPUPROFILERTRACE_ENABLED
 	FCpuProfilerTrace::FEventScope __NodeClassScope(CachedProfilerSpecId, *CachedNodeClassName, true, __FILE__, __LINE__);
@@ -319,6 +323,7 @@ const FComposableCameraNodePinBindingTable& UComposableCameraCameraNodeBase::Get
 
 void UComposableCameraCameraNodeBase::ResolveAllInputPins()
 {
+	SCOPE_CYCLE_COUNTER(STAT_CCS_Node_ResolveAllInputPins);
 	TRACE_CPUPROFILER_EVENT_SCOPE(CCS_Node_ResolveAllInputPins);
 
 	if (!RuntimeDataBlock)

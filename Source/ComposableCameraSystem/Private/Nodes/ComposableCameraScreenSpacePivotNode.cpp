@@ -4,14 +4,34 @@
 
 #include "Camera/CameraComponent.h"
 #include "Core/ComposableCameraPlayerCameraManager.h"
-#include "Engine/Canvas.h"
-#include "Engine/SceneCapture2D.h"
-#include "GameFramework/HUD.h"
 #include "Interpolator/ComposableCameraInterpolatorBase.h"
 #include "Kismet/GameplayStatics.h"
 #include "Kismet/KismetMathLibrary.h"
 #include "Math/ComposableCameraMath.h"
 #include "Utils/ComposableCameraViewportUtils.h"
+
+#if !UE_BUILD_SHIPPING
+#include "CanvasItem.h"
+#include "Debug/ComposableCameraViewportDebug.h"
+#include "DrawDebugHelpers.h"
+#include "Engine/Canvas.h"
+#include "Engine/LocalPlayer.h"
+#include "HAL/IConsoleManager.h"
+#include "SceneView.h"
+
+namespace
+{
+	static TAutoConsoleVariable<int32> CVarShowScreenSpacePivotGizmo(
+		TEXT("CCS.Debug.Viewport.ScreenSpacePivot"),
+		0,
+		TEXT("Show ScreenSpacePivotNode debug: teal sphere at world pivot (3D) +\n")
+		TEXT("2D HUD overlay with the safe-zone rectangle, its center marker, and\n")
+		TEXT("the projected pivot marker. Requires `CCS.Debug.Viewport 1`. The\n")
+		TEXT("2D overlay only draws during PIE possessed play / standalone (the\n")
+		TEXT("HUD pass doesn't fire during F8 eject); 3D sphere works everywhere."),
+		ECVF_Default);
+}
+#endif
 
 void UComposableCameraScreenSpacePivotNode::OnInitialize_Implementation()
 {
@@ -22,26 +42,6 @@ void UComposableCameraScreenSpacePivotNode::OnInitialize_Implementation()
 	ZInterpolator_T = TranslationParams.ZInterpolator ? TranslationParams.ZInterpolator->BuildDoubleInterpolator() : nullptr;
 	YawInterpolator_T = RotationParams.YawInterpolator ? RotationParams.YawInterpolator->BuildDoubleInterpolator() : nullptr;
 	PitchInterpolator_T = RotationParams.PitchInterpolator ? RotationParams.PitchInterpolator->BuildDoubleInterpolator() : nullptr;
-
-#if ENABLE_DRAW_DEBUG
-	// PCM + PlayerController + HUD are all required for the debug draw lambda.
-	// In the Level Sequence component path the PCM is null (see node's
-	// GetLevelSequenceCompatibility() == RequiresPCM); fall through without
-	// registering the debug-draw hook.
-	if (OwningPlayerCameraManager)
-	{
-		if (APlayerController* PC = OwningPlayerCameraManager->GetOwningPlayerController())
-		{
-			if (AHUD* HUD = PC->GetHUD())
-			{
-				DrawDebugHandle = HUD->OnHUDPostRender.AddLambda([this](AHUD* HUD, UCanvas* Canvas)
-				{
-					DrawDebugInfo(HUD, Canvas);
-				});
-			}
-		}
-	}
-#endif
 }
 
 void UComposableCameraScreenSpacePivotNode::OnTickNode_Implementation(float DeltaTime,
@@ -63,19 +63,6 @@ void UComposableCameraScreenSpacePivotNode::OnTickNode_Implementation(float Delt
 		// Write into OutCameraPose
 		OutCameraPose.Rotation = (OutCameraPose.Rotation + RotateAmount).GetNormalized();
 	}
-}
-
-void UComposableCameraScreenSpacePivotNode::BeginDestroy()
-{
-	Super::BeginDestroy();
-
-#if ENABLE_DRAW_DEBUG
-	if (OwningPlayerCameraManager)
-	{
-		AHUD* HUD = OwningPlayerCameraManager->GetOwningPlayerController()->GetHUD();
-		HUD->OnHUDPostRender.Remove(DrawDebugHandle);
-	}
-#endif
 }
 
 void UComposableCameraScreenSpacePivotNode::GetPinDeclarations_Implementation(TArray<FComposableCameraNodePinDeclaration>& OutPins) const
@@ -609,7 +596,7 @@ std::pair<float, float> UComposableCameraScreenSpacePivotNode::GetTanHalfHORAndA
 	return { DegTanHalfHOR, AspectRatio };
 }
 
-FVector UComposableCameraScreenSpacePivotNode::GetCurrentPivot()
+FVector UComposableCameraScreenSpacePivotNode::GetCurrentPivot() const
 {
 	switch (PivotSource)
 	{
@@ -635,80 +622,122 @@ FVector UComposableCameraScreenSpacePivotNode::GetCurrentPivot()
 	return FVector::ZeroVector;
 }
 
-#if ENABLE_DRAW_DEBUG
-void UComposableCameraScreenSpacePivotNode::DrawDebugInfo(AHUD* HUD, UCanvas* Canvas)
+#if !UE_BUILD_SHIPPING
+void UComposableCameraScreenSpacePivotNode::DrawNodeDebug(UWorld* World, bool /*bViewerIsOutsideCamera*/) const
 {
-	if (OwningPlayerCameraManager && OwningPlayerCameraManager->bDrawDebugInformation)
+	if (!World) { return; }
+	if (CVarShowScreenSpacePivotGizmo.GetValueOnGameThread() == 0
+		&& !FComposableCameraViewportDebug::ShouldShowAllNodeGizmos()) { return; }
+	// Sphere at the resolved world pivot. `GetCurrentPivot()` returns either
+	// `PivotWorldPosition` or `PivotActor->GetActorLocation() + up-offset`
+	// depending on `PivotSource` — same resolution the tick path uses.
+	constexpr uint8 KForeground = 1;
+	const FVector Pivot = GetCurrentPivot();
+	FComposableCameraViewportDebug::DrawSolidDebugSphere(
+		World, Pivot, /*Radius=*/8.f, FColor(80, 200, 180),
+		/*Alpha=*/100, /*Segments=*/12, KForeground);
+}
+
+namespace
+{
+	/** Filled translucent rect — Canvas equivalent of AHUD::DrawRect. */
+	void DrawCanvasRect(UCanvas* Canvas, float X, float Y, float W, float H, const FLinearColor& Color)
 	{
-		constexpr FLinearColor RectColor = FLinearColor(0.8f, 0.9f, 1.0f, 0.8f);
-		constexpr FLinearColor CenterColor = FLinearColor(0.7f, 0.9f, 1.0f, 0.8f);
-		constexpr FLinearColor PivotCenterColor = FLinearColor(0.6f, 0.78f, 1.0f, 0.8f);
-		constexpr float Radius = 5.0f;
+		FCanvasTileItem Tile(FVector2D(X, Y), FVector2D(W, H), Color);
+		Tile.BlendMode = SE_BLEND_Translucent;
+		Canvas->DrawItem(Tile);
+	}
+}
 
-		int32 ScreenWidth = Canvas->SizeX;
-		int32 ScreenHeight = Canvas->SizeY;
-		
-		if (!OwningCamera->GetCameraComponent()->bConstrainAspectRatio)
+void UComposableCameraScreenSpacePivotNode::DrawNodeDebug2D(UCanvas* Canvas, APlayerController* PC) const
+{
+	if (!Canvas) { return; }
+	if (CVarShowScreenSpacePivotGizmo.GetValueOnGameThread() == 0
+		&& !FComposableCameraViewportDebug::ShouldShowAllNodeGizmos()) { return; }
+	if (!IsValid(OwningCamera) || !OwningCamera->GetCameraComponent()) { return; }
+
+	// Preserves the exact math of the original HUD-PostRender implementation.
+	// The constrained-aspect-ratio branch in particular uses the LocalPlayer's
+	// ProjectionData to account for the letterboxed viewport offset — if you
+	// simplify to a single branch you get the safe-zone drawn in the wrong
+	// place in letterboxed PIE sessions. Don't collapse the two cases.
+	constexpr FLinearColor RectColor        (0.8f, 0.9f, 1.0f, 0.8f);
+	constexpr FLinearColor CenterColor      (0.7f, 0.9f, 1.0f, 0.8f);
+	constexpr FLinearColor PivotCenterColor (0.6f, 0.78f, 1.0f, 0.8f);
+	constexpr float Radius = 5.0f;
+
+	const int32 ScreenWidth  = Canvas->SizeX;
+	const int32 ScreenHeight = Canvas->SizeY;
+
+	const FVector Pivot = GetCurrentPivot();
+
+	if (!OwningCamera->GetCameraComponent()->bConstrainAspectRatio)
+	{
+		const float ScreenX = (SafeZoneCenter.X + 0.5f + SafeZoneWidth.X)  * ScreenWidth;
+		const float ScreenY = (-SafeZoneCenter.Y + 0.5f - SafeZoneHeight.Y) * ScreenHeight;
+		const float ScreenW = (SafeZoneWidth.Y  - SafeZoneWidth.X)  * ScreenWidth;
+		const float ScreenH = (SafeZoneHeight.Y - SafeZoneHeight.X) * ScreenHeight;
+		DrawCanvasRect(Canvas, ScreenX, ScreenY, ScreenW, ScreenH, RectColor);
+
+		const float CenterX = (SafeZoneCenter.X + 0.5f) * ScreenWidth;
+		const float CenterY = (-SafeZoneCenter.Y + 0.5f) * ScreenHeight;
+		DrawCanvasRect(Canvas, CenterX - Radius, CenterY - Radius, 2.f * Radius, 2.f * Radius, CenterColor);
+
+		FVector2D ScreenPosition;
+		if (PC && UGameplayStatics::ProjectWorldToScreen(PC, Pivot, ScreenPosition))
 		{
-			float ScreenX = (SafeZoneCenter.X + 0.5f + SafeZoneWidth.X) * ScreenWidth;
-			float ScreenY = (-SafeZoneCenter.Y + 0.5f - SafeZoneHeight.Y) * ScreenHeight;
-			float ScreenW = (SafeZoneWidth.Y - SafeZoneWidth.X) * ScreenWidth;
-			float ScreenH = (SafeZoneHeight.Y - SafeZoneHeight.X) * ScreenHeight;
-			HUD->DrawRect(RectColor, ScreenX, ScreenY, ScreenW, ScreenH);
+			DrawCanvasRect(Canvas,
+				ScreenPosition.X - Radius, ScreenPosition.Y - Radius,
+				2.f * Radius, 2.f * Radius, PivotCenterColor);
+		}
+	}
+	else
+	{
+		const float ViewportAspectRatio = 1.0f * ScreenWidth / ScreenHeight;
+		const float AspectRatio = OwningCamera->GetCameraComponent()->AspectRatio;
 
-			float CenterX = (SafeZoneCenter.X + 0.5f) * ScreenWidth;
-			float CenterY = (-SafeZoneCenter.Y + 0.5f) * ScreenHeight;
-			HUD->DrawRect(CenterColor, CenterX - Radius, CenterY - Radius, 2 * Radius, 2 * Radius);
-	
-			FVector2D ScreenPosition;
-			FVector Pivot = GetCurrentPivot();
-			UGameplayStatics::ProjectWorldToScreen(OwningPlayerCameraManager->GetOwningPlayerController(), Pivot, ScreenPosition);
-			HUD->DrawRect(PivotCenterColor, ScreenPosition.X - Radius, ScreenPosition.Y - Radius, 2 * Radius, 2 * Radius);
+		float ClampedScreenWidth  = ScreenWidth;
+		float ClampedScreenHeight = ScreenHeight;
+		if (ViewportAspectRatio > AspectRatio)
+		{
+			ClampedScreenWidth = ScreenHeight * AspectRatio;
 		}
 		else
 		{
-			float ViewportAspectRatio = 1.0f * ScreenWidth / ScreenHeight;
-			float AspectRatio = OwningCamera->GetCameraComponent()->AspectRatio;
-			
-			float ClampedScreenWidth = ScreenWidth;
-			float ClampedScreenHeight = ScreenHeight;
-			
-			if (ViewportAspectRatio > AspectRatio)
-			{
-				ClampedScreenWidth = ScreenHeight * AspectRatio;
-			}
-			else
-			{
-				ClampedScreenHeight = ScreenWidth / AspectRatio;
-			}
+			ClampedScreenHeight = ScreenWidth / AspectRatio;
+		}
 
-			FVector2D ScreenOffset = FVector2D::ZeroVector;
-			ULocalPlayer* const LP = OwningPlayerCameraManager->GetOwningPlayerController() ? OwningPlayerCameraManager->GetOwningPlayerController()->GetLocalPlayer() : nullptr;
-			
-			if (LP && LP->ViewportClient)
-			{
-				FSceneViewProjectionData ProjectionData;
-				LP->GetProjectionData(LP->ViewportClient->Viewport, ProjectionData);
-				ScreenOffset = FVector2D(ProjectionData.GetConstrainedViewRect().Min);
-			}
-			
-			float RatioX = ClampedScreenWidth / ScreenWidth;
-			float RatioY = ClampedScreenHeight / ScreenHeight;
-			
-			float ScreenX = (SafeZoneCenter.X * RatioX + 0.5f + SafeZoneWidth.X * RatioX) * ScreenWidth - ScreenOffset.X;
-			float ScreenY = (-SafeZoneCenter.Y * RatioY + 0.5f - SafeZoneHeight.Y * RatioY) * ScreenHeight - ScreenOffset.Y;
-			float ScreenW = (SafeZoneWidth.Y * RatioX - SafeZoneWidth.X * RatioX) * ScreenWidth;
-			float ScreenH = (SafeZoneHeight.Y * RatioY - SafeZoneHeight.X * RatioY) * ScreenHeight;
-			HUD->DrawRect(RectColor, ScreenX, ScreenY, ScreenW, ScreenH);
-			
-			float CenterX = (SafeZoneCenter.X * RatioX + 0.5f) * ScreenWidth - ScreenOffset.X;
-			float CenterY = (-SafeZoneCenter.Y * RatioY + 0.5f) * ScreenHeight - ScreenOffset.Y;
-			HUD->DrawRect(CenterColor, CenterX - Radius, CenterY - Radius, 2 * Radius, 2 * Radius);
-	
-			FVector2D ScreenPosition;
-			FVector Pivot = GetCurrentPivot();
-			UGameplayStatics::ProjectWorldToScreen(OwningPlayerCameraManager->GetOwningPlayerController(), Pivot, ScreenPosition, true);
-			HUD->DrawRect(PivotCenterColor, ScreenPosition.X - Radius, ScreenPosition.Y - Radius, 2 * Radius, 2 * Radius);
+		// Read the letterboxed-viewport offset via the LocalPlayer's projection
+		// data — this is the step that keeps the rect aligned when PIE runs
+		// windowed with a pillar-boxed game area.
+		FVector2D ScreenOffset = FVector2D::ZeroVector;
+		ULocalPlayer* const LP = PC ? PC->GetLocalPlayer() : nullptr;
+		if (LP && LP->ViewportClient)
+		{
+			FSceneViewProjectionData ProjectionData;
+			LP->GetProjectionData(LP->ViewportClient->Viewport, ProjectionData);
+			ScreenOffset = FVector2D(ProjectionData.GetConstrainedViewRect().Min);
+		}
+
+		const float RatioX = ClampedScreenWidth  / ScreenWidth;
+		const float RatioY = ClampedScreenHeight / ScreenHeight;
+
+		const float ScreenX = (SafeZoneCenter.X * RatioX + 0.5f + SafeZoneWidth.X  * RatioX) * ScreenWidth  - ScreenOffset.X;
+		const float ScreenY = (-SafeZoneCenter.Y * RatioY + 0.5f - SafeZoneHeight.Y * RatioY) * ScreenHeight - ScreenOffset.Y;
+		const float ScreenW = (SafeZoneWidth.Y  * RatioX - SafeZoneWidth.X  * RatioX) * ScreenWidth;
+		const float ScreenH = (SafeZoneHeight.Y * RatioY - SafeZoneHeight.X * RatioY) * ScreenHeight;
+		DrawCanvasRect(Canvas, ScreenX, ScreenY, ScreenW, ScreenH, RectColor);
+
+		const float CenterX = (SafeZoneCenter.X  * RatioX + 0.5f) * ScreenWidth  - ScreenOffset.X;
+		const float CenterY = (-SafeZoneCenter.Y * RatioY + 0.5f) * ScreenHeight - ScreenOffset.Y;
+		DrawCanvasRect(Canvas, CenterX - Radius, CenterY - Radius, 2.f * Radius, 2.f * Radius, CenterColor);
+
+		FVector2D ScreenPosition;
+		if (PC && UGameplayStatics::ProjectWorldToScreen(PC, Pivot, ScreenPosition, /*bPlayerViewportRelative=*/true))
+		{
+			DrawCanvasRect(Canvas,
+				ScreenPosition.X - Radius, ScreenPosition.Y - Radius,
+				2.f * Radius, 2.f * Radius, PivotCenterColor);
 		}
 	}
 }

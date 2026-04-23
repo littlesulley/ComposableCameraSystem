@@ -3,6 +3,24 @@
 #include "Transitions/ComposableCameraSmoothTransition.h"
 #include "Math/ComposableCameraMath.h"
 
+#if !UE_BUILD_SHIPPING
+#include "Debug/ComposableCameraViewportDebug.h"
+#include "DrawDebugHelpers.h"
+#include "Engine/World.h"
+#include "HAL/IConsoleManager.h"
+#include "SceneManagement.h"   // SDPG_Foreground
+
+namespace
+{
+	static TAutoConsoleVariable<int32> CVarShowSmoothTransitionGizmo(
+		TEXT("CCS.Debug.Viewport.Transitions.Smooth"),
+		0,
+		TEXT("Show SmoothTransition gizmo (source/target/progress in gold accent).\n")
+		TEXT("Requires `CCS.Debug.Viewport 1`. Gizmo disappears when the transition finishes."),
+		ECVF_Default);
+}
+#endif
+
 FComposableCameraPose UComposableCameraSmoothTransition::OnEvaluate_Implementation(float DeltaTime,
 	const FComposableCameraPose& CurrentSourcePose, const FComposableCameraPose& CurrentTargetPose)
 {
@@ -15,3 +33,34 @@ FComposableCameraPose UComposableCameraSmoothTransition::OnEvaluate_Implementati
 
 	return CurrentPose;
 }
+
+float UComposableCameraSmoothTransition::GetBlendWeightAt(float NormalizedTime) const
+{
+	// Mirrors the OnEvaluate branch exactly — SmootherStep vs SmoothStep,
+	// whichever the authored `bSmootherStep` flag picks. Pure math, no
+	// state reads, safe to call many times per frame from the snapshot
+	// sampler.
+	const float T = FMath::Clamp(NormalizedTime, 0.f, 1.f);
+	return bSmootherStep
+		? ComposableCameraSystem::SmootherStep(T)
+		: ComposableCameraSystem::SmoothStep(T);
+}
+
+#if !UE_BUILD_SHIPPING
+void UComposableCameraSmoothTransition::DrawTransitionDebug(UWorld* World, bool bViewerIsOutsideCamera) const
+{
+	if (!World) { return; }
+	if (CVarShowSmoothTransitionGizmo.GetValueOnGameThread() == 0
+		&& !FComposableCameraViewportDebug::ShouldShowAllTransitionGizmos()) { return; }
+
+	// Gold accent — warm, rich, distinct from Linear's neutral grey.
+	static const FColor AccentColor { 255, 220, 100 };
+
+	DrawStandardTransitionDebug(World, bViewerIsOutsideCamera, AccentColor);
+
+	// Path is a straight line — position lerps linearly in space; only the
+	// smooth-step / smoother-step timing curve differs from Linear.
+	DrawDebugLine(World, LastDebugSource.Position, LastDebugTarget.Position, AccentColor,
+		false, -1.f, SDPG_Foreground, /*Thickness=*/0.f);
+}
+#endif

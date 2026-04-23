@@ -7,6 +7,10 @@
 #include "Transitions/ComposableCameraTransitionBase.h"
 #include "ComposableCameraNamespaces.h"
 #include "Core/ComposableCameraParameterBlock.h"
+// Always included — `GetPoseHistory` is part of the public surface even
+// in shipping builds (returns an empty array there). Keeps the Panel
+// cpp linkable without per-configuration #ifs around every call site.
+#include "Debug/ComposableCameraPoseHistoryData.h"
 #include "ComposableCameraPlayerCameraManager.generated.h"
 
 class UComposableCameraActionBase;
@@ -155,6 +159,41 @@ public:
 		return CurrentCameraPose;
 	}
 
+	/** Read-only access to the Tier-1 context stack. Intended for debug
+	 *  tooling (FComposableCameraDebugPanel, editor inspectors, tests).
+	 *  Gameplay code should go through the PCM's ActivateCamera / Pop*
+	 *  methods — do not mutate the stack through this pointer. */
+	const UComposableCameraContextStack* GetContextStack() const { return ContextStack; }
+
+	/** Read-only access to the modifier manager. Intended for debug tooling
+	 *  (FComposableCameraDebugPanel's Modifier region). Gameplay code
+	 *  should go through `AddModifier` / `RemoveModifier` on the PCM,
+	 *  which also triggers reactivation on change. */
+	const UComposableCameraModifierManager* GetModifierManager() const { return ModifierManager; }
+
+	/**
+	 * Copy the per-frame pose history ring into `OutHistory`, oldest entry
+	 * first. The PCM captures one entry per `DoUpdateCamera` tick after
+	 * the current-frame pose is finalized; capacity caps at
+	 * `PoseHistoryCapacity` frames (~2 s at 60 fps).
+	 *
+	 * Debug-only consumer: the Pose History panel reads this every frame
+	 * to render sparklines and hover tooltips. Not exposed to Blueprint —
+	 * gameplay code should not depend on it.
+	 *
+	 * In shipping builds this is a no-op returning an empty array (the
+	 * ring itself is `#if !UE_BUILD_SHIPPING`). The signature is kept in
+	 * all configurations so panel code can call it unconditionally
+	 * without per-config `#if` guards at every call site.
+	 */
+	void GetPoseHistory(TArray<FComposableCameraPoseHistoryEntry>& OutHistory) const;
+
+	/** Fixed ring-buffer capacity. 120 frames ≈ 2 seconds at 60 fps, which
+	 *  is enough to catch the "what happened half a second ago?" class of
+	 *  debug questions without blowing memory. Per-entry footprint is
+	 *  ~48 bytes so total is ~6 KB per PCM. */
+	static constexpr int32 PoseHistoryCapacity = 120;
+
 protected:
 	FMinimalViewInfo GetCameraViewFromCameraPose(const FComposableCameraPose& OutPose) const;
 	virtual void DoUpdateCamera(float DeltaTime) override;
@@ -235,10 +274,6 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ComposableCameraSystem")
 	bool bSyncToControlRotation { false };
 
-	// Whether to draw debug information during runtime.
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ComposableCameraSystem")
-	bool bDrawDebugInformation { false };
-
 	// The currently active context name (debug, read-only).
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Transient, Category = "ComposableCameraSystem")
 	FName CurrentContext;
@@ -274,4 +309,31 @@ private:
 	 *  Super::SetViewTarget as part of its bookkeeping — the guard prevents
 	 *  that from recursing back into implicit activation. */
 	bool bIsImplicitlyActivating { false };
+
+#if !UE_BUILD_SHIPPING
+	// ─── Pose History Ring Buffer (debug only) ───────────────────────────
+	//
+	// Flat fixed-size array + head index. Writer advances HeadIndex each
+	// frame; reader copies out into a chronological TArray by walking
+	// from HeadIndex forward (oldest) to HeadIndex - 1 (newest).
+	//
+	// Ring grows up to PoseHistoryCapacity entries during the warm-up,
+	// then stays at full capacity with overwrite-oldest semantics. No
+	// allocation on the hot path past the initial reserve.
+	TArray<FComposableCameraPoseHistoryEntry> PoseHistoryRing;
+	int32                                     PoseHistoryHead      = 0;     // next write index
+	int32                                     PoseHistoryCountUsed = 0;     // # entries actually populated (up to capacity)
+
+	/** Capture one frame into the ring. Called from `DoUpdateCamera` after
+	 *  `CurrentCameraPose` is finalized. */
+	void CaptureCurrentFrameToPoseHistory();
+
+public:
+	/** Whether the pose-history ring buffer is currently frozen (driven by
+	 *  `CCS.Debug.Panel.PoseHistory.Freeze`). Read-only accessor for the
+	 *  debug panel so it can render a `[FROZEN]` indicator in the title bar
+	 *  without having to duplicate the CVar declaration. Debug-only; not
+	 *  declared outside `!UE_BUILD_SHIPPING`. */
+	static bool IsPoseHistoryFrozen();
+#endif
 };

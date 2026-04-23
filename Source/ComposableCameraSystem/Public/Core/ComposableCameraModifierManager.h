@@ -51,6 +51,11 @@ public:
 
 	FComposableCameraModifierData& GetModifierData() { return ModifierData; }
 
+	/** Const overload for read-only access (debug tooling / inspectors).
+	 *  Returns the same struct by const reference — callers can iterate
+	 *  the ModifierData / EffectiveModifiers maps but cannot mutate them. */
+	const FComposableCameraModifierData& GetModifierData() const { return ModifierData; }
+
 private:
 	FComposableCameraModifierData ModifierData;
 };
