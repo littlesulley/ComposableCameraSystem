@@ -829,54 +829,83 @@ bool FComposableCameraTypeAssetEditorToolkit::CanCopySelectedNodes() const
 
 void FComposableCameraTypeAssetEditorToolkit::PasteNodes()
 {
-	if (!GraphEditorWidget.IsValid() || !NodeGraph)
-	{
-		return;
-	}
+    if (!GraphEditorWidget.IsValid() || !NodeGraph)
+    {
+        return;
+    }
 
-	FString ClipboardText;
-	FPlatformApplicationMisc::ClipboardPaste(ClipboardText);
+    FString ClipboardText;
+    FPlatformApplicationMisc::ClipboardPaste(ClipboardText);
 
-	const FScopedTransaction Transaction(
-		LOCTEXT("PasteNodes", "Paste Camera Nodes"));
-	NodeGraph->Modify();
+    // Where to drop the paste. SGraphEditor::GetPasteLocation returns the
+    // mouse position in graph-space when the cursor is over the graph
+    // editor, otherwise the graph view's center. Either way it's a
+    // position the user just looked at, so the paste lands somewhere
+    // they'll find immediately rather than stacked behind the source
+    // nodes (the old `+50, +50` offset placed copies inside the originals'
+    // outline at typical zoom levels — easy to miss). Captured BEFORE the
+    // transaction begins so any UI hit-test is against the pre-import
+    // state.
+    const FVector2D PasteLocation = GraphEditorWidget->GetPasteLocation();
 
-	// Import the serialized graph nodes into the graph. This reconstructs
-	// the UEdGraphNode subclass instances (with their non-Transient fields)
-	// and any inter-node pin connections that existed at copy time.
-	TSet<UEdGraphNode*> PastedNodes;
-	FEdGraphUtilities::ImportNodesFromText(NodeGraph, ClipboardText, /*out*/ PastedNodes);
+    const FScopedTransaction Transaction(
+        LOCTEXT("PasteNodes", "Paste Camera Nodes"));
+    NodeGraph->Modify();
 
-	// Offset pasted nodes so they don't overlap the originals.
-	constexpr int32 PasteOffsetX = 50;
-	constexpr int32 PasteOffsetY = 50;
-	for (UEdGraphNode* Node : PastedNodes)
-	{
-		Node->NodePosX += PasteOffsetX;
-		Node->NodePosY += PasteOffsetY;
-	}
+    // Import the serialized graph nodes into the graph. This reconstructs
+    // the UEdGraphNode subclass instances (with their non-Transient fields)
+    // and any inter-node pin connections that existed at copy time. Imported
+    // nodes carry their ORIGINAL NodePos values from the source graph; we
+    // re-anchor below so multi-node pastes preserve their relative layout
+    // while landing centered on the cursor.
+    TSet<UEdGraphNode*> PastedNodes;
+    FEdGraphUtilities::ImportNodesFromText(NodeGraph, ClipboardText, /*out*/ PastedNodes);
 
-	// Run post-paste fixup on each node. For camera graph nodes this
-	// adopts the copy-paste transport template as the live NodeTemplate
-	// and reparents it under the TypeAsset (see
-	// UComposableCameraNodeGraphNode::PostPasteNode).
-	for (UEdGraphNode* Node : PastedNodes)
-	{
-		Node->PostPasteNode();
-		Node->SnapToGrid(SNodePanel::GetSnapGridSize());
-	}
+    if (PastedNodes.Num() > 0)
+    {
+        // Compute the source-side centroid of the paste, then translate the
+        // whole cluster so the centroid lands at PasteLocation. Multi-node
+        // pastes preserve relative spatial layout; single-node pastes drop
+        // the node exactly at the cursor.
+        FVector2D Centroid(0.0, 0.0);
+        for (const UEdGraphNode* Node : PastedNodes)
+        {
+            Centroid.X += Node->NodePosX;
+            Centroid.Y += Node->NodePosY;
+        }
+        Centroid /= static_cast<double>(PastedNodes.Num());
 
-	// Sync the updated graph back to the type asset so the new nodes
-	// get slots in NodeTemplates / PinConnections / VariableNodes.
-	NodeGraph->SyncToTypeAsset();
-	NodeGraph->NotifyGraphChanged();
+        const FVector2D Delta = PasteLocation - Centroid;
+        for (UEdGraphNode* Node : PastedNodes)
+        {
+            Node->NodePosX = FMath::RoundToInt(static_cast<double>(Node->NodePosX) + Delta.X);
+            Node->NodePosY = FMath::RoundToInt(static_cast<double>(Node->NodePosY) + Delta.Y);
+        }
+    }
 
-	// Select only the pasted nodes so the user can immediately drag them.
-	GraphEditorWidget->ClearSelectionSet();
-	for (UEdGraphNode* Node : PastedNodes)
-	{
-		GraphEditorWidget->SetNodeSelection(Node, true);
-	}
+    // Run post-paste fixup on each node. For camera graph nodes this
+    // adopts the copy-paste transport template as the live NodeTemplate
+    // and reparents it under the TypeAsset (see
+    // UComposableCameraNodeGraphNode::PostPasteNode). SnapToGrid runs
+    // after the cursor-anchor translation so the final position is on
+    // grid even when the cursor wasn't.
+    for (UEdGraphNode* Node : PastedNodes)
+    {
+        Node->PostPasteNode();
+        Node->SnapToGrid(SNodePanel::GetSnapGridSize());
+    }
+
+    // Sync the updated graph back to the type asset so the new nodes
+    // get slots in NodeTemplates / PinConnections / VariableNodes.
+    NodeGraph->SyncToTypeAsset();
+    NodeGraph->NotifyGraphChanged();
+
+    // Select only the pasted nodes so the user can immediately drag them.
+    GraphEditorWidget->ClearSelectionSet();
+    for (UEdGraphNode* Node : PastedNodes)
+    {
+        GraphEditorWidget->SetNodeSelection(Node, true);
+    }
 }
 
 bool FComposableCameraTypeAssetEditorToolkit::CanPasteNodes() const

@@ -185,6 +185,16 @@ private:
 	 *  PostLoad/PostPlacedNewNode, cleared in BeginDestroy. */
 	FDelegateHandle ObjectPropertyChangedHandle;
 
+	/** Re-entrancy guard for pin reconstruction. Set while
+	 *  ReallocatePinsDuringReconstruction is running so that transient pin
+	 *  notifications fired by the engine's pin-rewire phase
+	 *  (PinDefaultValueChanged on a freshly-created, not-yet-initialised
+	 *  CameraTypeAsset pin) or external property-change broadcasts
+	 *  (FCoreUObjectDelegates::OnObjectPropertyChanged firing during asset load /
+	 *  save) cannot kick off a nested ReconstructNode that would wipe
+	 *  UserOverrideNames mid-operation. Transient — never serialised. */
+	bool bIsReconstructing = false;
+
 public:
 	// ─── Well-Known Pin Names ─────────────────────────────────────────────
 	static const FName PN_PlayerIndex;

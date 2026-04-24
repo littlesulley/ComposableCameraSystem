@@ -70,6 +70,20 @@ public:
 
 	virtual bool TryCreateConnection(UEdGraphPin* A, UEdGraphPin* B) const override;
 
+	// ─── Connection Removal ───────────────────────────────────────────
+	// Wire removal has the same refresh contract as wire creation: update
+	// the underlying UEdGraphPin state, then sync to the TypeAsset so
+	// PinConnections is truthful, then NotifyGraphChanged so Slate
+	// rebuilds ErrorText / UpdateErrorInfo widgets (UE's default
+	// implementations skip both, leaving stale validation badges and a
+	// TypeAsset with phantom connections).
+
+	virtual void BreakSinglePinLink(UEdGraphPin* SourcePin, UEdGraphPin* TargetPin) const override;
+
+	virtual void BreakPinLinks(UEdGraphPin& TargetPin, bool bSendsNodeNotification) const override;
+
+	virtual void BreakNodeLinks(UEdGraphNode& TargetNode) const override;
+
 	// ─── Context Menu ──────────────────────────────────────────────────
 
 	virtual void GetGraphContextActions(

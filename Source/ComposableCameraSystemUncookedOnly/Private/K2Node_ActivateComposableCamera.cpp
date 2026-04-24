@@ -154,6 +154,16 @@ void UK2Node_ActivateComposableCamera::PinDefaultValueChanged(UEdGraphPin* Pin)
 {
 	Super::PinDefaultValueChanged(Pin);
 
+	// Skip during active reconstruction: the engine's pin-rewire phase can fire
+	// this notification on the freshly-created CameraTypeAsset pin BEFORE the
+	// saved DefaultObject has been transferred from OldPins, producing a
+	// transient "asset is null" state. Acting on it would wipe UserOverrideNames
+	// via OnCameraTypeAssetChanged's else-branch and corrupt the next pin pass.
+	if (bIsReconstructing)
+	{
+		return;
+	}
+
 	if (Pin && Pin->PinName == PN_CameraTypeAsset)
 	{
 		OnCameraTypeAssetChanged();
@@ -163,6 +173,14 @@ void UK2Node_ActivateComposableCamera::PinDefaultValueChanged(UEdGraphPin* Pin)
 void UK2Node_ActivateComposableCamera::PinConnectionListChanged(UEdGraphPin* Pin)
 {
 	Super::PinConnectionListChanged(Pin);
+
+	// Same rationale as PinDefaultValueChanged: the base reconstruction's link
+	// transfer can fire this mid-reconstruction. A nested ReconstructNode in that
+	// window would double-allocate pins and drop UserOverrideNames.
+	if (bIsReconstructing)
+	{
+		return;
+	}
 
 	if (Pin && Pin->PinName == PN_CameraTypeAsset)
 	{
@@ -285,6 +303,45 @@ void UK2Node_ActivateComposableCamera::PostPlacedNewNode()
 
 void UK2Node_ActivateComposableCamera::ReallocatePinsDuringReconstruction(TArray<UEdGraphPin*>& OldPins)
 {
+	// Re-entrancy guard. The engine's Super::ReallocatePinsDuringReconstruction
+	// below invokes RewireOldPinsToNewPins, which transfers OldPin default
+	// values / link state onto the freshly-created new pins. On the
+	// CameraTypeAsset pin this transfer can surface as a PinDefaultValueChanged
+	// notification against the new pin while its DefaultObject is still null,
+	// and external subscribers (our own OnObjectPropertyChanged handler being
+	// one) can also fire during load. Both would call through to a nested
+	// ReconstructNode that observes a torn UserOverrideNames state and silently
+	// drops user-authored override pins (the symptom: "pin X no longer exists"
+	// on the next editor restart). The guard ensures those notifications
+	// short-circuit while this pass is in flight.
+	TGuardValue<bool> ReconstructionGuard(bIsReconstructing, true);
+
+	// Stale-state self-heal for CachedTypeAsset. Blueprints saved by a build
+	// that predates the re-entrancy guard above may have ended up with
+	// CachedTypeAsset == nullptr while the saved CameraTypeAsset pin still
+	// carries a valid DefaultObject — the original bug nulled CachedTypeAsset
+	// (via OnCameraTypeAssetChanged's else-branch) without disturbing the pin.
+	// Once that desync is on disk, no path naturally recovers it: the only
+	// writer of CachedTypeAsset is OnCameraTypeAssetChanged, which only fires
+	// from PinDefaultValueChanged, which is not re-issued on plain blueprint
+	// load. The result is an empty CachedTypeAsset on every reload, which
+	// makes CreateDynamicParameterPins skip every dynamic pin and orphans
+	// every author-wired override (e.g. "FollowTarget no longer exists").
+	// Recover by reading the asset pin's DefaultObject directly out of OldPins
+	// before any downstream code (the LinkedTo self-heal below, the Super call
+	// that runs CreateDynamicParameterPins) consults CachedTypeAsset.
+	if (CachedTypeAsset == nullptr)
+	{
+		for (const UEdGraphPin* OldPin : OldPins)
+		{
+			if (OldPin && OldPin->PinName == PN_CameraTypeAsset && OldPin->DefaultObject)
+			{
+				CachedTypeAsset = Cast<UComposableCameraTypeAsset>(OldPin->DefaultObject);
+				break;
+			}
+		}
+	}
+
 	// Self-healing: if an old dynamic pin had live connections that the user
 	// clearly cared about, make sure its name is in UserOverrideNames before
 	// we call through to the base reconstruction (which will trigger
@@ -535,6 +592,14 @@ void UK2Node_ActivateComposableCamera::HandleObjectPropertyChanged(UObject* Obje
 	// fires for every UObject property change in the editor, so filtering
 	// early on identity is the only way to keep this cheap.
 	if (Object == nullptr || Object != CachedTypeAsset)
+	{
+		return;
+	}
+
+	// Skip while our own ReallocatePinsDuringReconstruction is in flight.
+	// OnObjectPropertyChanged can fire during asset load/save side-effects and
+	// a nested ReconstructNode from that path would tear the pin state mid-pass.
+	if (bIsReconstructing)
 	{
 		return;
 	}

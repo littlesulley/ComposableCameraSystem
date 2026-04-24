@@ -200,13 +200,71 @@ bool UComposableCameraNodeGraphSchema::TryCreateConnection(UEdGraphPin* A, UEdGr
 
 	OutputPin->MakeLinkTo(InputPin);
 
-	// Sync the graph changes back to the type asset.
+	// Sync the graph changes back to the type asset, then notify Slate so
+	// the freshly-computed validation state (e.g. a now-satisfied Required
+	// pin) is reflected in the node widgets.
+	//
+	// Why both calls matter: SyncToTypeAsset rebuilds PinConnections and
+	// calls ApplyBuildMessagesToGraphNodes, which writes fresh
+	// bHasCompilerMessage / ErrorMsg / ErrorType values onto each
+	// UEdGraphNode. BUT the visible "WARNING!" banner is a Slate child
+	// widget constructed in SGraphNode::UpdateErrorInfo, invoked only
+	// from UpdateGraphNode, which is itself triggered by NotifyGraphChanged.
+	// Skip the notify and Slate keeps the stale pre-connect banner even
+	// though the underlying node state is already clean.
 	if (UComposableCameraNodeGraph* NodeGraph = Cast<UComposableCameraNodeGraph>(OutputPin->GetOwningNode()->GetGraph()))
 	{
 		NodeGraph->SyncToTypeAsset();
+		NodeGraph->NotifyGraphChanged();
 	}
 
 	return true;
+}
+
+void UComposableCameraNodeGraphSchema::BreakSinglePinLink(UEdGraphPin* SourcePin, UEdGraphPin* TargetPin) const
+{
+	// Do the actual unlink via the base implementation so we don't
+	// duplicate UE's "remove from both pins' LinkedTo arrays" logic.
+	Super::BreakSinglePinLink(SourcePin, TargetPin);
+
+	// Then sync + notify so both TypeAsset::PinConnections and Slate's
+	// error / validation widgets catch up. Either endpoint's graph is fine
+	// to resolve from — we prefer SourcePin for symmetry with
+	// TryCreateConnection's OutputPin path.
+	UEdGraphPin* AnyPin = SourcePin ? SourcePin : TargetPin;
+	if (AnyPin && AnyPin->GetOwningNode())
+	{
+		if (UComposableCameraNodeGraph* NodeGraph = Cast<UComposableCameraNodeGraph>(AnyPin->GetOwningNode()->GetGraph()))
+		{
+			NodeGraph->SyncToTypeAsset();
+			NodeGraph->NotifyGraphChanged();
+		}
+	}
+}
+
+void UComposableCameraNodeGraphSchema::BreakPinLinks(UEdGraphPin& TargetPin, bool bSendsNodeNotification) const
+{
+	Super::BreakPinLinks(TargetPin, bSendsNodeNotification);
+
+	if (TargetPin.GetOwningNode())
+	{
+		if (UComposableCameraNodeGraph* NodeGraph = Cast<UComposableCameraNodeGraph>(TargetPin.GetOwningNode()->GetGraph()))
+		{
+			NodeGraph->SyncToTypeAsset();
+			NodeGraph->NotifyGraphChanged();
+		}
+	}
+}
+
+void UComposableCameraNodeGraphSchema::BreakNodeLinks(UEdGraphNode& TargetNode) const
+{
+	Super::BreakNodeLinks(TargetNode);
+
+	if (UComposableCameraNodeGraph* NodeGraph = Cast<UComposableCameraNodeGraph>(TargetNode.GetGraph()))
+	{
+		NodeGraph->SyncToTypeAsset();
+		NodeGraph->NotifyGraphChanged();
+	}
 }
 
 // ─── Context Menu ──────────────────────────────────────────────────────────────

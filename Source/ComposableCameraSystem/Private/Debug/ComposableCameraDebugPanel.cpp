@@ -1682,7 +1682,12 @@ namespace
 		{ TEXT("PivotDamping"),         FLinearColor(1.f,        0.f,        1.f,        1.f), TEXT("CCS.Debug.Viewport.PivotDamping"),         false },  // Magenta
 		{ TEXT("LookAt"),               FLinearColor(0.f,        1.f,        1.f,        1.f), TEXT("CCS.Debug.Viewport.LookAt"),               false },  // Cyan
 		{ TEXT("CollisionPush"),        FLinearColor(0.3f,       0.85f,      0.3f,       1.f), TEXT("CCS.Debug.Viewport.CollisionPush"),        false },  // Green (clear state; red when blocked)
+		{ TEXT("OcclusionFade"),        FLinearColor(255.f/255.f, 80.f/255.f, 80.f/255.f, 1.f), TEXT("CCS.Debug.Viewport.OcclusionFade"),        false },  // Red (sweep endpoint + F8-only sweep line; cyan proximity sphere uses a secondary hue)
+		{ TEXT("VolumeConstraint"),     FLinearColor(90.f/255.f, 255.f/255.f,120.f/255.f, 1.f), TEXT("CCS.Debug.Viewport.VolumeConstraint"),     false },  // Green (clear state; red when clamping)
+		{ TEXT("FocusPull"),            FLinearColor(255.f/255.f,200.f/255.f, 60.f/255.f, 1.f), TEXT("CCS.Debug.Viewport.FocusPull"),            false },  // Amber (target sphere + focus plane)
+		{ TEXT("HitchcockZoom"),        FLinearColor(180.f/255.f, 80.f/255.f,220.f/255.f, 1.f), TEXT("CCS.Debug.Viewport.HitchcockZoom"),        false },  // Purple (target + camera spheres + F8 frustum)
 		{ TEXT("Spline (node)"),        FLinearColor(180.f/255.f,120.f/255.f,255.f/255.f, 1.f), TEXT("CCS.Debug.Viewport.Spline"),               false },  // Violet
+		{ TEXT("Spiral"),               FLinearColor(255.f/255.f,150.f/255.f, 60.f/255.f, 1.f), TEXT("CCS.Debug.Viewport.Spiral"),               false },  // Orange
 		{ TEXT("ReceivePivotActor"),    FLinearColor(1.f,        1.f,        1.f,        1.f), TEXT("CCS.Debug.Viewport.ReceivePivotActor"),    false },  // White
 		{ TEXT("RelativeFixedPose"),    FLinearColor(1.f,        0.55f,      0.1f,       1.f), TEXT("CCS.Debug.Viewport.RelativeFixedPose"),    false },  // Orange
 		{ TEXT("ScreenSpacePivot"),     FLinearColor(80.f/255.f, 200.f/255.f,180.f/255.f, 1.f), TEXT("CCS.Debug.Viewport.ScreenSpacePivot"),     false },  // Teal
@@ -1764,22 +1769,37 @@ namespace
 		}
 	}
 
+	/** Number of rows the Nodes section occupies when split across two
+	 *  sub-columns. First sub-column takes the ceiling half so odd counts
+	 *  land with an extra entry on the left, matching typical top-to-bottom
+	 *  reading order. */
+	static int32 NodeSubColumnRows(int32 TotalNodeRows)
+	{
+		return (TotalNodeRows + 1) / 2;
+	}
+
 	/** Height (in px) the legend region would occupy this frame. Zero if
 	 *  both columns are empty — used to skip the region entirely. */
 	static float ComputeLegendBodyHeight(
 		const TArray<TPair<FString, FLinearColor>>& TransRows,
 		const TArray<TPair<FString, FLinearColor>>& NodeRows)
 	{
-		const int32 Rows = FMath::Max(TransRows.Num(), NodeRows.Num());
+		const int32 Rows = FMath::Max(TransRows.Num(), NodeSubColumnRows(NodeRows.Num()));
 		if (Rows == 0) { return 0.f; }
 
-		// One sub-header ("Transitions" / "Nodes") + N rows. Both columns
+		// One sub-header ("Transitions" / "Nodes") + N rows. All columns
 		// share a common header line at the top, giving +1 line.
 		return KLineH * (Rows + 1);
 	}
 
-	/** Render the legend in two columns (transitions / nodes) of colored
-	 *  swatches + labels. Each row: 10x10 filled rect + 4px gap + label text. */
+	/** Render the legend in three columns: transitions on the left, then the
+	 *  node list flowed into two sub-columns on the right (top-to-bottom,
+	 *  left-to-right). Each row: 10x10 filled rect + 4px gap + label text.
+	 *
+	 *  The node list outgrew a single column once the per-node gizmo count
+	 *  crossed ~10; splitting keeps the legend body at roughly the same
+	 *  height as the transition list instead of forcing the panel to grow
+	 *  vertically just to show all node entries. */
 	static void DrawLegendStructured(
 		const FPanelCtx& Ctx,
 		const TArray<TPair<FString, FLinearColor>>& TransRows,
@@ -1793,30 +1813,40 @@ namespace
 		constexpr float KSwatchSize = 10.f;
 		constexpr float KSwatchGap  = 4.f;
 
-		const float ColumnW = FMath::Max(0.f, (BodySize.X - KPadding) * 0.5f);
-		const float LeftX   = BodyPos.X;
-		const float RightX  = BodyPos.X + ColumnW + KPadding;
+		// Three-column layout: transitions | nodes-A | nodes-B
+		// Two inter-column gaps of KPadding. Negative ColumnW is clamped
+		// to 0 so an absurdly narrow panel degrades gracefully.
+		const float ColumnW = FMath::Max(0.f, (BodySize.X - 2.f * KPadding) / 3.f);
+		const float Col0X   = BodyPos.X;
+		const float Col1X   = BodyPos.X + ColumnW + KPadding;
+		const float Col2X   = BodyPos.X + 2.f * (ColumnW + KPadding);
 
 		// Column headers — skip for empty columns so the layout doesn't
-		// show an orphan "Transitions" label above a blank list.
+		// show an orphan "Transitions" / "Nodes" label above a blank list.
 		float Y = BodyPos.Y;
 		if (TransRows.Num() > 0)
 		{
 			DrawTextLineClipped(Canvas, Font, TEXT("Transitions"),
-				LeftX, Y, LeftX + ColumnW, CLabel);
+				Col0X, Y, Col0X + ColumnW, CLabel);
 		}
 		if (NodeRows.Num() > 0)
 		{
+			// Single "Nodes" header above the first sub-column. The second
+			// sub-column reads as a visual continuation; duplicating the
+			// header would just add noise.
 			DrawTextLineClipped(Canvas, Font, TEXT("Nodes"),
-				RightX, Y, RightX + ColumnW, CLabel);
+				Col1X, Y, Col1X + ColumnW, CLabel);
 		}
 		Y += KLineH;
 
-		auto DrawColumn = [&](const TArray<TPair<FString, FLinearColor>>& Rows, float ColX)
+		auto DrawColumn = [&](const TArray<TPair<FString, FLinearColor>>& Rows,
+		                      int32 StartIdx, int32 EndExclusive, float ColX)
 		{
 			float RowY = Y;
-			for (const TPair<FString, FLinearColor>& Row : Rows)
+			for (int32 i = StartIdx; i < EndExclusive; ++i)
 			{
+				const TPair<FString, FLinearColor>& Row = Rows[i];
+
 				// Color swatch aligned to the text baseline — vertically
 				// centered in the line by shifting down by ~1.5px.
 				DrawFilledRect(Canvas,
@@ -1832,8 +1862,11 @@ namespace
 			}
 		};
 
-		DrawColumn(TransRows, LeftX);
-		DrawColumn(NodeRows,  RightX);
+		DrawColumn(TransRows, 0, TransRows.Num(), Col0X);
+
+		const int32 NodeSplit = NodeSubColumnRows(NodeRows.Num());
+		DrawColumn(NodeRows, 0,         NodeSplit,       Col1X);
+		DrawColumn(NodeRows, NodeSplit, NodeRows.Num(), Col2X);
 	}
 
 	// ---- Structured render for the Current Pose region ---------------
