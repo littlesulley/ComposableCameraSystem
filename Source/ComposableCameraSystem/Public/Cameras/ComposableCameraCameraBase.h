@@ -379,6 +379,26 @@ public:
 	void BeginPlayCamera();
 	[[nodiscard]] FComposableCameraPose TickCamera(float DeltaTime);
 
+	/**
+	 * Per-frame entry point for evaluators driven by an upstream pose, used by
+	 * the Camera Patch system. Sets `CameraPose = InputPose` so the first node in
+	 * the chain reads the upstream pose as its starting state, then delegates to
+	 * `TickCamera`. Returns the post-chain pose (TickCamera's normal return).
+	 *
+	 * Side effects on the per-frame state are deliberate and identical to a normal
+	 * tick afterward: `LastFrameCameraPose` will reflect this frame's upstream
+	 * input on next tick (per PatchSystemProposal §16.7 — damping / spring nodes
+	 * inside a Patch see "how much did upstream change between frames", which is
+	 * the right input for smoothing the upstream's motion).
+	 *
+	 * Memoization caveat (carried from TickCamera): if this is called twice in
+	 * the same `GFrameCounter` on the same evaluator, the second call returns the
+	 * cached `CameraPose` from the first call — node chain does NOT re-tick.
+	 * Patches do not currently exercise this case (each evaluator is referenced
+	 * by exactly one PatchInstance in exactly one Director's ActivePatches list).
+	 */
+	[[nodiscard]] FComposableCameraPose TickWithInputPose(float DeltaTime, const FComposableCameraPose& InputPose);
+
 public:
 	FOnPreTick		  OnPreTick;
 	FOnPostTick		  OnPostTick;

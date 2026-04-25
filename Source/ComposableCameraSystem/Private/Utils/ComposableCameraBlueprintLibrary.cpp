@@ -5,12 +5,18 @@
 #include "AsyncActions/AsyncPlayCutsceneSequence.h"
 #include "Cameras/ComposableCameraCameraBase.h"
 #include "ComposableCameraSystemModule.h"
+#include "Core/ComposableCameraContextStack.h"
+#include "Core/ComposableCameraDirector.h"
 #include "Core/ComposableCameraPlayerCameraManager.h"
 #include "DataAssets/ComposableCameraParameterTableRow.h"
+#include "DataAssets/ComposableCameraPatchTypeAsset.h"
 #include "DataAssets/ComposableCameraTransitionDataAsset.h"
 #include "DataAssets/ComposableCameraTypeAsset.h"
 #include "Engine/DataTable.h"
 #include "Kismet/GameplayStatics.h"
+#include "Patches/ComposableCameraPatchHandle.h"
+#include "Patches/ComposableCameraPatchInstance.h"
+#include "Patches/ComposableCameraPatchManager.h"
 
 AComposableCameraCameraBase* UComposableCameraBlueprintLibrary::ActivateComposableCameraFromTypeAsset(
 	const UObject* WorldContextObject,
@@ -361,4 +367,126 @@ FName UComposableCameraBlueprintLibrary::MakeLiteralName(FName Value)
 uint8 UComposableCameraBlueprintLibrary::MakeLiteralByte(uint8 Value)
 {
 	return Value;
+}
+
+// ─── Camera Patch (Stage 2 minimal surface) ─────────────────────────────────
+
+namespace
+{
+	// Shared drill helper: PCM → ContextStack → (ActiveDirector | named-context Director)
+	// → PatchManager. NAME_None on ContextName means "active context", matching
+	// AddModifier / AddCameraAction's implicit targeting. A non-None name that
+	// isn't currently on the stack returns nullptr — the BP entry points log
+	// and fail the activation.
+	UComposableCameraPatchManager* ResolvePatchManager(
+		AComposableCameraPlayerCameraManager* PCM, FName ContextName)
+	{
+		if (!PCM)
+		{
+			return nullptr;
+		}
+		const UComposableCameraContextStack* Stack = PCM->GetContextStack();
+		if (!Stack)
+		{
+			return nullptr;
+		}
+		UComposableCameraDirector* Director = ContextName.IsNone()
+			? Stack->GetActiveDirector()
+			: Stack->GetDirectorForContext(ContextName);
+		return Director ? Director->GetPatchManager() : nullptr;
+	}
+}
+
+UComposableCameraPatchHandle* UComposableCameraBlueprintLibrary::AddCameraPatch(
+	const UObject* WorldContextObject,
+	int32 PlayerIndex,
+	UComposableCameraPatchTypeAsset* PatchAsset,
+	FName ContextName,
+	FComposableCameraPatchActivateParams Params,
+	FComposableCameraParameterBlock Parameters)
+{
+	if (!PatchAsset)
+	{
+		return nullptr;
+	}
+	AComposableCameraPlayerCameraManager* PlayerCameraManager =
+		GetComposableCameraPlayerCameraManager(WorldContextObject, PlayerIndex);
+	UComposableCameraPatchManager* Manager = ResolvePatchManager(PlayerCameraManager, ContextName);
+	if (!Manager)
+	{
+		UE_LOG(LogComposableCameraSystem, Warning,
+			TEXT("AddCameraPatch: no PatchManager reachable (PlayerIndex=%d, ContextName='%s'). "
+			     "Either the player has no PCM, or the named context is not on the stack."),
+			PlayerIndex,
+			ContextName.IsNone() ? TEXT("<active>") : *ContextName.ToString());
+		return nullptr;
+	}
+	return Manager->AddPatch(PatchAsset, Params, Parameters);
+}
+
+void UComposableCameraBlueprintLibrary::ExpireCameraPatch(
+	UComposableCameraPatchHandle* Handle, float ExitDurationOverride)
+{
+	if (!Handle)
+	{
+		return;
+	}
+	UComposableCameraPatchInstance* Instance = Handle->GetInstance();
+	if (!Instance)
+	{
+		return;
+	}
+	// PatchManager is the instance's outer (NewObject<...>(this) in AddPatch).
+	UComposableCameraPatchManager* Manager = Instance->GetTypedOuter<UComposableCameraPatchManager>();
+	if (!Manager)
+	{
+		return;
+	}
+	Manager->ExpirePatch(Handle, ExitDurationOverride);
+}
+
+void UComposableCameraBlueprintLibrary::ExpireAllPatchesOnContext(
+	const UObject* WorldContextObject,
+	int32 PlayerIndex,
+	FName ContextName,
+	float ExitDurationOverride)
+{
+	AComposableCameraPlayerCameraManager* PlayerCameraManager =
+		GetComposableCameraPlayerCameraManager(WorldContextObject, PlayerIndex);
+	UComposableCameraPatchManager* Manager = ResolvePatchManager(PlayerCameraManager, ContextName);
+	if (!Manager)
+	{
+		// Quiet on the "no patches anywhere yet" path (Manager not yet built),
+		// but log when the context name was an explicit miss — that's likely
+		// a typo or a stale context reference.
+		if (!ContextName.IsNone())
+		{
+			UE_LOG(LogComposableCameraSystem, Warning,
+				TEXT("ExpireAllPatchesOnContext: context '%s' not on the stack (PlayerIndex=%d)."),
+				*ContextName.ToString(), PlayerIndex);
+		}
+		return;
+	}
+	Manager->ExpireAll(ExitDurationOverride);
+}
+
+bool UComposableCameraBlueprintLibrary::IsPatchActive(const UComposableCameraPatchHandle* Handle)
+{
+	return Handle && Handle->IsActive();
+}
+
+EComposableCameraPatchPhase UComposableCameraBlueprintLibrary::GetPatchPhase(
+	const UComposableCameraPatchHandle* Handle)
+{
+	return Handle ? Handle->GetPhase() : EComposableCameraPatchPhase::Expired;
+}
+
+float UComposableCameraBlueprintLibrary::GetPatchAlpha(const UComposableCameraPatchHandle* Handle)
+{
+	return Handle ? Handle->GetAlpha() : 0.f;
+}
+
+float UComposableCameraBlueprintLibrary::GetPatchElapsedTime(const UComposableCameraPatchHandle* Handle)
+{
+	return Handle ? Handle->GetElapsedTime() : 0.f;
 }

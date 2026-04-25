@@ -95,6 +95,36 @@ enum class EComposableCameraNodeLevelSequenceCompatibility : uint8
 };
 
 /**
+ * Declares how a node behaves when placed in a Camera Patch graph (per
+ * PatchSystemProposal §11). A Patch evaluator receives an upstream pose each
+ * frame and expects its nodes to read-modify-write that pose — nodes that
+ * synthesize pose from scratch or delegate to external sources produce
+ * surprising results in a Patch context.
+ *
+ * Queried by the Patch asset's editor-time validation (to warn the designer
+ * via Build messages) and by future runtime tooling (no current runtime gate,
+ * so Incompatible nodes do run — they just produce wrong output). The
+ * classification is authoring-side guidance, not a runtime safety net.
+ *
+ * Default is Compatible; override in nodes that have surprising semantics.
+ */
+UENUM()
+enum class EComposableCameraNodePatchCompatibility : uint8
+{
+	/** Reads upstream pose, mutates it. Safe in a Patch graph. */
+	Compatible,
+
+	/** Initializes pose from scratch or delegates to external sources — ignores
+	 *  InPose. Meaningless in a Patch context; editor emits an error build message. */
+	Incompatible,
+
+	/** Works but with surprising semantics (e.g. overrides a single pose field
+	 *  in a way that may discard useful upstream data). Editor emits a warning
+	 *  build message so the author can confirm intent. */
+	CompatibleWithCaveat,
+};
+
+/**
  * Base node for all camera nodes.
  */
 UCLASS(Abstract, DefaultToInstanced, EditInlineNew, BlueprintType, Blueprintable, CollapseCategories, ClassGroup = ComposableCameraSystem)
@@ -134,6 +164,25 @@ public:
 	virtual EComposableCameraNodeLevelSequenceCompatibility GetLevelSequenceCompatibility_Implementation() const
 	{
 		return EComposableCameraNodeLevelSequenceCompatibility::Compatible;
+	}
+
+	/**
+	 * Declare how this node behaves when placed in a Camera Patch graph
+	 * (PatchSystemProposal §11). Default: Compatible. Override on nodes that
+	 * synthesize pose from scratch (Incompatible) or have surprising semantics
+	 * when reading from an upstream pose (CompatibleWithCaveat).
+	 *
+	 * BlueprintNativeEvent to mirror GetLevelSequenceCompatibility's idiom —
+	 * BP-authored camera nodes (subclasses of UComposableCameraBlueprintCameraNode)
+	 * can declare their own compatibility alongside native nodes. C++ overrides
+	 * go on the _Implementation below; BP subclasses override via a "Get Patch
+	 * Compatibility" BlueprintImplementableEvent in their graph.
+	 */
+	UFUNCTION(BlueprintNativeEvent, BlueprintPure, Category = "ComposableCameraSystem|Node")
+	EComposableCameraNodePatchCompatibility GetPatchCompatibility() const;
+	virtual EComposableCameraNodePatchCompatibility GetPatchCompatibility_Implementation() const
+	{
+		return EComposableCameraNodePatchCompatibility::Compatible;
 	}
 
 	// ─── Pin System ──────────────────────────────────────────────────────

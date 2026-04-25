@@ -112,6 +112,14 @@ public:
 		return EComposableCameraNodeLevelSequenceCompatibility::RequiresPCM;
 	}
 
+	// Same PCM dependency as the LS case, plus semantically this node produces
+	// a mixed pose from child cameras — it ignores the upstream InPose, which
+	// is the opposite of a Patch's read-modify-write contract.
+	virtual EComposableCameraNodePatchCompatibility GetPatchCompatibility_Implementation() const override
+	{
+		return EComposableCameraNodePatchCompatibility::Incompatible;
+	}
+
 public:
 	// Whether to only mix position, rotation or both.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters)

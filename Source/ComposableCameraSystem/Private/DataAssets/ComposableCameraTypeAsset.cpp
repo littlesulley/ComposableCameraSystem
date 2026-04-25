@@ -1273,6 +1273,27 @@ void UComposableCameraTypeAsset::Build(bool bLogResult)
 		}
 	}
 
+	// Subclass extension point — append any validation from the concrete asset
+	// class (e.g. UComposableCameraPatchTypeAsset checks node Patch compatibility).
+	// Each appended message's severity rolls BuildStatus up toward the more
+	// severe category so the editor banner / per-node badges reflect it.
+	{
+		TArray<FComposableCameraBuildMessage> ExtraMessages;
+		ValidateAdditional(ExtraMessages);
+		for (const FComposableCameraBuildMessage& Msg : ExtraMessages)
+		{
+			BuildMessages.Add(Msg);
+			if (Msg.Severity >= 2) // Error
+			{
+				BuildStatus = EComposableCameraBuildStatus::Failed;
+			}
+			else if (Msg.Severity == 1 && BuildStatus == EComposableCameraBuildStatus::Success) // Warning
+			{
+				BuildStatus = EComposableCameraBuildStatus::SuccessWithWarnings;
+			}
+		}
+	}
+
 	if (bLogResult)
 	{
 		UE_LOG(LogComposableCameraSystem, Log, TEXT("Build complete for '%s': %s (%d messages)."),

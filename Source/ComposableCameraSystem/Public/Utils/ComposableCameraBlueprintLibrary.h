@@ -7,6 +7,7 @@
 #include "Blueprint/BlueprintExceptionInfo.h"
 #include "Cameras/ComposableCameraCameraBase.h"
 #include "Core/ComposableCameraParameterBlock.h"
+#include "Patches/ComposableCameraPatchTypes.h"
 #include "Transitions/ComposableCameraTransitionBase.h"
 #include "MovieSceneSequencePlaybackSettings.h"
 #include "UObject/UnrealType.h"
@@ -21,6 +22,9 @@ class UComposableCameraModifierBase;
 class UComposableCameraActionBase;
 class AComposableCameraCameraBase;
 class UDataTable;
+class UComposableCameraPatchTypeAsset;
+class UComposableCameraPatchHandle;
+struct FComposableCameraPatchActivateParams;
 
 #define LOCTEXT_NAMESPACE "ComposableCameraSystemBlueprintLibrary"
 
@@ -209,6 +213,104 @@ public:
 	 */
 	UFUNCTION(BlueprintPure, Category = "ComposableCameraSystem|Camera", meta = (WorldContext = "WorldContextObject"))
 	static AComposableCameraPlayerCameraManager* GetComposableCameraPlayerCameraManager(const UObject* WorldContextObject, int Index);
+
+	// ─── Camera Patch ─────────────────────────────────────────────────────
+	//
+	// BP authors interact with AddCameraPatch through UK2Node_AddCameraPatch,
+	// which generates a typed pin per exposed parameter / exposed variable on
+	// the selected PatchAsset and expands into the call below at compile time.
+	// The raw library entry is BlueprintInternalUseOnly so the untyped form
+	// (with a hand-built FComposableCameraParameterBlock) doesn't compete with
+	// the K2 node in the palette.
+
+	/**
+	 * Add a Camera Patch on the active context's Director, or on a named
+	 * context if ContextName is non-None.
+	 *
+	 * Hidden from the Blueprint palette — designers should author this through
+	 * UK2Node_AddCameraPatch, which generates a typed pin per exposed parameter
+	 * / exposed variable on the chosen Patch asset and expands into this call
+	 * at compile time.
+	 *
+	 * @param PlayerIndex   Player index (0 for single player). Resolved to a
+	 *                      UComposableCameraPlayerCameraManager via
+	 *                      GetComposableCameraPlayerCameraManager — matches
+	 *                      ActivateComposableCameraFromTypeAsset's PlayerIndex
+	 *                      surface so the two K2 nodes feel like siblings.
+	 * @param PatchAsset    The Patch type asset (a subclass of CameraTypeAsset).
+	 * @param ContextName   NAME_None → target the current active context (the
+	 *                      common case). Otherwise the context with that name
+	 *                      must already be on the stack — the patch attaches to
+	 *                      THAT context's Director, even if it is currently
+	 *                      buried below the active context. Patches on a buried
+	 *                      context tick (their Director's Evaluate still runs)
+	 *                      but are not user-visible until the context returns
+	 *                      to the top — useful for staging gameplay overlays
+	 *                      while a cutscene is playing.
+	 * @param Params        Envelope / lifetime / composition activation parameters; see FComposableCameraPatchActivateParams docs for sentinels.
+	 * @param Parameters    Exposed-parameter / exposed-variable values for the Patch evaluator. Same keyspace as the block accepted by ActivateComposableCameraFromTypeAsset.
+	 * @return              A handle to the added Patch (nullptr on rejection — see log warning for the reason).
+	 */
+	UFUNCTION(BlueprintCallable, BlueprintInternalUseOnly, Category = "ComposableCameraSystem|Patch", meta = (WorldContext = "WorldContextObject"))
+	static UComposableCameraPatchHandle* AddCameraPatch(
+		const UObject* WorldContextObject,
+		int32 PlayerIndex,
+		UComposableCameraPatchTypeAsset* PatchAsset,
+		UPARAM(meta = (GetOptions = "ComposableCameraSystem.ComposableCameraProjectSettings.GetContextNames")) FName ContextName,
+		FComposableCameraPatchActivateParams Params,
+		FComposableCameraParameterBlock Parameters);
+
+	/**
+	 * Manually retire a Patch by its handle. Flips the Patch to Exiting via
+	 * the normal envelope ramp; the actual removal happens at the end of the
+	 * next Apply pass.
+	 *
+	 * @param Handle               Handle returned from AddCameraPatch.
+	 * @param ExitDurationOverride < 0 → use the Patch's authored ExitDuration. >= 0 replaces the per-Patch ExitDuration (pass 0 for an instant cut-off).
+	 */
+	UFUNCTION(BlueprintCallable, Category = "ComposableCameraSystem|Patch")
+	static void ExpireCameraPatch(UComposableCameraPatchHandle* Handle, float ExitDurationOverride = -1.f);
+
+	/**
+	 * Soft-expire every active Patch on the named context's Director. Each
+	 * Patch flips to Exiting via its normal envelope ramp — mid-Entering
+	 * patches fade out from their current alpha rather than popping to 1
+	 * first. Already-Exiting / Expired patches are left alone (idempotent).
+	 *
+	 * @param ContextName          The context whose Director's PatchManager to sweep. NAME_None → active context.
+	 * @param ExitDurationOverride < 0 → each patch keeps its own ExitDuration. >= 0 replaces every patch's ExitDuration uniformly.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "ComposableCameraSystem|Patch", meta = (WorldContext = "WorldContextObject"))
+	static void ExpireAllPatchesOnContext(
+		const UObject* WorldContextObject,
+		int32 PlayerIndex,
+		UPARAM(meta = (GetOptions = "ComposableCameraSystem.ComposableCameraProjectSettings.GetContextNames")) FName ContextName,
+		float ExitDurationOverride = -1.f);
+
+	// ─── Camera Patch — handle introspection (BP-pure) ────────────────────
+	//
+	// All four are weak-handle-safe: a stale handle (instance destroyed)
+	// returns false / Expired / 0 / 0 respectively. Callers do NOT need to
+	// null-check the handle on every call — a null handle is treated the same
+	// as a stale one. Match the §12.1 surface of PatchSystemProposal.
+
+	/** True iff the handle's instance is still alive AND in Entering / Active phase. */
+	UFUNCTION(BlueprintPure, Category = "ComposableCameraSystem|Patch")
+	static bool IsPatchActive(const UComposableCameraPatchHandle* Handle);
+
+	/** Current lifecycle phase. Returns Expired when the handle is stale. */
+	UFUNCTION(BlueprintPure, Category = "ComposableCameraSystem|Patch")
+	static EComposableCameraPatchPhase GetPatchPhase(const UComposableCameraPatchHandle* Handle);
+
+	/** Current envelope alpha [0..1]. Returns 0 when the handle is stale. */
+	UFUNCTION(BlueprintPure, Category = "ComposableCameraSystem|Patch")
+	static float GetPatchAlpha(const UComposableCameraPatchHandle* Handle);
+
+	/** Cumulative time spent in Active phase (seconds). The Duration channel
+	 *  fires when this reaches the Patch's resolved Duration. Returns 0 for a
+	 *  stale handle or a Patch that hasn't reached Active yet. */
+	UFUNCTION(BlueprintPure, Category = "ComposableCameraSystem|Patch")
+	static float GetPatchElapsedTime(const UComposableCameraPatchHandle* Handle);
 
 	/** Custom thunk function for setting a single value in a ParameterBlock.
 	 * Used internally by UK2Node_ActivateComposableCamera to fill the parameter block at compile time.

@@ -476,6 +476,21 @@ void AComposableCameraCameraBase::UnregisterNodeAction(UComposableCameraActionBa
 
 DECLARE_CYCLE_STAT(TEXT("Camera TickCamera"), STAT_CCS_Camera_TickCamera, STATGROUP_CCS);
 
+FComposableCameraPose AComposableCameraCameraBase::TickWithInputPose(
+	float DeltaTime, const FComposableCameraPose& InputPose)
+{
+	// Patch evaluators are driven by their PatchManager via this entry point;
+	// the PCM-driven main camera path uses TickCamera directly. Seeding
+	// CameraPose with the upstream pose makes the first node in the chain read
+	// it as the starting state — TickCamera's existing per-node loop then
+	// mutates it the same way it does for non-Patch cameras. TickCamera's
+	// end-of-tick `LastFrameCameraPose = CameraPose` snapshot then captures
+	// THIS frame's upstream pose for the next frame's delta-style nodes
+	// (PivotDamping etc.) to consume — see PatchSystemProposal §6.2 / §16.7.
+	CameraPose = InputPose;
+	return TickCamera(DeltaTime);
+}
+
 FComposableCameraPose AComposableCameraCameraBase::TickCamera(float DeltaTime)
 {
 	SCOPE_CYCLE_COUNTER(STAT_CCS_Camera_TickCamera);

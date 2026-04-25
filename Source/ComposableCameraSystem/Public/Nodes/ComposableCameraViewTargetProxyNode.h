@@ -29,6 +29,14 @@ class COMPOSABLECAMERASYSTEM_API UComposableCameraViewTargetProxyNode
 public:
 	virtual void OnTickNode_Implementation(float DeltaTime, const FComposableCameraPose& CurrentCameraPose, FComposableCameraPose& OutCameraPose) override;
 
+	// Reads FMinimalViewInfo from an external UCameraComponent and writes it over
+	// the pose — bypasses the upstream InPose entirely. Also not designer-placed
+	// (created programmatically by PCM::SetViewTarget), but flagged for parity.
+	virtual EComposableCameraNodePatchCompatibility GetPatchCompatibility_Implementation() const override
+	{
+		return EComposableCameraNodePatchCompatibility::Incompatible;
+	}
+
 	/** Set the actor and cache its UCameraComponent. */
 	void SetViewTargetActor(AActor* InActor);
 

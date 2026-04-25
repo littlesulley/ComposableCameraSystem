@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="48" height="48" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Camera body (smaller, shifted left to make room for patch overlay) -->
+  <rect x="3" y="16" width="22" height="18" rx="2.5" fill="white"/>
+  <!-- Camera lens -->
+  <path d="M27 19 L34 15 L34 36 L27 32 Z" fill="white"/>
+  <!-- Stacked patch layers (back, partly transparent) suggesting additive overlay -->
+  <rect x="29" y="29" width="15" height="15" rx="2" fill="white" opacity="0.45"/>
+  <!-- Stacked patch layers (front, opaque) -->
+  <rect x="32" y="32" width="15" height="15" rx="2" fill="white"/>
+  <!-- Plus sign inside front layer — "added on top" -->
+  <line x1="39.5" y1="35.5" x2="39.5" y2="43.5" stroke="#E08020" stroke-width="2.5" stroke-linecap="round"/>
+  <line x1="35.5" y1="39.5" x2="43.5" y2="39.5" stroke="#E08020" stroke-width="2.5" stroke-linecap="round"/>
+</svg>

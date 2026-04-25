@@ -21,6 +21,15 @@ public:
 	virtual void OnTickNode_Implementation(float DeltaTime, const FComposableCameraPose& CurrentCameraPose, FComposableCameraPose& OutCameraPose) override;
 	virtual void GetPinDeclarations_Implementation(TArray<FComposableCameraNodePinDeclaration>& OutPins) const override;
 
+	// Overrides the Pivot component of the pose from an external actor — if the
+	// upstream has a meaningful pivot already, this node discards it. Legitimate
+	// use in a Patch (e.g. "retarget to a different actor for a moment") but
+	// worth flagging as an author confirmation.
+	virtual EComposableCameraNodePatchCompatibility GetPatchCompatibility_Implementation() const override
+	{
+		return EComposableCameraNodePatchCompatibility::CompatibleWithCaveat;
+	}
+
 #if !UE_BUILD_SHIPPING
 	virtual void DrawNodeDebug(UWorld* World, bool bViewerIsOutsideCamera) const override;
 #endif

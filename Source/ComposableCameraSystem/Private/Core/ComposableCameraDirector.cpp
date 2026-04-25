@@ -9,6 +9,7 @@
 #include "Core/ComposableCameraEvaluationTree.h"
 #include "Core/ComposableCameraPlayerCameraManager.h"
 #include "DataAssets/ComposableCameraTransitionDataAsset.h"
+#include "Patches/ComposableCameraPatchManager.h"
 
 UComposableCameraDirector::UComposableCameraDirector(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
@@ -19,6 +20,7 @@ UComposableCameraDirector::UComposableCameraDirector(const FObjectInitializer& O
 	if (!HasAnyFlags(RF_ClassDefaultObject))
 	{
 		EvaluationTree = NewObject<UComposableCameraEvaluationTree>(this, TEXT("ComposableCameraEvaluationTree"));
+		PatchManager = NewObject<UComposableCameraPatchManager>(this, TEXT("ComposableCameraPatchManager"));
 	}
 }
 
@@ -504,7 +506,18 @@ FComposableCameraPose UComposableCameraDirector::Evaluate(float DeltaTime)
 	// via Evaluate; their trees only contribute through the snapshot
 	// TSharedPtrs held by the active tree.
 	PreviousEvaluatedPose = LastEvaluatedPose;
-	LastEvaluatedPose = EvaluationTree->Evaluate(DeltaTime);
+	const FComposableCameraPose TreePose = EvaluationTree->Evaluate(DeltaTime);
+
+	// Apply the patch overlay pass after the EvaluationTree produces its blended
+	// pose. PatchManager.Apply iterates active patches sorted by (LayerIndex,
+	// PushSequence) and chains each patch's evaluator on top — see
+	// UComposableCameraPatchManager::Apply. A null PatchManager would be a
+	// construction-time bug, but the guard keeps test-only Director paths
+	// (NewObject<UComposableCameraDirector>() with no Outer) safe.
+	LastEvaluatedPose = PatchManager
+		? PatchManager->Apply(DeltaTime, TreePose)
+		: TreePose;
+
 	// Sync RunningCamera — the tree may have changed it during collapse.
 	RunningCamera = EvaluationTree->GetRunningCamera();
 	return LastEvaluatedPose;
@@ -515,6 +528,10 @@ void UComposableCameraDirector::DestroyAllCameras()
 	if (EvaluationTree)
 	{
 		EvaluationTree->DestroyAll();
+	}
+	if (PatchManager)
+	{
+		PatchManager->DestroyAll();
 	}
 	RunningCamera = nullptr;
 }
@@ -548,6 +565,12 @@ void UComposableCameraDirector::BuildDebugSnapshot(FComposableCameraContextSnaps
 	if (EvaluationTree)
 	{
 		EvaluationTree->BuildDebugSnapshot(OutSnapshot.TreeNodes);
+	}
+
+	OutSnapshot.Patches.Reset();
+	if (PatchManager)
+	{
+		PatchManager->BuildDebugSnapshot(OutSnapshot.Patches);
 	}
 }
 

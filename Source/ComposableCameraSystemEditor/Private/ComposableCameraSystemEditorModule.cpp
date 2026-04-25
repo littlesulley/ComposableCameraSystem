@@ -10,6 +10,7 @@
 #include "AssetTools/ComposableCameraTypeAssetEditor.h"
 #include "Customizations/ComposableCameraInternalVariableCustomization.h"
 #include "Customizations/ComposableCameraNodeGraphNodeDetails.h"
+#include "Customizations/ComposableCameraPatchTypeAssetCustomization.h"
 #include "Customizations/ComposableCameraParameterTableRowCustomization.h"
 #include "Customizations/ComposableCameraTypeAssetReferenceCustomization.h"
 #include "EditorHooks/EditorHooks.h"
@@ -74,6 +75,7 @@ void FComposableCameraSystemEditorModule::RegisterDetailsCustomizations()
     FComposableCameraParameterTableRowCustomization::Register(PropertyEditorModule);
     FComposableCameraNodeGraphNodeDetails::Register(PropertyEditorModule);
     FComposableCameraTypeAssetReferenceCustomization::Register(PropertyEditorModule);
+    FComposableCameraPatchTypeAssetCustomization::Register(PropertyEditorModule);
 }
 
 void FComposableCameraSystemEditorModule::UnregisterDetailsCustomizations()
@@ -86,6 +88,7 @@ void FComposableCameraSystemEditorModule::UnregisterDetailsCustomizations()
         FComposableCameraParameterTableRowCustomization::Unregister(*PropertyEditorModule);
         FComposableCameraNodeGraphNodeDetails::Unregister(*PropertyEditorModule);
         FComposableCameraTypeAssetReferenceCustomization::Unregister(*PropertyEditorModule);
+        FComposableCameraPatchTypeAssetCustomization::Unregister(*PropertyEditorModule);
     }
 }
 

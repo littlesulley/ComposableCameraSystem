@@ -67,6 +67,12 @@ FComposableCameraEditorStyle::FComposableCameraEditorStyle()
 	Set("ClassThumbnail.ComposableCameraTypeAsset",
 		new IMAGE_BRUSH_SVG("Icons/ContentBrowser-ComposableCameraType", Icon64x64));
 
+	// Camera Patch Type Asset
+	Set("ClassIcon.ComposableCameraPatchTypeAsset",
+		new IMAGE_BRUSH_SVG("Icons/ContentBrowser-ComposableCameraPatch", Icon16x16));
+	Set("ClassThumbnail.ComposableCameraPatchTypeAsset",
+		new IMAGE_BRUSH_SVG("Icons/ContentBrowser-ComposableCameraPatch", Icon64x64));
+
 	// Transition Table Data Asset
 	Set("ClassIcon.ComposableCameraTransitionTableDataAsset",
 		new IMAGE_BRUSH_SVG("Icons/ContentBrowser-ComposableCameraTransitionTable", Icon16x16));

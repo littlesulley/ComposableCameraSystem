@@ -624,6 +624,17 @@ public:
 	 */
 	void Build(bool bLogResult = true);
 
+	/**
+	 * Subclass extension point — called from the tail of Build() so subclasses
+	 * can append their own validation results without having to override Build
+	 * itself. Default: empty.
+	 *
+	 * Messages appended here flow through the same BuildMessages / inline-badge
+	 * pipeline as the base checks. Used by UComposableCameraPatchTypeAsset to
+	 * flag Patch-incompatible nodes (PatchSystemProposal §11).
+	 */
+	virtual void ValidateAdditional(TArray<FComposableCameraBuildMessage>& OutMessages) const {}
+
 	/** Ensure every internal variable has a valid VariableGuid, generating
 	 *  one for any legacy entry whose GUID is invalid. Safe to call multiple
 	 *  times — it only touches variables whose GUID is invalid. */

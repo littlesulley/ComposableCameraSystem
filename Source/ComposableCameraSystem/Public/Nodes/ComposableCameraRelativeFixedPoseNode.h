@@ -29,6 +29,14 @@ public:
 	virtual void OnTickNode_Implementation(float DeltaTime, const FComposableCameraPose& CurrentCameraPose, FComposableCameraPose& OutCameraPose) override;
 	virtual void GetPinDeclarations_Implementation(TArray<FComposableCameraNodePinDeclaration>& OutPins) const override;
 
+	// Synthesizes a full pose from a reference transform / actor socket — ignores
+	// the upstream InPose entirely. In a Patch graph this erases whatever the
+	// prior chain produced, which is the exact opposite of "additive overlay".
+	virtual EComposableCameraNodePatchCompatibility GetPatchCompatibility_Implementation() const override
+	{
+		return EComposableCameraNodePatchCompatibility::Incompatible;
+	}
+
 #if !UE_BUILD_SHIPPING
 	virtual void DrawNodeDebug(UWorld* World, bool bViewerIsOutsideCamera) const override;
 #endif

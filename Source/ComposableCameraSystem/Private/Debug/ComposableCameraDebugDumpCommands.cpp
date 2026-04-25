@@ -30,6 +30,8 @@
 #include "HAL/PlatformApplicationMisc.h"
 #include "Misc/StringBuilder.h"
 #include "Nodes/ComposableCameraCameraNodeBase.h"
+#include "Patches/ComposableCameraPatchManager.h"
+#include "Patches/ComposableCameraPatchTypes.h"
 #include "Utils/ComposableCameraDebugFormatUtils.h"
 
 namespace
@@ -83,6 +85,83 @@ namespace
 
 	// --- Snapshot → text helpers -------------------------------------
 
+	// Compact phase glyph for the in-line dump rows.
+	static const TCHAR* PhaseShortName(int8 Phase)
+	{
+		switch (Phase)
+		{
+		case 0: return TEXT("Entering");
+		case 1: return TEXT("Active  ");
+		case 2: return TEXT("Exiting ");
+		case 3: return TEXT("Expired ");
+		default: return TEXT("???     ");
+		}
+	}
+
+	// Compact bitmask glyph: D = Duration, M = Manual, C = Condition.
+	// Returns up to 3 chars + null. "-" for empty mask.
+	static FString ExpirationMaskGlyph(uint8 Mask)
+	{
+		FString Out;
+		if (Mask & static_cast<uint8>(EComposableCameraPatchExpirationType::Duration))  Out += TEXT("D");
+		if (Mask & static_cast<uint8>(EComposableCameraPatchExpirationType::Manual))    Out += TEXT("M");
+		if (Mask & static_cast<uint8>(EComposableCameraPatchExpirationType::Condition)) Out += TEXT("C");
+		return Out.IsEmpty() ? FString(TEXT("-")) : Out;
+	}
+
+	// One row per Patch. Caller supplies the column-0 indent so this can be reused
+	// from CCS.Dump.Patches (no indent), CCS.Dump.Tree (small indent), and
+	// CCS.Dump.Stack (deeper indent for per-context sub-tree alignment).
+	static void AppendPatchesDump(
+		FStringBuilderBase& B,
+		const TArray<FComposableCameraPatchSnapshot>& Patches,
+		int32 IndentSpaces)
+	{
+		FString Indent;
+		Indent.Reserve(IndentSpaces);
+		for (int32 i = 0; i < IndentSpaces; ++i) Indent += TEXT(' ');
+
+		if (Patches.Num() == 0)
+		{
+			B.Appendf(TEXT("%sPatches: (none)\n"), *Indent);
+			return;
+		}
+		B.Appendf(TEXT("%sPatches (%d):\n"), *Indent, Patches.Num());
+		for (const FComposableCameraPatchSnapshot& P : Patches)
+		{
+			// Phase-specific timing column: Entering/Exiting show ramp progress;
+			// Active shows ElapsedTimeActive vs Duration when Duration channel is on.
+			FString Timing;
+			if (P.Phase == 0 && P.EnterDuration > 0.f) // Entering
+			{
+				Timing = FString::Printf(TEXT("enter %.2f/%.2fs"), P.ElapsedInPhase, P.EnterDuration);
+			}
+			else if (P.Phase == 2 && P.ExitDuration > 0.f) // Exiting
+			{
+				Timing = FString::Printf(TEXT("exit  %.2f/%.2fs"), P.ElapsedInPhase, P.ExitDuration);
+			}
+			else if (P.Phase == 1 && (P.ExpirationType & static_cast<uint8>(EComposableCameraPatchExpirationType::Duration)) && P.Duration > 0.f)
+			{
+				Timing = FString::Printf(TEXT("active %.2f/%.2fs"), P.ElapsedTimeActive, P.Duration);
+			}
+			else if (P.Phase == 1)
+			{
+				Timing = FString::Printf(TEXT("active %.2fs"), P.ElapsedTimeActive);
+			}
+
+			B.Appendf(
+				TEXT("%s  [layer=%d] %-24s | %s | a=%.2f | %s | exp=%s%s\n"),
+				*Indent,
+				P.LayerIndex,
+				*P.AssetName,
+				PhaseShortName(P.Phase),
+				P.Alpha,
+				*Timing,
+				*ExpirationMaskGlyph(P.ExpirationType),
+				P.bExpireOnCameraChange ? TEXT("+CamChange") : TEXT(""));
+		}
+	}
+
 	static void AppendStackDump(FStringBuilderBase& B, const UComposableCameraContextStack* Stack)
 	{
 		FComposableCameraContextStackSnapshot Snap;
@@ -128,6 +207,8 @@ namespace
 					B.AppendChar(TEXT('\n'));
 				}
 			}
+
+			AppendPatchesDump(B, Ctx.Patches, /*IndentSpaces=*/6);
 		}
 	}
 
@@ -145,14 +226,18 @@ namespace
 		if (Ctx.TreeNodes.Num() == 0)
 		{
 			B.Append(TEXT("Evaluation Tree: (empty)\n"));
-			return;
 		}
-		B.Append(TEXT("Evaluation Tree:\n"));
-		for (const FComposableCameraTreeNodeSnapshot& TN : Ctx.TreeNodes)
+		else
 		{
-			ComposableCameraDebug::AppendTreeNodeLine(B, TN, /*BaseIndentCols=*/2);
-			B.AppendChar(TEXT('\n'));
+			B.Append(TEXT("Evaluation Tree:\n"));
+			for (const FComposableCameraTreeNodeSnapshot& TN : Ctx.TreeNodes)
+			{
+				ComposableCameraDebug::AppendTreeNodeLine(B, TN, /*BaseIndentCols=*/2);
+				B.AppendChar(TEXT('\n'));
+			}
 		}
+
+		AppendPatchesDump(B, Ctx.Patches, /*IndentSpaces=*/0);
 	}
 
 	static void AppendCameraDump(FStringBuilderBase& B, AComposableCameraCameraBase* Camera)
@@ -332,6 +417,39 @@ namespace
 		LogAndClipboard(FString(B), TEXT("CCS.Dump.Tree"));
 	}
 
+	// `CCS.Dump.Patches`
+	//   No args. Dumps the active context's PatchManager state — one row per
+	//   active Patch with layer / phase / alpha / timing / expiration channels.
+	static void CmdDumpPatches(const TArray<FString>& /*Args*/, UWorld* World)
+	{
+		AComposableCameraPlayerCameraManager* PCM = ResolvePCM(World);
+		if (!PCM) { UE_LOG(LogComposableCameraSystem, Warning,
+			TEXT("CCS.Dump.Patches: no CCS PCM found.")); return; }
+
+		const UComposableCameraContextStack* Stack = PCM->GetContextStack();
+		UComposableCameraDirector* Director = Stack ? Stack->GetActiveDirector() : nullptr;
+		if (!Director)
+		{
+			UE_LOG(LogComposableCameraSystem, Warning,
+				TEXT("CCS.Dump.Patches: no active director."));
+			return;
+		}
+		const UComposableCameraPatchManager* Manager = Director->GetPatchManager();
+		if (!Manager)
+		{
+			UE_LOG(LogComposableCameraSystem, Warning,
+				TEXT("CCS.Dump.Patches: active director has no PatchManager."));
+			return;
+		}
+
+		TArray<FComposableCameraPatchSnapshot> Patches;
+		Manager->BuildDebugSnapshot(Patches);
+
+		TStringBuilder<2048> B;
+		AppendPatchesDump(B, Patches, /*IndentSpaces=*/0);
+		LogAndClipboard(FString(B), TEXT("CCS.Dump.Patches"));
+	}
+
 	// `CCS.Dump.Camera [tag]`
 	//   No arg → active context's RunningCamera.
 	//   With arg → scan each live context's RunningCamera for a CameraTag
@@ -409,6 +527,11 @@ namespace
 		TEXT("Usage: CCS.Dump.Camera              — dumps the active context's running camera\n")
 		TEXT("       CCS.Dump.Camera <CameraTag>  — scans each context's running camera for a matching tag (case-insensitive, first match)"),
 		FConsoleCommandWithWorldAndArgsDelegate::CreateStatic(&CmdDumpCamera));
+
+	static FAutoConsoleCommandWithWorldAndArgs GCmdDumpPatches(
+		TEXT("CCS.Dump.Patches"),
+		TEXT("Print the active context's PatchManager state (one row per active Camera Patch with layer / phase / alpha / timing / expiration channels) to LogComposableCameraSystem at Display and copy to clipboard. No arguments."),
+		FConsoleCommandWithWorldAndArgsDelegate::CreateStatic(&CmdDumpPatches));
 
 } // namespace
 

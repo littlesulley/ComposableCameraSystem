@@ -118,6 +118,44 @@ struct FComposableCameraTreeNodeSnapshot
 	TArray<float> BlendCurveSamples;
 };
 
+/** One active Camera Patch on a Director. Produced by
+ *  UComposableCameraPatchManager::BuildDebugSnapshot. Sorted in iteration order
+ *  (LayerIndex asc, PushSequence asc — same order Apply runs them). */
+struct FComposableCameraPatchSnapshot
+{
+	/** Patch asset display name; "(missing)" if the weak ptr resolved null. */
+	FString AssetName;
+
+	/** Effective layer index (resolved from asset default + AddPatch override). */
+	int32 LayerIndex = 0;
+
+	/** Lifecycle phase (0 = Entering, 1 = Active, 2 = Exiting, 3 = Expired).
+	 *  Stored as int8 to keep the snapshot decoupled from the runtime enum. */
+	int8 Phase = 0;
+
+	/** Current effect alpha — drives BlendBy(InputPose, Evaluated, alpha). */
+	float Alpha = 0.f;
+
+	/** Time spent in the current Phase (resets on every transition). */
+	float ElapsedInPhase = 0.f;
+
+	/** Time spent in Active phase total (drives the Duration channel). */
+	float ElapsedTimeActive = 0.f;
+
+	/** Authored EnterDuration / ExitDuration (in seconds) for ramp progress display. */
+	float EnterDuration = 0.f;
+	float ExitDuration = 0.f;
+
+	/** Active-phase Duration cap (0 if Duration channel is not enabled). */
+	float Duration = 0.f;
+
+	/** Bitmask of EComposableCameraPatchExpirationType — what channels can fire. */
+	uint8 ExpirationType = 0;
+
+	/** Auxiliary "expire when running camera changes" flag. */
+	bool bExpireOnCameraChange = false;
+};
+
 /** One context entry in the stack snapshot. Produced by
  *  UComposableCameraDirector::BuildDebugSnapshot (via the stack). */
 struct FComposableCameraContextSnapshot
@@ -137,6 +175,9 @@ struct FComposableCameraContextSnapshot
 
 	/** DFS pre-order flattened tree nodes for this context's Director. */
 	TArray<FComposableCameraTreeNodeSnapshot> TreeNodes;
+
+	/** Active patches on this context's Director, in Apply iteration order. */
+	TArray<FComposableCameraPatchSnapshot> Patches;
 
 	/** Display name of the director's RunningCamera ("(none)" if null). */
 	FString RunningCameraDisplay;

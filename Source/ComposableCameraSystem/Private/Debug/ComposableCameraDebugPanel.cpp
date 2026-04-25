@@ -8,6 +8,7 @@
 #include "CineCameraComponent.h"
 #include "ComposableCameraSystemModule.h"
 #include "Core/ComposableCameraContextStack.h"
+#include "Core/ComposableCameraDirector.h"
 #include "Core/ComposableCameraModifierManager.h"
 #include "Core/ComposableCameraPlayerCameraManager.h"
 #include "Core/ComposableCameraRuntimeDataBlock.h"
@@ -17,6 +18,8 @@
 #include "Debug/ComposableCameraViewportDebug.h"
 #include "Debug/DebugDrawService.h"
 #include "Modifiers/ComposableCameraModifierBase.h"
+#include "Patches/ComposableCameraPatchManager.h"
+#include "Patches/ComposableCameraPatchTypes.h"
 #include "TextureResource.h"   // GWhiteTexture — needed as the shading source for FCanvasTriangleItem
 #include "Engine/Canvas.h"
 #include "Engine/Engine.h"
@@ -73,6 +76,18 @@ namespace
 		TEXT("  0: region always hidden\n")
 		TEXT("  1: region shown when at least one entry is in the ring buffer\n")
 		TEXT("     (entries age off naturally as new warnings arrive)."),
+		ECVF_Default);
+
+	static TAutoConsoleVariable<int32> CVarPanelPatches(
+		TEXT("CCS.Debug.Panel.Patches"),
+		1,
+		TEXT("Show the Patches region listing every active CameraPatch on the\n")
+		TEXT("active context's Director. Three lines per patch:\n")
+		TEXT("   [layer=N] AssetName   <Phase>\n")
+		TEXT("     a=0.42  enter 0.10/0.25s\n")
+		TEXT("     expire: D+CamChange\n")
+		TEXT("  0: region always hidden\n")
+		TEXT("  1: region always shown (uses '(none)' placeholder when empty)."),
 		ECVF_Default);
 
 	// ---- Module state --------------------------------------------------
@@ -287,6 +302,14 @@ namespace
 		TArray<FPoseGroup> PoseGroups;
 		float PoseBodyHeight     = 0.f;
 		int32 PoseLeftGroupCount = 0;
+
+		// Patches region — structured like Stack & Tree so each patch can
+		// render a phase-colored identity row + two filled progress bars
+		// (Alpha / Time) instead of plain text. The snapshot is stashed here
+		// at build time and the renderer walks it in DrawPatchesStructured.
+		bool  bIsPatches          = false;
+		TArray<FComposableCameraPatchSnapshot> PatchSnapshots;
+		float PatchesBodyHeight   = 0.f;
 
 		// Warnings region reuses the plain Lines path — no new flag needed.
 		// Each line carries its own verbosity-colored FLinearColor, which
@@ -1567,6 +1590,329 @@ namespace
 		}
 	}
 
+	// ---- Region: Patches ---------------------------------------------
+	//
+	// Three lines per patch, designed to read at a glance:
+	//
+	//   ▸ AssetName              L0    Active     a 1.00
+	//       7.39 / 10.00 s   active (74%)
+	//       expire   Duration · Manual · Condition  +CamChange
+	//
+	// Visual hierarchy:
+	//   Line 1 — phase-colored (cyan/green/amber/red), highest weight, contains
+	//            asset identity + key state fields. The line color makes the
+	//            patch's lifecycle phase readable in one glance even with many
+	//            patches active simultaneously.
+	//   Line 2 — neutral (dim), timing data with progress percentage.
+	//   Line 3 — neutral, expiration channels spelled out (Duration / Manual /
+	//            Condition) rather than D·M·C glyphs — the panel is wide enough
+	//            to fit the words, and they read as English instead of cipher.
+	//            Skipped entirely when no channels are enabled and OnCameraChange
+	//            is off.
+	static const FLinearColor CPatchEntering(0.55f, 0.85f, 0.95f, 1.00f); // cyan-ish (matches CLabel)
+	static const FLinearColor CPatchActive  (0.45f, 0.95f, 0.55f, 1.00f); // green
+	static const FLinearColor CPatchExiting (1.00f, 0.82f, 0.35f, 1.00f); // amber
+	static const FLinearColor CPatchExpired (0.75f, 0.45f, 0.45f, 1.00f); // muted red
+
+	static FLinearColor PatchPhaseColor(EComposableCameraPatchPhase Phase)
+	{
+		switch (Phase)
+		{
+			case EComposableCameraPatchPhase::Entering: return CPatchEntering;
+			case EComposableCameraPatchPhase::Active:   return CPatchActive;
+			case EComposableCameraPatchPhase::Exiting:  return CPatchExiting;
+			case EComposableCameraPatchPhase::Expired:  return CPatchExpired;
+		}
+		return CValue;
+	}
+
+	static const TCHAR* PatchPhaseLabel(EComposableCameraPatchPhase Phase)
+	{
+		switch (Phase)
+		{
+			case EComposableCameraPatchPhase::Entering: return TEXT("Entering");
+			case EComposableCameraPatchPhase::Active:   return TEXT("Active  ");
+			case EComposableCameraPatchPhase::Exiting:  return TEXT("Exiting ");
+			case EComposableCameraPatchPhase::Expired:  return TEXT("Expired ");
+		}
+		return TEXT("???     ");
+	}
+
+	// Emit "X.YY / Z.ZZ s   <action> (NN%)" for the timing line. Action label is
+	// chosen by phase: Entering → "enter", Exiting → "exit", Active+Duration →
+	// "active", Active+no-Duration → just elapsed. Returns empty if there's no
+	// meaningful timing (no duration on Active without channel).
+	static FString FormatPatchTimingLine(const FComposableCameraPatchSnapshot& P)
+	{
+		const EComposableCameraPatchPhase Phase = static_cast<EComposableCameraPatchPhase>(P.Phase);
+		auto FormatTiming = [](float Elapsed, float Total, const TCHAR* Label) -> FString
+		{
+			const float Pct = Total > 0.f ? FMath::Clamp(Elapsed / Total, 0.f, 1.f) * 100.f : 0.f;
+			return FString::Printf(TEXT("%.2f / %.2f s   %s (%.0f%%)"),
+				Elapsed, Total, Label, Pct);
+		};
+
+		if (Phase == EComposableCameraPatchPhase::Entering && P.EnterDuration > 0.f)
+		{
+			return FormatTiming(P.ElapsedInPhase, P.EnterDuration, TEXT("enter"));
+		}
+		if (Phase == EComposableCameraPatchPhase::Exiting && P.ExitDuration > 0.f)
+		{
+			return FormatTiming(P.ElapsedInPhase, P.ExitDuration, TEXT("exit "));
+		}
+		if (Phase == EComposableCameraPatchPhase::Active
+			&& (P.ExpirationType & static_cast<uint8>(EComposableCameraPatchExpirationType::Duration))
+			&& P.Duration > 0.f)
+		{
+			return FormatTiming(P.ElapsedTimeActive, P.Duration, TEXT("active"));
+		}
+		if (Phase == EComposableCameraPatchPhase::Active)
+		{
+			return FString::Printf(TEXT("%.2f s   active"), P.ElapsedTimeActive);
+		}
+		return FString();
+	}
+
+	// Spelled-out channel names joined by " · ". Plus suffix " +CamChange" if
+	// the auxiliary flag is set. Returns empty when no channel and no flag.
+	static FString FormatPatchExpirationLine(const FComposableCameraPatchSnapshot& P)
+	{
+		TArray<FString, TInlineAllocator<3>> Channels;
+		if (P.ExpirationType & static_cast<uint8>(EComposableCameraPatchExpirationType::Duration))  Channels.Add(TEXT("Duration"));
+		if (P.ExpirationType & static_cast<uint8>(EComposableCameraPatchExpirationType::Manual))    Channels.Add(TEXT("Manual"));
+		if (P.ExpirationType & static_cast<uint8>(EComposableCameraPatchExpirationType::Condition)) Channels.Add(TEXT("Condition"));
+
+		FString Out = FString::Join(Channels, TEXT(" · "));
+		if (P.bExpireOnCameraChange)
+		{
+			if (!Out.IsEmpty()) Out += TEXT("  ");
+			Out += TEXT("+CamChange");
+		}
+		return Out;
+	}
+
+	// Row heights / paddings for the structured Patches render.
+	static constexpr float KPatchIdentityRowH   = KLineH;   // identity line
+	static constexpr float KPatchBarRowH        = 18.f;     // alpha or time bar row
+	static constexpr float KPatchBarHeight      = 8.f;      // filled-rect thickness
+	static constexpr float KPatchBarTopInset    = 5.f;      // distance from row top to bar top
+	static constexpr float KPatchBarIndentPx    = 24.f;     // bar row indent from region left
+	static constexpr float KPatchBarLabelW      = 42.f;     // "Alpha" / "Time" / "Expire" label column width
+	static constexpr float KPatchBarLabelGap    = 6.f;      // gap between label text and bar
+	static constexpr float KPatchBarValueGap    = 8.f;      // gap between bar right edge and numeric value
+	static constexpr float KPatchInterRowGap    = 2.f;      // gap between consecutive rows within one patch
+	static constexpr float KPatchInterPatchGap  = 6.f;      // gap between adjacent patches
+
+	static bool PatchHasTimeBar(const FComposableCameraPatchSnapshot& P, EComposableCameraPatchPhase Phase)
+	{
+		if (Phase == EComposableCameraPatchPhase::Entering && P.EnterDuration > 0.f) return true;
+		if (Phase == EComposableCameraPatchPhase::Exiting  && P.ExitDuration  > 0.f) return true;
+		if (Phase == EComposableCameraPatchPhase::Active
+			&& (P.ExpirationType & static_cast<uint8>(EComposableCameraPatchExpirationType::Duration))
+			&& P.Duration > 0.f)
+		{
+			return true;
+		}
+		return false;
+	}
+
+	static bool PatchHasExpire(const FComposableCameraPatchSnapshot& P)
+	{
+		return P.ExpirationType != 0 || P.bExpireOnCameraChange;
+	}
+
+	static float ComputePatchRowHeight(const FComposableCameraPatchSnapshot& P)
+	{
+		const EComposableCameraPatchPhase Phase = static_cast<EComposableCameraPatchPhase>(P.Phase);
+		float H = KPatchIdentityRowH
+		        + KPatchInterRowGap + KPatchBarRowH; // identity + Alpha bar always
+		if (PatchHasTimeBar(P, Phase)) H += KPatchInterRowGap + KPatchBarRowH;
+		if (PatchHasExpire(P))         H += KPatchInterRowGap + KLineH;
+		return H;
+	}
+
+	static float ComputePatchesBodyHeight(const TArray<FComposableCameraPatchSnapshot>& Snap)
+	{
+		// Header row "Patches  (N)" always present.
+		float H = KLineH;
+		if (Snap.Num() == 0)
+		{
+			// "(none)" placeholder row.
+			return H + KLineH;
+		}
+		for (int32 i = 0; i < Snap.Num(); ++i)
+		{
+			if (i > 0) H += KPatchInterPatchGap;
+			H += ComputePatchRowHeight(Snap[i]);
+		}
+		return H;
+	}
+
+	static void BuildPatchesLines(const FPanelCtx& Ctx, FRegionLines& Out)
+	{
+		Out.Title      = TEXT("Patches");
+		Out.bIsPatches = true;
+
+		// Drill PCM → ContextStack → ActiveDirector → PatchManager.
+		const UComposableCameraContextStack* Stack = Ctx.PCM->GetContextStack();
+		UComposableCameraDirector* Director = Stack ? Stack->GetActiveDirector() : nullptr;
+		const UComposableCameraPatchManager* Manager = Director ? Director->GetPatchManager() : nullptr;
+
+		if (Manager)
+		{
+			Manager->BuildDebugSnapshot(Out.PatchSnapshots);
+		}
+
+		Out.PatchesBodyHeight = ComputePatchesBodyHeight(Out.PatchSnapshots);
+	}
+
+	/**
+	 * Render a single progress bar row: "Label  [bar      ] value".
+	 *
+	 * Layout (left → right, pixel offsets from BarOriginX):
+	 *   [0 .. LabelW)                                    — label text
+	 *   [LabelW .. BarRight)                             — bar (bg + filled fill + outline)
+	 *   [BarRight + gap .. RightX)                       — value text, right-aligned
+	 *
+	 * The bar's background alpha is 0.15 and the fill alpha is 0.75 — same
+	 * ratio the Stack & Tree transition row uses, so the visual weight of
+	 * "how much is done" versus "total length" reads consistently.
+	 */
+	static void DrawPatchBarRow(
+		const FPanelCtx& Ctx,
+		float BarOriginX, float RowY, float RightX,
+		const TCHAR* LabelText, float Progress01,
+		const FString& ValueText, const FLinearColor& Hue)
+	{
+		UCanvas* Canvas = Ctx.Canvas;
+		UFont*   Font   = Ctx.BodyFont;
+
+		const float LabelX  = BarOriginX;
+		const float BarX    = LabelX + KPatchBarLabelW + KPatchBarLabelGap;
+		const float ValueW  = MeasureTextWidth(Canvas, Font, ValueText);
+		const float ValueX  = RightX - ValueW;
+		const float BarRight = FMath::Max(BarX, ValueX - KPatchBarValueGap);
+		const float BarW    = BarRight - BarX;
+
+		// Label (neutral — the bar carries the phase color).
+		DrawTextLineClipped(Canvas, Font, LabelText,
+			LabelX, RowY + KPatchBarTopInset - 4.f, LabelX + KPatchBarLabelW, CNeutral);
+
+		// Bar body (bg + fill + outline).
+		const float BarY = RowY + KPatchBarTopInset;
+		const FLinearColor BarBgColor  (Hue.R, Hue.G, Hue.B, 0.15f);
+		const FLinearColor BarFillColor(Hue.R, Hue.G, Hue.B, 0.75f);
+		const FLinearColor BarBorderColor(Hue.R, Hue.G, Hue.B, 0.35f);
+		if (BarW > 0.f)
+		{
+			DrawFilledRect(Canvas, FVector2D(BarX, BarY), FVector2D(BarW, KPatchBarHeight), BarBgColor);
+			const float FillW = BarW * FMath::Clamp(Progress01, 0.f, 1.f);
+			if (FillW > 0.f)
+			{
+				DrawFilledRect(Canvas, FVector2D(BarX, BarY), FVector2D(FillW, KPatchBarHeight), BarFillColor);
+			}
+			DrawBorder(Canvas, FVector2D(BarX, BarY), FVector2D(BarW, KPatchBarHeight), BarBorderColor, 1.f);
+		}
+
+		// Value (numeric) — right-aligned.
+		DrawTextLineClipped(Canvas, Font, ValueText,
+			ValueX, RowY + KPatchBarTopInset - 4.f, RightX, CNeutral);
+	}
+
+	/**
+	 * Render the Patches region. For each patch:
+	 *   Row A: phase-colored identity text line ("> AssetName  L0  Active").
+	 *   Row B: "Alpha  [bar] 1.00" progress bar.
+	 *   Row C: "Time   [bar] X.XX / Y.YY s" — only when a meaningful denominator
+	 *          exists (Entering/EnterDuration, Exiting/ExitDuration,
+	 *          Active/Duration-channel).
+	 *   Row D: "Expire  Duration · Manual · Condition  +CamChange" — only when
+	 *          at least one channel or the OnCameraChange flag is on.
+	 *
+	 * The Time bar progress semantic matches the phase's natural direction:
+	 *   Entering  → ElapsedInPhase / EnterDuration (fills up as it enters)
+	 *   Exiting   → ElapsedInPhase / ExitDuration  (fills up as it exits;
+	 *               author reads "how far through the fade-out I am")
+	 *   Active    → ElapsedTimeActive / Duration   (fills up toward expiration)
+	 */
+	static void DrawPatchesStructured(
+		const FPanelCtx& Ctx,
+		const TArray<FComposableCameraPatchSnapshot>& Snap,
+		const FVector2D& BodyPos,
+		const FVector2D& BodySize)
+	{
+		UCanvas* Canvas = Ctx.Canvas;
+		UFont*   Font   = Ctx.BodyFont;
+		const float RightX = BodyPos.X + BodySize.X;
+		float CursorY = BodyPos.Y;
+
+		// Header.
+		DrawTextLineClipped(Canvas, Font,
+			FString::Printf(TEXT("Patches  (%d)"), Snap.Num()),
+			BodyPos.X, CursorY, RightX, CLabel);
+		CursorY += KLineH;
+
+		if (Snap.Num() == 0)
+		{
+			DrawTextLineClipped(Canvas, Font, TEXT("  (none)"), BodyPos.X, CursorY, RightX, CNeutral);
+			return;
+		}
+
+		for (int32 i = 0; i < Snap.Num(); ++i)
+		{
+			if (i > 0) CursorY += KPatchInterPatchGap;
+
+			const FComposableCameraPatchSnapshot& P = Snap[i];
+			const EComposableCameraPatchPhase Phase = static_cast<EComposableCameraPatchPhase>(P.Phase);
+			const FLinearColor Hue = PatchPhaseColor(Phase);
+
+			// Row A — identity.
+			const FString IdLine = FString::Printf(TEXT("  > %s        L%-2d   %s"),
+				*P.AssetName, P.LayerIndex, PatchPhaseLabel(Phase));
+			DrawTextLineClipped(Canvas, Font, IdLine, BodyPos.X, CursorY, RightX, Hue);
+			CursorY += KPatchIdentityRowH + KPatchInterRowGap;
+
+			// Row B — Alpha bar (always).
+			const float BarOriginX = BodyPos.X + KPatchBarIndentPx;
+			DrawPatchBarRow(Ctx, BarOriginX, CursorY, RightX,
+				TEXT("Alpha"), P.Alpha, FString::Printf(TEXT("%.2f"), P.Alpha), Hue);
+			CursorY += KPatchBarRowH + KPatchInterRowGap;
+
+			// Row C — Time bar (conditional).
+			if (PatchHasTimeBar(P, Phase))
+			{
+				float Elapsed = 0.f, Total = 0.f;
+				if (Phase == EComposableCameraPatchPhase::Entering)
+				{
+					Elapsed = P.ElapsedInPhase; Total = P.EnterDuration;
+				}
+				else if (Phase == EComposableCameraPatchPhase::Exiting)
+				{
+					Elapsed = P.ElapsedInPhase; Total = P.ExitDuration;
+				}
+				else // Active + Duration channel
+				{
+					Elapsed = P.ElapsedTimeActive; Total = P.Duration;
+				}
+				const float TimeProgress = Total > 0.f
+					? FMath::Clamp(Elapsed / Total, 0.f, 1.f) : 0.f;
+				DrawPatchBarRow(Ctx, BarOriginX, CursorY, RightX,
+					TEXT("Time"), TimeProgress,
+					FString::Printf(TEXT("%.2f / %.2f s"), Elapsed, Total), Hue);
+				CursorY += KPatchBarRowH + KPatchInterRowGap;
+			}
+
+			// Row D — Expire (conditional).
+			if (PatchHasExpire(P))
+			{
+				const FString Line = FString::Printf(TEXT("    Expire   %s"),
+					*FormatPatchExpirationLine(P));
+				DrawTextLineClipped(Canvas, Font, Line, BodyPos.X, CursorY, RightX, CNeutral);
+				CursorY += KLineH;
+			}
+		}
+	}
+
 	// ---- Region: Warnings --------------------------------------------
 	//
 	// Reads the FComposableCameraLogCapture ring buffer and emits one
@@ -2498,11 +2844,16 @@ namespace
 
 		// Build all region descriptors up front.
 		// Region order (top → bottom): pose / stack / running camera /
-		// actions / modifiers / warnings / legend. Warnings sits above
-		// Legend so "something is wrong" gets more screen weight than
-		// "here's the color key".
-		const int32 NumRegions = 5 + (bHasWarnings ? 1 : 0) + (bHasLegend ? 1 : 0);
-		TArray<FRegionLines, TInlineAllocator<8>> Regions;
+		// actions / modifiers / patches / warnings / legend. Patches sits next
+		// to its sibling "what's affecting the camera" data (Actions, Modifiers).
+		// Warnings sits above Legend so "something is wrong" gets more screen
+		// weight than "here's the color key".
+		const bool bWantPatches = CVarPanelPatches.GetValueOnGameThread() != 0;
+		const int32 NumRegions = 5
+			+ (bWantPatches ? 1 : 0)
+			+ (bHasWarnings ? 1 : 0)
+			+ (bHasLegend ? 1 : 0);
+		TArray<FRegionLines, TInlineAllocator<9>> Regions;
 		Regions.SetNum(NumRegions);
 		BuildPoseGroups         (Ctx, Regions[0]);
 
@@ -2516,6 +2867,10 @@ namespace
 		BuildModifiersLines     (Ctx, Regions[4]);
 
 		int32 NextRegionIdx = 5;
+		if (bWantPatches)
+		{
+			BuildPatchesLines(Ctx, Regions[NextRegionIdx++]);
+		}
 		if (bHasWarnings)
 		{
 			Regions[NextRegionIdx++] = MoveTemp(WarningsRegion);
@@ -2542,6 +2897,7 @@ namespace
 			if (R.bIsStackAndTree)      { RawH = R.StackBodyHeight; }
 			else if (R.bIsLegend)       { RawH = R.LegendBodyHeight; }
 			else if (R.bIsPose)         { RawH = R.PoseBodyHeight; }
+			else if (R.bIsPatches)      { RawH = R.PatchesBodyHeight; }
 			else                        { RawH = R.Lines.Num() * KLineH; }
 			return RawH + KPadding * 2.f;
 		};
@@ -2597,6 +2953,10 @@ namespace
 			else if (R.bIsPose)
 			{
 				DrawPoseStructured(Ctx, R, BodyPos, BodySize);
+			}
+			else if (R.bIsPatches)
+			{
+				DrawPatchesStructured(Ctx, R.PatchSnapshots, BodyPos, BodySize);
 			}
 			else
 			{
