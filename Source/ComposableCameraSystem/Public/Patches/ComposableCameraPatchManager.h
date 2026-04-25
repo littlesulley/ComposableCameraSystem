@@ -110,6 +110,33 @@ public:
 	 */
 	void ExpireAll(float ExitDurationOverride = -1.f);
 
+	/**
+	 * Mid-life parameter mutation. Re-applies a parameter block onto the
+	 * Patch evaluator's runtime data block via the source asset's
+	 * ApplyParameterBlock — exactly the path the LS Component uses on its
+	 * own per-tick re-sync (see UComposableCameraLevelSequenceComponent::TickComponent).
+	 *
+	 * Drives Sequencer integration's per-frame parameter keying: the patch
+	 * track's TrackInstance::OnAnimate rebuilds a block from the section's
+	 * current bag values and pushes it through this entry once per frame
+	 * for every still-active section.
+	 *
+	 * Cost is O(exposed-parameter count) per call; ApplyParameterBlock copies
+	 * typed values directly into the data block with no allocations on hits.
+	 * Safe to call every frame on the same handle. No-op if the handle is
+	 * null / stale / already in Exiting / Expired phase, or if the evaluator
+	 * has no runtime data block yet.
+	 *
+	 * NOTE: this is NOT the broader `SetPatchParameter(handle, name, value)`
+	 * runtime mutation API — it takes a complete parameter block (every
+	 * exposed value at once), which is the natural shape Sequencer keys produce.
+	 * A single-key per-call API is still deferred (PatchSystemProposal §0
+	 * "Remaining deferred work") because there is no current driver for it.
+	 */
+	void ApplyParameterBlockToActivePatch(
+		UComposableCameraPatchHandle* Handle,
+		const FComposableCameraParameterBlock& Parameters);
+
 	int32 GetActivePatchCount() const { return ActivePatches.Num(); }
 
 	const TArray<TObjectPtr<UComposableCameraPatchInstance>>& GetActivePatches() const

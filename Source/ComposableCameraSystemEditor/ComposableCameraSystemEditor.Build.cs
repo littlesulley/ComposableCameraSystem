@@ -38,6 +38,11 @@ public class ComposableCameraSystemEditor : ModuleRules
                 "RewindDebuggerInterface",
                 "RHI",
                 "Sequencer",
+                // SequencerCore exports UE::Sequencer::MakeAddButton (used by
+                // FComposableCameraPatchTrackEditor::BuildOutlinerEditWidget for
+                // the section + button). The symbol's declaration lives in
+                // MVVM/Views/ViewUtilities.h with SEQUENCERCORE_API export.
+                "SequencerCore",
                 "Slate",
                 "SlateCore",
                 "StructUtilsEditor",

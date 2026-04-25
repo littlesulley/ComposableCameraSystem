@@ -30,7 +30,7 @@ namespace ComposableCameraPosePrivate
 	FORCEINLINE float LerpOptional(float From, float To, float Factor)
 	{
 		const bool bFromValid = (From > 0.f);
-		const bool bToValid   = (To   > 0.f);
+		const bool bToValid   = (To   > 0.f); 
 
 		if (bFromValid && bToValid) { return FMath::Lerp(From, To, Factor); }
 		if (bToValid)               { return To; }

@@ -118,9 +118,25 @@ struct FComposableCameraTreeNodeSnapshot
 	TArray<float> BlendCurveSamples;
 };
 
-/** One active Camera Patch on a Director. Produced by
- *  UComposableCameraPatchManager::BuildDebugSnapshot. Sorted in iteration order
- *  (LayerIndex asc, PushSequence asc — same order Apply runs them). */
+/** Where a patch entry was sourced from — drives the row's prefix label so
+ *  the designer can tell which path is producing each visible patch. */
+enum class EComposableCameraPatchSource : uint8
+{
+	/** Added via BP `AddCameraPatch` library / runtime PCM path. Lives on
+	 *  the Director's PatchManager; uses stateful envelope. */
+	BlueprintLibrary,
+	/** Driven by a Sequencer `UMovieSceneComposableCameraPatchTrack` section
+	 *  bound to an `AComposableCameraLevelSequenceActor` via `TargetActorBinding`.
+	 *  Lives on the LS Component's overlay map; uses stateless envelope. */
+	Sequencer,
+};
+
+/** One active Camera Patch surfaced for the Debug Panel / dump commands.
+ *  Produced by either `UComposableCameraPatchManager::BuildDebugSnapshot`
+ *  (BP path, one snapshot per active director) or `UComposableCameraLevelSequenceComponent::BuildSequencerPatchSnapshot`
+ *  (Sequencer path, one snapshot per LS Component overlay). The two are merged
+ *  into a single list in `BuildPatchesLines`; `Source` distinguishes them in
+ *  the row label. */
 struct FComposableCameraPatchSnapshot
 {
 	/** Patch asset display name; "(missing)" if the weak ptr resolved null. */
@@ -130,30 +146,48 @@ struct FComposableCameraPatchSnapshot
 	int32 LayerIndex = 0;
 
 	/** Lifecycle phase (0 = Entering, 1 = Active, 2 = Exiting, 3 = Expired).
-	 *  Stored as int8 to keep the snapshot decoupled from the runtime enum. */
+	 *  Stored as int8 to keep the snapshot decoupled from the runtime enum.
+	 *  For Sequencer-source entries this is always Active (1) since the
+	 *  envelope is stateless and alpha alone carries phase semantics. */
 	int8 Phase = 0;
 
 	/** Current effect alpha — drives BlendBy(InputPose, Evaluated, alpha). */
 	float Alpha = 0.f;
 
-	/** Time spent in the current Phase (resets on every transition). */
+	/** Time spent in the current Phase (resets on every transition). 0 for
+	 *  Sequencer-source entries (no stateful phase tracking). */
 	float ElapsedInPhase = 0.f;
 
-	/** Time spent in Active phase total (drives the Duration channel). */
+	/** Time spent in Active phase total (drives the Duration channel). 0 for
+	 *  Sequencer-source entries. */
 	float ElapsedTimeActive = 0.f;
 
 	/** Authored EnterDuration / ExitDuration (in seconds) for ramp progress display. */
 	float EnterDuration = 0.f;
 	float ExitDuration = 0.f;
 
-	/** Active-phase Duration cap (0 if Duration channel is not enabled). */
+	/** Active-phase Duration cap (0 if Duration channel is not enabled). For
+	 *  Sequencer-source entries this is the section's range converted to seconds. */
 	float Duration = 0.f;
 
-	/** Bitmask of EComposableCameraPatchExpirationType — what channels can fire. */
+	/** Bitmask of EComposableCameraPatchExpirationType — what channels can fire.
+	 *  For Sequencer-source entries this is always 0 (section's TrueRange is
+	 *  the lifetime; no per-channel expiration semantics). */
 	uint8 ExpirationType = 0;
 
-	/** Auxiliary "expire when running camera changes" flag. */
+	/** Auxiliary "expire when running camera changes" flag. False for
+	 *  Sequencer-source entries. */
 	bool bExpireOnCameraChange = false;
+
+	/** Where this entry came from. Drives the Debug Panel row's source-tag
+	 *  prefix ("[BP]" vs "[Seq]") so designers can tell which path is producing
+	 *  each visible patch. */
+	EComposableCameraPatchSource Source = EComposableCameraPatchSource::BlueprintLibrary;
+
+	/** For Sequencer-source entries, the bound LS Actor's display name —
+	 *  empty for BP-source entries. Lets the panel show "[Seq] Asset on Actor"
+	 *  when there are multiple LS Actors with overlapping patches. */
+	FString HostActorName;
 };
 
 /** One context entry in the stack snapshot. Produced by

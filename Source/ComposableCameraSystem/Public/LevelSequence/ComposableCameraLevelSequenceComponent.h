@@ -4,13 +4,44 @@
 
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
+#include "Core/ComposableCameraParameterBlock.h"
 #include "LevelSequence/ComposableCameraTypeAssetReference.h"
 #include "Nodes/ComposableCameraNodePinTypes.h"
 #include "ComposableCameraLevelSequenceComponent.generated.h"
 
 class AComposableCameraCameraBase;
 class UCineCameraComponent;
+class UMovieSceneComposableCameraPatchSection;
 struct FComposableCameraPose;
+
+/**
+ * Per-section editor-preview overlay state owned by
+ * UComposableCameraLevelSequenceComponent::SequencerPatchOverlays.
+ *
+ * Top-level USTRUCT (not nested) because UHT rejects USTRUCT-inside-UCLASS.
+ * One entry per active patch section; map key is the section pointer.
+ */
+USTRUCT()
+struct FComposableCameraSequencerPatchOverlay
+{
+	GENERATED_BODY()
+
+	/** Lazy-spawned evaluator actor for this section. Created on first
+	 *  SetSequencerPatchOverlay; destroyed on RemoveSequencerPatchOverlay
+	 *  or when the owning component is unregistered. */
+	UPROPERTY()
+	TObjectPtr<AComposableCameraCameraBase> Evaluator;
+
+	/** Latest parameter block sampled from the section's channels at the
+	 *  current playhead frame; re-pushed every frame the section is in-range
+	 *  so per-tick application sees animated values. */
+	UPROPERTY()
+	FComposableCameraParameterBlock LatestParameters;
+
+	/** Envelope alpha at the current frame, computed by the caller via
+	 *  PatchEnvelope::ComputeStatelessAlpha. 0 = no contribution, 1 = full. */
+	float Alpha = 0.f;
+};
 
 /**
  * Actor component that drives a composable camera in the Level Sequence path.
@@ -127,6 +158,67 @@ public:
 	/** Access the internal camera for editor-side inspection / debugging. */
 	AComposableCameraCameraBase* GetInternalCamera() const { return InternalCamera; }
 
+	/** External "TypeAsset was just swapped" entry for non-Details-panel paths
+	 *  (e.g. the Sequencer track editor's "Camera Type Asset" picker). Performs
+	 *  the same chain `PostEditChangeProperty` does on a TypeAsset edit:
+	 *  rebuild parameter / variable bag layouts from the new asset, then
+	 *  destroy + respawn the InternalCamera so the next tick reflects the
+	 *  new TypeAsset. Caller is responsible for setting `TypeAssetReference.TypeAsset`
+	 *  before calling this. Marks the component dirty for transaction tracking. */
+	void NotifyTypeAssetExternallyChanged();
+
+	// ─── Sequencer Patch Overlay (driven by Patch TrackInstance) ─────────
+	//
+	// Per-frame the Patch track's TrackInstance::OnAnimate walks its in-range
+	// sections, resolves each section's TargetActorBinding to its bound LS
+	// Actor, and pushes (section, sampled parameter block, envelope alpha)
+	// here. This LS Component's own TickComponent walks the registered overlays
+	// after ticking InternalCamera, runs each overlay's cached evaluator with
+	// the running pose as input, and blends the result by alpha. Final patched
+	// pose (Position + Rotation + FOV) is projected onto the CineCamera.
+	//
+	// Same path runs in BOTH editor preview (Sequencer scrub in the editor
+	// viewport) AND PIE (Camera Cut Track targets the LS Actor). The ECS gate
+	// (UMovieSceneComposableCameraGateInstantiator) handles whether this
+	// component is ticking at all — Sequencer patches naturally apply only
+	// while the LS Actor is the active camera target.
+	//
+	// Patches added via the BP library `AddCameraPatch(PlayerIndex, ContextName, ...)`
+	// are a separate path that lives on the gameplay PCM/Director, not here.
+	// The two surfaces are intentionally orthogonal.
+	//
+	// 1-frame lag note: TrackInstance::OnAnimate may run AFTER this component's
+	// TickComponent within a given frame, in which case the overlay state used
+	// for projection is the previous frame's. Visually imperceptible during
+	// scrub / playback; intentional trade-off vs. a more invasive ordering hack.
+
+	/** Push (or refresh) an overlay registration for `Section`. Called every
+	 *  frame the section is in-range. The pre-computed `EnvelopeAlpha` (from
+	 *  the section's playhead position via `PatchEnvelope::ComputeStatelessAlpha`)
+	 *  drives the BlendBy. The component caches a transient evaluator actor
+	 *  per section (lazy-spawned on first use, destroyed on Remove or component
+	 *  teardown). Intentionally accepts the parameter block by value — caller
+	 *  builds it per-frame from the section's channel curves. */
+	void SetSequencerPatchOverlay(
+		UMovieSceneComposableCameraPatchSection* Section,
+		const FComposableCameraParameterBlock& Parameters,
+		float EnvelopeAlpha);
+
+	/** Remove an overlay registration when the section leaves its range or
+	 *  when the TrackInstance shuts down. Destroys the cached evaluator actor.
+	 *  Idempotent — safe to call on a section that wasn't registered. */
+	void RemoveSequencerPatchOverlay(UMovieSceneComposableCameraPatchSection* Section);
+
+	/** Capture this LS Component's currently-registered Sequencer patch overlays
+	 *  as Debug Panel snapshot rows. Called by the panel's `BuildPatchesLines`
+	 *  (it walks every LS Component in the world and merges results with the
+	 *  PatchManager-side snapshot). One snapshot row per overlay, sorted by
+	 *  the section's resolved LayerIndex (matches the per-tick apply order so
+	 *  the panel rows reflect actual composition order). Each entry has
+	 *  `Source = EComposableCameraPatchSource::Sequencer` and `HostActorName`
+	 *  populated so the renderer can prefix "[Seq]" / suffix "on Actor". */
+	void BuildSequencerPatchSnapshot(TArray<struct FComposableCameraPatchSnapshot>& OutPatches) const;
+
 private:
 	/** Transient internal camera — spawned lazily on first evaluation. Not
 	 *  added to any context stack or director; driven entirely by this
@@ -153,4 +245,18 @@ private:
 
 	/** Destroy the internal camera actor if one exists. */
 	void DestroyInternalCamera();
+
+	/** Apply every active editor-preview patch overlay (sorted by the section's
+	 *  resolved LayerIndex) onto `InOutPose`. Called from TickComponent in
+	 *  editor world only, between InternalCamera->TickCamera and
+	 *  ProjectPoseToCineCamera. Lazy-spawns evaluator actors as needed and
+	 *  prunes stale entries (section GC'd) from the overlay map. */
+	void ApplySequencerPatchOverlays(FComposableCameraPose& InOutPose, float DeltaTime);
+
+	/** Active overlays keyed by section. UPROPERTY so the inner TObjectPtrs
+	 *  inside FComposableCameraSequencerPatchOverlay are GC-tracked.
+	 *  Pruned on RemoveSequencerPatchOverlay or when the section pointer
+	 *  goes stale. */
+	UPROPERTY(Transient)
+	TMap<TObjectPtr<UMovieSceneComposableCameraPatchSection>, FComposableCameraSequencerPatchOverlay> SequencerPatchOverlays;
 };

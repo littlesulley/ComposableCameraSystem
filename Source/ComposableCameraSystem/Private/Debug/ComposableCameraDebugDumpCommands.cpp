@@ -28,10 +28,12 @@
 #include "GameFramework/PlayerController.h"
 #include "HAL/IConsoleManager.h"
 #include "HAL/PlatformApplicationMisc.h"
+#include "LevelSequence/ComposableCameraLevelSequenceComponent.h"
 #include "Misc/StringBuilder.h"
 #include "Nodes/ComposableCameraCameraNodeBase.h"
 #include "Patches/ComposableCameraPatchManager.h"
 #include "Patches/ComposableCameraPatchTypes.h"
+#include "UObject/UObjectIterator.h"
 #include "Utils/ComposableCameraDebugFormatUtils.h"
 
 namespace
@@ -150,15 +152,19 @@ namespace
 			}
 
 			B.Appendf(
-				TEXT("%s  [layer=%d] %-24s | %s | a=%.2f | %s | exp=%s%s\n"),
+				TEXT("%s  [layer=%d] %s%-24s | %s | a=%.2f | %s | exp=%s%s%s\n"),
 				*Indent,
 				P.LayerIndex,
+				P.Source == EComposableCameraPatchSource::Sequencer ? TEXT("[Seq] ") : TEXT(""),
 				*P.AssetName,
 				PhaseShortName(P.Phase),
 				P.Alpha,
 				*Timing,
 				*ExpirationMaskGlyph(P.ExpirationType),
-				P.bExpireOnCameraChange ? TEXT("+CamChange") : TEXT(""));
+				P.bExpireOnCameraChange ? TEXT("+CamChange") : TEXT(""),
+				P.Source == EComposableCameraPatchSource::Sequencer && !P.HostActorName.IsEmpty()
+					? *FString::Printf(TEXT(" on %s"), *P.HostActorName)
+					: TEXT(""));
 		}
 	}
 
@@ -418,32 +424,42 @@ namespace
 	}
 
 	// `CCS.Dump.Patches`
-	//   No args. Dumps the active context's PatchManager state — one row per
-	//   active Patch with layer / phase / alpha / timing / expiration channels.
+	//   No args. Dumps active patches from BOTH paths into one merged list:
+	//   - BP path  : active context's PatchManager (one row per BP-driven patch).
+	//   - Sequencer: every UComposableCameraLevelSequenceComponent's overlay map
+	//                (one row per Sequencer-driven section overlay, marked [Seq]
+	//                in the dump output).
 	static void CmdDumpPatches(const TArray<FString>& /*Args*/, UWorld* World)
 	{
 		AComposableCameraPlayerCameraManager* PCM = ResolvePCM(World);
 		if (!PCM) { UE_LOG(LogComposableCameraSystem, Warning,
 			TEXT("CCS.Dump.Patches: no CCS PCM found.")); return; }
 
+		TArray<FComposableCameraPatchSnapshot> Patches;
+
+		// Source 1 — PatchManager (BP path).
 		const UComposableCameraContextStack* Stack = PCM->GetContextStack();
 		UComposableCameraDirector* Director = Stack ? Stack->GetActiveDirector() : nullptr;
-		if (!Director)
+		if (const UComposableCameraPatchManager* Manager = Director ? Director->GetPatchManager() : nullptr)
 		{
-			UE_LOG(LogComposableCameraSystem, Warning,
-				TEXT("CCS.Dump.Patches: no active director."));
-			return;
-		}
-		const UComposableCameraPatchManager* Manager = Director->GetPatchManager();
-		if (!Manager)
-		{
-			UE_LOG(LogComposableCameraSystem, Warning,
-				TEXT("CCS.Dump.Patches: active director has no PatchManager."));
-			return;
+			Manager->BuildDebugSnapshot(Patches);
 		}
 
-		TArray<FComposableCameraPatchSnapshot> Patches;
-		Manager->BuildDebugSnapshot(Patches);
+		// Source 2 — LS Component overlays (Sequencer path). Walk every LS Component
+		// in the same world and merge in. Mirrors the panel's BuildPatchesLines
+		// logic so the dump and the on-screen panel always agree on what's active.
+		if (UWorld* CmdWorld = PCM->GetWorld())
+		{
+			for (TObjectIterator<UComposableCameraLevelSequenceComponent> It; It; ++It)
+			{
+				UComposableCameraLevelSequenceComponent* LSComp = *It;
+				if (!LSComp || !IsValid(LSComp) || LSComp->GetWorld() != CmdWorld)
+				{
+					continue;
+				}
+				LSComp->BuildSequencerPatchSnapshot(Patches);
+			}
+		}
 
 		TStringBuilder<2048> B;
 		AppendPatchesDump(B, Patches, /*IndentSpaces=*/0);

@@ -48,6 +48,10 @@ public:
 		TSharedRef<FExtender> Extender,
 		const TArray<FGuid>& ObjectBindings,
 		const UClass* ObjectClass) override;
+	virtual void BuildObjectBindingContextMenu(
+		FMenuBuilder& MenuBuilder,
+		const TArray<FGuid>& ObjectBindings,
+		const UClass* ObjectClass) override;
 	virtual bool SupportsType(TSubclassOf<UMovieSceneTrack> Type) const override;
 
 private:
@@ -86,4 +90,32 @@ private:
 	/** Entry click handler: call Sequencer->KeyProperty with the property path. */
 	void AddParameterTrack(FParameterMenuEntry Entry, FGuid ObjectBinding);
 	bool CanAddParameterTrack(FParameterMenuEntry Entry, FGuid ObjectBinding) const;
+
+	// ─── Camera Type Asset picker (right-click → "Camera Type Asset ▸") ──
+	//
+	// Replaces the "go to Details panel and set TypeAssetReference.TypeAsset"
+	// workflow with a one-click asset picker right on the binding row,
+	// matching the Patch Section authoring UX (asset shown on the section).
+	// Picking an asset also auto-renames the binding to the asset name when
+	// the binding still has its default class-name label (e.g.
+	// "ComposableCameraLevelSequenceActor"), so the chosen asset is visible
+	// on the binding row. Designer-renamed bindings are left alone.
+
+	/** Shared "Camera Type Asset: <name>" section used by the right-click
+	 *  context menu (BuildObjectBindingContextMenu). Single section header
+	 *  showing the current asset name + a submenu containing the picker. */
+	void BuildCameraTypeAssetSection(FMenuBuilder& MenuBuilder, TArray<FGuid> ObjectBindings);
+
+	/** Build the "Camera Type Asset" submenu — adds an asset picker filtered
+	 *  to UComposableCameraTypeAsset (and subclasses, including Patch type
+	 *  assets — though picking a Patch asset for an LS Actor is unusual it's
+	 *  not invalid; the runtime treats Patch assets as TypeAssets via inheritance). */
+	void AddCameraTypeAssetSubMenu(class FMenuBuilder& MenuBuilder, TArray<FGuid> ObjectBindings);
+
+	/** Asset picker selection handler — sets `Component->TypeAssetReference.TypeAsset`,
+	 *  rebuilds the parameter / variable bags, refreshes the internal camera so
+	 *  the change applies immediately in editor scrub, and auto-renames the
+	 *  Spawnable binding to the asset name if it still has the default label. */
+	void OnCameraTypeAssetSelected(const struct FAssetData& AssetData, TArray<FGuid> ObjectBindings);
+	void OnCameraTypeAssetEnterPressed(const TArray<struct FAssetData>& AssetData, TArray<FGuid> ObjectBindings);
 };

@@ -7,8 +7,13 @@
 #include "ComposableCameraSystemModule.h"
 #include "Core/ComposableCameraParameterBlock.h"
 #include "Core/ComposableCameraTypeAssetInstantiator.h"
+#include "DataAssets/ComposableCameraPatchTypeAsset.h"
 #include "DataAssets/ComposableCameraTypeAsset.h"
+#include "Debug/ComposableCameraDebugPanelData.h"
 #include "Engine/World.h"
+#include "GameFramework/Actor.h"
+#include "MovieScene/MovieSceneComposableCameraPatchSection.h"
+#include "MovieScene.h"
 
 UComposableCameraLevelSequenceComponent::UComposableCameraLevelSequenceComponent()
 {
@@ -152,7 +157,29 @@ void UComposableCameraLevelSequenceComponent::TickComponent(
 	// it) — history-dependent nodes may look off during scrub. Phase B accepts
 	// this; see TechDoc §7 gotcha for history-dependent nodes. PIE DeltaTime is
 	// real frame-to-frame time and nodes behave normally.
-	const FComposableCameraPose Pose = InternalCamera->TickCamera(DeltaTime);
+	FComposableCameraPose Pose = InternalCamera->TickCamera(DeltaTime);
+
+	// Sequencer patch overlay pass — runs in all worlds (Editor preview AND
+	// PIE / Game / Standalone). Patches added through the BP library
+	// `AddCameraPatch` go through a separate gameplay PCM/Director path; this
+	// LS Component path handles ONLY Sequencer-driven patches whose section
+	// has TargetActorBinding set to this actor. Applied AFTER InternalCamera's
+	// tick + BEFORE projection so patches see the LS Component's clean base
+	// pose as upstream and the CineCamera receives the final patched pose.
+	// This intentionally also writes FOV (CineCamera's optics are touched
+	// here) so DollyZoom-style patches preview correctly — the projection
+	// path proper still leaves optics alone for the non-overlay case.
+	//
+	// Whether this LS Component ticks at all is gated by the ECS gate
+	// (UMovieSceneComposableCameraGateInstantiator) — if the LS Actor isn't
+	// the active Camera Cut Track target, the gate closes us and patches
+	// don't fire. That's the right semantic: Sequencer patches are visible
+	// only while their host LS Actor is the camera target.
+	if (SequencerPatchOverlays.Num() > 0)
+	{
+		ApplySequencerPatchOverlays(Pose, DeltaTime);
+	}
+
 	ProjectPoseToCineCamera(Pose);
 }
 
@@ -318,6 +345,12 @@ void UComposableCameraLevelSequenceComponent::RebuildInternalCamera()
 	EnsureInternalCamera();
 }
 
+void UComposableCameraLevelSequenceComponent::NotifyTypeAssetExternallyChanged()
+{
+	TypeAssetReference.RebuildBagsFromTypeAsset();
+	RebuildInternalCamera();
+}
+
 void UComposableCameraLevelSequenceComponent::DestroyInternalCamera()
 {
 	if (InternalCamera && IsValid(InternalCamera))
@@ -325,6 +358,21 @@ void UComposableCameraLevelSequenceComponent::DestroyInternalCamera()
 		InternalCamera->Destroy();
 	}
 	InternalCamera = nullptr;
+
+	// Mirror evaluator cleanup for editor-preview patch overlays — the LS
+	// Component spawned these as transient actors, so when the component
+	// itself is being torn down (typical caller paths: OnUnregister /
+	// EndPlay → DestroyInternalCamera) those evaluators must go too. Without
+	// this, Sequencer Save / spawnable re-spawn / hot-reload would leak one
+	// evaluator per registered patch section per teardown cycle.
+	for (TPair<TObjectPtr<UMovieSceneComposableCameraPatchSection>, FComposableCameraSequencerPatchOverlay>& Pair : SequencerPatchOverlays)
+	{
+		if (Pair.Value.Evaluator && IsValid(Pair.Value.Evaluator))
+		{
+			Pair.Value.Evaluator->Destroy();
+		}
+	}
+	SequencerPatchOverlays.Reset();
 }
 
 void UComposableCameraLevelSequenceComponent::ProjectPoseToCineCamera(const FComposableCameraPose& Pose)
@@ -352,4 +400,273 @@ void UComposableCameraLevelSequenceComponent::ProjectPoseToCineCamera(const FCom
 	// not a problem at this scope, but would be a mental-overhead tax to
 	// reason about alongside Sequencer-keyed optics.
 	OutputCineCameraComponent->SetWorldLocationAndRotation(Pose.Position, Pose.Rotation);
+}
+
+void UComposableCameraLevelSequenceComponent::SetSequencerPatchOverlay(
+	UMovieSceneComposableCameraPatchSection* Section,
+	const FComposableCameraParameterBlock& Parameters,
+	float EnvelopeAlpha)
+{
+	if (!Section || !Section->PatchAsset)
+	{
+		return;
+	}
+
+	FComposableCameraSequencerPatchOverlay& Overlay = SequencerPatchOverlays.FindOrAdd(Section);
+
+	// Lazy-spawn the evaluator on first use. PCM-independent construction
+	// (Initialize(nullptr)) — same path PatchManager uses for runtime patch
+	// evaluators, same path the LS Component uses for its own InternalCamera.
+	// Reuse across frames; destroyed on RemoveSequencerPatchOverlay.
+	if (!Overlay.Evaluator || !IsValid(Overlay.Evaluator))
+	{
+		UWorld* World = GetWorld();
+		if (!World)
+		{
+			SequencerPatchOverlays.Remove(Section);
+			return;
+		}
+
+		FActorSpawnParameters SpawnParams;
+		SpawnParams.Owner = GetOwner();
+		SpawnParams.ObjectFlags |= RF_Transient;
+		SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+		SpawnParams.bNoFail = true;
+
+		AComposableCameraCameraBase* NewEvaluator = World->SpawnActor<AComposableCameraCameraBase>(
+			AComposableCameraCameraBase::StaticClass(),
+			GetOwner() ? GetOwner()->GetActorTransform() : FTransform::Identity,
+			SpawnParams);
+
+		if (!NewEvaluator)
+		{
+			SequencerPatchOverlays.Remove(Section);
+			return;
+		}
+
+		// Suppress actor tick — TickComponent drives ticks via TickWithInputPose.
+		NewEvaluator->SetActorTickEnabled(false);
+		// PCM-independent init (skips BindCameraActionsForNewCamera).
+		NewEvaluator->Initialize(/*Manager=*/nullptr);
+
+		// Build evaluator from PatchAsset with the initial parameters.
+		UE::ComposableCameras::ConstructCameraFromTypeAsset(NewEvaluator, Section->PatchAsset, Parameters);
+		Overlay.Evaluator = NewEvaluator;
+	}
+
+	Overlay.LatestParameters = Parameters;
+	Overlay.Alpha = FMath::Clamp(EnvelopeAlpha, 0.f, 1.f);
+}
+
+void UComposableCameraLevelSequenceComponent::RemoveSequencerPatchOverlay(
+	UMovieSceneComposableCameraPatchSection* Section)
+{
+	if (!Section)
+	{
+		return;
+	}
+
+	FComposableCameraSequencerPatchOverlay* Found = SequencerPatchOverlays.Find(Section);
+	if (!Found)
+	{
+		return;
+	}
+
+	if (Found->Evaluator && IsValid(Found->Evaluator))
+	{
+		Found->Evaluator->Destroy();
+	}
+	SequencerPatchOverlays.Remove(Section);
+}
+
+void UComposableCameraLevelSequenceComponent::ApplySequencerPatchOverlays(
+	FComposableCameraPose& InOutPose, float DeltaTime)
+{
+	// Stable iteration order: snapshot the keys, sort by the section's resolved
+	// LayerIndex (asset default OR per-call override on Params), then walk.
+	// Sorting matches the runtime PatchManager's ActivePatches ordering so
+	// editor preview composition is deterministic and consistent with PIE.
+	// Use raw pointers for the local sorted array — `TArray<TObjectPtr>::Sort`
+	// goes through TDereferenceWrapper which constructs `TObjectPtr` from a
+	// reference (deprecated in UE 5.6, removed in next release).
+	TArray<UMovieSceneComposableCameraPatchSection*> SortedKeys;
+	SortedKeys.Reserve(SequencerPatchOverlays.Num());
+	for (const TPair<TObjectPtr<UMovieSceneComposableCameraPatchSection>, FComposableCameraSequencerPatchOverlay>& Pair : SequencerPatchOverlays)
+	{
+		SortedKeys.Add(Pair.Key);
+	}
+	SortedKeys.Sort([](const UMovieSceneComposableCameraPatchSection& A,
+	                   const UMovieSceneComposableCameraPatchSection& B)
+	{
+		auto LayerOf = [](const UMovieSceneComposableCameraPatchSection& S) -> int32
+		{
+			if (!S.PatchAsset) return 0;
+			return S.Params.bOverrideLayerIndex ? S.Params.LayerIndex : S.PatchAsset->DefaultLayerIndex;
+		};
+		return LayerOf(A) < LayerOf(B);
+	});
+
+	bool bAnyOverlayApplied = false;
+
+	// Stale-entry collection — sections that have been GC'd or whose evaluator
+	// is invalid. Cleaned up after the walk to avoid mid-iteration map mutation.
+	TArray<UMovieSceneComposableCameraPatchSection*> ToPrune;
+
+	for (UMovieSceneComposableCameraPatchSection* Key : SortedKeys)
+	{
+		FComposableCameraSequencerPatchOverlay* Overlay = SequencerPatchOverlays.Find(Key);
+		if (!Overlay) { continue; }
+		if (!Key || !IsValid(Key) || !Overlay->Evaluator || !IsValid(Overlay->Evaluator))
+		{
+			ToPrune.Add(Key);
+			continue;
+		}
+		if (Overlay->Alpha <= 0.f)
+		{
+			// Section is in-range but envelope says no contribution this frame
+			// (e.g. exact section start before any ease has elapsed). Skip blend
+			// to avoid a no-op BlendBy round-trip; the LatestParameters were
+			// still cached so apply on the evaluator's runtime data block so
+			// the next non-zero-alpha frame sees up-to-date values.
+			if (UComposableCameraPatchTypeAsset* Asset = Key->PatchAsset)
+			{
+				if (Overlay->Evaluator->OwnedRuntimeDataBlock)
+				{
+					Asset->ApplyParameterBlock(*Overlay->Evaluator->OwnedRuntimeDataBlock, Overlay->LatestParameters);
+				}
+			}
+			continue;
+		}
+
+		// Apply latest parameters to the evaluator's runtime data block before
+		// ticking — same path PatchManager::ApplyParameterBlockToActivePatch
+		// uses, just inlined since we own the evaluator directly here.
+		if (UComposableCameraPatchTypeAsset* Asset = Key->PatchAsset)
+		{
+			if (Overlay->Evaluator->OwnedRuntimeDataBlock)
+			{
+				Asset->ApplyParameterBlock(*Overlay->Evaluator->OwnedRuntimeDataBlock, Overlay->LatestParameters);
+			}
+		}
+
+		// Tick patch evaluator with the running pose as upstream → blended
+		// pose lerps toward evaluator's output by alpha. Same shape as
+		// runtime PatchManager::Apply but stateless on the envelope side.
+		const FComposableCameraPose Evaluated = Overlay->Evaluator->TickWithInputPose(DeltaTime, InOutPose);
+		InOutPose.BlendBy(Evaluated, Overlay->Alpha);
+		bAnyOverlayApplied = true;
+	}
+
+	for (UMovieSceneComposableCameraPatchSection* Key : ToPrune)
+	{
+		FComposableCameraSequencerPatchOverlay* Found = SequencerPatchOverlays.Find(Key);
+		if (Found && Found->Evaluator && IsValid(Found->Evaluator))
+		{
+			Found->Evaluator->Destroy();
+		}
+		SequencerPatchOverlays.Remove(Key);
+	}
+
+	// Patch-driven FOV writes need to land on the CineCamera too — the normal
+	// ProjectPoseToCineCamera intentionally skips optics so designer / Sequencer
+	// keys own them, but for overlay scenarios (DollyZoom etc.) we DO want the
+	// patched FOV visible. Write FOV here (in addition to ProjectPoseToCineCamera's
+	// later position+rotation write) so the CineCamera shows the patched optic.
+	// `GetEffectiveFieldOfView` resolves dual-mode (FieldOfView vs FocalLength)
+	// per invariant #15 in DesignDoc — gives degrees regardless of which mode
+	// the pose is in.
+	if (bAnyOverlayApplied && OutputCineCameraComponent)
+	{
+		const float TargetFOV = InOutPose.GetEffectiveFieldOfView();
+		OutputCineCameraComponent->SetFieldOfView(TargetFOV);
+		UE_LOG(LogComposableCameraSystem, Verbose,
+			TEXT("LS '%s' applied %d patch overlay(s); wrote pos=%s, FOV=%.2f to CineCamera."),
+			GetOwner() ? *GetOwner()->GetName() : TEXT("<no owner>"),
+			SortedKeys.Num(),
+			*InOutPose.Position.ToCompactString(),
+			TargetFOV);
+	}
+}
+
+void UComposableCameraLevelSequenceComponent::BuildSequencerPatchSnapshot(
+	TArray<FComposableCameraPatchSnapshot>& OutPatches) const
+{
+	if (SequencerPatchOverlays.Num() == 0)
+	{
+		return;
+	}
+
+	// Sort by section's effective LayerIndex — same order as ApplySequencerPatchOverlays
+	// so panel rows reflect actual composition order. Matches PatchManager's
+	// (LayerIndex asc) sort convention so the merged BP+Sequencer list reads
+	// consistently regardless of which path produced each entry.
+	TArray<UMovieSceneComposableCameraPatchSection*> SortedKeys;
+	SortedKeys.Reserve(SequencerPatchOverlays.Num());
+	for (const TPair<TObjectPtr<UMovieSceneComposableCameraPatchSection>, FComposableCameraSequencerPatchOverlay>& Pair : SequencerPatchOverlays)
+	{
+		if (Pair.Key && IsValid(Pair.Key))
+		{
+			SortedKeys.Add(Pair.Key);
+		}
+	}
+	SortedKeys.Sort([](const UMovieSceneComposableCameraPatchSection& A,
+	                   const UMovieSceneComposableCameraPatchSection& B)
+	{
+		auto LayerOf = [](const UMovieSceneComposableCameraPatchSection& S) -> int32
+		{
+			if (!S.PatchAsset) return 0;
+			return S.Params.bOverrideLayerIndex ? S.Params.LayerIndex : S.PatchAsset->DefaultLayerIndex;
+		};
+		return LayerOf(A) < LayerOf(B);
+	});
+
+	const FString HostName = GetOwner() ? GetOwner()->GetName() : TEXT("<no owner>");
+
+	for (UMovieSceneComposableCameraPatchSection* Section : SortedKeys)
+	{
+		const FComposableCameraSequencerPatchOverlay* Overlay = SequencerPatchOverlays.Find(Section);
+		if (!Overlay)
+		{
+			continue;
+		}
+
+		FComposableCameraPatchSnapshot& Snap = OutPatches.AddDefaulted_GetRef();
+		Snap.AssetName = Section->PatchAsset ? Section->PatchAsset->GetName() : TEXT("(missing)");
+		Snap.LayerIndex = Section->PatchAsset
+			? (Section->Params.bOverrideLayerIndex ? Section->Params.LayerIndex : Section->PatchAsset->DefaultLayerIndex)
+			: 0;
+		// Sequencer envelope is stateless — alpha alone carries phase info.
+		// Encode phase as Active (1) so the panel doesn't try to render
+		// "Entering" / "Exiting" timer rows that would always read zero.
+		Snap.Phase = 1;
+		Snap.Alpha = Overlay->Alpha;
+		Snap.ElapsedInPhase = 0.f;
+		Snap.ElapsedTimeActive = 0.f;
+		// Convert section duration to seconds for the Duration field display.
+		const TRange<FFrameNumber> Range = Section->GetTrueRange();
+		float SectionSeconds = 0.f;
+		if (Range.HasLowerBound() && Range.HasUpperBound())
+		{
+			if (const UMovieScene* OwnerScene = Section->GetTypedOuter<UMovieScene>())
+			{
+				const FFrameRate TickRate = OwnerScene->GetTickResolution();
+				const int32 SizeTicks = (Range.GetUpperBoundValue() - Range.GetLowerBoundValue()).Value;
+				SectionSeconds = TickRate.AsSeconds(FFrameTime(SizeTicks));
+			}
+		}
+		Snap.Duration = SectionSeconds;
+		// Per-Params overrides win, else asset defaults — same precedence the
+		// runtime overlay path uses; the values the user actually sees in the
+		// envelope ramp this frame.
+		Snap.EnterDuration = Section->Params.bOverrideEnterDuration
+			? Section->Params.EnterDuration
+			: (Section->PatchAsset ? Section->PatchAsset->DefaultEnterDuration : 0.f);
+		Snap.ExitDuration = Section->Params.bOverrideExitDuration
+			? Section->Params.ExitDuration
+			: (Section->PatchAsset ? Section->PatchAsset->DefaultExitDuration : 0.f);
+		Snap.ExpirationType = 0;
+		Snap.bExpireOnCameraChange = false;
+		Snap.Source = EComposableCameraPatchSource::Sequencer;
+		Snap.HostActorName = HostName;
+	}
 }

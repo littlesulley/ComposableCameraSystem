@@ -9,6 +9,7 @@
 #include "DataAssets/ComposableCameraPatchTypeAsset.h"
 #include "Debug/ComposableCameraDebugPanelData.h"
 #include "Engine/World.h"
+#include "Patches/ComposableCameraPatchEnvelope.h"
 #include "Patches/ComposableCameraPatchHandle.h"
 #include "Patches/ComposableCameraPatchInstance.h"
 #include "Stats/Stats.h"
@@ -21,37 +22,6 @@ DECLARE_CYCLE_STAT(TEXT("Patch TickEvaluator"), STAT_CCS_Patch_TickEvaluator, ST
 
 namespace
 {
-	/**
-	 * Apply the Patch envelope's authored ease shape to a normalized time
-	 * t ∈ [0, 1]. Returns f(t) ∈ [0, 1] to be used directly during Entering
-	 * (CurrentAlpha = f(t)) or inverted during Exiting (CurrentAlpha = 1 - f(t),
-	 * scaled by ExitStartAlpha).
-	 *
-	 * Local helper rather than a generic Interpolator/ entry because the Patch
-	 * envelope is a 5-curve enum-driven shape, not a per-instance UObject — see
-	 * PatchSystemProposal §8 / DECIDED 8.1.
-	 */
-	float ApplyPatchEase(EComposableCameraPatchEase EaseType, float t)
-	{
-		t = FMath::Clamp(t, 0.f, 1.f);
-		switch (EaseType)
-		{
-			case EComposableCameraPatchEase::Linear:
-				return t;
-			case EComposableCameraPatchEase::EaseIn:
-				return t * t;
-			case EComposableCameraPatchEase::EaseOut:
-				return 1.f - (1.f - t) * (1.f - t);
-			case EComposableCameraPatchEase::EaseInOut:
-				return t < 0.5f
-					? 2.f * t * t
-					: 1.f - 2.f * (1.f - t) * (1.f - t);
-			case EComposableCameraPatchEase::Smooth:
-				return t * t * (3.f - 2.f * t); // smoothstep
-		}
-		return t;
-	}
-
 	/**
 	 * Advance the envelope state machine by DeltaTime.
 	 *
@@ -80,7 +50,7 @@ namespace
 				else
 				{
 					const float t = Instance->ElapsedInPhase / Instance->EnterDuration;
-					Instance->CurrentAlpha = ApplyPatchEase(Instance->EaseType, t);
+					Instance->CurrentAlpha = UE::ComposableCameras::PatchEnvelope::ApplyEase(Instance->EaseType, t);
 					if (t >= 1.f)
 					{
 						Instance->Phase = EComposableCameraPatchPhase::Active;
@@ -107,7 +77,7 @@ namespace
 				{
 					const float t = Instance->ElapsedInPhase / Instance->ExitDuration;
 					Instance->CurrentAlpha =
-						Instance->ExitStartAlpha * (1.f - ApplyPatchEase(Instance->EaseType, t));
+						Instance->ExitStartAlpha * (1.f - UE::ComposableCameras::PatchEnvelope::ApplyEase(Instance->EaseType, t));
 					if (t >= 1.f)
 					{
 						Instance->Phase = EComposableCameraPatchPhase::Expired;
@@ -483,6 +453,45 @@ FComposableCameraPose UComposableCameraPatchManager::Apply(
 	}
 
 	return Result;
+}
+
+void UComposableCameraPatchManager::ApplyParameterBlockToActivePatch(
+	UComposableCameraPatchHandle* Handle,
+	const FComposableCameraParameterBlock& Parameters)
+{
+	if (!Handle)
+	{
+		return;
+	}
+	UComposableCameraPatchInstance* Instance = Handle->GetInstance();
+	if (!Instance)
+	{
+		return;
+	}
+	// Skip Patches whose evaluator has already been destroyed (Expired and swept)
+	// or that are mid-Exiting — pushing parameters into a fade-out evaluator just
+	// flickers the last visible alpha frames. Sequencer keying is for "live"
+	// patches only; the exit ramp is its own concern.
+	if (Instance->Phase == EComposableCameraPatchPhase::Exiting ||
+		Instance->Phase == EComposableCameraPatchPhase::Expired)
+	{
+		return;
+	}
+	AComposableCameraCameraBase* Evaluator = Instance->Evaluator;
+	if (!Evaluator || !IsValid(Evaluator) || !Evaluator->OwnedRuntimeDataBlock)
+	{
+		return;
+	}
+	UComposableCameraPatchTypeAsset* Asset = Instance->SourcePatchAsset.Get();
+	if (!Asset)
+	{
+		return;
+	}
+	// Cache the latest block on the instance too — keeps any future
+	// re-construction (e.g. a hypothetical asset-modified hot-reload path)
+	// reading the most-recently-keyed values instead of the AddPatch snapshot.
+	Instance->CachedParameters = Parameters;
+	Asset->ApplyParameterBlock(*Evaluator->OwnedRuntimeDataBlock, Parameters);
 }
 
 void UComposableCameraPatchManager::ExpireAll(float ExitDurationOverride)

@@ -73,7 +73,7 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraTypeAssetReference
 	 *    FComposableCameraLevelSequenceComponentTrackEditor already surfaces
 	 *    at two levels (Camera Parameters › Leaf). Instead, we only rely on
 	 *    CPF_Interp being set on each dynamic bag leaf by
-	 *    RebuildBagsFromTypeAsset (see AddDescIfSupported in the .cpp) —
+	 *    RebuildBagsFromTypeAsset (see UE::ComposableCameras::ExposedBag::AddDescIfSupported) —
 	 *    that single flag is what makes CanKeyProperty succeed; the outer
 	 *    bag metadata is not required for the custom track-editor path. */
 	UPROPERTY(EditAnywhere, Category = "Camera", meta = (FixedLayout = true))

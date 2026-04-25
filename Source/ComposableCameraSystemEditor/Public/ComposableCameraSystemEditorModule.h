@@ -41,17 +41,28 @@ private:
      *  stays valid. Reset in ShutdownModule after unregister. */
     TSharedPtr<FComposableCameraGraphNodeFactory> GraphNodeFactory;
 
-    /** Registers FComposableCameraLevelSequenceComponentTrackEditor with
-     *  ISequencerModule so right-clicking a ComposableCameraLevelSequence
-     *  binding (actor or component) in Sequencer shows "Camera Parameters"
-     *  and "Camera Variables" submenus driven by the bound TypeAsset. */
+    /** Registers two Sequencer track editors with ISequencerModule:
+     *
+     *    1. FComposableCameraLevelSequenceComponentTrackEditor — pure menu
+     *       extender on bindings of (or containing) a UComposableCameraLevelSequenceComponent;
+     *       surfaces "Camera Parameters" / "Camera Variables" entries in the
+     *       binding's `+Track` menu that materialise stock property tracks
+     *       on the bound component's TypeAsset bags.
+     *    2. FComposableCameraPatchTrackEditor — owns the
+     *       UMovieSceneComposableCameraPatchTrack type; surfaces the root
+     *       "Add Track → Composable Camera Patch Track" entry, paints
+     *       sections, and exposes per-section bag-leaf keying via the
+     *       section context menu.
+     */
     void RegisterSequencerTrackEditor();
     void UnregisterSequencerTrackEditor();
 
-    /** Handle returned by ISequencerModule::RegisterTrackEditor; passed back
-     *  to UnregisterTrackEditor on shutdown so Sequencer stops routing menu
-     *  extensions through our factory. */
+    /** Handles returned by ISequencerModule::RegisterTrackEditor; passed back
+     *  to UnregisterTrackEditor on shutdown so Sequencer stops routing through
+     *  our factories. One handle per registered editor — both must be released
+     *  on module shutdown to avoid Sequencer double-registering on hot-reload. */
     FDelegateHandle LevelSequenceComponentTrackEditorHandle;
+    FDelegateHandle PatchTrackEditorHandle;
 };
 
 DECLARE_LOG_CATEGORY_EXTERN(LogComposableCameraSystemEditor, Log, All);

@@ -26,6 +26,8 @@
 #include "Engine/GameInstance.h"
 #include "Engine/GameViewportClient.h"
 #include "Engine/World.h"
+#include "LevelSequence/ComposableCameraLevelSequenceComponent.h"
+#include "UObject/UObjectIterator.h"
 #include "Framework/Application/SlateApplication.h"
 #include "GameFramework/PlayerController.h"
 #include "HAL/IConsoleManager.h"
@@ -1753,14 +1755,33 @@ namespace
 		Out.Title      = TEXT("Patches");
 		Out.bIsPatches = true;
 
-		// Drill PCM → ContextStack → ActiveDirector → PatchManager.
+		// Source 1 — BP path: PCM → ContextStack → ActiveDirector → PatchManager.
+		// One snapshot row per patch added via UComposableCameraBlueprintLibrary::AddCameraPatch.
 		const UComposableCameraContextStack* Stack = Ctx.PCM->GetContextStack();
 		UComposableCameraDirector* Director = Stack ? Stack->GetActiveDirector() : nullptr;
-		const UComposableCameraPatchManager* Manager = Director ? Director->GetPatchManager() : nullptr;
-
-		if (Manager)
+		if (const UComposableCameraPatchManager* Manager = Director ? Director->GetPatchManager() : nullptr)
 		{
 			Manager->BuildDebugSnapshot(Out.PatchSnapshots);
+		}
+
+		// Source 2 — Sequencer path: walk every UComposableCameraLevelSequenceComponent
+		// in the world and ask it for its registered overlays. Sequencer-driven
+		// patches don't go through PatchManager (they live on the LS Component's
+		// SequencerPatchOverlays map and apply directly to the bound CineCamera);
+		// merging here is what makes them visible in the debug panel.
+		// Iteration cost is cheap — typical scene has 0-2 LS Actors active at
+		// once (gated by ECS gate to current cut target + blend partners).
+		if (UWorld* World = Ctx.PCM->GetWorld())
+		{
+			for (TObjectIterator<UComposableCameraLevelSequenceComponent> It; It; ++It)
+			{
+				UComposableCameraLevelSequenceComponent* LSComp = *It;
+				if (!LSComp || !IsValid(LSComp) || LSComp->GetWorld() != World)
+				{
+					continue;
+				}
+				LSComp->BuildSequencerPatchSnapshot(Out.PatchSnapshots);
+			}
 		}
 
 		Out.PatchesBodyHeight = ComputePatchesBodyHeight(Out.PatchSnapshots);
@@ -1867,8 +1888,22 @@ namespace
 			const FLinearColor Hue = PatchPhaseColor(Phase);
 
 			// Row A — identity.
-			const FString IdLine = FString::Printf(TEXT("  > %s        L%-2d   %s"),
-				*P.AssetName, P.LayerIndex, PatchPhaseLabel(Phase));
+			// Source-tag prefix lets the designer tell BP-driven patches from
+			// Sequencer-driven overlays at a glance. "[Seq] AssetName on Actor"
+			// for Sequencer overlays since multiple LS Actors can have overlapping
+			// patches and the host actor name disambiguates them; bare AssetName
+			// for the BP path (PatchManager / Director-scoped — no host needed).
+			FString IdLine;
+			if (P.Source == EComposableCameraPatchSource::Sequencer)
+			{
+				IdLine = FString::Printf(TEXT("  > [Seq] %s on %s        L%-2d   %s"),
+					*P.AssetName, *P.HostActorName, P.LayerIndex, PatchPhaseLabel(Phase));
+			}
+			else
+			{
+				IdLine = FString::Printf(TEXT("  > %s        L%-2d   %s"),
+					*P.AssetName, P.LayerIndex, PatchPhaseLabel(Phase));
+			}
 			DrawTextLineClipped(Canvas, Font, IdLine, BodyPos.X, CursorY, RightX, Hue);
 			CursorY += KPatchIdentityRowH + KPatchInterRowGap;
 
