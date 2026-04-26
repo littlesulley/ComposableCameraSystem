@@ -16,6 +16,9 @@ class COMPOSABLECAMERASYSTEM_API UComposableCameraScreenSpaceConstraintsNode : p
 	GENERATED_BODY()
 
 public:
+	UComposableCameraScreenSpaceConstraintsNode() { PaletteCategory = TEXT("Framing"); }
+
+public:
 	virtual void OnInitialize_Implementation() override;
 	virtual void OnTickNode_Implementation(float DeltaTime, const FComposableCameraPose& CurrentCameraPose, FComposableCameraPose& OutCameraPose) override;
 	virtual void GetPinDeclarations_Implementation(TArray<FComposableCameraNodePinDeclaration>& OutPins) const override;

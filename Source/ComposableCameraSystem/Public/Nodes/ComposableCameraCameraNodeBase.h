@@ -134,6 +134,21 @@ class COMPOSABLECAMERASYSTEM_API UComposableCameraCameraNodeBase
 	GENERATED_BODY()
 
 public:
+	// ─── Editor Metadata ─────────────────────────────────────────────────
+
+	/** Palette category in the camera-editor "Add Node" context menu.
+	 *  The schema reads this off the CDO and nests it under the existing
+	 *  "Camera Nodes" / "Compute Nodes" root via UE's "|"-separated category
+	 *  path, so a value of "Rotation" surfaces as Camera Nodes → Rotation.
+	 *  C++ nodes set this in their constructor; Blueprint nodes (subclasses
+	 *  of UComposableCameraBlueprintCameraNode) set it in Class Defaults.
+	 *  Default "Misc" is intentional — unset nodes still appear, but they
+	 *  cluster in one bucket so the author notices and assigns a real
+	 *  category. Stored as FName for POD comparison and pool reuse; mapped
+	 *  to FText at palette-build time via FText::FromName. */
+	UPROPERTY(EditDefaultsOnly, Category = "Node Metadata", meta = (NoPinExposure))
+	FName PaletteCategory = TEXT("Misc");
+
 	void Initialize(AComposableCameraCameraBase* InOwningCamera, AComposableCameraPlayerCameraManager* InPlayerCameraManager);
 	void TickNode(float DeltaTime, const FComposableCameraPose CurrentCameraPose, FComposableCameraPose& OutCameraPose);
 	

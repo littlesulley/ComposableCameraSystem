@@ -50,6 +50,9 @@ class COMPOSABLECAMERASYSTEM_API UComposableCameraSplineNode : public UComposabl
 	GENERATED_BODY()
 
 public:
+	UComposableCameraSplineNode() { PaletteCategory = TEXT("Position"); }
+
+public:
 	virtual void OnInitialize_Implementation() override;
 	virtual void OnTickNode_Implementation(float DeltaTime, const FComposableCameraPose& CurrentCameraPose, FComposableCameraPose& OutCameraPose) override;
 	virtual void GetPinDeclarations_Implementation(TArray<FComposableCameraNodePinDeclaration>& OutPins) const override;

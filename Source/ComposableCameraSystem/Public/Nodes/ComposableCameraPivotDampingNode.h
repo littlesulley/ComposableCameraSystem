@@ -24,6 +24,9 @@ class COMPOSABLECAMERASYSTEM_API UComposableCameraPivotDampingNode
 	GENERATED_BODY()
 
 public:
+	UComposableCameraPivotDampingNode() { PaletteCategory = TEXT("Pivot"); }
+
+public:
 	virtual void OnInitialize_Implementation() override;
 	virtual void OnFirstTickNode_Implementation() override;
 	virtual void OnTickNode_Implementation(float DeltaTime, const FComposableCameraPose& CurrentCameraPose, FComposableCameraPose& OutCameraPose) override;

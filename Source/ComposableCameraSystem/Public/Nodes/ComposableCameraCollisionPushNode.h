@@ -29,6 +29,9 @@ class COMPOSABLECAMERASYSTEM_API UComposableCameraCollisionPushNode
 	GENERATED_BODY()
 
 public:
+	UComposableCameraCollisionPushNode() { PaletteCategory = TEXT("Collision & Occlusion"); }
+
+public:
 	virtual void OnInitialize_Implementation() override;
 	virtual void OnTickNode_Implementation(float DeltaTime, const FComposableCameraPose& CurrentCameraPose, FComposableCameraPose& OutCameraPose) override;
 	virtual void OnPreTick(float DeltaTime, const FComposableCameraPose& CurrentCameraPose, FComposableCameraPose& OutCameraPose) override;

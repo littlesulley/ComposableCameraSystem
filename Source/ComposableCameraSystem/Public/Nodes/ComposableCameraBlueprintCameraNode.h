@@ -41,6 +41,9 @@ class COMPOSABLECAMERASYSTEM_API UComposableCameraBlueprintCameraNode
 	GENERATED_BODY()
 
 public:
+	UComposableCameraBlueprintCameraNode() { PaletteCategory = TEXT("Composition"); }
+
+public:
 	// ─── Blueprint Utilities ─────────────────────────────────────────────
 
 	/**

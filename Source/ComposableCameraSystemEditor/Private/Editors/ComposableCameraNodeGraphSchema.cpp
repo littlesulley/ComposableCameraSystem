@@ -461,8 +461,6 @@ void UComposableCameraNodeGraphSchema::BuildCameraNodePaletteActions(
 		return DisplayA.CompareTo(DisplayB) < 0;
 	});
 
-	const FText Category = LOCTEXT("CameraNodesCategory", "Camera Nodes");
-
 	for (UClass* Class : NodeClasses)
 	{
 		// Display name resolution lives on the shared graph-node base so the
@@ -472,6 +470,21 @@ void UComposableCameraNodeGraphSchema::BuildCameraNodePaletteActions(
 		// when present, falls back to legacy class-name munging otherwise.
 		const FText MenuDesc = UComposableCameraGraphNodeBase::GetCameraNodeDisplayNameForClass(Class);
 		FText Tooltip = FText::Format(LOCTEXT("AddNodeTooltip", "Add a {0} node"), MenuDesc);
+
+		// Per-class palette category: read off the CDO's PaletteCategory
+		// FName field. C++ nodes set it in their constructor; Blueprint
+		// subclasses set it via Class Defaults. Fallback "Misc" when unset
+		// or null CDO. The "|" separator nests the per-class subcategory
+		// under the "Camera Nodes" root automatically (UE's
+		// FEdGraphSchemaAction::Category honors "|" as a path delimiter).
+		const UComposableCameraCameraNodeBase* NodeCDO =
+			Class->GetDefaultObject<UComposableCameraCameraNodeBase>();
+		const FName SubCategoryName = (NodeCDO && !NodeCDO->PaletteCategory.IsNone())
+			? NodeCDO->PaletteCategory
+			: FName(TEXT("Misc"));
+		const FText Category = FText::Format(
+			LOCTEXT("CameraNodesCategoryFmt", "Camera Nodes|{0}"),
+			FText::FromName(SubCategoryName));
 
 		TSharedPtr<FComposableCameraNodeGraphSchemaAction_NewNode> Action =
 			MakeShared<FComposableCameraNodeGraphSchemaAction_NewNode>(
@@ -514,8 +527,6 @@ void UComposableCameraNodeGraphSchema::BuildComputeNodePaletteActions(
 		return DisplayA.CompareTo(DisplayB) < 0;
 	});
 
-	const FText Category = LOCTEXT("ComputeNodesCategory", "Compute Nodes");
-
 	for (UClass* Class : ComputeClasses)
 	{
 		const FText MenuDesc = UComposableCameraGraphNodeBase::GetCameraNodeDisplayNameForClass(Class);
@@ -523,6 +534,19 @@ void UComposableCameraNodeGraphSchema::BuildComputeNodePaletteActions(
 			LOCTEXT("AddComputeNodeTooltip",
 				"Add a {0} compute node (runs once on BeginPlay before the first tick)."),
 			MenuDesc);
+
+		// Same CDO-based per-class subcategory rule as the camera palette
+		// above, just nested under "Compute Nodes" instead of "Camera Nodes".
+		// Compute nodes inherit PaletteCategory from
+		// UComposableCameraCameraNodeBase, so the read path is identical.
+		const UComposableCameraCameraNodeBase* NodeCDO =
+			Class->GetDefaultObject<UComposableCameraCameraNodeBase>();
+		const FName SubCategoryName = (NodeCDO && !NodeCDO->PaletteCategory.IsNone())
+			? NodeCDO->PaletteCategory
+			: FName(TEXT("Misc"));
+		const FText Category = FText::Format(
+			LOCTEXT("ComputeNodesCategoryFmt", "Compute Nodes|{0}"),
+			FText::FromName(SubCategoryName));
 
 		TSharedPtr<FComposableCameraNodeGraphSchemaAction_NewNode> Action =
 			MakeShared<FComposableCameraNodeGraphSchemaAction_NewNode>(

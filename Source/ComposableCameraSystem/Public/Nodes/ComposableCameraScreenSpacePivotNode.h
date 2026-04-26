@@ -73,6 +73,9 @@ UCLASS(NotBlueprintable, ClassGroup = ComposableCameraSystem, meta = (ToolTip = 
 class COMPOSABLECAMERASYSTEM_API UComposableCameraScreenSpacePivotNode : public UComposableCameraCameraNodeBase
 {
 	GENERATED_BODY()
+
+public:
+	UComposableCameraScreenSpacePivotNode() { PaletteCategory = TEXT("Framing"); }
 	
 public:
 	virtual void OnInitialize_Implementation() override;

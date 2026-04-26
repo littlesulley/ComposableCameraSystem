@@ -94,6 +94,9 @@ class COMPOSABLECAMERASYSTEM_API UComposableCameraOcclusionFadeNode
 	GENERATED_BODY()
 
 public:
+	UComposableCameraOcclusionFadeNode() { PaletteCategory = TEXT("Collision & Occlusion"); }
+
+public:
 	virtual void OnInitialize_Implementation() override;
 	virtual void OnTickNode_Implementation(float DeltaTime, const FComposableCameraPose& CurrentCameraPose, FComposableCameraPose& OutCameraPose) override;
 	virtual void GetPinDeclarations_Implementation(TArray<FComposableCameraNodePinDeclaration>& OutPins) const override;

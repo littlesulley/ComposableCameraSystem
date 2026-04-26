@@ -30,6 +30,9 @@ class COMPOSABLECAMERASYSTEM_API UComposableCameraPostProcessNode
 	GENERATED_BODY()
 
 public:
+	UComposableCameraPostProcessNode() { PaletteCategory = TEXT("Post Process"); }
+
+public:
 	virtual void OnTickNode_Implementation(float DeltaTime, const FComposableCameraPose& CurrentCameraPose, FComposableCameraPose& OutCameraPose) override;
 
 public:

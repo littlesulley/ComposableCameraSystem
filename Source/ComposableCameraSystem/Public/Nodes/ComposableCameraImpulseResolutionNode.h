@@ -20,6 +20,9 @@ class COMPOSABLECAMERASYSTEM_API UComposableCameraImpulseResolutionNode : public
 	GENERATED_BODY()
 
 public:
+	UComposableCameraImpulseResolutionNode() { PaletteCategory = TEXT("Composition"); }
+
+public:
 	virtual void OnInitialize_Implementation() override;
 	virtual void OnTickNode_Implementation(float DeltaTime, const FComposableCameraPose& CurrentCameraPose, FComposableCameraPose& OutCameraPose) override;
 	virtual void BeginDestroy() override;

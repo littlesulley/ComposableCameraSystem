@@ -33,6 +33,9 @@ class COMPOSABLECAMERASYSTEM_API UComposableCameraLensNode
 	GENERATED_BODY()
 
 public:
+	UComposableCameraLensNode() { PaletteCategory = TEXT("Optics"); }
+
+public:
 	virtual void OnTickNode_Implementation(float DeltaTime, const FComposableCameraPose& CurrentCameraPose, FComposableCameraPose& OutCameraPose) override;
 	virtual void GetPinDeclarations_Implementation(TArray<FComposableCameraNodePinDeclaration>& OutPins) const override;
 

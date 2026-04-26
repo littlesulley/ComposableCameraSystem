@@ -120,6 +120,9 @@ class COMPOSABLECAMERASYSTEM_API UComposableCameraSpiralNode
 	GENERATED_BODY()
 
 public:
+	UComposableCameraSpiralNode() { PaletteCategory = TEXT("Position"); }
+
+public:
 	virtual void OnInitialize_Implementation() override;
 	virtual void OnTickNode_Implementation(float DeltaTime, const FComposableCameraPose& CurrentCameraPose, FComposableCameraPose& OutCameraPose) override;
 	virtual void GetPinDeclarations_Implementation(TArray<FComposableCameraNodePinDeclaration>& OutPins) const override;

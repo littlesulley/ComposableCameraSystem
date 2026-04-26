@@ -15,6 +15,9 @@ class COMPOSABLECAMERASYSTEM_API UComposableCameraReceivePivotActorNode
 	: public UComposableCameraCameraNodeBase
 {
 	GENERATED_BODY()
+
+public:
+	UComposableCameraReceivePivotActorNode() { PaletteCategory = TEXT("Pivot"); }
 	
 public:
 	virtual void OnInitialize_Implementation() override;

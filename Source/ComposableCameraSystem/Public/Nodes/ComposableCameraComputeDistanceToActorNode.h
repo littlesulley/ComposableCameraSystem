@@ -30,6 +30,9 @@ class COMPOSABLECAMERASYSTEM_API UComposableCameraComputeDistanceToActorNode
 	GENERATED_BODY()
 
 public:
+	UComposableCameraComputeDistanceToActorNode() { PaletteCategory = TEXT("Math"); }
+
+public:
 	virtual void ExecuteBeginPlay() override;
 	virtual void GetPinDeclarations_Implementation(TArray<FComposableCameraNodePinDeclaration>& OutPins) const override;
 };

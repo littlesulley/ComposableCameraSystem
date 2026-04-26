@@ -41,6 +41,9 @@ class COMPOSABLECAMERASYSTEM_API UComposableCameraRotationConstraints : public U
 	GENERATED_BODY()
 
 public:
+	UComposableCameraRotationConstraints() { PaletteCategory = TEXT("Rotation"); }
+
+public:
 	virtual void OnTickNode_Implementation(float DeltaTime, const FComposableCameraPose& CurrentCameraPose, FComposableCameraPose& OutCameraPose) override;
 	virtual void GetPinDeclarations_Implementation(TArray<FComposableCameraNodePinDeclaration>& OutPins) const override;
 

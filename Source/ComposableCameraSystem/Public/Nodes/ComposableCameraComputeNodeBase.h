@@ -70,6 +70,16 @@ class COMPOSABLECAMERASYSTEM_API UComposableCameraComputeNodeBase
 	GENERATED_BODY()
 
 public:
+	// Compute-tree default category — lifts subclasses out of "Misc" without
+	// needing each one to set the field explicitly. Concrete compute nodes
+	// can still override in their own ctor when a more specific bucket fits
+	// (e.g. a future "Compute Nodes|Probe" / "Compute Nodes|IO" group).
+	// Must be public so subclasses can call this base ctor; UE's
+	// GENERATED_BODY() leaves the access mode at the surrounding default
+	// (private), so we restate it here explicitly.
+	UComposableCameraComputeNodeBase() { PaletteCategory = TEXT("Math"); }
+
+public:
 	/**
 	 * Execute this compute node's one-shot work.
 	 *

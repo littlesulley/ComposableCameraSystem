@@ -27,6 +27,9 @@ class COMPOSABLECAMERASYSTEM_API UComposableCameraViewTargetProxyNode
 	GENERATED_BODY()
 
 public:
+	UComposableCameraViewTargetProxyNode() { PaletteCategory = TEXT("Composition"); }
+
+public:
 	virtual void OnTickNode_Implementation(float DeltaTime, const FComposableCameraPose& CurrentCameraPose, FComposableCameraPose& OutCameraPose) override;
 
 	// Reads FMinimalViewInfo from an external UCameraComponent and writes it over

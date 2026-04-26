@@ -99,6 +99,9 @@ class COMPOSABLECAMERASYSTEM_API UComposableCameraMixingCameraNode :
 	GENERATED_BODY()
 
 public:
+	UComposableCameraMixingCameraNode() { PaletteCategory = TEXT("Composition"); }
+
+public:
 	virtual void OnInitialize_Implementation() override;
 	virtual void OnTickNode_Implementation(float DeltaTime, const FComposableCameraPose& CurrentCameraPose, FComposableCameraPose& OutCameraPose) override;
 	virtual void BeginDestroy() override;
