@@ -219,6 +219,35 @@ private:
 	static TSharedRef<SWidget> MakeDebugInstancePickerWidget(
 		const FToolMenuContext& Context, const FToolMenuCustomWidgetContext& WidgetContext);
 
+	// ─── Shot Editor toolbar entry (Phase D.1) ──────────────────────────
+	//
+	// Adjacent to the Debug button. Routes to the Shot Editor (in the
+	// editor module) for the currently selected `UComposableCameraCompositionFramingNode`
+	// in the graph editor. Disabled when no such node is selected.
+	//
+	// Static handlers receive `FToolMenuContext`, resolve the per-instance
+	// toolkit via `UComposableCameraTypeAssetEditorMenuContext`, and forward
+	// to the member methods below — same pattern as `MakeDebugInstancePickerWidget`,
+	// avoids the "last-registered-toolkit-wins" bug for global UToolMenu entries.
+
+	/** FToolMenuExecuteAction entry. Resolves toolkit + invokes
+	 *  OpenShotEditorForSelectedNode(). */
+	static void StaticOnOpenShotEditorClicked(const FToolMenuContext& Context);
+
+	/** FToolMenuCanExecuteAction entry. Returns true iff a CompositionFraming
+	 *  node is selected in the toolkit's graph editor. */
+	static bool StaticCanOpenShotEditor(const FToolMenuContext& Context);
+
+	/** Look up the currently selected CompositionFraming graph-node template
+	 *  (returns nullptr if 0 or non-Composition selected). */
+	class UComposableCameraCompositionFramingNode* GetSelectedCompositionFramingNode() const;
+
+	/** If a CompositionFraming node is selected, route through the runtime
+	 *  hook (`FOpenShotEditor::Open`) to spawn / focus the Shot Editor tab
+	 *  with that node's `Shot` UPROPERTY as the active context. No-op when
+	 *  CanOpenShotEditor would return false. */
+	void OpenShotEditorForSelectedNode();
+
 	/** The camera instance currently being debugged. */
 	TWeakObjectPtr<AComposableCameraCameraBase> DebuggedCamera;
 

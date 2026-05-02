@@ -14,15 +14,19 @@ AComposableCameraLevelSequenceActor::AComposableCameraLevelSequenceActor(const F
 	// Camera Cut Track, viewport Pilot, FindComponentByClass<UCameraComponent>)
 	// resolve to the root immediately. PCM::SetViewTarget's implicit-activation
 	// filter hits its root-is-camera fast path for us, identical to how it
-	// handles CineCameraActor.
-	UCineCameraComponent* CineCamera = CreateDefaultSubobject<UCineCameraComponent>(TEXT("OutputCineCameraComponent"));
-	RootComponent = CineCamera;
+	// handles CineCameraActor. The dedicated `OutputCineCameraComponent`
+	// UPROPERTY (declared on the actor) is what surfaces the component in
+	// the Details panel — without that, native default subobjects exist at
+	// runtime but aren't picked up by the component-tree walk and their
+	// internals render uneditable.
+	OutputCineCameraComponent = CreateDefaultSubobject<UCineCameraComponent>(TEXT("OutputCineCameraComponent"));
+	RootComponent = OutputCineCameraComponent;
 
 	// LevelSequenceComponent is a pure UActorComponent (no transform) — just
 	// a logic/data driver. Hand it the CineCamera reference so it knows where
 	// to project poses.
 	LevelSequenceComponent = CreateDefaultSubobject<UComposableCameraLevelSequenceComponent>(TEXT("LevelSequenceComponent"));
-	LevelSequenceComponent->OutputCineCameraComponent = CineCamera;
+	LevelSequenceComponent->OutputCineCameraComponent = OutputCineCameraComponent;
 
 	// Actor-level tick is driven by the component itself; the actor has no
 	// per-frame work of its own. Keeping actor tick off avoids a redundant

@@ -5,13 +5,16 @@
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
 #include "Core/ComposableCameraParameterBlock.h"
+#include "DataAssets/ComposableCameraShot.h"
 #include "LevelSequence/ComposableCameraTypeAssetReference.h"
 #include "Nodes/ComposableCameraNodePinTypes.h"
 #include "ComposableCameraLevelSequenceComponent.generated.h"
 
 class AComposableCameraCameraBase;
 class UCineCameraComponent;
+class UComposableCameraTransitionDataAsset;
 class UMovieSceneComposableCameraPatchSection;
+class UMovieSceneComposableCameraShotSection;
 struct FComposableCameraPose;
 
 /**
@@ -41,6 +44,69 @@ struct FComposableCameraSequencerPatchOverlay
 	/** Envelope alpha at the current frame, computed by the caller via
 	 *  PatchEnvelope::ComputeStatelessAlpha. 0 = no contribution, 1 = full. */
 	float Alpha = 0.f;
+};
+
+/**
+ * Per-section Shot override state owned by
+ * UComposableCameraLevelSequenceComponent::SequencerShotOverrides (Phase E,
+ * extended for Phase F inter-Shot transitions).
+ *
+ * Top-level USTRUCT (not nested) because UHT rejects USTRUCT-inside-UCLASS.
+ * One entry per active Shot Section; map key is the section weak pointer.
+ *
+ * RowIndex + EnterTransition + BlendAlpha together let the LSComponent's
+ * `ApplyActiveSequencerShotOverride` blender pick the lowest-two RowIndex
+ * entries (Phase F) and produce a blended camera pose using the higher
+ * entry's resolved transition and alpha.
+ */
+USTRUCT()
+struct FComposableCameraSequencerShotEntry
+{
+	GENERATED_BODY()
+
+	/** Latest Shot data sampled from the section at the current playhead.
+	 *  Re-pushed every frame the section is in-range (cheap value copy —
+	 *  Shot's TArray<FShotTarget> is short and the rest is POD). */
+	UPROPERTY()
+	FComposableCameraShot Shot;
+
+	/** Section row index — top-row (lowest index) was the V1 winner; Phase F
+	 *  blender picks the lowest two and blends. */
+	int32 RowIndex = 0;
+
+	/**
+	 * Resolved EnterTransition asset for this section, loaded synchronously
+	 * by the TrackInstance from the section's `EnterTransition` soft-ref each
+	 * frame. Null if the section's EnterTransition is unset or fails to load —
+	 * the blender treats null as a hard cut (the incoming section's pose
+	 * snaps in at the boundary; no transition pose-blend pass runs).
+	 *
+	 * UPROPERTY-tracked TObjectPtr so the loaded asset stays referenced for
+	 * the lifetime of this entry (the soft-pointer load can otherwise be
+	 * GC'd between frames if no other reference exists).
+	 */
+	UPROPERTY()
+	TObjectPtr<UComposableCameraTransitionDataAsset> EnterTransition;
+
+	/**
+	 * Blend progress for this entry as the *incoming* (higher-row) side of
+	 * an overlap with the immediately-below RowIndex in-range peer. Range
+	 * [0, 1].
+	 *
+	 * Computed each frame by the TrackInstance:
+	 *   overlap_start = max(this.start, peer.start)   // intersection
+	 *   overlap_end   = min(this.end,   peer.end)
+	 *   BlendAlpha    = saturate( (CurrentFrame - overlap_start)
+	 *                            / (overlap_end - overlap_start) )
+	 *
+	 * Defaults to 1.0 when the entry has no lower-row overlapping peer (the
+	 * blender treats this as standalone, equivalent to V1's single-section
+	 * write-through). The lower-row entry of an overlapping pair also keeps
+	 * BlendAlpha = 1.0 — only the *higher-row* (incoming) entry's BlendAlpha
+	 * is read by the blender; the lower-row entry's contribution is
+	 * implicitly (1 - higher_entry.BlendAlpha) and computed inside the blender.
+	 */
+	float BlendAlpha = 1.0f;
 };
 
 /**
@@ -110,8 +176,19 @@ public:
 	 *  terminal. Assigned by the owning Actor's constructor (primary path)
 	 *  or resolved in OnRegister via FindComponentByClass (fallback for
 	 *  arbitrary Actor hosts). The component does not own lifetime of the
-	 *  CineCamera — the Actor does. */
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Composable Camera")
+	 *  CineCamera — the Actor does.
+	 *
+	 *  No edit/visible specifier on purpose: `AComposableCameraLevelSequenceActor`
+	 *  exposes the same `UCineCameraComponent` via its own `OutputCineCameraComponent`
+	 *  UPROPERTY (the surface designers actually use to author optics). Adding
+	 *  Visible/EditAnywhere here would create TWO UPROPERTY paths reaching the
+	 *  same component instance — when the Details panel walks the actor's
+	 *  property map, `UpdateSinglePropertyMapRecursive` follows both paths,
+	 *  hits the component on the second path, and recurses without cycle
+	 *  detection (StackOverflow inside SDetailsView::SetObjects on Track / actor
+	 *  selection). Plain `UPROPERTY()` keeps GC tracking + retains the value
+	 *  through serialization but skips Details panel walking. */
+	UPROPERTY()
 	TObjectPtr<UCineCameraComponent> OutputCineCameraComponent;
 
 	// UActorComponent.
@@ -219,6 +296,43 @@ public:
 	 *  populated so the renderer can prefix "[Seq]" / suffix "on Actor". */
 	void BuildSequencerPatchSnapshot(TArray<struct FComposableCameraPatchSnapshot>& OutPatches) const;
 
+	// ─── Sequencer Shot Override (driven by Shot TrackInstance, Phase E) ─────
+	//
+	// Per-frame the Shot track's TrackInstance::OnAnimate walks its in-range
+	// sections, resolves the parent-binding's bound LS Actor, and pushes
+	// (Section, Shot, RowIndex) here. This LS Component's TickComponent
+	// applies the active override BEFORE InternalCamera->TickCamera, by
+	// writing the Shot into the first found UComposableCameraCompositionFramingNode
+	// inside the InternalCamera's CameraNodes array.
+	//
+	// Multi-section semantics (V1): top-row winner. The override entry with
+	// the lowest RowIndex is applied; sections on lower rows are silently
+	// skipped. Phase F replaces this picker with a multi-Shot blender for
+	// transition-zone overlap.
+	//
+	// Section exit: CompositionFramingNode::Shot retains the last-written
+	// value when no override is active (gap between sections / past the
+	// final section). Camera holds last framing.
+	//
+	// 1-frame lag: TrackInstance::OnAnimate may run AFTER this component's
+	// TickComponent within a given frame, in which case the override applied
+	// is the previous frame's. Visually imperceptible during scrub /
+	// playback; see DesignDoc / handoff for the explicit accept-1-frame-lag
+	// design decision.
+
+	/** Push (or refresh) a Shot override for `Section`. Called every frame
+	 *  the section is in-range. The `InEntry` carries the resolved Shot,
+	 *  RowIndex, EnterTransition, and pre-computed BlendAlpha — the
+	 *  TrackInstance does the cross-section overlap analysis once per frame
+	 *  and the LSComponent blender just consumes the result. */
+	void SetSequencerShotOverride(
+		UMovieSceneComposableCameraShotSection* Section,
+		const FComposableCameraSequencerShotEntry& InEntry);
+
+	/** Remove a Shot override when the section leaves its range or the
+	 *  TrackInstance shuts down. Idempotent. */
+	void RemoveSequencerShotOverride(UMovieSceneComposableCameraShotSection* Section);
+
 private:
 	/** Transient internal camera — spawned lazily on first evaluation. Not
 	 *  added to any context stack or director; driven entirely by this
@@ -259,4 +373,23 @@ private:
 	 *  goes stale. */
 	UPROPERTY(Transient)
 	TMap<TObjectPtr<UMovieSceneComposableCameraPatchSection>, FComposableCameraSequencerPatchOverlay> SequencerPatchOverlays;
+
+	// ─── Shot override storage ────────────────────────────────────────────
+
+	/**
+	 * Pick the top-row override (lowest RowIndex) and write its Shot into the
+	 * first found `UComposableCameraCompositionFramingNode` on the
+	 * InternalCamera's CameraNodes array. No-op when the map is empty (gap
+	 * between sections — CompositionFramingNode keeps last-written Shot).
+	 *
+	 * Called from TickComponent BEFORE `InternalCamera->TickCamera` so the
+	 * solver evaluates with the new Shot data on the same frame.
+	 */
+	void ApplyActiveSequencerShotOverride();
+
+	/** Active Shot overrides keyed by Section. Held by raw section pointer
+	 *  with `TWeakObjectPtr` to tolerate GC of the section between frames
+	 *  (a common case during Sequencer hot-reload / asset reimport). */
+	UPROPERTY(Transient)
+	TMap<TWeakObjectPtr<UMovieSceneComposableCameraShotSection>, FComposableCameraSequencerShotEntry> SequencerShotOverrides;
 };

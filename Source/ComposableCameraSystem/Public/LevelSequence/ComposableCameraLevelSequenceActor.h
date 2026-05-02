@@ -7,6 +7,7 @@
 #include "ComposableCameraLevelSequenceActor.generated.h"
 
 class UComposableCameraLevelSequenceComponent;
+class UCineCameraComponent;
 
 /**
  * Actor dedicated to binding composable cameras into a Level Sequence.
@@ -27,24 +28,29 @@ class UComposableCameraLevelSequenceComponent;
  * it holds the TypeAssetReference bag and drives the internal CCS camera,
  * projecting each tick's pose onto the CineCamera.
  *
- * Spawnable-only
- * ──────────────
- * Marked NotPlaceable so it cannot be dragged into a level directly — this
- * camera's lifetime is owned by Sequencer (the Spawnable binding spawns it on
- * section entry, destroys it on section exit). A free-standing actor in the
- * level has no meaning: no Sequencer means no section ⇒ no evaluation signal
- * (see UComposableCameraLevelSequenceComponent::SetEvaluationEnabled).
+ * Placement
+ * ─────────
+ * Placeable in the level (Place Actors panel) AND usable as a Sequencer
+ * Spawnable / Possessable. The latter two paths remain the most common —
+ * the Sequencer Spawnable binding spawns the actor on section entry and
+ * destroys it on exit; a Possessable binds an existing in-level instance.
+ * Direct level placement is supported for designers who want to author a
+ * camera against a Sequencer that always exists in the level (e.g. an
+ * in-level cinematic trigger that drives the same actor every play).
  *
- * NotPlaceable does NOT prevent Sequencer's spawn register from instantiating
- * the class — it only hides it from the "Place Actors" panel and editor drag
- * operations, which is exactly what we want.
+ * Without an active Sequencer driving the LevelSequenceComponent, a
+ * free-standing instance is a no-op (see
+ * UComposableCameraLevelSequenceComponent::SetEvaluationEnabled — the
+ * component still ticks, but with no Shot / Patch overrides to apply it
+ * just projects the InternalCamera's default pose). This is by design;
+ * the actor doesn't error on a "lonely" instance.
  *
  * Runtime driver
  * ──────────────
  * All real work lives on the LevelSequenceComponent — the actor has no
  * per-frame responsibilities of its own.
  */
-UCLASS(NotPlaceable, BlueprintType, ClassGroup = ComposableCameraSystem,
+UCLASS(BlueprintType, ClassGroup = ComposableCameraSystem,
 	meta = (DisplayName = "Composable Camera Level Sequence Actor",
 	        ShortTooltip = "A composable camera bound to a Level Sequence."))
 class COMPOSABLECAMERASYSTEM_API AComposableCameraLevelSequenceActor : public AActor
@@ -57,6 +63,25 @@ public:
 protected:
 	virtual void BeginPlay() override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
+
+	/** Output viewport-terminal CineCamera. Same component the actor's
+	 *  inherited `RootComponent` field points at — the dedicated
+	 *  `UPROPERTY` here surfaces it in the Details panel's Components tree
+	 *  so designers can author per-instance lens / filmback / aperture
+	 *  / post-process / focus settings (all the standard
+	 *  `UCineCameraComponent` properties). Without an explicit `UPROPERTY`,
+	 *  the native default subobject still exists at runtime but isn't
+	 *  picked up by the Details panel's component-tree walk, so its
+	 *  internals would render uneditable.
+	 *
+	 *  `VisibleAnywhere` on the pointer (component identity is fixed —
+	 *  can't reassign to a different component) plus the standard
+	 *  `EditAnywhere` flags on `UCineCameraComponent`'s own UPROPERTYs
+	 *  give the desired surface: pointer is read-only (don't replace the
+	 *  component), but the component's properties are designer-editable. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Composable Camera",
+		meta = (AllowPrivateAccess = "true"))
+	TObjectPtr<UCineCameraComponent> OutputCineCameraComponent;
 
 	/** Logic-and-data driver ActorComponent. Holds the TypeAssetReference
 	 *  (TypeAsset + Parameters / Variables bags), spawns the transient

@@ -6,6 +6,7 @@
 #include "Core/ComposableCameraPlayerCameraManager.h"
 #include "Kismet/GameplayStatics.h"
 #include "Kismet/KismetMathLibrary.h"
+#include "Math/ComposableCameraMath.h"
 #include "Nodes/ComposableCameraScreenSpacePivotNode.h"
 #include "Utils/ComposableCameraViewportUtils.h"
 
@@ -155,107 +156,16 @@ FRotator UComposableCameraScreenSpaceConstraintsNode::EnsureWithinBoundsRotation
 	ScreenPositionX = FMath::Clamp(ScreenPositionX, SafeZoneCenter.X + SafeZoneWidth.X, SafeZoneCenter.X + SafeZoneWidth.Y);
 	ScreenPositionY = FMath::Clamp(ScreenPositionY, SafeZoneCenter.Y + SafeZoneHeight.X, SafeZoneCenter.Y + SafeZoneHeight.Y);
 
-	auto [Pitch, Yaw] = CalibrateRotationOffsetNewton(
+	auto [Pitch, Yaw] = ComposableCameraSystem::SolveCameraRotationForScreenTarget(
 		DegTanHalfHor,
 		AspectRatio,
 		Direction,
-		UKismetMathLibrary::MakeRotFromX(Direction),
 		ScreenPositionX,
 		ScreenPositionY);
 
 	DesiredRotation.Yaw = Yaw;
 	DesiredRotation.Pitch = Pitch;
 	return (DesiredRotation - CurrentPose.Rotation).GetNormalized();
-}
-
-std::pair<float, float> UComposableCameraScreenSpaceConstraintsNode::CalibrateRotationOffsetNewton(float TanHalfHOR,
-	float AspectRatio, FVector Direction, FRotator LookAtRotation, float ScreenX, float ScreenY)
-{
-	using Trig_T = double(*)(double);
-	Trig_T Sin = &FMath::Sin;
-	Trig_T Cos = &FMath::Cos;
-	
-	constexpr static int Steps = 10;
-	const float TanHalfVOR = TanHalfHOR / AspectRatio;
-	const float a = ScreenX;
-	const float b = ScreenY;
-	const float m = TanHalfHOR;
-	const float n = TanHalfVOR;
-	const float A = Direction.X;
-	const float B = Direction.Y;
-	const float C = Direction.Z;
-	
-	float X = LookAtRotation.Pitch - UKismetMathLibrary::DegAtan(2.0 * ScreenY * TanHalfVOR);
-	float Y = LookAtRotation.Yaw   - UKismetMathLibrary::DegAtan(2.0 * ScreenX * TanHalfHOR);
-	X = FMath::DegreesToRadians(X);
-	Y = FMath::DegreesToRadians(Y);
-
-	// Start with small damping.
-	float OldError = FLT_MAX;
-	
-	uint32 Iteration = 0;
-	for (Iteration = 0; Iteration < Steps; ++Iteration)
-	{
-		// Compute common terms.
-		const float SinX = Sin(X);
-		const float CosX = Cos(X);
-		const float SinY = Sin(Y);
-		const float CosY = Cos(Y);
-
-		const float S = A * CosX * CosY + B * CosX * SinY + C * SinX;
-		const float F1 = 2.f * a * m * S - (-A * SinY + B * CosY);
-		const float F2 = 2.f * b * n * S - (-A * SinX * CosY - B * SinX * SinY + C * CosX);
-
-		// Compute Jacobian.
-		const float DSDX = -A * SinX * CosY - B * SinX * SinY + C * CosX;
-		const float DSDY = CosX * (-A * SinY + B * CosY);
-
-		const float DF1DX = 2.f * a * m * DSDX;
-		const float DF1DY = 2.f * a * m * DSDY - (-A * CosY - B * SinY);
-		const float DF2DX = 2.f * b * n * DSDX - (-A * CosX * CosY - B * CosX * SinY - C * SinX);
-		const float DF2DY = 2.f * b * n * DSDY - (A * SinX * SinY - B * SinX * CosY);
-
-		float Det = DF1DX * DF2DY - DF1DY * DF2DX;
-	    if (FMath::Abs(Det) < 1e-3)
-		{
-			break;
-		}
-
-		float DX = (-F1 * DF2DY + F2 * DF1DY) / Det;
-		float DY = (-DF1DX * F2 + DF2DX * F1) / Det;
-
-		const float NewX = X + DX;
-		const float NewY = Y + DY;
-
-		// Evaluate new residual magnitude.
-		const float SinXn = Sin(NewX);
-		const float CosXn = Cos(NewX);
-		const float SinYn = Sin(NewY);
-		const float CosYn = Cos(NewY);
-
-		const float Sn = A * CosXn * CosYn + B * CosXn * SinYn + C * SinXn;
-		const float F1n = 2.f * a * m * Sn - (-A * SinYn + B * CosYn);
-		const float F2n = 2.f * b * n * Sn - (-A * SinXn * CosYn - B * SinXn * SinYn + C * CosXn);
-
-		const float NewError = FMath::Sqrt(F1n * F1n + F2n * F2n);
-		const float OldErrorMag = FMath::Sqrt(F1 * F1 + F2 * F2);
-
-		// Adaptive lambda adjustment.
-		if (NewError < OldErrorMag)
-		{
-			// Accept update and decrease lambda (move toward Gauss–Newton).
-			X = NewX;
-			Y = NewY;
-			OldError = NewError;
-		}
-
-		if (NewError < 1e-2f)
-		{
-			break;
-		}
-	}
-	
-	return { FMath::RadiansToDegrees(X), FMath::RadiansToDegrees(Y) };
 }
 
 std::pair<float, float> UComposableCameraScreenSpaceConstraintsNode::GetTanHalfHORAndAspectRatio(

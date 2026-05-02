@@ -83,7 +83,15 @@ namespace
 			OverlapPriority = FMath::Max(Existing->GetOverlapPriority() + 1, OverlapPriority);
 		}
 		NewSection->SetOverlapPriority(OverlapPriority);
-		NewSection->SetRowIndex(RowIndex);
+		// Only stamp a row index when the caller actually nominated one. Passing
+		// INDEX_NONE through to SetRowIndex stomps the section's default row 0
+		// with -1; subsequent FTrackModel::ForceUpdate then crashes on
+		// `PopulatedRows[-1] = true` (TrackModel.cpp ~line 182). Same fix as
+		// the Shot track editor.
+		if (RowIndex >= 0)
+		{
+			NewSection->SetRowIndex(RowIndex);
+		}
 		NewSection->SetBlendType(EMovieSceneBlendType::Absolute);
 
 		Track->Modify();

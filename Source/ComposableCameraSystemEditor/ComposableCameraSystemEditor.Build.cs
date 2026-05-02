@@ -9,6 +9,7 @@ public class ComposableCameraSystemEditor : ModuleRules
             {
                 "ComposableCameraSystem",
                 "ComposableCameraSystemUncookedOnly",
+                "AdvancedPreviewScene",
                 "ApplicationCore",
                 "AssetDefinition",
                 "AssetRegistry",
@@ -30,6 +31,8 @@ public class ComposableCameraSystemEditor : ModuleRules
                 "Kismet",
                 "KismetWidgets",
                 "LevelEditor",
+                "LevelSequence",
+                "PropertyEditor",
                 "MovieScene",
                 "MovieSceneTools",
                 "MovieSceneTracks",

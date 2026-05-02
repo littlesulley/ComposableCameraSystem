@@ -168,8 +168,201 @@ namespace ComposableCameraSystem
 		float DeltaPitch = UnsignedAngleBetweenVectors(V1, Up) - UnsignedAngleBetweenVectors(V2, Up);
 		return FQuat { Up, FMath::DegreesToRadians(SignedAngleBetweenVectors(P1, P2, Up)) } * FQuat { FVector::CrossProduct(Up, V1), FMath::DegreesToRadians(DeltaPitch) }.GetNormalized();
 	}
-	
-	/** Power iteration to find eigenvector. Ref https://en.wikipedia.org/wiki/Power_iteration 
+
+	/**
+	 * Closed-form solver for (Pitch X, Yaw Y) rotation (Roll = 0) such that
+	 * the world-space ray `Direction` (from camera origin) projects onto the
+	 * normalized screen coords `(ScreenX, ScreenY)` ∈ [-0.5, 0.5]². Returns
+	 * { Pitch, Yaw } in degrees, UE convention (positive pitch = up,
+	 * positive yaw = right). Replaces the iterative Newton solver formerly
+	 * duplicated inside ScreenSpacePivotNode and ScreenSpaceConstraintsNode.
+	 *
+	 * ── Derivation ───────────────────────────────────────────────────────
+	 *
+	 * Camera basis under (Pitch X, Yaw Y, Roll 0), expressed in world frame:
+	 *
+	 *     F = ( cos X cos Y,  cos X sin Y,  sin X)        // forward (cam +X)
+	 *     R = (-sin Y,        cos Y,        0    )        // right   (cam +Y)
+	 *     U = (-sin X cos Y, -sin X sin Y,  cos X)        // up      (cam +Z)
+	 *
+	 * Direction in camera space is Px = F·D, Py = R·D, Pz = U·D, with
+	 * D = (A, B, C) = Direction.
+	 *
+	 * Screen mapping is Py / (2·m·Px) and Pz / (2·n·Px) where m = TanHalfHOR
+	 * and n = TanHalfHOR / AspectRatio. Letting u = 2·ScreenX·m, v = 2·ScreenY·n,
+	 * the constraint is
+	 *
+	 *     Py = u·Px,    Pz = v·Px                                   (★)
+	 *
+	 * (★) ⇔ (Px, Py, Pz) ∝ (1, u, v). Geometrically: the pivot must lie on
+	 * the ray from camera origin through the screen-plane point (1, u, v).
+	 * The unit direction in camera space is therefore
+	 *
+	 *     d_cam = (1, u, v) / s,    s = √(1 + u² + v²)
+	 *
+	 * The same physical ray in world frame is d_world = D / L, with L = ‖D‖.
+	 * With R the camera-to-world rotation matrix (whose columns are F, R, U),
+	 *
+	 *     R · (1, u, v)ᵀ = K · (A, B, C)ᵀ        where K ≡ s / L
+	 *
+	 * Component-wise:
+	 *
+	 *     cos X cos Y - u sin Y - v sin X cos Y = K·A           (I)
+	 *     cos X sin Y + u cos Y - v sin X sin Y = K·B           (II)
+	 *     sin X            + v cos X            = K·C           (III)
+	 *
+	 * (III) contains only X — that is why the system decouples.
+	 *
+	 * Solve X.  By the harmonic identity
+	 *     sin X + v cos X = √(1+v²) · sin(X + arctan v),
+	 * (III) becomes
+	 *     X = arcsin(K·C / √(1+v²)) - arctan v               ─── (X)
+	 * The other branch X = π - arcsin(...) - arctan v corresponds to a
+	 * back-facing camera and is discarded.
+	 *
+	 * Solve Y.  With X known, let α = cos X - v sin X. (I)+(II) become a
+	 * 2×2 linear system in (cos Y, sin Y):
+	 *
+	 *     [α  -u] [cos Y]     [A]
+	 *     [u   α] [sin Y] = K [B]
+	 *
+	 * Determinant α² + u² > 0 generically, Cramer gives a Y where K cancels:
+	 *
+	 *     Y = atan2(α·B - u·A,  α·A + u·B)                   ─── (Y)
+	 *
+	 * Y is independent of ‖D‖ — depends only on the direction of D.
+	 *
+	 * Consistency.  (X)+(III) automatically imply α² + u² = K²(A² + B²),
+	 * i.e. (cos Y, sin Y) lies on the unit circle — no extra check required
+	 * in the regular regime.
+	 *
+	 * ── Edge cases ───────────────────────────────────────────────────────
+	 *
+	 *   |T| > 1, T ≡ K·C / √(1+v²)
+	 *       The pivot cannot be placed at (ScreenX, ScreenY) without
+	 *       exceeding the FOV cone. Clamped to ±1 so the pivot lands at the
+	 *       closest reachable on-FOV pitch. EnsureWithinBoundsRotation
+	 *       callers usually pre-clamp to a safe zone, so this hits only when
+	 *       the pivot direction itself is outside the FOV.
+	 *
+	 *   A² + B² → 0    Direction parallel to world ±Z (gimbal lock). Yaw is
+	 *       genuinely indeterminate at this configuration — a property of
+	 *       the Pitch+Yaw parameterization, not of the algorithm. Returns
+	 *       Yaw = 0 as the stable choice.
+	 *
+	 *   L < ε    Zero-length Direction (pivot at camera position). Returns
+	 *       (0, 0); upstream code should guard before calling here.
+	 */
+	inline std::pair<float, float> SolveCameraRotationForScreenTarget(
+		float TanHalfHOR,
+		float AspectRatio,
+		const FVector& Direction,
+		float ScreenX,
+		float ScreenY)
+	{
+		// Math is done in double — arcsin near ±1 and atan2 near (0, 0) both
+		// benefit from the extra precision; cost is negligible vs. the trig.
+		const double TanHalfVOR = TanHalfHOR / AspectRatio;
+		const double u = 2.0 * ScreenX * TanHalfHOR;
+		const double v = 2.0 * ScreenY * TanHalfVOR;
+		const double s = FMath::Sqrt(1.0 + u * u + v * v);
+
+		const double A = Direction.X;
+		const double B = Direction.Y;
+		const double C = Direction.Z;
+		const double L = FMath::Sqrt(A * A + B * B + C * C);
+
+		if (L < UE_DOUBLE_KINDA_SMALL_NUMBER)
+		{
+			// Pivot collocated with camera. Identity preserves the caller's
+			// existing rotation through downstream NormalizedDeltaRotator.
+			return { 0.f, 0.f };
+		}
+
+		const double K = s / L;
+
+		// Solve X (Pitch) from equation (III).
+		const double SqrtOnePlusVSq = FMath::Sqrt(1.0 + v * v);
+		// T saturates at ±1 when the pivot is outside the FOV cone; clamp
+		// so arcsin stays in its real domain. Result is the closest in-FOV
+		// pitch.
+		const double T = FMath::Clamp((K * C) / SqrtOnePlusVSq, -1.0, 1.0);
+		const double X = FMath::Asin(T) - FMath::Atan(v);
+
+		// Solve Y (Yaw) from equations (I) and (II).
+		if (A * A + B * B < UE_DOUBLE_KINDA_SMALL_NUMBER)
+		{
+			// Direction parallel to world ±Z — gimbal lock. Yaw is
+			// genuinely free; return 0 as the stable choice.
+			return { static_cast<float>(FMath::RadiansToDegrees(X)), 0.f };
+		}
+
+		const double SinX = FMath::Sin(X);
+		const double CosX = FMath::Cos(X);
+		const double Alpha = CosX - v * SinX;
+		const double Y = FMath::Atan2(Alpha * B - u * A, Alpha * A + u * B);
+
+		return { static_cast<float>(FMath::RadiansToDegrees(X)),
+		         static_cast<float>(FMath::RadiansToDegrees(Y)) };
+	}
+
+	/**
+	 * Forward projection: a world point → normalized screen coords [-0.5, 0.5]²,
+	 * matching the convention used by SafeZoneCenter on ScreenSpacePivotNode and
+	 * Placement.ScreenPosition / Aim.ScreenPosition on the Shot data structs.
+	 *
+	 * Companion to SolveCameraRotationForScreenTarget (which goes the other
+	 * direction). Both use the same projection model and the same screen-coord
+	 * convention so callers can round-trip cleanly.
+	 *
+	 *   1. Transform WorldPoint into camera space:
+	 *        P_cam = R⁻¹ · (WorldPoint - CameraPos)
+	 *      where R is the camera-to-world rotation. Px = depth (forward),
+	 *      Py = right, Pz = up.
+	 *
+	 *   2. If Px <= 0, the point is behind the camera or on the near plane —
+	 *      no valid screen projection. Returns false; OutScreenCoord left
+	 *      unchanged.
+	 *
+	 *   3. Apply the perspective division using the screen-coord convention
+	 *      (Py / (2m·Px), Pz / (2n·Px)) where m = tan(FOV_h/2),
+	 *      n = m / AspectRatio.
+	 *
+	 * @param WorldPoint        Point to project.
+	 * @param CameraPos         Camera world position.
+	 * @param CameraRot         Camera world rotation (Pitch, Yaw, Roll allowed).
+	 * @param TanHalfHOR        tan(FOV_horizontal / 2). Same input convention as
+	 *                          SolveCameraRotationForScreenTarget.
+	 * @param AspectRatio       Viewport aspect ratio (width / height).
+	 * @param OutScreenCoord    Normalized screen coords in [-0.5, 0.5]² when the
+	 *                          point is on screen — but values OUTSIDE that range
+	 *                          are returned for off-screen points (no clamping).
+	 *                          The Composition Solver's micro-refinement pass
+	 *                          uses the unclamped values as a gradient signal.
+	 *
+	 * @return  True iff the point is in front of the camera (Px > 0).
+	 */
+	inline bool ProjectWorldPointToScreen(
+		const FVector& WorldPoint,
+		const FVector& CameraPos,
+		const FRotator& CameraRot,
+		float TanHalfHOR,
+		float AspectRatio,
+		FVector2D& OutScreenCoord)
+	{
+		const FVector PCam = CameraRot.UnrotateVector(WorldPoint - CameraPos);
+		if (PCam.X <= UE_KINDA_SMALL_NUMBER)
+		{
+			return false;
+		}
+
+		const float TanHalfVOR = TanHalfHOR / AspectRatio;
+		OutScreenCoord.X = PCam.Y / (2.f * TanHalfHOR * PCam.X);
+		OutScreenCoord.Y = PCam.Z / (2.f * TanHalfVOR * PCam.X);
+		return true;
+	}
+
+	/** Power iteration to find eigenvector. Ref https://en.wikipedia.org/wiki/Power_iteration
 	 *  Rayleigh quotient iteration converges faster, but involving computing matrix inverse. Ref https://en.wikipedia.org/wiki/Rayleigh_quotient_iteration
 	 */
 	inline FVector4 FindEigenVectorByPowerIteration(const FMatrix& M, const FVector4& V, const int Steps, const float Epsilon = UE_SMALL_NUMBER)

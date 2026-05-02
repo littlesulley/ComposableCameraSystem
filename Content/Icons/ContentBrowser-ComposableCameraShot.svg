@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="48" height="48" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Camera body (small, left side — keeps the camera-family visual rhyme) -->
+  <rect x="2" y="18" width="14" height="12" rx="2" fill="white"/>
+  <!-- Camera lens -->
+  <path d="M16 20 L21 17 L21 31 L16 28 Z" fill="white"/>
+  <!-- Framing rectangle (right side — the Shot's authored frame) -->
+  <rect x="24" y="10" width="22" height="28" rx="1.5" fill="none" stroke="white" stroke-width="1.5" opacity="0.9"/>
+  <!-- Rule-of-thirds grid (subtle — hints at "composition") -->
+  <line x1="31.3" y1="11" x2="31.3" y2="37" stroke="white" stroke-width="0.5" opacity="0.35"/>
+  <line x1="38.7" y1="11" x2="38.7" y2="37" stroke="white" stroke-width="0.5" opacity="0.35"/>
+  <line x1="25" y1="19.3" x2="45" y2="19.3" stroke="white" stroke-width="0.5" opacity="0.35"/>
+  <line x1="25" y1="28.7" x2="45" y2="28.7" stroke="white" stroke-width="0.5" opacity="0.35"/>
+  <!-- Anchor target — placed at a thirds intersection, accent teal-green -->
+  <circle cx="31.3" cy="19.3" r="2.6" fill="#40C0A0"/>
+  <!-- Secondary target — smaller, white -->
+  <circle cx="38.7" cy="28.7" r="1.5" fill="white" opacity="0.85"/>
+</svg>

@@ -2,7 +2,9 @@
 
 #include "Utils/ComposableCameraViewportUtils.h"
 
+#include "CineCameraComponent.h"
 #include "Core/ComposableCameraPlayerCameraManager.h"
+#include "EditorHooks/EditorHooks.h"
 #include "Engine/Engine.h"
 #include "Engine/GameViewportClient.h"
 #include "GameFramework/PlayerController.h"
@@ -46,13 +48,25 @@ namespace UE::ComposableCameras
 			}
 		}
 
-		// 3. Last-resort fallback: 1920×1080. Keeps AspectRatio math benign
-		//    (16:9) when nothing is available — happens in the editor-world
-		//    preview path where there is no GameViewport. If a reliable
-		//    editor-viewport size becomes a requirement, the Editor module
-		//    can add a separate helper that pulls from GEditor->GetActiveViewport()
-		//    and route node code through that (not done here to keep the
-		//    Runtime module editor-clean).
+		// 3. Editor-world active viewport (LS Spawnable preview, scrubbing
+		//    the Sequencer in editor without entering PIE). Routed through
+		//    the `FGetActiveEditorViewport` hook so the runtime module stays
+		//    editor-clean — the editor module binds the delegate at startup
+		//    to `GEditor->GetActiveViewport()->GetSizeXY()`.
+		{
+			FIntPoint EditorSize = FIntPoint::ZeroValue;
+			if (FGetActiveEditorViewport::TryGetSize(EditorSize)
+				&& EditorSize.X > 0 && EditorSize.Y > 0)
+			{
+				OutSize = EditorSize;
+				return true;
+			}
+		}
+
+		// 4. Last-resort fallback: 1920×1080. Keeps AspectRatio math benign
+		//    (16:9) when nothing is available — extremely-early-startup or
+		//    headless commandlet paths where neither game nor editor
+		//    viewports exist.
 		OutSize = FIntPoint(1920, 1080);
 		return false;
 	}
@@ -64,5 +78,30 @@ namespace UE::ComposableCameras
 		// Size is always valid (fallback path guarantees 1920×1080), so no
 		// divide-by-zero risk.
 		return static_cast<float>(Size.X) / static_cast<float>(Size.Y);
+	}
+
+	float GetEffectiveAspectRatioForCineCamera(
+		const UCineCameraComponent* CineCam,
+		const AComposableCameraPlayerCameraManager* OptionalPCM)
+	{
+		if (!CineCam)
+		{
+			return GetEffectiveViewportAspectRatio(OptionalPCM);
+		}
+		// Constrained: renderer letterboxes to the filmback-derived aspect,
+		// regardless of viewport. Solver should match exactly so anchor
+		// screen positions land where designers expect.
+		if (CineCam->bConstrainAspectRatio)
+		{
+			const float CamAspect = CineCam->AspectRatio;
+			if (CamAspect > 0.f)
+			{
+				return CamAspect;
+			}
+		}
+		// Unconstrained: renderer adapts to viewport. Use the actual viewport
+		// aspect — same source as the non-CineCam path. When designers resize
+		// the level viewport, anchor screen positions track in real time.
+		return GetEffectiveViewportAspectRatio(OptionalPCM);
 	}
 }

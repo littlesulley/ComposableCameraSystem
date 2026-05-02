@@ -14,6 +14,7 @@
 #include "IDetailPropertyRow.h"
 #include "PropertyEditorModule.h"
 #include "ScopedTransaction.h"
+#include "Widgets/Input/SButton.h"
 #include "Widgets/Input/SCheckBox.h"
 #include "Widgets/Input/SEditableTextBox.h"
 #include "Widgets/SBoxPanel.h"
@@ -671,6 +672,60 @@ void FComposableCameraNodeGraphNodeDetails::CustomizeDetails(IDetailLayoutBuilde
 				{
 					return GetExposedChipVisibility(PinName);
 				})
+			]
+		];
+	}
+
+	// ── CallInEditor UFUNCTION buttons ──────────────────────────────────
+	//
+	// Surface any UFUNCTION(CallInEditor) declared on the underlying camera
+	// node template as a button row at the bottom of the Properties
+	// category. UE's standard UObject Details handling auto-surfaces these,
+	// but our custom layout above replaces the default category — so we
+	// explicitly iterate the template's UFUNCTIONs here. Generalises:
+	// any future node that adds a CallInEditor function gets a button
+	// automatically (V1.x first consumer:
+	// `UComposableCameraCompositionFramingNode::OpenShotEditor`).
+	//
+	// Only zero-arg, void-returning functions are wired up — matches the
+	// stock UE Details panel CallInEditor behavior. Functions with params
+	// would need a custom row with parameter widgets.
+	for (TFieldIterator<UFunction> FuncIt(GraphNode->NodeTemplate->GetClass()); FuncIt; ++FuncIt)
+	{
+		UFunction* Func = *FuncIt;
+		if (!Func || !Func->HasMetaData(TEXT("CallInEditor")) || Func->NumParms != 0)
+		{
+			continue;
+		}
+
+		const FString DisplayMeta = Func->GetMetaData(TEXT("DisplayName"));
+		const FText DisplayText = DisplayMeta.IsEmpty()
+			? FText::FromName(Func->GetFName())
+			: FText::FromString(DisplayMeta);
+
+		TWeakObjectPtr<UObject> WeakTemplate = GraphNode->NodeTemplate.Get();
+		const FName FuncName = Func->GetFName();
+
+		PropertiesCategory.AddCustomRow(DisplayText)
+		.WholeRowContent()
+		[
+			SNew(SButton)
+			.HAlign(HAlign_Center)
+			.OnClicked_Lambda([WeakTemplate, FuncName]() -> FReply
+			{
+				if (UObject* Template = WeakTemplate.Get())
+				{
+					if (UFunction* F = Template->FindFunction(FuncName))
+					{
+						Template->ProcessEvent(F, nullptr);
+					}
+				}
+				return FReply::Handled();
+			})
+			[
+				SNew(STextBlock)
+				.Text(DisplayText)
+				.Font(IDetailLayoutBuilder::GetDetailFont())
 			]
 		];
 	}

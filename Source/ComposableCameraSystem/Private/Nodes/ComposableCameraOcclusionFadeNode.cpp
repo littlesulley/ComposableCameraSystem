@@ -8,6 +8,7 @@
 #include "Components/PrimitiveComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Components/StaticMeshComponent.h"
+#include "DataAssets/ComposableCameraTargetInfo.h"
 #include "Engine/HitResult.h"
 #include "Engine/OverlapResult.h"
 #include "Engine/World.h"
@@ -133,30 +134,36 @@ void UComposableCameraOcclusionFadeNode::OnTickNode_Implementation(
 
 bool UComposableCameraOcclusionFadeNode::ResolveTargetPoint(FVector& OutTargetPoint) const
 {
-	if (!PivotActor)
+	// Phase A migration (V1.x): delegates to the consolidated helper in
+	// DataAssets/ComposableCameraTargetInfo.h. Bit-exact behavior parity
+	// with the prior inline implementation — three cases:
+	//   1. Bone mode + valid bone   → socket location only, no Z offset.
+	//   2. Bone mode + invalid bone → fall back to ActorLocation + Z offset.
+	//   3. Actor mode               → ActorLocation + Z offset.
+	// The struct's Offset is set to ZeroVector and the legacy Z offset is
+	// added by THIS call site only when ResolveWorldPoint reports it did
+	// NOT use the bone path (OutUsedBone == false). This preserves the
+	// original "Z offset applies only on the actor branch" semantic exactly.
+	FComposableCameraTargetInfo Info;
+	// Explicit `.Get()` to convert TObjectPtr → AActor* → TSoftObjectPtr —
+	// the unambiguous chain. The TargetInfo struct now uses TSoftObjectPtr
+	// (V1.x) so its Details-panel picker can span level actors.
+	Info.Actor               = PivotActor.Get();
+	Info.bUseBoneAsPivot     = bUseBoneForDetection;
+	Info.BoneName            = BoneName;
+	Info.Offset              = FVector::ZeroVector;
+	Info.bOffsetInLocalSpace = false;
+
+	bool bUsedBone = false;
+	if (!Info.ResolveWorldPoint(OutTargetPoint, &bUsedBone))
 	{
 		return false;
 	}
 
-	if (bUseBoneForDetection && !BoneName.IsNone())
+	if (!bUsedBone)
 	{
-		// Walk the actor's skeletal mesh components looking for the bone /
-		// socket. Multiple skeletal meshes are rare but possible; take the
-		// first match so the asset author can control it via component order.
-		TArray<USkeletalMeshComponent*> SkelComps;
-		PivotActor->GetComponents<USkeletalMeshComponent>(SkelComps);
-		for (USkeletalMeshComponent* Skel : SkelComps)
-		{
-			if (Skel && Skel->DoesSocketExist(BoneName))
-			{
-				OutTargetPoint = Skel->GetSocketLocation(BoneName);
-				return true;
-			}
-		}
-		// Bone missing — fall through to actor + Z offset.
+		OutTargetPoint += FVector(0.f, 0.f, PivotZOffset);
 	}
-
-	OutTargetPoint = PivotActor->GetActorLocation() + FVector(0.f, 0.f, PivotZOffset);
 	return true;
 }
 

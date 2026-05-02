@@ -1,0 +1,522 @@
+// Copyright Sulley. All rights reserved.
+
+#pragma once
+
+#include "CoreMinimal.h"
+#include "DataAssets/ComposableCameraShotTarget.h"
+#include "Math/Interval.h"
+#include "ComposableCameraShot.generated.h"
+
+/**
+ * Selects how a Shot anchor — a single world-space point — is resolved
+ * from the Shot's targets. Used by both the placement anchor (where the
+ * camera is placed relative to) and the aim anchor (where the camera is
+ * looking at). See `FComposableCameraAnchorSpec` below for the data-side.
+ */
+UENUM(BlueprintType)
+enum class EShotAnchorMode : uint8
+{
+	/** Anchor = Targets[TargetIndex].Target's resolved world pivot. */
+	SingleTarget,
+
+	/**
+	 * Anchor = weighted centroid of multiple targets' world pivots.
+	 * WeightedTargets carries (TargetIndex, Weight) pairs; only entries
+	 * with valid TargetIndex AND Weight > 0 contribute.
+	 */
+	WeightedWorldCentroid,
+
+	/** Anchor = an explicit world-space point (WorldPosition), independent
+	 *  of any target. */
+	FixedWorldPosition
+};
+
+/**
+ * Selects how the camera's POSITION is determined.
+ *
+ *   - **AnchorOrbit**: pure spherical placement around the placement anchor.
+ *     Camera = PlacementAnchor + Distance · BasisQuat · UnitDir(Yaw, Pitch).
+ *     `ScreenPosition` is **unused** — anchor projects to screen center
+ *     under tentative look-at-anchor rotation. Recommended default;
+ *     designers wanting an off-center anchor on screen should use
+ *     `Aim.ScreenPosition` (rotation-realized) instead.
+ *
+ *   - **AnchorAtScreen**: AnchorOrbit's spherical placement
+ *     THEN a lateral camera shift along basis-derived right / up axes to
+ *     make the anchor project to `Placement.ScreenPosition` under
+ *     tentative rotation. Useful for OTS-style framings where designer
+ *     wants explicit control over the placement anchor's screen X / Y
+ *     while Aim looks at a different anchor. **Caveat**: once the
+ *     lateral shift is applied, the camera is no longer literally "at
+ *     Yaw/Pitch around anchor" — the effective spherical position
+ *     drifts. The two parametrizations (Yaw/Pitch + ScreenPosition)
+ *     over-specify the camera position; the result is the geometric
+ *     composition of both, NOT a strict spherical interpretation of
+ *     Yaw/Pitch.
+ *
+ *   - **FixedWorldPosition**: camera placed at an explicit world-space
+ *     point. No orbit, no anchor required for position. Useful for
+ *     "locked" cinematic shots (cranes, jib heads, surveillance cams).
+ *
+ * Drives the Placement layer of the Composition Solver. See
+ * Docs/ShotBasedKeyframing.md §4.3.
+ */
+UENUM(BlueprintType)
+enum class EShotPlacementMode : uint8
+{
+	AnchorOrbit,
+	AnchorAtScreen,
+	FixedWorldPosition
+};
+
+/**
+ * Selects how the camera's ROTATION is determined (after Position is set
+ * by the Placement layer).
+ *
+ *   - **LookAtAnchor**: camera rotates so the aim anchor lands at
+ *     `Aim.ScreenPosition`. Closed-form via
+ *     `SolveCameraRotationForScreenTarget`. The aim anchor may differ
+ *     from the placement anchor — when it does, this is naturally an
+ *     OTS / two-shot framing (camera placed near subject A, looking at
+ *     subject B).
+ *
+ *   - **NoOp**: Aim layer does nothing. Output rotation = identity with
+ *     `Shot.Roll` composed. `Aim.AimAnchor` and `Aim.ScreenPosition` are
+ *     ignored. Useful when downstream nodes (or a FixedWorldPosition
+ *     placement) should fully drive rotation; the editor renders the
+ *     Aim handle greyed out as a non-effective indicator. Note: in NoOp
+ *     mode `SolvedFromBoundsFit` FOV and `FollowAnchor` Focus modes
+ *     still consume the identity rotation — projection / depth
+ *     computations relative to that frame may not match designer intent;
+ *     prefer `Manual` Lens + Focus modes when pairing with NoOp Aim.
+ *
+ * Drives the Aim layer of the Composition Solver. See spec §4.4.
+ */
+UENUM(BlueprintType)
+enum class EShotAimMode : uint8
+{
+	LookAtAnchor,
+	NoOp
+};
+
+/**
+ * Selects how FOV is computed. Drives the Lens layer.
+ */
+UENUM(BlueprintType)
+enum class EShotFOVMode : uint8
+{
+	/** Use FShotLens::ManualFOV directly. */
+	Manual,
+
+	/**
+	 * Solve FOV from per-target bounds using the Weight-scaled Perceptual
+	 * Union Box algorithm (spec §4.5).
+	 */
+	SolvedFromBoundsFit
+};
+
+/**
+ * Selects what world point drives the focus distance. Independent of
+ * Position / Rotation / FOV. See spec §4.6.
+ */
+UENUM(BlueprintType)
+enum class EShotFocusMode : uint8
+{
+	/** Use FShotFocus::ManualDistance directly. */
+	Manual,
+
+	/** Focus distance = camera-to-PlacementAnchor depth (along forward). */
+	FollowPlacementAnchor,
+
+	/** Focus distance = camera-to-AimAnchor depth (along forward). */
+	FollowAimAnchor,
+
+	/** Focus distance = camera-to-FocusAnchor depth (along forward),
+	 *  where FocusAnchor is its own `FComposableCameraAnchorSpec` —
+	 *  letting the focus point follow a third world point independent
+	 *  of Placement / Aim. */
+	FollowCustomAnchor
+};
+
+/**
+ * Reference-frame selector for AnchorOrbit's `LocalCameraDirection`.
+ * Lives at `FShotPlacement::BasisFrame`. See spec §3.5.2.
+ */
+UENUM(BlueprintType)
+enum class EShotPlacementBasisFrame : uint8
+{
+	/** Use world axes for the LocalCameraDirection basis. Always valid. */
+	World,
+
+	/**
+	 * Use the actor at `FShotPlacement::BasisActorIndex` as the basis —
+	 * its world quat (or its first SkelMeshComponent's quat when the
+	 * target's `bUseSkeletalMeshForwardAsBasis` flag is set, see
+	 * `FComposableCameraTargetInfo::ResolveBasisQuat`). Falls back to
+	 * World basis with a warning when the index is out of range or the
+	 * actor is null.
+	 */
+	InheritFromActor
+};
+
+/**
+ * One entry in `FComposableCameraAnchorSpec::WeightedTargets`: a target
+ * index + non-negative weight. Used when AnchorMode == WeightedWorldCentroid.
+ */
+USTRUCT(BlueprintType)
+struct COMPOSABLECAMERASYSTEM_API FComposableCameraAnchorTargetWeight
+{
+	GENERATED_BODY()
+
+	/** Index into the owning Shot's Targets array. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Anchor")
+	int32 TargetIndex = 0;
+
+	/** Weight in [0, 1]. Entries with Weight == 0 are silently dropped.
+	 *  Only ratios matter in the centroid math, [0, 1] keeps Details intent
+	 *  readable (consistent with the other Weight fields on FShotTarget). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Anchor",
+		meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float Weight = 1.f;
+};
+
+/**
+ * Resolves a single world-space anchor point from various sources. Reused
+ * by `FShotPlacement::PlacementAnchor`, `FShotAim::AimAnchor`, and
+ * `FShotFocus::FocusAnchor` — three different roles, one shape.
+ *
+ * Three modes:
+ *   - SingleTarget:           anchor = one target's pivot
+ *   - WeightedWorldCentroid:  anchor = weighted centroid of N targets
+ *   - FixedWorldPosition:     anchor = an explicit world point
+ *
+ * Properties are BlueprintReadOnly per spec §1.4.
+ */
+USTRUCT(BlueprintType)
+struct COMPOSABLECAMERASYSTEM_API FComposableCameraAnchorSpec
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Anchor")
+	EShotAnchorMode Mode = EShotAnchorMode::SingleTarget;
+
+	/** Index into the owning Shot's Targets array. Used iff Mode ==
+	 *  SingleTarget. Validated >= 0 && < Targets.Num() at solve time. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Anchor",
+		meta = (EditCondition = "Mode == EShotAnchorMode::SingleTarget"))
+	int32 TargetIndex = 0;
+
+	/** Per-target weights for WeightedWorldCentroid mode. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Anchor",
+		meta = (EditCondition = "Mode == EShotAnchorMode::WeightedWorldCentroid"))
+	TArray<FComposableCameraAnchorTargetWeight> WeightedTargets;
+
+	/** Explicit world-space point, used iff Mode == FixedWorldPosition. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Anchor",
+		meta = (EditCondition = "Mode == EShotAnchorMode::FixedWorldPosition"))
+	FVector WorldPosition = FVector::ZeroVector;
+
+	/**
+	 * Resolves to a single world point given the Shot's full target list.
+	 * Returns false (OutPos unchanged) when:
+	 *   SingleTarget       — TargetIndex out of range OR Actor null
+	 *   WeightedCentroid   — no entry has Weight > 0 AND a valid Actor
+	 *   FixedWorldPosition — never (always returns true)
+	 */
+	bool ResolveWorldPosition(
+		TConstArrayView<FComposableCameraShotTarget> Targets,
+		FVector& OutPos) const;
+};
+
+/**
+ * Placement layer — decides camera POSITION. Layered architecture: the
+ * solver runs Placement first to get a Position, then Aim (which only
+ * decides Rotation), then Lens (FOV), then Focus. See
+ * Docs/ShotBasedKeyframing.md §3.4 + §4.3.
+ *
+ * Anchor concepts unified: Placement's anchor is the world point the
+ * camera is placed RELATIVE TO; Aim's anchor (separate field on
+ * `FShotAim`) is the world point the camera LOOKS AT. They can be the
+ * same (standard third-person) or different (OTS — placed near A,
+ * looking at B).
+ */
+USTRUCT(BlueprintType)
+struct COMPOSABLECAMERASYSTEM_API FShotPlacement
+{
+	GENERATED_BODY()
+
+	/** Authoring range for `Distance`, in cm. Mirrored by the field's
+	 *  `ClampMin` / `ClampMax` UPROPERTY meta — but since UPROPERTY meta
+	 *  only enforces clamping at the Details-panel input layer, all
+	 *  *code* writers (gestures, reverse-solve, BP setters, runtime) must
+	 *  go through `FMath::Clamp(..., MinDistance, MaxDistance)` to keep
+	 *  the canonical range in sync. See the `Distance` field comment for
+	 *  the rationale behind the bounds. */
+	static constexpr float MinDistance = 1.f;       // 1cm — solver pre-flight floor
+	static constexpr float MaxDistance = 10000.f;   // 100m — sanity cap
+
+	/** Where in the world the camera is placed RELATIVE to. Resolved from
+	 *  the Shot's Targets list (or a fixed world point). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Placement")
+	FComposableCameraAnchorSpec PlacementAnchor;
+
+	/** Selects how Position is computed. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Placement")
+	EShotPlacementMode Mode = EShotPlacementMode::AnchorOrbit;
+
+	// ─── AnchorOrbit-only fields (pure spherical) ────────────────────────
+
+	/** Reference-frame selector for `LocalCameraDirection`. World means
+	 *  global axes; InheritFromActor means the basis actor's world quat.
+	 *  Only consumed in `AnchorOrbit` mode (pure spherical); the
+	 *  `AnchorAtScreen` mode borrows its forward axis from
+	 *  Aim and has no need for a basis. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Placement|AnchorOrbit",
+		meta = (EditCondition = "Mode == EShotPlacementMode::AnchorOrbit"))
+	EShotPlacementBasisFrame BasisFrame = EShotPlacementBasisFrame::InheritFromActor;
+
+	/** Index into Targets — the actor whose world quat is the basis when
+	 *  `BasisFrame == InheritFromActor`. Falls back to World basis when
+	 *  out of range or the actor is null. AnchorOrbit-only. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Placement|AnchorOrbit",
+		meta = (EditCondition = "Mode == EShotPlacementMode::AnchorOrbit && BasisFrame == EShotPlacementBasisFrame::InheritFromActor"))
+	int32 BasisActorIndex = 0;
+
+	/** Camera position direction in BasisFrame's basis, expressed as
+	 *  (Yaw, Pitch) in degrees. AnchorOrbit-only — `AnchorAtScreen`
+	 *  derives camera position from the joint Aim+Placement screen
+	 *  constraints, no spherical direction parameter. Roll about the look
+	 *  axis is authored separately on the Shot's top-level `Roll` field. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Placement|AnchorOrbit",
+		meta = (EditCondition = "Mode == EShotPlacementMode::AnchorOrbit"))
+	FVector2D LocalCameraDirection = FVector2D(180.f, 0.f);
+
+	// ─── Shared by AnchorOrbit and AnchorAtScreen ───────────
+
+	/** Camera-to-PlacementAnchor distance in world units (cm). Semantics
+	 *  depend on Mode:
+	 *    - AnchorOrbit: Euclidean — measured along the unit direction
+	 *      vector implied by `LocalCameraDirection`. In the typical case
+	 *      where camera looks at the placement anchor, this equals the
+	 *      cam-frame depth.
+	 *    - AnchorAtScreen: cam-frame depth (X coordinate of
+	 *      PlacementAnchor under the joint-solve camera rotation, which
+	 *      looks at AimAnchor). Designer thinks "I want PlacementAnchor
+	 *      this far in front of camera" regardless of where the lateral
+	 *      offset lands it.
+	 *
+	 *  Range `[1, 10000]` cm = `[1cm, 100m]`. Floor matches the solver's
+	 *  pre-flight check (1cm prevents division by ~0 in the Picard
+	 *  iteration). Ceiling is a sanity cap against typo / scroll-spam
+	 *  pushing Distance to ~1e9 — the solver's float math degrades well
+	 *  before that, so a hard 100m clamp is cheaper to enforce here than
+	 *  to chase down NaN poses downstream. 100m covers the vast majority
+	 *  of in-engine framing (character / interior / vehicle scale);
+	 *  projects that genuinely need >100m can lift this manually —
+	 *  promote to a project setting if the need recurs.
+	 *
+	 *  `SliderExponent = "3.0"` weights the Details-panel drag toward
+	 *  the low end of the range so dragging at <1000 cm (the typical
+	 *  framing scale) doesn't blast past the value the designer is
+	 *  trying to hit. Picked over a fixed `Delta = "1.0"` because at
+	 *  high-end values (multi-km vista shots) a fixed-cm-per-pixel
+	 *  rate would be agonizingly slow. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Placement|AnchorOrbit",
+		meta = (EditCondition = "Mode == EShotPlacementMode::AnchorOrbit || Mode == EShotPlacementMode::AnchorAtScreen", ClampMin = "1.0", ClampMax = "10000.0", Units = "cm", SliderExponent = "3.0"))
+	float Distance = 200.f;
+
+	/**
+	 * `AnchorAtScreen`-only. Where the resolved PlacementAnchor
+	 * should land on screen, normalized to [-0.5, 0.5]² — (0, 0) is screen
+	 * center. Realized via the joint Position+Rotation solve described in
+	 * spec §4.3 — camera position is constrained such that PlacementAnchor
+	 * is at depth `Distance` and screen `ScreenPosition` AT THE SAME TIME
+	 * AS Aim's rotation puts AimAnchor at `Aim.ScreenPosition`. Both
+	 * constraints are simultaneously satisfied by a closed-form solve
+	 * (5 constraints on 5 unknowns).
+	 *
+	 * Requires `Aim.Mode == LookAtAnchor` AND `AimAnchor != PlacementAnchor`
+	 * — the joint solve degenerates without both. Solver logs warning +
+	 * skips pose update otherwise.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Placement|AnchorOrbit",
+		meta = (EditCondition = "Mode == EShotPlacementMode::AnchorAtScreen", ClampMin = "-0.5", ClampMax = "0.5"))
+	FVector2D ScreenPosition = FVector2D::ZeroVector;
+
+	// ─── FixedWorldPosition-only fields ──────────────────────────────────
+
+	/** Used iff `Mode == FixedWorldPosition`. Camera lives at this world
+	 *  point; PlacementAnchor / Distance / Direction / ScreenPosition are
+	 *  ignored in this mode. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Placement|FixedWorldPosition",
+		meta = (EditCondition = "Mode == EShotPlacementMode::FixedWorldPosition"))
+	FVector FixedWorldPosition = FVector::ZeroVector;
+};
+
+/**
+ * Aim layer — decides camera ROTATION (Position is already determined by
+ * the Placement layer). See spec §4.4.
+ */
+USTRUCT(BlueprintType)
+struct COMPOSABLECAMERASYSTEM_API FShotAim
+{
+	GENERATED_BODY()
+
+	/** Where in the world the camera LOOKS AT. Independent of Placement's
+	 *  anchor — when they differ, you get OTS / two-shot framing for free.
+	 *  Resolved from the Shot's Targets list (or a fixed world point). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Aim")
+	FComposableCameraAnchorSpec AimAnchor;
+
+	/** Selects how Rotation is computed. Currently a single mode
+	 *  (LookAtAnchor); kept as an enum for symmetry with PlacementMode and
+	 *  future expansion (e.g. ManualEuler). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Aim")
+	EShotAimMode Mode = EShotAimMode::LookAtAnchor;
+
+	/**
+	 * Where the resolved aim anchor should land on screen, normalized to
+	 * [-0.5, 0.5]². **This is the hard rotation constraint** — the
+	 * closed-form solver always satisfies it exactly via
+	 * `SolveCameraRotationForScreenTarget`.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Aim",
+		meta = (ClampMin = "-0.5", ClampMax = "0.5"))
+	FVector2D ScreenPosition = FVector2D::ZeroVector;
+};
+
+/**
+ * Lens layer — decides FOV + Aperture. See spec §4.5.
+ */
+USTRUCT(BlueprintType)
+struct COMPOSABLECAMERASYSTEM_API FShotLens
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Lens")
+	EShotFOVMode FOVMode = EShotFOVMode::Manual;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Lens",
+		meta = (EditCondition = "FOVMode == EShotFOVMode::Manual", ClampMin = "1.0", ClampMax = "170.0", Units = "deg"))
+	float ManualFOV = 79.f;
+
+	/** Used iff FOVMode == SolvedFromBoundsFit. The perceptual-union-box's
+	 *  longest axis should occupy this fraction of the viewport. 0.5 = half
+	 *  the viewport's longest axis. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Lens",
+		meta = (EditCondition = "FOVMode == EShotFOVMode::SolvedFromBoundsFit", ClampMin = "0.05", ClampMax = "1.0"))
+	float DesiredViewportFillRatio = 0.5f;
+
+	/** Hard clamp on the solved FOV. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Lens",
+		meta = (EditCondition = "FOVMode == EShotFOVMode::SolvedFromBoundsFit"))
+	FFloatInterval FOVClamp { 12.f, 100.f };
+
+	/** Lens aperture (f-stops). No auto mode — purely artistic. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Lens",
+		meta = (ClampMin = "0.7", ClampMax = "64.0"))
+	float Aperture = 2.8f;
+};
+
+/**
+ * Focus layer — decides focus distance. Independent of Position /
+ * Rotation / FOV. See spec §4.6.
+ */
+USTRUCT(BlueprintType)
+struct COMPOSABLECAMERASYSTEM_API FShotFocus
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Focus")
+	EShotFocusMode Mode = EShotFocusMode::FollowAimAnchor;
+
+	/** Used iff Mode == Manual. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Focus",
+		meta = (EditCondition = "Mode == EShotFocusMode::Manual", ClampMin = "1.0"))
+	float ManualDistance = 200.f;
+
+	/** Used iff Mode == FollowCustomAnchor. Lets the focus point follow a
+	 *  third world point distinct from Placement / Aim. Resolved from the
+	 *  Shot's Targets list (or a fixed world point) via
+	 *  `FComposableCameraAnchorSpec`. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Focus",
+		meta = (EditCondition = "Mode == EShotFocusMode::FollowCustomAnchor"))
+	FComposableCameraAnchorSpec FocusAnchor;
+};
+
+/**
+ * Top-level Shot data — the layered composition snapshot for one shot.
+ * Three orthogonal solver layers (Placement / Aim / Lens) each take a
+ * sub-struct + a per-layer anchor spec, plus an independent Focus layer
+ * and a single Roll value composed onto the final rotation.
+ *
+ * Targets are pure world-space objects (Actor + Bone + Offset + Bounds);
+ * they carry NO screen-space data. Screen-space composition lives on
+ * Placement (`ScreenPosition`) and Aim (`ScreenPosition`) — each tied to
+ * its own anchor.
+ *
+ * See Docs/ShotBasedKeyframing.md §3 for the full data model and §4 for
+ * the solver pipeline.
+ */
+USTRUCT(BlueprintType)
+struct COMPOSABLECAMERASYSTEM_API FComposableCameraShot
+{
+	GENERATED_BODY()
+
+	/** All actors tracked by this Shot, in authoring order. Index stability
+	 *  matters — Placement / Aim / Focus anchor specs reference indices
+	 *  into this array. Reordering must update those indices in lockstep.
+	 *
+	 *  Category is `"Shot"` (NOT a sub-category like `"Shot|Targets"`) so
+	 *  the array renders at the top of the Details panel, above the
+	 *  Placement / Aim / Lens / Focus sub-structs. Designer authoring
+	 *  flow is "pick the actors first, then frame them" — Targets at
+	 *  the top reflects that. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Shot")
+	TArray<FComposableCameraShotTarget> Targets;
+
+	/** Placement layer — decides Position. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Shot")
+	FShotPlacement Placement;
+
+	/** Aim layer — decides Rotation (Position is already set by Placement). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Shot")
+	FShotAim Aim;
+
+	/** Camera roll about its forward (look) axis, in degrees. Composed onto
+	 *  the output rotation as the final operation; the solver pre-rotates
+	 *  Aim.ScreenPosition by -Roll before solving so the screen constraint
+	 *  holds at any Roll. 0 = level. See spec §4.8.
+	 *
+	 *  Range `[-180, 180]`° — kept narrow on purpose:
+	 *    1. The Alt+RMB-drag Roll gesture (§23.13) accumulates via
+	 *       `FMath::UnwindDegrees`, which already maps every accumulated
+	 *       value into `[-180, 180]`. Numeric input through the Details
+	 *       panel slider is clamped to the same range, so the field's
+	 *       edit surfaces and authoring gesture agree on the canonical
+	 *       representation.
+	 *    2. Values outside `[-180, 180]` are mathematically equivalent
+	 *       (mod 360) — extending to e.g. `[-540, 540]` would let the
+	 *       designer author redundant values (540° == 180° visually) and
+	 *       open up confusing transition behavior (a linear blend from
+	 *       Shot A Roll=170 to Shot B Roll=540 takes the long way around).
+	 *    3. FRotator's wrap math handles in-engine values outside the
+	 *       range correctly — the clamp is purely a UX / authoring-
+	 *       canonical-form constraint, not a runtime correctness one.
+	 *
+	 *  If a future use case (e.g. multi-revolution roll for a transition
+	 *  effect) demands wider range, prefer a dedicated transition node
+	 *  over widening this clamp — the canonical shot Roll should stay
+	 *  unique-per-pose. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Shot",
+		meta = (ClampMin = "-180.0", ClampMax = "180.0", Units = "deg"))
+	float Roll = 0.f;
+
+	/** Lens layer — decides FOV + Aperture. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Shot")
+	FShotLens Lens;
+
+	/** Focus layer — decides focus distance. Independent of pose / FOV. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Shot")
+	FShotFocus Focus;
+};

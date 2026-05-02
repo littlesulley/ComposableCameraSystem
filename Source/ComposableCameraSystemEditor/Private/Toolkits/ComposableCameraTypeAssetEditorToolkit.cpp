@@ -2,11 +2,13 @@
 
 #include "Toolkits/ComposableCameraTypeAssetEditorToolkit.h"
 #include "DataAssets/ComposableCameraTypeAsset.h"
+#include "EditorHooks/EditorHooks.h"
 #include "Editors/ComposableCameraNodeGraph.h"
 #include "Editors/ComposableCameraNodeGraphNode.h"
 #include "Editors/ComposableCameraVariableGraphNode.h"
 #include "Editors/ComposableCameraNodeGraphSchema.h"
 #include "Nodes/ComposableCameraCameraNodeBase.h"
+#include "Nodes/ComposableCameraCompositionFramingNode.h"
 #include "Transitions/ComposableCameraTransitionBase.h"
 #include "Nodes/ComposableCameraNodePinTypes.h"
 #include "ComposableCameraSystemEditorModule.h"
@@ -306,6 +308,29 @@ void FComposableCameraTypeAssetEditorToolkit::RegisterToolbar()
 	DebugEntry.MakeCustomWidget.BindStatic(
 		&FComposableCameraTypeAssetEditorToolkit::MakeDebugInstancePickerWidget);
 	Section.AddEntry(DebugEntry);
+
+	// "Shot Editor" entry — opens the Phase D.1 Shot Editor tab for the
+	// currently selected CompositionFraming graph node in this editor.
+	// FToolUIAction (vs FUIAction) so handlers receive the FToolMenuContext
+	// and can resolve the per-instance toolkit, sidestepping the
+	// "last-registered-toolkit-wins" bug that the Debug entry's comment
+	// above documents (UToolMenu is global; per-instance state must thread
+	// through the FToolMenuContext registered in InitToolMenuContext).
+	FToolUIAction ShotEditorAction;
+	ShotEditorAction.ExecuteAction = FToolMenuExecuteAction::CreateStatic(
+		&FComposableCameraTypeAssetEditorToolkit::StaticOnOpenShotEditorClicked);
+	ShotEditorAction.CanExecuteAction = FToolMenuCanExecuteAction::CreateStatic(
+		&FComposableCameraTypeAssetEditorToolkit::StaticCanOpenShotEditor);
+
+	Section.AddEntry(FToolMenuEntry::InitToolBarButton(
+		"OpenShotEditor",
+		ShotEditorAction,
+		LOCTEXT("ShotEditorToolbarLabel", "Shot Editor"),
+		LOCTEXT("ShotEditorToolbarTooltip",
+			"Open the Shot Editor for the selected CompositionFramingNode in this graph. "
+			"Disabled when no Composition Framing node is selected."),
+		FSlateIcon(FAppStyle::GetAppStyleSetName(), "ClassIcon.CameraComponent")
+	));
 }
 
 void FComposableCameraTypeAssetEditorToolkit::InitToolMenuContext(FToolMenuContext& MenuContext)
@@ -846,7 +871,12 @@ void FComposableCameraTypeAssetEditorToolkit::PasteNodes()
     // outline at typical zoom levels — easy to miss). Captured BEFORE the
     // transaction begins so any UI hit-test is against the pre-import
     // state.
-    const FVector2D PasteLocation = GraphEditorWidget->GetPasteLocation();
+    // UE 5.6 deprecated the FVector2D-returning GetPasteLocation in favor of
+    // GetPasteLocation2f. The new function returns FDeprecateVector2DResult —
+    // a bridge type that converts to FVector2D without triggering the
+    // deprecation warning, so the rest of the function (Centroid / Delta math
+    // in FVector2D) stays intact through the migration window.
+    const FVector2D PasteLocation = GraphEditorWidget->GetPasteLocation2f();
 
     const FScopedTransaction Transaction(
         LOCTEXT("PasteNodes", "Paste Camera Nodes"));
@@ -1515,6 +1545,79 @@ TSharedRef<SWidget> FComposableCameraTypeAssetEditorToolkit::BuildDebugInstanceP
 	}
 
 	return MenuBuilder.MakeWidget();
+}
+
+// ─── Shot Editor toolbar entry (Phase D.1) ────────────────────────────────────
+
+UComposableCameraCompositionFramingNode*
+FComposableCameraTypeAssetEditorToolkit::GetSelectedCompositionFramingNode() const
+{
+	if (!GraphEditorWidget.IsValid())
+	{
+		return nullptr;
+	}
+
+	// First selected graph node whose template is a CompositionFramingNode wins.
+	// Multi-select with multiple Composition nodes selects the first encountered;
+	// the toolbar button is single-target by design (the Shot Editor is a
+	// single-instance editor).
+	const FGraphPanelSelectionSet SelectedNodes = GraphEditorWidget->GetSelectedNodes();
+	for (UObject* Selected : SelectedNodes)
+	{
+		if (UComposableCameraNodeGraphNode* GraphNode = Cast<UComposableCameraNodeGraphNode>(Selected))
+		{
+			if (UComposableCameraCompositionFramingNode* Composition =
+				Cast<UComposableCameraCompositionFramingNode>(GraphNode->NodeTemplate))
+			{
+				return Composition;
+			}
+		}
+	}
+	return nullptr;
+}
+
+void FComposableCameraTypeAssetEditorToolkit::OpenShotEditorForSelectedNode()
+{
+	if (UComposableCameraCompositionFramingNode* Composition = GetSelectedCompositionFramingNode())
+	{
+		// Routes through the runtime → editor delegate hook
+		// (Public/EditorHooks/EditorHooks.h) bound by
+		// FComposableCameraSystemEditorModule::StartupModule. Same indirection
+		// the now-removed UFUNCTION(CallInEditor) used; keeping it lets the
+		// runtime module stay free of editor-only includes.
+		FOpenShotEditor::Open(&Composition->Shot, Composition);
+	}
+}
+
+void FComposableCameraTypeAssetEditorToolkit::StaticOnOpenShotEditorClicked(const FToolMenuContext& Context)
+{
+	// UToolMenu is global, so the FUIAction registration would otherwise
+	// route every editor's button click to whichever toolkit was last to
+	// call RegisterToolbar. The MenuContext threaded through
+	// InitToolMenuContext carries the per-instance toolkit weak ref;
+	// resolving here picks the right one (same pattern the Debug picker
+	// uses for its widget factory — see RegisterToolbar comment).
+	if (UComposableCameraTypeAssetEditorMenuContext* MenuCtx =
+		Context.FindContext<UComposableCameraTypeAssetEditorMenuContext>())
+	{
+		if (TSharedPtr<FComposableCameraTypeAssetEditorToolkit> Toolkit = MenuCtx->Toolkit.Pin())
+		{
+			Toolkit->OpenShotEditorForSelectedNode();
+		}
+	}
+}
+
+bool FComposableCameraTypeAssetEditorToolkit::StaticCanOpenShotEditor(const FToolMenuContext& Context)
+{
+	if (UComposableCameraTypeAssetEditorMenuContext* MenuCtx =
+		Context.FindContext<UComposableCameraTypeAssetEditorMenuContext>())
+	{
+		if (TSharedPtr<FComposableCameraTypeAssetEditorToolkit> Toolkit = MenuCtx->Toolkit.Pin())
+		{
+			return Toolkit->GetSelectedCompositionFramingNode() != nullptr;
+		}
+	}
+	return false;
 }
 
 #undef LOCTEXT_NAMESPACE

@@ -5,7 +5,10 @@
 #include "CoreMinimal.h"
 #include "AssetTypeCategories.h"
 #include "Modules/ModuleManager.h"
+#include "Templates/SharedPointer.h"
 
+class ISequencer;
+class UMovieSceneSequence;
 class UComposableCameraTypeAsset;
 class UComposableCameraTypeAssetEditor;
 class FComposableCameraNodeGraphPinFactory;
@@ -17,6 +20,13 @@ public:
     virtual void StartupModule() override;
     virtual void ShutdownModule() override;
     UComposableCameraTypeAssetEditor* CreateComposableCameraTypeAssetEditor(const EToolkitMode::Type Mode, const TSharedPtr<IToolkitHost>& InitToolkitHost, UComposableCameraTypeAsset* TypeAsset);
+
+    /** Find any currently-open Sequencer instance whose root sequence matches
+     *  `Sequence`. Returns nullptr when no open Sequencer is editing that
+     *  sequence. Used by the Shot Editor's preview viewport to resolve
+     *  per-section TargetActorOverrides (FMovieSceneObjectBindingID) to
+     *  live actors without baking a hard dep on LevelSequenceEditor. */
+    TSharedPtr<ISequencer> FindOpenSequencerForSequence(UMovieSceneSequence* Sequence) const;
 private:
     void RegisterDetailsCustomizations();
     void UnregisterDetailsCustomizations();
@@ -63,6 +73,19 @@ private:
      *  on module shutdown to avoid Sequencer double-registering on hot-reload. */
     FDelegateHandle LevelSequenceComponentTrackEditorHandle;
     FDelegateHandle PatchTrackEditorHandle;
+    FDelegateHandle ShotTrackEditorHandle;
+
+    /** Sequencer creation callback — adds the new instance to ActiveSequencers
+     *  so the Shot Editor's preview can later resolve binding overrides
+     *  against it. Registered against `ISequencerModule::OnSequencerCreated`
+     *  in StartupModule, unregistered in ShutdownModule. */
+    void OnSequencerCreated(TSharedRef<ISequencer> InSequencer);
+
+    FDelegateHandle SequencerCreatedHandle;
+
+    /** Weak refs to every Sequencer that's currently open. Pruned of dead
+     *  refs lazily during FindOpenSequencerForSequence. */
+    mutable TArray<TWeakPtr<ISequencer>> ActiveSequencers;
 };
 
 DECLARE_LOG_CATEGORY_EXTERN(LogComposableCameraSystemEditor, Log, All);

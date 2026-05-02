@@ -13,7 +13,10 @@
 #include "Engine/World.h"
 #include "GameFramework/Actor.h"
 #include "MovieScene/MovieSceneComposableCameraPatchSection.h"
+#include "MovieScene/MovieSceneComposableCameraShotSection.h"
 #include "MovieScene.h"
+#include "Nodes/ComposableCameraCompositionFramingNode.h"
+#include "Utils/ComposableCameraViewportUtils.h"
 
 UComposableCameraLevelSequenceComponent::UComposableCameraLevelSequenceComponent()
 {
@@ -151,6 +154,15 @@ void UComposableCameraLevelSequenceComponent::TickComponent(
 		FComposableCameraParameterBlock Block;
 		TypeAssetReference.BuildParameterBlock(Block);
 		TypeAssetReference.TypeAsset->ApplyParameterBlock(*InternalCamera->OwnedRuntimeDataBlock, Block);
+	}
+
+	// Phase E: apply Sequencer Shot override BEFORE TickCamera so the
+	// CompositionFramingNode's solver sees the new Shot data on the same
+	// frame. No-op when the override map is empty — CompositionFramingNode
+	// keeps its last-written Shot.
+	if (SequencerShotOverrides.Num() > 0)
+	{
+		ApplyActiveSequencerShotOverride();
 	}
 
 	// Note: DeltaTime in editor-world scrubbing is synthetic (Sequencer drives
@@ -373,6 +385,13 @@ void UComposableCameraLevelSequenceComponent::DestroyInternalCamera()
 		}
 	}
 	SequencerPatchOverlays.Reset();
+
+	// Shot overrides hold no spawned actors — they're pure data — so a plain
+	// Reset is sufficient. The CompositionFramingNode that consumed the
+	// last-written Shot lives on the InternalCamera that we just destroyed
+	// above; on the next EnsureInternalCamera the framing node is fresh
+	// (default-constructed Shot) until a new override fires.
+	SequencerShotOverrides.Reset();
 }
 
 void UComposableCameraLevelSequenceComponent::ProjectPoseToCineCamera(const FComposableCameraPose& Pose)
@@ -382,24 +401,73 @@ void UComposableCameraLevelSequenceComponent::ProjectPoseToCineCamera(const FCom
 		return;
 	}
 
-	// Position and rotation only.
-	//
-	// The LS path deliberately does NOT project FOV / FocalLength / Filmback /
-	// Aperture / Focus / PostProcess from the pose onto the CineCamera — those
-	// belong to the CineCamera directly, where designers set them in Details
-	// and Sequencer keys them via stock property tracks. The CCS TypeAsset
-	// should not be declaring exposed parameters for physical optics; if a
-	// TypeAsset DOES have a node that writes those pose fields, its output
-	// is silently ignored in the LS path. This is the explicit design point
-	// from the Phase B feedback: "FocalLength 这种参数应该不会作为
-	// CameraTypeAsset 里 Exposed 的参数…让用户自己通过 OutputCineCameraComponent
-	// 完全自己控制".
-	//
-	// Transform-only projection also keeps the LS path clean of the pose's
-	// sentinel semantics (dual-mode FOV, PhysicalCameraBlendWeight, etc.) —
-	// not a problem at this scope, but would be a mental-overhead tax to
-	// reason about alongside Sequencer-keyed optics.
+	// Position + Rotation always — the unconditional baseline that the
+	// camera-track / cut path relies on regardless of whether a Shot
+	// Section is driving the LS Component this frame.
 	OutputCineCameraComponent->SetWorldLocationAndRotation(Pose.Position, Pose.Rotation);
+
+	// Phase E + Polish: Lens fields (FOV / Aperture / FocusDistance)
+	// project onto the CineCamera ONLY when a Sequencer Shot Section is
+	// actively overriding the framing this frame — i.e.
+	// `SequencerShotOverrides.Num() > 0`. The pose then carries the
+	// solver's resolved Lens.* values from the active Shot's
+	// `FShotPlacement` / `FShotLens` / `FShotFocus` authoring (per
+	// `ApplySolverResultToPose` in `CompositionFramingNode.cpp`), and
+	// the user's Shot Editor edits flow through to the rendered camera.
+	//
+	// Outside Section ranges the LS Component still ticks (per
+	// `SetEvaluationEnabled` semantics), and `CompositionFramingNode`
+	// still produces a pose with `PhysicalCameraBlendWeight = 1` from
+	// the node's default-authored Shot — but those Lens values are
+	// meaningless context (no Section asked for them) and writing them
+	// here would clobber the designer-authored CineCamera optics
+	// (recently made editable via the `OutputCineCameraComponent`
+	// UPROPERTY). The Section-active gate keeps the original Phase B
+	// invariant — "free-standing LSActors don't steal CineCam optic
+	// authoring" — while the V2 Shot system gets its expected
+	// "Shot.Lens flows to CineCam" behaviour.
+	//
+	// Patch overlay path (`ApplySequencerPatchOverlays` above) writes a
+	// FOV separately for DollyZoom etc.; that path still works because
+	// it runs BEFORE `ProjectPoseToCineCamera` and modifies `Pose` in
+	// place — the FOV we read here is already the patched one.
+	const bool bSectionDriven = (SequencerShotOverrides.Num() > 0);
+	if (bSectionDriven && Pose.PhysicalCameraBlendWeight > 0.f)
+	{
+		// FOV: dual-mode resolution per invariant #15. `FocalLength < 0`
+		// is the sentinel `CompositionFramingNode::ApplySolverResultToPose`
+		// writes after a successful solve, signalling "use FieldOfView,
+		// not FocalLength". `SetFieldOfView` updates `CurrentFocalLength`
+		// to match the FOV given the current Filmback (non-destructive
+		// to authored Filmback / sensor settings).
+		if (Pose.FieldOfView > 0.f && Pose.FocalLength < 0.f)
+		{
+			OutputCineCameraComponent->SetFieldOfView(Pose.FieldOfView);
+		}
+		else if (Pose.FocalLength > 0.f)
+		{
+			OutputCineCameraComponent->CurrentFocalLength = Pose.FocalLength;
+		}
+
+		if (Pose.Aperture > 0.f)
+		{
+			OutputCineCameraComponent->CurrentAperture = Pose.Aperture;
+		}
+
+		if (Pose.FocusDistance > 0.f)
+		{
+			// Update only the manual focus distance — leave `FocusMethod`
+			// alone so a CineCam authored in `Tracking` mode keeps its
+			// tracking-target authoring. When CineCam is in `Manual`
+			// mode the value flows through directly; in `Tracking` mode
+			// the CineCam ignores `ManualFocusDistance` and our write is
+			// inert (Tracking math wins, designer's choice). In `Disable`
+			// mode our write also silently no-ops at render time, which
+			// is the intended outcome: designer turned focus off, Shot's
+			// computed FocusDistance is irrelevant.
+			OutputCineCameraComponent->FocusSettings.ManualFocusDistance = Pose.FocusDistance;
+		}
+	}
 }
 
 void UComposableCameraLevelSequenceComponent::SetSequencerPatchOverlay(
@@ -585,6 +653,143 @@ void UComposableCameraLevelSequenceComponent::ApplySequencerPatchOverlays(
 			SortedKeys.Num(),
 			*InOutPose.Position.ToCompactString(),
 			TargetFOV);
+	}
+}
+
+void UComposableCameraLevelSequenceComponent::SetSequencerShotOverride(
+	UMovieSceneComposableCameraShotSection* Section,
+	const FComposableCameraSequencerShotEntry& InEntry)
+{
+	if (!Section)
+	{
+		return;
+	}
+
+	// Whole-struct copy so the EnterTransition TObjectPtr inside the entry
+	// is correctly tracked through TMap relocations (the prior field-by-field
+	// assignment pattern was fine for a POD-y struct; once the struct holds
+	// UPROPERTY-tracked TObjectPtrs, copy-assign is safer than partial writes).
+	FComposableCameraSequencerShotEntry& Entry = SequencerShotOverrides.FindOrAdd(Section);
+	Entry = InEntry;
+}
+
+void UComposableCameraLevelSequenceComponent::RemoveSequencerShotOverride(
+	UMovieSceneComposableCameraShotSection* Section)
+{
+	if (!Section)
+	{
+		return;
+	}
+	SequencerShotOverrides.Remove(Section);
+}
+
+void UComposableCameraLevelSequenceComponent::ApplyActiveSequencerShotOverride()
+{
+	if (!InternalCamera)
+	{
+		return;
+	}
+
+	// ─── Phase F: collect valid entries sorted ascending by RowIndex.
+	// Lowest RowIndex (Sequencer's "top row") = primary / outgoing.
+	// Next-lowest RowIndex = secondary / incoming for the active overlap.
+	// Third+ entries are silently dropped per spec §7.6 decision Q3.
+	//
+	// Stale entries (section GC'd) are pruned in the same pass to keep
+	// the map tight.
+	TArray<TWeakObjectPtr<UMovieSceneComposableCameraShotSection>> ToPrune;
+	TArray<const FComposableCameraSequencerShotEntry*, TInlineAllocator<4>> SortedEntries;
+	for (const TPair<TWeakObjectPtr<UMovieSceneComposableCameraShotSection>, FComposableCameraSequencerShotEntry>& Pair : SequencerShotOverrides)
+	{
+		if (!Pair.Key.IsValid())
+		{
+			ToPrune.Add(Pair.Key);
+			continue;
+		}
+		SortedEntries.Add(&Pair.Value);
+	}
+	for (const TWeakObjectPtr<UMovieSceneComposableCameraShotSection>& Stale : ToPrune)
+	{
+		SequencerShotOverrides.Remove(Stale);
+	}
+
+	if (SortedEntries.Num() == 0)
+	{
+		return;
+	}
+
+	SortedEntries.Sort([](const FComposableCameraSequencerShotEntry& A,
+	                      const FComposableCameraSequencerShotEntry& B)
+	{
+		return A.RowIndex < B.RowIndex;
+	});
+
+	const FComposableCameraSequencerShotEntry* Primary = SortedEntries[0];
+	const FComposableCameraSequencerShotEntry* Secondary =
+		SortedEntries.Num() >= 2 ? SortedEntries[1] : nullptr;
+
+	// Find the first UComposableCameraCompositionFramingNode on the
+	// InternalCamera's CameraNodes array. The DefaultShotTypeAsset bootstrap
+	// (Phase E.5) guarantees exactly one CompositionFramingNode for the
+	// AComposableCameraLevelSequenceShotActor flow; this "first found" rule
+	// only matters when a power user pairs the generic LSActor with a custom
+	// TypeAsset that contains multiple framing nodes (push to first; their
+	// problem to architect around).
+	UComposableCameraCompositionFramingNode* Framing = nullptr;
+	for (UComposableCameraCameraNodeBase* Node : InternalCamera->CameraNodes)
+	{
+		if (UComposableCameraCompositionFramingNode* Cast0 = Cast<UComposableCameraCompositionFramingNode>(Node))
+		{
+			Framing = Cast0;
+			break;
+		}
+	}
+
+	if (!Framing)
+	{
+		UE_LOG(LogComposableCameraSystem, Verbose,
+			TEXT("LS '%s': active Shot override but InternalCamera has no UComposableCameraCompositionFramingNode — silent skip."),
+			GetOwner() ? *GetOwner()->GetName() : TEXT("<no owner>"));
+		return;
+	}
+
+	// Push the effective render aspect to the framing node BEFORE pushing
+	// shot data, so the next OnTickNode's solver sees the up-to-date value.
+	// `GetEffectiveAspectRatioForCineCamera` resolves through:
+	//   - CineCam->bConstrainAspectRatio == true  → CineCam->AspectRatio
+	//     (filmback letterbox; renderer always crops to this regardless of
+	//     viewport shape, solver must match for anchor screen positions to
+	//     land where designers expect).
+	//   - CineCam->bConstrainAspectRatio == false → live viewport aspect,
+	//     resolved through `TryGetEffectiveViewportSize` (game viewport in
+	//     PIE, editor active viewport during scrub via the new
+	//     `FGetActiveEditorViewport` hook). Tracks the level viewport in
+	//     real time so resizing the viewport repositions anchors correctly.
+	const float EffectiveAspect =
+		UE::ComposableCameras::GetEffectiveAspectRatioForCineCamera(OutputCineCameraComponent);
+	Framing->SetExternalAspectRatioOverride(EffectiveAspect);
+
+	// Push (Primary, Secondary?, Transition?, Alpha) tuple to the framing
+	// node. The node's `SetActiveShotsFromSequencer` decides whether to run
+	// the two-solver blend (F.4) based on whether secondary + transition
+	// are both non-null. When `Secondary->EnterTransition` is null, the
+	// node treats it as a hard cut — primary is the sole solver input,
+	// matching V1 top-row-winner behavior throughout the overlap.
+	if (Secondary)
+	{
+		Framing->SetActiveShotsFromSequencer(
+			Primary->Shot,
+			&Secondary->Shot,
+			Secondary->EnterTransition,
+			Secondary->BlendAlpha);
+	}
+	else
+	{
+		Framing->SetActiveShotsFromSequencer(
+			Primary->Shot,
+			/*InSecondaryShot=*/nullptr,
+			/*InTransition=*/nullptr,
+			/*InAlpha=*/0.0f);
 	}
 }
 
