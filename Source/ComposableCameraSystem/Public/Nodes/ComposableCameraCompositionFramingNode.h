@@ -88,6 +88,26 @@ public:
 
 #if !UE_BUILD_SHIPPING
 	virtual void DrawNodeDebug(UWorld* World, bool bViewerIsOutsideCamera) const override;
+
+	/**
+	 * Per-process registry of all currently-initialized framing nodes —
+	 * read by `FComposableCameraShotZoneOverlay` (the LS / PIE viewport
+	 * `CCS.Debug.Viewport.ShotZones` overlay) so it can paint anchor +
+	 * zone gizmos for every active Shot regardless of whether the host
+	 * camera is on the PCM context stack or owned by an LS Component.
+	 *
+	 * Ownership: each instance adds itself in `OnInitialize` and removes
+	 * itself in `BeginDestroy`. `TWeakObjectPtr` keys ensure GC'd nodes
+	 * silently drop out of iteration without needing manual cleanup.
+	 *
+	 * Cost: a single static `TSet` insert/remove per camera lifecycle
+	 * boundary; iteration cost is paid only when the overlay CVar is on.
+	 * Compiled out in shipping. */
+	static const TSet<TWeakObjectPtr<UComposableCameraCompositionFramingNode>>& GetActiveInstances();
+#endif
+
+#if !UE_BUILD_SHIPPING
+	virtual void BeginDestroy() override;
 #endif
 
 public:
@@ -126,6 +146,20 @@ public:
 	 *   InAlpha         → secondary's contribution weight ∈ [0, 1]. Clamped
 	 *                     defensively. Ignored when `InSecondaryShot` is null
 	 *                     or `InTransition` is null.
+	 *   bPrimaryChanged → true iff the LSComponent detected that the
+	 *                     active *primary* Section has changed since the
+	 *                     previous tick (Section A → Section B with no
+	 *                     overlap, Section bind to a different ShotAsset,
+	 *                     etc.). Triggers a primary-state reseed
+	 *                     (`bHasLastPrimaryOutputPose = false`,
+	 *                     `LastPrimaryDistance / FOV / Roll` cleared) so
+	 *                     V2.2 damping doesn't carry the previous shot's
+	 *                     pose into the new shot's first frame — without
+	 *                     this, Distance / FOV / Roll damping would visibly
+	 *                     glide between the two shots' poses on every cut.
+	 *                     Phase F blend exits already trigger the same
+	 *                     reseed independently; this flag covers the
+	 *                     non-overlap cut case.
 	 *
 	 * Persistence: the node retains the last-written state across frames.
 	 * When the LSComponent's override map empties, no further calls happen
@@ -136,7 +170,8 @@ public:
 		const FComposableCameraShot& InPrimaryShot,
 		const FComposableCameraShot* InSecondaryShot,
 		UComposableCameraTransitionDataAsset* InTransition,
-		float InAlpha);
+		float InAlpha,
+		bool bPrimaryChanged = false);
 
 	/**
 	 * Push the effective render aspect ratio for solver use. The node by
@@ -167,6 +202,73 @@ private:
 	 * touch the cache after OnInitialize.
 	 */
 	int32 LocalFrameCounter = 0;
+
+	// ─── Cinemachine-style framing-zone prior-pose state ────────────────
+	//
+	// When `Aim.AimZones.bEnabled` (or the equivalent placement zones) is
+	// set, the solver reads anchor positions through the *previous* frame's
+	// pose and damps the screen-space residual instead of re-solving the
+	// hard constraint each frame. These caches hold "previous frame's solved
+	// pose" for the primary and (Phase F) secondary shots independently —
+	// damping is per-shot so blending two damped shots stacks IIR responses,
+	// which is the user's chosen Phase F behavior (over option A's blend-
+	// time hard-constraint fallback).
+	//
+	// Lifecycle:
+	//   - `OnInitialize`            → both `bHas*` cleared. First valid solve
+	//                                 each shot performs seeds the cache.
+	//   - First successful primary solve  → seeds `LastPrimaryOutputPose`.
+	//   - Same for secondary on first valid blend tick.
+	//   - `SetActiveShotsFromSequencer` detects secondary deactivation
+	//     (incoming `bHasSecondaryShot=false` after a frame where it was
+	//     true) and clears the primary cache so the next tick re-seeds via
+	//     a hard solve — visible as one frame of snap framing on each
+	//     section boundary, accepted in the design discussion.
+	//   - Scrub / reverse playback (`DeltaTime <= 0`) is NOT detected as a
+	//     state-reset trigger by design — designers accept the single-shot
+	//     determinism penalty in exchange for not having to author scrub-
+	//     specific behavior.
+	//
+	// Pose snapshot scope: only what the zone preprocessor needs from a
+	// prior pose — Position + Rotation. FOV / Focus / Aperture are reread
+	// from the current frame's solver context.
+
+	/** True iff `LastPrimaryOutputPose` carries a valid prior solve.
+	 *  False = next tick performs a V1 hard solve and seeds the cache. */
+	bool bHasLastPrimaryOutputPose = false;
+
+	/** Position + rotation produced by the most recent successful primary
+	 *  solve. Read by the next tick to project Aim/Placement anchors when
+	 *  the corresponding zones are enabled. Only Position + Rotation are
+	 *  cached because the Solver re-derives FOV / Focus from the current
+	 *  frame's context regardless. */
+	FVector  LastPrimaryOutputPosition = FVector::ZeroVector;
+	FRotator LastPrimaryOutputRotation = FRotator::ZeroRotator;
+
+	/** Last frame's effective `Placement.Distance` (post-damping +
+	 *  post-clamp) for the primary shot. `< 0` ⇒ no prior — solver
+	 *  skips Distance damping on the next tick and uses the authored
+	 *  value. Cached together with the pose because both share the
+	 *  same activation / Section-boundary lifecycle. */
+	float    LastPrimaryDistance = -1.f;
+
+	/** Last frame's effective FOV / Roll for the primary shot — sentinel
+	 *  semantics match `FShotPriorPose::LastFOV` / `LastRoll`:
+	 *  `LastPrimaryFOV < 0` ⇒ no prior; `LastPrimaryRoll == FLT_MAX` ⇒
+	 *  no prior. Solver skips the corresponding damping on the next
+	 *  tick when the prior is absent. */
+	float    LastPrimaryFOV  = -1.f;
+	float    LastPrimaryRoll = TNumericLimits<float>::Max();
+
+	/** Same as primary, but for the Phase F secondary (incoming) shot.
+	 *  Cleared whenever `SetActiveShotsFromSequencer` transitions out of
+	 *  the secondary-active state. */
+	bool     bHasLastSecondaryOutputPose = false;
+	FVector  LastSecondaryOutputPosition = FVector::ZeroVector;
+	FRotator LastSecondaryOutputRotation = FRotator::ZeroRotator;
+	float    LastSecondaryDistance       = -1.f;
+	float    LastSecondaryFOV            = -1.f;
+	float    LastSecondaryRoll           = TNumericLimits<float>::Max();
 
 	// ─── Phase F two-Shot blend state ────────────────────────────────────
 	//

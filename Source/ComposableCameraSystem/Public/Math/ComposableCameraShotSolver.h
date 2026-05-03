@@ -97,6 +97,17 @@ namespace ComposableCameraSystem::ShotSolver
 		float FieldOfView = 79.f;
 		float FocusDistance = 200.f;
 		float Aperture = 2.8f;
+
+		/** Effective `Placement.Distance` actually used by the solve this
+		 *  frame — = `FInterpTo(prior.LastDistance, Shot.Placement.Distance,
+		 *  dt, Shot.Placement.DistanceSpeed)` clamped `>= 1cm`, or simply
+		 *  `max(Shot.Placement.Distance, 1)` when no prior pose was supplied
+		 *  / DistanceSpeed is 0 / DeltaTime is 0.
+		 *
+		 *  Caller should feed this back into `FShotPriorPose::LastDistance`
+		 *  on the next tick to keep the IIR seeded. `< 0` ⇒ Distance was
+		 *  irrelevant for this solve (e.g. `FixedWorldPosition` mode). */
+		float EffectiveDistance = -1.f;
 	};
 
 	// ─────────────────────────────────────────────────────────────────────
@@ -310,10 +321,10 @@ namespace ComposableCameraSystem::ShotSolver
 	 *     Sx_0 = Sx · cosR  +  (Sy / AR) · sinR
 	 *     Sy_0 = -AR · Sx · sinR  +  Sy · cosR
 	 *
-	 * Defined here (above the first caller, `SolveAnchorAtScreen`) so the
-	 * order of inline definitions in this header matches the order of use
-	 * — C++ requires inline functions to be defined before use within the
-	 * same translation unit.
+	 * Defined here (above the first caller, `SolveLookAtAnchorRotation`)
+	 * so the order of inline definitions in this header matches the order
+	 * of use — C++ requires inline functions to be defined before use
+	 * within the same translation unit.
 	 */
 	inline FVector2D PreRotateScreenForRoll(
 		const FVector2D& Authored, float CosRoll, float SinRoll, float AspectRatio)
@@ -324,82 +335,270 @@ namespace ComposableCameraSystem::ShotSolver
 	}
 
 	// ─────────────────────────────────────────────────────────────────────
-	// AnchorAtScreen — joint Placement + Aim solve
+	// Cinemachine-style screen-space framing zones
 	// ─────────────────────────────────────────────────────────────────────
 
 	/**
-	 * Joint Position + Rotation solve for `EShotPlacementMode::AnchorAtScreen`.
-	 *
-	 * In this mode Placement borrows its forward axis from Aim — camera
-	 * looks at AimAnchor with `Aim.ScreenPosition` constraint, AND
-	 * PlacementAnchor must be at depth `Distance` and screen
-	 * `Placement.ScreenPosition` in cam frame. That's 5 constraints
-	 * (AimAnchor screen 2 + PlacementAnchor screen 2 + PlacementAnchor
-	 * depth 1) on 5 unknowns (CamPos 3 + Pitch 1 + Yaw 1).
-	 *
-	 * **Iterative solve** (Picard fixed-point with damping — typically
-	 * converges in 3-6 iterations). Closed-form is hard because the
-	 * camera's right / up axes (which determine which world direction
-	 * `Placement.ScreenPosition` shifts the camera) depend on the forward
-	 * direction, which depends on CamPos itself. Iterating breaks the
-	 * chicken-and-egg cleanly:
-	 *
-	 *   1. Pre-flight (return false on hard failures, clamp soft ones):
-	 *      - `Distance < 1` → return false (caller pre-clamps via
-	 *        `SafeDistance`; defensive secondary clamp).
-	 *      - `dist_AP < ε` → return false (AimAnchor ≡ PlacementAnchor;
-	 *        the joint solve has no canonical answer — designer should
-	 *        switch to `AnchorOrbit` for single-anchor framing).
-	 *      - Authored screen positions outside `[-0.49, +0.49]²` are
-	 *        clamped (silent for valid envelope, warning when clamp fires).
-	 *
-	 *   2. Initial guess: place camera at `PlacementAnchor` displaced
-	 *      `Distance` away along the (PlacementAnchor → AimAnchor)
-	 *      direction (rough OTS starting point).
-	 *
-	 *   3. Loop (Picard with relaxation factor `α = 0.7`):
-	 *      a. Compute camera rotation from current CamPos via
-	 *         `SolveCameraRotationForScreenTarget(AimAnchor - CamPos,
-	 *         AimScreenPos)` — gives (Pitch, Yaw) putting AimAnchor at
-	 *         the authored screen position.
-	 *      b. Candidate CamPos = `PlacementAnchor - R · (D, ly_p, lz_p)`.
-	 *      c. Damped update: `CamPos ← (1-α)·CamPos + α·Candidate`.
-	 *         Damping (0 < α < 1) suppresses oscillation under
-	 *         off-center / short-distance geometries where the un-damped
-	 *         iteration can ping-pong instead of converging.
-	 *      d. Convergence on un-damped residual `||Candidate - CamPos||²
-	 *         < (0.01 cm)²`. Damping doesn't change the fixed point, so
-	 *         convergence on the raw step is the right signal.
-	 *
-	 *   4. Non-convergence → return false (caller preserves upstream pose
-	 *      for the frame). The previous behavior of "warn + return last
-	 *      estimate" silently produced wrong cameras; failing loud lets
-	 *      the framing-node fallback take over and the designer's HUD
-	 *      shows the previous-frame pose unchanged.
-	 *
-	 *   5. Compose `Shot.Roll` onto output rotation. Authored screen
-	 *      positions pre-rotated by `-Roll` (anisotropic AR transform)
-	 *      before the iteration so they end up at the original values
-	 *      under the rolled rotation — same trick as `LookAtAnchor`.
-	 *
-	 * Note: `Aim.Mode == NoOp` is handled by the separate
-	 * `SolveAnchorAtScreenIdentityRot` (closed-form algebraic, no Picard).
+	 * Optional prior camera pose handed to `SolveShot` so the zone path
+	 * has a base to project anchors through. Lightweight (Pos + Rot,
+	 * FOV reuses `Context.PreviousFrameFOV`) — the Solver header stays
+	 * free of `FComposableCameraPose` (which lives one module-folder
+	 * away in `Cameras/ComposableCameraCameraBase.h`).
 	 */
-	inline bool SolveAnchorAtScreen(
-		const FVector& AimAnchorPos,
+	struct FShotPriorPose
+	{
+		FVector  Position = FVector::ZeroVector;
+		FRotator Rotation = FRotator::ZeroRotator;
+
+		/** Last frame's effective `Distance` (after V2.2 damping + 1cm
+		 *  clamp). `< 0` ⇒ no prior, solver skips Distance damping and
+		 *  uses the authored value. Set by the caller from
+		 *  `FShotSolveResult::EffectiveDistance` after a successful solve. */
+		float    LastDistance = -1.f;
+
+		/** Last frame's effective FOV (degrees, post-damping + post-clamp).
+		 *  `< 0` ⇒ no prior, solver skips FOV damping and uses the
+		 *  freshly-solved value. Caller sets this from
+		 *  `FShotSolveResult::FieldOfView` after a successful solve. */
+		float    LastFOV = -1.f;
+
+		/** Last frame's effective Roll (degrees, post-damping). Sentinel
+		 *  is `FLT_MAX` — Roll legitimately spans the entire `[-180, 180]`
+		 *  range incl. 0, so a numeric-zero default would be ambiguous.
+		 *  Caller sets this from `FShotSolveResult::CameraRotation.Roll`
+		 *  after a successful solve. */
+		float    LastRoll = TNumericLimits<float>::Max();
+	};
+
+	/**
+	 * Compute the effective screen-space target an anchor should be
+	 * solved toward this frame, given:
+	 *   - `CurrentScreen`     — the anchor's current projected screen
+	 *                           coordinate (read off the prior pose).
+	 *   - `AuthoredScreenPos` — the designer's authored target screen
+	 *                           position (zone-rect center).
+	 *   - `Zones`             — the dead/soft padding + damping config.
+	 *   - `DeltaTime`         — frame delta seconds (for `FInterpTo`).
+	 *
+	 * Algorithm (Cinemachine-style, asymmetric per-side):
+	 *
+	 *   err           = CurrentScreen - AuthoredScreenPos
+	 *
+	 *   // Per-axis dead-zone subtraction. The dead zone is the rect
+	 *   // [-DeadLeft, +DeadRight] × [-DeadBottom, +DeadTop] around SP.
+	 *   // err > +Right  → eff = err - Right  (anchor right of dead, pull left)
+	 *   // err < -Left   → eff = err + Left   (anchor left  of dead, pull right)
+	 *   // else          → eff = 0            (anchor inside dead, hold)
+	 *   eff_after     = FInterpTo(eff, 0, dt, Speed)                  // damping
+	 *   step          = eff - eff_after
+	 *   new_err       = err - step
+	 *
+	 *   // Soft-zone hard limit: clamp into the soft padding rect, no
+	 *   // damping on the clamp (Cinemachine's "HardLimits" semantics).
+	 *   new_err.x in [-SoftLeft,   +SoftRight]
+	 *   new_err.y in [-SoftBottom, +SoftTop]
+	 *
+	 *   target = AuthoredScreenPos + new_err
+	 *
+	 * Anchor inside the dead rect → eff = 0 → step = 0 → new_err = err →
+	 * target = CurrentScreen → solver reproduces the prior pose. Damping
+	 * Speed = 0 collapses eff_after to 0, i.e. step = eff, so the anchor
+	 * snaps to the nearest dead-zone edge in one frame.
+	 *
+	 * Soft padding is defensively `>= ` dead padding per side; the drag
+	 * handler enforces this on author, but the solver also clamps so an
+	 * inverted authoring (Soft < Dead on a side) still yields sensible
+	 * output rather than a degenerate clamp band.
+	 */
+	inline FVector2D ApplyScreenZones(
+		const FVector2D& CurrentScreen,
+		const FVector2D& AuthoredScreenPos,
+		const FShotScreenZones& Zones,
+		float DeltaTime)
+	{
+		const FVector2D Err = CurrentScreen - AuthoredScreenPos;
+
+		// Per-side dead-zone thresholds (positive on each side; sign is
+		// applied in the residual lambda).
+		const float DeadL = Zones.DeadZone.Left;
+		const float DeadR = Zones.DeadZone.Right;
+		const float DeadT = Zones.DeadZone.Top;
+		const float DeadB = Zones.DeadZone.Bottom;
+
+		// Soft sides clamped >= dead sides (defensive — drag handler
+		// already enforces; protects against authored inversions).
+		const float SoftL = FMath::Max(Zones.SoftZone.Left,   DeadL);
+		const float SoftR = FMath::Max(Zones.SoftZone.Right,  DeadR);
+		const float SoftT = FMath::Max(Zones.SoftZone.Top,    DeadT);
+		const float SoftB = FMath::Max(Zones.SoftZone.Bottom, DeadB);
+
+		// Per-axis dead-zone residual: returns 0 inside the band,
+		// otherwise the signed distance from the relevant edge.
+		auto DeadResidual = [](float E, float MinusSide, float PlusSide) -> float
+		{
+			if (E >  PlusSide ) { return E - PlusSide;  }
+			if (E < -MinusSide) { return E + MinusSide; }
+			return 0.f;
+		};
+		const float EffX = DeadResidual(static_cast<float>(Err.X), DeadL, DeadR);
+		const float EffY = DeadResidual(static_cast<float>(Err.Y), DeadB, DeadT);
+
+		// Per-axis IIR damping toward 0 (= dead-zone edge).
+		// FInterpTo's internal clamp handles Speed <= 0 / DeltaTime <= 0
+		// by returning Target — instant snap. Same convention as
+		// `UComposableCameraIIRInterpolator`.
+		const float EffAfterX = FMath::FInterpTo(EffX, 0.f, DeltaTime, Zones.HorizontalSpeed);
+		const float EffAfterY = FMath::FInterpTo(EffY, 0.f, DeltaTime, Zones.VerticalSpeed);
+
+		const float StepX = EffX - EffAfterX;
+		const float StepY = EffY - EffAfterY;
+
+		// Soft-zone hard clamp on the post-step residual. Note the
+		// asymmetric ranges: bottom = −Y in our convention, so
+		// `new_err.Y` ∈ [−SoftB, +SoftT].
+		const float NewErrX = FMath::Clamp(static_cast<float>(Err.X) - StepX, -SoftL, SoftR);
+		const float NewErrY = FMath::Clamp(static_cast<float>(Err.Y) - StepY, -SoftB, SoftT);
+
+		return AuthoredScreenPos + FVector2D(NewErrX, NewErrY);
+	}
+
+	/**
+	 * Resolve the effective screen-space target for a single anchor
+	 * given a prior camera pose. Convenience wrapper that handles the
+	 * "anchor unresolvable" failure path (returns the authored screen
+	 * position so the V1 hard-constraint solver still has something
+	 * sensible to chew on — caller will likely fail on anchor resolve
+	 * downstream anyway).
+	 *
+	 * Returns the authored ScreenPosition unchanged when:
+	 *   - Zones are disabled, OR
+	 *   - The anchor cannot resolve to a world point (zone math needs
+	 *     the projected `CurrentScreen`, which needs a world point), OR
+	 *   - The prior pose's rotation is degenerate (Forward dot AnchorDir
+	 *     near zero in `ProjectWorldPointToScreen`).
+	 *
+	 * The projection uses the same `TanHalfHOR` / `AspectRatio` the rest
+	 * of the SolveShot pipeline uses for the current frame — so the
+	 * effective screen target is consistent with the projection the V1
+	 * solver will subsequently invert.
+	 */
+	inline FVector2D ResolveEffectiveScreenTarget(
+		const FComposableCameraAnchorSpec& Anchor,
+		TConstArrayView<FComposableCameraShotTarget> Targets,
+		const FVector2D& AuthoredScreenPos,
+		const FShotScreenZones& Zones,
+		const FShotPriorPose& PriorPose,
+		float TanHalfHOR,
+		float AspectRatio,
+		float DeltaTime)
+	{
+		if (!Zones.bEnabled)
+		{
+			return AuthoredScreenPos;
+		}
+
+		FVector AnchorWorld;
+		if (!Anchor.ResolveWorldPosition(Targets, AnchorWorld))
+		{
+			return AuthoredScreenPos;
+		}
+
+		FVector2D CurrentScreen;
+		if (!ProjectWorldPointToScreen(AnchorWorld,
+				PriorPose.Position, PriorPose.Rotation,
+				TanHalfHOR, AspectRatio, CurrentScreen))
+		{
+			// Anchor behind camera under prior pose, or projection
+			// degenerate. Fall back to authored target — V1 hard solve
+			// will pull the anchor back into frame, breaking out of the
+			// degenerate state on the next tick (where the prior pose
+			// will project the anchor sensibly). One-frame artifact
+			// is preferable to silently NaN'ing the zone math.
+			return AuthoredScreenPos;
+		}
+
+		return ApplyScreenZones(CurrentScreen, AuthoredScreenPos, Zones, DeltaTime);
+	}
+
+	// ─────────────────────────────────────────────────────────────────────
+	// AnchorAtScreen — closed-form Placement (decoupled from Aim)
+	// ─────────────────────────────────────────────────────────────────────
+	//
+	// The earlier joint Picard solver (5-on-5 closed-form for AnchorAtScreen +
+	// LookAtAnchor) has been removed in favor of a Cinemachine-style decoupled
+	// pipeline:
+	//
+	//   1. Position pass — `SolveAnchorAtScreenPos` finds CamPos that places
+	//      `PlacementAnchor` at `Placement.ScreenPosition` AT DEPTH `Distance`,
+	//      assuming a given camera rotation. The rotation is sourced from
+	//      either the Aim NoOp identity (Roll-only) or the prior frame's
+	//      rotation (LookAtAnchor's "best guess"; first-frame seed = forward
+	//      derived from PlacementAnchor → AimAnchor direction).
+	//   2. Rotation pass — `SolveLookAtAnchorRotation` computes the closed-
+	//      form rotation that lands AimAnchor at `Aim.ScreenPosition`, taking
+	//      the just-computed CamPos as input.
+	//
+	// The trade-off vs. the joint solver: PlacementAnchor's projected screen
+	// position drifts slightly from `Placement.ScreenPosition` once the
+	// Aim-pass rotation differs from the assumed rotation, because the
+	// position-pass CamPos was computed under the *assumed* rotation. With
+	// the prior frame's rotation seeding the assumption, the drift is
+	// per-frame O(rotation delta) — typically a few pixels when targets
+	// move smoothly, washed out completely the moment framing zones are
+	// enabled (the zone solver explicitly tolerates this drift). Designers
+	// who needed the V1 strict joint constraint should compose their
+	// shots with `AnchorOrbit + LookAtAnchor` instead — that mode is
+	// fully closed-form and has no decoupling drift at all (because the
+	// Position pass doesn't read `ScreenPosition`).
+	//
+	// Cinemachine reference: PositionComposer + RotationComposer run
+	// independently and accept the same kind of soft "best-effort"
+	// satisfaction that this decoupled solver matches.
+
+	/**
+	 * Closed-form Position pass for `EShotPlacementMode::AnchorAtScreen`.
+	 *
+	 * Computes a camera position that places `PlacementAnchor` at depth
+	 * `Distance` and screen `ScreenPos` IN THE CAM FRAME OF `AssumedRot`.
+	 * Algebraic, no iteration:
+	 *
+	 *     cam_anchor = (D, sx · 2·TanH · D, sy · 2·TanV · D)   // cam frame
+	 *     CamPos     = PlacementAnchor - AssumedRot · cam_anchor
+	 *
+	 * `AssumedRot` is sourced from:
+	 *   - Aim NoOp:                 identity + Shot.Roll (Roll-only).
+	 *   - Aim LookAtAnchor + prior:  prior frame’s camera rotation.
+	 *                                Decoupling-drift is then per-frame
+	 *                                O(rotation delta).
+	 *   - Aim LookAtAnchor + first-frame seed:
+	 *                                rotation built from the
+	 *                                (PlacementAnchor → AimAnchor) world
+	 *                                direction + Shot.Roll. Matches the
+	 *                                Aim pass’s eventual look-at-AimAnchor
+	 *                                rotation closely enough that one
+	 *                                frame of decoupling drift washes out
+	 *                                inside the IIR damping window.
+	 *
+	 * `ScreenPos` is consumed as-is (no `-Roll` pre-rotation): when
+	 * `AssumedRot` already includes Shot.Roll, the cam-frame right/up
+	 * axes are themselves rolled, so `(sx · 2·TanH · D, sy · 2·TanV · D)`
+	 * lands the anchor at the authored ScreenPosition under the rolled
+	 * view. Contrast with `SolveLookAtAnchorRotation` which DOES
+	 * pre-rotate — it solves for the rotation, so it cannot pre-roll it.
+	 *
+	 * Returns false (OutCamPos unchanged) iff `Distance < 1cm`. Authored
+	 * `ScreenPos` outside `[-0.49, +0.49]²` is silently clamped to keep
+	 * the cam-frame target inside the frustum-safe envelope.
+	 */
+	inline bool SolveAnchorAtScreenPos(
 		const FVector& PlacementAnchorPos,
-		FVector2D AimScreenPos,
-		FVector2D PlacementScreenPos,
+		FVector2D ScreenPos,
 		float Distance,
 		float TanHalfHOR,
 		float AspectRatio,
-		float RollDeg,
-		FVector& OutCamPos,
-		FRotator& OutCamRot)
+		const FRotator& AssumedRot,
+		FVector& OutCamPos)
 	{
-		// Pre-flight 1: defensive Distance check. Caller is expected to
-		// clamp via `SafeDistance`, but the joint solve is sensitive enough
-		// to a sub-1cm distance that we re-check here and bail loudly.
 		if (Distance < 1.f)
 		{
 			UE_LOG(LogComposableCameraSystem, Warning,
@@ -409,222 +608,11 @@ namespace ComposableCameraSystem::ShotSolver
 			return false;
 		}
 
-		// Pre-flight 2: anchor coincidence. The joint solve's initial
-		// `(PlacementAnchor → AimAnchor)` direction is undefined when the
-		// anchors collapse, and even with a fallback forward the iteration
-		// produces a camera whose pose is meaningless (any Yaw / Pitch
-		// satisfies the placement constraint trivially). Hard-fail and let
-		// the caller preserve upstream pose; designer sees a stable shot
-		// instead of a nonsense one.
-		const FVector A2P = PlacementAnchorPos - AimAnchorPos;
-		const float dist_AP = static_cast<float>(A2P.Size());
-		if (dist_AP < UE_KINDA_SMALL_NUMBER)
-		{
-			UE_LOG(LogComposableCameraSystem, Warning,
-				TEXT("ShotSolver: AnchorAtScreen with PlacementAnchor == AimAnchor "
-				     "is degenerate; skipping pose update. Switch to AnchorOrbit "
-				     "for single-anchor framing."));
-			return false;
-		}
-
-		// Pre-flight 3: clamp authored screen positions to a soft frustum
-		// envelope so the inner rotation solve has convergence margin.
-		// Values inside `[-0.49, +0.49]²` pass through unchanged; values
-		// outside trigger a one-shot warning + clamp so the designer sees
-		// their input was modified.
-		if (ClampAuthoredScreenPosition(AimScreenPos))
-		{
-			UE_LOG(LogComposableCameraSystem, Warning,
-				TEXT("ShotSolver: AnchorAtScreen Aim.ScreenPosition clamped to %.2f²; "
-				     "authored value was outside the frustum-safe envelope."),
-				ShotSolverScreenClampLimit);
-		}
-		if (ClampAuthoredScreenPosition(PlacementScreenPos))
-		{
-			UE_LOG(LogComposableCameraSystem, Warning,
-				TEXT("ShotSolver: AnchorAtScreen Placement.ScreenPosition clamped to %.2f²; "
-				     "authored value was outside the frustum-safe envelope."),
-				ShotSolverScreenClampLimit);
-		}
-
-		const float TanHalfVOR = TanHalfHOR / AspectRatio;
-		const FVector InitForward = -A2P / dist_AP;
-
-		// Pre-rotate authored screen positions by -Roll so the post-Roll
-		// composition lands AimAnchor / PlacementAnchor at their authored
-		// positions (anisotropic Roll-screen transform — see spec §4.8).
-		const float RollRad = FMath::DegreesToRadians(RollDeg);
-		const float CosR = FMath::Cos(RollRad);
-		const float SinR = FMath::Sin(RollRad);
-		const FVector2D AimSP_pre =
-			PreRotateScreenForRoll(AimScreenPos, CosR, SinR, AspectRatio);
-		const FVector2D PlSP_pre =
-			PreRotateScreenForRoll(PlacementScreenPos, CosR, SinR, AspectRatio);
-
-		// PlacementAnchor's lateral offsets in cam frame at depth `Distance`.
-		const float ly_p = PlSP_pre.X * 2.f * TanHalfHOR * Distance;
-		const float lz_p = PlSP_pre.Y * 2.f * TanHalfVOR * Distance;
-		const FVector CamAnchorP(Distance, ly_p, lz_p);
-
-		// Smarter initial CamPos seed (Polish D.2): instead of a pure
-		// `PlacementAnchor - Distance * InitForward` — which assumes the
-		// authored `Placement.ScreenPosition` is at center — pre-shift
-		// laterally / vertically to land closer to the geometric solution
-		// when PlSP is off-center. The initial cam axes come from the
-		// tentative P→A forward; lateral shift uses the same
-		// `2·TanH·Distance` projection the iterative step uses internally.
-		// Reduces typical iteration count by ~1-2 and rescues a class of
-		// off-center stress cases that previously hit `MaxIters` and
-		// hard-failed.
-		const FVector InitWorldUp(0.f, 0.f, 1.f);
-		FVector InitRight = FVector::CrossProduct(InitWorldUp, InitForward);
-		if (!InitRight.Normalize(UE_KINDA_SMALL_NUMBER))
-		{
-			// Degenerate: P→A is parallel to world up. Pick any horizontal
-			// right axis to seed lateral shift.
-			InitRight = FVector(0.f, 1.f, 0.f);
-		}
-		const FVector InitUp = FVector::CrossProduct(InitForward, InitRight);
-		const float InitOffsetRight = -PlSP_pre.X * 2.f * TanHalfHOR * Distance;
-		const float InitOffsetUp    = -PlSP_pre.Y * 2.f * TanHalfVOR * Distance;
-		OutCamPos = PlacementAnchorPos
-			- Distance * InitForward
-			+ InitOffsetRight * InitRight
-			+ InitOffsetUp * InitUp;
-
-		// Picard iteration with damping. Converges in 3-6 iterations for
-		// sensible geometries; damping (α, default 0.7) suppresses
-		// oscillation for off-center ScreenPosition / short-Distance edge
-		// cases. Tuning lives on `UComposableCameraProjectSettings` (P.3) —
-		// projects with unusual scale / framing ranges can adjust without
-		// recompiling. Read once into locals so per-iter `GetDefault<>`
-		// cost stays out of the inner loop.
-		const UComposableCameraProjectSettings* CCSSettings =
-			GetDefault<UComposableCameraProjectSettings>();
-		const int32 MaxIters = CCSSettings
-			? FMath::Max(1, CCSSettings->PicardMaxIterations)
-			: 16;
-		const float ConvergenceTolCm = CCSSettings
-			? FMath::Max(KINDA_SMALL_NUMBER, CCSSettings->PicardConvergenceTolerance)
-			: 0.01f;
-		const float ConvergenceSqThreshold = ConvergenceTolCm * ConvergenceTolCm;
-		const float Relaxation = CCSSettings
-			? FMath::Clamp(CCSSettings->PicardRelaxation, 0.05f, 1.0f)
-			: 0.7f;
-		FRotator IterRot(0.f, 0.f, 0.f);
-		bool bConverged = false;
-		for (int32 Iter = 0; Iter < MaxIters; ++Iter)
-		{
-			const FVector AimDir = AimAnchorPos - OutCamPos;
-			if (AimDir.IsNearlyZero())
-			{
-				UE_LOG(LogComposableCameraSystem, Warning,
-					TEXT("ShotSolver: AnchorAtScreen iteration: camera coincident "
-					     "with AimAnchor; skipping pose update."));
-				return false;
-			}
-			auto [PitchDeg, YawDeg] = SolveCameraRotationForScreenTarget(
-				TanHalfHOR, AspectRatio, AimDir, AimSP_pre.X, AimSP_pre.Y);
-			IterRot = FRotator(PitchDeg, YawDeg, 0.f);   // Roll=0 in pre-rotated frame
-			const FQuat R = IterRot.Quaternion();
-
-			const FVector CandidateCamPos = PlacementAnchorPos - R.RotateVector(CamAnchorP);
-
-			// Convergence test on the un-damped residual: damping changes
-			// the path length but not the fixed point, so the right signal
-			// is "did the un-damped step shrink?".
-			const float DeltaSq =
-				static_cast<float>(FVector::DistSquared(CandidateCamPos, OutCamPos));
-
-			// Damped update: blend toward the candidate by α.
-			OutCamPos = FMath::Lerp(OutCamPos, CandidateCamPos, Relaxation);
-
-			if (DeltaSq < ConvergenceSqThreshold)
-			{
-				// Recompute rotation from the final CamPos so the output
-				// rotation matches the *converged* CamPos, not the rotation
-				// computed from the previous (pre-damped) CamPos.
-				const FVector AimDirFinal = AimAnchorPos - OutCamPos;
-				auto [PitchDegF, YawDegF] = SolveCameraRotationForScreenTarget(
-					TanHalfHOR, AspectRatio, AimDirFinal, AimSP_pre.X, AimSP_pre.Y);
-				IterRot = FRotator(PitchDegF, YawDegF, 0.f);
-				bConverged = true;
-				break;
-			}
-		}
-
-		if (!bConverged)
-		{
-			// Hard failure: the iterate didn't settle within tolerance.
-			// Caller preserves upstream pose (CompositionFramingNode +
-			// editor viewport client both honor `bValid == false` by
-			// holding the previous frame's pose). This is strictly better
-			// than the previous "warn + return last estimate" behavior,
-			// which silently produced contorted cameras the designer had
-			// no easy way to debug.
-			UE_LOG(LogComposableCameraSystem, Warning,
-				TEXT("ShotSolver: AnchorAtScreen iteration did not converge in %d iters; "
-				     "skipping pose update. Geometry may be physically unsolvable "
-				     "(Distance too short relative to anchor separation, ScreenPosition "
-				     "too off-center, etc.)."),
-				MaxIters);
-			return false;
-		}
-
-		// Compose authored Roll onto the final rotation. The pre-rotation
-		// of screen targets above ensures AimAnchor and PlacementAnchor
-		// land at their authored screen positions under the rolled view.
-		OutCamRot = IterRot;
-		OutCamRot.Roll = RollDeg;
-		return true;
-	}
-
-	/**
-	 * Direct algebraic solve for `AnchorAtScreen` + Aim NoOp combination.
-	 *
-	 * When Aim is NoOp the rotation is fixed at `(Pitch=0, Yaw=0, Roll=Shot.Roll)`
-	 * — there's no Aim screen constraint, so the joint quadratic in
-	 * `SolveAnchorAtScreen` doesn't apply. With rotation known the camera
-	 * position is closed-form algebraic:
-	 *
-	 *     cam_anchor = (D, sx · 2·TanH · D, sy · 2·TanV · D)   // cam frame
-	 *     CamPos     = PlacementAnchor - R(Roll) · cam_anchor
-	 *
-	 * which makes PlacementAnchor project to `ScreenPosition` at depth `D`
-	 * under the Roll-only rotation.
-	 */
-	inline bool SolveAnchorAtScreenIdentityRot(
-		const FVector& PlacementAnchorPos,
-		FVector2D ScreenPos,
-		float Distance,
-		float TanHalfHOR,
-		float AspectRatio,
-		float RollDeg,
-		FVector& OutCamPos,
-		FRotator& OutCamRot)
-	{
-		// Pre-flight: defensive Distance check (caller pre-clamps via
-		// `SafeDistance`, but algebraic path is brittle at sub-1cm depths).
-		if (Distance < 1.f)
-		{
-			UE_LOG(LogComposableCameraSystem, Warning,
-				TEXT("ShotSolver: AnchorAtScreen+NoOp Distance=%.4f below 1cm floor; "
-				     "skipping pose update."),
-				Distance);
-			return false;
-		}
-
-		// Pre-flight: clamp ScreenPos to the soft frustum envelope so
-		// authored values outside `[-0.49, +0.49]²` don't push the camera
-		// to an unintended pose. Algebraic mode is more forgiving than the
-		// joint solve (no iteration to diverge), but consistency matters
-		// for designer feedback — same warning shape as the joint path.
 		if (ClampAuthoredScreenPosition(ScreenPos))
 		{
 			UE_LOG(LogComposableCameraSystem, Warning,
-				TEXT("ShotSolver: AnchorAtScreen+NoOp Placement.ScreenPosition "
-				     "clamped to %.2f²; authored value was outside the frustum-safe "
-				     "envelope."),
+				TEXT("ShotSolver: AnchorAtScreen ScreenPosition clamped to %.2f²; "
+				     "authored value was outside the frustum-safe envelope."),
 				ShotSolverScreenClampLimit);
 		}
 
@@ -633,8 +621,7 @@ namespace ComposableCameraSystem::ShotSolver
 			Distance,
 			ScreenPos.X * 2.f * TanHalfHOR * Distance,
 			ScreenPos.Y * 2.f * TanHalfVOR * Distance);
-		OutCamRot = FRotator(0.f, 0.f, RollDeg);
-		OutCamPos = PlacementAnchorPos - OutCamRot.RotateVector(CamAnchor);
+		OutCamPos = PlacementAnchorPos - AssumedRot.RotateVector(CamAnchor);
 		return true;
 	}
 
@@ -642,9 +629,17 @@ namespace ComposableCameraSystem::ShotSolver
 	 * Computes camera Position based on the Shot's Placement layer.
 	 * Returns false (CamPos unchanged) when an essential anchor can't
 	 * resolve — caller handles the no-pose fallback.
+	 *
+	 * `EffectiveDistance` overrides `Shot.Placement.Distance` for the
+	 * `AnchorOrbit` mode — `SolveShot` injects a damped distance here
+	 * (V2.2 IIR via `Shot.Placement.DistanceSpeed`); decoupled callers
+	 * pass `Shot.Placement.Distance` directly to keep V1 hard behavior.
+	 * `FixedWorldPosition` ignores it; the solver expects callers to
+	 * still pass a sensible value for symmetry.
 	 */
 	inline bool SolvePlacement(
 		const FComposableCameraShot& Shot,
+		float EffectiveDistance,
 		float TanHalfHOR,
 		float AspectRatio,
 		FVector& OutCamPos)
@@ -662,7 +657,7 @@ namespace ComposableCameraSystem::ShotSolver
 					return false;
 				}
 				const FQuat BasisQuat = ResolvePlacementBasis(Shot);
-				const float SafeDistance = FMath::Max(P.Distance, 1.f);
+				const float SafeDistance = FMath::Max(EffectiveDistance, 1.f);
 				// Pure spherical placement — no ScreenPosition lateral
 				// shift. Anchor projects to screen center under tentative
 				// rotation; Aim then re-rotates to put AimAnchor at
@@ -675,14 +670,14 @@ namespace ComposableCameraSystem::ShotSolver
 			}
 
 		case EShotPlacementMode::AnchorAtScreen:
-			// Joint solve handled in `SolveShot` orchestrator (needs Aim
-			// data alongside Placement data). `SolvePlacement` is called
-			// only for the decoupled-pipeline modes; in the joint mode the
-			// orchestrator skips both `SolvePlacement` and `SolveAim` in
-			// favor of `SolveAnchorAtScreen`.
+			// AnchorAtScreen handled in `SolveShot` orchestrator directly
+			// (it threads in an AssumedRot for the closed-form Position
+			// pass `SolveAnchorAtScreenPos`). `SolvePlacement` is the
+			// decoupled-pipeline entry only; reaching this case here is a
+			// dispatch bug.
 			ensureMsgf(false,
 				TEXT("SolvePlacement should not be called for "
-				     "AnchorAtScreen — use joint solve."));
+				     "AnchorAtScreen — handled inline in SolveShot."));
 			return false;
 
 		case EShotPlacementMode::FixedWorldPosition:
@@ -698,9 +693,10 @@ namespace ComposableCameraSystem::ShotSolver
 	// Layer 2 — Aim (camera Rotation)
 	// ─────────────────────────────────────────────────────────────────────
 	//
-	// `PreRotateScreenForRoll` lives above the AnchorAtScreen section
-	// (the joint solve calls it too) — see the helper block before
-	// `SolveAnchorAtScreen` for the math derivation.
+	// `PreRotateScreenForRoll` lives above the AnchorAtScreen section —
+	// see the helper block before `SolveAnchorAtScreenPos` for the math
+	// derivation. Only the LookAtAnchor rotation pass needs it now (the
+	// V2.2 closed-form Position pass folds Roll into AssumedRot directly).
 
 	/**
 	 * Solves camera Rotation for LookAtAnchor mode: closed-form rotation
@@ -736,10 +732,22 @@ namespace ComposableCameraSystem::ShotSolver
 	/**
 	 * Computes camera Rotation based on the Shot's Aim layer + Roll.
 	 * Returns false (OutRot unchanged) when AimAnchor can't resolve.
+	 *
+	 * `EffectiveAimScreenPos` overrides `Shot.Aim.ScreenPosition` for
+	 * `LookAtAnchor` mode — this is how `SolveShot` injects a zone-derived
+	 * effective screen target (Cinemachine-style damped framing). Pass
+	 * `Shot.Aim.ScreenPosition` directly to keep V1 hard-constraint
+	 * behavior. NoOp ignores this argument (it has no screen constraint).
+	 *
+	 * `EffectiveRollDeg` is the V2.2 damped Roll (computed in `SolveShot`
+	 * from `Shot.Roll`, `PriorPose->LastRoll`, and `Shot.RollSpeed`). Pass
+	 * `Shot.Roll` directly to keep V1 hard-constraint behavior.
 	 */
 	inline bool SolveAim(
 		const FComposableCameraShot& Shot,
 		const FVector& CamPos,
+		const FVector2D& EffectiveAimScreenPos,
+		float EffectiveRollDeg,
 		float TanHalfHOR,
 		float AspectRatio,
 		FRotator& OutRot)
@@ -747,12 +755,12 @@ namespace ComposableCameraSystem::ShotSolver
 		const FShotAim& A = Shot.Aim;
 
 		// NoOp short-circuits before AimAnchor resolution. Output =
-		// identity rotation with `Shot.Roll` composed; AimAnchor /
+		// identity rotation with the effective Roll composed; AimAnchor /
 		// Aim.ScreenPosition unread, so they may be left at any value
 		// without producing a "unresolvable" failure.
 		if (A.Mode == EShotAimMode::NoOp)
 		{
-			OutRot = FRotator(0.f, 0.f, Shot.Roll);
+			OutRot = FRotator(0.f, 0.f, EffectiveRollDeg);
 			return true;
 		}
 
@@ -768,11 +776,11 @@ namespace ComposableCameraSystem::ShotSolver
 		{
 		case EShotAimMode::LookAtAnchor:
 			{
-				const float RollRad = FMath::DegreesToRadians(Shot.Roll);
+				const float RollRad = FMath::DegreesToRadians(EffectiveRollDeg);
 				OutRot = SolveLookAtAnchorRotation(
-					CamPos, AimAnchorPos, A.ScreenPosition,
+					CamPos, AimAnchorPos, EffectiveAimScreenPos,
 					RollRad, TanHalfHOR, AspectRatio);
-				OutRot.Roll = Shot.Roll;   // compose roll
+				OutRot.Roll = EffectiveRollDeg;   // compose roll
 				return true;
 			}
 		case EShotAimMode::NoOp:
@@ -781,6 +789,26 @@ namespace ComposableCameraSystem::ShotSolver
 			return true;
 		}
 		return false;
+	}
+
+	/**
+	 * Wrap-aware angle damping (degrees). Same `FInterpTo` Speed semantics
+	 * as `FMath::FInterpTo` but operates on the *shortest* angular delta —
+	 * a transition from `+175°` to `-175°` (visually `+10°`) takes the
+	 * short way, not the long way. Returns the unwrapped degrees value
+	 * (re-normalized into `[-180, 180]`) so caching the result keeps the
+	 * authoring envelope. `Speed <= 0` or `DeltaTime <= 0` ⇒ return Target
+	 * (instant snap), matching `FInterpTo`.
+	 */
+	inline float DampAngleDeg(float LastDeg, float TargetDeg, float DeltaTime, float Speed)
+	{
+		if (Speed <= 0.f || DeltaTime <= 0.f)
+		{
+			return TargetDeg;
+		}
+		const float Delta = FRotator::NormalizeAxis(TargetDeg - LastDeg);
+		const float Step  = FMath::Clamp(DeltaTime * Speed, 0.f, 1.f);
+		return FRotator::NormalizeAxis(LastDeg + Delta * Step);
 	}
 
 	// ─────────────────────────────────────────────────────────────────────
@@ -995,10 +1023,26 @@ namespace ComposableCameraSystem::ShotSolver
 	 * Runs the full pipeline. `bValid == false` when Placement or Aim
 	 * fails to resolve — caller preserves upstream pose for the frame
 	 * (spec §5.3).
+	 *
+	 * `PriorPose` + `DeltaTime` enable Cinemachine-style screen-space
+	 * framing zones. When non-null AND `Aim.AimZones.bEnabled` /
+	 * `Placement.PlacementZones.bEnabled` is set, the solver projects
+	 * the corresponding anchor through `*PriorPose` and substitutes a
+	 * zone-derived effective screen target for the V1 hard ScreenPosition
+	 * read. When null OR zones disabled, V1 hard-constraint behavior is
+	 * preserved exactly — every existing call site continues to work
+	 * with default arguments.
+	 *
+	 * `PlacementZones` only meaningfully fires in `AnchorAtScreen`
+	 * placement (the only mode that authors a Placement.ScreenPosition);
+	 * `AnchorOrbit` and `FixedWorldPosition` ignore the placement zone
+	 * configuration regardless of `bEnabled`.
 	 */
 	inline FShotSolveResult SolveShot(
 		const FComposableCameraShot& Shot,
-		const FShotSolveContext& Context)
+		const FShotSolveContext& Context,
+		const FShotPriorPose* PriorPose = nullptr,
+		float DeltaTime = 0.f)
 	{
 		FShotSolveResult R;
 		R.Aperture = Shot.Lens.Aperture;   // passthrough
@@ -1032,13 +1076,69 @@ namespace ComposableCameraSystem::ShotSolver
 			: Context.PreviousFrameFOV;
 		R.FocusDistance = Shot.Focus.ManualDistance;
 
-		// Dispatch on (Placement.Mode, Aim.Mode):
-		//   - AnchorAtScreen + LookAtAnchor → joint Position+Rotation
-		//     solve (`SolveAnchorAtScreen`, 5-on-5 closed form).
-		//   - AnchorAtScreen + NoOp         → direct algebraic solve
-		//     (`SolveAnchorAtScreenIdentityRot`, R = Roll-only).
-		//   - other Placement modes         → decoupled Placement→Aim
-		//     pipeline (existing).
+		// ─── Distance damping (V2.2) ─────────────────────────────────
+		// `Placement.DistanceSpeed > 0` + valid PriorPose with a stored
+		// `LastDistance` ⇒ FInterpTo from prior toward authored. Falls
+		// back to the authored value when any of those is missing — V1
+		// "snap to authored" behavior.
+		const float AuthoredDistance = Shot.Placement.Distance;
+		float EffectiveDistance = AuthoredDistance;
+		if (PriorPose != nullptr && PriorPose->LastDistance > 0.f
+			&& Shot.Placement.DistanceSpeed > 0.f && DeltaTime > 0.f)
+		{
+			EffectiveDistance = FMath::FInterpTo(
+				PriorPose->LastDistance, AuthoredDistance,
+				DeltaTime, Shot.Placement.DistanceSpeed);
+		}
+		// 1cm floor — same invariant the per-mode pre-flights enforce.
+		EffectiveDistance = FMath::Max(EffectiveDistance, 1.f);
+		R.EffectiveDistance = EffectiveDistance;
+
+		// ─── Roll damping (V2.2) ─────────────────────────────────────
+		// `RollSpeed > 0` + valid prior `LastRoll` ⇒ wrap-aware IIR.
+		// Sentinel for LastRoll is `FLT_MAX`; any other value means a
+		// real prior is available.
+		const float AuthoredRoll = Shot.Roll;
+		float EffectiveRoll = AuthoredRoll;
+		if (PriorPose != nullptr
+			&& PriorPose->LastRoll != TNumericLimits<float>::Max()
+			&& Shot.RollSpeed > 0.f && DeltaTime > 0.f)
+		{
+			EffectiveRoll = DampAngleDeg(
+				PriorPose->LastRoll, AuthoredRoll, DeltaTime, Shot.RollSpeed);
+		}
+
+		// ─── Zone preprocessing ───────────────────────────────────────
+		// Resolve effective screen targets for Aim and Placement (the
+		// latter only when AnchorAtScreen actually consumes one). Each
+		// resolver is a no-op when zones are disabled OR the prior pose
+		// is null — both fall back to the authored ScreenPosition, and
+		// the V1 path below runs unchanged.
+		const FVector2D EffectiveAimScreen = (PriorPose != nullptr)
+			? ResolveEffectiveScreenTarget(
+				Shot.Aim.AimAnchor, Shot.Targets,
+				Shot.Aim.ScreenPosition, Shot.Aim.AimZones,
+				*PriorPose, TanHalfHOR, Context.ViewportAspectRatio, DeltaTime)
+			: Shot.Aim.ScreenPosition;
+
+		const FVector2D EffectivePlacementScreen = (PriorPose != nullptr
+			&& Shot.Placement.Mode == EShotPlacementMode::AnchorAtScreen)
+			? ResolveEffectiveScreenTarget(
+				Shot.Placement.PlacementAnchor, Shot.Targets,
+				Shot.Placement.ScreenPosition, Shot.Placement.PlacementZones,
+				*PriorPose, TanHalfHOR, Context.ViewportAspectRatio, DeltaTime)
+			: Shot.Placement.ScreenPosition;
+
+		// Dispatch on Placement.Mode:
+		//   - AnchorAtScreen → closed-form Position pass
+		//     (`SolveAnchorAtScreenPos`) under an assumed rotation, then
+		//     normal Aim pass for rotation. Decoupled (no joint solve);
+		//     PlacementAnchor's projected screen position drifts O(rotation
+		//     delta) from `Placement.ScreenPosition` once the Aim pass
+		//     diverges from the assumed rotation. Drift is washed out by
+		//     framing-zone damping in practice.
+		//   - other Placement modes → existing decoupled SolvePlacement →
+		//     SolveAim pipeline.
 		if (Shot.Placement.Mode == EShotPlacementMode::AnchorAtScreen)
 		{
 			FVector PlacementAnchorPos;
@@ -1048,39 +1148,77 @@ namespace ComposableCameraSystem::ShotSolver
 					TEXT("ShotSolver: Placement.PlacementAnchor unresolvable; skipping pose update."));
 				return R;
 			}
-			const float SafeDistance = FMath::Max(Shot.Placement.Distance, 1.f);
+			// EffectiveDistance was already clamped to >= 1cm above.
+			const float SafeDistance = EffectiveDistance;
 
+			// Determine the assumed rotation for the Position pass.
+			FRotator AssumedRot;
 			if (Shot.Aim.Mode == EShotAimMode::NoOp)
 			{
-				// Aim NoOp: rotation fixed at identity + Roll. Algebraic
-				// CamPos derived directly from PlacementAnchor + Distance
-				// + ScreenPosition. Returns false when the algebraic
-				// pre-flight rejects the input (sub-1cm Distance).
-				if (!SolveAnchorAtScreenIdentityRot(
-						PlacementAnchorPos, Shot.Placement.ScreenPosition,
-						SafeDistance, TanHalfHOR, Context.ViewportAspectRatio,
-						Shot.Roll,
-						R.CameraPosition, R.CameraRotation))
+				// Aim NoOp: rotation is fixed at identity + EffectiveRoll.
+				// The Aim pass below will simply re-emit this same value.
+				AssumedRot = FRotator(0.f, 0.f, EffectiveRoll);
+			}
+			else   // LookAtAnchor
+			{
+				if (PriorPose != nullptr)
 				{
-					return R;
+					// Best decoupling: previous frame's rotation. Drift is
+					// O(rotation delta per frame), typically a few pixels.
+					AssumedRot = PriorPose->Rotation;
+				}
+				else
+				{
+					// First-frame seed: build a rotation looking from
+					// PlacementAnchor toward AimAnchor (the typical OTS
+					// orientation), composed with EffectiveRoll. Matches
+					// what the Aim pass will compute closely enough that
+					// the position-pass placement is sensibly close to
+					// the authored ScreenPosition on frame 0.
+					FVector AimAnchorPosForSeed;
+					if (!Shot.Aim.AimAnchor.ResolveWorldPosition(Shot.Targets, AimAnchorPosForSeed))
+					{
+						UE_LOG(LogComposableCameraSystem, Warning,
+							TEXT("ShotSolver: Aim.AimAnchor unresolvable; skipping pose update."));
+						return R;
+					}
+					const FVector A2P = PlacementAnchorPos - AimAnchorPosForSeed;
+					if (A2P.IsNearlyZero())
+					{
+						UE_LOG(LogComposableCameraSystem, Warning,
+							TEXT("ShotSolver: AnchorAtScreen with PlacementAnchor == AimAnchor "
+							     "is degenerate on the first-frame seed; skipping pose update. "
+							     "Switch to AnchorOrbit for single-anchor framing."));
+						return R;
+					}
+					const FVector InitForward = (-A2P).GetSafeNormal();
+					AssumedRot = FRotationMatrix::MakeFromX(InitForward).Rotator();
+					AssumedRot.Roll = EffectiveRoll;
 				}
 			}
-			else   // LookAtAnchor (only other AimMode value)
+
+			// Position pass — closed-form.
+			if (!SolveAnchorAtScreenPos(
+					PlacementAnchorPos, EffectivePlacementScreen,
+					SafeDistance, TanHalfHOR, Context.ViewportAspectRatio,
+					AssumedRot,
+					R.CameraPosition))
 			{
-				FVector AimAnchorPos;
-				if (!Shot.Aim.AimAnchor.ResolveWorldPosition(Shot.Targets, AimAnchorPos))
-				{
-					UE_LOG(LogComposableCameraSystem, Warning,
-						TEXT("ShotSolver: Aim.AimAnchor unresolvable; skipping pose update."));
-					return R;
-				}
-				if (!SolveAnchorAtScreen(
-					AimAnchorPos, PlacementAnchorPos,
-					Shot.Aim.ScreenPosition, Shot.Placement.ScreenPosition,
-					SafeDistance,
-					TanHalfHOR, Context.ViewportAspectRatio,
-					Shot.Roll,
-					R.CameraPosition, R.CameraRotation))
+				return R;
+			}
+
+			// Rotation pass.
+			if (Shot.Aim.Mode == EShotAimMode::NoOp)
+			{
+				// Same identity + EffectiveRoll. SolveAim would also emit
+				// this, but we already have the value — skip the call.
+				R.CameraRotation = AssumedRot;
+			}
+			else   // LookAtAnchor
+			{
+				if (!SolveAim(Shot, R.CameraPosition, EffectiveAimScreen,
+						EffectiveRoll, TanHalfHOR, Context.ViewportAspectRatio,
+						R.CameraRotation))
 				{
 					return R;
 				}
@@ -1089,11 +1227,17 @@ namespace ComposableCameraSystem::ShotSolver
 		else
 		{
 			// Decoupled pipeline: Placement (Position) → Aim (Rotation).
-			if (!SolvePlacement(Shot, TanHalfHOR, Context.ViewportAspectRatio, R.CameraPosition))
+			// Placement modes here (AnchorOrbit / FixedWorldPosition) do
+			// not consume `Placement.ScreenPosition` — the placement zone
+			// resolution above is correctly a no-op for these.
+			if (!SolvePlacement(Shot, EffectiveDistance,
+					TanHalfHOR, Context.ViewportAspectRatio, R.CameraPosition))
 			{
 				return R;
 			}
-			if (!SolveAim(Shot, R.CameraPosition, TanHalfHOR, Context.ViewportAspectRatio, R.CameraRotation))
+			if (!SolveAim(Shot, R.CameraPosition, EffectiveAimScreen,
+					EffectiveRoll, TanHalfHOR, Context.ViewportAspectRatio,
+					R.CameraRotation))
 			{
 				return R;
 			}
@@ -1101,6 +1245,20 @@ namespace ComposableCameraSystem::ShotSolver
 
 		// Layer 3 — Lens (FOV).
 		R.FieldOfView = SolveLens(Shot, R.CameraPosition, R.CameraRotation, Context);
+
+		// FOV damping (V2.2). Sentinel for LastFOV is `< 0`; any
+		// positive value means a real prior is available. Damping is
+		// applied AFTER `SolveLens` so it covers both Manual and
+		// SolvedFromBoundsFit modes uniformly — the latter benefits
+		// from damping when the perceptual-box solve jumps because
+		// targets enter / leave the bounds set.
+		if (PriorPose != nullptr && PriorPose->LastFOV > 0.f
+			&& Shot.Lens.FOVSpeed > 0.f && DeltaTime > 0.f)
+		{
+			R.FieldOfView = FMath::FInterpTo(
+				PriorPose->LastFOV, R.FieldOfView,
+				DeltaTime, Shot.Lens.FOVSpeed);
+		}
 
 		// Independent — Focus.
 		R.FocusDistance = SolveFocus(Shot, R.CameraPosition, R.CameraRotation);

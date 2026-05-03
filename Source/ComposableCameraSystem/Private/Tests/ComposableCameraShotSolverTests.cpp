@@ -386,7 +386,8 @@ bool FShotSolvePlacementTest::RunTest(const FString&)
 		Shot.Placement.ScreenPosition = FVector2D(0.3f, 0.0f);   // ignored
 
 		FVector CamPos;
-		UTEST_TRUE("AnchorOrbit resolves", SolvePlacement(Shot, TanHalfHOR, Aspect, CamPos));
+		UTEST_TRUE("AnchorOrbit resolves",
+			SolvePlacement(Shot, Shot.Placement.Distance, TanHalfHOR, Aspect, CamPos));
 		UTEST_TRUE("AnchorOrbit ignores ScreenPosition",
 			CamPos.Equals(FVector(200, 0, 0), 1e-2));
 	}
@@ -402,7 +403,8 @@ bool FShotSolvePlacementTest::RunTest(const FString&)
 		Shot.Placement.FixedWorldPosition = FVector(1234, 5678, 90);
 
 		FVector CamPos;
-		UTEST_TRUE("FixedWorldPosition resolves", SolvePlacement(Shot, TanHalfHOR, Aspect, CamPos));
+		UTEST_TRUE("FixedWorldPosition resolves",
+			SolvePlacement(Shot, Shot.Placement.Distance, TanHalfHOR, Aspect, CamPos));
 		UTEST_TRUE("FixedWorldPosition camera at authored point",
 			CamPos.Equals(FVector(1234, 5678, 90), 1e-2));
 	}
@@ -414,7 +416,8 @@ bool FShotSolvePlacementTest::RunTest(const FString&)
 			ComposableCameraShotSolverTest::MakeSingleTargetAnchor(0);
 		// Targets is empty — index 0 invalid.
 		FVector CamPos = FVector(999, 999, 999);
-		UTEST_FALSE("Unresolvable anchor → false", SolvePlacement(Shot, TanHalfHOR, Aspect, CamPos));
+		UTEST_FALSE("Unresolvable anchor → false",
+			SolvePlacement(Shot, Shot.Placement.Distance, TanHalfHOR, Aspect, CamPos));
 	}
 	return true;
 }
@@ -445,13 +448,15 @@ bool FShotSolveAimTest::RunTest(const FString&)
 	{
 		Shot.Roll = 0.f;
 		FRotator R;
-		UTEST_TRUE("Aim resolves", SolveAim(Shot, CamPos, TanHalfHOR, Aspect, R));
+		UTEST_TRUE("Aim resolves",
+			SolveAim(Shot, CamPos, Shot.Aim.ScreenPosition, Shot.Roll, TanHalfHOR, Aspect, R));
 		UTEST_TRUE("Roll = 0", FMath::IsNearlyEqual(R.Roll, 0.f, 1e-3));
 	}
 	{
 		Shot.Roll = 25.f;
 		FRotator R;
-		UTEST_TRUE("Aim resolves with Roll", SolveAim(Shot, CamPos, TanHalfHOR, Aspect, R));
+		UTEST_TRUE("Aim resolves with Roll",
+			SolveAim(Shot, CamPos, Shot.Aim.ScreenPosition, Shot.Roll, TanHalfHOR, Aspect, R));
 		UTEST_TRUE("Output Roll = 25", FMath::IsNearlyEqual(R.Roll, 25.f, 1e-3));
 	}
 	// NoOp short-circuits BEFORE AimAnchor resolution — invalid AimAnchor
@@ -462,7 +467,7 @@ bool FShotSolveAimTest::RunTest(const FString&)
 		Shot.Roll = 0.f;
 		FRotator R(99, 99, 99);   // pre-seed to detect that NoOp writes
 		UTEST_TRUE("NoOp resolves regardless of AimAnchor",
-			SolveAim(Shot, CamPos, TanHalfHOR, Aspect, R));
+			SolveAim(Shot, CamPos, Shot.Aim.ScreenPosition, Shot.Roll, TanHalfHOR, Aspect, R));
 		UTEST_TRUE("NoOp produces identity rotation",
 			R.Equals(FRotator::ZeroRotator, 1e-3));
 	}
@@ -472,7 +477,8 @@ bool FShotSolveAimTest::RunTest(const FString&)
 		Shot.Aim.AimAnchor = ComposableCameraShotSolverTest::MakeFixedAnchor(FVector::ZeroVector);
 		Shot.Roll = 30.f;
 		FRotator R;
-		UTEST_TRUE("NoOp + Roll resolves", SolveAim(Shot, CamPos, TanHalfHOR, Aspect, R));
+		UTEST_TRUE("NoOp + Roll resolves",
+			SolveAim(Shot, CamPos, Shot.Aim.ScreenPosition, Shot.Roll, TanHalfHOR, Aspect, R));
 		UTEST_TRUE("NoOp + Roll → (0, 0, 30)",
 			R.Equals(FRotator(0.f, 0.f, 30.f), 1e-3));
 	}
@@ -708,12 +714,26 @@ bool FShotSolveAnchorAtScreenTest::RunTest(const FString&)
 	Ctx.ViewportAspectRatio = 1.f;
 	Ctx.PreviousFrameFOV = 90.f;
 
-	const FShotSolveResult R = SolveShot(Shot, Ctx);
-	UTEST_TRUE("Joint solve succeeded", R.bValid);
+	// Two-stage solve to settle the V2.2 decoupled pipeline:
+	//   - Stage 1 (PriorPose == nullptr): seed AssumedRot from PA→AA
+	//     direction, run Position then Aim pass. Result has decoupling
+	//     drift because the seed forward differs from the eventual Aim
+	//     rotation.
+	//   - Stage 2 (PriorPose = stage 1's pose): assumed rotation now
+	//     equals the pose Aim is about to converge to ⇒ decoupling
+	//     drift collapses to float precision. This mimics the steady
+	//     state any runtime caller reaches after one frame of zones-
+	//     style state propagation.
+	const FShotSolveResult R0 = SolveShot(Shot, Ctx);
+	UTEST_TRUE("Stage-1 decoupled solve succeeded", R0.bValid);
+	const FShotPriorPose Prior{ R0.CameraPosition, R0.CameraRotation };
+	const FShotSolveResult R = SolveShot(Shot, Ctx, &Prior, /*dt=*/1.f / 60.f);
+	UTEST_TRUE("Stage-2 decoupled solve succeeded", R.bValid);
 
 	const float TanHalfHOR = FMath::Tan(FMath::DegreesToRadians(90.f * 0.5f));
 
-	// Verify Villain (AimAnchor) projects to (0, 0).
+	// Verify Villain (AimAnchor) projects to (0, 0). Aim is closed-form,
+	// strict to float precision regardless of decoupling.
 	{
 		FVector2D Projected;
 		const bool bOk = ProjectWorldPointToScreen(
@@ -724,7 +744,10 @@ bool FShotSolveAnchorAtScreenTest::RunTest(const FString&)
 			Projected.X, Projected.Y),
 			Projected.Equals(FVector2D::ZeroVector, 5e-3));
 	}
-	// Verify Hero (PlacementAnchor) projects to (-0.25, 0).
+	// Verify Hero (PlacementAnchor) projects to (-0.25, 0). At steady
+	// state (Stage 2 above) AssumedRot ≈ Aim's rotation, so Position's
+	// CamPos lands the anchor at the authored screen position to float
+	// precision. Tolerance 5e-3 is the same as the pre-V2.2 joint solve.
 	{
 		FVector2D Projected;
 		const bool bOk = ProjectWorldPointToScreen(
@@ -735,7 +758,7 @@ bool FShotSolveAnchorAtScreenTest::RunTest(const FString&)
 			Projected.X, Projected.Y),
 			Projected.Equals(FVector2D(-0.25f, 0.f), 5e-3));
 	}
-	// Verify Hero's depth from camera = Distance (100).
+	// Verify Hero's depth from camera = Distance (100). Same precision as above.
 	{
 		const FVector Forward = R.CameraRotation.Vector();
 		const float Depth = static_cast<float>(
@@ -913,7 +936,7 @@ bool FShotSolveAnchorAtScreenScreenPosClampTest::RunTest(const FString&)
 	Ctx.ViewportAspectRatio = 1.f;
 	Ctx.PreviousFrameFOV = 90.f;
 
-	AddExpectedError(TEXT("Placement.ScreenPosition clamped"),
+	AddExpectedError(TEXT("ScreenPosition clamped"),
 		EAutomationExpectedErrorFlags::Contains, 1);
 
 	const FShotSolveResult R = SolveShot(Shot, Ctx);
@@ -934,11 +957,11 @@ bool FShotSolveAnchorAtScreenScreenPosClampTest::RunTest(const FString&)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
-	FShotSolveAnchorAtScreenDampedConvergenceTest,
-	"System.Engine.ComposableCameraSystem.ShotSolver.AnchorAtScreenDampedConvergence",
+	FShotSolveAnchorAtScreenDecoupledSettleTest,
+	"System.Engine.ComposableCameraSystem.ShotSolver.AnchorAtScreenDecoupledSettle",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
-bool FShotSolveAnchorAtScreenDampedConvergenceTest::RunTest(const FString&)
+bool FShotSolveAnchorAtScreenDecoupledSettleTest::RunTest(const FString&)
 {
 	using namespace ComposableCameraSystem::ShotSolver;
 	using ComposableCameraSystem::ProjectWorldPointToScreen;
@@ -946,9 +969,11 @@ bool FShotSolveAnchorAtScreenDampedConvergenceTest::RunTest(const FString&)
 
 	// Stressful OTS geometry — short Distance (50cm), off-center
 	// PlacementScreenPos (-0.4, +0.3) at the corner of the envelope, +
-	// non-zero Roll (20°). Damped Picard should still converge inside
-	// MaxIters=16 and land both anchors at their authored screen
-	// positions to within 5e-3.
+	// non-zero Roll (20°). The V2.2 decoupled pipeline takes one
+	// `(stage 1: PriorPose=null) → (stage 2: PriorPose=R0)` round to
+	// settle to within float precision; we test that explicit two-stage
+	// flow here. Runtime callers reach the same steady state implicitly
+	// via their per-frame prior-pose cache.
 	AActor* Hero    = TestWorld.SpawnActorAt(FVector::ZeroVector);
 	AActor* Villain = TestWorld.SpawnActorAt(FVector(800, 0, 50));
 
@@ -974,8 +999,11 @@ bool FShotSolveAnchorAtScreenDampedConvergenceTest::RunTest(const FString&)
 	Ctx.ViewportAspectRatio = 16.f / 9.f;
 	Ctx.PreviousFrameFOV = 90.f;
 
-	const FShotSolveResult R = SolveShot(Shot, Ctx);
-	UTEST_TRUE("Damped Picard converges on stressful geometry", R.bValid);
+	const FShotSolveResult R0 = SolveShot(Shot, Ctx);
+	UTEST_TRUE("Stage-1 decoupled solve succeeded", R0.bValid);
+	const FShotPriorPose Prior{ R0.CameraPosition, R0.CameraRotation };
+	const FShotSolveResult R = SolveShot(Shot, Ctx, &Prior, /*dt=*/1.f / 60.f);
+	UTEST_TRUE("Stage-2 decoupled solve succeeded", R.bValid);
 
 	const float TanHalfHOR = FMath::Tan(FMath::DegreesToRadians(90.f * 0.5f));
 
@@ -1062,6 +1090,440 @@ bool FShotSolveRollPreservesAnchorTest::RunTest(const FString&)
 			TEXT("Aim anchor projects to Aim.ScreenPosition (Roll=%.1f); got (%.4f,%.4f)"),
 			RollDeg, Projected.X, Projected.Y),
 			Projected.Equals(Shot.Aim.ScreenPosition, 5e-3));
+	}
+	return true;
+}
+
+// ============================================================================
+// Cinemachine-style screen-space framing zones — pure-math tests on the
+// `ApplyScreenZones` helper. No world / actor / projection needed; the
+// helper consumes pre-computed screen coords and returns the effective
+// screen target the rest of the solver should aim for.
+// ============================================================================
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FShotZoneDeadInsideHoldsAnchorTest,
+	"System.Engine.ComposableCameraSystem.ShotSolver.Zones.DeadZoneHoldsAnchor",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FShotZoneDeadInsideHoldsAnchorTest::RunTest(const FString&)
+{
+	using namespace ComposableCameraSystem::ShotSolver;
+
+	FShotScreenZones Zones;
+	Zones.bEnabled         = true;
+	Zones.DeadZone.Left = Zones.DeadZone.Right = 0.1f;
+	Zones.DeadZone.Top  = Zones.DeadZone.Bottom = 0.1f;
+	Zones.SoftZone.Left = Zones.SoftZone.Right = 0.3f;
+	Zones.SoftZone.Top  = Zones.SoftZone.Bottom = 0.3f;
+	Zones.HorizontalSpeed  = 5.f;
+	Zones.VerticalSpeed    = 5.f;
+
+	const FVector2D Authored(0.f, 0.f);
+	const FVector2D Cur(0.05f, -0.08f);   // both axes inside dead zone half
+
+	const FVector2D Target = ApplyScreenZones(Cur, Authored, Zones, /*dt=*/1.f / 60.f);
+
+	// Inside dead zone → eff = 0 → step = 0 → new_err = err = Cur ⇒ Target == Cur.
+	UTEST_TRUE("Dead-zone interior leaves target == current (camera holds)",
+		Target.Equals(Cur, 1e-6));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FShotZoneDeadEdgeHoldsAnchorTest,
+	"System.Engine.ComposableCameraSystem.ShotSolver.Zones.DeadEdgeHolds",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FShotZoneDeadEdgeHoldsAnchorTest::RunTest(const FString&)
+{
+	using namespace ComposableCameraSystem::ShotSolver;
+
+	FShotScreenZones Zones;
+	Zones.bEnabled         = true;
+	Zones.DeadZone.Left = Zones.DeadZone.Right = 0.1f;
+	Zones.DeadZone.Top  = Zones.DeadZone.Bottom = 0.1f;
+	Zones.SoftZone.Left = Zones.SoftZone.Right = 0.3f;
+	Zones.SoftZone.Top  = Zones.SoftZone.Bottom = 0.3f;
+	Zones.HorizontalSpeed  = 5.f;
+	Zones.VerticalSpeed    = 5.f;
+
+	const FVector2D Authored(0.f, 0.f);
+	const FVector2D Cur(0.1f, 0.1f);   // exactly on dead-zone edge per axis
+
+	const FVector2D Target = ApplyScreenZones(Cur, Authored, Zones, /*dt=*/1.f / 60.f);
+
+	// |err| == DeadHalf → SubtractDead returns 0 (the `<=` branch). Target
+	// = Authored + Err = Cur. The boundary inclusion choice doesn't matter
+	// behaviorally because the residual is either way zero at the edge,
+	// but lock the convention down to catch off-by-epsilon regressions.
+	UTEST_TRUE("Dead-zone edge holds (residual = 0 at boundary)",
+		Target.Equals(Cur, 1e-6));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FShotZoneSoftDampsTowardCenterTest,
+	"System.Engine.ComposableCameraSystem.ShotSolver.Zones.SoftDampsTowardCenter",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FShotZoneSoftDampsTowardCenterTest::RunTest(const FString&)
+{
+	using namespace ComposableCameraSystem::ShotSolver;
+
+	FShotScreenZones Zones;
+	Zones.bEnabled         = true;
+	Zones.DeadZone.Left = Zones.DeadZone.Right = 0.1f;
+	Zones.DeadZone.Top  = Zones.DeadZone.Bottom = 0.1f;
+	Zones.SoftZone.Left = Zones.SoftZone.Right = 0.3f;
+	Zones.SoftZone.Top  = Zones.SoftZone.Bottom = 0.3f;
+	Zones.HorizontalSpeed  = 5.f;
+	Zones.VerticalSpeed    = 5.f;
+
+	const FVector2D Authored(0.f, 0.f);
+	const FVector2D Cur(0.2f, 0.f);   // 0.1 outside dead zone, well inside soft
+
+	const FVector2D Target = ApplyScreenZones(Cur, Authored, Zones, /*dt=*/1.f / 60.f);
+
+	// eff_x = sign(0.2) * (|0.2| - 0.1) = 0.1
+	// eff_after_x = FInterpTo(0.1, 0, 1/60, 5) ≈ 0.1 * (1 - 5/60) ≈ 0.0917
+	// step_x = eff - eff_after ≈ 0.0083  ← this is HOW FAR the anchor
+	// is moved toward the dead-zone edge this frame.
+	// new_err_x = 0.2 - 0.0083 ≈ 0.1917
+	// Target.X ≈ 0.1917 — between Cur.X (0.2, undamped hold) and 0.1
+	// (snap-to-dead-edge). Strictly between for any 0 < Speed * dt < 1.
+	UTEST_TRUE("Soft-zone target moves toward authored center (X)",
+		Target.X < Cur.X - UE_KINDA_SMALL_NUMBER);
+	UTEST_TRUE("Soft-zone target stops short of dead-zone edge for finite Speed*dt (X)",
+		Target.X > 0.1f + UE_KINDA_SMALL_NUMBER);
+	UTEST_TRUE("Y axis untouched (err_y = 0 → no motion)",
+		FMath::IsNearlyEqual(Target.Y, 0.f, 1e-6));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FShotZoneSoftSnapsAtZeroSpeedTest,
+	"System.Engine.ComposableCameraSystem.ShotSolver.Zones.ZeroSpeedSnapsToDeadEdge",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FShotZoneSoftSnapsAtZeroSpeedTest::RunTest(const FString&)
+{
+	using namespace ComposableCameraSystem::ShotSolver;
+
+	FShotScreenZones Zones;
+	Zones.bEnabled         = true;
+	Zones.DeadZone.Left = Zones.DeadZone.Right = 0.1f;
+	Zones.DeadZone.Top  = Zones.DeadZone.Bottom = 0.1f;
+	Zones.SoftZone.Left = Zones.SoftZone.Right = 0.3f;
+	Zones.SoftZone.Top  = Zones.SoftZone.Bottom = 0.3f;
+	Zones.HorizontalSpeed  = 0.f;   // FInterpTo with Speed=0 → Target instantly
+	Zones.VerticalSpeed    = 0.f;
+
+	const FVector2D Authored(0.f, 0.f);
+	const FVector2D Cur(0.25f, -0.18f);   // both outside dead, inside soft
+
+	const FVector2D Target = ApplyScreenZones(Cur, Authored, Zones, /*dt=*/1.f / 60.f);
+
+	// Speed=0 → eff_after = 0 → step = eff → new_err = err - eff =
+	// sign(err) * DeadHalf (the dead-zone edge). Target = Authored + new_err.
+	UTEST_TRUE("Speed=0 snaps target X to dead-zone edge",
+		FMath::IsNearlyEqual(Target.X, 0.1f, 1e-4));
+	UTEST_TRUE("Speed=0 snaps target Y to dead-zone edge (preserving sign)",
+		FMath::IsNearlyEqual(Target.Y, -0.1f, 1e-4));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FShotZoneSoftHardLimitClampTest,
+	"System.Engine.ComposableCameraSystem.ShotSolver.Zones.SoftZoneHardLimitClamp",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FShotZoneSoftHardLimitClampTest::RunTest(const FString&)
+{
+	using namespace ComposableCameraSystem::ShotSolver;
+
+	FShotScreenZones Zones;
+	Zones.bEnabled         = true;
+	Zones.DeadZone.Left = Zones.DeadZone.Right = 0.1f;
+	Zones.DeadZone.Top  = Zones.DeadZone.Bottom = 0.1f;
+	Zones.SoftZone.Left = Zones.SoftZone.Right = 0.3f;
+	Zones.SoftZone.Top  = Zones.SoftZone.Bottom = 0.3f;
+	Zones.HorizontalSpeed  = 5.f;
+	Zones.VerticalSpeed    = 5.f;
+
+	const FVector2D Authored(0.f, 0.f);
+	// Anchor far outside soft zone — e.g. teleport, scene change. Hard
+	// limit kicks in regardless of damping.
+	const FVector2D Cur(0.8f, -0.7f);
+
+	const FVector2D Target = ApplyScreenZones(Cur, Authored, Zones, /*dt=*/1.f / 60.f);
+
+	// new_err clamped to ±0.3 component-wise; target = Authored + new_err.
+	// Don't depend on the exact pre-clamp damped step — only that the
+	// clamp is the dominant constraint (anchor never leaves soft zone).
+	UTEST_TRUE("Hard-limit clamps target X to soft half (preserves sign)",
+		FMath::IsNearlyEqual(Target.X, 0.3f, 1e-4));
+	UTEST_TRUE("Hard-limit clamps target Y to soft half (preserves sign)",
+		FMath::IsNearlyEqual(Target.Y, -0.3f, 1e-4));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FShotZoneDisabledIsPassthroughTest,
+	"System.Engine.ComposableCameraSystem.ShotSolver.Zones.DisabledIsPassthrough",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FShotZoneDisabledIsPassthroughTest::RunTest(const FString&)
+{
+	using namespace ComposableCameraSystem::ShotSolver;
+
+	// Note: ApplyScreenZones itself does NOT short-circuit on bEnabled —
+	// the caller (`ResolveEffectiveScreenTarget`) does. This test verifies
+	// the *caller-level* contract via SolveShot's exposed surface: a
+	// disabled zone must produce identical pose to the V1 nullptr-prior
+	// path, end-to-end, for an arbitrary in-zone offset.
+	ComposableCameraShotSolverTest::FShotTestWorld TestWorld;
+	AActor* A = TestWorld.SpawnActorAt(FVector::ZeroVector);
+
+	FComposableCameraShot Shot;
+	Shot.Targets.Add(ComposableCameraShotSolverTest::MakeBasicTarget(A));
+	Shot.Placement.PlacementAnchor = ComposableCameraShotSolverTest::MakeSingleTargetAnchor(0);
+	Shot.Placement.Mode = EShotPlacementMode::AnchorOrbit;
+	Shot.Placement.BasisFrame = EShotPlacementBasisFrame::World;
+	Shot.Placement.Distance = 200.f;
+	Shot.Placement.LocalCameraDirection = FVector2D(0.f, 0.f);
+	Shot.Aim.AimAnchor = ComposableCameraShotSolverTest::MakeSingleTargetAnchor(0);
+	Shot.Aim.Mode = EShotAimMode::LookAtAnchor;
+	Shot.Aim.ScreenPosition = FVector2D(0.15f, -0.05f);
+	Shot.Aim.AimZones.bEnabled = false;   // zones disabled
+	Shot.Lens.FOVMode = EShotFOVMode::Manual;
+	Shot.Lens.ManualFOV = 90.f;
+
+	FShotSolveContext Ctx;
+	Ctx.ViewportAspectRatio = 1.f;
+	Ctx.PreviousFrameFOV = 90.f;
+
+	// Baseline: no prior pose (V1 hard solve).
+	const FShotSolveResult RV1 = SolveShot(Shot, Ctx);
+	UTEST_TRUE("V1 baseline solves", RV1.bValid);
+
+	// Same shot, with prior pose handed to the solver — disabled zones
+	// should still ignore it and produce the V1 hard solve exactly.
+	const FShotPriorPose Prior{ FVector(50, 50, 50), FRotator(10, 20, 30) };
+	const FShotSolveResult RWithPrior = SolveShot(Shot, Ctx, &Prior, /*dt=*/1.f / 60.f);
+	UTEST_TRUE("With-prior solve succeeds", RWithPrior.bValid);
+
+	UTEST_TRUE("Disabled zones: pose identical to V1 nullptr-prior path (Pos)",
+		RWithPrior.CameraPosition.Equals(RV1.CameraPosition, 1e-4));
+	UTEST_TRUE("Disabled zones: pose identical to V1 nullptr-prior path (Rot)",
+		RWithPrior.CameraRotation.Equals(RV1.CameraRotation, 1e-3));
+	return true;
+}
+
+// ============================================================================
+// V2.2 IIR damping — Distance / FOV / Roll
+// ============================================================================
+//
+// Each test exercises one damped axis end-to-end through SolveShot:
+//   - Stage 1: PriorPose=nullptr → solver returns V1 authored value (no damping).
+//   - Stage 2: PriorPose carries last-frame values (manually offset from
+//              authored to simulate "designer just changed the field"); the
+//              solver should produce a value strictly between prior and
+//              authored, dictated by FInterpTo(Prior, Authored, dt, Speed).
+//
+// Each axis tests `Speed = 0` (snap), `Speed > 0` finite (intermediate),
+// and the per-axis sentinel ("no prior" semantics).
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FShotSolveDistanceDampingTest,
+	"System.Engine.ComposableCameraSystem.ShotSolver.Damping.Distance",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FShotSolveDistanceDampingTest::RunTest(const FString&)
+{
+	using namespace ComposableCameraSystem::ShotSolver;
+	ComposableCameraShotSolverTest::FShotTestWorld TestWorld;
+
+	// Simple AnchorOrbit + LookAtAnchor setup. Authored Distance = 200.
+	AActor* A = TestWorld.SpawnActorAt(FVector::ZeroVector);
+	FComposableCameraShot Shot;
+	Shot.Targets.Add(ComposableCameraShotSolverTest::MakeBasicTarget(A));
+	Shot.Placement.PlacementAnchor = ComposableCameraShotSolverTest::MakeSingleTargetAnchor(0);
+	Shot.Placement.Mode = EShotPlacementMode::AnchorOrbit;
+	Shot.Placement.BasisFrame = EShotPlacementBasisFrame::World;
+	Shot.Placement.Distance = 200.f;
+	Shot.Placement.LocalCameraDirection = FVector2D(0.f, 0.f);
+	Shot.Aim.AimAnchor = ComposableCameraShotSolverTest::MakeSingleTargetAnchor(0);
+	Shot.Aim.Mode = EShotAimMode::LookAtAnchor;
+	Shot.Lens.FOVMode = EShotFOVMode::Manual;
+	Shot.Lens.ManualFOV = 90.f;
+
+	FShotSolveContext Ctx;
+	Ctx.ViewportAspectRatio = 1.f;
+	Ctx.PreviousFrameFOV = 90.f;
+
+	// Stage 1: PriorPose = nullptr → no damping → EffectiveDistance == authored.
+	{
+		Shot.Placement.DistanceSpeed = 5.f;   // damping requested but no prior
+		const FShotSolveResult R = SolveShot(Shot, Ctx);
+		UTEST_TRUE("Stage 1: no prior → snaps to authored",
+			FMath::IsNearlyEqual(R.EffectiveDistance, 200.f, 1e-3));
+	}
+	// Stage 2: prior LastDistance = 100 + Speed=5 + dt=1/60 →
+	//   FInterpTo(100, 200, 1/60, 5) ≈ 100 + (200-100) * (5/60) ≈ 108.33
+	{
+		Shot.Placement.DistanceSpeed = 5.f;
+		FShotPriorPose Prior;
+		Prior.Position     = FVector(200, 0, 0);
+		Prior.Rotation     = FRotator(0, 180, 0);
+		Prior.LastDistance = 100.f;
+		const FShotSolveResult R = SolveShot(Shot, Ctx, &Prior, 1.f / 60.f);
+		UTEST_TRUE("Stage 2: damped Distance strictly between prior and authored",
+			R.EffectiveDistance > 100.f + UE_KINDA_SMALL_NUMBER &&
+			R.EffectiveDistance < 200.f - UE_KINDA_SMALL_NUMBER);
+		UTEST_TRUE("Stage 2: matches FInterpTo(100, 200, 1/60, 5)",
+			FMath::IsNearlyEqual(R.EffectiveDistance,
+				FMath::FInterpTo(100.f, 200.f, 1.f / 60.f, 5.f), 1e-3));
+	}
+	// Stage 3: Speed = 0 → snap to authored even with valid prior.
+	{
+		Shot.Placement.DistanceSpeed = 0.f;
+		FShotPriorPose Prior;
+		Prior.LastDistance = 100.f;
+		const FShotSolveResult R = SolveShot(Shot, Ctx, &Prior, 1.f / 60.f);
+		UTEST_TRUE("Stage 3: Speed=0 snaps to authored",
+			FMath::IsNearlyEqual(R.EffectiveDistance, 200.f, 1e-3));
+	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FShotSolveFOVDampingTest,
+	"System.Engine.ComposableCameraSystem.ShotSolver.Damping.FOV",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FShotSolveFOVDampingTest::RunTest(const FString&)
+{
+	using namespace ComposableCameraSystem::ShotSolver;
+	ComposableCameraShotSolverTest::FShotTestWorld TestWorld;
+	AActor* A = TestWorld.SpawnActorAt(FVector::ZeroVector);
+	FComposableCameraShot Shot;
+	Shot.Targets.Add(ComposableCameraShotSolverTest::MakeBasicTarget(A));
+	Shot.Placement.PlacementAnchor = ComposableCameraShotSolverTest::MakeSingleTargetAnchor(0);
+	Shot.Placement.Mode = EShotPlacementMode::AnchorOrbit;
+	Shot.Placement.BasisFrame = EShotPlacementBasisFrame::World;
+	Shot.Placement.Distance = 200.f;
+	Shot.Aim.AimAnchor = ComposableCameraShotSolverTest::MakeSingleTargetAnchor(0);
+	Shot.Aim.Mode = EShotAimMode::LookAtAnchor;
+	Shot.Lens.FOVMode = EShotFOVMode::Manual;
+	Shot.Lens.ManualFOV = 90.f;
+
+	FShotSolveContext Ctx;
+	Ctx.ViewportAspectRatio = 1.f;
+	Ctx.PreviousFrameFOV = 90.f;
+
+	// Stage 1: no prior → snap.
+	{
+		Shot.Lens.FOVSpeed = 5.f;
+		const FShotSolveResult R = SolveShot(Shot, Ctx);
+		UTEST_TRUE("Stage 1: no prior → FOV = authored",
+			FMath::IsNearlyEqual(R.FieldOfView, 90.f, 1e-3));
+	}
+	// Stage 2: prior LastFOV = 60, target = 90, Speed = 5, dt = 1/60.
+	{
+		Shot.Lens.FOVSpeed = 5.f;
+		FShotPriorPose Prior;
+		Prior.LastFOV = 60.f;
+		const FShotSolveResult R = SolveShot(Shot, Ctx, &Prior, 1.f / 60.f);
+		UTEST_TRUE("Stage 2: damped FOV strictly between prior and authored",
+			R.FieldOfView > 60.f + UE_KINDA_SMALL_NUMBER &&
+			R.FieldOfView < 90.f - UE_KINDA_SMALL_NUMBER);
+		UTEST_TRUE("Stage 2: matches FInterpTo(60, 90, 1/60, 5)",
+			FMath::IsNearlyEqual(R.FieldOfView,
+				FMath::FInterpTo(60.f, 90.f, 1.f / 60.f, 5.f), 1e-3));
+	}
+	// Stage 3: sentinel LastFOV = -1 → no prior → snap.
+	{
+		Shot.Lens.FOVSpeed = 5.f;
+		FShotPriorPose Prior;
+		Prior.LastFOV = -1.f;   // sentinel
+		const FShotSolveResult R = SolveShot(Shot, Ctx, &Prior, 1.f / 60.f);
+		UTEST_TRUE("Stage 3: sentinel LastFOV → snap to authored",
+			FMath::IsNearlyEqual(R.FieldOfView, 90.f, 1e-3));
+	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FShotSolveRollDampingTest,
+	"System.Engine.ComposableCameraSystem.ShotSolver.Damping.Roll",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FShotSolveRollDampingTest::RunTest(const FString&)
+{
+	using namespace ComposableCameraSystem::ShotSolver;
+	ComposableCameraShotSolverTest::FShotTestWorld TestWorld;
+	AActor* A = TestWorld.SpawnActorAt(FVector::ZeroVector);
+	FComposableCameraShot Shot;
+	Shot.Targets.Add(ComposableCameraShotSolverTest::MakeBasicTarget(A));
+	Shot.Placement.PlacementAnchor = ComposableCameraShotSolverTest::MakeSingleTargetAnchor(0);
+	Shot.Placement.Mode = EShotPlacementMode::AnchorOrbit;
+	Shot.Placement.BasisFrame = EShotPlacementBasisFrame::World;
+	Shot.Placement.Distance = 200.f;
+	Shot.Aim.AimAnchor = ComposableCameraShotSolverTest::MakeSingleTargetAnchor(0);
+	Shot.Aim.Mode = EShotAimMode::LookAtAnchor;
+	Shot.Lens.FOVMode = EShotFOVMode::Manual;
+	Shot.Lens.ManualFOV = 90.f;
+
+	FShotSolveContext Ctx;
+	Ctx.ViewportAspectRatio = 1.f;
+	Ctx.PreviousFrameFOV = 90.f;
+
+	// Stage 1: no prior → snap.
+	{
+		Shot.Roll = 30.f;
+		Shot.RollSpeed = 5.f;
+		const FShotSolveResult R = SolveShot(Shot, Ctx);
+		UTEST_TRUE("Stage 1: no prior → Roll = authored",
+			FMath::IsNearlyEqual(R.CameraRotation.Roll, 30.f, 1e-3));
+	}
+	// Stage 2: prior LastRoll = 0, target = 30 → damped between.
+	{
+		Shot.Roll = 30.f;
+		Shot.RollSpeed = 5.f;
+		FShotPriorPose Prior;
+		Prior.LastRoll = 0.f;
+		const FShotSolveResult R = SolveShot(Shot, Ctx, &Prior, 1.f / 60.f);
+		UTEST_TRUE("Stage 2: damped Roll strictly between prior and authored",
+			R.CameraRotation.Roll > 0.f + UE_KINDA_SMALL_NUMBER &&
+			R.CameraRotation.Roll < 30.f - UE_KINDA_SMALL_NUMBER);
+	}
+	// Stage 3: wrap-aware short-way. LastRoll = +175°, target = -175°
+	// (visual delta = +10°). Damped Roll should move TOWARD the short
+	// direction and stay close to +175°, not jump backwards through 0.
+	{
+		Shot.Roll = -175.f;
+		Shot.RollSpeed = 5.f;
+		FShotPriorPose Prior;
+		Prior.LastRoll = 175.f;
+		const FShotSolveResult R = SolveShot(Shot, Ctx, &Prior, 1.f / 60.f);
+		// Short-way step: NormalizeAxis(-175 - 175) = +10°, step = 10*5/60 ≈ 0.833°.
+		// Effective ≈ NormalizeAxis(175 + 0.833) ≈ 175.833° (still positive).
+		UTEST_TRUE("Stage 3: wrap-aware short-way Roll stays positive (≈ +175.8°)",
+			R.CameraRotation.Roll > 175.f);
+		UTEST_TRUE("Stage 3: matches DampAngleDeg(175, -175, 1/60, 5)",
+			FMath::IsNearlyEqual(R.CameraRotation.Roll,
+				DampAngleDeg(175.f, -175.f, 1.f / 60.f, 5.f), 1e-3));
+	}
+	// Stage 4: sentinel LastRoll = FLT_MAX → no prior → snap.
+	{
+		Shot.Roll = 30.f;
+		Shot.RollSpeed = 5.f;
+		FShotPriorPose Prior;
+		Prior.LastRoll = TNumericLimits<float>::Max();
+		const FShotSolveResult R = SolveShot(Shot, Ctx, &Prior, 1.f / 60.f);
+		UTEST_TRUE("Stage 4: sentinel LastRoll → snap to authored",
+			FMath::IsNearlyEqual(R.CameraRotation.Roll, 30.f, 1e-3));
 	}
 	return true;
 }

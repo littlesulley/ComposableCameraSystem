@@ -125,6 +125,11 @@ void UComposableCameraLevelSequenceComponent::TickComponent(
 		TEXT("LS tick [%s]"),
 		GetOwner() ? *GetOwner()->GetName() : TEXT("<no owner>"));
 
+	EvaluateOnce(DeltaTime);
+}
+
+void UComposableCameraLevelSequenceComponent::EvaluateOnce(float DeltaTime)
+{
 	if (!TypeAssetReference.TypeAsset)
 	{
 		return;
@@ -235,7 +240,9 @@ void UComposableCameraLevelSequenceComponent::PostEditChangeProperty(FPropertyCh
 
 void UComposableCameraLevelSequenceComponent::SetEvaluationEnabled(bool bEnabled)
 {
-	if (bEvaluationEnabled != bEnabled)
+	const bool bWasEnabled = bEvaluationEnabled;
+
+	if (bWasEnabled != bEnabled)
 	{
 		// Diagnostic: log every gate transition with the owning actor's name
 		// so you can follow which Spawnables the ECS gate is actually closing.
@@ -244,7 +251,7 @@ void UComposableCameraLevelSequenceComponent::SetEvaluationEnabled(bool bEnabled
 		UE_LOG(LogComposableCameraSystem, Log,
 			TEXT("LS gate [%s]: %s → %s"),
 			GetOwner() ? *GetOwner()->GetName() : TEXT("<no owner>"),
-			bEvaluationEnabled ? TEXT("ON") : TEXT("OFF"),
+			bWasEnabled ? TEXT("ON") : TEXT("OFF"),
 			bEnabled ? TEXT("ON") : TEXT("OFF"));
 	}
 
@@ -257,6 +264,26 @@ void UComposableCameraLevelSequenceComponent::SetEvaluationEnabled(bool bEnabled
 		// wake-up) depending on how aggressive the gating proves to be in
 		// practice.
 		DestroyInternalCamera();
+		return;
+	}
+
+	// Gate just opened (OFF → ON). Force a full evaluation pass right now,
+	// before any Camera Cut switches the PCM ViewTarget to this LS Actor's
+	// CineCamera and the renderer captures its transform. Without this,
+	// the standard `TickComponent` runs after the first PCM render and
+	// the LS Actor's CineCamera renders one frame at its default (origin)
+	// transform on every cut into a non-overlapping section — visually
+	// "camera at world origin for one frame". Cuts INTO an already-active
+	// LS Actor (overlap case) are unaffected because the LS Component has
+	// been ticking continuously, so its CineCamera transform is already
+	// valid when the cut fires.
+	//
+	// `DeltaTime = 0` snaps V2.2 IIR damping (Distance / FOV / Roll) to
+	// the authored value — exactly the cut-as-cut semantic the rest of
+	// the V2.2 Section-transition handling already enforces.
+	if (bEnabled && !bWasEnabled)
+	{
+		EvaluateOnce(0.f);
 	}
 }
 
@@ -698,7 +725,12 @@ void UComposableCameraLevelSequenceComponent::ApplyActiveSequencerShotOverride()
 	// Stale entries (section GC'd) are pruned in the same pass to keep
 	// the map tight.
 	TArray<TWeakObjectPtr<UMovieSceneComposableCameraShotSection>> ToPrune;
-	TArray<const FComposableCameraSequencerShotEntry*, TInlineAllocator<4>> SortedEntries;
+	struct FSortedEntry
+	{
+		UMovieSceneComposableCameraShotSection*       Section;
+		const FComposableCameraSequencerShotEntry*    Entry;
+	};
+	TArray<FSortedEntry, TInlineAllocator<4>> SortedEntries;
 	for (const TPair<TWeakObjectPtr<UMovieSceneComposableCameraShotSection>, FComposableCameraSequencerShotEntry>& Pair : SequencerShotOverrides)
 	{
 		if (!Pair.Key.IsValid())
@@ -706,7 +738,7 @@ void UComposableCameraLevelSequenceComponent::ApplyActiveSequencerShotOverride()
 			ToPrune.Add(Pair.Key);
 			continue;
 		}
-		SortedEntries.Add(&Pair.Value);
+		SortedEntries.Add({ Pair.Key.Get(), &Pair.Value });
 	}
 	for (const TWeakObjectPtr<UMovieSceneComposableCameraShotSection>& Stale : ToPrune)
 	{
@@ -715,18 +747,25 @@ void UComposableCameraLevelSequenceComponent::ApplyActiveSequencerShotOverride()
 
 	if (SortedEntries.Num() == 0)
 	{
+		// No active overrides — clear the primary-section tracker so the
+		// next override that arrives is treated as a fresh cut. Without
+		// this, the gap-between-sections case would compare the new
+		// section against the last one before the gap and (if they match)
+		// fail to reseed even though the camera held its last pose
+		// across the gap.
+		LastActivePrimarySection = nullptr;
 		return;
 	}
 
-	SortedEntries.Sort([](const FComposableCameraSequencerShotEntry& A,
-	                      const FComposableCameraSequencerShotEntry& B)
+	SortedEntries.Sort([](const FSortedEntry& A, const FSortedEntry& B)
 	{
-		return A.RowIndex < B.RowIndex;
+		return A.Entry->RowIndex < B.Entry->RowIndex;
 	});
 
-	const FComposableCameraSequencerShotEntry* Primary = SortedEntries[0];
+	const FComposableCameraSequencerShotEntry* Primary = SortedEntries[0].Entry;
 	const FComposableCameraSequencerShotEntry* Secondary =
-		SortedEntries.Num() >= 2 ? SortedEntries[1] : nullptr;
+		SortedEntries.Num() >= 2 ? SortedEntries[1].Entry : nullptr;
+	UMovieSceneComposableCameraShotSection* PrimarySection = SortedEntries[0].Section;
 
 	// Find the first UComposableCameraCompositionFramingNode on the
 	// InternalCamera's CameraNodes array. The DefaultShotTypeAsset bootstrap
@@ -769,6 +808,17 @@ void UComposableCameraLevelSequenceComponent::ApplyActiveSequencerShotOverride()
 		UE::ComposableCameras::GetEffectiveAspectRatioForCineCamera(OutputCineCameraComponent);
 	Framing->SetExternalAspectRatioOverride(EffectiveAspect);
 
+	// Detect a *primary section* transition (Section A → B with no overlap,
+	// or section bind to a different ShotAsset). Drives V2.2 damping reseed
+	// on the framing-node side so cuts are visually instantaneous instead
+	// of glided. Comparison uses raw section pointers — TWeakObjectPtr
+	// equality would re-validate every frame, the raw compare costs one
+	// branch and is correct because the LastActivePrimarySection's weak
+	// ptr was set from the same map-key TWeakObjectPtr last frame (no
+	// dangling-after-GC risk here).
+	const bool bPrimaryChanged = (LastActivePrimarySection.Get() != PrimarySection);
+	LastActivePrimarySection = PrimarySection;
+
 	// Push (Primary, Secondary?, Transition?, Alpha) tuple to the framing
 	// node. The node's `SetActiveShotsFromSequencer` decides whether to run
 	// the two-solver blend (F.4) based on whether secondary + transition
@@ -781,7 +831,8 @@ void UComposableCameraLevelSequenceComponent::ApplyActiveSequencerShotOverride()
 			Primary->Shot,
 			&Secondary->Shot,
 			Secondary->EnterTransition,
-			Secondary->BlendAlpha);
+			Secondary->BlendAlpha,
+			bPrimaryChanged);
 	}
 	else
 	{
@@ -789,7 +840,8 @@ void UComposableCameraLevelSequenceComponent::ApplyActiveSequencerShotOverride()
 			Primary->Shot,
 			/*InSecondaryShot=*/nullptr,
 			/*InTransition=*/nullptr,
-			/*InAlpha=*/0.0f);
+			/*InAlpha=*/0.0f,
+			bPrimaryChanged);
 	}
 }
 

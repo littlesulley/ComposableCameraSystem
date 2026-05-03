@@ -226,8 +226,10 @@ private:
 	/** Per-frame transform copy from source actor → proxy. Skips null entries. */
 	void SyncProxyTransforms();
 
-	/** Run SolveShot and write the result onto the viewport's camera. */
-	void RunSolverAndDriveCamera();
+	/** Run SolveShot and write the result onto the viewport's camera.
+	 *  `DeltaSeconds` flows into the framing-zone damping term; pass 0
+	 *  for instant-snap behavior (e.g. one-shot preview rebuilds). */
+	void RunSolverAndDriveCamera(float DeltaSeconds);
 
 	/** Spawn one proxy in the preview world for `SourceActor`. Picks SK / SM /
 	 *  capsule fallback based on what components are available. */
@@ -333,21 +335,69 @@ private:
 
 	/** Cache populated each DrawCanvas frame for hit-testing in InputKey /
 	 *  MouseMove. Pixel coords are in viewport-local space (origin top-left,
-	 *  +Y down). */
+	 *  +Y down).
+	 *
+	 *  Two cached-entry kinds:
+	 *    - Anchor    — the LMB-grab disc for `Placement.ScreenPosition` /
+	 *                  `Aim.ScreenPosition`. `HitArea` is a small box around
+	 *                  `PixelPos`; `bIsZoneEdge` is false; zone-edge fields
+	 *                  are unused.
+	 *    - ZoneEdge  — one of the four edges of an enabled framing-zone
+	 *                  rectangle (dead OR soft × L/R/T/B). `HitArea` is a
+	 *                  thin rect aligned with the edge; `bIsZoneEdge` is
+	 *                  true; zone-edge fields identify which size to mutate.
+	 */
 	struct FHandleScreenPosCache
 	{
+		/** Center point of the handle (anchor disc center, or midpoint of
+		 *  the edge). Used for "follow cursor" rendering during an active
+		 *  drag and for tooltip anchoring. */
 		FVector2D   PixelPos;
+
+		/** Hit-test rectangle. Anchor: small square around PixelPos. Zone
+		 *  edge: thin strip along the edge with `kZoneEdgeHitThickness`
+		 *  perpendicular thickness. Hit test reduces to point-in-box. */
+		FBox2D      HitArea { ForceInit };
+
+		/** Anchor this handle belongs to. For Anchor entries this is also
+		 *  the dragged target; for ZoneEdge entries the edge mutates the
+		 *  *zones* attached to this anchor (Placement → `PlacementZones`,
+		 *  Aim → `AimZones`). */
 		EHandleType Type;
+
+		// ─── Zone-edge specifics — only valid when bIsZoneEdge ────────────
+
+		bool        bIsZoneEdge = false;
+
+		/** false = `DeadZoneSize` edge, true = `SoftZoneSize` edge. */
+		bool        bIsSoftZone = false;
+
+		/** Which edge: 0=Left, 1=Right, 2=Top, 3=Bottom. Drives both the
+		 *  drag math (which axis of the zone size to mutate, and on which
+		 *  side of the anchor the cursor is expected) and the hit-area
+		 *  orientation (vertical vs horizontal strip). */
+		int32       EdgeIndex  = -1;
 	};
 	TArray<FHandleScreenPosCache> CachedHandles;
 
 	/** Current drag state. ActiveDragHandleType == None when no drag in
-	 *  progress. */
+	 *  progress. When `bActiveDragIsZoneEdge` is true, the type identifies
+	 *  the *anchor whose zones are being edited*, and the edge / soft-vs-
+	 *  dead fields describe which size component the cursor mutates. */
 	EHandleType         ActiveDragHandleType  = EHandleType::None;
+	bool                bActiveDragIsZoneEdge = false;
+	bool                ActiveDragZoneIsSoft  = false;
+	int32               ActiveDragZoneEdgeIndex = -1;
 	TUniquePtr<FScopedTransaction> DragTransaction;
 
 	/** Hover state for visual feedback (unused while a drag is active). */
 	EHandleType HoveredHandleType  = EHandleType::None;
+	/** Mirror of `ActiveDragIsZoneEdge` / etc. for hover — drives whether
+	 *  hovering an edge highlights it (color + thickness) without firing a
+	 *  drag. */
+	bool        bHoveredIsZoneEdge = false;
+	bool        HoveredZoneIsSoft  = false;
+	int32       HoveredZoneEdgeIndex = -1;
 
 	// ─── Alt+RMB Roll drag state (Drag + Free modes) ─────────────────────
 	//
@@ -376,9 +426,11 @@ private:
 	TUniquePtr<FScopedTransaction> RollTransaction;
 
 	/** Hit-test cached handles against pixel coords, returns first match
-	 *  (handles drawn last are tested first → top-most hit wins). */
+	 *  (handles drawn last are tested first → top-most hit wins). Returns
+	 *  the full cache entry so callers can distinguish anchor-drag from
+	 *  zone-edge-drag and route accordingly. */
 	bool HitTestHandles(int32 PixelX, int32 PixelY,
-		EHandleType& OutType) const;
+		FHandleScreenPosCache& OutHit) const;
 
 	/** Convert normalized screen [-0.5, 0.5]² (our solver convention,
 	 *  +Y up) ↔ viewport pixel coords (top-left origin, +Y down). */
@@ -464,4 +516,30 @@ private:
 	 *  returned `bValid == false`; OverridePostProcessSettings reads this
 	 *  to avoid pushing stale values during transient unresolvable shots. */
 	bool bCachedDoFValid = false;
+
+	// ─── Cinemachine-style framing-zone prior-pose cache ───────────────
+	//
+	// Editor preview parallels the runtime FramingNode's prior-pose state
+	// (see `UComposableCameraCompositionFramingNode::LastPrimaryOutputPose`).
+	// On the first valid solve after binding a Shot, the cache is seeded;
+	// subsequent ticks pass it as the `FShotPriorPose` argument to
+	// `SolveShot` so designers see the same Cinemachine-style damped
+	// framing in the Shot Editor as in PIE / runtime.
+	//
+	// Only Position + Rotation are needed — the zone preprocessor
+	// re-projects anchors using the current frame's TanHalfHOR / aspect.
+
+	/** True iff `CachedPriorPos` / `CachedPriorRot` carry a usable prior
+	 *  solve. Cleared on Shot rebind / dissolution; first valid solve
+	 *  after the clear seeds them. */
+	bool bHasCachedPriorPose = false;
+	FVector  CachedPriorPos = FVector::ZeroVector;
+	FRotator CachedPriorRot = FRotator::ZeroRotator;
+	/** Last frame's effective `Placement.Distance` (post-V2.2 damping +
+	 *  clamp). `< 0` ⇒ no prior; solver skips Distance damping. */
+	float    CachedPriorDistance = -1.f;
+	/** Last frame's effective FOV / Roll (post-V2.2 damping). Sentinels
+	 *  match `FShotPriorPose::LastFOV` (`< 0`) and `LastRoll` (`FLT_MAX`). */
+	float    CachedPriorFOV  = -1.f;
+	float    CachedPriorRoll = TNumericLimits<float>::Max();
 };

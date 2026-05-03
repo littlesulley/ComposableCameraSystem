@@ -387,9 +387,39 @@ private:
 	 */
 	void ApplyActiveSequencerShotOverride();
 
+	/**
+	 * Run one full evaluation pass (parameter block sync → Shot override
+	 * apply → InternalCamera TickCamera → patch overlays → CineCamera
+	 * projection). Identical to a `TickComponent` body sans the
+	 * `Super::TickComponent` / gate-check shell. Factored out so
+	 * `SetEvaluationEnabled(true)` can force a same-frame solve when the
+	 * ECS gate first opens — without it, the LS Actor's CineCamera renders
+	 * one frame at its default (origin) transform on every cut into a
+	 * non-overlapping section, because the normal `TickComponent`
+	 * happens after the first PCM render.
+	 *
+	 * `DeltaTime <= 0` is the standard "first-frame snap" signal —
+	 * downstream solvers (V2.2 IIR damping, scrub-aware nodes) treat it
+	 * as "use authored values, don't damp", which matches the cut-as-cut
+	 * design intent.
+	 */
+	void EvaluateOnce(float DeltaTime);
+
 	/** Active Shot overrides keyed by Section. Held by raw section pointer
 	 *  with `TWeakObjectPtr` to tolerate GC of the section between frames
 	 *  (a common case during Sequencer hot-reload / asset reimport). */
 	UPROPERTY(Transient)
 	TMap<TWeakObjectPtr<UMovieSceneComposableCameraShotSection>, FComposableCameraSequencerShotEntry> SequencerShotOverrides;
+
+	/** Last frame's resolved *primary* Section (lowest RowIndex among the
+	 *  active overrides). `ApplyActiveSequencerShotOverride` compares this
+	 *  to the current frame's primary; mismatch = section transition with
+	 *  no overlap (cut), which the framing node must treat as a hard
+	 *  reseed of its V2.2 damping state to avoid bleeding the previous
+	 *  shot's Distance / FOV / Roll into the new one. Phase F blend
+	 *  exits already trigger the same reseed independently inside
+	 *  `SetActiveShotsFromSequencer`; this tracker is for the
+	 *  non-overlap cut path that the blend logic doesn't cover. */
+	UPROPERTY(Transient)
+	TWeakObjectPtr<UMovieSceneComposableCameraShotSection> LastActivePrimarySection;
 };

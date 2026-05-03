@@ -229,6 +229,136 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraAnchorSpec
 };
 
 /**
+ * One side's padding for a `FShotScreenZones` rectangle. Each padding
+ * value is the **distance from the authored `ScreenPosition` center to
+ * that edge**, expressed in normalized screen fractions. Half-extents
+ * are independent per side so framing zones can be asymmetric — e.g. a
+ * tracking shot can carry a wide right-side soft zone (lead room) and a
+ * tight left-side dead zone. Designer drags one edge to mutate exactly
+ * one of these four floats.
+ *
+ * Range `[0, 0.5]` covers half the viewport per side; the maximum
+ * realistic asymmetric zone is the full screen (0.5 + 0.5 across an axis).
+ */
+USTRUCT(BlueprintType)
+struct COMPOSABLECAMERASYSTEM_API FShotScreenZonePadding
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Padding",
+		meta = (ClampMin = "0.0", ClampMax = "0.5"))
+	float Left = 0.1f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Padding",
+		meta = (ClampMin = "0.0", ClampMax = "0.5"))
+	float Right = 0.1f;
+
+	/** "Top" = +Y in the solver's normalized screen convention (= upward
+	 *  on screen). Maps to the SMALLER pixel-Y in viewport coords. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Padding",
+		meta = (ClampMin = "0.0", ClampMax = "0.5"))
+	float Top = 0.1f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Padding",
+		meta = (ClampMin = "0.0", ClampMax = "0.5"))
+	float Bottom = 0.1f;
+};
+
+/**
+ * Cinemachine-style screen-space framing zones for an anchor's screen
+ * position constraint. The zone is a pair of nested rectangles
+ * **centered on `ScreenPosition`** (NOT on the anchor's projected
+ * position) — the anchor "floats" inside the zone, its projection drifts
+ * relative to ScreenPosition while the camera holds, and the solver
+ * pulls it back when it strays.
+ *
+ * When `bEnabled == false` the solver runs the V1 hard-constraint path
+ * (anchor lands exactly at `ScreenPosition` every frame). When
+ * `bEnabled == true` the solver:
+ *
+ *   1. projects the anchor through `LastOutputPose` to read its current
+ *      screen position;
+ *   2. computes the per-axis residual outside the dead-zone padding —
+ *      anchor inside the dead rect [SP - DeadLeft, SP + DeadRight] ×
+ *      [SP - DeadBottom, SP + DeadTop] → zero residual → camera holds;
+ *   3. one-pole (`FMath::FInterpTo`) damps the residual per axis using
+ *      `HorizontalSpeed` / `VerticalSpeed`;
+ *   4. clamps the post-damping offset to the soft-zone padding rectangle
+ *      (hard limit — anchor never leaves soft zone, no damping on the
+ *      clamp);
+ *   5. feeds the resulting effective screen target into the V1 closed-
+ *      form / Picard solver.
+ *
+ * One struct, two attachment sites — `FShotAim::AimZones` (always
+ * applies when AimMode == LookAtAnchor) and `FShotPlacement::PlacementZones`
+ * (only consumed in `AnchorAtScreen` placement; ignored by `AnchorOrbit`
+ * because that mode does not author a `Placement.ScreenPosition`).
+ *
+ * **Asymmetric paddings** allow zones that aren't centered on
+ * ScreenPosition — useful for lead-room framing where the dead zone
+ * trails the subject on one axis. Designer drags one edge → only the
+ * matching padding mutates (Cinemachine-style single-side resize).
+ *
+ * Damping speeds are `FMath::FInterpTo`-style — higher = snappier;
+ * `0` = no damping (snap to zone boundary instantly). Match the
+ * convention used by `UComposableCameraIIRInterpolator::Speed`.
+ *
+ * Per-side soft padding must be `>= ` matching dead padding (Soft is
+ * the outer rect; Dead is the inner). The drag handler enforces this
+ * by pushing the partner side; the solver also defensively clamps.
+ */
+USTRUCT(BlueprintType)
+struct COMPOSABLECAMERASYSTEM_API FShotScreenZones
+{
+	GENERATED_BODY()
+
+	FShotScreenZones()
+	{
+		// Soft-zone defaults are 3× dead-zone defaults (0.3 vs 0.1 per
+		// side), matching Cinemachine's RotationComposer baseline.
+		SoftZone.Left   = 0.3f;
+		SoftZone.Right  = 0.3f;
+		SoftZone.Top    = 0.3f;
+		SoftZone.Bottom = 0.3f;
+	}
+
+	/** Master switch. `false` = V1 hard-constraint path (every frame the
+	 *  anchor is solved to land exactly at `ScreenPosition` — closed-form
+	 *  for `LookAtAnchor`, Picard for `AnchorAtScreen + LookAtAnchor`).
+	 *  `true` = pose-state-aware Cinemachine-style damped framing
+	 *  described above. Default `false` for V1 backward compatibility. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Zones")
+	bool bEnabled = false;
+
+	/** Inner rectangle (per-side padding from ScreenPosition). Anchor
+	 *  inside this rect = camera does not adjust. Default 0.1 each side
+	 *  = 20% × 20% rect when zones are symmetric. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Zones",
+		meta = (EditCondition = "bEnabled"))
+	FShotScreenZonePadding DeadZone;
+
+	/** Outer rectangle (per-side padding from ScreenPosition). Anchor is
+	 *  hard-clamped to never leave this rect. Each side must be `>= `
+	 *  matching dead-zone padding (drag handler enforces; solver also
+	 *  defensively clamps). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Zones",
+		meta = (EditCondition = "bEnabled"))
+	FShotScreenZonePadding SoftZone;
+
+	/** Horizontal damping speed (`FMath::FInterpTo` Speed semantics) —
+	 *  higher = snappier, `0` = instant snap to zone boundary. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Zones",
+		meta = (EditCondition = "bEnabled", ClampMin = "0.0"))
+	float HorizontalSpeed = 5.f;
+
+	/** Vertical damping speed (`FMath::FInterpTo` Speed semantics) —
+	 *  higher = snappier, `0` = instant snap to zone boundary. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Zones",
+		meta = (EditCondition = "bEnabled", ClampMin = "0.0"))
+	float VerticalSpeed = 5.f;
+};
+
+/**
  * Placement layer — decides camera POSITION. Layered architecture: the
  * solver runs Placement first to get a Position, then Aim (which only
  * decides Rotation), then Lens (FOV), then Focus. See
@@ -326,6 +456,24 @@ struct COMPOSABLECAMERASYSTEM_API FShotPlacement
 	float Distance = 200.f;
 
 	/**
+	 * IIR damping speed for `Distance` (`FMath::FInterpTo` Speed semantics).
+	 * `0` = no damping → camera snaps to the authored Distance every frame
+	 * (V1 default behavior). Positive = damped — when the designer drags
+	 * the Distance slider or a Sequencer track keys it, the camera glides
+	 * toward the new value over time instead of teleporting. Higher
+	 * values = snappier; lower values = heavier camera. Independent of the
+	 * screen-space framing zones (which damp X / Y); this damps Z.
+	 *
+	 * Skipped in `FixedWorldPosition` mode (Distance is unused there).
+	 * Requires `PriorPose != nullptr` like the rest of the V2.2 stateful
+	 * solver — first-frame seed snaps to authored value, damping kicks in
+	 * from frame 2 onward.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Placement|AnchorOrbit",
+		meta = (EditCondition = "Mode == EShotPlacementMode::AnchorOrbit || Mode == EShotPlacementMode::AnchorAtScreen", ClampMin = "0.0"))
+	float DistanceSpeed = 0.f;
+
+	/**
 	 * `AnchorAtScreen`-only. Where the resolved PlacementAnchor
 	 * should land on screen, normalized to [-0.5, 0.5]² — (0, 0) is screen
 	 * center. Realized via the joint Position+Rotation solve described in
@@ -342,6 +490,23 @@ struct COMPOSABLECAMERASYSTEM_API FShotPlacement
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Placement|AnchorOrbit",
 		meta = (EditCondition = "Mode == EShotPlacementMode::AnchorAtScreen", ClampMin = "-0.5", ClampMax = "0.5"))
 	FVector2D ScreenPosition = FVector2D::ZeroVector;
+
+	/**
+	 * Cinemachine-style screen-space framing zones for `Placement.ScreenPosition`.
+	 * Only consumed in `AnchorAtScreen` placement mode (where placement actually
+	 * produces a screen-position constraint on PlacementAnchor); ignored in
+	 * `AnchorOrbit` (no `Placement.ScreenPosition`) and `FixedWorldPosition`
+	 * (placement is world-locked, not screen-driven).
+	 *
+	 * When enabled the joint Picard solve runs against the zone-derived effective
+	 * screen target instead of the raw authored `ScreenPosition`, with damping
+	 * applied in screen space — anchor inside the dead zone produces zero
+	 * error → joint solve is short-circuited and the camera holds its previous
+	 * `LastOutputPose`. See `FShotScreenZones` for the algorithm description.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Placement|AnchorOrbit",
+		meta = (EditCondition = "Mode == EShotPlacementMode::AnchorAtScreen"))
+	FShotScreenZones PlacementZones;
 
 	// ─── FixedWorldPosition-only fields ──────────────────────────────────
 
@@ -376,13 +541,27 @@ struct COMPOSABLECAMERASYSTEM_API FShotAim
 
 	/**
 	 * Where the resolved aim anchor should land on screen, normalized to
-	 * [-0.5, 0.5]². **This is the hard rotation constraint** — the
-	 * closed-form solver always satisfies it exactly via
-	 * `SolveCameraRotationForScreenTarget`.
+	 * [-0.5, 0.5]². With `AimZones.bEnabled == false` (V1 default) this
+	 * is a hard rotation constraint — the closed-form solver satisfies
+	 * it exactly via `SolveCameraRotationForScreenTarget` every frame.
+	 * With `AimZones.bEnabled == true` this becomes the *target* position
+	 * the anchor is damped toward (and the center of the zone rectangles).
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Aim",
 		meta = (ClampMin = "-0.5", ClampMax = "0.5"))
 	FVector2D ScreenPosition = FVector2D::ZeroVector;
+
+	/**
+	 * Cinemachine-style screen-space framing zones for `Aim.ScreenPosition`.
+	 * Only meaningful for `AimMode == LookAtAnchor` (NoOp ignores
+	 * ScreenPosition entirely). When enabled the closed-form rotation
+	 * solver runs against the zone-derived effective screen target
+	 * instead of the raw authored `ScreenPosition` — see
+	 * `FShotScreenZones` for the algorithm.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Aim",
+		meta = (EditCondition = "Mode == EShotAimMode::LookAtAnchor"))
+	FShotScreenZones AimZones;
 };
 
 /**
@@ -416,6 +595,20 @@ struct COMPOSABLECAMERASYSTEM_API FShotLens
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Lens",
 		meta = (ClampMin = "0.7", ClampMax = "64.0"))
 	float Aperture = 2.8f;
+
+	/**
+	 * IIR damping speed for the solved FOV (`FMath::FInterpTo` Speed
+	 * semantics). `0` = no damping → camera snaps to the authored /
+	 * solved FOV every frame (V1 default). Positive = damped — when
+	 * the designer drags `ManualFOV` or `SolvedFromBoundsFit`'s solved
+	 * FOV jumps (target-set composition change), the lens glides toward
+	 * the new value over time. Independent of Placement.DistanceSpeed
+	 * (which damps depth). Requires `PriorPose != nullptr` like the
+	 * other V2.2 stateful damping; first-frame seed snaps to authored.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Lens",
+		meta = (ClampMin = "0.0"))
+	float FOVSpeed = 0.f;
 };
 
 /**
@@ -511,6 +704,20 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraShot
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Shot",
 		meta = (ClampMin = "-180.0", ClampMax = "180.0", Units = "deg"))
 	float Roll = 0.f;
+
+	/**
+	 * IIR damping speed for `Roll` (`FMath::FInterpTo` Speed semantics).
+	 * `0` = no damping → camera snaps to the authored Roll every frame
+	 * (V1 default). Positive = damped — when the designer Alt+RMB-drags
+	 * Roll or a Sequencer track keys it, the camera eases into the new
+	 * angle. The IIR is **wrap-aware**: a transition from +175° to
+	 * -175° (visually +10°) takes the short way around, not the long
+	 * way. Requires `PriorPose != nullptr` like the other V2.2
+	 * stateful damping; first-frame seed snaps to authored.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Shot",
+		meta = (ClampMin = "0.0"))
+	float RollSpeed = 0.f;
 
 	/** Lens layer — decides FOV + Aperture. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Shot")

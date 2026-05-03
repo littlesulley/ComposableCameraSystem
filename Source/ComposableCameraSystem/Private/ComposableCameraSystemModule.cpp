@@ -4,6 +4,7 @@
 
 #include "Debug/ComposableCameraDebugPanel.h"
 #include "Debug/ComposableCameraLogCapture.h"
+#include "Debug/ComposableCameraShotZoneOverlay.h"
 #include "Debug/ComposableCameraViewportDebug.h"
 
 #define LOCTEXT_NAMESPACE "FComposableCameraSystemModule"
@@ -26,10 +27,12 @@ void FComposableCameraSystemModule::StartupModule()
 	// cost is one CVar read per viewport per frame.
 	FComposableCameraDebugPanel::Initialize();
 	FComposableCameraViewportDebug::Initialize();
+	FComposableCameraShotZoneOverlay::Initialize();
 }
 
 void FComposableCameraSystemModule::ShutdownModule()
 {
+	FComposableCameraShotZoneOverlay::Shutdown();
 	FComposableCameraViewportDebug::Shutdown();
 	FComposableCameraDebugPanel::Shutdown();
 

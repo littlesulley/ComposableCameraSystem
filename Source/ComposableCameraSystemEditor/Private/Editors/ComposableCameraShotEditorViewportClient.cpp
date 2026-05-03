@@ -51,6 +51,31 @@ namespace
 	const FLinearColor kHandleAimColor       (0.4f,  0.8f,  1.f,   1.f);   // cyan — Aim
 	const FLinearColor kHandleDisabledColor  (0.45f, 0.45f, 0.5f,  0.6f);  // greyed out
 	const FLinearColor kHandleCrossColor     (0.05f, 0.05f, 0.05f, 1.f);   // dark cross overlay
+
+	// ─── Zone overlay visuals (V2.2: Cinemachine-style framing zones) ────
+	//
+	// Each enabled `FShotScreenZones` paints two nested rectangles
+	// centered on the anchor's authored `ScreenPosition` (NOT on the
+	// anchor's projected pixel — the anchor floats inside the zone and
+	// its drift relative to ScreenPosition is exactly the visual diagnosis
+	// the zone overlay is meant to surface). Rendering uses translucent
+	// fills (no border lines): a solid-fill inner rect for the dead zone,
+	// plus four soft-zone "ring" tiles between dead and soft.
+	//
+	// Edges of both rects are LMB drag targets for single-side padding
+	// edits. `kZoneEdgeHitThickness` is the hit-grab region perpendicular
+	// to the edge — generous so designers can grab a thin edge without
+	// pixel-precision aim. Hovered / actively-dragged edges get a thin
+	// highlight line as visual feedback (the only line drawn in the zone
+	// overlay; the resting state is fills only).
+	constexpr float kZoneEdgeHitThickness    = 8.f;
+	constexpr float kZoneEdgeHighlightThickness = 2.5f;
+
+	const FLinearColor kZoneDeadFillPlacement (1.f,  0.85f, 0.2f, 0.18f);  // yellow ~18% — Placement
+	const FLinearColor kZoneSoftFillPlacement (1.f,  0.85f, 0.2f, 0.08f);  // yellow ~8%
+	const FLinearColor kZoneDeadFillAim       (0.4f, 0.8f,  1.f,  0.18f);  // cyan   ~18% — Aim
+	const FLinearColor kZoneSoftFillAim       (0.4f, 0.8f,  1.f,  0.08f);  // cyan   ~8%
+	const FLinearColor kZoneEdgeHighlightColor(1.f,  1.f,   1.f,  0.85f);  // white-ish on hover/drag
 }
 
 FComposableCameraShotEditorViewportClient::FComposableCameraShotEditorViewportClient(
@@ -140,7 +165,13 @@ void FComposableCameraShotEditorViewportClient::ReleaseSceneResources()
 	// D.4: close any in-flight drag transaction. Idempotent — the destructor
 	// handles cleanup if the editor was torn down mid-drag.
 	DragTransaction.Reset();
-	ActiveDragHandleType = EHandleType::None;
+	ActiveDragHandleType    = EHandleType::None;
+	bActiveDragIsZoneEdge   = false;
+	ActiveDragZoneIsSoft    = false;
+	ActiveDragZoneEdgeIndex = -1;
+	bHoveredIsZoneEdge      = false;
+	HoveredZoneIsSoft       = false;
+	HoveredZoneEdgeIndex    = -1;
 	CachedHandles.Reset();
 
 	// V2.1 A.2: same cleanup for any in-flight Alt+RMB Roll drag.
@@ -158,6 +189,17 @@ void FComposableCameraShotEditorViewportClient::SetActiveShot(
 {
 	ActiveShot = InShot;
 	ActiveHost = InHost;
+
+	// Drop the framing-zone prior-pose cache when the bound Shot changes —
+	// projecting the new shot's anchors through the previous shot's pose
+	// would either NaN the zone math (anchor behind camera) or produce a
+	// visible one-frame glitch. The next valid solve hard-seeds a fresh
+	// prior. Cleared unconditionally because we have no cheap way to tell
+	// "is this the same Shot pointer pointing at semantically-identical
+	// data" — a swap-host call with the same backing pointer is the
+	// degenerate case where the clear is harmless (next solve re-seeds
+	// to the same value).
+	bHasCachedPriorPose = false;
 
 	// Don't rebuild here synchronously — Tick() will detect the host change
 	// and rebuild on next frame. Avoids reentrancy if SetActiveShot is called
@@ -242,7 +284,7 @@ void FComposableCameraShotEditorViewportClient::Tick(float DeltaSeconds)
 	// the Details panel take effect regardless of mode. Camera POSE is mode-
 	// specific: Drag/Lock honor solver pose; Free preserves user mouse-driven
 	// pose. RunSolverAndDriveCamera handles the per-mode dispatch internally.
-	RunSolverAndDriveCamera();
+	RunSolverAndDriveCamera(DeltaSeconds);
 }
 
 void FComposableCameraShotEditorViewportClient::DrawCanvas(
@@ -391,13 +433,59 @@ void FComposableCameraShotEditorViewportClient::DrawCanvas(
 		// condition.
 		const bool bDistanceUsed =
 			ActiveShot->Placement.Mode != EShotPlacementMode::FixedWorldPosition;
+
+		// V2.2 damping readout — when an axis has DampingSpeed > 0 AND a
+		// valid prior cache, the strip shows `authored → effective` so
+		// designers can watch the IIR converge on screen. When the values
+		// match (or no prior yet), only the authored value is shown to
+		// keep the strip terse. Roll comparison uses NormalizeAxis on the
+		// delta to handle the +180/-180 wrap cleanly.
+		auto FormatDampedScalar = [this](float Authored, float Effective,
+			bool bHasPrior, float SentinelLowerBound, const TCHAR* Unit) -> FString
+		{
+			if (!bHasPrior || Effective <= SentinelLowerBound
+				|| FMath::IsNearlyEqual(Authored, Effective, 0.05f))
+			{
+				return FString::Printf(TEXT("%.1f%s"), Authored, Unit);
+			}
+			return FString::Printf(TEXT("%.1f → %.1f%s"), Authored, Effective, Unit);
+		};
+		auto FormatDampedRoll = [this](float Authored) -> FString
+		{
+			if (!bHasCachedPriorPose || CachedPriorRoll == TNumericLimits<float>::Max())
+			{
+				return FString::Printf(TEXT("%.1f deg"), Authored);
+			}
+			const float Delta = FRotator::NormalizeAxis(Authored - CachedPriorRoll);
+			if (FMath::Abs(Delta) < 0.05f)
+			{
+				return FString::Printf(TEXT("%.1f deg"), Authored);
+			}
+			return FString::Printf(TEXT("%.1f → %.1f deg"), Authored, CachedPriorRoll);
+		};
+
 		const FString DistanceField = bDistanceUsed
-			? FString::Printf(TEXT("Distance: %.1f cm"), ActiveShot->Placement.Distance)
+			? FString::Printf(TEXT("Distance: %s"),
+				*FormatDampedScalar(ActiveShot->Placement.Distance, CachedPriorDistance,
+					bHasCachedPriorPose, /*SentinelLowerBound=*/0.f, TEXT(" cm")))
 			: FString(TEXT("Distance: -"));
 
+		// FOV authored: ManualFOV in Manual mode (the value the slider
+		// drives); SolvedFromBoundsFit has no single "authored" value, so
+		// show only the effective value (= ViewFOV). Effective is always
+		// ViewFOV regardless of mode.
+		const FString FOVField = (ActiveShot->Lens.FOVMode == EShotFOVMode::Manual)
+			? FString::Printf(TEXT("FOV: %s"),
+				*FormatDampedScalar(ActiveShot->Lens.ManualFOV, ViewFOV,
+					bHasCachedPriorPose, /*SentinelLowerBound=*/0.f, TEXT(" deg")))
+			: FString::Printf(TEXT("FOV: %.1f deg"), ViewFOV);
+
+		const FString RollField = FString::Printf(TEXT("Roll: %s"),
+			*FormatDampedRoll(ActiveShot->Roll));
+
 		const FString StripText = FString::Printf(
-			TEXT("Mode: %s   |   %s   |   FOV: %.1f deg   |   Roll: %.1f deg"),
-			ModeLabel, *DistanceField, FOV, ActiveShot->Roll);
+			TEXT("Mode: %s   |   %s   |   %s   |   %s"),
+			ModeLabel, *DistanceField, *FOVField, *RollField);
 
 		const float StripY = static_cast<float>(VPSize.Y) - 14.f - 8.f;
 		FCanvasTextItem Strip(
@@ -660,76 +748,31 @@ void FComposableCameraShotEditorViewportClient::DrawHandles(
 		bool bHandleDisabled,
 		bool bHandleInteractive)
 	{
-		FVector2D NormPos;
-		bool bHaveNormPos = false;
-		const bool bActivelyDraggingThis =
-			bHandleInteractive && (ActiveDragHandleType == HandleType);
-		if (bActivelyDraggingThis)
-		{
-			// During a drag, ApplyDragToShot writes the cursor's normalized
-			// position into the anchor's authored ScreenPosition every
-			// CapturedMouseMove. Echoing that back here makes the handle
-			// follow the cursor 1:1 without a one-frame projection lag.
-			NormPos = AuthoredScreenPos;
-			bHaveNormPos = true;
-		}
-		else
-		{
-			// Normal path: project the anchor's resolved world point so the
-			// handle visibly tracks the actor referenced by the anchor.
-			//
-			// Visibility decisions when projection isn't usable as-is split
-			// on whether the handle is interactive in the current mode:
-			//
-			//   - **Interactive** (Drag mode + handle's mode-config consumes
-			//     `ScreenPosition`): keep the handle visible at the authored
-			//     `ScreenPosition` so it stays clickable for re-aim. The
-			//     authored value is the one the forward solver consumes, so
-			//     drawing the handle there matches the field the designer
-			//     would edit. Currently applies only to the
-			//     anchor-unresolvable / behind-camera case; off-screen-but-
-			//     in-front still extrapolates beyond the viewport (designer
-			//     can't really click an invisible handle, but the existing
-			//     behavior is preserved for now).
-			//
-			//   - **Non-interactive** (greyed in AnchorOrbit / NoOp / etc.):
-			//     suppress the handle when the anchor isn't visible. The
-			//     authored `ScreenPosition` is unread by the forward solver
-			//     in these modes, so falling back to it would draw the
-			//     handle at a stale value carried over from a different
-			//     mode — misleading because designers can't act on a greyed
-			//     handle anyway, and the position it lands at has no
-			//     bearing on the rendered camera.
-			bHaveNormPos = ProjectAnchorWorld(AnchorAccessor, NormPos);
-			if (bHaveNormPos)
-			{
-				const bool bOnScreen =
-					FMath::Abs(NormPos.X) <= 0.5f
-					&& FMath::Abs(NormPos.Y) <= 0.5f;
-				if (!bOnScreen && !bHandleInteractive)
-				{
-					return;
-				}
-			}
-			else
-			{
-				if (!bHandleInteractive)
-				{
-					return;
-				}
-				NormPos = AuthoredScreenPos;
-				bHaveNormPos = true;
-			}
-		}
-		if (!bHaveNormPos)
-		{
-			return;
-		}
+		// V2.2: the disc represents the AUTHORED ScreenPosition — the
+		// designer's "I want the anchor here" target — so it always
+		// renders at `AuthoredScreenPos`, regardless of whether zones
+		// are on or where the anchor currently projects. Drag mutates
+		// this same field, so the disc naturally tracks the cursor 1:1.
+		// The anchor's actual projected position (which can drift away
+		// from SP inside the dead zone) is shown as a separate read-only
+		// marker further down — only when zones are enabled, because
+		// zones-off keeps projection ≈ SP and the marker would just
+		// double-stamp the disc.
+		const FVector2D NormPos = AuthoredScreenPos;
 		const FVector2D PixelPos = NormalizedScreenToPixel(NormPos, VPSize);
+		// Anchor hover should only fire when the cursor is on the anchor's
+		// own disc — NOT when it's on one of the anchor's zone edges (which
+		// also share `HoveredHandleType == HandleType`). The `!bHoveredIsZoneEdge`
+		// guard separates the two so zone-edge hover doesn't visually inflate
+		// the anchor disc.
 		const bool bHovered = bHandleInteractive
 			&& HoveredHandleType == HandleType
+			&& !bHoveredIsZoneEdge
 			&& ActiveDragHandleType == EHandleType::None;
-		const bool bDragging = ActiveDragHandleType == HandleType;
+		// Likewise: the anchor "is being dragged" only when the active drag
+		// is the anchor disc itself, not a zone edge attached to this anchor.
+		const bool bDragging = ActiveDragHandleType == HandleType
+			&& !bActiveDragIsZoneEdge;
 		const FLinearColor Fill = bHandleDisabled ? kHandleDisabledColor : AnchorColor;
 		const float Radius = (bHovered || bDragging)
 			? kHandleAnchorRadius * kHandleHoverRadiusBoost
@@ -807,7 +850,323 @@ void FComposableCameraShotEditorViewportClient::DrawHandles(
 
 		if (bHandleInteractive)
 		{
-			CachedHandles.Add({ PixelPos, HandleType });
+			FHandleScreenPosCache AnchorCache;
+			AnchorCache.PixelPos    = PixelPos;
+			AnchorCache.Type        = HandleType;
+			AnchorCache.bIsZoneEdge = false;
+			// Anchor hit area = square inscribing the hit-test radius. Square
+			// (vs. true circle) keeps hit math uniform with edge entries while
+			// only marginally over-claiming the corner pixels.
+			AnchorCache.HitArea = FBox2D(
+				PixelPos - FVector2D(kHandleHitRadius, kHandleHitRadius),
+				PixelPos + FVector2D(kHandleHitRadius, kHandleHitRadius));
+			CachedHandles.Add(AnchorCache);
+		}
+
+		// ─── Zone overlay (V2.2) ─────────────────────────────────────────
+		//
+		// Centered on the anchor's current displayed pixel position. Drawing
+		// here (not in a separate pass) means the rects auto-track the anchor
+		// — both during projection-driven motion ("the actor moved") and
+		// during an active anchor drag (PixelPos = cursor pos in that case).
+		// Resolves the zones data via accessor lambdas so we don't have to
+		// branch on HandleType inside the draw block.
+		auto ResolveZones = [&]() -> const FShotScreenZones*
+		{
+			if (HandleType == EHandleType::PlacementAnchor)
+			{
+				// Placement zones only consume `Placement.ScreenPosition`
+				// (i.e., `AnchorAtScreen`); other modes silently ignore the
+				// zone struct. Skip the overlay there to avoid implying an
+				// effect the solver won't honor.
+				if (ActiveShot->Placement.Mode != EShotPlacementMode::AnchorAtScreen)
+				{
+					return nullptr;
+				}
+				return &ActiveShot->Placement.PlacementZones;
+			}
+			else if (HandleType == EHandleType::AimAnchor)
+			{
+				// AimZones is meaningless under `NoOp` (Aim layer doesn't
+				// read `ScreenPosition` at all) — same-rationale skip.
+				if (ActiveShot->Aim.Mode == EShotAimMode::NoOp)
+				{
+					return nullptr;
+				}
+				return &ActiveShot->Aim.AimZones;
+			}
+			return nullptr;
+		};
+
+		const FShotScreenZones* Zones = ResolveZones();
+		if (Zones && Zones->bEnabled && bHandleInteractive)
+		{
+			// Zone center = ScreenPosition (the AUTHORED screen target,
+			// not the anchor's currently-projected position). Anchor
+			// floats inside the zone — its disc may sit anywhere within
+			// the rect during a hold; the rect itself stays anchored to
+			// SP. Convert SP from normalized `[-0.5, 0.5]²` to pixel.
+			const FVector2D ZoneCenterPx = NormalizedScreenToPixel(AuthoredScreenPos, VPSize);
+
+			// Per-side pixel paddings. Normalized full-viewport span = 1.0
+			// (X) / 1.0 (Y), so pixel padding = padding_normalized × VPSize.
+			const float DeadLpx = Zones->DeadZone.Left   * VPSize.X;
+			const float DeadRpx = Zones->DeadZone.Right  * VPSize.X;
+			const float DeadTpx = Zones->DeadZone.Top    * VPSize.Y;   // top = +Y normalized = -Y pixel
+			const float DeadBpx = Zones->DeadZone.Bottom * VPSize.Y;
+			const float SoftLpx = FMath::Max(Zones->SoftZone.Left,   Zones->DeadZone.Left)   * VPSize.X;
+			const float SoftRpx = FMath::Max(Zones->SoftZone.Right,  Zones->DeadZone.Right)  * VPSize.X;
+			const float SoftTpx = FMath::Max(Zones->SoftZone.Top,    Zones->DeadZone.Top)    * VPSize.Y;
+			const float SoftBpx = FMath::Max(Zones->SoftZone.Bottom, Zones->DeadZone.Bottom) * VPSize.Y;
+
+			// Pixel-space rectangles (top-left to bottom-right corners).
+			// "Top" in our normalized convention = +Y (upward) = numerically
+			// smaller pixel Y, so Dead's top-left pixel uses (-Left, -Top).
+			const FBox2D DeadRectPx(
+				FVector2D(ZoneCenterPx.X - DeadLpx, ZoneCenterPx.Y - DeadTpx),
+				FVector2D(ZoneCenterPx.X + DeadRpx, ZoneCenterPx.Y + DeadBpx));
+			const FBox2D SoftRectPx(
+				FVector2D(ZoneCenterPx.X - SoftLpx, ZoneCenterPx.Y - SoftTpx),
+				FVector2D(ZoneCenterPx.X + SoftRpx, ZoneCenterPx.Y + SoftBpx));
+
+			// Dead zone is intentionally unfilled now (see below). The
+			// `kZoneDeadFill*` constants are retained for symmetry with
+			// the LS overlay, which still references them through the
+			// shared draw helper signature; not used here.
+			const FLinearColor SoftFill = (HandleType == EHandleType::PlacementAnchor)
+				? kZoneSoftFillPlacement : kZoneSoftFillAim;
+
+			// Translucent rect tile helper. SE_BLEND_Translucent so multiple
+			// stacked panels (e.g. when both anchors' zones overlap) blend
+			// rather than punching through.
+			auto DrawFilledTile = [&Canvas](const FBox2D& Box, const FLinearColor& Color)
+			{
+				if (Box.GetSize().X <= 0.f || Box.GetSize().Y <= 0.f)
+				{
+					return;
+				}
+				FCanvasTileItem Tile(
+					Box.Min,
+					FVector2D(Box.GetSize().X, Box.GetSize().Y),
+					Color);
+				Tile.BlendMode = SE_BLEND_Translucent;
+				Canvas.DrawItem(Tile);
+			};
+
+			// ─── Soft "ring" — Soft − Dead area, four tiles ──────────────
+			// Layout:
+			//   ┌──────────────────────────┐
+			//   │           TOP            │
+			//   ├──────┬────────────┬──────┤
+			//   │ LEFT │  (DEAD)    │ RIGHT│
+			//   ├──────┴────────────┴──────┤
+			//   │          BOTTOM          │
+			//   └──────────────────────────┘
+			// Top  spans full Soft width × (DeadTop − SoftTop) height.
+			// Bot  spans full Soft width × (SoftBottom − DeadBottom) height.
+			// Left spans (SoftLeft − DeadLeft) wide × Dead height.
+			// Right spans (SoftRight − DeadRight) wide × Dead height.
+			// Each tile is no-op when the corresponding side has Dead == Soft
+			// (degenerate / authored matching values) — DrawFilledTile early
+			// outs on zero size.
+			DrawFilledTile(FBox2D(
+				FVector2D(SoftRectPx.Min.X, SoftRectPx.Min.Y),
+				FVector2D(SoftRectPx.Max.X, DeadRectPx.Min.Y)), SoftFill);
+			DrawFilledTile(FBox2D(
+				FVector2D(SoftRectPx.Min.X, DeadRectPx.Max.Y),
+				FVector2D(SoftRectPx.Max.X, SoftRectPx.Max.Y)), SoftFill);
+			DrawFilledTile(FBox2D(
+				FVector2D(SoftRectPx.Min.X, DeadRectPx.Min.Y),
+				FVector2D(DeadRectPx.Min.X, DeadRectPx.Max.Y)), SoftFill);
+			DrawFilledTile(FBox2D(
+				FVector2D(DeadRectPx.Max.X, DeadRectPx.Min.Y),
+				FVector2D(SoftRectPx.Max.X, DeadRectPx.Max.Y)), SoftFill);
+
+			// ─── Dead inner — intentionally NOT filled ─────────────────
+			// Visually "empty" inside the dead zone — the soft ring frames
+			// the area without obscuring whatever the camera is currently
+			// holding on. Edges remain interactive: `CacheZoneEdges` below
+			// still pushes hit areas for L/R/T/B of the dead rect, so
+			// designers can grab the (invisible) inner edges and drag to
+			// resize. Compared to drawing a faint inner fill, the empty
+			// interior reads more like "this is the hold zone, don't
+			// touch" without competing with the framed subject for
+			// attention.
+
+			// ─── Edge hit-cache + hover/drag highlight lines ───────────
+			// Each enabled zone contributes 4 edge entries (L/R/T/B).
+			// `EdgeRect(rect, edge)` is a thin rect along the matching
+			// side of `rect`, `kZoneEdgeHitThickness` perpendicular.
+			auto EdgeRect = [&](const FBox2D& Rect, int32 EdgeIndex) -> FBox2D
+			{
+				const float HitHalf = kZoneEdgeHitThickness * 0.5f;
+				switch (EdgeIndex)
+				{
+				case 0: return FBox2D(   // Left edge — vertical at Rect.Min.X
+					FVector2D(Rect.Min.X - HitHalf, Rect.Min.Y),
+					FVector2D(Rect.Min.X + HitHalf, Rect.Max.Y));
+				case 1: return FBox2D(   // Right edge — vertical at Rect.Max.X
+					FVector2D(Rect.Max.X - HitHalf, Rect.Min.Y),
+					FVector2D(Rect.Max.X + HitHalf, Rect.Max.Y));
+				case 2: return FBox2D(   // Top edge — horizontal at Rect.Min.Y
+					FVector2D(Rect.Min.X, Rect.Min.Y - HitHalf),
+					FVector2D(Rect.Max.X, Rect.Min.Y + HitHalf));
+				case 3: return FBox2D(   // Bottom edge — horizontal at Rect.Max.Y
+					FVector2D(Rect.Min.X, Rect.Max.Y - HitHalf),
+					FVector2D(Rect.Max.X, Rect.Max.Y + HitHalf));
+				}
+				return FBox2D(ForceInit);
+			};
+
+			auto CacheZoneEdges = [&](const FBox2D& Rect, bool bSoft)
+			{
+				for (int32 Edge = 0; Edge < 4; ++Edge)
+				{
+					FHandleScreenPosCache EdgeCache;
+					// Center of the edge — used as anchor for tooltips /
+					// the highlight line midpoint.
+					switch (Edge)
+					{
+					case 0: EdgeCache.PixelPos = FVector2D(Rect.Min.X, (Rect.Min.Y + Rect.Max.Y) * 0.5f); break;
+					case 1: EdgeCache.PixelPos = FVector2D(Rect.Max.X, (Rect.Min.Y + Rect.Max.Y) * 0.5f); break;
+					case 2: EdgeCache.PixelPos = FVector2D((Rect.Min.X + Rect.Max.X) * 0.5f, Rect.Min.Y); break;
+					case 3: EdgeCache.PixelPos = FVector2D((Rect.Min.X + Rect.Max.X) * 0.5f, Rect.Max.Y); break;
+					}
+					EdgeCache.Type        = HandleType;
+					EdgeCache.bIsZoneEdge = true;
+					EdgeCache.bIsSoftZone = bSoft;
+					EdgeCache.EdgeIndex   = Edge;
+					EdgeCache.HitArea     = EdgeRect(Rect, Edge);
+					CachedHandles.Add(EdgeCache);
+
+					// Hover / drag highlight — single thin line along the
+					// edge so the designer sees which edge they're about
+					// to grab. Resting state has no border (just the
+					// translucent fills above).
+					const bool bHoveredHere = bHandleInteractive
+						&& bHoveredIsZoneEdge
+						&& HoveredHandleType == HandleType
+						&& HoveredZoneIsSoft == bSoft
+						&& HoveredZoneEdgeIndex == Edge
+						&& ActiveDragHandleType == EHandleType::None;
+					const bool bDraggingHere = bActiveDragIsZoneEdge
+						&& ActiveDragHandleType == HandleType
+						&& ActiveDragZoneIsSoft == bSoft
+						&& ActiveDragZoneEdgeIndex == Edge;
+					if (bHoveredHere || bDraggingHere)
+					{
+						FVector2D A, B;
+						switch (Edge)
+						{
+						case 0: A = FVector2D(Rect.Min.X, Rect.Min.Y); B = FVector2D(Rect.Min.X, Rect.Max.Y); break;
+						case 1: A = FVector2D(Rect.Max.X, Rect.Min.Y); B = FVector2D(Rect.Max.X, Rect.Max.Y); break;
+						case 2: A = FVector2D(Rect.Min.X, Rect.Min.Y); B = FVector2D(Rect.Max.X, Rect.Min.Y); break;
+						case 3: A = FVector2D(Rect.Min.X, Rect.Max.Y); B = FVector2D(Rect.Max.X, Rect.Max.Y); break;
+						}
+						FCanvasLineItem Highlight(A, B);
+						Highlight.SetColor(kZoneEdgeHighlightColor);
+						Highlight.LineThickness = kZoneEdgeHighlightThickness;
+						Canvas.DrawItem(Highlight);
+
+						// Numeric label — show the active padding value
+						// for the hovered/dragged edge so designers can
+						// dial precise sizes without opening the Details
+						// panel. Resolved inline from the (Zones, bSoft,
+						// Edge) tuple.
+						if (HandleLabelFont)
+						{
+							const FShotScreenZonePadding& Pad =
+								bSoft ? Zones->SoftZone : Zones->DeadZone;
+							float PadValue = 0.f;
+							const TCHAR* SideLabel = TEXT("");
+							switch (Edge)
+							{
+							case 0: PadValue = Pad.Left;   SideLabel = TEXT("L"); break;
+							case 1: PadValue = Pad.Right;  SideLabel = TEXT("R"); break;
+							case 2: PadValue = Pad.Top;    SideLabel = TEXT("T"); break;
+							case 3: PadValue = Pad.Bottom; SideLabel = TEXT("B"); break;
+							}
+							const FString LabelText = FString::Printf(
+								TEXT("%s %s: %.3f"),
+								bSoft ? TEXT("Soft") : TEXT("Dead"),
+								SideLabel, PadValue);
+
+							// Anchor the label adjacent to the edge
+							// midpoint, with a small offset away from the
+							// rect so it doesn't overlap the highlight line.
+							const FVector2D EdgeMid = (A + B) * 0.5f;
+							FVector2D LabelOffset(0.f, 0.f);
+							switch (Edge)
+							{
+							case 0: LabelOffset = FVector2D(-72.f, -7.f); break;
+							case 1: LabelOffset = FVector2D(  6.f, -7.f); break;
+							case 2: LabelOffset = FVector2D(  6.f, -18.f); break;
+							case 3: LabelOffset = FVector2D(  6.f,   4.f); break;
+							}
+							FCanvasTextItem Label(
+								EdgeMid + LabelOffset,
+								FText::FromString(LabelText),
+								HandleLabelFont, kZoneEdgeHighlightColor);
+							Label.EnableShadow(FLinearColor::Black);
+							Canvas.DrawItem(Label);
+						}
+					}
+				}
+			};
+
+			// Cache push order matters: HitTestHandles iterates in reverse
+			// so the LAST-pushed entry wins on overlap. Push soft first
+			// (outer edges), then dead (inner edges) — when a click could
+			// hit either (Soft-side ≈ Dead-side, e.g. authored matching),
+			// the dead edge wins, matching the visual "smaller rect on top".
+			CacheZoneEdges(SoftRectPx, /*bSoft=*/true);
+			CacheZoneEdges(DeadRectPx, /*bSoft=*/false);
+
+			// ─── Live-position marker — anchor's projected pixel ──────
+			// The main disc (filled, drawn earlier) sits at the AUTHORED
+			// ScreenPosition (drag target). This second marker shows
+			// where the anchor IS this frame — its world point projected
+			// through the live camera. Inside the dead zone the two
+			// drift apart; outside they converge. Read-only — no hit
+			// area, no drag, smaller than the main disc, half-alpha.
+			{
+				FVector2D ProjNorm;
+				if (ProjectAnchorWorld(AnchorAccessor, ProjNorm))
+				{
+					const FVector2D ProjPx = NormalizedScreenToPixel(ProjNorm, VPSize);
+					constexpr float kProjRingRadius = 5.f;
+					constexpr float kProjCrossArm   = 4.f;
+					const FLinearColor ProjColor(
+						AnchorColor.R, AnchorColor.G, AnchorColor.B, 0.55f);
+
+					constexpr int32 kProjRingSegs = 16;
+					FVector2D PrevPt(ProjPx.X + kProjRingRadius, ProjPx.Y);
+					for (int32 s = 1; s <= kProjRingSegs; ++s)
+					{
+						const float T = (s / static_cast<float>(kProjRingSegs)) * 2.f * PI;
+						const FVector2D Pt(
+							ProjPx.X + FMath::Cos(T) * kProjRingRadius,
+							ProjPx.Y + FMath::Sin(T) * kProjRingRadius);
+						FCanvasLineItem Seg(PrevPt, Pt);
+						Seg.SetColor(ProjColor); Seg.LineThickness = 1.f;
+						Canvas.DrawItem(Seg);
+						PrevPt = Pt;
+					}
+					FCanvasLineItem H(
+						FVector2D(ProjPx.X - kProjCrossArm, ProjPx.Y),
+						FVector2D(ProjPx.X + kProjCrossArm, ProjPx.Y));
+					H.SetColor(ProjColor); H.LineThickness = 1.f;
+					Canvas.DrawItem(H);
+					FCanvasLineItem V(
+						FVector2D(ProjPx.X, ProjPx.Y - kProjCrossArm),
+						FVector2D(ProjPx.X, ProjPx.Y + kProjCrossArm));
+					V.SetColor(ProjColor); V.LineThickness = 1.f;
+					Canvas.DrawItem(V);
+				}
+				// Anchor unresolvable / behind camera: silently skip.
+				// The disc at SP is enough on its own; the absent marker
+				// implicitly says "we can't tell where the anchor is".
+			}
 		}
 	};
 
@@ -837,24 +1196,26 @@ void FComposableCameraShotEditorViewportClient::DrawHandles(
 
 bool FComposableCameraShotEditorViewportClient::HitTestHandles(
 	int32 PixelX, int32 PixelY,
-	EHandleType& OutType) const
+	FHandleScreenPosCache& OutHit) const
 {
-	const float HitRadiusSq = kHandleHitRadius * kHandleHitRadius;
-
 	// Iterate in reverse so handles drawn last (z-top in our DrawHandles
-	// order) win the hit test on overlap.
+	// order) win the hit test on overlap. Top-of-z-order: dead-zone edges
+	// > soft-zone edges > anchor disc (because anchors push *before* their
+	// zone edges, and within a zone tier dead is pushed after soft). Net
+	// effect: a click in the corner where an anchor disc and an edge box
+	// both report a hit grabs the edge first, which matches user intent
+	// (the anchor disc is the visible focal point but the edge is the
+	// thinner / more deliberate target).
 	for (int32 i = CachedHandles.Num() - 1; i >= 0; --i)
 	{
 		const FHandleScreenPosCache& H = CachedHandles[i];
-		const float DX = static_cast<float>(PixelX) - H.PixelPos.X;
-		const float DY = static_cast<float>(PixelY) - H.PixelPos.Y;
-		if (DX * DX + DY * DY <= HitRadiusSq)
+		if (H.HitArea.IsInside(FVector2D(PixelX, PixelY)))
 		{
-			OutType = H.Type;
+			OutHit = H;
 			return true;
 		}
 	}
-	OutType = EHandleType::None;
+	OutHit = FHandleScreenPosCache{};
 	return false;
 }
 
@@ -866,6 +1227,139 @@ void FComposableCameraShotEditorViewportClient::ApplyDragToShot(int32 PixelX, in
 	}
 
 	const FIntPoint VPSize = Viewport->GetSizeXY();
+
+	// ─── Zone-edge drag: cursor distance from SP center → new padding ───
+	//
+	// Single-side semantics: each edge mutates exactly one of the four
+	// padding scalars (Left / Right / Top / Bottom) on either dead or
+	// soft zone. Zones are centered on `ScreenPosition` (NOT on anchor's
+	// projected pixel), so the drag math anchors to SP's pixel — same
+	// reference the renderer uses, so the dragged edge lands exactly
+	// under the cursor.
+	if (bActiveDragIsZoneEdge)
+	{
+		// Resolve which zones struct to mutate (matches DrawAnchorHandle's
+		// ResolveZones logic — zones-edge drags can only fire when zones
+		// are interactive, but keep the null check for defense).
+		FShotScreenZones* Zones = nullptr;
+		FVector2D AuthoredSP(0.f, 0.f);
+		if (ActiveDragHandleType == EHandleType::PlacementAnchor
+			&& ActiveShot->Placement.Mode == EShotPlacementMode::AnchorAtScreen)
+		{
+			Zones = &ActiveShot->Placement.PlacementZones;
+			AuthoredSP = ActiveShot->Placement.ScreenPosition;
+		}
+		else if (ActiveDragHandleType == EHandleType::AimAnchor
+			&& ActiveShot->Aim.Mode != EShotAimMode::NoOp)
+		{
+			Zones = &ActiveShot->Aim.AimZones;
+			AuthoredSP = ActiveShot->Aim.ScreenPosition;
+		}
+		if (!Zones || !Zones->bEnabled)
+		{
+			return;
+		}
+
+		const FVector2D ZoneCenterPx = NormalizedScreenToPixel(AuthoredSP, VPSize);
+		const float DXpx = static_cast<float>(PixelX) - ZoneCenterPx.X;
+		const float DYpx = static_cast<float>(PixelY) - ZoneCenterPx.Y;
+		const float VPWidth  = FMath::Max(static_cast<float>(VPSize.X), 1.f);
+		const float VPHeight = FMath::Max(static_cast<float>(VPSize.Y), 1.f);
+
+		// Convert per-side cursor offset to a single normalized padding.
+		// Padding is always non-negative; the matching axis sign on the
+		// cursor offset determines whether the cursor is on the correct
+		// side of SP at all (negative ⇒ collapse padding to 0). Clamp to
+		// [0, 0.5] = at most half a viewport per side.
+		FShotScreenZonePadding& Active = ActiveDragZoneIsSoft ? Zones->SoftZone : Zones->DeadZone;
+		FShotScreenZonePadding& Other  = ActiveDragZoneIsSoft ? Zones->DeadZone : Zones->SoftZone;
+		float NewPad = 0.f;
+		float* ActivePadPtr = nullptr;
+		float* OtherPadPtr  = nullptr;
+		switch (ActiveDragZoneEdgeIndex)
+		{
+		case 0: // Left  — cursor must be to the LEFT of SP (DXpx < 0)
+			NewPad = FMath::Clamp(-DXpx / VPWidth, 0.f, 0.5f);
+			ActivePadPtr = &Active.Left;
+			OtherPadPtr  = &Other.Left;
+			break;
+		case 1: // Right — cursor must be to the RIGHT of SP (DXpx > 0)
+			NewPad = FMath::Clamp(DXpx / VPWidth, 0.f, 0.5f);
+			ActivePadPtr = &Active.Right;
+			OtherPadPtr  = &Other.Right;
+			break;
+		case 2: // Top   — cursor must be ABOVE SP (DYpx < 0, +Y normalized = top)
+			NewPad = FMath::Clamp(-DYpx / VPHeight, 0.f, 0.5f);
+			ActivePadPtr = &Active.Top;
+			OtherPadPtr  = &Other.Top;
+			break;
+		case 3: // Bottom
+			NewPad = FMath::Clamp(DYpx / VPHeight, 0.f, 0.5f);
+			ActivePadPtr = &Active.Bottom;
+			OtherPadPtr  = &Other.Bottom;
+			break;
+		default:
+			return;
+		}
+		check(ActivePadPtr && OtherPadPtr);
+		*ActivePadPtr = NewPad;
+
+		// Enforce the dead ≤ soft invariant on the same side only. Dragging
+		// soft below dead pulls dead inward; dragging dead past soft pushes
+		// soft outward. Other three sides are untouched — that's the whole
+		// point of the asymmetric padding model.
+		if (ActiveDragZoneIsSoft)
+		{
+			// Active = Soft side; Other = Dead side. Soft >= Dead invariant
+			// ⇒ pull Dead down to NewPad if Dead was larger.
+			*OtherPadPtr = FMath::Min(*OtherPadPtr, NewPad);
+		}
+		else
+		{
+			// Active = Dead side; Other = Soft side. Push Soft up.
+			*OtherPadPtr = FMath::Max(*OtherPadPtr, NewPad);
+		}
+
+		// Shift-symmetric drag — when the user holds Shift, mirror the
+		// edited padding onto the opposite side of the same axis (Left ↔
+		// Right or Top ↔ Bottom). Cinemachine has the same modifier; the
+		// expected designer flow is "default to single-side, hold Shift
+		// when I want a centered zone". Modifier read is one Slate query
+		// per frame during a drag — cheap. The opposite-side update goes
+		// through the same dead/soft invariant clamp, with the *opposite*
+		// pad as the active side now (so the invariant is enforced on
+		// both sides of the axis).
+		const bool bShiftHeld = FSlateApplication::IsInitialized()
+			&& FSlateApplication::Get().GetModifierKeys().IsShiftDown();
+		if (bShiftHeld)
+		{
+			float* MirrorActivePtr = nullptr;
+			float* MirrorOtherPtr  = nullptr;
+			switch (ActiveDragZoneEdgeIndex)
+			{
+			case 0: MirrorActivePtr = &Active.Right;  MirrorOtherPtr = &Other.Right;  break;  // Left  ↔ Right
+			case 1: MirrorActivePtr = &Active.Left;   MirrorOtherPtr = &Other.Left;   break;
+			case 2: MirrorActivePtr = &Active.Bottom; MirrorOtherPtr = &Other.Bottom; break;  // Top   ↔ Bottom
+			case 3: MirrorActivePtr = &Active.Top;    MirrorOtherPtr = &Other.Top;    break;
+			}
+			if (MirrorActivePtr && MirrorOtherPtr)
+			{
+				*MirrorActivePtr = NewPad;
+				if (ActiveDragZoneIsSoft)
+				{
+					*MirrorOtherPtr = FMath::Min(*MirrorOtherPtr, NewPad);
+				}
+				else
+				{
+					*MirrorOtherPtr = FMath::Max(*MirrorOtherPtr, NewPad);
+				}
+			}
+		}
+		// Same Sequencer-respawn rationale as the anchor drag below — skip
+		// per-frame PostEditChangeProperty.
+		return;
+	}
+
 	FVector2D NewScreenPos = PixelToNormalizedScreen(PixelX, PixelY, VPSize);
 	NewScreenPos.X = FMath::Clamp(NewScreenPos.X, -0.5f, 0.5f);
 	NewScreenPos.Y = FMath::Clamp(NewScreenPos.Y, -0.5f, 0.5f);
@@ -912,7 +1406,10 @@ void FComposableCameraShotEditorViewportClient::EndDrag()
 	// whole drag as a single step from start (Modify call) to here.
 	DragTransaction.Reset();
 
-	ActiveDragHandleType = EHandleType::None;
+	ActiveDragHandleType    = EHandleType::None;
+	bActiveDragIsZoneEdge   = false;
+	ActiveDragZoneIsSoft    = false;
+	ActiveDragZoneEdgeIndex = -1;
 }
 
 void FComposableCameraShotEditorViewportClient::StartRollDrag()
@@ -1143,13 +1640,17 @@ bool FComposableCameraShotEditorViewportClient::InputKey(const FInputKeyEventArg
 		{
 			if (EventArgs.Event == IE_Pressed && ActiveShot)
 			{
-				EHandleType HitType;
-				if (HitTestHandles(Viewport->GetMouseX(), Viewport->GetMouseY(), HitType))
+				FHandleScreenPosCache Hit;
+				if (HitTestHandles(Viewport->GetMouseX(), Viewport->GetMouseY(), Hit))
 				{
 					// Start handle drag — begin a transaction so the whole
 					// gesture undoes as one entry, snapshot host state for undo.
-					DragTransaction = MakeUnique<FScopedTransaction>(
-						LOCTEXT("DragShotScreenPosition", "Drag Shot Screen Position"));
+					// Title differs slightly between anchor / zone-edge so the
+					// undo history is informative ("Drag Shot Screen Position"
+					// vs "Resize Framing Zone").
+					DragTransaction = MakeUnique<FScopedTransaction>(Hit.bIsZoneEdge
+						? LOCTEXT("DragShotZoneEdge", "Resize Framing Zone")
+						: LOCTEXT("DragShotScreenPosition", "Drag Shot Screen Position"));
 					if (UObject* Host = ActiveHost.Get())
 					{
 						// CRITICAL: bypass UObject::Modify and call
@@ -1168,7 +1669,10 @@ bool FComposableCameraShotEditorViewportClient::InputKey(const FInputKeyEventArg
 						// in one shot at commit, which is the right time.
 						SaveToTransactionBuffer(Host, /*bMarkDirty=*/false);
 					}
-					ActiveDragHandleType  = HitType;
+					ActiveDragHandleType    = Hit.Type;
+					bActiveDragIsZoneEdge   = Hit.bIsZoneEdge;
+					ActiveDragZoneIsSoft    = Hit.bIsSoftZone;
+					ActiveDragZoneEdgeIndex = Hit.EdgeIndex;
 					return true;
 				}
 				// LMB pressed off-handle in Drag mode → eat so base class
@@ -1249,11 +1753,27 @@ void FComposableCameraShotEditorViewportClient::MouseMove(
 	if (CurrentMode != EShotEditorMode::Drag
 		|| ActiveDragHandleType != EHandleType::None)
 	{
-		HoveredHandleType = EHandleType::None;
+		HoveredHandleType    = EHandleType::None;
+		bHoveredIsZoneEdge   = false;
+		HoveredZoneIsSoft    = false;
+		HoveredZoneEdgeIndex = -1;
 		return;
 	}
-	EHandleType HitType;
-	HoveredHandleType = HitTestHandles(X, Y, HitType) ? HitType : EHandleType::None;
+	FHandleScreenPosCache Hit;
+	if (HitTestHandles(X, Y, Hit))
+	{
+		HoveredHandleType    = Hit.Type;
+		bHoveredIsZoneEdge   = Hit.bIsZoneEdge;
+		HoveredZoneIsSoft    = Hit.bIsSoftZone;
+		HoveredZoneEdgeIndex = Hit.EdgeIndex;
+	}
+	else
+	{
+		HoveredHandleType    = EHandleType::None;
+		bHoveredIsZoneEdge   = false;
+		HoveredZoneIsSoft    = false;
+		HoveredZoneEdgeIndex = -1;
+	}
 }
 
 // (Alt+RMB Roll handling lives in InputKey + CapturedMouseMove, NOT
@@ -1676,7 +2196,7 @@ void FComposableCameraShotEditorViewportClient::SyncProxyTransforms()
 	}
 }
 
-void FComposableCameraShotEditorViewportClient::RunSolverAndDriveCamera()
+void FComposableCameraShotEditorViewportClient::RunSolverAndDriveCamera(float DeltaSeconds)
 {
 	using namespace ComposableCameraSystem::ShotSolver;
 
@@ -1727,7 +2247,22 @@ void FComposableCameraShotEditorViewportClient::RunSolverAndDriveCamera()
 		}
 	}
 
-	const FShotSolveResult Result = SolveShot(EffectiveShot, Context);
+	// Hand the solver a prior-pose snapshot when zones may need it. Null
+	// on the first solve after Shot bind / cache invalidation — the solver
+	// then takes the V1 hard-constraint path to seed an initial pose.
+	FShotPriorPose PriorPose;
+	const FShotPriorPose* PriorPosePtr = nullptr;
+	if (bHasCachedPriorPose)
+	{
+		PriorPose.Position     = CachedPriorPos;
+		PriorPose.Rotation     = CachedPriorRot;
+		PriorPose.LastDistance = CachedPriorDistance;
+		PriorPose.LastFOV      = CachedPriorFOV;
+		PriorPose.LastRoll     = CachedPriorRoll;
+		PriorPosePtr       = &PriorPose;
+	}
+
+	const FShotSolveResult Result = SolveShot(EffectiveShot, Context, PriorPosePtr, DeltaSeconds);
 
 	// LENS (FOV) — always applied, regardless of `Result.bValid` AND
 	// regardless of editor mode. The solver pre-fills `R.FieldOfView`
@@ -1750,9 +2285,28 @@ void FComposableCameraShotEditorViewportClient::RunSolverAndDriveCamera()
 		// the designer can drag toward a solvable configuration. Skip
 		// the DoF push (focus distance from a stale pose would be wrong)
 		// and the pose write.
+		//
+		// Prior-pose cache is not cleared here — when the shot becomes
+		// resolvable again, projecting through the last known good pose
+		// is a better starting point for the zone math than a hard-seed,
+		// because the visible camera pose is still that pose. (Mirrors
+		// the runtime FramingNode's `OnTickNode` behavior.)
 		bCachedDoFValid = false;
 		return;
 	}
+
+	// Cache the solved pose for next-frame zone preprocessing. Done
+	// regardless of mode so that switching from Free → Drag still has
+	// a usable prior. (Free mode's user-driven pose isn't what the
+	// solver produced — but the solver-side cache should track *the
+	// solver's* output, not the user's live drag, so the zone math
+	// stays self-consistent across mode swaps.)
+	CachedPriorPos      = Result.CameraPosition;
+	CachedPriorRot      = Result.CameraRotation;
+	CachedPriorDistance = Result.EffectiveDistance;
+	CachedPriorFOV      = Result.FieldOfView;
+	CachedPriorRoll     = Result.CameraRotation.Roll;
+	bHasCachedPriorPose = true;
 
 	// POSE (location / rotation) — only in Drag and Lock. In Free, the
 	// camera location/rotation come from the user's mouse drags through
