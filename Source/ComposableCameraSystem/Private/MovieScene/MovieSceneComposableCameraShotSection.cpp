@@ -133,12 +133,11 @@ bool UMovieSceneComposableCameraShotSection::BuildEffectiveShot(
 
 	for (const FComposableCameraShotTargetActorOverride& Override : TargetActorOverrides)
 	{
-		if (!OutShot.Targets.IsValidIndex(Override.TargetIndex))
+		if (Override.TargetIndex < 0)
 		{
-			// Stale overrides (e.g. ShotAsset edited to remove a target) —
-			// silent drop. Logging here would spam every frame the section
-			// is in range; the user-visible signal is "the override didn't
-			// take effect", which is the correct outcome.
+			// Negative index — meta=(ClampMin="0") on the UPROPERTY should
+			// already prevent this, but defensive skip in case of a hand-
+			// edited asset / migration.
 			continue;
 		}
 		if (!Override.Binding.IsValid())
@@ -155,15 +154,38 @@ bool UMovieSceneComposableCameraShotSection::BuildEffectiveShot(
 			// retries.
 			continue;
 		}
-		if (AActor* Actor = Cast<AActor>(Bound[0].Get()))
+		AActor* Actor = Cast<AActor>(Bound[0].Get());
+		if (!Actor)
 		{
-			// TSoftObjectPtr<AActor> assignment from a raw AActor* captures
-			// the actor's path. For Spawnables the path includes the unique
-			// spawn-cycle suffix, so the LS Component's downstream `.Get()`
-			// resolves to the same currently-spawned instance this frame.
-			// Re-resolved next frame in case the Spawnable's identity churns.
-			OutShot.Targets[Override.TargetIndex].Target.Actor = Actor;
+			continue;
 		}
+
+		// Auto-grow Targets to fit the override's TargetIndex. The original
+		// design assumed the underlying Inline / ShotAsset Shot had a Targets
+		// entry for every TargetIndex referenced by an override, so missing
+		// indices were treated as "stale override, silent drop". In practice
+		// designers configure TargetActorOverrides on a Section without first
+		// adding placeholder Targets entries on the InlineShot — the UI
+		// invites doing exactly that, and the silent-drop behavior produced a
+		// PIE-only "Targets[] empty → SolveShot fails → CineCam at world
+		// origin" failure that's invisible at edit time (the Shot Editor's
+		// preview path takes a different code branch and shows the override
+		// resolved correctly). Auto-growing makes the override slot itself
+		// the source of truth for target presence; the Inline / ShotAsset
+		// Shot only needs to author the *non-actor* fields of each target
+		// (Bone, Offset, BoundsShape, Weight) for indices the designer cares
+		// about beyond just the actor identity.
+		if (!OutShot.Targets.IsValidIndex(Override.TargetIndex))
+		{
+			OutShot.Targets.SetNum(Override.TargetIndex + 1);
+		}
+
+		// TSoftObjectPtr<AActor> assignment from a raw AActor* captures
+		// the actor's path. For Spawnables the path includes the unique
+		// spawn-cycle suffix, so the LS Component's downstream `.Get()`
+		// resolves to the same currently-spawned instance this frame.
+		// Re-resolved next frame in case the Spawnable's identity churns.
+		OutShot.Targets[Override.TargetIndex].Target.Actor = Actor;
 	}
 
 	return true;

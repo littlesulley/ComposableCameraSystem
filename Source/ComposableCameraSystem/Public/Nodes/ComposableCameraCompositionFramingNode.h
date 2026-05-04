@@ -203,6 +203,17 @@ private:
 	 */
 	int32 LocalFrameCounter = 0;
 
+	// ─── Detailed-warning rate-limiter for SolveShot failures ───────────
+	//
+	// SolveShot prints a generic warning every frame the primary anchor is
+	// unresolvable. The richer diagnostic in `OnTickNode_Implementation`
+	// (Targets dump, world-type, owner LSActor) is gated on these so a
+	// steady-state failure logs once instead of every frame. Re-armed on
+	// recovery (next valid solve) and on Targets-count change so a designer
+	// edit that mutates the Targets array re-issues the diagnostic.
+	bool bLastTickWasUnresolved = false;
+	int32 LastUnresolvedTargetCount = INDEX_NONE;
+
 	// ─── Cinemachine-style framing-zone prior-pose state ────────────────
 	//
 	// When `Aim.AimZones.bEnabled` (or the equivalent placement zones) is

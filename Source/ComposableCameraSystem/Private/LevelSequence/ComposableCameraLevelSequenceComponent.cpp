@@ -428,6 +428,29 @@ void UComposableCameraLevelSequenceComponent::ProjectPoseToCineCamera(const FCom
 		return;
 	}
 
+	// Framing solver failed this tick — hold the CineCamera's current
+	// transform instead of writing the upstream-default pose (which is
+	// `(0, 0, 0)` for a freshly-spawned InternalCamera and would render
+	// the camera at world origin). Hits the gate-flip-ON edge case: the
+	// synchronous `EvaluateOnce(0)` in `SetEvaluationEnabled(true)` runs
+	// in the instantiation phase, BEFORE the Shot TrackInstance pushes
+	// its first override in the evaluation phase, so the framing node
+	// solves against its default empty Shot and fails. Without this
+	// guard, the failure would burn an origin pose onto the CineCam
+	// before the second `EvaluateOnce` (triggered by `SetSequencerShotOverride`'s
+	// first-entry re-eval) can write the correct one, and the PCM POV
+	// captured between the two writes (CameraCut TrackInstance fires in
+	// evaluation phase too — order vs. ours is undefined) would render
+	// the actor at world origin for a frame.
+	//
+	// Cameras without a `CompositionFramingNode` never set this flag
+	// (default `false`), so the projection runs unconditionally for them
+	// — preserves the original behavior for non-Shot-driven LS Actors.
+	if (InternalCamera && InternalCamera->bLastTickFramingFailed)
+	{
+		return;
+	}
+
 	// Position + Rotation always — the unconditional baseline that the
 	// camera-track / cut path relies on regardless of whether a Shot
 	// Section is driving the LS Component this frame.
@@ -692,12 +715,61 @@ void UComposableCameraLevelSequenceComponent::SetSequencerShotOverride(
 		return;
 	}
 
+	// First-frame-of-section detection BEFORE FindOrAdd so we can tell a
+	// genuinely-new override apart from a per-frame refresh of an existing one.
+	const bool bIsNewEntry = (SequencerShotOverrides.Find(Section) == nullptr);
+
 	// Whole-struct copy so the EnterTransition TObjectPtr inside the entry
 	// is correctly tracked through TMap relocations (the prior field-by-field
 	// assignment pattern was fine for a POD-y struct; once the struct holds
 	// UPROPERTY-tracked TObjectPtrs, copy-assign is safer than partial writes).
 	FComposableCameraSequencerShotEntry& Entry = SequencerShotOverrides.FindOrAdd(Section);
 	Entry = InEntry;
+
+	// Cut-into-Shot-driven-camera origin-frame fix.
+	//
+	// On a non-overlapping CameraCut into a gated LS Actor, the gate's
+	// instantiation-phase OFF→ON flip fires `EvaluateOnce(0)` synchronously
+	// (LS Component's `SetEvaluationEnabled` path) BEFORE the Shot
+	// TrackInstance pushes its first override (TrackInstance::OnAnimate runs
+	// in the later evaluation phase). With the override map still empty at
+	// flip time, `ApplyActiveSequencerShotOverride` is a no-op,
+	// CompositionFramingNode falls back to its default (empty Targets) Shot,
+	// the solver returns invalid, and the upstream identity pose lands on
+	// the CineCamera — visually "B's camera at world origin" for the cut
+	// frame in PIE / Game. Editor scrub doesn't hit this because the gate
+	// bypasses editor worlds entirely (see GateInstantiator) so B's
+	// component has been ticking continuously and CineCam is already at the
+	// correct pose by the time the cut fires.
+	//
+	// Re-running EvaluateOnce here, AFTER we've just installed the very
+	// first override entry for a section, runs the framing-node solver with
+	// the now-populated `SequencerShotOverrides` and re-projects to the
+	// CineCam in the same frame the cut renders. The `bEvaluationEnabled`
+	// guard avoids spawning the InternalCamera for a Shot input the gate
+	// has chosen NOT to enable (the `OnAnimate` walk pushes overrides for
+	// every in-range section regardless of gate state, but only enabled
+	// components should pay the per-tick evaluation cost).
+	//
+	// Cost: one extra EvaluateOnce on each section's first in-range frame.
+	// Steady-state in-range frames hit the `!bIsNewEntry` short-circuit and
+	// rely on the normal TickComponent path, so this is not a per-frame
+	// regression.
+	if (bIsNewEntry && bEvaluationEnabled)
+	{
+		// `EvaluateOnce` would short-circuit through `TickCamera`'s
+		// per-frame memoization if the gate's flip already ticked the
+		// camera this frame (cached pose was solved against an empty
+		// override map and is exactly the bad pose we're trying to
+		// replace). LSComp's InternalCamera lives outside the snapshot
+		// DAG, so bypassing the cache here is safe — see
+		// `AComposableCameraCameraBase::InvalidateTickCache` doc.
+		if (InternalCamera)
+		{
+			InternalCamera->InvalidateTickCache();
+		}
+		EvaluateOnce(0.f);
+	}
 }
 
 void UComposableCameraLevelSequenceComponent::RemoveSequencerShotOverride(

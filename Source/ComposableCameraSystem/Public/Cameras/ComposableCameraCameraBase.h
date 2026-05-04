@@ -380,6 +380,24 @@ public:
 	[[nodiscard]] FComposableCameraPose TickCamera(float DeltaTime);
 
 	/**
+	 * Force the next `TickCamera` (or `TickWithInputPose`) on this camera to walk
+	 * the node chain even if it has already ticked this frame.
+	 *
+	 * The default per-frame memoization (see `LastTickedFrameCounter`) is a
+	 * correctness requirement for cameras inside the snapshot DAG (a single
+	 * underlying leaf reachable via multiple RefLeaf paths must tick exactly
+	 * once). Callers that own a camera OUTSIDE the DAG — most notably
+	 * `UComposableCameraLevelSequenceComponent`'s `InternalCamera` and the
+	 * Patch-overlay evaluators — can use this hook to rerun the chain after
+	 * pushing fresh inputs in the same frame (e.g. a Sequencer Shot / Patch
+	 * override applied AFTER the gate's instantiation-phase warm-up tick has
+	 * already burned a stale pose into the cache). Inside the DAG, calling
+	 * this would re-introduce the double-advance bug the cache exists to
+	 * prevent — DAG callers must not use it.
+	 */
+	void InvalidateTickCache() { LastTickedFrameCounter = 0; }
+
+	/**
 	 * Per-frame entry point for evaluators driven by an upstream pose, used by
 	 * the Camera Patch system. Sets `CameraPose = InputPose` so the first node in
 	 * the chain reads the upstream pose as its starting state, then delegates to
@@ -532,6 +550,31 @@ public:
 	 * Not a UPROPERTY — purely transient evaluation-time scratch.
 	 */
 	uint64 LastTickedFrameCounter { 0 };
+
+	/**
+	 * Set by `UComposableCameraCompositionFramingNode::OnTickNode` each tick
+	 * — true when the primary `SolveShot` returned `bValid=false` (anchor
+	 * unresolvable, all weights zero, target index out of range, etc.).
+	 *
+	 * Consumed by `UComposableCameraLevelSequenceComponent::ProjectPoseToCineCamera`
+	 * to skip the CineCamera transform write on solver failure, so the
+	 * CineCamera holds its last-valid transform instead of having a default-
+	 * identity (or upstream-default) pose burned in. Critical for the
+	 * gate-flip-ON path: when `SetEvaluationEnabled(true)` runs synchronous
+	 * `EvaluateOnce(0)` BEFORE the Shot TrackInstance has had a chance to
+	 * push its first override, the solver runs against the framing node's
+	 * default empty Shot, fails, and would otherwise project an origin pose
+	 * onto the CineCam — destroying the camera's spawn-position transform
+	 * just before the PCM ViewTarget switch reads it.
+	 *
+	 * Cameras without a CompositionFramingNode keep this at the default
+	 * `false` and project normally — the flag is only ever written by the
+	 * framing node, so non-framing pipelines aren't affected.
+	 *
+	 * Transient — not a UPROPERTY. Reset by spawn (default ctor → false)
+	 * and by every framing node tick.
+	 */
+	bool bLastTickFramingFailed { false };
 
 	/**
 	 * Full execution chain for the per-frame camera tick, including both

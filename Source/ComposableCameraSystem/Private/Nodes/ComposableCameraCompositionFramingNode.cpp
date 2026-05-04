@@ -5,6 +5,9 @@
 #include "Cameras/ComposableCameraCameraBase.h"
 #include "ComposableCameraSystemModule.h"
 #include "DataAssets/ComposableCameraTransitionDataAsset.h"
+#include "Engine/EngineTypes.h"
+#include "Engine/World.h"
+#include "GameFramework/Actor.h"
 #include "Math/ComposableCameraShotSolver.h"
 #include "Transitions/ComposableCameraTransitionBase.h"
 #include "Utils/ComposableCameraViewportUtils.h"
@@ -195,6 +198,95 @@ void UComposableCameraCompositionFramingNode::OnTickNode_Implementation(
 
 	if (!PrimaryResult.bValid)
 	{
+		// Primary anchor unresolvable. Solver already logged a generic
+		// warning; emit a richer one (gated to once-per-owner-per-state-
+		// change) so the failing Shot can be identified without a debugger
+		// attach. Tracks the prior printed state per node so a steady-state
+		// failure logs once instead of every frame, and recovery (anchor
+		// becomes resolvable again) re-arms the warn for the next failure.
+		const bool bShouldEmitDetailedWarn =
+			!bLastTickWasUnresolved
+			|| LastUnresolvedTargetCount != Shot.Targets.Num();
+		if (bShouldEmitDetailedWarn)
+		{
+			const AActor* OwnerActor = OwningCamera ? OwningCamera->GetOwner() : nullptr;
+			const AActor* OwnerActorOuter = OwnerActor ? OwnerActor->GetOwner() : nullptr;
+			FString TargetsDump;
+			if (Shot.Targets.Num() == 0)
+			{
+				TargetsDump = TEXT("Targets[] is EMPTY (Shot has no targets — SingleTarget anchor mode will fail with TargetIndex out of range)");
+			}
+			else
+			{
+				for (int32 i = 0; i < Shot.Targets.Num(); ++i)
+				{
+					const FComposableCameraTargetInfo& T = Shot.Targets[i].Target;
+					AActor* Resolved = T.Actor.Get();
+					const FString PathStr = T.Actor.ToSoftObjectPath().ToString();
+					const UWorld* ResolvedWorld = Resolved ? Resolved->GetWorld() : nullptr;
+					const TCHAR* WorldTypeStr = TEXT("<none>");
+					if (ResolvedWorld)
+					{
+						switch (ResolvedWorld->WorldType)
+						{
+							case EWorldType::Editor:        WorldTypeStr = TEXT("Editor");        break;
+							case EWorldType::EditorPreview: WorldTypeStr = TEXT("EditorPreview"); break;
+							case EWorldType::PIE:           WorldTypeStr = TEXT("PIE");           break;
+							case EWorldType::Game:          WorldTypeStr = TEXT("Game");          break;
+							case EWorldType::GamePreview:   WorldTypeStr = TEXT("GamePreview");   break;
+							default: break;
+						}
+					}
+					TargetsDump += FString::Printf(
+						TEXT("\n    Targets[%d]: SoftPath='%s' Actor.Get()=%s%s%s"),
+						i,
+						*PathStr,
+						Resolved ? *Resolved->GetName() : TEXT("<null>"),
+						Resolved ? *FString::Printf(TEXT(" (in %s world)"), WorldTypeStr) : TEXT(""),
+						T.bUseBoneAsPivot ? *FString::Printf(TEXT(" Bone='%s'"), *T.BoneName.ToString()) : TEXT(""));
+				}
+			}
+
+			const TCHAR* AnchorModeStr = TEXT("?");
+			switch (Shot.Placement.PlacementAnchor.Mode)
+			{
+				case EShotAnchorMode::SingleTarget:           AnchorModeStr = TEXT("SingleTarget"); break;
+				case EShotAnchorMode::WeightedWorldCentroid:  AnchorModeStr = TEXT("WeightedWorldCentroid"); break;
+				case EShotAnchorMode::FixedWorldPosition:     AnchorModeStr = TEXT("FixedWorldPosition"); break;
+			}
+
+			UE_LOG(LogComposableCameraSystem, Warning,
+				TEXT("CompositionFramingNode: Primary SolveShot FAILED on '%s' (outer='%s'). "
+				     "PlacementAnchor.Mode=%s, TargetIndex=%d, Targets.Num()=%d.%s\n"
+				     "  → Camera will fall back to upstream pose (default identity for fresh InternalCamera, last good pose otherwise). "
+				     "If you see camera-at-origin in PIE: TargetActorOverrides binding likely failed to resolve in PIE — verify the Possessable's level-actor exists in the PIE world, or check Sequencer binding remap timing."),
+				OwnerActor ? *OwnerActor->GetName() : TEXT("<no owner>"),
+				OwnerActorOuter ? *OwnerActorOuter->GetName() : TEXT("<none>"),
+				AnchorModeStr,
+				Shot.Placement.PlacementAnchor.TargetIndex,
+				Shot.Targets.Num(),
+				*TargetsDump);
+		}
+		bLastTickWasUnresolved = true;
+		LastUnresolvedTargetCount = Shot.Targets.Num();
+
+		// Signal to the LS Component projection path: this tick produced no
+		// valid framing pose, so don't write the upstream-default pose over
+		// the CineCamera's current transform. Critical for the gate-flip-ON
+		// path where the synchronous EvaluateOnce(0) runs in instantiation
+		// phase — BEFORE the Shot TrackInstance pushes its first override
+		// in evaluation phase — and would otherwise burn an origin pose
+		// onto a freshly-spawned LSShotActor's CineCam, which then leaks
+		// to the PCM ViewTarget POV and renders one frame at world origin.
+		// With the flag set, ProjectPoseToCineCamera holds the CineCam's
+		// last-valid transform; the second EvaluateOnce triggered by the
+		// TrackInstance push (via SetSequencerShotOverride's first-entry
+		// re-eval) writes the correct pose before the renderer captures.
+		if (OwningCamera)
+		{
+			OwningCamera->bLastTickFramingFailed = true;
+		}
+
 		// Primary anchor unresolvable. Solver already logged a warning; pass
 		// the upstream pose through unchanged (camera holds its previous
 		// frame's state until the Shot becomes resolvable again). Phase F
@@ -210,6 +302,15 @@ void UComposableCameraCompositionFramingNode::OnTickNode_Implementation(
 		OutCameraPose = CurrentCameraPose;
 		++LocalFrameCounter;
 		return;
+	}
+
+	// Recovery — clear the unresolved-state tracker so the next failure
+	// re-arms the detailed warn (don't accumulate stale state across runs).
+	bLastTickWasUnresolved = false;
+	LastUnresolvedTargetCount = INDEX_NONE;
+	if (OwningCamera)
+	{
+		OwningCamera->bLastTickFramingFailed = false;
 	}
 
 	FComposableCameraPose PrimaryPose;
