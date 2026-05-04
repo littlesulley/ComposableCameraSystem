@@ -12,9 +12,11 @@
 #include "Kismet2/CompilerResultsLog.h"
 #include "Kismet/KismetSystemLibrary.h"
 #include "Kismet2/BlueprintEditorUtils.h"
+#include "Containers/Ticker.h"
 #include "ScopedTransaction.h"
 #include "ToolMenu.h"
 #include "ToolMenuSection.h"
+#include "UObject/SoftObjectPath.h"
 #include "UObject/UObjectGlobals.h"
 
 #include "ComposableCameraEdGraphPinTypeUtils.h"
@@ -277,6 +279,70 @@ void UK2Node_ActivateComposableCamera::PostLoad()
 	}
 
 	SubscribeToAssetChangeDelegate();
+
+	// Auto-recover from baked-in orphan pin state. Background:
+	// an earlier reconstruction running with CachedTypeAsset == nullptr (EDL
+	// race, or pre-guard corruption) failed to recreate a dynamic pin the
+	// user had wired; the engine substituted an orphan placeholder in the
+	// new Pins[] array so the wire wouldn't be silently dropped. If the
+	// blueprint was saved at that point, the orphan got committed to disk.
+	// On every subsequent plain load, the Pins[] array (orphan included) is
+	// deserialized as-is and no reconstruction runs — so the per-Reallocate
+	// self-heal below never gets a chance to run. The user sees a red
+	// "In use pin X no longer exists" warning every cold restart and only
+	// a manual Refresh clears it (because Refresh forces reconstruction
+	// AFTER the asset has fully PostLoaded, at which point self-heal works).
+	//
+	// Detect that disk-baked orphan state here and trigger one reconstruction
+	// pass. ReallocatePinsDuringReconstruction's self-heal handles the rest:
+	// recovers CachedTypeAsset (DefaultObject → DefaultValue fallback),
+	// rebuilds dynamic pins from the now-fully-PostLoaded asset, drops the
+	// orphan placeholder. Reconstruction does not dirty the package by
+	// itself; the user's next save persists the cleaned layout naturally.
+	bool bHasOrphanPin = false;
+	for (const UEdGraphPin* Pin : Pins)
+	{
+		if (Pin && Pin->bOrphanedPin)
+		{
+			bHasOrphanPin = true;
+			break;
+		}
+	}
+	if (bHasOrphanPin)
+	{
+		// Defer reconstruction to next tick. Calling ReconstructNode directly
+		// from PostLoad trips ZenLoader's RF_NeedLoad ensure (Obj.cpp:1314)
+		// because reconstruction touches related objects (the blueprint, the
+		// CachedTypeAsset, sibling nodes) that may still be in the load batch
+		// with RF_NeedLoad set. By the time the ticker fires, the load batch
+		// has completed for every object in this PostLoad cascade.
+		//
+		// Capturing via TWeakObjectPtr keeps GC honest: if the blueprint /
+		// node is destroyed before the ticker fires, the lambda no-ops.
+		TWeakObjectPtr<UK2Node_ActivateComposableCamera> WeakThis(this);
+		FTSTicker::GetCoreTicker().AddTicker(
+			FTickerDelegate::CreateLambda([WeakThis](float) -> bool
+			{
+				if (UK2Node_ActivateComposableCamera* StrongThis = WeakThis.Get())
+				{
+					if (IsValid(StrongThis))
+					{
+						// ConditionalPostLoad forces the asset's own PostLoad
+						// migration (GUID backfill, name de-duplication) to
+						// complete before reconstruction reads its arrays.
+						if (StrongThis->CachedTypeAsset)
+						{
+							StrongThis->CachedTypeAsset->ConditionalPostLoad();
+						}
+						UE_LOG(LogComposableCameraSystem, Warning,
+							TEXT("K2 ActivateComposableCamera deferred PostLoad recovery: orphan pin detected; reconstructing now."));
+						StrongThis->ReconstructNode();
+					}
+				}
+				return false; // one-shot; do not repeat
+			}),
+			0.0f);
+	}
 }
 
 void UK2Node_ActivateComposableCamera::BeginDestroy()
@@ -316,29 +382,91 @@ void UK2Node_ActivateComposableCamera::ReallocatePinsDuringReconstruction(TArray
 	// short-circuit while this pass is in flight.
 	TGuardValue<bool> ReconstructionGuard(bIsReconstructing, true);
 
-	// Stale-state self-heal for CachedTypeAsset. Blueprints saved by a build
-	// that predates the re-entrancy guard above may have ended up with
-	// CachedTypeAsset == nullptr while the saved CameraTypeAsset pin still
-	// carries a valid DefaultObject — the original bug nulled CachedTypeAsset
-	// (via OnCameraTypeAssetChanged's else-branch) without disturbing the pin.
-	// Once that desync is on disk, no path naturally recovers it: the only
-	// writer of CachedTypeAsset is OnCameraTypeAssetChanged, which only fires
-	// from PinDefaultValueChanged, which is not re-issued on plain blueprint
-	// load. The result is an empty CachedTypeAsset on every reload, which
-	// makes CreateDynamicParameterPins skip every dynamic pin and orphans
-	// every author-wired override (e.g. "FollowTarget no longer exists").
-	// Recover by reading the asset pin's DefaultObject directly out of OldPins
-	// before any downstream code (the LinkedTo self-heal below, the Super call
-	// that runs CreateDynamicParameterPins) consults CachedTypeAsset.
+	// Stale-state self-heal for CachedTypeAsset. Two distinct failure modes
+	// land here:
+	//
+	//   1. Legacy on-disk corruption. Blueprints saved by a build that
+	//      predates the re-entrancy guard above may have committed
+	//      CachedTypeAsset == nullptr while the saved CameraTypeAsset pin
+	//      still carries the right reference — the original bug nulled
+	//      CachedTypeAsset (via OnCameraTypeAssetChanged's else-branch)
+	//      without disturbing the pin. Once that desync is on disk no path
+	//      naturally recovers it, because the only writer of CachedTypeAsset
+	//      is OnCameraTypeAssetChanged, which only fires from
+	//      PinDefaultValueChanged, which is not re-issued on plain load.
+	//
+	//   2. EDL load-order race. Even on a freshly-saved blueprint, the type
+	//      asset's PostLoad may not have completed by the time blueprint
+	//      compilation triggers our reconstruction. In that window the K2
+	//      node's CachedTypeAsset (TObjectPtr) reads as nullptr AND the
+	//      OldPin's DefaultObject (also a hard reference) reads as nullptr,
+	//      while OldPin->DefaultValue still carries the serialized asset
+	//      path string — the pin renders the asset name to the user via
+	//      that string, so the picker looks fine, but downstream code that
+	//      consults the pointer sees null. The race is intermittent: across
+	//      cold restarts the same blueprint+asset pair can land on either
+	//      side of EDL ordering.
+	//
+	// Without recovery, both modes drop into CreateDynamicParameterPins with
+	// a null asset, skip every dynamic pin, and orphan every author-wired
+	// override pin ("In use pin X no longer exists"). Recover here, before
+	// any downstream code (the LinkedTo self-heal below, the Super call that
+	// runs CreateDynamicParameterPins) consults CachedTypeAsset.
+	//
+	// Two-tier recovery: prefer OldPin->DefaultObject when the linker has
+	// already resolved the pointer, fall back to FSoftObjectPath::TryLoad on
+	// OldPin->DefaultValue when EDL hasn't gotten there yet. Synchronous
+	// load is acceptable in this position because the K2 node has a hard
+	// UPROPERTY dependency on this asset; pulling the remaining preload
+	// window forward by one synchronous load is correct, not a workaround.
 	if (CachedTypeAsset == nullptr)
 	{
 		for (const UEdGraphPin* OldPin : OldPins)
 		{
-			if (OldPin && OldPin->PinName == PN_CameraTypeAsset && OldPin->DefaultObject)
+			if (!OldPin || OldPin->PinName != PN_CameraTypeAsset)
+			{
+				continue;
+			}
+
+			if (OldPin->DefaultObject)
 			{
 				CachedTypeAsset = Cast<UComposableCameraTypeAsset>(OldPin->DefaultObject);
-				break;
+				if (CachedTypeAsset)
+				{
+					break;
+				}
 			}
+
+			if (!OldPin->DefaultValue.IsEmpty())
+			{
+				FSoftObjectPath Path(OldPin->DefaultValue);
+				UObject* Resolved = Path.ResolveObject();
+				if (!Resolved)
+				{
+					Resolved = Path.TryLoad();
+				}
+				if (UComposableCameraTypeAsset* Recovered = Cast<UComposableCameraTypeAsset>(Resolved))
+				{
+					UE_LOG(LogComposableCameraSystem, Verbose,
+						TEXT("K2 ActivateComposableCamera: recovered CachedTypeAsset '%s' from OldPin->DefaultValue (DefaultObject was null at reconstruction time -- EDL load-order race)."),
+						*Recovered->GetName());
+					CachedTypeAsset = Recovered;
+					break;
+				}
+			}
+		}
+
+		// Make sure the recovered asset has finished its own PostLoad before
+		// CreateDynamicParameterPins reads its ExposedParameters /
+		// ExposedVariables arrays. Both DefaultObject and TryLoad paths can
+		// hand us an asset whose data has been serialized but whose PostLoad
+		// migration (EnsureExposedVariableGuids, DeduplicateExposedNames)
+		// hasn't run; reading those arrays mid-migration risks tripping the
+		// downstream "name not in cached asset" filter and dropping a pin
+		// the author actually wired.
+		if (CachedTypeAsset)
+		{
+			CachedTypeAsset->ConditionalPostLoad();
 		}
 	}
 
