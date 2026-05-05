@@ -300,6 +300,8 @@ class COMPOSABLECAMERASYSTEM_API AComposableCameraCameraBase
 public:
 	AComposableCameraCameraBase(const FObjectInitializer& ObjectInitializer);
 
+	static void AddReferencedObjects(UObject* InThis, FReferenceCollector& Collector);
+
 	/** Tag for this camera. Used by modifiers to distinguish different cameras. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "ComposableCameraSystem|Composable Camera")
 	FGameplayTag CameraTag {};

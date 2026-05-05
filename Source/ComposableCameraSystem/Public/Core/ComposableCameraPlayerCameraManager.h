@@ -31,6 +31,8 @@ class COMPOSABLECAMERASYSTEM_API AComposableCameraPlayerCameraManager
 
 public:
 	AComposableCameraPlayerCameraManager(const FObjectInitializer& ObjectInitializer);
+	static void AddReferencedObjects(UObject* InThis, FReferenceCollector& Collector);
+
 	virtual void BeginPlay() override;
 	virtual void InitializeFor(APlayerController* PlayerController) override;
 	virtual void SetViewTarget(AActor* NewViewTarget, FViewTargetTransitionParams TransitionParams = FViewTargetTransitionParams()) override;

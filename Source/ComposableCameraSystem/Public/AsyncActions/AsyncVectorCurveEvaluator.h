@@ -35,7 +35,9 @@ public:
 	FOnCompleteVectorCurve OnComplete;
 
 protected:
-	UCurveVector* Curve { nullptr };
+	UPROPERTY(Transient)
+	TObjectPtr<UCurveVector> Curve { nullptr };
+
 	float Duration { 0.f };
 	float ElapsedTime { 0.f };
 

@@ -33,7 +33,7 @@ enum class EComposableCameraPinType : uint8
 	Transform,
 	Actor,
 	Object,
-	/** Custom USTRUCT type. When this is selected, StructType must be set. */
+	/** Custom USTRUCT type. Currently rejected by runtime storage until typed ownership exists. */
 	Struct,
 	/** FName value. Stored as FName in the data block (POD: NAME_INDEX + NAME_NUMBER). */
 	Name,
@@ -441,15 +441,75 @@ struct FComposableCameraPinKey
 };
 
 /**
+ * Whether a USTRUCT can be safely stored in the byte-array RuntimeDataBlock /
+ * ParameterBlock storage path. "Safe" means: copying via FMemory::Memcpy /
+ * FProperty::CopyCompleteValue produces a value identical to a deep copy, and
+ * the struct's destruction is a no-op (no heap-owned storage to leak).
+ *
+ * Used by:
+ *   - TryMapPropertyToPinType (auto-discovery of exposable struct UPROPERTYs)
+ *   - GetPinTypeSize / GetPinTypeAlignment (RuntimeDataBlock layout)
+ *   - SetParameterBlockValue (CustomThunk struct write filter)
+ *   - ApplyStringValue (string -> struct import path)
+ *   - UComposableCameraTypeAsset::Build (authoring-time validation)
+ *
+ * Decision logic:
+ *   1. STRUCT_IsPlainOldData flag set -> safe (UHT / TStructOpsTypeTraits opted in).
+ *   2. Walk every UPROPERTY of the struct. Reject on FStr / FText / containers /
+ *      object refs / interfaces / delegates -- all carry heap-owned storage or
+ *      GC-tracked references that cannot survive a raw byte copy.
+ *   3. Recurse into nested FStructProperty.
+ *   4. Everything else (Bool, numeric, Byte/Enum, Name, FieldPath) -> safe.
+ *
+ * Bounded by reflection nesting depth (UE structs cannot be circularly
+ * self-containing); no cycle guard required.
+ */
+inline bool IsBytewiseSafeStruct(const UScriptStruct* Struct)
+{
+	if (!Struct)
+	{
+		return false;
+	}
+	if (Struct->StructFlags & STRUCT_IsPlainOldData)
+	{
+		return true;
+	}
+	for (TFieldIterator<FProperty> It(Struct); It; ++It)
+	{
+		const FProperty* P = *It;
+		if (!P)
+		{
+			continue;
+		}
+		if (P->IsA<FStrProperty>() || P->IsA<FTextProperty>()
+			|| P->IsA<FArrayProperty>() || P->IsA<FMapProperty>() || P->IsA<FSetProperty>()
+			|| P->IsA<FObjectPropertyBase>() || P->IsA<FInterfaceProperty>()
+			|| P->IsA<FDelegateProperty>() || P->IsA<FMulticastDelegateProperty>())
+		{
+			return false;
+		}
+		if (const FStructProperty* SP = CastField<FStructProperty>(P))
+		{
+			if (!IsBytewiseSafeStruct(SP->Struct))
+			{
+				return false;
+			}
+		}
+	}
+	return true;
+}
+
+/**
  * Attempt to map an FProperty (from UClass reflection) to an EComposableCameraPinType.
  *
  * Returns true if the property type has a direct pin-type mapping. Returns false for
  * unsupported types (arrays, maps, sets, Instanced object properties, FString, etc.).
  *
  * For Enum-typed properties (`FEnumProperty` for `enum class`, or `FByteProperty` whose
- * IntPropertyEnum is set), OutEnumType receives the backing UEnum*. For Struct-typed
- * properties that aren't one of the hard-coded math types, OutStructType receives the
- * specific UScriptStruct*. Both are cleared on entry.
+ * IntPropertyEnum is set), OutEnumType receives the backing UEnum*. Generic Struct
+ * properties pass iff `IsBytewiseSafeStruct` returns true (POD-like) -- non-POD
+ * structs are rejected until typed storage lands. Both metadata outputs are cleared
+ * on entry.
  *
  * Used by DeclareSubobjectPins to auto-discover exposable sub-properties of an
  * Instanced UObject, and by ApplySubobjectPinValues to dispatch typed reads.
@@ -499,10 +559,17 @@ inline bool TryMapPropertyToPinType(const FProperty* Property, EComposableCamera
 		else if (Struct == TBaseStructure<FVector4>::Get())   { OutPinType = EComposableCameraPinType::Vector4;   return true; }
 		else if (Struct == TBaseStructure<FRotator>::Get())   { OutPinType = EComposableCameraPinType::Rotator;   return true; }
 		else if (Struct == TBaseStructure<FTransform>::Get()) { OutPinType = EComposableCameraPinType::Transform; return true; }
-		// Generic struct — map as Struct pin type.
-		OutPinType = EComposableCameraPinType::Struct;
-		OutStructType = Struct;
-		return true;
+		// Generic struct: accept iff bytewise-safe (POD-like). Non-POD structs
+		// (containing FString / TArray / object refs / delegates) need owned
+		// typed storage and are flagged at type-asset Build time so the author
+		// gets a visible signal instead of silently-dropped runtime values.
+		if (IsBytewiseSafeStruct(Struct))
+		{
+			OutPinType = EComposableCameraPinType::Struct;
+			OutStructType = Struct;
+			return true;
+		}
+		return false;
 	}
 
 	if (const FObjectPropertyBase* ObjProp = CastField<FObjectPropertyBase>(Property))
@@ -573,7 +640,7 @@ inline int32 GetPinTypeSize(EComposableCameraPinType PinType, UScriptStruct* Str
 	case EComposableCameraPinType::Enum:      return sizeof(int64); // always normalized to int64 in the block
 	case EComposableCameraPinType::Delegate:  return 0; // delegates don't live in the data block
 	case EComposableCameraPinType::Struct:
-		return StructType ? StructType->GetStructureSize() : 0;
+		return IsBytewiseSafeStruct(StructType) ? StructType->GetStructureSize() : 0;
 	default:
 		return 0;
 	}
@@ -601,7 +668,7 @@ inline int32 GetPinTypeAlignment(EComposableCameraPinType PinType, UScriptStruct
 	case EComposableCameraPinType::Enum:      return alignof(int64);
 	case EComposableCameraPinType::Delegate:  return 1; // no data block allocation
 	case EComposableCameraPinType::Struct:
-		return StructType ? StructType->GetMinAlignment() : 1;
+		return IsBytewiseSafeStruct(StructType) ? StructType->GetMinAlignment() : 1;
 	default:
 		return 1;
 	}

@@ -446,18 +446,38 @@ public:
 			}
 
 			// ── Default (POD) ───────────────────────────────────────
-			// Covers Int32, Float, Double, FName, FVector, FRotator,
-			// FTransform, and any other memcpy-safe type. The data
-			// block slot's GetPinTypeSize matches GetSize() for all
-			// of these. PinType is left at the default (Float) —
-			// it's unused in the CopyRawTo → ReadValue path.
+			// Only copy types whose storage is known to be memcpy-safe in
+			// FComposableCameraParameterValue. Generic structs / containers
+			// need owned typed storage and destructors, so leave them empty.
 			if (!bHandled)
 			{
-				const int32 Size = ValueProperty->GetSize();
-				Entry.Data.SetNumUninitialized(Size);
-				ValueProperty->CopyCompleteValue(Entry.Data.GetData(), ValuePtr);
+				bool bMemcpySafe = ValueProperty->IsA<FIntProperty>()
+					|| ValueProperty->IsA<FFloatProperty>()
+					|| ValueProperty->IsA<FDoubleProperty>()
+					|| ValueProperty->IsA<FNameProperty>();
+
+				if (const FStructProperty* StructProp = CastField<FStructProperty>(ValueProperty))
+				{
+					// IsBytewiseSafeStruct widens past the hardcoded math-type
+					// list to any POD-like struct (no FString / TArray / object
+					// refs / delegates anywhere in the property graph). Non-POD
+					// structs still fall through to the empty-Entry branch
+					// below; type-asset Build() flags them at authoring time.
+					bMemcpySafe = IsBytewiseSafeStruct(StructProp->Struct);
+				}
+
+				if (bMemcpySafe)
+				{
+					const int32 Size = ValueProperty->GetSize();
+					Entry.Data.SetNumUninitialized(Size);
+					ValueProperty->CopyCompleteValue(Entry.Data.GetData(), ValuePtr);
+				}
+				else
+				{
+					Entry.PinType = EComposableCameraPinType::Struct;
+				}
 			}
-			ParameterBlock.Values.Add(ParameterName, MoveTemp(Entry));
+			ParameterBlock.StoreValue(ParameterName, MoveTemp(Entry));
 
 			P_NATIVE_END
 		}

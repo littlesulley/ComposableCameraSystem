@@ -78,7 +78,7 @@ namespace UE::ComposableCameras::ExposedBag
 				FVector2D Value = *R.GetValue();
 				FComposableCameraParameterValue Entry;
 				Entry.Set<FVector2D>(EComposableCameraPinType::Vector2D, Value);
-				OutBlock.Values.Add(Name, MoveTemp(Entry));
+				OutBlock.StoreValue(Name, MoveTemp(Entry));
 			}
 			return;
 
@@ -95,7 +95,7 @@ namespace UE::ComposableCameras::ExposedBag
 				FVector4 Value = *R.GetValue();
 				FComposableCameraParameterValue Entry;
 				Entry.Set<FVector4>(EComposableCameraPinType::Vector4, Value);
-				OutBlock.Values.Add(Name, MoveTemp(Entry));
+				OutBlock.StoreValue(Name, MoveTemp(Entry));
 			}
 			return;
 
@@ -114,24 +114,36 @@ namespace UE::ComposableCameras::ExposedBag
 			return;
 
 		case EComposableCameraPinType::Struct:
-			if (StructType)
+		{
+			// Bytewise-safe POD struct path. The TypeAsset Build() pass already
+			// rejects non-POD struct exposed parameters / variables, so anything
+			// reaching here is safe to memcpy via CopyScriptStruct into a fresh
+			// in-place-initialized Entry.Data buffer. Non-POD structs (which
+			// would have failed Build()) are silently skipped here as a
+			// defensive backstop.
+			if (!StructType || !IsBytewiseSafeStruct(StructType))
 			{
-				if (auto R = Bag.GetValueStruct(Name, StructType); R.HasValue())
+				return;
+			}
+			if (auto R = Bag.GetValueStruct(Name, StructType); R.HasValue())
+			{
+				const FStructView View = R.GetValue();
+				if (View.IsValid() && View.GetScriptStruct() == StructType)
 				{
-					const FStructView View = R.GetValue();
-					if (const uint8* Bytes = View.GetMemory())
+					const int32 Size = StructType->GetStructureSize();
+					if (Size > 0)
 					{
-						const int32 Size = StructType->GetStructureSize();
 						FComposableCameraParameterValue Entry;
 						Entry.PinType = EComposableCameraPinType::Struct;
-						Entry.Data.SetNumUninitialized(Size);
+						Entry.Data.SetNumZeroed(Size);
 						StructType->InitializeStruct(Entry.Data.GetData());
-						StructType->CopyScriptStruct(Entry.Data.GetData(), Bytes);
-						OutBlock.Values.Add(Name, MoveTemp(Entry));
+						StructType->CopyScriptStruct(Entry.Data.GetData(), View.GetMemory());
+						OutBlock.StoreValue(Name, MoveTemp(Entry));
 					}
 				}
 			}
 			return;
+		}
 
 		case EComposableCameraPinType::Actor:
 			if (auto R = Bag.GetValueObject(Name, AActor::StaticClass()); R.HasValue())

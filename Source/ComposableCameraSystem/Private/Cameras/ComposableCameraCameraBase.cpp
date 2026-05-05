@@ -244,6 +244,17 @@ AComposableCameraCameraBase::AComposableCameraCameraBase(const FObjectInitialize
 	GetCameraComponent()->bConstrainAspectRatio = false;
 }
 
+void AComposableCameraCameraBase::AddReferencedObjects(UObject* InThis, FReferenceCollector& Collector)
+{
+	AComposableCameraCameraBase* This = CastChecked<AComposableCameraCameraBase>(InThis);
+	if (This->OwnedRuntimeDataBlock)
+	{
+		This->OwnedRuntimeDataBlock->AddReferencedObjects(Collector);
+	}
+	This->SourceParameterBlock.AddReferencedObjects(Collector);
+	Super::AddReferencedObjects(InThis, Collector);
+}
+
 void AComposableCameraCameraBase::BeginPlay()
 {
 	Super::BeginPlay();

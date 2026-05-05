@@ -211,7 +211,11 @@ void UMovieSceneComposableCameraShotTrackInstance::OnAnimate()
 		// Synchronous load — same lazy-resolution policy ShotAssetRef uses
 		// on the AssetReference path. Null soft-ref / failed load → null
 		// asset → blender treats as hard-cut (Phase F decision: null = cut).
-		E.EnterTransition = Section->EnterTransition.LoadSynchronous();
+		E.EnterTransition = Section->EnterTransition.Get();
+		if (!E.EnterTransition && !Section->EnterTransition.IsNull())
+		{
+			E.EnterTransition = Section->EnterTransition.LoadSynchronous();
+		}
 	}
 
 	// ─── Pass 2: compute BlendAlpha per entry, push to LSComp.

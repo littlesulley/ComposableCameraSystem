@@ -157,12 +157,13 @@ FComposableCameraPose UComposableCameraPathGuidedTransition::OnEvaluate_Implemen
 					ExitTransition->TransitionEnabled(ExitInitParams);
 					ExitTransition->SetTransitionTime(GetTransitionTime() * (1.f - GuideRange.Y));
 					ExitTransition->ResetTransitionState();
+					TWeakObjectPtr<AComposableCameraCameraBase> WeakIntermediateCamera = IntermediateCamera;
 					OnTransitionFinishesDelegate.AddLambda(
-						[InCamera = IntermediateCamera]()
+						[WeakIntermediateCamera]()
 						{
-							if (InCamera)
+							if (AComposableCameraCameraBase* Camera = WeakIntermediateCamera.Get())
 							{
-								InCamera->Destroy();
+								Camera->Destroy();
 							}
 						});
 				}

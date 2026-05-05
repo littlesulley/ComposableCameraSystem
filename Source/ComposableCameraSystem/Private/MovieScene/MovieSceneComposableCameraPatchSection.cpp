@@ -221,7 +221,7 @@ namespace
 		}
 		FComposableCameraParameterValue Entry;
 		Entry.Set<FVector2D>(EComposableCameraPinType::Vector2D, FVector2D(X, Y));
-		OutBlock.Values.Add(C.ParameterName, MoveTemp(Entry));
+		OutBlock.StoreValue(C.ParameterName, MoveTemp(Entry));
 		return true;
 	}
 
@@ -270,7 +270,7 @@ namespace
 		}
 		FComposableCameraParameterValue Entry;
 		Entry.Set<FVector4>(EComposableCameraPinType::Vector4, FVector4(R, G, B, A));
-		OutBlock.Values.Add(Name, MoveTemp(Entry));
+		OutBlock.StoreValue(Name, MoveTemp(Entry));
 		return true;
 	}
 
@@ -342,6 +342,7 @@ void UMovieSceneComposableCameraPatchSection::BuildParameterBlock(
 	{
 		return;
 	}
+	OutBlock.Reserve(PatchAsset->ExposedParameters.Num() + PatchAsset->ExposedVariables.Num());
 
 	const FFrameTime Time(CurrentFrame);
 

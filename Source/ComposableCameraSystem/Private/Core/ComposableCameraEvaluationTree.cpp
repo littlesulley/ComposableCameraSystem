@@ -388,6 +388,10 @@ void UComposableCameraEvaluationTree::OnActivateNewCameraWithReferenceSource(
 			: nullptr;
 		RefWrapper.DebugSourceDirector = SourceDirector;
 		RefWrapper.bFrozen             = bFreezeSourceCamera;
+		if (bFreezeSourceCamera)
+		{
+			RefWrapper.CachedPose = SourceDirector->GetLastEvaluatedPose();
+		}
 
 		TSharedPtr<FComposableCameraEvaluationTreeNode> RefLeaf = MakeShared<FComposableCameraEvaluationTreeNode>();
 		RefLeaf->Wrapper.Set<FComposableCameraEvaluationTreeReferenceLeafNodeWrapper>(MoveTemp(RefWrapper));
@@ -480,6 +484,10 @@ void UComposableCameraEvaluationTree::OnResumeCurrentTreeWithReferenceSource(
 		: nullptr;
 	RefWrapper.DebugSourceDirector = SourceDirector;
 	RefWrapper.bFrozen             = bFreezeSourceCamera;
+	if (bFreezeSourceCamera)
+	{
+		RefWrapper.CachedPose = SourceDirector->GetLastEvaluatedPose();
+	}
 
 	TSharedPtr<FComposableCameraEvaluationTreeNode> RefLeaf = MakeShared<FComposableCameraEvaluationTreeNode>();
 	RefLeaf->Wrapper.Set<FComposableCameraEvaluationTreeReferenceLeafNodeWrapper>(MoveTemp(RefWrapper));

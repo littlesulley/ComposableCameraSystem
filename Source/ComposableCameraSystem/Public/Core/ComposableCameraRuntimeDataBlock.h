@@ -3,8 +3,11 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "GameFramework/Actor.h"
 #include "Nodes/ComposableCameraNodePinTypes.h"
 #include "ComposableCameraRuntimeDataBlock.generated.h"
+
+class FReferenceCollector;
 
 /**
  * Flat, contiguous memory block that holds all pin output values, exposed parameter values,
@@ -40,6 +43,12 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraRuntimeDataBlock
 
 	/** Lookup: InternalVariableName → byte offset in Storage. */
 	TMap<FName, int32> InternalVariableOffsets;
+
+	/** Object-reference slots mirrored from raw storage for explicit GC collection. */
+	TMap<int32, TObjectPtr<AActor>> ActorReferenceSlots;
+
+	/** Object-reference slots mirrored from raw storage for explicit GC collection. */
+	TMap<int32, TObjectPtr<UObject>> ObjectReferenceSlots;
 
 	/**
 	 * Connection table: for each input pin, the offset of its source data.
@@ -91,6 +100,7 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraRuntimeDataBlock
 	{
 		check(Offset >= 0 && Offset + static_cast<int32>(sizeof(T)) <= Storage.Num());
 		FMemory::Memcpy(Storage.GetData() + Offset, &Value, sizeof(T));
+		RefreshReferenceSlot(Offset);
 	}
 
 	/** Read a value for a specific output pin. */
@@ -188,7 +198,13 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraRuntimeDataBlock
 		check(SourceOffset >= 0 && SourceOffset + NumBytes <= Storage.Num());
 		check(TargetOffset >= 0 && TargetOffset + NumBytes <= Storage.Num());
 		FMemory::Memcpy(Storage.GetData() + TargetOffset, Storage.GetData() + SourceOffset, NumBytes);
+		RefreshReferenceSlot(TargetOffset);
 	}
+
+	void RegisterReferenceSlot(EComposableCameraPinType PinType, int32 Offset);
+	void RefreshReferenceSlot(int32 Offset);
+	void RefreshAllReferenceSlots();
+	void AddReferencedObjects(FReferenceCollector& Collector);
 
 	/** Check if storage has been allocated. */
 	bool IsValid() const
@@ -202,6 +218,7 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraRuntimeDataBlock
 		if (Storage.Num() > 0)
 		{
 			FMemory::Memzero(Storage.GetData(), Storage.Num());
+			RefreshAllReferenceSlots();
 		}
 	}
 };

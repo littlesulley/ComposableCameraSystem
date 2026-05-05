@@ -219,7 +219,8 @@ void UComposableCameraContextStack::PopActiveContextInternal(
 		// Hold B in pending destruction until the transition finishes.
 		PendingDestroyEntries.Add(PoppedEntry);
 
-		PopTransition->OnTransitionFinishesDelegate.AddLambda(
+		PopTransition->OnTransitionFinishesDelegate.AddWeakLambda(
+			this,
 			[this, PoppedContextName = PoppedEntry.ContextName]()
 			{
 				// Find and destroy the pending entry.
@@ -289,7 +290,8 @@ void UComposableCameraContextStack::DemoteNonTopTransientContextsToPending(
 			PendingDestroyEntries.Add(Entry);
 			Entries.RemoveAt(i);
 
-			ActivatingTransition->OnTransitionFinishesDelegate.AddLambda(
+			ActivatingTransition->OnTransitionFinishesDelegate.AddWeakLambda(
+				this,
 				[this, DemotedName]()
 				{
 					for (int32 j = PendingDestroyEntries.Num() - 1; j >= 0; --j)

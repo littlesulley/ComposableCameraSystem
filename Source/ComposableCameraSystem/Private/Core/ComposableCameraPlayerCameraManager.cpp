@@ -33,6 +33,13 @@ AComposableCameraPlayerCameraManager::AComposableCameraPlayerCameraManager(const
 	ModifierManager = CreateDefaultSubobject<UComposableCameraModifierManager>(TEXT("ModifierManager"));
 }
 
+void AComposableCameraPlayerCameraManager::AddReferencedObjects(UObject* InThis, FReferenceCollector& Collector)
+{
+	AComposableCameraPlayerCameraManager* This = CastChecked<AComposableCameraPlayerCameraManager>(InThis);
+	This->PendingParameterBlock.AddReferencedObjects(Collector);
+	Super::AddReferencedObjects(InThis, Collector);
+}
+
 void AComposableCameraPlayerCameraManager::PopCameraContext(
 	FName ContextName,
 	UComposableCameraTransitionDataAsset* TransitionOverride,

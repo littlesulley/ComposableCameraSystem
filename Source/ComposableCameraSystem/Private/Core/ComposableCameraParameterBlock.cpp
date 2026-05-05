@@ -3,6 +3,7 @@
 #include "Core/ComposableCameraParameterBlock.h"
 
 #include "ComposableCameraSystemModule.h"
+#include "UObject/GCObject.h"
 #include "UObject/SoftObjectPath.h"
 #include "UObject/UnrealType.h"
 
@@ -46,8 +47,20 @@ namespace ComposableCameraParameterBlockPrivate
 
 		FComposableCameraParameterValue Entry;
 		Entry.Set<T>(PinType, Value);
-		OutBlock.Values.Add(ParameterName, MoveTemp(Entry));
+		OutBlock.StoreValue(ParameterName, MoveTemp(Entry));
 		return true;
+	}
+}
+
+void FComposableCameraParameterBlock::AddReferencedObjects(FReferenceCollector& Collector)
+{
+	for (auto& Pair : ActorValues)
+	{
+		Collector.AddReferencedObject(Pair.Value);
+	}
+	for (auto& Pair : ObjectValues)
+	{
+		Collector.AddReferencedObject(Pair.Value);
 	}
 }
 
@@ -77,7 +90,7 @@ bool FComposableCameraParameterBlock::ApplyStringValue(
 		LexFromString(Value, *ValueString);
 		FComposableCameraParameterValue Entry;
 		Entry.Set<bool>(PinType, Value);
-		OutBlock.Values.Add(ParameterName, MoveTemp(Entry));
+		OutBlock.StoreValue(ParameterName, MoveTemp(Entry));
 		return true;
 	}
 
@@ -87,7 +100,7 @@ bool FComposableCameraParameterBlock::ApplyStringValue(
 		LexFromString(Value, *ValueString);
 		FComposableCameraParameterValue Entry;
 		Entry.Set<int32>(PinType, Value);
-		OutBlock.Values.Add(ParameterName, MoveTemp(Entry));
+		OutBlock.StoreValue(ParameterName, MoveTemp(Entry));
 		return true;
 	}
 
@@ -97,7 +110,7 @@ bool FComposableCameraParameterBlock::ApplyStringValue(
 		LexFromString(Value, *ValueString);
 		FComposableCameraParameterValue Entry;
 		Entry.Set<float>(PinType, Value);
-		OutBlock.Values.Add(ParameterName, MoveTemp(Entry));
+		OutBlock.StoreValue(ParameterName, MoveTemp(Entry));
 		return true;
 	}
 
@@ -107,7 +120,7 @@ bool FComposableCameraParameterBlock::ApplyStringValue(
 		LexFromString(Value, *ValueString);
 		FComposableCameraParameterValue Entry;
 		Entry.Set<double>(PinType, Value);
-		OutBlock.Values.Add(ParameterName, MoveTemp(Entry));
+		OutBlock.StoreValue(ParameterName, MoveTemp(Entry));
 		return true;
 	}
 
@@ -170,7 +183,7 @@ bool FComposableCameraParameterBlock::ApplyStringValue(
 
 		FComposableCameraParameterValue Entry;
 		Entry.Set<UObject*>(PinType, Loaded);
-		OutBlock.Values.Add(ParameterName, MoveTemp(Entry));
+		OutBlock.StoreValue(ParameterName, MoveTemp(Entry));
 
 		if (!Loaded)
 		{
@@ -189,7 +202,7 @@ bool FComposableCameraParameterBlock::ApplyStringValue(
 		// if the user writes garbage we still produce a valid (garbage) FName.
 		FComposableCameraParameterValue Entry;
 		Entry.Set<FName>(PinType, FName(*ValueString));
-		OutBlock.Values.Add(ParameterName, MoveTemp(Entry));
+		OutBlock.StoreValue(ParameterName, MoveTemp(Entry));
 		return true;
 	}
 
@@ -232,7 +245,7 @@ bool FComposableCameraParameterBlock::ApplyStringValue(
 
 		FComposableCameraParameterValue Entry;
 		Entry.Set<int64>(PinType, ParsedValue);
-		OutBlock.Values.Add(ParameterName, MoveTemp(Entry));
+		OutBlock.StoreValue(ParameterName, MoveTemp(Entry));
 		return true;
 	}
 
@@ -244,44 +257,52 @@ bool FComposableCameraParameterBlock::ApplyStringValue(
 			return false;
 		}
 
-		const int32 Size = StructType->GetStructureSize();
-		if (Size <= 0)
+		if (!IsBytewiseSafeStruct(StructType))
 		{
 			WriteError(OutError, FString::Printf(
-				TEXT("Struct '%s' has zero structure size"),
+				TEXT("Struct '%s' is not POD (contains FString / FText / TArray / TMap / TSet / object reference / delegate fields). The byte-array ParameterBlock cannot store non-POD structs without owned typed storage; type-asset Build() flags this at authoring time."),
 				*StructType->GetName()));
 			return false;
 		}
 
-		// Allocate a scratch instance, let ImportText populate it, then copy the
-		// bytes straight into the parameter value. The scratch instance is
-		// destroyed before we return, so we need to memcpy out of it first.
-		TArray<uint8> Scratch;
-		Scratch.SetNumZeroed(Size);
-		StructType->InitializeStruct(Scratch.GetData());
+		const int32 Size = StructType->GetStructureSize();
+		if (Size <= 0)
+		{
+			WriteError(OutError, FString::Printf(
+				TEXT("Struct '%s' has zero structure size"), *StructType->GetName()));
+			return false;
+		}
+
+		// Initialize the struct in place inside Entry.Data, then ImportText
+		// directly into that storage. The previous design (initialize a
+		// scratch buffer, ImportText into scratch, memcpy bytes into a
+		// separate Entry.Data, DestroyStruct on scratch) carried no benefit
+		// for POD storage and -- subtly -- left Entry.Data holding bytes
+		// whose pointee state was already destroyed if the struct ever
+		// turned out to be non-POD. The IsBytewiseSafeStruct gate above
+		// keeps us in POD-only land, so destruction is a no-op and a
+		// single in-place initialization is correct.
+		FComposableCameraParameterValue Entry;
+		Entry.PinType = PinType;
+		Entry.Data.SetNumZeroed(Size);
+		StructType->InitializeStruct(Entry.Data.GetData());
 
 		const TCHAR* Buffer = *ValueString;
 		const TCHAR* Result = StructType->ImportText(
-			Buffer, Scratch.GetData(), /*OwnerObject*/ nullptr,
+			Buffer, Entry.Data.GetData(), /*OwnerObject*/ nullptr,
 			PPF_None, /*ErrorText*/ nullptr,
 			StructType->GetName());
 
 		if (!Result)
 		{
-			StructType->DestroyStruct(Scratch.GetData());
+			StructType->DestroyStruct(Entry.Data.GetData());
 			WriteError(OutError, FString::Printf(
 				TEXT("Failed to parse '%s' as struct %s"),
 				*ValueString, *StructType->GetName()));
 			return false;
 		}
 
-		FComposableCameraParameterValue Entry;
-		Entry.PinType = PinType;
-		Entry.Data.SetNumUninitialized(Size);
-		FMemory::Memcpy(Entry.Data.GetData(), Scratch.GetData(), Size);
-		OutBlock.Values.Add(ParameterName, MoveTemp(Entry));
-
-		StructType->DestroyStruct(Scratch.GetData());
+		OutBlock.StoreValue(ParameterName, MoveTemp(Entry));
 		return true;
 	}
 

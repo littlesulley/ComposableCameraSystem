@@ -212,7 +212,15 @@ AComposableCameraCameraBase* UComposableCameraBlueprintLibrary::ActivateComposab
 	// configuration, and the override block carries per-call-site adjustments.
 	for (TPair<FName, FComposableCameraParameterValue>& Entry : OverrideParameters.Values)
 	{
-		Params.Values.Add(Entry.Key, MoveTemp(Entry.Value));
+		Params.StoreValue(Entry.Key, MoveTemp(Entry.Value));
+	}
+	for (auto& Entry : OverrideParameters.ActorValues)
+	{
+		Params.ActorValues.Add(Entry.Key, Entry.Value);
+	}
+	for (auto& Entry : OverrideParameters.ObjectValues)
+	{
+		Params.ObjectValues.Add(Entry.Key, Entry.Value);
 	}
 	for (TPair<FName, FScriptDelegate>& Entry : OverrideParameters.DelegateValues)
 	{

@@ -3,8 +3,11 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "GameFramework/Actor.h"
 #include "Nodes/ComposableCameraNodePinTypes.h"
 #include "ComposableCameraParameterBlock.generated.h"
+
+class FReferenceCollector;
 
 /**
  * A single parameter value in a ParameterBlock.
@@ -60,6 +63,14 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraParameterBlock
 	UPROPERTY()
 	TMap<FName, FComposableCameraParameterValue> Values;
 
+	/** GC-visible owners for object-valued entries mirrored in Values. */
+	UPROPERTY()
+	TMap<FName, TObjectPtr<AActor>> ActorValues;
+
+	/** GC-visible owners for object-valued entries mirrored in Values. */
+	UPROPERTY()
+	TMap<FName, TObjectPtr<UObject>> ObjectValues;
+
 	/** Parallel storage for single-cast delegate bindings. Delegates are not
 	 *  POD and cannot be stored in the byte-array-based FComposableCameraParameterValue.
 	 *  They are applied at activation time via ApplyDelegateBindings (on the type
@@ -67,12 +78,44 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraParameterBlock
 	 *  via reflection. */
 	TMap<FName, FScriptDelegate> DelegateValues;
 
+	void Reserve(int32 Num)
+	{
+		Values.Reserve(Num);
+		ActorValues.Reserve(Num);
+		ObjectValues.Reserve(Num);
+		DelegateValues.Reserve(Num);
+	}
+
+	void StoreValue(FName Name, FComposableCameraParameterValue&& Entry)
+	{
+		ActorValues.Remove(Name);
+		ObjectValues.Remove(Name);
+		DelegateValues.Remove(Name);
+
+		if (Entry.PinType == EComposableCameraPinType::Actor && Entry.Data.Num() == sizeof(AActor*))
+		{
+			AActor* ActorValue = nullptr;
+			FMemory::Memcpy(&ActorValue, Entry.Data.GetData(), sizeof(AActor*));
+			ActorValues.Add(Name, ActorValue);
+		}
+		else if (Entry.PinType == EComposableCameraPinType::Object && Entry.Data.Num() == sizeof(UObject*))
+		{
+			UObject* ObjectValue = nullptr;
+			FMemory::Memcpy(&ObjectValue, Entry.Data.GetData(), sizeof(UObject*));
+			ObjectValues.Add(Name, ObjectValue);
+		}
+
+		Values.Add(Name, MoveTemp(Entry));
+	}
+
+	void AddReferencedObjects(FReferenceCollector& Collector);
+
 	/** Set a bool parameter. */
 	void SetBool(FName Name, bool Value)
 	{
 		FComposableCameraParameterValue Entry;
 		Entry.Set<bool>(EComposableCameraPinType::Bool, Value);
-		Values.Add(Name, MoveTemp(Entry));
+		StoreValue(Name, MoveTemp(Entry));
 	}
 
 	/** Set an int32 parameter. */
@@ -80,7 +123,7 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraParameterBlock
 	{
 		FComposableCameraParameterValue Entry;
 		Entry.Set<int32>(EComposableCameraPinType::Int32, Value);
-		Values.Add(Name, MoveTemp(Entry));
+		StoreValue(Name, MoveTemp(Entry));
 	}
 
 	/** Set a float parameter. */
@@ -88,7 +131,7 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraParameterBlock
 	{
 		FComposableCameraParameterValue Entry;
 		Entry.Set<float>(EComposableCameraPinType::Float, Value);
-		Values.Add(Name, MoveTemp(Entry));
+		StoreValue(Name, MoveTemp(Entry));
 	}
 
 	/** Set a double parameter. */
@@ -96,7 +139,7 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraParameterBlock
 	{
 		FComposableCameraParameterValue Entry;
 		Entry.Set<double>(EComposableCameraPinType::Double, Value);
-		Values.Add(Name, MoveTemp(Entry));
+		StoreValue(Name, MoveTemp(Entry));
 	}
 
 	/** Set a Vector parameter. */
@@ -104,7 +147,7 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraParameterBlock
 	{
 		FComposableCameraParameterValue Entry;
 		Entry.Set<FVector>(EComposableCameraPinType::Vector3D, Value);
-		Values.Add(Name, MoveTemp(Entry));
+		StoreValue(Name, MoveTemp(Entry));
 	}
 
 	/** Set a Rotator parameter. */
@@ -112,7 +155,7 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraParameterBlock
 	{
 		FComposableCameraParameterValue Entry;
 		Entry.Set<FRotator>(EComposableCameraPinType::Rotator, Value);
-		Values.Add(Name, MoveTemp(Entry));
+		StoreValue(Name, MoveTemp(Entry));
 	}
 
 	/** Set a Transform parameter. */
@@ -120,7 +163,7 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraParameterBlock
 	{
 		FComposableCameraParameterValue Entry;
 		Entry.Set<FTransform>(EComposableCameraPinType::Transform, Value);
-		Values.Add(Name, MoveTemp(Entry));
+		StoreValue(Name, MoveTemp(Entry));
 	}
 
 	/** Set an Actor pointer parameter. */
@@ -128,7 +171,7 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraParameterBlock
 	{
 		FComposableCameraParameterValue Entry;
 		Entry.Set<AActor*>(EComposableCameraPinType::Actor, Value);
-		Values.Add(Name, MoveTemp(Entry));
+		StoreValue(Name, MoveTemp(Entry));
 	}
 
 	/** Set a UObject pointer parameter. */
@@ -136,7 +179,7 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraParameterBlock
 	{
 		FComposableCameraParameterValue Entry;
 		Entry.Set<UObject*>(EComposableCameraPinType::Object, Value);
-		Values.Add(Name, MoveTemp(Entry));
+		StoreValue(Name, MoveTemp(Entry));
 	}
 
 	/** Set an FName parameter. FName is POD (NAME_INDEX + NAME_NUMBER, 8 bytes) and
@@ -145,7 +188,7 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraParameterBlock
 	{
 		FComposableCameraParameterValue Entry;
 		Entry.Set<FName>(EComposableCameraPinType::Name, Value);
-		Values.Add(Name, MoveTemp(Entry));
+		StoreValue(Name, MoveTemp(Entry));
 	}
 
 	/** Set an enum parameter. Enums are always normalized to int64 in the data
@@ -156,7 +199,7 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraParameterBlock
 	{
 		FComposableCameraParameterValue Entry;
 		Entry.Set<int64>(EComposableCameraPinType::Enum, Value);
-		Values.Add(Name, MoveTemp(Entry));
+		StoreValue(Name, MoveTemp(Entry));
 	}
 
 	/** Set a single-cast delegate binding. The delegate is stored in a parallel
@@ -164,13 +207,16 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraParameterBlock
 	 *  ApplyDelegateBindings on the type asset. */
 	void SetDelegate(FName Name, const FScriptDelegate& Value)
 	{
+		Values.Remove(Name);
+		ActorValues.Remove(Name);
+		ObjectValues.Remove(Name);
 		DelegateValues.Add(Name, Value);
 	}
 
 	/** Check if a parameter exists by name (either POD or delegate). */
 	bool HasValue(FName Name) const
 	{
-		return Values.Contains(Name) || DelegateValues.Contains(Name);
+		return Values.Contains(Name) || ActorValues.Contains(Name) || ObjectValues.Contains(Name) || DelegateValues.Contains(Name);
 	}
 
 	/** Try to get a typed value. Returns false if not found or type mismatch. */

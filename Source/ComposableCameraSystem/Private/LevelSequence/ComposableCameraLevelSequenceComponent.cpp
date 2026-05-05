@@ -157,6 +157,11 @@ void UComposableCameraLevelSequenceComponent::EvaluateOnce(float DeltaTime)
 	if (InternalCamera->OwnedRuntimeDataBlock)
 	{
 		FComposableCameraParameterBlock Block;
+		if (TypeAssetReference.TypeAsset)
+		{
+			Block.Reserve(TypeAssetReference.TypeAsset->ExposedParameters.Num()
+				+ TypeAssetReference.TypeAsset->ExposedVariables.Num());
+		}
 		TypeAssetReference.BuildParameterBlock(Block);
 		TypeAssetReference.TypeAsset->ApplyParameterBlock(*InternalCamera->OwnedRuntimeDataBlock, Block);
 	}
@@ -607,7 +612,7 @@ void UComposableCameraLevelSequenceComponent::ApplySequencerPatchOverlays(
 	// Use raw pointers for the local sorted array — `TArray<TObjectPtr>::Sort`
 	// goes through TDereferenceWrapper which constructs `TObjectPtr` from a
 	// reference (deprecated in UE 5.6, removed in next release).
-	TArray<UMovieSceneComposableCameraPatchSection*> SortedKeys;
+	TArray<UMovieSceneComposableCameraPatchSection*, TInlineAllocator<8>> SortedKeys;
 	SortedKeys.Reserve(SequencerPatchOverlays.Num());
 	for (const TPair<TObjectPtr<UMovieSceneComposableCameraPatchSection>, FComposableCameraSequencerPatchOverlay>& Pair : SequencerPatchOverlays)
 	{
@@ -628,7 +633,7 @@ void UComposableCameraLevelSequenceComponent::ApplySequencerPatchOverlays(
 
 	// Stale-entry collection — sections that have been GC'd or whose evaluator
 	// is invalid. Cleaned up after the walk to avoid mid-iteration map mutation.
-	TArray<UMovieSceneComposableCameraPatchSection*> ToPrune;
+	TArray<UMovieSceneComposableCameraPatchSection*, TInlineAllocator<4>> ToPrune;
 
 	for (UMovieSceneComposableCameraPatchSection* Key : SortedKeys)
 	{

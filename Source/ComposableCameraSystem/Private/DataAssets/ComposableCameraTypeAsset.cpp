@@ -117,6 +117,11 @@ FComposableCameraRuntimeDataBlock UComposableCameraTypeAsset::BuildRuntimeDataLa
 		}
 	};
 
+	auto RegisterReferenceSlot = [&DataBlock](EComposableCameraPinType PinType, int32 Offset)
+	{
+		DataBlock.RegisterReferenceSlot(PinType, Offset);
+	};
+
 	// --- Output pin slots ---
 	for (int32 NodeIdx = 0; NodeIdx < NodeTemplates.Num(); ++NodeIdx)
 	{
@@ -153,6 +158,7 @@ FComposableCameraRuntimeDataBlock UComposableCameraTypeAsset::BuildRuntimeDataLa
 			Key.NodeIndex = NodeIdx;
 			Key.PinName = Pin.PinName;
 			DataBlock.OutputPinOffsets.Add(Key, CurrentOffset);
+			RegisterReferenceSlot(Pin.PinType, CurrentOffset);
 
 			CurrentOffset += Size;
 		}
@@ -203,6 +209,7 @@ FComposableCameraRuntimeDataBlock UComposableCameraTypeAsset::BuildRuntimeDataLa
 			Key.NodeIndex = ComputeNodeIndexBase + ComputeIdx;
 			Key.PinName = Pin.PinName;
 			DataBlock.OutputPinOffsets.Add(Key, CurrentOffset);
+			RegisterReferenceSlot(Pin.PinType, CurrentOffset);
 
 			CurrentOffset += Size;
 		}
@@ -221,6 +228,7 @@ FComposableCameraRuntimeDataBlock UComposableCameraTypeAsset::BuildRuntimeDataLa
 
 		AlignOffset(Align);
 		DataBlock.ExposedParameterOffsets.Add(Param.ParameterName, CurrentOffset);
+		RegisterReferenceSlot(Param.PinType, CurrentOffset);
 		CurrentOffset += Size;
 	}
 
@@ -301,6 +309,7 @@ FComposableCameraRuntimeDataBlock UComposableCameraTypeAsset::BuildRuntimeDataLa
 				Key.NodeIndex = NodeIdx;
 				Key.PinName = Override.PinName;
 				DataBlock.DefaultValueOffsets.Add(Key, CurrentOffset);
+				RegisterReferenceSlot(Decl->PinType, CurrentOffset);
 				CurrentOffset += Size;
 			}
 		}
@@ -364,6 +373,7 @@ FComposableCameraRuntimeDataBlock UComposableCameraTypeAsset::BuildRuntimeDataLa
 				Key.NodeIndex = ComputeNodeIndexBase + ComputeIdx;
 				Key.PinName = Override.PinName;
 				DataBlock.DefaultValueOffsets.Add(Key, CurrentOffset);
+				RegisterReferenceSlot(Decl->PinType, CurrentOffset);
 				CurrentOffset += Size;
 			}
 		}
@@ -382,6 +392,7 @@ FComposableCameraRuntimeDataBlock UComposableCameraTypeAsset::BuildRuntimeDataLa
 
 		AlignOffset(Align);
 		DataBlock.InternalVariableOffsets.Add(Var.VariableName, CurrentOffset);
+		RegisterReferenceSlot(Var.VariableType, CurrentOffset);
 		CurrentOffset += Size;
 	}
 
@@ -419,6 +430,7 @@ FComposableCameraRuntimeDataBlock UComposableCameraTypeAsset::BuildRuntimeDataLa
 
 		AlignOffset(Align);
 		DataBlock.InternalVariableOffsets.Add(Var.VariableName, CurrentOffset);
+		RegisterReferenceSlot(Var.VariableType, CurrentOffset);
 		CurrentOffset += Size;
 	}
 
@@ -519,6 +531,7 @@ FComposableCameraRuntimeDataBlock UComposableCameraTypeAsset::BuildRuntimeDataLa
 					Override.PinName,
 					DataBlock.Storage.GetData() + *Offset,
 					Size);
+				DataBlock.RefreshReferenceSlot(*Offset);
 			}
 		}
 	}
@@ -603,6 +616,7 @@ FComposableCameraRuntimeDataBlock UComposableCameraTypeAsset::BuildRuntimeDataLa
 					Override.PinName,
 					DataBlock.Storage.GetData() + *Offset,
 					Size);
+				DataBlock.RefreshReferenceSlot(*Offset);
 			}
 		}
 	}
@@ -798,6 +812,10 @@ void UComposableCameraTypeAsset::ApplyParameterBlock(
 			Param.ParameterName,
 			DataBlock.Storage.GetData() + *Offset,
 			Size);
+		if (Copied > 0)
+		{
+			DataBlock.RefreshReferenceSlot(*Offset);
+		}
 
 		if (Copied == 0 && Param.bRequired)
 		{
@@ -832,6 +850,7 @@ void UComposableCameraTypeAsset::ApplyParameterBlock(
 			DataBlock.Storage.GetData() + *Offset,
 			Size,
 			*GetName());
+		DataBlock.RefreshReferenceSlot(*Offset);
 	}
 
 	// --- Exposed variables ---
@@ -856,11 +875,16 @@ void UComposableCameraTypeAsset::ApplyParameterBlock(
 		uint8* Dest = DataBlock.Storage.GetData() + *Offset;
 
 		const int32 Copied = Parameters.CopyRawTo(Var.VariableName, Dest, Size);
+		if (Copied > 0)
+		{
+			DataBlock.RefreshReferenceSlot(*Offset);
+		}
 
 		if (Copied == 0)
 		{
 			// Caller didn't supply a value — apply the authored initial value.
 			ApplyInitialValueToSlot(Var, Dest, Size, *GetName());
+			DataBlock.RefreshReferenceSlot(*Offset);
 		}
 	}
 }
@@ -1063,6 +1087,72 @@ void UComposableCameraTypeAsset::Build(bool bLogResult)
 		for (const FComposableCameraInternalVariable& Var : ExposedVariables)
 		{
 			ClaimName(Var.VariableName, TEXT("exposed variable"));
+		}
+	}
+
+	// Check: struct pin types must be POD-like (bytewise safe). The runtime's
+	// byte-array RuntimeDataBlock / ParameterBlock storage path memcpys raw
+	// bytes -- destructors don't run, GC doesn't traverse, and FString /
+	// TArray / object references would leak or dangle. The pin-type filter
+	// (TryMapPropertyToPinType, GetPinTypeSize) and the K2 setter
+	// (SetParameterBlockValue's bMemcpySafe gate) all reject non-POD structs
+	// silently; without this Build check, an authored ExposedVariable typed
+	// as a non-POD struct would have its caller-supplied value silently
+	// dropped at activation, with no error path. Flag it here so the
+	// authoring surface owns the diagnosis instead of the runtime swallowing
+	// it. Severity is Error because the data simply does not propagate --
+	// not a degraded behavior but a silent loss.
+	{
+		auto ValidateStructTypeOrFlag = [this](
+			EComposableCameraPinType PinType,
+			UScriptStruct* StructType,
+			FName Name,
+			const TCHAR* Kind)
+		{
+			if (PinType != EComposableCameraPinType::Struct)
+			{
+				return;
+			}
+			if (!StructType)
+			{
+				FComposableCameraBuildMessage Msg;
+				Msg.Severity = 2;
+				Msg.Message = FText::Format(
+					FText::FromString(TEXT("{0} '{1}' has Struct pin type but no StructType set.")),
+					FText::FromString(Kind),
+					FText::FromName(Name));
+				BuildMessages.Add(Msg);
+				BuildStatus = EComposableCameraBuildStatus::Failed;
+				return;
+			}
+			if (!IsBytewiseSafeStruct(StructType))
+			{
+				FComposableCameraBuildMessage Msg;
+				Msg.Severity = 2;
+				Msg.Message = FText::Format(
+					FText::FromString(TEXT("{0} '{1}' uses struct type '{2}' which contains FString / FText / TArray / TMap / TSet / object references / delegates. The byte-array runtime storage cannot propagate non-POD struct values; the value will be silently dropped at activation. Switch to a POD-only struct or one of the supported math types (Vector / Rotator / Transform / FFloatInterval), or wait for the typed-storage milestone.")),
+					FText::FromString(Kind),
+					FText::FromName(Name),
+					FText::FromString(StructType->GetName()));
+				BuildMessages.Add(Msg);
+				BuildStatus = EComposableCameraBuildStatus::Failed;
+			}
+		};
+
+		for (const FComposableCameraExposedParameter& Param : ExposedParameters)
+		{
+			ValidateStructTypeOrFlag(Param.PinType, Param.StructType, Param.ParameterName,
+				TEXT("Exposed parameter"));
+		}
+		for (const FComposableCameraInternalVariable& Var : ExposedVariables)
+		{
+			ValidateStructTypeOrFlag(Var.VariableType, Var.StructType, Var.VariableName,
+				TEXT("Exposed variable"));
+		}
+		for (const FComposableCameraInternalVariable& Var : InternalVariables)
+		{
+			ValidateStructTypeOrFlag(Var.VariableType, Var.StructType, Var.VariableName,
+				TEXT("Internal variable"));
 		}
 	}
 
