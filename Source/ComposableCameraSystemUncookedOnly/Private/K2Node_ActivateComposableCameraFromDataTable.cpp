@@ -14,10 +14,12 @@
 #include "Kismet2/CompilerResultsLog.h"
 #include "Kismet/KismetSystemLibrary.h"
 #include "Kismet2/BlueprintEditorUtils.h"
+#include "Containers/Ticker.h"
 #include "ScopedTransaction.h"
 #include "Styling/AppStyle.h"
 #include "ToolMenu.h"
 #include "ToolMenuSection.h"
+#include "UObject/SoftObjectPath.h"
 #include "UObject/UObjectGlobals.h"
 
 #include "ComposableCameraEdGraphPinTypeUtils.h"
@@ -144,6 +146,16 @@ void UK2Node_ActivateComposableCameraFromDataTable::PinDefaultValueChanged(UEdGr
 		return;
 	}
 
+	// Skip during active reconstruction: the engine's pin-rewire phase can fire
+	// this notification on the freshly-created DataTable / RowName pins BEFORE
+	// the saved DefaultObject / DefaultValue have been transferred from OldPins.
+	// Acting on it would tear UserOverrideNames mid-pass via a nested
+	// ReconstructNode. See TechDoc.md §7.2.
+	if (bIsReconstructing)
+	{
+		return;
+	}
+
 	if (Pin->PinName == DataTablePinName)
 	{
 		ClearRowNameIfInvalidForCurrentDataTable();
@@ -162,6 +174,13 @@ void UK2Node_ActivateComposableCameraFromDataTable::PinConnectionListChanged(UEd
 	Super::PinConnectionListChanged(Pin);
 
 	if (!Pin)
+	{
+		return;
+	}
+
+	// Same rationale as PinDefaultValueChanged: the base reconstruction's link
+	// transfer can fire this mid-reconstruction.
+	if (bIsReconstructing)
 	{
 		return;
 	}
@@ -358,6 +377,51 @@ void UK2Node_ActivateComposableCameraFromDataTable::PostLoad()
 	}
 
 	SubscribeToAssetChangeDelegate();
+
+	// Auto-recover from baked-in orphan pin state. See the matching block in
+	// UK2Node_ActivateComposableCamera and TechDoc.md §7.2 for full background:
+	// once a previous reconstruction with CachedTypeAsset == nullptr left an
+	// orphan pin in Pins[] and the user saved the blueprint, plain load just
+	// deserializes the orphan and no reconstruction runs, so the per-Reallocate
+	// self-heal never fires. Detect it here and trigger a deferred reconstruct.
+	// FTSTicker's one-tick deferral is required: calling ReconstructNode
+	// directly from PostLoad trips ZenLoader's RF_NeedLoad ensure (Obj.cpp:1314)
+	// because reconstruction touches related load-batch objects (the blueprint,
+	// the DataTable, the CachedTypeAsset, sibling nodes) that may not yet have
+	// cleared RF_NeedLoad. By the time the ticker fires, the load batch is
+	// complete.
+	bool bHasOrphanPin = false;
+	for (const UEdGraphPin* Pin : Pins)
+	{
+		if (Pin && Pin->bOrphanedPin)
+		{
+			bHasOrphanPin = true;
+			break;
+		}
+	}
+	if (bHasOrphanPin)
+	{
+		TWeakObjectPtr<UK2Node_ActivateComposableCameraFromDataTable> WeakThis(this);
+		FTSTicker::GetCoreTicker().AddTicker(
+			FTickerDelegate::CreateLambda([WeakThis](float) -> bool
+			{
+				if (UK2Node_ActivateComposableCameraFromDataTable* StrongThis = WeakThis.Get())
+				{
+					if (IsValid(StrongThis))
+					{
+						if (StrongThis->CachedTypeAsset)
+						{
+							StrongThis->CachedTypeAsset->ConditionalPostLoad();
+						}
+						UE_LOG(LogComposableCameraSystem, Warning,
+							TEXT("K2 ActivateComposableCameraFromDataTable deferred PostLoad recovery: orphan pin detected; reconstructing now."));
+						StrongThis->ReconstructNode();
+					}
+				}
+				return false; // one-shot; do not repeat
+			}),
+			0.0f);
+	}
 }
 
 void UK2Node_ActivateComposableCameraFromDataTable::BeginDestroy()
@@ -375,7 +439,115 @@ void UK2Node_ActivateComposableCameraFromDataTable::PostPlacedNewNode()
 void UK2Node_ActivateComposableCameraFromDataTable::ReallocatePinsDuringReconstruction(
 	TArray<UEdGraphPin*>& OldPins)
 {
-	// Self-healing: preserve wired dynamic pins across reconstruction.
+	// Re-entrancy guard. RewireOldPinsToNewPins can fire pin notifications
+	// (PinDefaultValueChanged on the freshly-created DataTable / RowName pins
+	// while their state is still being transferred from OldPins) and external
+	// subscribers (our OnObjectPropertyChanged handler) can fire during load.
+	// Both would call through to a nested ReconstructNode that observes a torn
+	// UserOverrideNames state and silently drops user-authored override pins.
+	// See TechDoc.md §7.2 for the full failure-mode taxonomy.
+	TGuardValue<bool> ReconstructionGuard(bIsReconstructing, true);
+
+	// Stale-state self-heal for CachedTypeAsset. Two failure modes converge
+	// here (mirrors the matching block in UK2Node_ActivateComposableCamera):
+	//
+	//   1. Legacy on-disk corruption -- a blueprint saved before the
+	//      re-entrancy guard landed can have CachedTypeAsset == nullptr while
+	//      the saved DataTable + RowName pins still resolve to the right row.
+	//   2. EDL load-order race -- on cold load the DataTable / referenced
+	//      CameraType asset's PostLoad may not have completed by reconstruction
+	//      time. CachedTypeAsset (TObjectPtr) reads as nullptr AND
+	//      OldPin->DefaultObject for the DataTable pin can read as nullptr
+	//      while OldPin->DefaultValue still carries the path string.
+	//
+	// Recovery is two-step here (DataTable variant): rebuild DataTable from
+	// the OldPin's DefaultObject -> DefaultValue (FSoftObjectPath::TryLoad),
+	// then look up the row by name and chase Row->CameraType.LoadSynchronous().
+	// ConditionalPostLoad on both the DataTable and the recovered CameraType
+	// so their PostLoad migrations finish before downstream code reads their
+	// arrays.
+	if (CachedTypeAsset == nullptr)
+	{
+		UDataTable* RecoveredDataTable = nullptr;
+		FName RecoveredRowName = NAME_None;
+
+		for (const UEdGraphPin* OldPin : OldPins)
+		{
+			if (!OldPin)
+			{
+				continue;
+			}
+
+			if (OldPin->PinName == DataTablePinName && !RecoveredDataTable)
+			{
+				if (OldPin->LinkedTo.Num() > 0)
+				{
+					// DataTable pin is wired through a variable -- can't
+					// statically resolve. Leave CachedTypeAsset null; this is
+					// the same behavior as ResolveLiteralDataTable() rejecting
+					// linked pins.
+					continue;
+				}
+
+				if (OldPin->DefaultObject)
+				{
+					RecoveredDataTable = Cast<UDataTable>(OldPin->DefaultObject);
+				}
+				if (!RecoveredDataTable && !OldPin->DefaultValue.IsEmpty())
+				{
+					FSoftObjectPath Path(OldPin->DefaultValue);
+					UObject* Resolved = Path.ResolveObject();
+					if (!Resolved)
+					{
+						Resolved = Path.TryLoad();
+					}
+					if (UDataTable* DT = Cast<UDataTable>(Resolved))
+					{
+						UE_LOG(LogComposableCameraSystem, Verbose,
+							TEXT("K2 ActivateComposableCameraFromDataTable: recovered DataTable '%s' from OldPin->DefaultValue (DefaultObject was null at reconstruction time -- EDL load-order race)."),
+							*DT->GetName());
+						RecoveredDataTable = DT;
+					}
+				}
+			}
+			else if (OldPin->PinName == RowNamePinName && RecoveredRowName.IsNone())
+			{
+				if (OldPin->LinkedTo.Num() == 0)
+				{
+					const FString RowNameStr = OldPin->GetDefaultAsString();
+					if (!RowNameStr.IsEmpty())
+					{
+						RecoveredRowName = FName(*RowNameStr);
+					}
+				}
+			}
+		}
+
+		if (RecoveredDataTable && !RecoveredRowName.IsNone())
+		{
+			RecoveredDataTable->ConditionalPostLoad();
+
+			const UScriptStruct* RowStruct = RecoveredDataTable->GetRowStruct();
+			if (RowStruct && RowStruct->IsChildOf(GetRequiredRowStruct()))
+			{
+				const FComposableCameraParameterTableRow* Row =
+					RecoveredDataTable->FindRow<FComposableCameraParameterTableRow>(
+						RecoveredRowName, TEXT("K2Node Reallocate self-heal"));
+				if (Row && !Row->CameraType.IsNull())
+				{
+					if (UComposableCameraTypeAsset* Recovered = Row->CameraType.LoadSynchronous())
+					{
+						Recovered->ConditionalPostLoad();
+						CachedTypeAsset = Recovered;
+					}
+				}
+			}
+		}
+	}
+
+	// Self-healing: if an old dynamic pin had live connections that the user
+	// clearly cared about, make sure its name is in UserOverrideNames before
+	// we call through to the base reconstruction.
 	if (CachedTypeAsset != nullptr)
 	{
 		TSet<FName> AssetNames;
@@ -577,6 +749,14 @@ void UK2Node_ActivateComposableCameraFromDataTable::HandleObjectPropertyChanged(
 	UObject* Object, FPropertyChangedEvent& /*Event*/)
 {
 	if (Object == nullptr || Object != CachedTypeAsset)
+	{
+		return;
+	}
+
+	// Skip while our own ReallocatePinsDuringReconstruction is in flight.
+	// OnObjectPropertyChanged can fire during asset load/save side-effects;
+	// a nested ReconstructNode from that path would tear pin state mid-pass.
+	if (bIsReconstructing)
 	{
 		return;
 	}

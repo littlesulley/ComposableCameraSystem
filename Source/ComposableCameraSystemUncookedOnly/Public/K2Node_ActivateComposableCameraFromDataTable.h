@@ -183,4 +183,16 @@ private:
 
 	/** Delegate broadcast when the DataTable pin changes. */
 	FOnDataTablePinChanged OnDataTablePinChangedDelegate;
+
+	/** Re-entrancy guard for pin reconstruction. Set while
+	 *  ReallocatePinsDuringReconstruction is running so transient pin
+	 *  notifications fired by the engine's pin-rewire phase
+	 *  (PinDefaultValueChanged on a freshly-created DataTable / RowName pin)
+	 *  or external property-change broadcasts (FCoreUObjectDelegates::
+	 *  OnObjectPropertyChanged firing during asset load / save) cannot kick
+	 *  off a nested ReconstructNode that would tear UserOverrideNames
+	 *  mid-operation. Transient -- never serialised. See TechDoc.md §7.2 for
+	 *  the full failure-mode taxonomy and the matching guard on the sibling
+	 *  K2 nodes. */
+	bool bIsReconstructing = false;
 };

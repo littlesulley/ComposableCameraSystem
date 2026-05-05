@@ -12,9 +12,11 @@
 #include "Kismet2/CompilerResultsLog.h"
 #include "Kismet/KismetSystemLibrary.h"
 #include "Kismet2/BlueprintEditorUtils.h"
+#include "Containers/Ticker.h"
 #include "ScopedTransaction.h"
 #include "ToolMenu.h"
 #include "ToolMenuSection.h"
+#include "UObject/SoftObjectPath.h"
 #include "UObject/UObjectGlobals.h"
 
 #include "ComposableCameraEdGraphPinTypeUtils.h"
@@ -259,6 +261,53 @@ void UK2Node_AddCameraPatch::PostLoad()
 {
 	Super::PostLoad();
 	SubscribeToAssetChangeDelegate();
+
+	// Auto-recover from baked-in orphan pin state. See the matching block in
+	// UK2Node_ActivateComposableCamera and TechDoc.md §7.2 for full background:
+	// once a previous reconstruction with CachedPatchAsset == nullptr left an
+	// orphan pin in Pins[] and the user saved the blueprint, plain load just
+	// deserializes the orphan -- no reconstruction runs, the per-Reallocate
+	// self-heal never fires, and the user sees a red "In use pin X no longer
+	// exists" warning every cold restart that only manual Refresh clears.
+	//
+	// Detect that disk-baked orphan state and trigger one deferred reconstruction.
+	// FTSTicker's one-tick deferral is required: calling ReconstructNode directly
+	// from PostLoad trips ZenLoader's RF_NeedLoad ensure (Obj.cpp:1314) because
+	// reconstruction touches related load-batch objects (the blueprint, the
+	// CachedPatchAsset, sibling nodes) that may not yet have cleared RF_NeedLoad.
+	// By the time the ticker fires, the load batch is complete.
+	bool bHasOrphanPin = false;
+	for (const UEdGraphPin* Pin : Pins)
+	{
+		if (Pin && Pin->bOrphanedPin)
+		{
+			bHasOrphanPin = true;
+			break;
+		}
+	}
+	if (bHasOrphanPin)
+	{
+		TWeakObjectPtr<UK2Node_AddCameraPatch> WeakThis(this);
+		FTSTicker::GetCoreTicker().AddTicker(
+			FTickerDelegate::CreateLambda([WeakThis](float) -> bool
+			{
+				if (UK2Node_AddCameraPatch* StrongThis = WeakThis.Get())
+				{
+					if (IsValid(StrongThis))
+					{
+						if (StrongThis->CachedPatchAsset)
+						{
+							StrongThis->CachedPatchAsset->ConditionalPostLoad();
+						}
+						UE_LOG(LogComposableCameraSystem, Warning,
+							TEXT("K2 AddCameraPatch deferred PostLoad recovery: orphan pin detected; reconstructing now."));
+						StrongThis->ReconstructNode();
+					}
+				}
+				return false; // one-shot; do not repeat
+			}),
+			0.0f);
+	}
 }
 
 void UK2Node_AddCameraPatch::BeginDestroy()
@@ -282,20 +331,68 @@ void UK2Node_AddCameraPatch::ReallocatePinsDuringReconstruction(TArray<UEdGraphP
 	// torn UserOverrideNames state and silently drop user-authored override pins.
 	TGuardValue<bool> ReconstructionGuard(bIsReconstructing, true);
 
-	// Stale-state self-heal for CachedPatchAsset. If a saved blueprint ended up
-	// with CachedPatchAsset == nullptr while the saved PatchAsset pin still
-	// carries a valid DefaultObject (the historical bug pattern in the sibling
-	// K2 node before the re-entrancy guard landed), recover it from OldPins so
-	// CreateDynamicParameterPins downstream can materialize the override pins.
+	// Stale-state self-heal for CachedPatchAsset. Two failure modes converge
+	// here (see the matching block in UK2Node_ActivateComposableCamera and
+	// TechDoc.md §7.2 for full rationale):
+	//
+	//   1. Legacy on-disk corruption -- a blueprint saved before the re-entrancy
+	//      guard landed can have CachedPatchAsset == nullptr while the saved
+	//      PatchAsset pin still carries the right reference.
+	//   2. EDL load-order race -- on cold load the patch asset's PostLoad may
+	//      not have completed by the time blueprint compilation triggers our
+	//      reconstruction. CachedPatchAsset (TObjectPtr) and OldPin->DefaultObject
+	//      both read as nullptr; only OldPin->DefaultValue still carries the
+	//      serialized asset path string. The picker shows the asset name to the
+	//      user via that string, but pointer-side code sees null.
+	//
+	// Two-tier recovery: prefer OldPin->DefaultObject when the linker has
+	// resolved the pointer, fall back to FSoftObjectPath::TryLoad on
+	// OldPin->DefaultValue when EDL hasn't gotten there yet. Synchronous load
+	// is correct here -- the K2 node has a hard UPROPERTY dependency on this
+	// asset; pulling its remaining preload window forward by one synchronous
+	// load is in spec, not a workaround. ConditionalPostLoad afterward ensures
+	// the asset's own PostLoad migration (GUID backfill, name de-duplication)
+	// completes before CreateDynamicParameterPins reads its arrays.
 	if (CachedPatchAsset == nullptr)
 	{
 		for (const UEdGraphPin* OldPin : OldPins)
 		{
-			if (OldPin && OldPin->PinName == PN_PatchAsset && OldPin->DefaultObject)
+			if (!OldPin || OldPin->PinName != PN_PatchAsset)
+			{
+				continue;
+			}
+
+			if (OldPin->DefaultObject)
 			{
 				CachedPatchAsset = Cast<UComposableCameraPatchTypeAsset>(OldPin->DefaultObject);
-				break;
+				if (CachedPatchAsset)
+				{
+					break;
+				}
 			}
+
+			if (!OldPin->DefaultValue.IsEmpty())
+			{
+				FSoftObjectPath Path(OldPin->DefaultValue);
+				UObject* Resolved = Path.ResolveObject();
+				if (!Resolved)
+				{
+					Resolved = Path.TryLoad();
+				}
+				if (UComposableCameraPatchTypeAsset* Recovered = Cast<UComposableCameraPatchTypeAsset>(Resolved))
+				{
+					UE_LOG(LogComposableCameraSystem, Verbose,
+						TEXT("K2 AddCameraPatch: recovered CachedPatchAsset '%s' from OldPin->DefaultValue (DefaultObject was null at reconstruction time -- EDL load-order race)."),
+						*Recovered->GetName());
+					CachedPatchAsset = Recovered;
+					break;
+				}
+			}
+		}
+
+		if (CachedPatchAsset)
+		{
+			CachedPatchAsset->ConditionalPostLoad();
 		}
 	}
 
