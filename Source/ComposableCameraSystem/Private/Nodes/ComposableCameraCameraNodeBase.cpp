@@ -303,7 +303,17 @@ const FComposableCameraNodePinBindingTable& UComposableCameraCameraNodeBase::Get
 		Binding.PinType = MappedType;
 		Binding.StructType = MappedStruct;
 		Binding.EnumType = MappedEnum;
-		Binding.BackingProperty = (MappedType == EComposableCameraPinType::Enum) ? *FoundProperty : nullptr;
+		// BackingProperty is needed by the auto-resolve loop's runtime dispatch:
+		// Enum uses it to narrow-cast int64 storage into the actual property
+		// width (FByteProperty / FEnumProperty), and Struct uses it to look up
+		// the FStructProperty's UScriptStruct for CopyScriptStruct dispatch
+		// (POD bytes vs FInstancedStruct slot). Other types resolve via the
+		// templated TryResolveInputPin<T> path and don't need it.
+		Binding.BackingProperty =
+			(MappedType == EComposableCameraPinType::Enum
+				|| MappedType == EComposableCameraPinType::Struct)
+				? *FoundProperty
+				: nullptr;
 		Binding.FieldOffset = (*FoundProperty)->GetOffset_ForInternal();
 		NewTable->InputBindings.Add(MoveTemp(Binding));
 	}
@@ -410,8 +420,51 @@ void UComposableCameraCameraNodeBase::ResolveAllInputPins()
 			}
 			break;
 		case EComposableCameraPinType::Struct:
-			// Generic struct pins need memcpy with size/alignment validation.
-			// Matches ApplySubobjectPinValues: deferred until a concrete use case appears.
+			{
+				// Struct pins dispatch on the resolved source offset's storage
+				// class. POD structs (where IsBytewiseSafeStruct accepts) live
+				// in the byte-array Storage and Memcpy is correct; non-POD
+				// structs (FString / TArray / object refs / delegates inside)
+				// live in the typed FInstancedStruct slot pool and must use
+				// CopyScriptStruct so embedded heap-owned members get a proper
+				// per-property copy through their FProperty operator=.
+				int32 Offset = INDEX_NONE;
+				if (!RuntimeDataBlock->ResolveInputPinOffset(RuntimeNodeIndex, Binding.PinName, Offset))
+				{
+					break;
+				}
+				const FStructProperty* StructProp = CastField<FStructProperty>(Binding.BackingProperty);
+				if (!StructProp || !StructProp->Struct)
+				{
+					break;
+				}
+
+				if (RuntimeDataBlock->IsStructSlotOffset(Offset))
+				{
+					const FInstancedStruct& Slot = RuntimeDataBlock->GetStructSlotChecked(Offset);
+					if (Slot.IsValid() && Slot.GetScriptStruct() == StructProp->Struct)
+					{
+						// CopyScriptStruct iterates the struct's properties and
+						// invokes per-property operator= -- FString reuses its
+						// existing allocator if capacity already fits, so the
+						// per-frame steady state is no-alloc for stable values.
+						// First-tick or grow events allocate once; documented
+						// in TechDoc.md §7.2 alloc characteristic.
+						StructProp->Struct->CopyScriptStruct(ValuePtr, Slot.GetMemory());
+					}
+				}
+				else
+				{
+					// POD struct: byte-storage path.
+					const int32 Size = StructProp->Struct->GetStructureSize();
+					if (Size > 0
+						&& Offset >= 0
+						&& Offset + Size <= RuntimeDataBlock->Storage.Num())
+					{
+						FMemory::Memcpy(ValuePtr, RuntimeDataBlock->Storage.GetData() + Offset, Size);
+					}
+				}
+			}
 			break;
 		case EComposableCameraPinType::Delegate:
 			// Delegates are not POD — they bypass the data block entirely and are
@@ -584,9 +637,41 @@ void UComposableCameraCameraNodeBase::ApplySubobjectPinValues(
 			}
 			break;
 		case EComposableCameraPinType::Struct:
-			// Struct pin resolution uses raw memcpy at the data block level.
-			// For subobject properties this would require size/alignment validation.
-			// Deferred until there is a concrete use case.
+			{
+				// Struct subobject pins follow the same POD-vs-typed dispatch
+				// as the top-level auto-resolve loop above. The Property here
+				// is the subobject's struct field (we're iterating subobject
+				// properties), so its FStructProperty drives CopyScriptStruct.
+				int32 Offset = INDEX_NONE;
+				if (!RuntimeDataBlock->ResolveInputPinOffset(RuntimeNodeIndex, CompoundPinName, Offset))
+				{
+					break;
+				}
+				const FStructProperty* StructProp = CastField<FStructProperty>(Property);
+				if (!StructProp || !StructProp->Struct)
+				{
+					break;
+				}
+
+				if (RuntimeDataBlock->IsStructSlotOffset(Offset))
+				{
+					const FInstancedStruct& Slot = RuntimeDataBlock->GetStructSlotChecked(Offset);
+					if (Slot.IsValid() && Slot.GetScriptStruct() == StructProp->Struct)
+					{
+						StructProp->Struct->CopyScriptStruct(ValuePtr, Slot.GetMemory());
+					}
+				}
+				else
+				{
+					const int32 Size = StructProp->Struct->GetStructureSize();
+					if (Size > 0
+						&& Offset >= 0
+						&& Offset + Size <= RuntimeDataBlock->Storage.Num())
+					{
+						FMemory::Memcpy(ValuePtr, RuntimeDataBlock->Storage.GetData() + Offset, Size);
+					}
+				}
+			}
 			break;
 		case EComposableCameraPinType::Delegate:
 			// Delegates are not POD — they bypass the data block entirely and are

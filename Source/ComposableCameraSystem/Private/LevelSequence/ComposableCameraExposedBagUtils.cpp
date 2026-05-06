@@ -115,21 +115,22 @@ namespace UE::ComposableCameras::ExposedBag
 
 		case EComposableCameraPinType::Struct:
 		{
-			// Bytewise-safe POD struct path. The TypeAsset Build() pass already
-			// rejects non-POD struct exposed parameters / variables, so anything
-			// reaching here is safe to memcpy via CopyScriptStruct into a fresh
-			// in-place-initialized Entry.Data buffer. Non-POD structs (which
-			// would have failed Build()) are silently skipped here as a
-			// defensive backstop.
-			if (!StructType || !IsBytewiseSafeStruct(StructType))
+			if (!StructType)
 			{
 				return;
 			}
 			if (auto R = Bag.GetValueStruct(Name, StructType); R.HasValue())
 			{
 				const FStructView View = R.GetValue();
-				if (View.IsValid() && View.GetScriptStruct() == StructType)
+				if (!View.IsValid() || View.GetScriptStruct() != StructType)
 				{
+					return;
+				}
+
+				if (IsBytewiseSafeStruct(StructType))
+				{
+					// POD path: bytes go into Entry.Data; StoreValue routes
+					// to the byte-array Values map.
 					const int32 Size = StructType->GetStructureSize();
 					if (Size > 0)
 					{
@@ -140,6 +141,13 @@ namespace UE::ComposableCameras::ExposedBag
 						StructType->CopyScriptStruct(Entry.Data.GetData(), View.GetMemory());
 						OutBlock.StoreValue(Name, MoveTemp(Entry));
 					}
+				}
+				else
+				{
+					// Non-POD: route through SetStruct so the FInstancedStruct
+					// path owns construction / destruction / GC traversal of
+					// embedded heap-owned members.
+					OutBlock.SetStruct(Name, StructType, View.GetMemory());
 				}
 			}
 			return;

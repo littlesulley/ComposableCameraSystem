@@ -5,6 +5,7 @@
 #include "ComposableCameraSystemModule.h"
 #include "UObject/GCObject.h"
 #include "UObject/SoftObjectPath.h"
+#include "UObject/UObjectGlobals.h"
 #include "UObject/UnrealType.h"
 
 namespace ComposableCameraParameterBlockPrivate
@@ -61,6 +62,21 @@ void FComposableCameraParameterBlock::AddReferencedObjects(FReferenceCollector& 
 	for (auto& Pair : ObjectValues)
 	{
 		Collector.AddReferencedObject(Pair.Value);
+	}
+	// FInstancedStruct exposes embedded UObject references via the script
+	// struct's AddStructReferencedObjects path. Walking StructValues here lets
+	// the GC see Actor / UObject members buried inside non-POD struct values
+	// the caller passed in via SetStruct.
+	for (auto& Pair : StructValues)
+	{
+		FInstancedStruct& Slot = Pair.Value;
+		if (const UScriptStruct* Struct = Slot.GetScriptStruct())
+		{
+			if (Slot.IsValid())
+			{
+				Collector.AddPropertyReferencesWithStructARO(Struct, Slot.GetMutableMemory());
+			}
+		}
 	}
 }
 
@@ -257,14 +273,6 @@ bool FComposableCameraParameterBlock::ApplyStringValue(
 			return false;
 		}
 
-		if (!IsBytewiseSafeStruct(StructType))
-		{
-			WriteError(OutError, FString::Printf(
-				TEXT("Struct '%s' is not POD (contains FString / FText / TArray / TMap / TSet / object reference / delegate fields). The byte-array ParameterBlock cannot store non-POD structs without owned typed storage; type-asset Build() flags this at authoring time."),
-				*StructType->GetName()));
-			return false;
-		}
-
 		const int32 Size = StructType->GetStructureSize();
 		if (Size <= 0)
 		{
@@ -273,36 +281,63 @@ bool FComposableCameraParameterBlock::ApplyStringValue(
 			return false;
 		}
 
-		// Initialize the struct in place inside Entry.Data, then ImportText
-		// directly into that storage. The previous design (initialize a
-		// scratch buffer, ImportText into scratch, memcpy bytes into a
-		// separate Entry.Data, DestroyStruct on scratch) carried no benefit
-		// for POD storage and -- subtly -- left Entry.Data holding bytes
-		// whose pointee state was already destroyed if the struct ever
-		// turned out to be non-POD. The IsBytewiseSafeStruct gate above
-		// keeps us in POD-only land, so destruction is a no-op and a
-		// single in-place initialization is correct.
-		FComposableCameraParameterValue Entry;
-		Entry.PinType = PinType;
-		Entry.Data.SetNumZeroed(Size);
-		StructType->InitializeStruct(Entry.Data.GetData());
+		// Two paths:
+		//   POD     -> initialize in place inside Entry.Data (byte storage),
+		//              ImportText into those bytes, store via StoreValue.
+		//   non-POD -> initialize a fresh FInstancedStruct, ImportText into its
+		//              owned memory, store via SetStruct (which routes to
+		//              StructValues and clears the byte-array entry under the
+		//              same name). FInstancedStruct owns construction /
+		//              destruction / GC -- exactly the contract bytes can't
+		//              fulfill for FString / TArray / object refs.
+		if (IsBytewiseSafeStruct(StructType))
+		{
+			FComposableCameraParameterValue Entry;
+			Entry.PinType = PinType;
+			Entry.Data.SetNumZeroed(Size);
+			StructType->InitializeStruct(Entry.Data.GetData());
+
+			const TCHAR* Buffer = *ValueString;
+			const TCHAR* Result = StructType->ImportText(
+				Buffer, Entry.Data.GetData(), /*OwnerObject*/ nullptr,
+				PPF_None, /*ErrorText*/ nullptr,
+				StructType->GetName());
+
+			if (!Result)
+			{
+				StructType->DestroyStruct(Entry.Data.GetData());
+				WriteError(OutError, FString::Printf(
+					TEXT("Failed to parse '%s' as struct %s"),
+					*ValueString, *StructType->GetName()));
+				return false;
+			}
+
+			OutBlock.StoreValue(ParameterName, MoveTemp(Entry));
+			return true;
+		}
+
+		// Non-POD: typed storage via FInstancedStruct.
+		FInstancedStruct Slot;
+		Slot.InitializeAs(StructType);
 
 		const TCHAR* Buffer = *ValueString;
 		const TCHAR* Result = StructType->ImportText(
-			Buffer, Entry.Data.GetData(), /*OwnerObject*/ nullptr,
+			Buffer, Slot.GetMutableMemory(), /*OwnerObject*/ nullptr,
 			PPF_None, /*ErrorText*/ nullptr,
 			StructType->GetName());
 
 		if (!Result)
 		{
-			StructType->DestroyStruct(Entry.Data.GetData());
 			WriteError(OutError, FString::Printf(
 				TEXT("Failed to parse '%s' as struct %s"),
 				*ValueString, *StructType->GetName()));
 			return false;
 		}
 
-		OutBlock.StoreValue(ParameterName, MoveTemp(Entry));
+		// Route through SetStruct so the parallel POD/Actor/Object/Delegate
+		// entries under this name are cleared (defensive against authoring
+		// changes that flip the type but reuse the same parameter name).
+		OutBlock.SetStruct(ParameterName, StructType, Slot.GetMemory());
 		return true;
 	}
 

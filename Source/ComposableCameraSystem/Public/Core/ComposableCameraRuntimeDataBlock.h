@@ -3,8 +3,11 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Concepts/StaticStructProvider.h"
 #include "GameFramework/Actor.h"
 #include "Nodes/ComposableCameraNodePinTypes.h"
+#include "StructUtils/InstancedStruct.h"
+#include "Templates/Models.h"
 #include "ComposableCameraRuntimeDataBlock.generated.h"
 
 class FReferenceCollector;
@@ -32,8 +35,62 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraRuntimeDataBlock
 {
 	GENERATED_BODY()
 
-	/** Raw storage buffer. Allocated once during camera instantiation. */
+	/** Raw storage buffer. Allocated once during camera instantiation. POD pin
+	 *  values live here at real byte offsets; non-POD struct values live in
+	 *  StructSlots below at synthetic offsets >= StructSlotsOffsetBase. */
 	TArray<uint8> Storage;
+
+	/** Typed storage for non-POD struct slots (ExposedParameter / ExposedVariable /
+	 *  InternalVariable / OutputPin / DefaultValue per-instance override of a
+	 *  USTRUCT containing FString / FText / TArray / TMap / TSet / object refs /
+	 *  delegates -- anything `IsBytewiseSafeStruct` rejects).
+	 *
+	 *  Each entry is owned (proper ctor / dtor) and GC-walked via
+	 *  AddPropertyReferencesWithStructARO in AddReferencedObjects. The various
+	 *  offset tables below (OutputPinOffsets, ExposedParameterOffsets, etc.)
+	 *  store synthetic offsets >= StructSlotsOffsetBase for non-POD struct
+	 *  entries; the dispatch in ReadValue / WriteValue / TryResolveInputPin
+	 *  detects this and routes to StructSlots[Offset - StructSlotsOffsetBase]
+	 *  instead of memcpying out of Storage.
+	 *
+	 *  Activation-time: BuildRuntimeDataLayout pre-allocates one slot per
+	 *  non-POD struct entry via InitializeAs(StructType). Per-frame copy-in
+	 *  (ApplyParameterBlock, WriteOutputPin, CopySlot) reuses the slot's
+	 *  existing memory via CopyScriptStruct -- bounded one-time alloc when
+	 *  embedded FString members grow, no alloc when they fit existing capacity. */
+	TArray<FInstancedStruct> StructSlots;
+
+	/** Synthetic offsets >= this value index into StructSlots; offsets < this
+	 *  value are real byte offsets into Storage. INT32_MAX/2 is well outside
+	 *  any plausible Storage size and leaves the same headroom for synthetic
+	 *  range, so collisions are impossible without TotalSize crossing 1 GiB. */
+	static constexpr int32 StructSlotsOffsetBase = TNumericLimits<int32>::Max() / 2;
+
+	/** True if Offset addresses a non-POD struct slot in StructSlots. */
+	FORCEINLINE bool IsStructSlotOffset(int32 Offset) const
+	{
+		return Offset >= StructSlotsOffsetBase;
+	}
+
+	/** Convert a synthetic offset to its StructSlots index. */
+	FORCEINLINE int32 GetStructSlotIndex(int32 Offset) const
+	{
+		return Offset - StructSlotsOffsetBase;
+	}
+
+	/** Reserve a fresh struct slot pre-initialized for StructType, returning
+	 *  the synthetic offset that should be stored in the relevant offset table
+	 *  (ExposedParameterOffsets / OutputPinOffsets / etc.). Called once per
+	 *  non-POD struct entry by BuildRuntimeDataLayout. */
+	int32 RegisterStructSlot(const UScriptStruct* StructType)
+	{
+		const int32 Index = StructSlots.Emplace();
+		if (StructType)
+		{
+			StructSlots[Index].InitializeAs(StructType);
+		}
+		return StructSlotsOffsetBase + Index;
+	}
 
 	/** Lookup: (NodeIndex, PinName) for OUTPUT pins → byte offset in Storage. */
 	TMap<FComposableCameraPinKey, int32> OutputPinOffsets;
@@ -84,20 +141,52 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraRuntimeDataBlock
 	/** Total allocated size. */
 	int32 TotalSize = 0;
 
-	/** Read a typed value from the storage at the given byte offset. */
+	/** Read a typed value from the storage at the given byte offset.
+	 *  POD path: memcpy out of Storage.
+	 *  Non-POD struct path (T is a USTRUCT and Offset >= StructSlotsOffsetBase):
+	 *  CopyScriptStruct out of the typed slot in StructSlots. */
 	template<typename T>
 	T ReadValue(int32 Offset) const
 	{
+		if constexpr (TModels_V<CStaticStructProvider, T>)
+		{
+			if (IsStructSlotOffset(Offset))
+			{
+				const int32 Index = GetStructSlotIndex(Offset);
+				check(StructSlots.IsValidIndex(Index));
+				const FInstancedStruct& Slot = StructSlots[Index];
+				check(Slot.IsValid() && Slot.GetScriptStruct() == T::StaticStruct());
+				T Result;
+				T::StaticStruct()->CopyScriptStruct(&Result, Slot.GetMemory());
+				return Result;
+			}
+		}
 		check(Offset >= 0 && Offset + static_cast<int32>(sizeof(T)) <= Storage.Num());
 		T Result;
 		FMemory::Memcpy(&Result, Storage.GetData() + Offset, sizeof(T));
 		return Result;
 	}
 
-	/** Write a typed value to the storage at the given byte offset. */
+	/** Write a typed value to the storage at the given byte offset.
+	 *  POD path: memcpy into Storage.
+	 *  Non-POD struct path: CopyScriptStruct into the existing struct slot's
+	 *  owned memory -- no allocation unless an embedded FString grows beyond
+	 *  its existing capacity (see TechDoc.md §7.2 alloc characteristic). */
 	template<typename T>
 	void WriteValue(int32 Offset, const T& Value)
 	{
+		if constexpr (TModels_V<CStaticStructProvider, T>)
+		{
+			if (IsStructSlotOffset(Offset))
+			{
+				const int32 Index = GetStructSlotIndex(Offset);
+				check(StructSlots.IsValidIndex(Index));
+				FInstancedStruct& Slot = StructSlots[Index];
+				check(Slot.IsValid() && Slot.GetScriptStruct() == T::StaticStruct());
+				T::StaticStruct()->CopyScriptStruct(Slot.GetMutableMemory(), &Value);
+				return;
+			}
+		}
 		check(Offset >= 0 && Offset + static_cast<int32>(sizeof(T)) <= Storage.Num());
 		FMemory::Memcpy(Storage.GetData() + Offset, &Value, sizeof(T));
 		RefreshReferenceSlot(Offset);
@@ -164,6 +253,33 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraRuntimeDataBlock
 		return false;
 	}
 
+	/** Resolve an input pin to its source slot offset using the same three-tier
+	 *  priority as TryResolveInputPin (wired -> exposed -> per-instance default),
+	 *  but without copying the value out -- useful for non-templated paths
+	 *  (auto-resolve Struct case, struct subobject pin dispatch) that need to
+	 *  decide between byte storage and FInstancedStruct slot at runtime.
+	 *  Returns true and writes OutOffset when a slot is found. */
+	bool ResolveInputPinOffset(int32 NodeIndex, FName PinName, int32& OutOffset) const
+	{
+		const FComposableCameraPinKey Key{ NodeIndex, PinName };
+		if (const int32* SourceOffset = InputPinSourceOffsets.Find(Key))
+		{
+			OutOffset = *SourceOffset;
+			return true;
+		}
+		if (const int32* ParamOffset = ExposedInputPinOffsets.Find(Key))
+		{
+			OutOffset = *ParamOffset;
+			return true;
+		}
+		if (const int32* DefaultOffset = DefaultValueOffsets.Find(Key))
+		{
+			OutOffset = *DefaultOffset;
+			return true;
+		}
+		return false;
+	}
+
 	/** Read an internal variable by name. */
 	template<typename T>
 	T ReadInternalVariable(FName VariableName) const
@@ -191,14 +307,58 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraRuntimeDataBlock
 	/** Copy raw bytes from one slot to another within the same storage.
 	 *  Used by the exec-chain SetVariable dispatch to transfer a source node's
 	 *  output pin value into an internal variable slot without knowing the
-	 *  concrete C++ type at compile time. */
+	 *  concrete C++ type at compile time.
+	 *
+	 *  Three cases: both POD (memcpy), both non-POD struct (CopyScriptStruct
+	 *  through the slot's owned memory, the struct types must match), or
+	 *  mismatched -- the layout builder must never emit a connection between
+	 *  pins of different storage classes, so a mismatch is a bug. */
 	void CopySlot(int32 SourceOffset, int32 TargetOffset, int32 NumBytes)
 	{
+		const bool bSourceIsStruct = IsStructSlotOffset(SourceOffset);
+		const bool bTargetIsStruct = IsStructSlotOffset(TargetOffset);
+		check(bSourceIsStruct == bTargetIsStruct);
+
+		if (bSourceIsStruct)
+		{
+			const int32 SrcIndex = GetStructSlotIndex(SourceOffset);
+			const int32 DstIndex = GetStructSlotIndex(TargetOffset);
+			check(StructSlots.IsValidIndex(SrcIndex));
+			check(StructSlots.IsValidIndex(DstIndex));
+			const FInstancedStruct& Src = StructSlots[SrcIndex];
+			FInstancedStruct& Dst = StructSlots[DstIndex];
+			check(Src.IsValid() && Dst.IsValid());
+			check(Src.GetScriptStruct() == Dst.GetScriptStruct());
+			Dst.GetScriptStruct()->CopyScriptStruct(Dst.GetMutableMemory(), Src.GetMemory());
+			return;
+		}
+
 		check(NumBytes > 0);
 		check(SourceOffset >= 0 && SourceOffset + NumBytes <= Storage.Num());
 		check(TargetOffset >= 0 && TargetOffset + NumBytes <= Storage.Num());
 		FMemory::Memcpy(Storage.GetData() + TargetOffset, Storage.GetData() + SourceOffset, NumBytes);
 		RefreshReferenceSlot(TargetOffset);
+	}
+
+	/** Direct access to the FInstancedStruct backing a non-POD struct slot.
+	 *  Used by auto-resolve / subobject-pin code paths whose dispatch happens
+	 *  on a runtime EComposableCameraPinType value (not a compile-time T) --
+	 *  the templated ReadValue<T> path is preferred when T is known. Asserts
+	 *  the offset is in fact a struct slot. */
+	const FInstancedStruct& GetStructSlotChecked(int32 Offset) const
+	{
+		check(IsStructSlotOffset(Offset));
+		const int32 Index = GetStructSlotIndex(Offset);
+		check(StructSlots.IsValidIndex(Index));
+		return StructSlots[Index];
+	}
+
+	FInstancedStruct& GetStructSlotMutableChecked(int32 Offset)
+	{
+		check(IsStructSlotOffset(Offset));
+		const int32 Index = GetStructSlotIndex(Offset);
+		check(StructSlots.IsValidIndex(Index));
+		return StructSlots[Index];
 	}
 
 	void RegisterReferenceSlot(EComposableCameraPinType PinType, int32 Offset);

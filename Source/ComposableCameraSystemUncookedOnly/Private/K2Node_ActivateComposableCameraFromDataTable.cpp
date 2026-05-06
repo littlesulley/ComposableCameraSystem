@@ -1224,11 +1224,15 @@ void UK2Node_ActivateComposableCameraFromDataTable::ExpandNode(
 			continue;
 		}
 
+		// Dispatch per pin type to a typed BP setter; wildcard fallback for
+		// Enum / arbitrary Struct / Delegate. See TechDoc.md §7.2 for the
+		// BP CustomStructureParam wildcard bug this avoids.
+		const FName SetterFunctionName =
+			ComposableCameraEdGraphPinTypeUtils::ResolveTypedSetterFunctionName(DynamicPin->PinType);
 		UK2Node_CallFunction* SetterNode =
 			CompilerContext.SpawnIntermediateNode<UK2Node_CallFunction>(this, SourceGraph);
 		SetterNode->SetFromFunction(
-			UComposableCameraBlueprintLibrary::StaticClass()->FindFunctionByName(
-				GET_FUNCTION_NAME_CHECKED(UComposableCameraBlueprintLibrary, SetParameterBlockValue)));
+			UComposableCameraBlueprintLibrary::StaticClass()->FindFunctionByName(SetterFunctionName));
 		SetterNode->AllocateDefaultPins();
 
 		UEdGraphPin* SetterExecPin = SetterNode->GetExecPin();

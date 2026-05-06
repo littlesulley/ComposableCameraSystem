@@ -6,6 +6,7 @@
 #include "EdGraphSchema_K2.h"
 #include "GameFramework/Actor.h"
 #include "UObject/Class.h"
+#include "Utils/ComposableCameraBlueprintLibrary.h"
 
 namespace ComposableCameraEdGraphPinTypeUtils
 {
@@ -116,5 +117,85 @@ namespace ComposableCameraEdGraphPinTypeUtils
 		}
 
 		return Result;
+	}
+
+	FName ResolveTypedSetterFunctionName(const FEdGraphPinType& PinType)
+	{
+		// Boolean / Int / Float / Double / Name -- direct typed setters.
+		if (PinType.PinCategory == UEdGraphSchema_K2::PC_Boolean)
+		{
+			return GET_FUNCTION_NAME_CHECKED(UComposableCameraBlueprintLibrary, SetParameterBlockBool);
+		}
+		if (PinType.PinCategory == UEdGraphSchema_K2::PC_Int)
+		{
+			return GET_FUNCTION_NAME_CHECKED(UComposableCameraBlueprintLibrary, SetParameterBlockInt32);
+		}
+		if (PinType.PinCategory == UEdGraphSchema_K2::PC_Real)
+		{
+			if (PinType.PinSubCategory == UEdGraphSchema_K2::PC_Float)
+			{
+				return GET_FUNCTION_NAME_CHECKED(UComposableCameraBlueprintLibrary, SetParameterBlockFloat);
+			}
+			if (PinType.PinSubCategory == UEdGraphSchema_K2::PC_Double)
+			{
+				return GET_FUNCTION_NAME_CHECKED(UComposableCameraBlueprintLibrary, SetParameterBlockDouble);
+			}
+		}
+		if (PinType.PinCategory == UEdGraphSchema_K2::PC_Name)
+		{
+			return GET_FUNCTION_NAME_CHECKED(UComposableCameraBlueprintLibrary, SetParameterBlockName);
+		}
+
+		// Object / Actor -- dispatch on whether the property class derives from AActor.
+		if (PinType.PinCategory == UEdGraphSchema_K2::PC_Object)
+		{
+			const UClass* PropClass = Cast<UClass>(PinType.PinSubCategoryObject);
+			if (PropClass && PropClass->IsChildOf(AActor::StaticClass()))
+			{
+				return GET_FUNCTION_NAME_CHECKED(UComposableCameraBlueprintLibrary, SetParameterBlockActor);
+			}
+			return GET_FUNCTION_NAME_CHECKED(UComposableCameraBlueprintLibrary, SetParameterBlockObject);
+		}
+
+		// Math structs and FFloatInterval -- typed setters bypass the BP
+		// wildcard bug for pin-default literals on struct pins.
+		if (PinType.PinCategory == UEdGraphSchema_K2::PC_Struct)
+		{
+			const UScriptStruct* Struct = Cast<UScriptStruct>(PinType.PinSubCategoryObject);
+			if (Struct == TBaseStructure<FVector2D>::Get())
+			{
+				return GET_FUNCTION_NAME_CHECKED(UComposableCameraBlueprintLibrary, SetParameterBlockVector2D);
+			}
+			if (Struct == TBaseStructure<FVector>::Get())
+			{
+				return GET_FUNCTION_NAME_CHECKED(UComposableCameraBlueprintLibrary, SetParameterBlockVector);
+			}
+			if (Struct == TBaseStructure<FVector4>::Get())
+			{
+				return GET_FUNCTION_NAME_CHECKED(UComposableCameraBlueprintLibrary, SetParameterBlockVector4);
+			}
+			if (Struct == TBaseStructure<FRotator>::Get())
+			{
+				return GET_FUNCTION_NAME_CHECKED(UComposableCameraBlueprintLibrary, SetParameterBlockRotator);
+			}
+			if (Struct == TBaseStructure<FTransform>::Get())
+			{
+				return GET_FUNCTION_NAME_CHECKED(UComposableCameraBlueprintLibrary, SetParameterBlockTransform);
+			}
+			if (Struct == TBaseStructure<FFloatInterval>::Get())
+			{
+				return GET_FUNCTION_NAME_CHECKED(UComposableCameraBlueprintLibrary, SetParameterBlockFloatInterval);
+			}
+		}
+
+		// Fallback to the wildcard CustomStructureParam setter for:
+		//   - Enum (width normalization needs runtime FProperty inspection)
+		//   - generic Struct (arbitrary user USTRUCT including non-POD)
+		//   - Delegate
+		// These don't trigger the MakeLiteralStruct + CustomStructureParam
+		// pin-default bug in practice (Enum uses MakeLiteralByte, generic
+		// Struct falls through to DefaultValue string, Delegate has no
+		// pin-default).
+		return GET_FUNCTION_NAME_CHECKED(UComposableCameraBlueprintLibrary, SetParameterBlockValue);
 	}
 }

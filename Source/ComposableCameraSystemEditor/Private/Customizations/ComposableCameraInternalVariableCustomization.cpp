@@ -12,8 +12,12 @@
 #include "Nodes/ComposableCameraNodePinTypes.h"
 #include "PropertyEditorModule.h"
 #include "PropertyHandle.h"
+#include "EdGraphSchema_K2.h"
+#include "Framework/MultiBox/MultiBoxBuilder.h"
 #include "SEnumCombo.h"
+#include "UObject/UObjectIterator.h"
 #include "Widgets/Input/SCheckBox.h"
+#include "Widgets/Input/SComboButton.h"
 #include "Widgets/Input/SEditableTextBox.h"
 #include "Widgets/Input/SNumericEntryBox.h"
 #include "Widgets/SBoxPanel.h"
@@ -156,6 +160,27 @@ void FComposableCameraInternalVariableCustomization::CustomizeChildren(
 		if (ChildHandle->GetProperty()->GetFName() ==
 			GET_MEMBER_NAME_CHECKED(FComposableCameraInternalVariable, VariableName))
 		{
+			continue;
+		}
+
+		// Custom picker for EnumType -- walks all UEnum reflection objects
+		// (native + BP-defined) instead of the default asset picker, which
+		// only enumerates UUserDefinedEnum assets and leaves the dropdown
+		// empty for projects with only native UENUM(BlueprintType) enums.
+		if (ChildHandle->GetProperty()->GetFName() ==
+			GET_MEMBER_NAME_CHECKED(FComposableCameraInternalVariable, EnumType))
+		{
+			ChildBuilder.AddCustomRow(LOCTEXT("EnumTypeSearchText", "Enum Type"))
+			.NameContent()
+			[
+				ChildHandle->CreatePropertyNameWidget()
+			]
+			.ValueContent()
+			.MinDesiredWidth(200.f)
+			.MaxDesiredWidth(600.f)
+			[
+				BuildEnumTypePicker(EnumTypeHandle)
+			];
 			continue;
 		}
 
@@ -910,6 +935,118 @@ TSharedRef<SWidget> FComposableCameraInternalVariableCustomization::BuildNumeric
 			})
 			.MinDesiredValueWidth(40.f)
 		];
+}
+
+// ─── Enum Type Picker ────────────────────────────────────────────────────
+
+TSharedRef<SWidget> FComposableCameraInternalVariableCustomization::BuildEnumTypePicker(
+	TSharedPtr<IPropertyHandle> EnumTypeHandle)
+{
+	if (!EnumTypeHandle.IsValid())
+	{
+		return SNullWidget::NullWidget;
+	}
+
+	return SNew(SComboButton)
+		.ContentPadding(FMargin(4.f, 1.f))
+		.OnGetMenuContent_Lambda([this, EnumTypeHandle]()
+		{
+			return BuildEnumTypeMenu(EnumTypeHandle);
+		})
+		.ButtonContent()
+		[
+			SNew(STextBlock)
+			.Font(IDetailLayoutBuilder::GetDetailFont())
+			.Text_Lambda([this, EnumTypeHandle]()
+			{
+				return GetEnumTypeButtonText(EnumTypeHandle);
+			})
+		];
+}
+
+TSharedRef<SWidget> FComposableCameraInternalVariableCustomization::BuildEnumTypeMenu(
+	TSharedPtr<IPropertyHandle> EnumTypeHandle)
+{
+	FMenuBuilder MenuBuilder(/*bShouldCloseWindowAfterMenuSelection=*/true, nullptr);
+
+	// "None" entry first -- clears the selection.
+	MenuBuilder.AddMenuEntry(
+		LOCTEXT("EnumTypeNone", "None"),
+		LOCTEXT("EnumTypeNoneTooltip", "Clear the selected enum type."),
+		FSlateIcon(),
+		FUIAction(FExecuteAction::CreateLambda([EnumTypeHandle]()
+		{
+			if (EnumTypeHandle.IsValid())
+			{
+				EnumTypeHandle->SetValue(static_cast<UObject*>(nullptr));
+			}
+		})));
+
+	MenuBuilder.AddMenuSeparator();
+
+	// Walk every loaded UEnum and use the canonical BP-variable-type filter
+	// (`UEdGraphSchema_K2::IsAllowableBlueprintVariableType`) -- the same
+	// gate the Blueprint editor's variable-type picker uses. It accepts
+	// UUserDefinedEnum (BP-defined) unconditionally and any native UEnum
+	// flagged `UENUM(BlueprintType)` (`GetBoolMetaData("BlueprintType")`),
+	// while rejecting hidden / deprecated / non-exposable enums. Mirroring
+	// this filter keeps the menu consistent with what BP authors are used
+	// to seeing elsewhere.
+	TArray<UEnum*> SortedEnums;
+	for (TObjectIterator<UEnum> It; It; ++It)
+	{
+		UEnum* EnumCandidate = *It;
+		if (!EnumCandidate)
+		{
+			continue;
+		}
+		if (!UEdGraphSchema_K2::IsAllowableBlueprintVariableType(EnumCandidate))
+		{
+			continue;
+		}
+		SortedEnums.Add(EnumCandidate);
+	}
+
+	SortedEnums.Sort([](const UEnum& A, const UEnum& B)
+	{
+		return A.GetName().Compare(B.GetName(), ESearchCase::IgnoreCase) < 0;
+	});
+
+	for (UEnum* EnumValue : SortedEnums)
+	{
+		// Capture by value -- ownership stays with the engine; weak-ref
+		// not needed because UEnum lifetime tracks the engine, not the
+		// menu widget.
+		MenuBuilder.AddMenuEntry(
+			FText::FromString(EnumValue->GetName()),
+			FText::FromString(EnumValue->GetPathName()),
+			FSlateIcon(),
+			FUIAction(FExecuteAction::CreateLambda([EnumTypeHandle, EnumValue]()
+			{
+				if (EnumTypeHandle.IsValid())
+				{
+					EnumTypeHandle->SetValue(static_cast<UObject*>(EnumValue));
+				}
+			})));
+	}
+
+	return MenuBuilder.MakeWidget();
+}
+
+FText FComposableCameraInternalVariableCustomization::GetEnumTypeButtonText(
+	TSharedPtr<IPropertyHandle> EnumTypeHandle) const
+{
+	if (!EnumTypeHandle.IsValid())
+	{
+		return LOCTEXT("EnumTypeNone", "None");
+	}
+	UObject* CurrentValue = nullptr;
+	EnumTypeHandle->GetValue(CurrentValue);
+	if (const UEnum* CurrentEnum = Cast<UEnum>(CurrentValue))
+	{
+		return FText::FromString(CurrentEnum->GetName());
+	}
+	return LOCTEXT("EnumTypeNone", "None");
 }
 
 #undef LOCTEXT_NAMESPACE

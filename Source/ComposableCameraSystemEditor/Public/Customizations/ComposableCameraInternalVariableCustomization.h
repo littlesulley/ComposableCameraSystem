@@ -75,6 +75,24 @@ private:
 		const TCHAR* const* ComponentLabels,
 		const TCHAR* Prefix);
 
+	/** Custom picker for the EnumType field. The default property widget for
+	 *  TObjectPtr<UEnum> shows the asset picker filtered to UUserDefinedEnum
+	 *  assets only -- native `UENUM(BlueprintType)` enums (defined in C++)
+	 *  never appear, leaving the dropdown empty in projects without any
+	 *  BP-defined enums. This builds a combo button whose menu walks every
+	 *  loaded UEnum that opts into BlueprintType, surfacing both BP-defined
+	 *  and native enums uniformly. */
+	TSharedRef<SWidget> BuildEnumTypePicker(TSharedPtr<IPropertyHandle> EnumTypeHandle);
+
+	/** Combo button menu content -- walks TObjectIterator<UEnum>, filters for
+	 *  BlueprintType + non-deprecated, and emits one menu entry per matching
+	 *  enum that writes the picked UEnum back through the handle. */
+	TSharedRef<SWidget> BuildEnumTypeMenu(TSharedPtr<IPropertyHandle> EnumTypeHandle);
+
+	/** Combo button label text -- reads the current EnumType value from the
+	 *  handle and returns its display name (or "None" when unset). */
+	FText GetEnumTypeButtonText(TSharedPtr<IPropertyHandle> EnumTypeHandle) const;
+
 	TSharedPtr<IPropertyHandle> StructHandle;
 	TSharedPtr<IPropertyUtilities> PropertyUtilities;
 

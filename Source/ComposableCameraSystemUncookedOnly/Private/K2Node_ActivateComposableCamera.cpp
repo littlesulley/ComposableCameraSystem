@@ -1325,12 +1325,19 @@ void UK2Node_ActivateComposableCamera::ExpandNode(
 			continue;
 		}
 
-		// Spawn the intermediate CallFunction node for SetParameterBlockValue.
+		// Spawn the intermediate CallFunction node. Dispatch per pin type to
+		// a typed BP setter for POD-shaped pin types (Bool / numeric / Name /
+		// math structs / Object / Actor); fall back to the wildcard
+		// SetParameterBlockValue for Enum / arbitrary Struct / Delegate.
+		// The typed-setter dispatch sidesteps the UE 5.6 BP CustomStructureParam
+		// wildcard bug that mis-types pin-default struct literals routed
+		// through MakeLiteralStruct intermediates -- see TechDoc.md §7.2.
+		const FName SetterFunctionName =
+			ComposableCameraEdGraphPinTypeUtils::ResolveTypedSetterFunctionName(DynamicPin->PinType);
 		UK2Node_CallFunction* SetterNode =
 			CompilerContext.SpawnIntermediateNode<UK2Node_CallFunction>(this, SourceGraph);
 		SetterNode->SetFromFunction(
-			UComposableCameraBlueprintLibrary::StaticClass()->FindFunctionByName(
-				GET_FUNCTION_NAME_CHECKED(UComposableCameraBlueprintLibrary, SetParameterBlockValue)));
+			UComposableCameraBlueprintLibrary::StaticClass()->FindFunctionByName(SetterFunctionName));
 		SetterNode->AllocateDefaultPins();
 
 		UEdGraphPin* SetterExecPin = SetterNode->GetExecPin();

@@ -3,10 +3,18 @@
 #include "Core/ComposableCameraRuntimeDataBlock.h"
 
 #include "UObject/GCObject.h"
+#include "UObject/UObjectGlobals.h"
 
 void FComposableCameraRuntimeDataBlock::RegisterReferenceSlot(EComposableCameraPinType PinType, int32 Offset)
 {
 	if (Offset < 0)
+	{
+		return;
+	}
+	// Struct slots own their own GC story via AddPropertyReferencesWithStructARO
+	// in AddReferencedObjects -- don't double-track them in the Actor / Object
+	// mirror maps. Mirror maps are scoped to raw-pointer slots in Storage.
+	if (IsStructSlotOffset(Offset))
 	{
 		return;
 	}
@@ -23,6 +31,14 @@ void FComposableCameraRuntimeDataBlock::RegisterReferenceSlot(EComposableCameraP
 
 void FComposableCameraRuntimeDataBlock::RefreshReferenceSlot(int32 Offset)
 {
+	// Struct slot writes don't need mirror refresh -- the FInstancedStruct
+	// itself is the GC-visible owner. Cheap early-out keeps the per-write
+	// hot path tight.
+	if (IsStructSlotOffset(Offset))
+	{
+		return;
+	}
+
 	if (ActorReferenceSlots.Num() == 0 && ObjectReferenceSlots.Num() == 0)
 	{
 		return;
@@ -75,5 +91,20 @@ void FComposableCameraRuntimeDataBlock::AddReferencedObjects(FReferenceCollector
 	for (auto& Pair : ObjectReferenceSlots)
 	{
 		Collector.AddReferencedObject(Pair.Value);
+	}
+	// Struct slots: walk each FInstancedStruct's owned memory through the
+	// script struct's reflected property chain so embedded UObject / Actor
+	// references inside the user's USTRUCT are kept alive by the GC. The
+	// FInstancedStruct itself is not a UObject; AddPropertyReferencesWithStructARO
+	// is the API for surfacing references through reflected struct properties.
+	for (FInstancedStruct& Slot : StructSlots)
+	{
+		if (const UScriptStruct* Struct = Slot.GetScriptStruct())
+		{
+			if (Slot.IsValid())
+			{
+				Collector.AddPropertyReferencesWithStructARO(Struct, Slot.GetMutableMemory());
+			}
+		}
 	}
 }

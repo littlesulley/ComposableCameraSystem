@@ -445,10 +445,16 @@ public:
 				}
 			}
 
-			// ── Default (POD) ───────────────────────────────────────
-			// Only copy types whose storage is known to be memcpy-safe in
-			// FComposableCameraParameterValue. Generic structs / containers
-			// need owned typed storage and destructors, so leave them empty.
+			// ── Default (POD) and non-POD struct ───────────────────
+			// Two paths converge here for the value pin's underlying property:
+			//   bMemcpySafe -> byte-array Entry.Data (via StoreValue below).
+			//   non-POD struct -> typed FInstancedStruct via SetStruct.
+			//
+			// Non-POD struct must NOT route through StoreValue's byte path:
+			// memcpy of an FString / TArray / object-ref alias the heap-owned
+			// storage and produce use-after-free / GC-blind state. SetStruct
+			// runs the proper per-property copy via FInstancedStruct::InitializeAs
+			// + CopyScriptStruct.
 			if (!bHandled)
 			{
 				bool bMemcpySafe = ValueProperty->IsA<FIntProperty>()
@@ -456,14 +462,37 @@ public:
 					|| ValueProperty->IsA<FDoubleProperty>()
 					|| ValueProperty->IsA<FNameProperty>();
 
-				if (const FStructProperty* StructProp = CastField<FStructProperty>(ValueProperty))
+				const FStructProperty* StructProp = CastField<FStructProperty>(ValueProperty);
+				if (StructProp && StructProp->Struct)
 				{
-					// IsBytewiseSafeStruct widens past the hardcoded math-type
-					// list to any POD-like struct (no FString / TArray / object
-					// refs / delegates anywhere in the property graph). Non-POD
-					// structs still fall through to the empty-Entry branch
-					// below; type-asset Build() flags them at authoring time.
-					bMemcpySafe = IsBytewiseSafeStruct(StructProp->Struct);
+					UScriptStruct* Struct = StructProp->Struct;
+
+					// Hardcoded fast path for engine math structs and
+					// FFloatInterval. These are guaranteed POD by construction.
+					// Calling them out explicitly defends against any reflection
+					// quirk that would route them through the non-POD
+					// FInstancedStruct path -- whose ::InitializeAs(Struct,
+					// Memory) interprets Memory as Struct, so a mismatch between
+					// what Struct claims and what Memory actually holds will
+					// crash inside CopyScriptStruct (the user-facing symptom is
+					// an access violation reading a TSet inside what was
+					// expected to be an FVector).
+					const bool bIsKnownPodStruct =
+						(Struct == TBaseStructure<FVector>::Get())
+						|| (Struct == TBaseStructure<FVector2D>::Get())
+						|| (Struct == TBaseStructure<FVector4>::Get())
+						|| (Struct == TBaseStructure<FRotator>::Get())
+						|| (Struct == TBaseStructure<FTransform>::Get())
+						|| (Struct == TBaseStructure<FFloatInterval>::Get());
+
+					if (bIsKnownPodStruct)
+					{
+						bMemcpySafe = true;
+					}
+					else
+					{
+						bMemcpySafe = IsBytewiseSafeStruct(Struct);
+					}
 				}
 
 				if (bMemcpySafe)
@@ -471,13 +500,32 @@ public:
 					const int32 Size = ValueProperty->GetSize();
 					Entry.Data.SetNumUninitialized(Size);
 					ValueProperty->CopyCompleteValue(Entry.Data.GetData(), ValuePtr);
+					ParameterBlock.StoreValue(ParameterName, MoveTemp(Entry));
+				}
+				else if (StructProp && StructProp->Struct)
+				{
+					// Non-POD struct: route to SetStruct so the FInstancedStruct
+					// path takes ownership. SetStruct internally clears any
+					// stale byte / actor / object / delegate entry under the
+					// same name.
+					ParameterBlock.SetStruct(ParameterName, StructProp->Struct, ValuePtr);
 				}
 				else
 				{
-					Entry.PinType = EComposableCameraPinType::Struct;
+					// Unknown / unsupported property type: leave the entry
+					// empty (PinType already defaulted to Float and Data is
+					// empty). StoreValue is still invoked for the side
+					// effects of clearing parallel maps.
+					ParameterBlock.StoreValue(ParameterName, MoveTemp(Entry));
 				}
 			}
-			ParameterBlock.StoreValue(ParameterName, MoveTemp(Entry));
+			else
+			{
+				// Type-handled branches above (Bool / Vector / Rotator /
+				// Transform / Actor / Object / Enum / Delegate) all populated
+				// Entry; commit it.
+				ParameterBlock.StoreValue(ParameterName, MoveTemp(Entry));
+			}
 
 			P_NATIVE_END
 		}
@@ -506,6 +554,62 @@ public:
 
 	UFUNCTION(BlueprintPure, meta=(BlueprintThreadSafe, BlueprintInternalUseOnly="true"))
 	static uint8 MakeLiteralByte(uint8 Value);
+
+	// ─── Typed Parameter Block Setters ────────────────────────────────────
+	//
+	// These exist to bypass a UE 5.6 BP compiler bug where bytecode emitted
+	// for a CustomStructureParam wildcard arg routed through a MakeLiteralStruct
+	// intermediate (the path the K2 ExpandNode takes for pin-default struct
+	// literals) mis-types the wildcard's FProperty to the function's FIRST
+	// parameter type instead of the actually-wired type. The wildcard
+	// SetParameterBlockValue above is kept for pin types that genuinely need
+	// runtime FProperty inspection (Enum width normalization, arbitrary
+	// non-POD USTRUCT). Every other pin type maps to a typed setter below
+	// so the BP compiler sees a concrete-typed parameter and the bug doesn't
+	// trigger.
+	//
+	// All setters are BlueprintInternalUseOnly -- they exist solely as
+	// SetFromFunction targets for K2 ExpandNode dispatch, never for direct
+	// authoring.
+
+	UFUNCTION(BlueprintCallable, meta=(BlueprintInternalUseOnly="true"))
+	static void SetParameterBlockBool(UPARAM(ref) FComposableCameraParameterBlock& ParameterBlock, FName ParameterName, bool Value);
+
+	UFUNCTION(BlueprintCallable, meta=(BlueprintInternalUseOnly="true"))
+	static void SetParameterBlockInt32(UPARAM(ref) FComposableCameraParameterBlock& ParameterBlock, FName ParameterName, int32 Value);
+
+	UFUNCTION(BlueprintCallable, meta=(BlueprintInternalUseOnly="true"))
+	static void SetParameterBlockFloat(UPARAM(ref) FComposableCameraParameterBlock& ParameterBlock, FName ParameterName, float Value);
+
+	UFUNCTION(BlueprintCallable, meta=(BlueprintInternalUseOnly="true"))
+	static void SetParameterBlockDouble(UPARAM(ref) FComposableCameraParameterBlock& ParameterBlock, FName ParameterName, double Value);
+
+	UFUNCTION(BlueprintCallable, meta=(BlueprintInternalUseOnly="true"))
+	static void SetParameterBlockName(UPARAM(ref) FComposableCameraParameterBlock& ParameterBlock, FName ParameterName, FName Value);
+
+	UFUNCTION(BlueprintCallable, meta=(BlueprintInternalUseOnly="true"))
+	static void SetParameterBlockVector2D(UPARAM(ref) FComposableCameraParameterBlock& ParameterBlock, FName ParameterName, FVector2D Value);
+
+	UFUNCTION(BlueprintCallable, meta=(BlueprintInternalUseOnly="true"))
+	static void SetParameterBlockVector(UPARAM(ref) FComposableCameraParameterBlock& ParameterBlock, FName ParameterName, FVector Value);
+
+	UFUNCTION(BlueprintCallable, meta=(BlueprintInternalUseOnly="true"))
+	static void SetParameterBlockVector4(UPARAM(ref) FComposableCameraParameterBlock& ParameterBlock, FName ParameterName, FVector4 Value);
+
+	UFUNCTION(BlueprintCallable, meta=(BlueprintInternalUseOnly="true"))
+	static void SetParameterBlockRotator(UPARAM(ref) FComposableCameraParameterBlock& ParameterBlock, FName ParameterName, FRotator Value);
+
+	UFUNCTION(BlueprintCallable, meta=(BlueprintInternalUseOnly="true"))
+	static void SetParameterBlockTransform(UPARAM(ref) FComposableCameraParameterBlock& ParameterBlock, FName ParameterName, FTransform Value);
+
+	UFUNCTION(BlueprintCallable, meta=(BlueprintInternalUseOnly="true"))
+	static void SetParameterBlockFloatInterval(UPARAM(ref) FComposableCameraParameterBlock& ParameterBlock, FName ParameterName, FFloatInterval Value);
+
+	UFUNCTION(BlueprintCallable, meta=(BlueprintInternalUseOnly="true"))
+	static void SetParameterBlockActor(UPARAM(ref) FComposableCameraParameterBlock& ParameterBlock, FName ParameterName, AActor* Value);
+
+	UFUNCTION(BlueprintCallable, meta=(BlueprintInternalUseOnly="true"))
+	static void SetParameterBlockObject(UPARAM(ref) FComposableCameraParameterBlock& ParameterBlock, FName ParameterName, UObject* Value);
 };
 
 

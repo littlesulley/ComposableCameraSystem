@@ -122,6 +122,43 @@ FComposableCameraRuntimeDataBlock UComposableCameraTypeAsset::BuildRuntimeDataLa
 		DataBlock.RegisterReferenceSlot(PinType, Offset);
 	};
 
+	// Slot allocation helper -- returns the offset to record in the relevant
+	// offset table (OutputPinOffsets / ExposedParameterOffsets / etc.), or
+	// INDEX_NONE if the pin's storage size is zero (caller decides whether to
+	// log + skip).
+	//
+	// Two storage classes converge here:
+	//   * POD (or pin types whose size is known constant): bytes live in
+	//     Storage at a real offset advanced by `CurrentOffset`. Reference
+	//     mirror tracking happens via RegisterReferenceSlot for Actor / Object
+	//     pins.
+	//   * non-POD struct (USTRUCT failing IsBytewiseSafeStruct): owned typed
+	//     memory lives in StructSlots; the returned synthetic offset is
+	//     >= StructSlotsOffsetBase and is rejected by the byte-storage check
+	//     in ReadValue / WriteValue / RegisterReferenceSlot, redirecting
+	//     reads / writes / GC to the FInstancedStruct slot.
+	auto AllocateSlot = [&](EComposableCameraPinType PinType, UScriptStruct* StructType) -> int32
+	{
+		if (PinType == EComposableCameraPinType::Struct
+			&& StructType != nullptr
+			&& !IsBytewiseSafeStruct(StructType))
+		{
+			return DataBlock.RegisterStructSlot(StructType);
+		}
+
+		const int32 Size = GetPinTypeSize(PinType, StructType);
+		const int32 Align = GetPinTypeAlignment(PinType, StructType);
+		if (Size <= 0)
+		{
+			return INDEX_NONE;
+		}
+		AlignOffset(Align);
+		const int32 Offset = CurrentOffset;
+		DataBlock.RegisterReferenceSlot(PinType, Offset);
+		CurrentOffset += Size;
+		return Offset;
+	};
+
 	// --- Output pin slots ---
 	for (int32 NodeIdx = 0; NodeIdx < NodeTemplates.Num(); ++NodeIdx)
 	{
@@ -141,10 +178,8 @@ FComposableCameraRuntimeDataBlock UComposableCameraTypeAsset::BuildRuntimeDataLa
 				continue;
 			}
 
-			const int32 Size = GetPinTypeSize(Pin.PinType, Pin.StructType);
-			const int32 Align = GetPinTypeAlignment(Pin.PinType, Pin.StructType);
-
-			if (Size <= 0)
+			const int32 Offset = AllocateSlot(Pin.PinType, Pin.StructType);
+			if (Offset == INDEX_NONE)
 			{
 				UE_LOG(LogComposableCameraSystem, Warning,
 					TEXT("BuildRuntimeDataLayout: Output pin '%s' on node %d has zero size. Skipping."),
@@ -152,15 +187,10 @@ FComposableCameraRuntimeDataBlock UComposableCameraTypeAsset::BuildRuntimeDataLa
 				continue;
 			}
 
-			AlignOffset(Align);
-
 			FComposableCameraPinKey Key;
 			Key.NodeIndex = NodeIdx;
 			Key.PinName = Pin.PinName;
-			DataBlock.OutputPinOffsets.Add(Key, CurrentOffset);
-			RegisterReferenceSlot(Pin.PinType, CurrentOffset);
-
-			CurrentOffset += Size;
+			DataBlock.OutputPinOffsets.Add(Key, Offset);
 		}
 	}
 
@@ -192,10 +222,8 @@ FComposableCameraRuntimeDataBlock UComposableCameraTypeAsset::BuildRuntimeDataLa
 				continue;
 			}
 
-			const int32 Size = GetPinTypeSize(Pin.PinType, Pin.StructType);
-			const int32 Align = GetPinTypeAlignment(Pin.PinType, Pin.StructType);
-
-			if (Size <= 0)
+			const int32 Offset = AllocateSlot(Pin.PinType, Pin.StructType);
+			if (Offset == INDEX_NONE)
 			{
 				UE_LOG(LogComposableCameraSystem, Warning,
 					TEXT("BuildRuntimeDataLayout: Output pin '%s' on compute node %d has zero size. Skipping."),
@@ -203,33 +231,22 @@ FComposableCameraRuntimeDataBlock UComposableCameraTypeAsset::BuildRuntimeDataLa
 				continue;
 			}
 
-			AlignOffset(Align);
-
 			FComposableCameraPinKey Key;
 			Key.NodeIndex = ComputeNodeIndexBase + ComputeIdx;
 			Key.PinName = Pin.PinName;
-			DataBlock.OutputPinOffsets.Add(Key, CurrentOffset);
-			RegisterReferenceSlot(Pin.PinType, CurrentOffset);
-
-			CurrentOffset += Size;
+			DataBlock.OutputPinOffsets.Add(Key, Offset);
 		}
 	}
 
 	// --- Exposed parameter slots ---
 	for (const FComposableCameraExposedParameter& Param : ExposedParameters)
 	{
-		const int32 Size = GetPinTypeSize(Param.PinType, Param.StructType);
-		const int32 Align = GetPinTypeAlignment(Param.PinType, Param.StructType);
-
-		if (Size <= 0)
+		const int32 Offset = AllocateSlot(Param.PinType, Param.StructType);
+		if (Offset == INDEX_NONE)
 		{
 			continue;
 		}
-
-		AlignOffset(Align);
-		DataBlock.ExposedParameterOffsets.Add(Param.ParameterName, CurrentOffset);
-		RegisterReferenceSlot(Param.PinType, CurrentOffset);
-		CurrentOffset += Size;
+		DataBlock.ExposedParameterOffsets.Add(Param.ParameterName, Offset);
 	}
 
 	// --- Per-instance default override slots ---
@@ -297,20 +314,15 @@ FComposableCameraRuntimeDataBlock UComposableCameraTypeAsset::BuildRuntimeDataLa
 					continue;
 				}
 
-				const int32 Size = GetPinTypeSize(Decl->PinType, Decl->StructType);
-				const int32 Align = GetPinTypeAlignment(Decl->PinType, Decl->StructType);
-				if (Size <= 0)
+				const int32 Offset = AllocateSlot(Decl->PinType, Decl->StructType);
+				if (Offset == INDEX_NONE)
 				{
 					continue;
 				}
-
-				AlignOffset(Align);
 				FComposableCameraPinKey Key;
 				Key.NodeIndex = NodeIdx;
 				Key.PinName = Override.PinName;
-				DataBlock.DefaultValueOffsets.Add(Key, CurrentOffset);
-				RegisterReferenceSlot(Decl->PinType, CurrentOffset);
-				CurrentOffset += Size;
+				DataBlock.DefaultValueOffsets.Add(Key, Offset);
 			}
 		}
 	}
@@ -361,20 +373,15 @@ FComposableCameraRuntimeDataBlock UComposableCameraTypeAsset::BuildRuntimeDataLa
 					continue;
 				}
 
-				const int32 Size = GetPinTypeSize(Decl->PinType, Decl->StructType);
-				const int32 Align = GetPinTypeAlignment(Decl->PinType, Decl->StructType);
-				if (Size <= 0)
+				const int32 Offset = AllocateSlot(Decl->PinType, Decl->StructType);
+				if (Offset == INDEX_NONE)
 				{
 					continue;
 				}
-
-				AlignOffset(Align);
 				FComposableCameraPinKey Key;
 				Key.NodeIndex = ComputeNodeIndexBase + ComputeIdx;
 				Key.PinName = Override.PinName;
-				DataBlock.DefaultValueOffsets.Add(Key, CurrentOffset);
-				RegisterReferenceSlot(Decl->PinType, CurrentOffset);
-				CurrentOffset += Size;
+				DataBlock.DefaultValueOffsets.Add(Key, Offset);
 			}
 		}
 	}
@@ -382,18 +389,12 @@ FComposableCameraRuntimeDataBlock UComposableCameraTypeAsset::BuildRuntimeDataLa
 	// --- Internal variable slots ---
 	for (const FComposableCameraInternalVariable& Var : InternalVariables)
 	{
-		const int32 Size = GetPinTypeSize(Var.VariableType, Var.StructType);
-		const int32 Align = GetPinTypeAlignment(Var.VariableType, Var.StructType);
-
-		if (Size <= 0)
+		const int32 Offset = AllocateSlot(Var.VariableType, Var.StructType);
+		if (Offset == INDEX_NONE)
 		{
 			continue;
 		}
-
-		AlignOffset(Align);
-		DataBlock.InternalVariableOffsets.Add(Var.VariableName, CurrentOffset);
-		RegisterReferenceSlot(Var.VariableType, CurrentOffset);
-		CurrentOffset += Size;
+		DataBlock.InternalVariableOffsets.Add(Var.VariableName, Offset);
 	}
 
 	// --- Exposed variable slots ---
@@ -412,14 +413,6 @@ FComposableCameraRuntimeDataBlock UComposableCameraTypeAsset::BuildRuntimeDataLa
 	// the layout.
 	for (const FComposableCameraInternalVariable& Var : ExposedVariables)
 	{
-		const int32 Size = GetPinTypeSize(Var.VariableType, Var.StructType);
-		const int32 Align = GetPinTypeAlignment(Var.VariableType, Var.StructType);
-
-		if (Size <= 0)
-		{
-			continue;
-		}
-
 		if (DataBlock.InternalVariableOffsets.Contains(Var.VariableName))
 		{
 			UE_LOG(LogComposableCameraSystem, Warning,
@@ -428,15 +421,69 @@ FComposableCameraRuntimeDataBlock UComposableCameraTypeAsset::BuildRuntimeDataLa
 			continue;
 		}
 
-		AlignOffset(Align);
-		DataBlock.InternalVariableOffsets.Add(Var.VariableName, CurrentOffset);
-		RegisterReferenceSlot(Var.VariableType, CurrentOffset);
-		CurrentOffset += Size;
+		const int32 Offset = AllocateSlot(Var.VariableType, Var.StructType);
+		if (Offset == INDEX_NONE)
+		{
+			continue;
+		}
+		DataBlock.InternalVariableOffsets.Add(Var.VariableName, Offset);
 	}
 
 	// Allocate storage.
 	DataBlock.TotalSize = CurrentOffset;
 	DataBlock.Storage.SetNumZeroed(CurrentOffset);
+
+	// SeedSlot helper -- shared by camera and compute per-instance default
+	// override seeding. Parses ValueString through the central ApplyStringValue
+	// parser into a scratch ParameterBlock, then copies into the slot that
+	// matches the offset's storage class (POD bytes vs FInstancedStruct).
+	auto SeedSlot = [&DataBlock, this](
+		int32 Offset,
+		EComposableCameraPinType PinType,
+		UScriptStruct* StructType,
+		UEnum* EnumType,
+		FName Name,
+		const FString& ValueString,
+		int32 NodeIdx,
+		const TCHAR* NodeKind)
+	{
+		FComposableCameraParameterBlock Scratch;
+		FString ParseError;
+		const bool bOk = FComposableCameraParameterBlock::ApplyStringValue(
+			Scratch, Name, PinType, StructType, EnumType, ValueString, &ParseError);
+		if (!bOk)
+		{
+			UE_LOG(LogComposableCameraSystem, Warning,
+				TEXT("BuildRuntimeDataLayout: [%s] per-instance default for pin '%s' on %s node %d failed to parse (%s). Slot left zero-initialized."),
+				*GetName(), *Name.ToString(), NodeKind, NodeIdx, *ParseError);
+			return;
+		}
+
+		if (DataBlock.IsStructSlotOffset(Offset))
+		{
+			// Non-POD struct: parser produced an FInstancedStruct in
+			// Scratch.StructValues; CopyScriptStruct into the destination
+			// slot's owned memory (which BuildRuntimeDataLayout already
+			// InitializeAs'd to the right struct type via RegisterStructSlot).
+			if (FInstancedStruct* Src = Scratch.StructValues.Find(Name))
+			{
+				FInstancedStruct& Dst = DataBlock.GetStructSlotMutableChecked(Offset);
+				check(Dst.IsValid() && Dst.GetScriptStruct() == Src->GetScriptStruct());
+				Dst.GetScriptStruct()->CopyScriptStruct(Dst.GetMutableMemory(), Src->GetMemory());
+			}
+			return;
+		}
+
+		// POD path: CopyRawTo is a no-op on size mismatch, so a stale
+		// override string from a previous type never corrupts the slot.
+		const int32 Size = GetPinTypeSize(PinType, StructType);
+		if (Size <= 0)
+		{
+			return;
+		}
+		Scratch.CopyRawTo(Name, DataBlock.Storage.GetData() + Offset, Size);
+		DataBlock.RefreshReferenceSlot(Offset);
+	};
 
 	// --- Seed per-instance default override slots ---
 	//
@@ -501,37 +548,8 @@ FComposableCameraRuntimeDataBlock UComposableCameraTypeAsset::BuildRuntimeDataLa
 					continue;
 				}
 
-				const int32 Size = GetPinTypeSize(Decl->PinType, Decl->StructType);
-				if (Size <= 0)
-				{
-					continue;
-				}
-
-				FComposableCameraParameterBlock Scratch;
-				FString ParseError;
-				const bool bOk = FComposableCameraParameterBlock::ApplyStringValue(
-					Scratch,
-					Override.PinName,
-					Decl->PinType,
-					Decl->StructType,
-					Decl->EnumType,
-					Override.DefaultValueOverride,
-					&ParseError);
-				if (!bOk)
-				{
-					UE_LOG(LogComposableCameraSystem, Warning,
-						TEXT("BuildRuntimeDataLayout: [%s] per-instance default for pin '%s' on node %d failed to parse (%s). Slot left zero-initialized."),
-						*GetName(), *Override.PinName.ToString(), NodeIdx, *ParseError);
-					continue;
-				}
-
-				// CopyRawTo is a no-op on size mismatch, so a stale override
-				// string from a previous type never corrupts the slot.
-				Scratch.CopyRawTo(
-					Override.PinName,
-					DataBlock.Storage.GetData() + *Offset,
-					Size);
-				DataBlock.RefreshReferenceSlot(*Offset);
+				SeedSlot(*Offset, Decl->PinType, Decl->StructType, Decl->EnumType,
+					Override.PinName, Override.DefaultValueOverride, NodeIdx, TEXT("camera"));
 			}
 		}
 	}
@@ -588,35 +606,8 @@ FComposableCameraRuntimeDataBlock UComposableCameraTypeAsset::BuildRuntimeDataLa
 					continue;
 				}
 
-				const int32 Size = GetPinTypeSize(Decl->PinType, Decl->StructType);
-				if (Size <= 0)
-				{
-					continue;
-				}
-
-				FComposableCameraParameterBlock Scratch;
-				FString ParseError;
-				const bool bOk = FComposableCameraParameterBlock::ApplyStringValue(
-					Scratch,
-					Override.PinName,
-					Decl->PinType,
-					Decl->StructType,
-					Decl->EnumType,
-					Override.DefaultValueOverride,
-					&ParseError);
-				if (!bOk)
-				{
-					UE_LOG(LogComposableCameraSystem, Warning,
-						TEXT("BuildRuntimeDataLayout: [%s] per-instance default for pin '%s' on compute node %d failed to parse (%s). Slot left zero-initialized."),
-						*GetName(), *Override.PinName.ToString(), ComputeIdx, *ParseError);
-					continue;
-				}
-
-				Scratch.CopyRawTo(
-					Override.PinName,
-					DataBlock.Storage.GetData() + *Offset,
-					Size);
-				DataBlock.RefreshReferenceSlot(*Offset);
+				SeedSlot(*Offset, Decl->PinType, Decl->StructType, Decl->EnumType,
+					Override.PinName, Override.DefaultValueOverride, ComputeIdx, TEXT("compute"));
 			}
 		}
 	}
@@ -788,11 +779,92 @@ void UComposableCameraTypeAsset::ApplyParameterBlock(
 {
 	using namespace ComposableCameraTypeAssetPrivate;
 
+	// Slot-write helpers that dispatch on the runtime offset's storage class
+	// (POD bytes vs FInstancedStruct slot). The three roles (ExposedParameter,
+	// InternalVariable, ExposedVariable) converge through these so non-POD
+	// struct support stays uniform across them.
+	auto CopyParamIntoSlot = [&DataBlock, &Parameters](
+		FName Name,
+		int32 Offset,
+		EComposableCameraPinType PinType,
+		UScriptStruct* StructType) -> bool
+	{
+		if (DataBlock.IsStructSlotOffset(Offset))
+		{
+			const FInstancedStruct* Src = Parameters.StructValues.Find(Name);
+			if (!Src || !Src->IsValid())
+			{
+				return false;
+			}
+			FInstancedStruct& Dst = DataBlock.GetStructSlotMutableChecked(Offset);
+			if (!Dst.IsValid() || Dst.GetScriptStruct() != Src->GetScriptStruct())
+			{
+				// Type mismatch (asset edit since activation, or a stale
+				// caller value) -- skip silently rather than corrupt the slot.
+				return false;
+			}
+			Dst.GetScriptStruct()->CopyScriptStruct(Dst.GetMutableMemory(), Src->GetMemory());
+			return true;
+		}
+
+		const int32 Size = GetPinTypeSize(PinType, StructType);
+		if (Size <= 0)
+		{
+			return false;
+		}
+		const int32 Copied = Parameters.CopyRawTo(Name, DataBlock.Storage.GetData() + Offset, Size);
+		if (Copied > 0)
+		{
+			DataBlock.RefreshReferenceSlot(Offset);
+			return true;
+		}
+		return false;
+	};
+
+	auto SeedFromInitialValue = [&DataBlock, this](
+		const FComposableCameraInternalVariable& Var,
+		int32 Offset)
+	{
+		if (DataBlock.IsStructSlotOffset(Offset))
+		{
+			// Non-POD: parse InitialValueString through the central parser
+			// (which produces an FInstancedStruct in Scratch.StructValues),
+			// then CopyScriptStruct into the destination slot's owned memory.
+			FComposableCameraParameterBlock Scratch;
+			FString ParseError;
+			const bool bOk = FComposableCameraParameterBlock::ApplyStringValue(
+				Scratch, Var.VariableName, Var.VariableType, Var.StructType,
+				Var.EnumType, Var.InitialValueString, &ParseError);
+			if (!bOk)
+			{
+				UE_LOG(LogComposableCameraSystem, Warning,
+					TEXT("ApplyParameterBlock: [%s] InitialValueString for variable '%s' failed to parse (%s). Slot left default-initialized."),
+					*GetName(), *Var.VariableName.ToString(), *ParseError);
+				return;
+			}
+			if (FInstancedStruct* Src = Scratch.StructValues.Find(Var.VariableName))
+			{
+				FInstancedStruct& Dst = DataBlock.GetStructSlotMutableChecked(Offset);
+				check(Dst.IsValid() && Dst.GetScriptStruct() == Src->GetScriptStruct());
+				Dst.GetScriptStruct()->CopyScriptStruct(Dst.GetMutableMemory(), Src->GetMemory());
+			}
+			return;
+		}
+
+		const int32 Size = GetPinTypeSize(Var.VariableType, Var.StructType);
+		if (Size <= 0)
+		{
+			return;
+		}
+		ApplyInitialValueToSlot(Var, DataBlock.Storage.GetData() + Offset, Size, *GetName());
+		DataBlock.RefreshReferenceSlot(Offset);
+	};
+
 	// --- Exposed parameters ---
 	// Caller value only: the default lives on the node's pin (resolved by
 	// GetExposedParameterDefaultValue at the caller site — K2 node, DataTable
 	// row). By the time we get here, either the ParameterBlock has an entry
-	// or the slot stays zeroed.
+	// or the slot stays zero / default-initialized.
 	for (const FComposableCameraExposedParameter& Param : ExposedParameters)
 	{
 		const int32* Offset = DataBlock.ExposedParameterOffsets.Find(Param.ParameterName);
@@ -801,23 +873,10 @@ void UComposableCameraTypeAsset::ApplyParameterBlock(
 			continue;
 		}
 
-		const int32 Size = GetPinTypeSize(Param.PinType, Param.StructType);
-		if (Size <= 0)
-		{
-			continue;
-		}
+		const bool bSupplied = CopyParamIntoSlot(
+			Param.ParameterName, *Offset, Param.PinType, Param.StructType);
 
-		// Try to copy from the caller's parameter block.
-		const int32 Copied = Parameters.CopyRawTo(
-			Param.ParameterName,
-			DataBlock.Storage.GetData() + *Offset,
-			Size);
-		if (Copied > 0)
-		{
-			DataBlock.RefreshReferenceSlot(*Offset);
-		}
-
-		if (Copied == 0 && Param.bRequired)
+		if (!bSupplied && Param.bRequired)
 		{
 			UE_LOG(LogComposableCameraSystem, Warning,
 				TEXT("ApplyParameterBlock: Required parameter '%s' was not provided by the caller."),
@@ -838,19 +897,7 @@ void UComposableCameraTypeAsset::ApplyParameterBlock(
 		{
 			continue;
 		}
-
-		const int32 Size = GetPinTypeSize(Var.VariableType, Var.StructType);
-		if (Size <= 0)
-		{
-			continue;
-		}
-
-		ApplyInitialValueToSlot(
-			Var,
-			DataBlock.Storage.GetData() + *Offset,
-			Size,
-			*GetName());
-		DataBlock.RefreshReferenceSlot(*Offset);
+		SeedFromInitialValue(Var, *Offset);
 	}
 
 	// --- Exposed variables ---
@@ -866,25 +913,11 @@ void UComposableCameraTypeAsset::ApplyParameterBlock(
 			continue;
 		}
 
-		const int32 Size = GetPinTypeSize(Var.VariableType, Var.StructType);
-		if (Size <= 0)
+		const bool bSupplied = CopyParamIntoSlot(
+			Var.VariableName, *Offset, Var.VariableType, Var.StructType);
+		if (!bSupplied)
 		{
-			continue;
-		}
-
-		uint8* Dest = DataBlock.Storage.GetData() + *Offset;
-
-		const int32 Copied = Parameters.CopyRawTo(Var.VariableName, Dest, Size);
-		if (Copied > 0)
-		{
-			DataBlock.RefreshReferenceSlot(*Offset);
-		}
-
-		if (Copied == 0)
-		{
-			// Caller didn't supply a value — apply the authored initial value.
-			ApplyInitialValueToSlot(Var, Dest, Size, *GetName());
-			DataBlock.RefreshReferenceSlot(*Offset);
+			SeedFromInitialValue(Var, *Offset);
 		}
 	}
 }
@@ -1090,18 +1123,14 @@ void UComposableCameraTypeAsset::Build(bool bLogResult)
 		}
 	}
 
-	// Check: struct pin types must be POD-like (bytewise safe). The runtime's
-	// byte-array RuntimeDataBlock / ParameterBlock storage path memcpys raw
-	// bytes -- destructors don't run, GC doesn't traverse, and FString /
-	// TArray / object references would leak or dangle. The pin-type filter
-	// (TryMapPropertyToPinType, GetPinTypeSize) and the K2 setter
-	// (SetParameterBlockValue's bMemcpySafe gate) all reject non-POD structs
-	// silently; without this Build check, an authored ExposedVariable typed
-	// as a non-POD struct would have its caller-supplied value silently
-	// dropped at activation, with no error path. Flag it here so the
-	// authoring surface owns the diagnosis instead of the runtime swallowing
-	// it. Severity is Error because the data simply does not propagate --
-	// not a degraded behavior but a silent loss.
+	// Check: Struct pin entries must have a non-null StructType. Both POD and
+	// non-POD struct pin types are now supported by the runtime -- POD goes
+	// through the byte-array Storage path, non-POD through the typed
+	// FInstancedStruct slot pool (see TechDoc.md §7.2 "ParameterBlock /
+	// RuntimeDataBlock POD-vs-typed dispatch"). What still fails is a Struct
+	// pin type with no StructType set: the layout pass cannot register a
+	// slot, the parser cannot parse a value, and the runtime would silently
+	// drop the field. Flag those at authoring time.
 	{
 		auto ValidateStructTypeOrFlag = [this](
 			EComposableCameraPinType PinType,
@@ -1121,19 +1150,6 @@ void UComposableCameraTypeAsset::Build(bool bLogResult)
 					FText::FromString(TEXT("{0} '{1}' has Struct pin type but no StructType set.")),
 					FText::FromString(Kind),
 					FText::FromName(Name));
-				BuildMessages.Add(Msg);
-				BuildStatus = EComposableCameraBuildStatus::Failed;
-				return;
-			}
-			if (!IsBytewiseSafeStruct(StructType))
-			{
-				FComposableCameraBuildMessage Msg;
-				Msg.Severity = 2;
-				Msg.Message = FText::Format(
-					FText::FromString(TEXT("{0} '{1}' uses struct type '{2}' which contains FString / FText / TArray / TMap / TSet / object references / delegates. The byte-array runtime storage cannot propagate non-POD struct values; the value will be silently dropped at activation. Switch to a POD-only struct or one of the supported math types (Vector / Rotator / Transform / FFloatInterval), or wait for the typed-storage milestone.")),
-					FText::FromString(Kind),
-					FText::FromName(Name),
-					FText::FromString(StructType->GetName()));
 				BuildMessages.Add(Msg);
 				BuildStatus = EComposableCameraBuildStatus::Failed;
 			}

@@ -222,6 +222,18 @@ AComposableCameraCameraBase* UComposableCameraBlueprintLibrary::ActivateComposab
 	{
 		Params.ObjectValues.Add(Entry.Key, Entry.Value);
 	}
+	for (TPair<FName, FInstancedStruct>& Entry : OverrideParameters.StructValues)
+	{
+		// SetStruct clears any same-name entry in Params.{Values, ActorValues,
+		// ObjectValues, DelegateValues} as a side effect, so a row's POD entry
+		// for the same name (left over from string parsing) is correctly
+		// overridden by the K2 caller's struct value. Move semantics cannot
+		// be used directly here because SetStruct copies via InitializeAs.
+		if (Entry.Value.IsValid())
+		{
+			Params.SetStruct(Entry.Key, Entry.Value.GetScriptStruct(), Entry.Value.GetMemory());
+		}
+	}
 	for (TPair<FName, FScriptDelegate>& Entry : OverrideParameters.DelegateValues)
 	{
 		Params.DelegateValues.Add(Entry.Key, MoveTemp(Entry.Value));
@@ -375,6 +387,97 @@ FName UComposableCameraBlueprintLibrary::MakeLiteralName(FName Value)
 uint8 UComposableCameraBlueprintLibrary::MakeLiteralByte(uint8 Value)
 {
 	return Value;
+}
+
+// ─── Typed Parameter Block Setters ──────────────────────────────────────────
+//
+// Thin wrappers over the FComposableCameraParameterBlock typed setters.
+// K2 ExpandNode dispatches to these per pin type instead of routing every
+// pin through the wildcard SetParameterBlockValue, sidestepping the UE 5.6
+// BP wildcard bug for pin-default struct literals (see TechDoc.md §7.2).
+
+void UComposableCameraBlueprintLibrary::SetParameterBlockBool(
+	FComposableCameraParameterBlock& ParameterBlock, FName ParameterName, bool Value)
+{
+	ParameterBlock.SetBool(ParameterName, Value);
+}
+
+void UComposableCameraBlueprintLibrary::SetParameterBlockInt32(
+	FComposableCameraParameterBlock& ParameterBlock, FName ParameterName, int32 Value)
+{
+	ParameterBlock.SetInt32(ParameterName, Value);
+}
+
+void UComposableCameraBlueprintLibrary::SetParameterBlockFloat(
+	FComposableCameraParameterBlock& ParameterBlock, FName ParameterName, float Value)
+{
+	ParameterBlock.SetFloat(ParameterName, Value);
+}
+
+void UComposableCameraBlueprintLibrary::SetParameterBlockDouble(
+	FComposableCameraParameterBlock& ParameterBlock, FName ParameterName, double Value)
+{
+	ParameterBlock.SetDouble(ParameterName, Value);
+}
+
+void UComposableCameraBlueprintLibrary::SetParameterBlockName(
+	FComposableCameraParameterBlock& ParameterBlock, FName ParameterName, FName Value)
+{
+	ParameterBlock.SetName(ParameterName, Value);
+}
+
+void UComposableCameraBlueprintLibrary::SetParameterBlockVector2D(
+	FComposableCameraParameterBlock& ParameterBlock, FName ParameterName, FVector2D Value)
+{
+	FComposableCameraParameterValue Entry;
+	Entry.Set<FVector2D>(EComposableCameraPinType::Vector2D, Value);
+	ParameterBlock.StoreValue(ParameterName, MoveTemp(Entry));
+}
+
+void UComposableCameraBlueprintLibrary::SetParameterBlockVector(
+	FComposableCameraParameterBlock& ParameterBlock, FName ParameterName, FVector Value)
+{
+	ParameterBlock.SetVector(ParameterName, Value);
+}
+
+void UComposableCameraBlueprintLibrary::SetParameterBlockVector4(
+	FComposableCameraParameterBlock& ParameterBlock, FName ParameterName, FVector4 Value)
+{
+	FComposableCameraParameterValue Entry;
+	Entry.Set<FVector4>(EComposableCameraPinType::Vector4, Value);
+	ParameterBlock.StoreValue(ParameterName, MoveTemp(Entry));
+}
+
+void UComposableCameraBlueprintLibrary::SetParameterBlockRotator(
+	FComposableCameraParameterBlock& ParameterBlock, FName ParameterName, FRotator Value)
+{
+	ParameterBlock.SetRotator(ParameterName, Value);
+}
+
+void UComposableCameraBlueprintLibrary::SetParameterBlockTransform(
+	FComposableCameraParameterBlock& ParameterBlock, FName ParameterName, FTransform Value)
+{
+	ParameterBlock.SetTransform(ParameterName, Value);
+}
+
+void UComposableCameraBlueprintLibrary::SetParameterBlockFloatInterval(
+	FComposableCameraParameterBlock& ParameterBlock, FName ParameterName, FFloatInterval Value)
+{
+	FComposableCameraParameterValue Entry;
+	Entry.Set<FFloatInterval>(EComposableCameraPinType::Struct, Value);
+	ParameterBlock.StoreValue(ParameterName, MoveTemp(Entry));
+}
+
+void UComposableCameraBlueprintLibrary::SetParameterBlockActor(
+	FComposableCameraParameterBlock& ParameterBlock, FName ParameterName, AActor* Value)
+{
+	ParameterBlock.SetActor(ParameterName, Value);
+}
+
+void UComposableCameraBlueprintLibrary::SetParameterBlockObject(
+	FComposableCameraParameterBlock& ParameterBlock, FName ParameterName, UObject* Value)
+{
+	ParameterBlock.SetObject(ParameterName, Value);
 }
 
 // ─── Camera Patch (Stage 2 minimal surface) ─────────────────────────────────

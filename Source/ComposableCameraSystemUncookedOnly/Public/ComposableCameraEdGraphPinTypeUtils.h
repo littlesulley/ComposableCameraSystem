@@ -58,4 +58,17 @@ namespace ComposableCameraEdGraphPinTypeUtils
 		UScriptStruct* StructType = nullptr,
 		UEnum* EnumType = nullptr,
 		UFunction* SignatureFunction = nullptr);
+
+	/**
+	 * Pick the BP-callable typed setter on UComposableCameraBlueprintLibrary
+	 * that matches the given pin type. Used by the three K2 nodes that emit
+	 * SetParameterBlockValue calls in their ExpandNode (Activate / AddPatch /
+	 * ActivateFromDataTable) -- dispatching per-pin-type to a typed setter
+	 * sidesteps the UE 5.6 BP wildcard bug for CustomStructureParam pin
+	 * defaults routed through MakeLiteralStruct intermediates (TechDoc.md
+	 * §7.2). The wildcard `SetParameterBlockValue` is returned only as a
+	 * fallback for pin types that need runtime FProperty inspection (Enum
+	 * width normalization, arbitrary non-POD USTRUCT, Delegate).
+	 */
+	COMPOSABLECAMERASYSTEMUNCOOKEDONLY_API FName ResolveTypedSetterFunctionName(const FEdGraphPinType& PinType);
 }

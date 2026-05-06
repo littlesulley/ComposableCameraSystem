@@ -3,8 +3,10 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "ComposableCameraSystemModule.h"
 #include "GameFramework/Actor.h"
 #include "Nodes/ComposableCameraNodePinTypes.h"
+#include "StructUtils/InstancedStruct.h"
 #include "ComposableCameraParameterBlock.generated.h"
 
 class FReferenceCollector;
@@ -78,12 +80,25 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraParameterBlock
 	 *  via reflection. */
 	TMap<FName, FScriptDelegate> DelegateValues;
 
+	/** Parallel storage for non-POD struct values (USTRUCTs containing FString /
+	 *  FText / TArray / object refs / delegates -- anything `IsBytewiseSafeStruct`
+	 *  rejects). The byte-array `Values` map cannot transport these because raw
+	 *  memcpy aliases heap-owned storage and makes the GC blind to embedded
+	 *  references; FInstancedStruct owns its memory, runs proper constructors /
+	 *  destructors, and surfaces UObject references via AddStructReferencedObjects.
+	 *  POD struct values (FVector / FRotator / FTransform / etc.) still go through
+	 *  the byte-array `Values` map -- they're memcpy-safe and the existing offset
+	 *  tables in RuntimeDataBlock are tighter. */
+	UPROPERTY()
+	TMap<FName, FInstancedStruct> StructValues;
+
 	void Reserve(int32 Num)
 	{
 		Values.Reserve(Num);
 		ActorValues.Reserve(Num);
 		ObjectValues.Reserve(Num);
 		DelegateValues.Reserve(Num);
+		StructValues.Reserve(Num);
 	}
 
 	void StoreValue(FName Name, FComposableCameraParameterValue&& Entry)
@@ -91,6 +106,7 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraParameterBlock
 		ActorValues.Remove(Name);
 		ObjectValues.Remove(Name);
 		DelegateValues.Remove(Name);
+		StructValues.Remove(Name);
 
 		if (Entry.PinType == EComposableCameraPinType::Actor && Entry.Data.Num() == sizeof(AActor*))
 		{
@@ -106,6 +122,74 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraParameterBlock
 		}
 
 		Values.Add(Name, MoveTemp(Entry));
+	}
+
+	/** Set a non-POD struct parameter. The struct is copied into a fresh
+	 *  FInstancedStruct via InitializeAs(StructType, Memory), which runs the
+	 *  proper per-property copy (FString operator=, TArray copy, UObject ptr
+	 *  etc.) and owns the result for the lifetime of this map entry. The
+	 *  parallel `Values` / `ActorValues` / `ObjectValues` / `DelegateValues`
+	 *  entries under the same Name are cleared so a subsequent Get-by-name
+	 *  cannot read a stale POD-shaped entry for what is now a struct value. */
+	void SetStruct(FName Name, const UScriptStruct* Struct, const void* Memory)
+	{
+		if (!Struct || !Memory)
+		{
+			return;
+		}
+		// Defense-in-depth: refuse to wrap our own infrastructure structs.
+		// The Blueprint compiler can emit bytecode that resolves the
+		// CustomStructureParam wildcard 'Value' arg to the FIRST arg's
+		// type instead of the actually-wired type (a known UE BP bug for
+		// certain wiring shapes -- e.g. literal default on a struct pin
+		// without a wired Make node). When that happens, SetStruct would
+		// be called with Struct = FComposableCameraParameterBlock::
+		// StaticStruct() and Memory = some bogus stack location, and
+		// FInstancedStruct::InitializeAs's CopyScriptStruct walks the
+		// ParameterBlock's TMap fields reading bogus pointers, crashing
+		// in TSet::operator=. Refuse the call instead.
+		if (Struct == StaticStruct()
+			|| Struct == FComposableCameraParameterValue::StaticStruct())
+		{
+			// Known UE 5.6 BP wildcard bug: when a CustomStructureParam pin
+			// receives a pin-default literal routed through a MakeLiteral
+			// intermediate (e.g. K2 Activate Camera Override Pin of type
+			// Vector3D with a typed default like "(0,0,10000)"), the emitted
+			// bytecode resolves the wildcard arg's FProperty to the
+			// function's FIRST parameter type (FComposableCameraParameterBlock)
+			// instead of the actual wired type (FVector). Calling
+			// FInstancedStruct::InitializeAs with that mis-typed Struct +
+			// the value bytes intended for FVector crashes inside
+			// CopyScriptStruct (TSet::operator= on bogus memory).
+			//
+			// Workaround at the BP author level: wire a Make Vector / Make
+			// Rotator / etc. node into the Override Pin instead of typing
+			// the literal default directly. The wired path takes a different
+			// ExpandNode branch (MovePinLinksToIntermediate) whose bytecode
+			// is unaffected.
+			//
+			// Long-term fix is to refactor K2 ExpandNode to dispatch per
+			// pin type to typed setters (SetParameterBlockVector etc.) so
+			// the CustomStructureParam wildcard is only used for non-POD
+			// struct values where it's actually needed; tracked separately.
+			//
+			// Until then, log once per call and refuse the setter so the
+			// ApplyParameterBlock InitialValueString fallback handles the
+			// missing value rather than silently corrupting memory.
+			UE_LOG(LogComposableCameraSystem, Verbose,
+				TEXT("SetStruct refused for CCS infrastructure type '%s'. K2 SetParameterBlockValue CustomThunk received a mis-typed wildcard arg from the BP compiler. With the typed-setter dispatch in K2 ExpandNode this should not normally trigger -- if you see this fire, the wildcard fallback (Enum / arbitrary Struct / Delegate) hit the same bug pattern and the value will silently not propagate."),
+				*Struct->GetName());
+			return;
+		}
+
+		Values.Remove(Name);
+		ActorValues.Remove(Name);
+		ObjectValues.Remove(Name);
+		DelegateValues.Remove(Name);
+
+		FInstancedStruct Slot;
+		Slot.InitializeAs(Struct, static_cast<const uint8*>(Memory));
+		StructValues.Add(Name, MoveTemp(Slot));
 	}
 
 	void AddReferencedObjects(FReferenceCollector& Collector);
@@ -210,13 +294,15 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraParameterBlock
 		Values.Remove(Name);
 		ActorValues.Remove(Name);
 		ObjectValues.Remove(Name);
+		StructValues.Remove(Name);
 		DelegateValues.Add(Name, Value);
 	}
 
-	/** Check if a parameter exists by name (either POD or delegate). */
+	/** Check if a parameter exists by name (POD / actor / object / struct / delegate). */
 	bool HasValue(FName Name) const
 	{
-		return Values.Contains(Name) || ActorValues.Contains(Name) || ObjectValues.Contains(Name) || DelegateValues.Contains(Name);
+		return Values.Contains(Name) || ActorValues.Contains(Name) || ObjectValues.Contains(Name)
+			|| StructValues.Contains(Name) || DelegateValues.Contains(Name);
 	}
 
 	/** Try to get a typed value. Returns false if not found or type mismatch. */

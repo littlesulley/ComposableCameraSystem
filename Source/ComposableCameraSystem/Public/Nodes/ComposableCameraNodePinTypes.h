@@ -470,6 +470,22 @@ inline bool IsBytewiseSafeStruct(const UScriptStruct* Struct)
 	{
 		return false;
 	}
+	// Fast-path the engine math structs and FFloatInterval. These are guaranteed
+	// POD by construction; calling them out explicitly bypasses any quirk in the
+	// reflection walk below (UE 5.6 LWC FVector / FRotator do not have
+	// STRUCT_IsPlainOldData set even though they're trivially copyable, and the
+	// TStructOpsTypeTraitsBase2<FVector>::WithCopy=true flag does not imply
+	// "non-POD" -- it just means there's a custom operator= which happens to be
+	// a memcpy-equivalent default).
+	if (Struct == TBaseStructure<FVector>::Get()
+		|| Struct == TBaseStructure<FVector2D>::Get()
+		|| Struct == TBaseStructure<FVector4>::Get()
+		|| Struct == TBaseStructure<FRotator>::Get()
+		|| Struct == TBaseStructure<FTransform>::Get()
+		|| Struct == TBaseStructure<FFloatInterval>::Get())
+	{
+		return true;
+	}
 	if (Struct->StructFlags & STRUCT_IsPlainOldData)
 	{
 		return true;
@@ -559,11 +575,15 @@ inline bool TryMapPropertyToPinType(const FProperty* Property, EComposableCamera
 		else if (Struct == TBaseStructure<FVector4>::Get())   { OutPinType = EComposableCameraPinType::Vector4;   return true; }
 		else if (Struct == TBaseStructure<FRotator>::Get())   { OutPinType = EComposableCameraPinType::Rotator;   return true; }
 		else if (Struct == TBaseStructure<FTransform>::Get()) { OutPinType = EComposableCameraPinType::Transform; return true; }
-		// Generic struct: accept iff bytewise-safe (POD-like). Non-POD structs
-		// (containing FString / TArray / object refs / delegates) need owned
-		// typed storage and are flagged at type-asset Build time so the author
-		// gets a visible signal instead of silently-dropped runtime values.
-		if (IsBytewiseSafeStruct(Struct))
+		// Generic struct: any USTRUCT is acceptable. POD structs land in the
+		// byte-array Storage path (memcpy via ReadValue<T>); non-POD structs
+		// (FString / FText / TArray / object refs / delegates inside the
+		// struct) land in the typed FInstancedStruct slot pool with proper
+		// ctor / dtor / GC traversal -- the dispatch happens at the storage
+		// layer (RuntimeDataBlock::ReadValue<T> + WriteValue<T>'s
+		// `if constexpr` branch) and the BuildRuntimeDataLayout AllocateSlot
+		// helper.
+		if (Struct)
 		{
 			OutPinType = EComposableCameraPinType::Struct;
 			OutStructType = Struct;
