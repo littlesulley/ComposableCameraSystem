@@ -749,7 +749,7 @@ FComposableCameraDebugSnapshot AComposableCameraCameraBase::SnapshotDebugState()
 
 		FComposableCameraNodeDebugEntry Entry;
 		Entry.NodeIndex = i;
-		Entry.NodeDisplayName = Node->GetClass()->GetDisplayNameText().ToString();
+		Entry.NodeDisplayName = Node->GetClass()->GetName();
 		Entry.bWasTicked = Node->bDebugWasTickedThisFrame;
 		Entry.PoseAfterNode = Node->DebugPoseAfterTick;
 

@@ -1,9 +1,10 @@
-﻿// Copyright Sulley. All rights reserved.
+// Copyright Sulley. All rights reserved.
 
 #pragma once
 
 #include "CoreMinimal.h"
 #include "GameplayTagContainer.h"
+#include "Templates/SubclassOf.h"
 #include "UObject/Object.h"
 #include "ComposableCameraModifierBase.generated.h"
 
@@ -21,7 +22,7 @@ class COMPOSABLECAMERASYSTEM_API UComposableCameraModifierBase : public UObject
 public:
 	// The node class this modifier is going to modify. \n
 	// NOTE: DO NOT edit this property for instanced modifiers. Only change it in the modifier's Class Default Object.
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, meta = (NoEditInline))
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Modifier", meta = (NoEditInline))
 	TSubclassOf<UComposableCameraCameraNodeBase> NodeClass;
 
 public:

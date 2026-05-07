@@ -107,7 +107,7 @@ private:
 	float BeyondValidRangeCooldownRemaining { 0.f };
 	float InputInterruptCooldownRemaining { 0.f };
 
-	UPROPERTY(VisibleInstanceOnly)
+	UPROPERTY(VisibleInstanceOnly, Category = "Runtime")
 	int32 UsedCountAfterInputInterrupt { 0 };
 
 private:

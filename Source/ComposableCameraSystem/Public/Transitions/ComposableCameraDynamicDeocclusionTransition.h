@@ -15,22 +15,22 @@ struct FComposableCameraRayFeeler
 	GENERATED_BODY()
 
 public:
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (ClampMin = "-180", ClampMax = "180"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Transition", meta = (ClampMin = "-180", ClampMax = "180"))
 	float Yaw { 0.f };
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (ClampMin = "-90", ClampMax = "90"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Transition", meta = (ClampMin = "-90", ClampMax = "90"))
 	float Pitch { 0.f };
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Transition")
 	float Length { 100.f };
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Transition")
 	float Radius { 0.f };
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Transition")
 	FVector Offset { FVector::ZeroVector };
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Transition")
 	TObjectPtr<UCurveFloat> StrengthCurve { nullptr };
 
 public:
@@ -74,35 +74,35 @@ public:
 
 public:
 	// The driving transition.
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Instanced)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Instanced, Category = "Transition")
 	UComposableCameraTransitionBase* DrivingTransition;
 	
 	// Feelers for dynamic occlusion detection.
-	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Transition")
 	TArray<FComposableCameraRayFeeler> Feelers;
 
 	// Collision channel for feeler trace.
-	UPROPERTY(BlueprintReadWrite, EditAnywhere)
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Transition")
 	TEnumAsByte<ETraceTypeQuery> TraceChannel;
 	
 	// Actor types to ignore for feelers.
-	UPROPERTY(BlueprintReadWrite, EditAnywhere)
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Transition")
 	TArray<TSoftClassPtr<AActor>> ActorTypesToIgnore;
 
 	// Deocclusion speed.
-	UPROPERTY(BlueprintReadWrite, EditAnywhere)
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Transition")
 	float DeocclusionSpeed { 1.f };
 
 	// Should wait for such time to resume if no occlusion is detected.
-	UPROPERTY(BlueprintReadWrite, EditAnywhere)
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Transition")
 	float ResumeWaitingTime { 0.2f };
 
 	// When the transition process exceeds this percentage, will resume to the base pose ignoring any occlusion.
-	UPROPERTY(BlueprintReadWrite, EditAnywhere, meta = (ClampMin = "0", ClampMax = "1"))
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Transition", meta = (ClampMin = "0", ClampMax = "1"))
 	float DeadPercentage { 0.8f };
 
 	// When the transition process exceeds this percentage, will resume to the base pose ignoring any occlusion.
-	UPROPERTY(BlueprintReadWrite, EditAnywhere, meta = (ClampMin = "0", ClampMax = "1"))
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Transition", meta = (ClampMin = "0", ClampMax = "1"))
 	float ResumeSpeed { 0.8f };
 
 private:

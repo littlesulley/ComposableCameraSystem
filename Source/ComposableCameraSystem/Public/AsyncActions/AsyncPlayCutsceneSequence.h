@@ -69,7 +69,7 @@ public:
 	void StopCutsceneSequence(UComposableCameraTransitionDataAsset* ExitTransition = nullptr);
 
 	/** Fires when the level sequence finishes playing (not fired on infinite loop or manual stop). */
-	UPROPERTY(BlueprintAssignable)
+	UPROPERTY(BlueprintAssignable, Category = "Async Action")
 	FOnCutsceneSequenceFinished OnFinished;
 
 	// UBlueprintAsyncActionBase interface.

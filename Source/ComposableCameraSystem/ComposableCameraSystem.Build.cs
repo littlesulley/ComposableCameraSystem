@@ -40,6 +40,8 @@ public class ComposableCameraSystem : ModuleRules
 		// to auto-hide the viewport frustum gizmo while the player is possessing the camera.
 		// UnrealEd is editor-only; the dependency is conditional on the build target so
 		// shipping / cooked game targets still link cleanly without it.
+		PrivateDependencyModuleNames.Add("PhysicsCore");
+
 		if (Target.bBuildEditor)
 		{
 			PrivateDependencyModuleNames.Add("UnrealEd");

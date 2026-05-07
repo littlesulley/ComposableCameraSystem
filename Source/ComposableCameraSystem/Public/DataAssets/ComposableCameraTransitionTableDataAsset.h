@@ -4,6 +4,11 @@
 
 #include "CoreMinimal.h"
 #include "Engine/DataAsset.h"
+
+#if WITH_EDITOR
+#include "Misc/DataValidation.h"
+#endif
+
 #include "ComposableCameraTransitionTableDataAsset.generated.h"
 
 class UComposableCameraTransitionBase;
@@ -80,9 +85,11 @@ public:
 	TArray<FComposableCameraTransitionTableEntry> Entries;
 
 	//~ Begin UObject Interface
+#if WITH_EDITOR
 	virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;
-	virtual void PostLoad() override;
 	virtual EDataValidationResult IsDataValid(FDataValidationContext& Context) const override;
+#endif
+	virtual void PostLoad() override;
 	//~ End UObject Interface
 
 	/**

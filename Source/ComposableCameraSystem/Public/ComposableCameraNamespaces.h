@@ -1,6 +1,11 @@
 #pragma once
 
-struct FGameplayTag;
+#include "Containers/Array.h"
+#include "Containers/Map.h"
+#include "GameplayTagContainer.h"
+#include "Templates/SubclassOf.h"
+#include "UObject/ObjectPtr.h"
+
 class UComposableCameraNodeModifierDataAsset;
 class UComposableCameraModifierBase;
 class UComposableCameraCameraNodeBase;

@@ -1,4 +1,4 @@
-﻿// Copyright Sulley. All rights reserved.
+// Copyright Sulley. All rights reserved.
 
 #pragma once
 
@@ -185,10 +185,10 @@ public:
 
 public:
 	// Maintaining a minimum distance from origin along the camera's looking direction.
-	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Transition")
 	float MinimumDistanceFromOrigin { 10.f };
 
 	// Whether to lock the camera's rotation to the pivot.
-	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Transition")
 	bool bLockToPivot { true };
 };

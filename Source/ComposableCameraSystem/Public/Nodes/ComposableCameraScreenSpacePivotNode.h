@@ -1,4 +1,4 @@
-﻿// Copyright Sulley. All rights reserved.
+// Copyright Sulley. All rights reserved.
 
 #pragma once
 
@@ -36,19 +36,19 @@ struct FComposableCameraScreenSpaceTranslationParams
 	GENERATED_BODY()
 	
 	// Camera distance to the pivot.
-	UPROPERTY(EditAnywhere)
+	UPROPERTY(EditAnywhere, Category = "Input Parameters")
 	double CameraDistance { 300. };
 	
 	// X axis interpolator in the camera space.
-	UPROPERTY(EditAnywhere, Instanced)
+	UPROPERTY(EditAnywhere, Instanced, Category = "Input Parameters")
 	TObjectPtr<UComposableCameraInterpolatorBase> XInterpolator { nullptr };
 
 	// Y axis interpolator in the camera space.
-	UPROPERTY(EditAnywhere, Instanced)
+	UPROPERTY(EditAnywhere, Instanced, Category = "Input Parameters")
 	TObjectPtr<UComposableCameraInterpolatorBase> YInterpolator { nullptr };
 
 	// Z axis interpolator in the camera space.
-	UPROPERTY(EditAnywhere, Instanced)
+	UPROPERTY(EditAnywhere, Instanced, Category = "Input Parameters")
 	TObjectPtr<UComposableCameraInterpolatorBase> ZInterpolator { nullptr };
 };
 
@@ -58,11 +58,11 @@ struct FComposableCameraScreenSpaceRotationParams
 	GENERATED_BODY()
 	
 	// Yaw axis interpolator in the world space.
-	UPROPERTY(EditAnywhere, Instanced)
+	UPROPERTY(EditAnywhere, Instanced, Category = "Input Parameters")
 	TObjectPtr<UComposableCameraInterpolatorBase> YawInterpolator { nullptr };
 
 	// Pitch axis interpolator in the camera space.
-	UPROPERTY(EditAnywhere, Instanced)
+	UPROPERTY(EditAnywhere, Instanced, Category = "Input Parameters")
 	TObjectPtr<UComposableCameraInterpolatorBase> PitchInterpolator { nullptr };
 };
 

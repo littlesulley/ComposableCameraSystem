@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "ComposableCameraImpulseShapeInterface.h"
+#include "Curves/CurveFloat.h"
 #include "GameFramework/Actor.h"
 #include "ComposableCameraImpulseSphere.generated.h"
 
@@ -44,6 +45,6 @@ public:
 #endif
 
 private:
-	UPROPERTY(VisibleAnywhere)
+	UPROPERTY(VisibleAnywhere, Category = "Components")
 	TObjectPtr<USphereComponent> SphereComponent;
 };

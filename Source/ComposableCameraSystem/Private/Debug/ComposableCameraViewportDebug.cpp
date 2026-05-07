@@ -21,6 +21,17 @@
 #include "Editor.h"   // GEditor, UEditorEngine::bIsSimulatingInEditor
 #endif
 
+#if UE_BUILD_SHIPPING
+bool FComposableCameraViewportDebug::ShouldShowAllNodeGizmos()
+{
+	return false;
+}
+
+bool FComposableCameraViewportDebug::ShouldShowAllTransitionGizmos()
+{
+	return false;
+}
+#endif
 // ─────────────────────────────────────────────────────────────────────
 // Viewport 3D debug — private implementation.
 //
@@ -376,4 +387,3 @@ void FComposableCameraViewportDebug::DrawSolidDebugSphere(
 		/*DepthPriority=*/DepthPriority, /*Thickness=*/0.f);
 }
 #endif
-

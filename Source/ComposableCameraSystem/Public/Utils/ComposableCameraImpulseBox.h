@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "ComposableCameraImpulseShapeInterface.h"
+#include "Curves/CurveFloat.h"
 #include "GameFramework/Actor.h"
 #include "ComposableCameraImpulseBox.generated.h"
 
@@ -62,6 +63,6 @@ public:
 	FRuntimeFloatCurve ForceCurve;
 
 private:
-	UPROPERTY(VisibleAnywhere)
+	UPROPERTY(VisibleAnywhere, Category = "Components")
 	TObjectPtr<UBoxComponent> BoxComponent;
 };

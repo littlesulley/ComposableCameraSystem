@@ -1810,7 +1810,7 @@ void UComposableCameraTypeAsset::Build(bool bLogResult)
 							FText::FromString(TEXT("Required input pin '{0}' on node {1} ({2}) has no connection, exposure, or per-instance override. It will use the pin declaration's default or the node's same-named UPROPERTY. Wire it, expose it as a parameter, or set a default override to make the intent explicit.")),
 							FText::FromString(Pin.PinName.ToString()),
 							FText::AsNumber(NodeIdx),
-							FText::FromString(Node->GetClass()->GetDisplayNameText().ToString()));
+							FText::FromString(Node->GetClass()->GetName()));
 						Msg.NodeIndex = NodeIdx;
 						Msg.PinName = Pin.PinName;
 						BuildMessages.Add(Msg);
@@ -1827,7 +1827,7 @@ void UComposableCameraTypeAsset::Build(bool bLogResult)
 							FText::FromString(TEXT("Optional input pin '{0}' on node {1} ({2}) has no connection and no default value. Will use zero.")),
 							FText::FromString(Pin.PinName.ToString()),
 							FText::AsNumber(NodeIdx),
-							FText::FromString(Node->GetClass()->GetDisplayNameText().ToString()));
+							FText::FromString(Node->GetClass()->GetName()));
 						Msg.NodeIndex = NodeIdx;
 						Msg.PinName = Pin.PinName;
 						BuildMessages.Add(Msg);

@@ -6,6 +6,7 @@
 #include "CameraRig_Rail.h"
 #include "ComposableCameraSystemModule.h"
 #include "Components/SplineComponent.h"
+#include "Curves/CurveFloat.h"
 #include "Interpolator/ComposableCameraInterpolatorBase.h"
 #include "Kismet/KismetSystemLibrary.h"
 

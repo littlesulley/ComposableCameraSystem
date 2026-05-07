@@ -16,7 +16,9 @@
 #include "DataAssets/ComposableCameraTypeAsset.h"
 #include "Utils/ComposableCameraProjectSettings.h"
 #include "Engine/Canvas.h"
+#include "Engine/Engine.h"
 #include "Engine/PostProcessUtils.h"
+#include "Engine/World.h"
 #include "Modifiers/ComposableCameraModifierBase.h"
 #include "Nodes/ComposableCameraCameraNodeBase.h"
 #include "Nodes/ComposableCameraComputeNodeBase.h"
@@ -332,7 +334,7 @@ void AComposableCameraPlayerCameraManager::DisplayDebug(class UCanvas* Canvas,
 			if (const UComposableCameraCameraNodeBase* Node = RunningCamera->CameraNodes[i])
 			{
 				DisplayDebugManager.DrawString(FString::Printf(TEXT("    [%2d] %s"), i,
-					*Node->GetClass()->GetDisplayNameText().ToString()));
+					*Node->GetClass()->GetName()));
 			}
 		}
 
@@ -356,7 +358,7 @@ void AComposableCameraPlayerCameraManager::DisplayDebug(class UCanvas* Canvas,
 				if (const UComposableCameraComputeNodeBase* Node = RunningCamera->ComputeNodes[i])
 				{
 					DisplayDebugManager.DrawString(FString::Printf(TEXT("    [%2d] %s"), i,
-						*Node->GetClass()->GetDisplayNameText().ToString()));
+						*Node->GetClass()->GetName()));
 				}
 			}
 		}
@@ -1707,5 +1709,9 @@ void AComposableCameraPlayerCameraManager::CaptureCurrentFrameToPoseHistory()
 		++PoseHistoryCountUsed;
 	}
 }
+#else
+bool AComposableCameraPlayerCameraManager::IsPoseHistoryFrozen()
+{
+	return false;
+}
 #endif // !UE_BUILD_SHIPPING
-

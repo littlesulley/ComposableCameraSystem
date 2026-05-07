@@ -29,6 +29,6 @@ public:
 
 public:
 	// Exponential for EaseInOut transition.
-	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Transition")
 	float Exp { 1.f };
 };

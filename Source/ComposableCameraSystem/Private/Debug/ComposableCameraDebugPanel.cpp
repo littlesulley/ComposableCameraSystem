@@ -20,6 +20,7 @@
 #include "Modifiers/ComposableCameraModifierBase.h"
 #include "Patches/ComposableCameraPatchManager.h"
 #include "Patches/ComposableCameraPatchTypes.h"
+#include "GlobalRenderResources.h"
 #include "TextureResource.h"   // GWhiteTexture — needed as the shading source for FCanvasTriangleItem
 #include "Engine/Canvas.h"
 #include "Engine/Engine.h"
@@ -1084,7 +1085,7 @@ namespace
 		auto EmitNodeLines = [&](int32 StepNum, int32 NodeArrayIdx, const UComposableCameraCameraNodeBase* Node)
 		{
 			Out.Lines.Add({ FString::Printf(TEXT("  [%2d] %s"), StepNum,
-				*Node->GetClass()->GetDisplayNameText().ToString()), CNeutral });
+				*Node->GetClass()->GetName()), CNeutral });
 
 			// Emit output-pin values for this node. GatherAllPinDeclarations
 			// is non-const on the base (it calls the BlueprintNativeEvent

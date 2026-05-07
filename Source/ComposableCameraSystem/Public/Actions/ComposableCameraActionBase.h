@@ -1,8 +1,9 @@
-﻿// Copyright Sulley. All rights reserved.
+// Copyright Sulley. All rights reserved.
 
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Templates/SubclassOf.h"
 #include "UObject/Object.h"
 #include "ComposableCameraActionBase.generated.h"
 
@@ -57,22 +58,22 @@ class COMPOSABLECAMERASYSTEM_API UComposableCameraActionBase : public UObject
 	
 public:
 	// When will this action get executed.
-	UPROPERTY(EditAnywhere, BlueprintReadOnly)
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Action")
 	EComposableCameraActionExecutionType ExecutionType { EComposableCameraActionExecutionType::PreCameraTick };
 
 	// Target node class for node-scoped execution. Exact class match, matching the Modifier system.
 	// Only meaningful when ExecutionType is PreNodeTick or PostNodeTick.
-	UPROPERTY(EditAnywhere, BlueprintReadOnly,
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Action",
 		meta = (EditCondition = "ExecutionType == EComposableCameraActionExecutionType::PreNodeTick || ExecutionType == EComposableCameraActionExecutionType::PostNodeTick",
 				EditConditionHides))
 	TSubclassOf<UComposableCameraCameraNodeBase> TargetNodeClass;
 
 	// How will this action get expired.
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, meta = (Bitmask, BitmaskEnum = "/Script/ComposableCameraSystem.EComposableCameraActionExpirationType"))
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Action", meta = (Bitmask, BitmaskEnum = "/Script/ComposableCameraSystem.EComposableCameraActionExpirationType"))
 	uint8 ExpirationType { static_cast<uint8>(EComposableCameraActionExpirationType::Duration | EComposableCameraActionExpirationType::Condition) };
 	
 	// Duration if this action expiration type is Duration. If <=0, this action will not be added.
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, meta = (EditCondition = "ExpirationType & \"/Script/ComposableCameraSystem.EComposableCameraActionExpirationType::Duration", EditConditionHides))
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Action", meta = (EditCondition = "ExpirationType & \"/Script/ComposableCameraSystem.EComposableCameraActionExpirationType::Duration", EditConditionHides))
 	float Duration { 1.f };
 
 public:
@@ -96,10 +97,10 @@ public:
 	}
 
 public:
-	UPROPERTY(BlueprintReadOnly, EditDefaultsOnly)
+	UPROPERTY(BlueprintReadOnly, EditDefaultsOnly, Category = "Action")
 	bool bOnlyForCurrentCamera { true };
 
-	UPROPERTY(BlueprintReadOnly)
+	UPROPERTY(BlueprintReadOnly, Category = "Action")
 	AComposableCameraPlayerCameraManager* PlayerCameraManager{};
 
 	/** Time since this action began ticking, in seconds. Only meaningful when

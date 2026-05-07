@@ -26,19 +26,19 @@ public:
 
 public:
 	// Target pitch.
-	UPROPERTY(BlueprintReadWrite, EditAnywhere)
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Action")
 	float Pitch { 0.f };
 
 	// Rotate action to read user input from. Used to detect 
-	UPROPERTY(EditAnywhere)
+	UPROPERTY(EditAnywhere, Category = "Action")
 	class UInputAction* RotateAction { nullptr };
 
 	// Interpolator for pitch rotation. If not specified, will use InterpTo.
-	UPROPERTY(EditAnywhere, Instanced)
+	UPROPERTY(EditAnywhere, Instanced, Category = "Action")
 	UComposableCameraInterpolatorBase* Interpolator { nullptr };
 
 	// The speed of InterpTo when not specifying Interpolator. 
-	UPROPERTY(EditAnywhere, meta = (EditCondition = "Interpolator == nullptr", EditConditionHides))
+	UPROPERTY(EditAnywhere, Category = "Action", meta = (EditCondition = "Interpolator == nullptr", EditConditionHides))
 	float InterpSpeed { 1.f };
 
 private:

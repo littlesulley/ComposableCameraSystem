@@ -3,6 +3,8 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Curves/CurveFloat.h"
+#include "Tickable.h"
 #include "Kismet/BlueprintAsyncActionBase.h"
 #include "AsyncFloatCurveEvaluator.generated.h"
 
@@ -27,10 +29,10 @@ public:
 	UFUNCTION(BlueprintCallable, DisplayName = "Async Float Curve Evaluator", meta = (BlueprintInternalUseOnly="true", Category = "AsyncActions", WorldContext = "WorldContextObject"))
 	static UAsyncFloatCurveEvaluator* AsyncFloatCurveEvaluator(UObject* WorldContextObject, UCurveFloat* Curve, float Duration);
 
-	UPROPERTY(BlueprintAssignable)
+	UPROPERTY(BlueprintAssignable, Category = "Async Action")
 	FOnTickFloatCurve OnTick;
 
-	UPROPERTY(BlueprintAssignable)
+	UPROPERTY(BlueprintAssignable, Category = "Async Action")
 	FOnCompleteFloatCurve OnComplete;
 
 protected:

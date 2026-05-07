@@ -5,6 +5,7 @@
 #include "CoreMinimal.h"
 #include "Kismet/BlueprintAsyncActionBase.h"
 #include "Curves/CurveVector.h"
+#include "Tickable.h"
 #include "AsyncVectorCurveEvaluator.generated.h"
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnTickVectorCurve, FVector, Value);
@@ -28,10 +29,10 @@ public:
 	UFUNCTION(BlueprintCallable, DisplayName = "Async Vector Curve Evaluator", meta = (BlueprintInternalUseOnly="true", Category = "AsyncActions", WorldContext = "WorldContextObject"))
 	static UAsyncVectorCurveEvaluator* AsyncVectorCurveEvaluator(UObject* WorldContextObject, UCurveVector* Curve, float Duration);
 
-	UPROPERTY(BlueprintAssignable)
+	UPROPERTY(BlueprintAssignable, Category = "Async Action")
 	FOnTickVectorCurve OnTick;
 
-	UPROPERTY(BlueprintAssignable)
+	UPROPERTY(BlueprintAssignable, Category = "Async Action")
 	FOnCompleteVectorCurve OnComplete;
 
 protected:

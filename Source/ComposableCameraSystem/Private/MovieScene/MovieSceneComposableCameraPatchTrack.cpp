@@ -94,6 +94,7 @@ UMovieSceneSection* UMovieSceneComposableCameraPatchTrack::CreateNewSection()
 		}
 		if (MatchCount <= 1)
 		{
+#if WITH_EDITORONLY_DATA
 			for (int32 i = 0; i < OwnerScene->GetPossessableCount(); ++i)
 			{
 				const FMovieScenePossessable& Po = OwnerScene->GetPossessable(i);
@@ -106,6 +107,7 @@ UMovieSceneSection* UMovieSceneComposableCameraPatchTrack::CreateNewSection()
 					}
 				}
 			}
+#endif
 		}
 		if (MatchCount == 1)
 		{

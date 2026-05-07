@@ -4,6 +4,9 @@
 
 #include "ComposableCameraSystemModule.h"
 #include "Core/ComposableCameraPlayerCameraManager.h"
+#include "CollisionShape.h"
+#include "Components/SkeletalMeshComponent.h"
+#include "Engine/World.h"
 #include "Kismet/GameplayStatics.h"
 #include "Kismet/KismetMathLibrary.h"
 #include "KismetTraceUtils.h"

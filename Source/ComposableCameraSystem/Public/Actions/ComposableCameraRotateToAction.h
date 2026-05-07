@@ -1,4 +1,4 @@
-﻿// Copyright Sulley. All rights reserved.
+// Copyright Sulley. All rights reserved.
 
 #pragma once
 
@@ -26,19 +26,19 @@ public:
 	
 public:
 	// Target rotation the camera rotates to.
-	UPROPERTY(BlueprintReadWrite, EditAnywhere)
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Action")
 	FRotator TargetRotation;
 
 	// Rotate action to read user input from. Used to detect whether user provides input.
-	UPROPERTY(EditAnywhere)
+	UPROPERTY(EditAnywhere, Category = "Action")
 	class UInputAction* RotateAction { nullptr };
 
 	// Interpolator for camera rotation. If not specified, will use RInterpTo.
-	UPROPERTY(EditAnywhere, Instanced)
+	UPROPERTY(EditAnywhere, Instanced, Category = "Action")
 	UComposableCameraInterpolatorBase* Interpolator { nullptr };
 
 	// The speed of RInterpTo when not specifying Interpolator. 
-	UPROPERTY(EditAnywhere, meta = (EditCondition = "Interpolator == nullptr", EditConditionHides))
+	UPROPERTY(EditAnywhere, Category = "Action", meta = (EditCondition = "Interpolator == nullptr", EditConditionHides))
 	float InterpSpeed { 1.f };
 	
 private:

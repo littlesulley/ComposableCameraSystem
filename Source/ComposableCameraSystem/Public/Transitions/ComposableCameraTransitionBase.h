@@ -21,15 +21,15 @@ struct FComposableCameraTransitionInitParams
 	GENERATED_BODY()
 
 	/** Source pose at the moment the transition starts (the blended output the player was seeing). */
-	UPROPERTY(BlueprintReadOnly)
+	UPROPERTY(BlueprintReadOnly, Category = "Transition")
 	FComposableCameraPose CurrentSourcePose;
 
 	/** Previous frame's source pose (for velocity-based transitions like inertialization). */
-	UPROPERTY(BlueprintReadOnly)
+	UPROPERTY(BlueprintReadOnly, Category = "Transition")
 	FComposableCameraPose PreviousSourcePose;
 
 	/** Delta time of the frame when the transition was created. */
-	UPROPERTY(BlueprintReadOnly)
+	UPROPERTY(BlueprintReadOnly, Category = "Transition")
 	float DeltaTime { 0.f };
 };
 
@@ -225,27 +225,27 @@ protected:
 
 protected:
 	// Transition time.
-	UPROPERTY(EditAnywhere, BlueprintReadOnly)
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Transition")
 	float TransitionTime;
 
 	// Remaining transition time.
-	UPROPERTY(BlueprintReadOnly)
+	UPROPERTY(BlueprintReadOnly, Category = "Transition")
 	float RemainingTime;
 
 	// If finished transition.
-	UPROPERTY(BlueprintReadOnly)
+	UPROPERTY(BlueprintReadOnly, Category = "Transition")
 	bool bFinished { false };
 
 	// If at the first frame of transition.
-	UPROPERTY(BlueprintReadOnly)
+	UPROPERTY(BlueprintReadOnly, Category = "Transition")
 	bool bFirstFrame { true };
 
 	// Initialization parameters from TransitionEnabled.
-	UPROPERTY(BlueprintReadOnly)
+	UPROPERTY(BlueprintReadOnly, Category = "Transition")
 	FComposableCameraTransitionInitParams InitParams;
 
 	// How much percentage this transition has completed.
-	UPROPERTY(BlueprintReadOnly)
+	UPROPERTY(BlueprintReadOnly, Category = "Transition")
 	float Percentage { 0.f };
 
 	/** Cached `GetClass()->GetName()` populated lazily at first Evaluate

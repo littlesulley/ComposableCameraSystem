@@ -3,6 +3,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "GameFramework/Actor.h"
 #include "UObject/Object.h"
 #include "ComposableCameraNodePinTypes.generated.h"
 

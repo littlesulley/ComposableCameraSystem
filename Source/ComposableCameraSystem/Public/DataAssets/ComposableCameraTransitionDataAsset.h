@@ -1,4 +1,4 @@
-﻿// Copyright Sulley. All rights reserved.
+// Copyright Sulley. All rights reserved.
 
 #pragma once
 
@@ -19,6 +19,6 @@ class COMPOSABLECAMERASYSTEM_API UComposableCameraTransitionDataAsset
 	GENERATED_BODY()
 
 public:
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Instanced)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Instanced, Category = "Transition")
 	UComposableCameraTransitionBase* Transition;
 };

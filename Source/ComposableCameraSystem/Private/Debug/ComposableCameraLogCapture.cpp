@@ -5,6 +5,7 @@
 #include "HAL/PlatformTime.h"
 #include "Logging/LogMacros.h"
 #include "Misc/CoreMisc.h"
+#include "Misc/OutputDeviceRedirector.h"
 #include "Misc/ScopeLock.h"
 
 // The Serialize() implementation is intentionally NOT guarded by
@@ -125,6 +126,21 @@ void FComposableCameraLogCapture::GetRecentEntries(TArray<FComposableCameraLogEn
 	FComposableCameraLogCapture& Instance = Get();
 	FScopeLock Lock(&Instance.BufferCS);
 	OutEntries = Instance.RingBuffer;
+}
+
+#else
+
+void FComposableCameraLogCapture::Install()
+{
+}
+
+void FComposableCameraLogCapture::Uninstall()
+{
+}
+
+void FComposableCameraLogCapture::GetRecentEntries(TArray<FComposableCameraLogEntry>& OutEntries)
+{
+	OutEntries.Reset();
 }
 
 #endif // !UE_BUILD_SHIPPING

@@ -22,6 +22,7 @@ class UComposableCameraDirector;
 class UComposableCameraContextStack;
 class UComposableCameraTransitionBase;
 struct FComposableCameraRuntimeDataBlock;
+struct FDisplayDebugManager;
 	
 UCLASS(ClassGroup = ComposableCameraSystem, NotPlaceable)
 class COMPOSABLECAMERASYSTEM_API AComposableCameraPlayerCameraManager
@@ -313,23 +314,23 @@ public:
 	// ~~~~
 
 	// Whether to sync current camera rotation to ControlRotation.
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ComposableCameraSystem")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera Manager")
 	bool bSyncToControlRotation { false };
 
 	// The currently active context name (debug, read-only).
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Transient, Category = "ComposableCameraSystem")
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Transient, Category = "Camera Manager")
 	FName CurrentContext;
 
 	// Current running camera.
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Transient, Category = "ComposableCameraSystem")
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Transient, Category = "Camera Manager")
 	AComposableCameraCameraBase* RunningCamera;
 
 	// Current camera pose. 
-	UPROPERTY(Transient, VisibleAnywhere, BlueprintReadOnly, Category = "ComposableCameraSystem")
+	UPROPERTY(Transient, VisibleAnywhere, BlueprintReadOnly, Category = "Camera Manager")
 	FComposableCameraPose CurrentCameraPose;
 
 	// Current camera actions.
-	UPROPERTY(Transient, VisibleAnywhere, BlueprintReadOnly, Category = "ComposableCameraSystem")
+	UPROPERTY(Transient, VisibleAnywhere, BlueprintReadOnly, Category = "Camera Manager")
 	TSet<UComposableCameraActionBase*> CameraActions;
 
 	/** Per-frame scratch buffer for `UpdateActions`: collects pointers of
@@ -429,13 +430,13 @@ private:
 	/** Capture one frame into the ring. Called from `DoUpdateCamera` after
 	 *  `CurrentCameraPose` is finalized. */
 	void CaptureCurrentFrameToPoseHistory();
+#endif
 
 public:
 	/** Whether the pose-history ring buffer is currently frozen (driven by
 	 *  `CCS.Debug.Panel.PoseHistory.Freeze`). Read-only accessor for the
 	 *  debug panel so it can render a `[FROZEN]` indicator in the title bar
-	 *  without having to duplicate the CVar declaration. Debug-only; not
-	 *  declared outside `!UE_BUILD_SHIPPING`. */
+	 *  without having to duplicate the CVar declaration. Shipping builds
+	 *  return false because the debug CVar is compiled out. */
 	static bool IsPoseHistoryFrozen();
-#endif
 };

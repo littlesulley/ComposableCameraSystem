@@ -62,11 +62,11 @@ struct FComposableCameraPersistentActivateParams
 
 public:
 	// Whether to preserve current camera pose when activating a new camera.
-	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Input Parameters")
 	bool bPreserveCameraPose { true };
 	
 	// Initial transform to spawn the camera if bPreserveCameraPose is false.
-	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Input Parameters")
 	FTransform InitialTransform;
 
 	// Whether to use InitialTransform's rotation to override the new camera's rotation, regardless of bPreserveCameraPose.
@@ -79,10 +79,10 @@ struct FComposableCameraMixingCameraNodeCameraDefinition
 	GENERATED_BODY()
 
 public:
-	UPROPERTY(EditAnywhere)
+	UPROPERTY(EditAnywhere, Category = "Input Parameters")
 	TSubclassOf<AComposableCameraCameraBase> CameraClass;
 
-	UPROPERTY(EditAnywhere)
+	UPROPERTY(EditAnywhere, Category = "Input Parameters")
 	FComposableCameraPersistentActivateParams ActivationParams;
 };
 

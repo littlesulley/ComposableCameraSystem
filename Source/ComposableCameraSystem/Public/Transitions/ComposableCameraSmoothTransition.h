@@ -32,6 +32,6 @@ public:
 
 public:
 	// Whether to use smoother step, a fifth-order polynomial algorithm for transition.
-	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Transition")
 	bool bSmootherStep;
 };

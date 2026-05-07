@@ -4,6 +4,7 @@
 
 #include "ComposableCameraSystemModule.h"
 #include "Core/ComposableCameraPlayerCameraManager.h"
+#include "Curves/CurveFloat.h"
 #include "EditorHooks/EditorHooks.h"
 #include "Kismet/GameplayStatics.h"
 #include "Utils/ComposableCameraBlueprintLibrary.h"

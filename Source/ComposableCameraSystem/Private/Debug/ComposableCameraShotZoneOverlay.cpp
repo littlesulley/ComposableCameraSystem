@@ -17,6 +17,7 @@
 #include "HAL/IConsoleManager.h"
 #include "Math/ComposableCameraMath.h"
 #include "Nodes/ComposableCameraCompositionFramingNode.h"
+#include "SceneView.h"
 
 namespace
 {

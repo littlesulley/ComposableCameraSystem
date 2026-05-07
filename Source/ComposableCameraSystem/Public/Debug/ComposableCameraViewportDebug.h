@@ -67,7 +67,6 @@ public:
 	/** Unregister the FTSTicker delegate. Idempotent. */
 	static void Shutdown();
 
-#if !UE_BUILD_SHIPPING
 	/**
 	 * True when `CCS.Debug.Viewport.Nodes.All` is non-zero — every
 	 * per-node gizmo (both 3D `DrawNodeDebug` and 2D `DrawNodeDebug2D`
@@ -97,6 +96,7 @@ public:
 	 */
 	static bool ShouldShowAllTransitionGizmos();
 
+#if !UE_BUILD_SHIPPING
 	/**
 	 * Draw a translucent-wireframe debug sphere — the canonical sphere
 	 * gizmo used by every CCS node / transition debug override.

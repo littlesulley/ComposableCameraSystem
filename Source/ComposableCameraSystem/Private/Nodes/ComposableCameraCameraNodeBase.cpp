@@ -607,11 +607,13 @@ void UComposableCameraCameraNodeBase::DeclareSubobjectPins(
 			continue;
 		}
 
+#if WITH_METADATA
 		// Opt-out: subobject authors can tag properties with NoPinExposure.
 		if (Property->HasMetaData(TEXT("NoPinExposure")))
 		{
 			continue;
 		}
+#endif
 
 		EComposableCameraPinType PinType;
 		UScriptStruct* StructType = nullptr;
@@ -626,12 +628,20 @@ void UComposableCameraCameraNodeBase::DeclareSubobjectPins(
 		PinDecl.DisplayName = FText::Format(
 			NSLOCTEXT("ComposableCameraSystem", "SubobjectPinDisplayFmt", "{0} > {1}"),
 			SubobjectDisplayName,
+#if WITH_METADATA
 			Property->GetDisplayNameText());
+#else
+			FText::FromString(FName::NameToDisplayString(Property->GetName(), false)));
+#endif
 		PinDecl.Direction = EComposableCameraPinDirection::Input;
 		PinDecl.PinType = PinType;
 		PinDecl.StructType = StructType;
 		PinDecl.EnumType = EnumType;
+#if WITH_METADATA
 		PinDecl.Tooltip = Property->GetToolTipText();
+#else
+		PinDecl.Tooltip = FText::GetEmpty();
+#endif
 
 		// Serialize the current property value as the default string.
 		FString ValueString;
@@ -661,10 +671,12 @@ void UComposableCameraCameraNodeBase::ApplySubobjectPinValues(
 			continue;
 		}
 
+#if WITH_METADATA
 		if (Property->HasMetaData(TEXT("NoPinExposure")))
 		{
 			continue;
 		}
+#endif
 
 		EComposableCameraPinType PinType;
 		UScriptStruct* StructType = nullptr;

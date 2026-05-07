@@ -67,7 +67,6 @@ struct FComposableCameraLogEntry
 class COMPOSABLECAMERASYSTEM_API FComposableCameraLogCapture : public FOutputDevice
 {
 public:
-#if !UE_BUILD_SHIPPING
 	/** Register with `GLog`. Idempotent — calling twice is a no-op. */
 	static void Install();
 
@@ -82,7 +81,6 @@ public:
 	/** Max entries the ring buffer keeps. Older entries overflow off the
 	 *  front. Exposed so the panel's height pass can reserve rows up front. */
 	static constexpr int32 MaxCapturedEntries = 16;
-#endif
 
 	// FOutputDevice interface.
 	virtual void Serialize(const TCHAR* V, ELogVerbosity::Type Verbosity, const FName& Category) override;

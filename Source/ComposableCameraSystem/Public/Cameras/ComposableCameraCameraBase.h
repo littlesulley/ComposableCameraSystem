@@ -251,29 +251,29 @@ struct FComposableCameraActivateParams
 
 public:
 	// Whether to preserve current camera pose when activating a new camera.
-	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Activation")
 	bool bPreserveCameraPose { true };
 	
 	// Initial transform to spawn the camera if bPreserveCameraPose is false.
-	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Activation")
 	FTransform InitialTransform;
 
 	// Whether to use InitialTransform's rotation to override the new camera's rotation, regardless of bPreserveCameraPose.
-	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Activation")
 	bool bUseInitialTransformRotation { false };
 
 	// Whether to freeze the outgoing (source) camera during the transition.
 	// When true, the source camera stops ticking and holds its last evaluated pose
 	// while the transition blends to the new camera. Has no effect if there is no transition.
-	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Activation")
 	bool bFreezeSourceCamera { false };
 
 	// Whether this camera is transient.
-	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Activation")
 	bool bIsTransient = false;
 
 	// The life time if this camera is transient.
-	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Activation")
 	float LifeTime = 0.f;
 };
 

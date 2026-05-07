@@ -8,6 +8,7 @@
 #include "Cameras/ComposableCameraCameraBase.h"
 #include "Misc/AutomationTest.h"
 #include "Tests/ComposableCameraTestObjects.h"
+#include "Engine/Engine.h"
 #include "Engine/World.h"
 
 #define LOCTEXT_NAMESPACE "ComposableCameraExecutionMockTests"

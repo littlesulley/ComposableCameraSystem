@@ -2,9 +2,12 @@
 
 #include "DataAssets/ComposableCameraTransitionTableDataAsset.h"
 #include "DataAssets/ComposableCameraTypeAsset.h"
-#include "Misc/DataValidation.h"
 #include "Misc/PackageName.h"
 #include "Transitions/ComposableCameraTransitionBase.h"
+
+#if WITH_EDITOR
+#include "Misc/DataValidation.h"
+#endif
 
 #define LOCTEXT_NAMESPACE "ComposableCameraTransitionTableDataAsset"
 
@@ -47,16 +50,6 @@ void FComposableCameraTransitionTableEntry::UpdateDisplayTitle()
 // UComposableCameraTransitionTableDataAsset
 // ────────────────────────────────────────────────────────────
 
-void UComposableCameraTransitionTableDataAsset::PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent)
-{
-	Super::PostEditChangeProperty(PropertyChangedEvent);
-
-	for (FComposableCameraTransitionTableEntry& Entry : Entries)
-	{
-		Entry.UpdateDisplayTitle();
-	}
-}
-
 void UComposableCameraTransitionTableDataAsset::PostLoad()
 {
 	Super::PostLoad();
@@ -93,6 +86,17 @@ UComposableCameraTransitionBase* UComposableCameraTransitionTableDataAsset::Find
 	}
 
 	return nullptr;
+}
+
+#if WITH_EDITOR
+void UComposableCameraTransitionTableDataAsset::PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent)
+{
+	Super::PostEditChangeProperty(PropertyChangedEvent);
+
+	for (FComposableCameraTransitionTableEntry& Entry : Entries)
+	{
+		Entry.UpdateDisplayTitle();
+	}
 }
 
 EDataValidationResult UComposableCameraTransitionTableDataAsset::IsDataValid(FDataValidationContext& Context) const
@@ -132,5 +136,6 @@ EDataValidationResult UComposableCameraTransitionTableDataAsset::IsDataValid(FDa
 
 	return Result;
 }
+#endif
 
 #undef LOCTEXT_NAMESPACE

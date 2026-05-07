@@ -61,23 +61,23 @@ public:
 
 public:
 	// Driving transition for base camera transition. Used for both Inertialized and Auto.
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Instanced)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Instanced, Category = "Transition")
 	TObjectPtr<UComposableCameraTransitionBase> DrivingTransition;
 
 	// Type of path guided transition.
-	UPROPERTY(BlueprintReadWrite, EditAnywhere)
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Transition")
 	EComposableCameraPathGuidedTransitionType Type { EComposableCameraPathGuidedTransitionType::Inertialized };
 
 	// The rail actor thet contains the desired guiding spline. The tangents of the spline should not be too small nor too large.
-	UPROPERTY(BlueprintReadWrite, EditAnywhere)
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Transition")
 	TSoftObjectPtr<ACameraRig_Rail> RailActor;
 
 	// Normalized timestamps to start/end guide. It's recommended to set a not-close-to-one end timestamp ensuring the camera can return to the desired target position smoothly.
-	UPROPERTY(BlueprintReadWrite, EditAnywhere, meta = (ClampMin = "0", ClampMax = "1", EditCondition = "Type == EComposableCameraPathGuidedTransitionType::Inertialized", EditConditionHides))
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Transition", meta = (ClampMin = "0", ClampMax = "1", EditCondition = "Type == EComposableCameraPathGuidedTransitionType::Inertialized", EditConditionHides))
 	FVector2D GuideRange { 0.25, 0.75 };
 
 	// How the virtual camera should move on spline. This curve is normalized. Input range is [0,1], start c[0]=0, c[1]=1.
-	UPROPERTY(BlueprintReadWrite, EditAnywhere, meta = (EditCondition = "Type == EComposableCameraPathGuidedTransitionType::Inertialized", EditConditionHides))
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Transition", meta = (EditCondition = "Type == EComposableCameraPathGuidedTransitionType::Inertialized", EditConditionHides))
 	TObjectPtr<UCurveFloat> SplineMoveCurve;
 
 private:

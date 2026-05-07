@@ -3,9 +3,9 @@
 #include "Nodes/ComposableCameraReceivePivotActorNode.h"
 
 #include "Cameras/ComposableCameraCameraBase.h"
+#include "Components/SkeletalMeshComponent.h"
 
 #if !UE_BUILD_SHIPPING
-#include "Components/SkeletalMeshComponent.h"
 #include "Debug/ComposableCameraViewportDebug.h"
 #include "DrawDebugHelpers.h"
 #include "HAL/IConsoleManager.h"

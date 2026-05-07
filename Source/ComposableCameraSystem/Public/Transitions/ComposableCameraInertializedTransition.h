@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "ComposableCameraTransitionBase.h"
+#include "Curves/CurveFloat.h"
 #include "Kismet/KismetSystemLibrary.h"
 #include "Math/ComposableCameraMath.h"
 #include "ComposableCameraInertializedTransition.generated.h"
@@ -280,23 +281,23 @@ public:
 
 public:
 	// Whether to use automatic transition time. If true, will compute the transition time according to MaxAcceleration, else, will use TransitionTime.
-	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Transition")
 	bool bAutoTransitionTime { false };
 
 	// Maximum acceleration during transition to determine the actual transition time.
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (EditCondition = "bAutoTransitionTime == true"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Transition", meta = (EditCondition = "bAutoTransitionTime == true"))
 	float MaxAcceleration { 100.f };
 
 	// Additive curve used to change the "shape" of transition. Must be normalized into [0,1] for both x-axis and y-axis and f(0)=1, f(1)=0. 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Transition")
 	UCurveFloat* AdditiveCurve;
 
 	// Weight controlling the overall contribution of AdditiveCurve.
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (EditCondition = "AdditiveCurve != nullptr"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Transition", meta = (EditCondition = "AdditiveCurve != nullptr"))
 	float AdditiveCurveWeight { 0.5f };
 
 	// Factor controlling the contribution of AdditiveCurve to the transition shape.
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (EditCondition = "AdditiveCurve != nullptr"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Transition", meta = (EditCondition = "AdditiveCurve != nullptr"))
 	float AdditiveCurveShape { 10.f };
 	
 private:

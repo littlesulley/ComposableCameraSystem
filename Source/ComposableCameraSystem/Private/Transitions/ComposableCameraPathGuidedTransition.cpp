@@ -395,7 +395,9 @@ bool UComposableCameraPathGuidedTransition::BuildInternalSpline(const FComposabl
 		);
 	}
 
+#if WITH_EDITORONLY_DATA
 	InternalSpline->bAllowDiscontinuousSpline = true;
+#endif
 	InternalSpline->ClearSplinePoints(true);
 
 	// Prepend and append control points (as long as their tangents)

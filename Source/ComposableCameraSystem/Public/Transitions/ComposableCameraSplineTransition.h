@@ -1,4 +1,4 @@
-﻿// Copyright Sulley. All rights reserved.
+// Copyright Sulley. All rights reserved.
 
 #pragma once
 
@@ -45,39 +45,39 @@ public:
 
 public:
 	// Spline type: Hermite, Bezier, B-Spline, Arc.
-	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Transition")
 	EComposableCameraSplineTransitionType SplineType { EComposableCameraSplineTransitionType::Hermite };
 
 	// How does the camera will move on the spline.
-	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Transition")
 	EComposableCameraSplineTransitionEvaluationCurveType EvaluationCurveType { EComposableCameraSplineTransitionEvaluationCurveType::Smoother };
 
 	// Start tangent, relative to the transform formed by the direction from start position to end position.
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (EditCondition = "SplineType == EComposableCameraSplineTransitionType::Hermite", EditConditionHides))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Transition", meta = (EditCondition = "SplineType == EComposableCameraSplineTransitionType::Hermite", EditConditionHides))
 	FVector StartTangent { 0.f, 100.f, 0.f };
 
 	// End tangent, relative to the transform formed by the direction from start position to end position.
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (EditCondition = "SplineType == EComposableCameraSplineTransitionType::Hermite", EditConditionHides))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Transition", meta = (EditCondition = "SplineType == EComposableCameraSplineTransitionType::Hermite", EditConditionHides))
 	FVector EndTangent { 0.f, 100.f, 0.f };
 
 	// Start control point, relative to the start position and the transform formed by the direction from start position to end position.
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (EditCondition = "SplineType == EComposableCameraSplineTransitionType::Bezier", EditConditionHides))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Transition", meta = (EditCondition = "SplineType == EComposableCameraSplineTransitionType::Bezier", EditConditionHides))
 	FVector StartControlPoint { 0.f, 100.f, 0.f };
 
 	// End control point, relative to the end position and the transform formed by the direction from start position to end position.
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (EditCondition = "SplineType == EComposableCameraSplineTransitionType::Bezier", EditConditionHides))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Transition", meta = (EditCondition = "SplineType == EComposableCameraSplineTransitionType::Bezier", EditConditionHides))
 	FVector EndControlPoint { 0.f, 100.f, 0.f };
 
 	// Control points for Catmull Roll splines. Defined relative to the transform formed by the direction from start position to end position.
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (EditCondition = "SplineType == EComposableCameraSplineTransitionType::CatmullRom", EditConditionHides))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Transition", meta = (EditCondition = "SplineType == EComposableCameraSplineTransitionType::CatmullRom", EditConditionHides))
 	TArray<FVector> ControlPoints;
 	
 	// The angle that the desired arc spans. 180 means a half circle, 90 means a quarter circle. 270 is also a quarter circle but in the opposite direction.
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (ClampMin = "1", ClampMax = "359", EditCondition = "SplineType == EComposableCameraSplineTransitionType::Arc", EditConditionHides))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Transition", meta = (ClampMin = "1", ClampMax = "359", EditCondition = "SplineType == EComposableCameraSplineTransitionType::Arc", EditConditionHides))
 	float ArcAngle { 180.f };
 
 	// The roll that the desired arc has along the forward direction defined by the start pose location and the target pose location.
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (ClampMin = "-180", ClampMax = "180", EditCondition = "SplineType == EComposableCameraSplineTransitionType::Arc", EditConditionHides))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Transition", meta = (ClampMin = "-180", ClampMax = "180", EditCondition = "SplineType == EComposableCameraSplineTransitionType::Arc", EditConditionHides))
 	float ArcRoll { 0.f };
 
 public:

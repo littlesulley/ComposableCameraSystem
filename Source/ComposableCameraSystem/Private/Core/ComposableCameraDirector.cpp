@@ -9,6 +9,7 @@
 #include "Core/ComposableCameraEvaluationTree.h"
 #include "Core/ComposableCameraPlayerCameraManager.h"
 #include "DataAssets/ComposableCameraTransitionDataAsset.h"
+#include "Engine/World.h"
 #include "Patches/ComposableCameraPatchManager.h"
 
 namespace

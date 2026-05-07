@@ -15,6 +15,7 @@
 #include "Debug/ComposableCameraViewportDebug.h"
 #include "DrawDebugHelpers.h"
 #include "Engine/Canvas.h"
+#include "Engine/GameViewportClient.h"
 #include "Engine/LocalPlayer.h"
 #include "HAL/IConsoleManager.h"
 #include "SceneView.h"

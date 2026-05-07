@@ -3,10 +3,10 @@
 #include "Nodes/ComposableCameraLookAtNode.h"
 
 #include "Cameras/ComposableCameraCameraBase.h"
+#include "Components/SkeletalMeshComponent.h"
 #include "Kismet/KismetMathLibrary.h"
 
 #if !UE_BUILD_SHIPPING
-#include "Components/SkeletalMeshComponent.h"
 #include "Debug/ComposableCameraViewportDebug.h"
 #include "DrawDebugHelpers.h"
 #include "HAL/IConsoleManager.h"
