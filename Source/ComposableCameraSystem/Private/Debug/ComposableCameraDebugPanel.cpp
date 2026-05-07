@@ -1254,14 +1254,24 @@ namespace
 			// ---- Data Block stats ----
 			// Purely diagnostic view of the runtime data block's layout. Answers
 			// "how big is this camera's flat storage" and "which slot dominates"
-			// without having to attach a debugger. Slot sizes are derived from
-			// consecutive offsets in a single sorted pass — so the reported size
-			// includes that slot's trailing alignment padding, but that is close
-			// enough to the real type size for the diagnostic to be useful (a
-			// 64-byte slot is either a Transform or something is wrong). The
-			// four sources below are the four that actually occupy bytes in
-			// Storage; InputPinSourceOffsets / ExposedInputPinOffsets are pure
-			// wiring tables pointing back into those slots.
+			// without having to attach a debugger.
+			//
+			// The data block has TWO storage pools that share the offset map
+			// keys: byte `Storage` for POD slots (offset < StructSlotsOffsetBase)
+			// and the typed `StructSlots` array for non-POD struct slots
+			// (offset >= StructSlotsOffsetBase, indexed by Offset - base). Sizes
+			// must be computed differently per pool — POD slot size is the
+			// distance to the next consecutive POD offset (with `Storage.Num()`
+			// as the upper bound for the last POD slot), struct slot size is
+			// the struct's own `GetStructureSize()`. Subtracting a struct-pool
+			// synthetic offset from a POD offset (the previous code did this
+			// across the boundary) produced a phantom ~1 GB "size" for the
+			// last POD slot before the struct pool, hiding which slot was
+			// actually the largest.
+			//
+			// The four sources below are the four that actually occupy slots;
+			// InputPinSourceOffsets / ExposedInputPinOffsets are pure wiring
+			// tables pointing back into those slots.
 			struct FSlotRef
 			{
 				int32 Offset;
@@ -1285,8 +1295,36 @@ namespace
 			for (int32 i = 0; i < Slots.Num(); ++i)
 			{
 				const int32 Start = Slots[i].Offset;
-				const int32 End   = (i + 1 < Slots.Num()) ? Slots[i+1].Offset : DB.Storage.Num();
-				const int32 Size  = End - Start;
+				int32 Size = 0;
+				if (DB.IsStructSlotOffset(Start))
+				{
+					// Struct-pool slot — query the typed FInstancedStruct for
+					// its actual struct size. Layout-padding context doesn't
+					// apply here (each slot owns its own heap allocation).
+					const FInstancedStruct& Instance = DB.GetStructSlotChecked(Start);
+					if (Instance.IsValid() && Instance.GetScriptStruct())
+					{
+						Size = Instance.GetScriptStruct()->GetStructureSize();
+					}
+				}
+				else
+				{
+					// POD slot. Look at the next sorted slot to bound the
+					// size, but only if that next slot is also a POD slot —
+					// otherwise we're at the boundary between the two pools
+					// and must use `Storage.Num()` as the upper bound to
+					// avoid the cross-pool phantom-size bug.
+					int32 NextBoundary = DB.Storage.Num();
+					if (i + 1 < Slots.Num())
+					{
+						const int32 NextOffset = Slots[i + 1].Offset;
+						if (!DB.IsStructSlotOffset(NextOffset))
+						{
+							NextBoundary = NextOffset;
+						}
+					}
+					Size = NextBoundary - Start;
+				}
 				if (Size > LargestSize) { LargestSize = Size; LargestIdx = i; }
 			}
 

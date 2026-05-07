@@ -67,15 +67,45 @@ void FComposableCameraParameterBlock::AddReferencedObjects(FReferenceCollector& 
 	// struct's AddStructReferencedObjects path. Walking StructValues here lets
 	// the GC see Actor / UObject members buried inside non-POD struct values
 	// the caller passed in via SetStruct.
+	//
+	// In addition to the property-graph walk, mark the `UScriptStruct*` itself
+	// for each slot. `UserDefinedStruct` (Blueprint-authored struct asset) is
+	// a regular UObject that GC reclaims when no rooted reference exists —
+	// `SourceParameterBlock` / `PendingParameterBlock` are non-reflected
+	// owners that only call this manual walker, and `CachedParameters` is
+	// reached via the same path through ARO. Without an explicit mark on
+	// the type, a UserDefinedStruct value's type can be reclaimed mid-frame
+	// and the next `Slot.GetScriptStruct()` / `CopyScriptStruct(...)` reads
+	// stale type memory. Same pattern as
+	// `FComposableCameraRuntimeDataBlock::AddReferencedObjects`.
 	for (auto& Pair : StructValues)
 	{
 		FInstancedStruct& Slot = Pair.Value;
-		if (const UScriptStruct* Struct = Slot.GetScriptStruct())
+		if (Slot.IsValid())
 		{
-			if (Slot.IsValid())
+			if (const UScriptStruct* Struct = Slot.GetScriptStruct())
 			{
+				TObjectPtr<UScriptStruct> TypeRef = const_cast<UScriptStruct*>(Struct);
+				Collector.AddReferencedObject(TypeRef);
 				Collector.AddPropertyReferencesWithStructARO(Struct, Slot.GetMutableMemory());
 			}
+		}
+	}
+	// FScriptDelegate stores its bound target in a TWeakObjectPtr — GC does not
+	// keep that object alive on its own. Without this walk, a delegate whose
+	// target is only kept alive transitively through ParameterBlock would see
+	// the target collected between SetDelegate(...) and ApplyDelegateBindings,
+	// and the delegate would silently apply as unbound (GetUObject() returns
+	// nullptr) on the destination node. Mark the resolved target as reachable
+	// so it survives until the delegate is consumed; the FScriptDelegate's
+	// own weak-ptr semantics still null cleanly if the user explicitly
+	// destroys the target.
+	for (auto& Pair : DelegateValues)
+	{
+		if (UObject* Bound = Pair.Value.GetUObject())
+		{
+			TObjectPtr<UObject> StrongRef = Bound;
+			Collector.AddReferencedObject(StrongRef);
 		}
 	}
 }

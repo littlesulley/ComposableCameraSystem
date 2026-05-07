@@ -367,13 +367,32 @@ private:
 	 *  prunes stale entries (section GC'd) from the overlay map. */
 	void ApplySequencerPatchOverlays(FComposableCameraPose& InOutPose, float DeltaTime);
 
-	/** Active overlays keyed by section. UPROPERTY so the inner TObjectPtrs
-	 *  inside FComposableCameraSequencerPatchOverlay are GC-tracked.
-	 *  Pruned on RemoveSequencerPatchOverlay or when the section pointer
-	 *  goes stale. */
-	UPROPERTY(Transient)
-	TMap<TObjectPtr<UMovieSceneComposableCameraPatchSection>, FComposableCameraSequencerPatchOverlay> SequencerPatchOverlays;
+	/** Active overlays keyed by section. Key is `TWeakObjectPtr` (NOT
+	 *  `TObjectPtr`) so a stale section that's been GC'd can actually go
+	 *  stale — a strong-ref key would keep every Sequencer-side patch
+	 *  section alive forever, defeating the prune-on-tick path in
+	 *  `ApplySequencerPatchOverlays` that exists precisely to clean up
+	 *  overlays whose source section has been destroyed (Sequencer rebuild,
+	 *  asset reimport, undo across the section creation, etc.). TMap with
+	 *  TWeakObjectPtr keys cannot be UPROPERTY-reflected, so the inner
+	 *  `Evaluator` / `LatestParameters` UObject references are walked
+	 *  manually in `AddReferencedObjects` below — without that override,
+	 *  the inner Evaluator actor would be GC-blind. The section pointer
+	 *  itself stays alive via Sequencer's own TrackInstance / SectionInterface
+	 *  ownership while it's a live edit target. */
+	TMap<TWeakObjectPtr<UMovieSceneComposableCameraPatchSection>, FComposableCameraSequencerPatchOverlay> SequencerPatchOverlays;
 
+public:
+	/** Walk UObject references inside the non-UPROPERTY-reflected
+	 *  `SequencerPatchOverlays` map. The map keys are weak (intentional —
+	 *  see field doc above), so the TMap itself can't be UPROPERTY-tagged;
+	 *  this override surfaces each overlay's `Evaluator` actor and the
+	 *  UObject contents of its `LatestParameters` parameter block to GC.
+	 *  (Same override also walks `SequencerShotOverrides` — see
+	 *  `LSComponent.cpp::AddReferencedObjects` for the implementation.) */
+	static void AddReferencedObjects(UObject* InThis, FReferenceCollector& Collector);
+
+private:
 	// ─── Shot override storage ────────────────────────────────────────────
 
 	/**
@@ -405,10 +424,18 @@ private:
 	 */
 	void EvaluateOnce(float DeltaTime);
 
-	/** Active Shot overrides keyed by Section. Held by raw section pointer
-	 *  with `TWeakObjectPtr` to tolerate GC of the section between frames
-	 *  (a common case during Sequencer hot-reload / asset reimport). */
-	UPROPERTY(Transient)
+	/** Active Shot overrides keyed by Section. Held by `TWeakObjectPtr` to
+	 *  tolerate GC of the section between frames (a common case during
+	 *  Sequencer hot-reload / asset reimport).
+	 *
+	 *  **Not UPROPERTY** — same constraint as `SequencerPatchOverlays`
+	 *  above: TMap with `TWeakObjectPtr` keys cannot be UHT-reflected. The
+	 *  inner `FComposableCameraSequencerShotEntry`'s UObject references
+	 *  (`EnterTransition` TObjectPtr; `Shot` containing FShotTarget
+	 *  TSoftObjectPtr / TObjectPtr resolved to actors) are walked manually
+	 *  in `AddReferencedObjects` via `AddPropertyReferencesWithStructARO`
+	 *  per entry, so reflection's blindness to the outer TMap doesn't
+	 *  leave the resolved transition / target actors GC-blind. */
 	TMap<TWeakObjectPtr<UMovieSceneComposableCameraShotSection>, FComposableCameraSequencerShotEntry> SequencerShotOverrides;
 
 	/** Last frame's resolved *primary* Section (lowest RowIndex among the

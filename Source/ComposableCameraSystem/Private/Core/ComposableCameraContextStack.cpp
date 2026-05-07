@@ -474,13 +474,27 @@ void UComposableCameraContextStack::BuildDebugSnapshot(FComposableCameraContextS
 void UComposableCameraContextStack::AddReferencedObjects(UObject* InThis, FReferenceCollector& Collector)
 {
 	UComposableCameraContextStack* This = CastChecked<UComposableCameraContextStack>(InThis);
+	// Walk Entry.Director (UObject ref) and the embedded `LastPose` whose
+	// `FPostProcessSettings` carries TObjectPtr refs invisible to the
+	// reflection walk (FComposableCameraContextEntry's LastPose is a non-
+	// UPROPERTY struct field — see ComposableCameraContextStack.h). Without
+	// the explicit pose walk, a color-grading material referenced ONLY
+	// through a stack-entry's saved pose can be GC'd while the entry sits
+	// underneath the active context, then surface a dangling pointer when
+	// the user pops back to that entry.
 	for (FComposableCameraContextEntry& Entry : This->Entries)
 	{
 		Collector.AddReferencedObject(Entry.Director);
+		Collector.AddPropertyReferencesWithStructARO(
+			FComposableCameraPose::StaticStruct(),
+			&Entry.LastPose);
 	}
 	for (FComposableCameraContextEntry& Entry : This->PendingDestroyEntries)
 	{
 		Collector.AddReferencedObject(Entry.Director);
+		Collector.AddPropertyReferencesWithStructARO(
+			FComposableCameraPose::StaticStruct(),
+			&Entry.LastPose);
 	}
 	Super::AddReferencedObjects(InThis, Collector);
 }

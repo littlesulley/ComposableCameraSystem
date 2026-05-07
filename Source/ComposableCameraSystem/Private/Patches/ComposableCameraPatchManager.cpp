@@ -275,6 +275,9 @@ UComposableCameraPatchHandle* UComposableCameraPatchManager::AddPatch(
 	// Build the runtime instance.
 	UComposableCameraPatchInstance* Instance = NewObject<UComposableCameraPatchInstance>(this);
 	Instance->SourcePatchAsset = PatchAsset;
+	// Cache the asset name once for per-Apply Insights trace scope so the
+	// hot path doesn't allocate an FString every frame per active patch.
+	Instance->PatchAssetTraceName = PatchAsset->GetName();
 	Instance->Evaluator = Evaluator;
 	Instance->LayerIndex = EffectiveLayer;
 	Instance->PushSequence = NextPushSequence++;
@@ -422,11 +425,13 @@ FComposableCameraPose UComposableCameraPatchManager::Apply(
 		{
 			SCOPE_CYCLE_COUNTER(STAT_CCS_Patch_TickEvaluator);
 			TRACE_CPUPROFILER_EVENT_SCOPE(CCS_Patch_TickEvaluator);
-			// Per-Patch-asset breakout in Insights — dynamic name keeps the
-			// timeline readable when several Patches are active simultaneously.
-			if (UComposableCameraPatchTypeAsset* Asset = Instance->SourcePatchAsset.Get())
+			// Per-Patch-asset breakout in Insights — read the cached name
+			// from AddPatch time so the hot path doesn't allocate. Stays
+			// empty if AddPatch was somehow constructed without an asset
+			// (defensive); the static scope above still groups the work.
+			if (!Instance->PatchAssetTraceName.IsEmpty())
 			{
-				TRACE_CPUPROFILER_EVENT_SCOPE_STR(*Asset->GetName());
+				TRACE_CPUPROFILER_EVENT_SCOPE_STR(*Instance->PatchAssetTraceName);
 			}
 			Evaluated = Instance->Evaluator->TickWithInputPose(DeltaTime, Result);
 		}

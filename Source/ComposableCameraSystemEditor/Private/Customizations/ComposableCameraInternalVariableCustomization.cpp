@@ -752,21 +752,37 @@ void FComposableCameraInternalVariableCustomization::BuildStructDefaultValueRows
 
 	// Serialize the struct memory back to InitialValueString whenever the
 	// user finishes editing a property in the struct view.
+	//
+	// Capture only weak refs to objects we don't own — the embedded struct
+	// view widget can outlive `this` (the customization is rebuilt whenever
+	// the variable type changes; the struct view widget can survive into the
+	// next tick on Slate's deferred-deletion path), and an event firing on
+	// the dead customization's `this` would crash. `WeakScope` covers the
+	// struct memory, and `InitialValueHandle` is intentionally captured by
+	// TSharedPtr (NOT TWeakPtr) per the IPropertyHandle lifetime gotcha
+	// (TechDoc §7.2): `GetChildHandle()` returns a fresh TSharedPtr each
+	// call and the property tree does not retain a parallel strong ref, so
+	// a weak capture would Pin() to null on every fire.
+	TWeakPtr<FStructOnScope> WeakScope = StructDefaultValueScope;
 	StructDefaultValueView->GetOnFinishedChangingPropertiesDelegate().AddLambda(
-		[this, InitialValueHandle, InStructType](const FPropertyChangedEvent&)
+		[WeakScope, InitialValueHandle, InStructType](const FPropertyChangedEvent&)
 		{
-			if (StructDefaultValueScope.IsValid())
+			TSharedPtr<FStructOnScope> ScopePinned = WeakScope.Pin();
+			if (!ScopePinned.IsValid()
+				|| !InitialValueHandle.IsValid()
+				|| !InitialValueHandle->IsValidHandle())
 			{
-				FString NewValue;
-				InStructType->ExportText(
-					NewValue,
-					StructDefaultValueScope->GetStructMemory(),
-					/*Defaults=*/ nullptr,
-					/*OwnerObject=*/ nullptr,
-					PPF_None,
-					/*ExportRootScope=*/ nullptr);
-				InitialValueHandle->SetValue(NewValue);
+				return;
 			}
+			FString NewValue;
+			InStructType->ExportText(
+				NewValue,
+				ScopePinned->GetStructMemory(),
+				/*Defaults=*/ nullptr,
+				/*OwnerObject=*/ nullptr,
+				PPF_None,
+				/*ExportRootScope=*/ nullptr);
+			InitialValueHandle->SetValue(NewValue);
 		});
 
 	// Embed the struct view widget as a whole-row custom row so it takes

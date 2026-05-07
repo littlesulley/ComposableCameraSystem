@@ -18,7 +18,14 @@ FComposableCameraPose UComposableCameraTransitionBase::Evaluate(float DeltaTime,
 {
 	SCOPE_CYCLE_COUNTER(STAT_CCS_Transition_Evaluate);
 	TRACE_CPUPROFILER_EVENT_SCOPE(CCS_Transition_Evaluate);
-	TRACE_CPUPROFILER_EVENT_SCOPE_STR(*GetClass()->GetName());
+	// Lazy-cache the class name once per transition instance so the dynamic
+	// Insights label stops allocating an FString per evaluate. Class is
+	// immutable after construction; one cheap IsEmpty check per call.
+	if (TransitionClassTraceName.IsEmpty())
+	{
+		TransitionClassTraceName = GetClass()->GetName();
+	}
+	TRACE_CPUPROFILER_EVENT_SCOPE_STR(*TransitionClassTraceName);
 
 	if (bFirstFrame)
 	{

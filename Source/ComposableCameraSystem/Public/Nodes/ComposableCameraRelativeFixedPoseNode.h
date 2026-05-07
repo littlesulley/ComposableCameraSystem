@@ -6,6 +6,8 @@
 #include "ComposableCameraCameraNodeBase.h"
 #include "ComposableCameraRelativeFixedPoseNode.generated.h"
 
+class USkeletalMeshComponent;
+
 UENUM()
 enum class EComposableCameraRelativeFixedPoseMethod : uint8
 {
@@ -57,7 +59,7 @@ public:
 
 	// Relative actor when method is RelativeToActor.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters, meta = (EditCondition = "Method == EComposableCameraRelativeFixedPoseMethod::RelativeToActor", EditConditionHides))
-	AActor* RelativeActor;
+	TObjectPtr<AActor> RelativeActor;
 
 	// Relative socket when method is RelativeToActor and the actor has a SkeletalMeshComponent. If no such component exists, will use RelativeActor's transform.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters, meta = (EditCondition = "Method == EComposableCameraRelativeFixedPoseMethod::RelativeToActor", EditConditionHides))
@@ -68,5 +70,10 @@ public:
 	FTransform TargetTransform;
 
 private:
-	USkeletalMeshComponent* SkeletalMeshComponentForRelativeActor { nullptr };
+	// Resolved at OnInitialize from RelativeActor's first SkeletalMeshComponent.
+	// Stored as TWeakObjectPtr (not raw and not UPROPERTY): the actor / component
+	// can be destroyed or re-spawned mid-run independently of this node, so a
+	// raw cached pointer dangles. Tick / DrawNodeDebug must IsValid()-check
+	// before each use, not just nullcheck.
+	TWeakObjectPtr<USkeletalMeshComponent> SkeletalMeshComponentForRelativeActor;
 };

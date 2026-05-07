@@ -208,14 +208,12 @@ void UMovieSceneComposableCameraShotTrackInstance::OnAnimate()
 		E.RowIndex        = Section->GetRowIndex();
 		E.Range           = Section->GetTrueRange();
 		E.CurrentFrame    = Instance.GetContext().GetTime().FloorToFrame();
-		// Synchronous load — same lazy-resolution policy ShotAssetRef uses
-		// on the AssetReference path. Null soft-ref / failed load → null
-		// asset → blender treats as hard-cut (Phase F decision: null = cut).
-		E.EnterTransition = Section->EnterTransition.Get();
-		if (!E.EnterTransition && !Section->EnterTransition.IsNull())
-		{
-			E.EnterTransition = Section->EnterTransition.LoadSynchronous();
-		}
+		// Read the cached resolved transition — populated off the eval path
+		// at the section's PostLoad / PostEditChangeProperty. The eval path
+		// must NOT call LoadSynchronous; an unloaded asset degrades to
+		// null and the Phase F blender treats null as a hard cut (decision
+		// recorded in Section.h's EnterTransition doc-comment).
+		E.EnterTransition = Section->ResolveCachedEnterTransition();
 	}
 
 	// ─── Pass 2: compute BlendAlpha per entry, push to LSComp.

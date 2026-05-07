@@ -45,6 +45,12 @@ void AComposableCameraPlayerCameraManager::PopCameraContext(
 	UComposableCameraTransitionDataAsset* TransitionOverride,
 	const FComposableCameraActivateParams& ActivationParams)
 {
+	if (!ContextStack)
+	{
+		UE_LOG(LogComposableCameraSystem, Warning, TEXT(
+			"PopCameraContext: ContextStack is null. Aborting."));
+		return;
+	}
 	ContextStack->PopContext(ContextName, this, TransitionOverride, ActivationParams);
 	RunningCamera = ContextStack->GetRunningCamera();
 }
@@ -53,6 +59,12 @@ void AComposableCameraPlayerCameraManager::TerminateCurrentCamera(
 	UComposableCameraTransitionDataAsset* TransitionOverride,
 	const FComposableCameraActivateParams& ActivationParams)
 {
+	if (!ContextStack)
+	{
+		UE_LOG(LogComposableCameraSystem, Warning, TEXT(
+			"TerminateCurrentCamera: ContextStack is null. Aborting."));
+		return;
+	}
 	ContextStack->PopActiveContext(this, TransitionOverride, ActivationParams);
 	RunningCamera = ContextStack->GetRunningCamera();
 }
@@ -151,7 +163,7 @@ void AComposableCameraPlayerCameraManager::SetViewTarget(AActor* NewViewTarget,
 	}
 
 	// Don't activate if there's no context stack / director yet.
-	if (!ContextStack || !ContextStack->GetActiveDirector())
+	if (!GetActiveDirectorSafe())
 	{
 		return;
 	}
@@ -189,7 +201,7 @@ void AComposableCameraPlayerCameraManager::SetViewTarget(AActor* NewViewTarget,
 	}
 
 	// Activate through the current active context's director (same-context activation).
-	UComposableCameraDirector* ActiveDirector = ContextStack->GetActiveDirector();
+	UComposableCameraDirector* ActiveDirector = GetActiveDirectorSafe();
 	AComposableCameraCameraBase* ProxyCamera = ActiveDirector->ActivateNewCamera(
 		this,
 		AComposableCameraCameraBase::StaticClass(),
@@ -531,6 +543,42 @@ void AComposableCameraPlayerCameraManager::DisplayDebug(class UCanvas* Canvas,
 	BuildModifierDebugString(DisplayDebugManager);
 }
 
+UComposableCameraDirector* AComposableCameraPlayerCameraManager::GetActiveDirectorSafe() const
+{
+	return ContextStack ? ContextStack->GetActiveDirector() : nullptr;
+}
+
+UComposableCameraDirector* AComposableCameraPlayerCameraManager::ResolveActiveDirectorOrFallback(const TCHAR* Caller)
+{
+	if (UComposableCameraDirector* Active = GetActiveDirectorSafe())
+	{
+		return Active;
+	}
+
+	if (!ContextStack)
+	{
+		UE_LOG(LogComposableCameraSystem, Error, TEXT(
+			"%s: ContextStack is null. Cannot resolve a director."), Caller);
+		return nullptr;
+	}
+
+	// Fall back to the project-settings base context (first configured name).
+	const UComposableCameraProjectSettings* Settings = GetDefault<UComposableCameraProjectSettings>();
+	if (Settings && Settings->ContextNames.Num() > 0)
+	{
+		if (UComposableCameraDirector* Base = ContextStack->EnsureContext(this, Settings->ContextNames[0]))
+		{
+			return Base;
+		}
+	}
+
+	UE_LOG(LogComposableCameraSystem, Error, TEXT(
+		"%s: no active director and no fallback base context available. "
+		"Ensure at least one context name is configured in Project Settings > Composable Camera System."),
+		Caller);
+	return nullptr;
+}
+
 AComposableCameraCameraBase* AComposableCameraPlayerCameraManager::CreateNewCamera(
 	TSubclassOf<AComposableCameraCameraBase> CameraClass, const FComposableCameraActivateParams& ActivationParams)
 {
@@ -547,11 +595,14 @@ AComposableCameraCameraBase* AComposableCameraPlayerCameraManager::CreateNewCame
 			*CameraClass->StaticClass()->GetName());
 		return nullptr;
 	}
-	
-	AComposableCameraCameraBase* NewCamera = ContextStack->GetActiveDirector()->CreateNewCamera(
-		this, CameraClass, ActivationParams);
-	
-	return NewCamera;
+
+	UComposableCameraDirector* ActiveDirector = ResolveActiveDirectorOrFallback(TEXT("CreateNewCamera"));
+	if (!ActiveDirector)
+	{
+		return nullptr;
+	}
+
+	return ActiveDirector->CreateNewCamera(this, CameraClass, ActivationParams);
 }
 
 AComposableCameraCameraBase* AComposableCameraPlayerCameraManager::ActivateNewCamera(
@@ -583,11 +634,11 @@ AComposableCameraCameraBase* AComposableCameraPlayerCameraManager::ActivateNewCa
 
 	// Determine the target Director. If a context name is specified, ensure that context exists.
 	// If NAME_None and the stack is empty, fall back to the base context from project settings.
-	UComposableCameraDirector* PreviousActiveDirector = ContextStack->GetActiveDirector();
+	UComposableCameraDirector* PreviousActiveDirector = GetActiveDirectorSafe();
 	UComposableCameraDirector* TargetDirector = PreviousActiveDirector;
 	bool bContextSwitched = false;
 
-	if (ContextName != NAME_None)
+	if (ContextName != NAME_None && ContextStack)
 	{
 		const FName ActiveName = ContextStack->GetActiveContextName();
 
@@ -598,14 +649,14 @@ AComposableCameraCameraBase* AComposableCameraPlayerCameraManager::ActivateNewCa
 			UE_LOG(LogComposableCameraSystem, Warning, TEXT(
 				"Failed to ensure context '%s'. Falling back to active context."),
 				*ContextName.ToString());
-			TargetDirector = ContextStack->GetActiveDirector();
+			TargetDirector = GetActiveDirectorSafe();
 		}
 		else
 		{
 			// Check if we actually switched contexts (the target became the new active, or we're activating
 			// on a non-active context).
 			bContextSwitched = (TargetDirector != PreviousActiveDirector)
-				&& (TargetDirector == ContextStack->GetActiveDirector());
+				&& (TargetDirector == GetActiveDirectorSafe());
 		}
 	}
 
@@ -613,17 +664,9 @@ AComposableCameraCameraBase* AComposableCameraPlayerCameraManager::ActivateNewCa
 	// base context from project settings so the first activation doesn't crash.
 	if (!TargetDirector)
 	{
-		const UComposableCameraProjectSettings* Settings = GetDefault<UComposableCameraProjectSettings>();
-		if (Settings->ContextNames.Num() > 0)
-		{
-			TargetDirector = ContextStack->EnsureContext(this, Settings->ContextNames[0]);
-		}
-
+		TargetDirector = ResolveActiveDirectorOrFallback(TEXT("ActivateNewCamera (DataAsset)"));
 		if (!TargetDirector)
 		{
-			UE_LOG(LogComposableCameraSystem, Error, TEXT(
-				"No valid context available. Cannot activate camera. "
-				"Ensure at least one context name is configured in Project Settings > Composable Camera System."));
 			return RunningCamera;
 		}
 	}
@@ -677,6 +720,20 @@ AComposableCameraCameraBase* AComposableCameraPlayerCameraManager::ReactivateCur
 		return nullptr;
 	}
 
+	UComposableCameraDirector* ActiveDirector = GetActiveDirectorSafe();
+	if (!ActiveDirector)
+	{
+		// RunningCamera exists but stack has no active director — likely teardown,
+		// context-init failure, or external clear. Don't try to fabricate a context
+		// here (unlike CreateNewCamera, EnsureContext during teardown can re-spawn
+		// state we're trying to drop). Leave RunningCamera as-is.
+		UE_LOG(LogComposableCameraSystem, Warning, TEXT(
+			"ReactivateCurrentCamera: no active director (ContextStack=%s). Aborting; "
+			"RunningCamera left untouched."),
+			ContextStack ? TEXT("valid") : TEXT("null"));
+		return RunningCamera;
+	}
+
 	// For type-asset cameras, restore the pending state so OnTypeAssetCameraConstructed
 	// (fired via CurrentOnPreBeginplayEvent inside Director::ReactivateCurrentCamera)
 	// can fully reconstruct the new camera from the same source asset and parameters.
@@ -690,7 +747,7 @@ AComposableCameraCameraBase* AComposableCameraPlayerCameraManager::ReactivateCur
 	}
 
 	TSubclassOf<AComposableCameraCameraBase> CameraClass = RunningCamera->GetClass();
-	return ContextStack->GetActiveDirector()->ReactivateCurrentCamera(this, CameraClass, Transition, CurrentOnPreBeginplayEvent);
+	return ActiveDirector->ReactivateCurrentCamera(this, CameraClass, Transition, CurrentOnPreBeginplayEvent);
 }
 
 AComposableCameraCameraBase* AComposableCameraPlayerCameraManager::ActivateNewCamera(
@@ -721,11 +778,11 @@ AComposableCameraCameraBase* AComposableCameraPlayerCameraManager::ActivateNewCa
 	}
 
 	// Determine the target Director (same logic as the DataAsset overload).
-	UComposableCameraDirector* PreviousActiveDirector = ContextStack->GetActiveDirector();
+	UComposableCameraDirector* PreviousActiveDirector = GetActiveDirectorSafe();
 	UComposableCameraDirector* TargetDirector = PreviousActiveDirector;
 	bool bContextSwitched = false;
 
-	if (ContextName != NAME_None)
+	if (ContextName != NAME_None && ContextStack)
 	{
 		TargetDirector = ContextStack->EnsureContext(this, ContextName);
 		if (!TargetDirector)
@@ -733,28 +790,20 @@ AComposableCameraCameraBase* AComposableCameraPlayerCameraManager::ActivateNewCa
 			UE_LOG(LogComposableCameraSystem, Warning, TEXT(
 				"Failed to ensure context '%s'. Falling back to active context."),
 				*ContextName.ToString());
-			TargetDirector = ContextStack->GetActiveDirector();
+			TargetDirector = GetActiveDirectorSafe();
 		}
 		else
 		{
 			bContextSwitched = (TargetDirector != PreviousActiveDirector)
-				&& (TargetDirector == ContextStack->GetActiveDirector());
+				&& (TargetDirector == GetActiveDirectorSafe());
 		}
 	}
 
 	if (!TargetDirector)
 	{
-		const UComposableCameraProjectSettings* Settings = GetDefault<UComposableCameraProjectSettings>();
-		if (Settings->ContextNames.Num() > 0)
-		{
-			TargetDirector = ContextStack->EnsureContext(this, Settings->ContextNames[0]);
-		}
-
+		TargetDirector = ResolveActiveDirectorOrFallback(TEXT("ActivateNewCamera (Instance)"));
 		if (!TargetDirector)
 		{
-			UE_LOG(LogComposableCameraSystem, Error, TEXT(
-				"No valid context available. Cannot activate camera. "
-				"Ensure at least one context name is configured in Project Settings > Composable Camera System."));
 			return RunningCamera;
 		}
 	}
@@ -931,18 +980,39 @@ FOnCameraFinishConstructed AComposableCameraPlayerCameraManager::PrepareResumeCa
 
 void AComposableCameraPlayerCameraManager::AddModifier(UComposableCameraNodeModifierDataAsset* ModifierAsset)
 {
+	if (!ModifierManager)
+	{
+		UE_LOG(LogComposableCameraSystem, Warning, TEXT(
+			"AddModifier: ModifierManager is null. Aborting."));
+		return;
+	}
 	ModifierManager->AddModifier(ModifierAsset);
 	OnModifierChanged();
 }
 
 void AComposableCameraPlayerCameraManager::RemoveModifier(UComposableCameraNodeModifierDataAsset* ModifierAsset)
 {
+	if (!ModifierManager)
+	{
+		UE_LOG(LogComposableCameraSystem, Warning, TEXT(
+			"RemoveModifier: ModifierManager is null. Aborting."));
+		return;
+	}
 	ModifierManager->RemoveModifier(ModifierAsset);
 	OnModifierChanged();
 }
 
 void AComposableCameraPlayerCameraManager::ApplyModifiers(AComposableCameraCameraBase* Camera, bool bRefreshModifierData)
 {
+	if (!IsValid(Camera) || !ModifierManager)
+	{
+		UE_LOG(LogComposableCameraSystem, Warning, TEXT(
+			"ApplyModifiers: aborting (Camera=%s, ModifierManager=%s)."),
+			IsValid(Camera) ? TEXT("valid") : TEXT("null/invalid"),
+			ModifierManager ? TEXT("valid") : TEXT("null"));
+		return;
+	}
+
 	if (bRefreshModifierData)
 	{
 		ModifierManager->GetModifierData().UpdateEffectiveModifiers(Camera);
@@ -954,7 +1024,7 @@ void AComposableCameraPlayerCameraManager::ApplyModifiers(AComposableCameraCamer
 
 void AComposableCameraPlayerCameraManager::OnModifierChanged()
 {
-	if (!RunningCamera)
+	if (!RunningCamera || !ModifierManager)
 	{
 		return;
 	}
@@ -972,6 +1042,27 @@ void AComposableCameraPlayerCameraManager::OnModifierChanged()
 	}
 }
 
+void AComposableCameraPlayerCameraManager::BindCameraActionToRunningCamera(UComposableCameraActionBase* Action)
+{
+	if (!Action || !RunningCamera)
+	{
+		return;
+	}
+	switch (Action->ExecutionType)
+	{
+	case EComposableCameraActionExecutionType::PreCameraTick:
+		RunningCamera->OnActionPreTick.AddDynamic(Action, &UComposableCameraActionBase::OnExecute);
+		break;
+	case EComposableCameraActionExecutionType::PostCameraTick:
+		RunningCamera->OnActionPostTick.AddDynamic(Action, &UComposableCameraActionBase::OnExecute);
+		break;
+	case EComposableCameraActionExecutionType::PreNodeTick:
+	case EComposableCameraActionExecutionType::PostNodeTick:
+		RunningCamera->RegisterNodeAction(Action);
+		break;
+	}
+}
+
 UComposableCameraActionBase* AComposableCameraPlayerCameraManager::AddCameraAction(
 	TSubclassOf<UComposableCameraActionBase> ActionClass, bool bOnlyForCurrentCamera)
 {
@@ -979,30 +1070,28 @@ UComposableCameraActionBase* AComposableCameraPlayerCameraManager::AddCameraActi
 	{
 		return nullptr;
 	}
-	
+
 	UComposableCameraActionBase* Action = NewObject<UComposableCameraActionBase>(this, ActionClass);
 	Action->bOnlyForCurrentCamera = bOnlyForCurrentCamera;
 	Action->PlayerCameraManager = this;
-	CameraActions.Add(Action);
 
-	// Bind delegates to the running camera.
-	if (RunningCamera)
+	if (bIsUpdatingActions)
 	{
-		switch (Action->ExecutionType)
-		{
-		case EComposableCameraActionExecutionType::PreCameraTick:
-			RunningCamera->OnActionPreTick.AddDynamic(Action, &UComposableCameraActionBase::OnExecute);
-			break;
-		case EComposableCameraActionExecutionType::PostCameraTick:
-			RunningCamera->OnActionPostTick.AddDynamic(Action, &UComposableCameraActionBase::OnExecute);
-			break;
-		case EComposableCameraActionExecutionType::PreNodeTick:
-		case EComposableCameraActionExecutionType::PostNodeTick:
-			RunningCamera->RegisterNodeAction(Action);
-			break;
-		}
+		// Re-entrant call from inside `UpdateActions`'s range-for over
+		// `CameraActions` (an Action's `OnCanExecute` callback added a new
+		// action). Mutating the TSet now would invalidate the iterator.
+		// Defer to the post-loop pending-add sweep — Add to TSet + Bind
+		// happen there, so the new Action takes effect on the NEXT frame
+		// (it does not retroactively join the iteration that spawned it,
+		// which is the correct semantic — `OnCanExecute` would have to
+		// re-run on the same frame to honour the spawn, which we'd never
+		// promise).
+		CameraActionsPendingAddScratch.AddUnique(Action);
+		return Action;
 	}
 
+	CameraActions.Add(Action);
+	BindCameraActionToRunningCamera(Action);
 	return Action;
 }
 
@@ -1019,14 +1108,62 @@ UComposableCameraActionBase* AComposableCameraPlayerCameraManager::FindCameraAct
 	return nullptr;
 }
 
+void AComposableCameraPlayerCameraManager::UnbindCameraActionFromCamera(UComposableCameraActionBase* Action)
+{
+	if (!Action || !RunningCamera)
+	{
+		return;
+	}
+	RunningCamera->OnActionPreTick.RemoveDynamic(Action, &UComposableCameraActionBase::OnExecute);
+	RunningCamera->OnActionPostTick.RemoveDynamic(Action, &UComposableCameraActionBase::OnExecute);
+	RunningCamera->UnregisterNodeAction(Action);
+}
+
 void AComposableCameraPlayerCameraManager::RemoveCameraAction(UComposableCameraActionBase* Action)
 {
-	if (RunningCamera)
+	if (!Action)
 	{
-		RunningCamera->OnActionPreTick.RemoveDynamic(Action, &UComposableCameraActionBase::OnExecute);
-		RunningCamera->OnActionPostTick.RemoveDynamic(Action, &UComposableCameraActionBase::OnExecute);
-		RunningCamera->UnregisterNodeAction(Action);
+		return;
 	}
+	// Always do the unbind — that side is safe regardless of context.
+	UnbindCameraActionFromCamera(Action);
+
+	if (bIsUpdatingActions)
+	{
+		// Re-entrant call from inside `UpdateActions`'s range-for over
+		// `CameraActions` (e.g. an Action's `OnCanExecute` callback decided
+		// to remove itself, remove a sibling, or remove an action it just
+		// spawned this same frame).
+		//
+		// Same-frame add-then-remove ordering: if `Action` was just queued
+		// by a re-entrant `AddCameraAction` and hasn't reached the
+		// `CameraActions` TSet yet, it lives only in
+		// `CameraActionsPendingAddScratch`. Drop it from there and bail —
+		// the post-loop pending-add sweep would otherwise still bind it
+		// (the removal sweep can't catch it because it isn't in
+		// `CameraActions` yet), defying the user's "remove" semantic.
+		// `RemoveSingleSwap` returns 0 if not found, in which case the
+		// Action is a normal CameraActions member and follows the regular
+		// deferred-remove path.
+		if (CameraActionsPendingAddScratch.RemoveSingleSwap(Action) > 0)
+		{
+			return;
+		}
+
+		// Mutating the TSet now would invalidate the iterator and crash on
+		// the next advance — defer to the post-loop scratch sweep.
+		// AddUnique because the canonical !OnCanExecute branch in
+		// UpdateActions may have already added this same Action to the
+		// scratch.
+		CameraActionsRemovalScratch.AddUnique(Action);
+		return;
+	}
+
+	// Non-re-entrant path: do the full "remove and forget" public-API
+	// semantic. FindCameraAction will no longer return this Action, and
+	// BindCameraActionsForNewCamera will not re-bind it on the next camera
+	// switch.
+	CameraActions.Remove(Action);
 }
 
 void AComposableCameraPlayerCameraManager::ExpireCameraAction(TSubclassOf<UComposableCameraActionBase> ActionClass)
@@ -1071,6 +1208,22 @@ void AComposableCameraPlayerCameraManager::BindCameraActionsForNewCamera(ACompos
 void AComposableCameraPlayerCameraManager::ResumeCamera(AComposableCameraCameraBase* ResumeCamera, UComposableCameraTransitionBase* Transition,
 	EComposableCameraResumeCameraTransformSchema TransformSchema, FTransform SpecifiedTransform, bool bUseSpecifiedRotation)
 {
+	if (!IsValid(ResumeCamera))
+	{
+		UE_LOG(LogComposableCameraSystem, Warning, TEXT(
+			"ResumeCamera: input camera is null or invalid. Aborting."));
+		return;
+	}
+
+	UComposableCameraDirector* ActiveDirector = GetActiveDirectorSafe();
+	if (!ActiveDirector)
+	{
+		UE_LOG(LogComposableCameraSystem, Warning, TEXT(
+			"ResumeCamera: no active director (ContextStack=%s). Aborting."),
+			ContextStack ? TEXT("valid") : TEXT("null"));
+		return;
+	}
+
 	FTransform InitialTransform {};
 
 	switch (TransformSchema)
@@ -1092,8 +1245,8 @@ void AComposableCameraPlayerCameraManager::ResumeCamera(AComposableCameraCameraB
 	{
 		InitialTransform.SetRotation(SpecifiedTransform.GetRotation());
 	}
-	
-	RunningCamera = ContextStack->GetActiveDirector()->ResumeCamera(ResumeCamera, Transition, InitialTransform);
+
+	RunningCamera = ActiveDirector->ResumeCamera(ResumeCamera, Transition, InitialTransform);
 }
 
 const TSet<UComposableCameraActionBase*>& AComposableCameraPlayerCameraManager::GetCameraActions()
@@ -1184,6 +1337,19 @@ void AComposableCameraPlayerCameraManager::DoUpdateCamera(float DeltaTime)
 	// Update camera actions.
 	UpdateActions(DeltaTime);
 
+	// Per-frame guard for ContextStack. Tick is the hot path — if the stack
+	// subobject is missing (post-teardown reentry, exotic spawn order, GC race
+	// before the next frame), bail out cleanly. Super::DoUpdateCamera already
+	// ran above and the prior-frame cache is already restored, so the engine
+	// sees a stable view and does not crash; we just skip our own Evaluate /
+	// writeback for this frame.
+	if (!ContextStack)
+	{
+		UE_LOG(LogComposableCameraSystem, Warning, TEXT(
+			"DoUpdateCamera: ContextStack is null. Skipping CCS evaluation for this frame."));
+		return;
+	}
+
 	FComposableCameraPose OutPose = ContextStack->Evaluate(DeltaTime);
 
 	{
@@ -1239,26 +1405,107 @@ void AComposableCameraPlayerCameraManager::UpdateActions(float DeltaTime)
 		return;
 	}
 
-	TSet<UComposableCameraActionBase*> ActionsToRemove;
-	for (auto* Action : CameraActions)
+	// Reuse the member scratch buffer instead of allocating a fresh TSet
+	// every frame. `Reset()` preserves the underlying TArray capacity so
+	// steady-state operation is allocation-free. We don't need set
+	// semantics — actions can't appear twice in the source TSet, and the
+	// later `CameraActions.Remove(Action)` is a single hash lookup either
+	// way.
+	//
+	// CameraActionsRemovalScratch is intentionally NOT UPROPERTY and NOT
+	// TWeakObjectPtr — it holds raw `UComposableCameraActionBase*` for
+	// the duration of this function only. Across-frame holds would be
+	// unsafe (GC can't see raw UObject* in a non-UPROPERTY field, so an
+	// entry pointing at a since-collected action would dangle). Both the
+	// `Reset()` at function entry AND the explicit `Reset()` at function
+	// exit below guarantee the scratch is empty whenever execution is
+	// outside this function — GC walks therefore never see a stale raw
+	// pointer in this slot. Removal-scratch entries are ALSO members of
+	// the GC-visible `CameraActions` TSet for the duration of the
+	// function (the post-loop `CameraActions.Remove` is what drops them),
+	// so even within the function the entries stay root-reachable
+	// independently of the scratch — the raw form is doubly safe here.
+	//
+	// CameraActionsPendingAddScratch IS `UPROPERTY(Transient)` with
+	// `TObjectPtr<>` element type because its entries have NOT yet been
+	// registered in any reflected container — `NewObject`-fresh actions
+	// the re-entrant `AddCameraAction` produced. A GC pass triggered
+	// re-entrantly from inside an Action's `OnCanExecute` (sync
+	// `LoadObject`, BP exception during eval, slow Blueprint that yields)
+	// would otherwise reclaim the half-constructed action. The TObjectPtr
+	// inside the UPROPERTY array keeps it root-reachable for the entire
+	// gap. Same `Reset()` at entry/exit applies.
+	CameraActionsRemovalScratch.Reset();
+	CameraActionsPendingAddScratch.Reset();
+
+	// `bIsUpdatingActions` lets BOTH the public `RemoveCameraAction` AND
+	// the public `AddCameraAction` know they're being called re-entrantly
+	// from inside our range-for (an Action's `OnCanExecute` callback can
+	// legitimately call `PCM->RemoveCameraAction(this)`, remove a sibling,
+	// or spawn a new action via `PCM->AddCameraAction(...)`). When set:
+	//   * Remove: skips the `CameraActions.Remove(...)` step (would invalidate
+	//     this iterator) and queues into `CameraActionsRemovalScratch`.
+	//   * Add: skips `CameraActions.Add(...)` + the bind to RunningCamera and
+	//     queues into `CameraActionsPendingAddScratch`; both happen in the
+	//     post-loop sweep so the new Action takes effect next frame.
+	// `TGuardValue` resets the flag on every exit path including any throw
+	// from a Blueprint-implemented Action callback.
+	TGuardValue<bool> UpdateScope(bIsUpdatingActions, true);
+
+	for (UComposableCameraActionBase* Action : CameraActions)
 	{
 		if (!Action)
 		{
-			ActionsToRemove.Add(Action);
+			CameraActionsRemovalScratch.AddUnique(Action);
 			continue;
 		}
 
 		if (!Action->OnCanExecute(DeltaTime, CurrentCameraPose))
 		{
-			RemoveCameraAction(Action);
-			ActionsToRemove.Add(Action);
+			// Unbind only — the TSet removal happens in the post-loop
+			// scratch sweep. Calling the public `RemoveCameraAction` here
+			// would normally do both the unbind AND a
+			// `CameraActions.Remove(Action)` while we're iterating
+			// `CameraActions`, which is unsafe — but the
+			// `bIsUpdatingActions` guard above re-routes the public path
+			// to defer-via-scratch, so even an indirect callback into
+			// RemoveCameraAction is safe here.
+			UnbindCameraActionFromCamera(Action);
+			CameraActionsRemovalScratch.AddUnique(Action);
 		}
 	}
 
-	for (auto* Action : ActionsToRemove)
+	for (UComposableCameraActionBase* Action : CameraActionsRemovalScratch)
 	{
 		CameraActions.Remove(Action);
 	}
+
+	// Post-removal sweep for re-entrant-add. Order matters: do removals
+	// first, THEN adds — a re-entrant flow that removed an Action and then
+	// added one of the same class within the same `OnCanExecute` callback
+	// would otherwise see the Add silently no-op against the still-present
+	// pre-remove entry. Same-frame Add+Remove of the SAME action is
+	// handled inside `RemoveCameraAction`'s re-entrant branch (it pulls
+	// the entry back out of the pending-add scratch), so any action that
+	// reaches this loop is one the caller still wants live.
+	for (const TObjectPtr<UComposableCameraActionBase>& PendingAction : CameraActionsPendingAddScratch)
+	{
+		UComposableCameraActionBase* Action = PendingAction.Get();
+		if (!IsValid(Action))
+		{
+			continue;
+		}
+		CameraActions.Add(Action);
+		BindCameraActionToRunningCamera(Action);
+	}
+
+	// Drop raw pointers before returning — see top-of-function rationale
+	// for why these scratches must never carry references outside the
+	// function's stack frame. Both removal AND pending-add scratches must
+	// be empty at exit so a GC sweep between frames cannot encounter a
+	// stale raw `UObject*`.
+	CameraActionsRemovalScratch.Reset();
+	CameraActionsPendingAddScratch.Reset();
 }
 
 void AComposableCameraPlayerCameraManager::BuildModifierDebugString(FDisplayDebugManager& DisplayDebugManager)

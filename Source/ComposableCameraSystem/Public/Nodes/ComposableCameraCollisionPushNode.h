@@ -8,6 +8,7 @@
 #include "ComposableCameraCollisionPushNode.generated.h"
 
 class UComposableCameraInterpolatorBase;
+class USkeletalMeshComponent;
 
 struct FComposableCameraHitResult
 {
@@ -115,8 +116,30 @@ private:
 private:
 	TUniquePtr<TCameraInterpolator<TValueTypeWrapper<double>>> PushInterpolator_T;
 	TUniquePtr<TCameraInterpolator<TValueTypeWrapper<double>>> PullInterpolator_T;
-	
-	USkeletalMeshComponent* SkeletalMeshComponentForPivotActor { nullptr };
+
+	// Cached SkeletalMeshComponent on the currently-resolved PivotActor.
+	// TWeakObjectPtr (not raw, not UPROPERTY): PivotActor is an input pin
+	// and can be driven to a new actor every frame, and the SkelMesh
+	// component on that actor can be destroyed / re-spawned independently
+	// of this node — Tick / DrawNodeDebug must IsValid()-check before
+	// deref. Resolution happens lazily in Tick when the active PivotActor
+	// differs from `LastResolvedPivotActor`, avoiding a per-frame
+	// `GetComponentByClass` walk in the common stable-actor case.
+	TWeakObjectPtr<USkeletalMeshComponent> SkeletalMeshComponentForPivotActor;
+	TWeakObjectPtr<AActor> LastResolvedPivotActor;
+
+	// Snapshot of "actors of every class in `ActorTypesToIgnore`" taken at
+	// OnInitialize (and, if needed, refreshed on demand by the public-facing
+	// `RefreshActorsToIgnoreCache` if a designer scripts it). Stored as
+	// TWeakObjectPtr so multi-frame collision-ignore lifetime survives
+	// individual actor destruction without dangling. Per-tick rebuild of
+	// `ResolvedActorsToIgnore` from the weak snapshot is one weak-ptr `Get()`
+	// per entry — typical N is small. Earlier behavior called
+	// `GetAllActorsOfClass` every Tick which scaled with the world's actor
+	// count and was a real cost on actor-heavy levels.
+	TArray<TWeakObjectPtr<AActor>> ActorsToIgnoreWeak;
+	TArray<AActor*> ResolvedActorsToIgnore;
+
 	double ElapsedExemptionTime { 0. };
 	double CurrentDistanceFromCamera { 0. };
 

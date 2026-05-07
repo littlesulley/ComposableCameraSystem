@@ -140,7 +140,7 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraPatchActivateParams
 	bool bOverrideExpirationType = false;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Patch",
-		meta = (Bitmask, BitmaskEnum = EComposableCameraPatchExpirationType, EditCondition = "bOverrideExpirationType"))
+		meta = (Bitmask, BitmaskEnum = "/Script/ComposableCameraSystem.EComposableCameraPatchExpirationType", EditCondition = "bOverrideExpirationType"))
 	uint8 ExpirationType = 0;
 
 	/** When true, Duration overrides the asset's DefaultDuration. Only consulted

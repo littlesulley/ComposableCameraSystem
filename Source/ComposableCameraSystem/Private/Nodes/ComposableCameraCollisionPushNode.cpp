@@ -27,6 +27,33 @@ namespace
 }
 #endif
 
+namespace
+{
+	// Lazy-resolve the SkelMesh on `Actor` only when it differs from what the
+	// cache last resolved against. PivotActor is an input pin so the active
+	// actor can change every frame; resolving lazily avoids per-frame
+	// `GetComponentByClass` walks while still picking up actor swaps and
+	// component churn.
+	static void ResolveSkelMeshForPivotActor(
+		AActor* Actor,
+		TWeakObjectPtr<USkeletalMeshComponent>& InOutSkelMesh,
+		TWeakObjectPtr<AActor>& InOutLastResolvedActor)
+	{
+		if (!IsValid(Actor))
+		{
+			InOutSkelMesh.Reset();
+			InOutLastResolvedActor.Reset();
+			return;
+		}
+		if (InOutLastResolvedActor.Get() == Actor && InOutSkelMesh.IsValid())
+		{
+			return; // cache hit
+		}
+		InOutLastResolvedActor = Actor;
+		InOutSkelMesh = Actor->GetComponentByClass<USkeletalMeshComponent>();
+	}
+}
+
 void UComposableCameraCollisionPushNode::OnInitialize_Implementation()
 {
 	Super::OnInitialize_Implementation();
@@ -37,11 +64,35 @@ void UComposableCameraCollisionPushNode::OnInitialize_Implementation()
 	PushInterpolator_T = IsValid(PushInterpolator) ? PushInterpolator->BuildDoubleInterpolator() : nullptr;
 	PullInterpolator_T = IsValid(PullInterpolator) ? PullInterpolator->BuildDoubleInterpolator() : nullptr;
 
-	if (bUseBoneForDetection)
+	// Don't resolve the SkelMesh component here — PivotActor can be driven
+	// by an input pin and change every frame. Resolution happens lazily in
+	// Tick when the active PivotActor differs from `LastResolvedPivotActor`.
+	SkeletalMeshComponentForPivotActor.Reset();
+	LastResolvedPivotActor.Reset();
+
+	// Snapshot the ignore-list once at activation. Earlier behavior was a
+	// per-Tick `GetAllActorsOfClass` walk that scaled with the entire
+	// world's actor count for every camera tick. Snapshotting here means
+	// dynamically-spawned ignore-class actors created AFTER initialization
+	// won't be in the list — acceptable trade because (a) typical use is
+	// "ignore the player capsule / specific level geo", which is stable
+	// for the camera's lifetime, and (b) the snapshot uses TWeakObjectPtr
+	// so destroyed entries silently drop on per-tick rebuild rather than
+	// leaving dangling raw pointers in the trace ignore list.
+	ActorsToIgnoreWeak.Reset();
+	ResolvedActorsToIgnore.Reset();
+	for (const TSoftClassPtr<AActor>& ActorType : ActorTypesToIgnore)
 	{
-		if (IsValid(PivotActor))
+		if (!ActorType.IsValid())
 		{
-			SkeletalMeshComponentForPivotActor = PivotActor->GetComponentByClass<USkeletalMeshComponent>();
+			continue;
+		}
+		TArray<AActor*> Found;
+		UGameplayStatics::GetAllActorsOfClass(this, ActorType.Get(), Found);
+		ActorsToIgnoreWeak.Reserve(ActorsToIgnoreWeak.Num() + Found.Num());
+		for (AActor* Ignored : Found)
+		{
+			ActorsToIgnoreWeak.Add(Ignored);
 		}
 	}
 }
@@ -54,10 +105,14 @@ void UComposableCameraCollisionPushNode::OnTickNode_Implementation(float DeltaTi
 
 	// PivotActor / bUseBoneForDetection / PivotZOffset / SelfSphereDistanceOffsetFromCenter /
 	// ExtraPushDistance are pin-matched UPROPERTYs — resolved by the base TickNode
-	// prologue.
-	if (bUseBoneForDetection && IsValid(SkeletalMeshComponentForPivotActor))
+	// prologue. Refresh the SkelMesh cache against the just-written PivotActor
+	// before reading either branch.
+	ResolveSkelMeshForPivotActor(PivotActor, SkeletalMeshComponentForPivotActor, LastResolvedPivotActor);
+
+	USkeletalMeshComponent* PivotSkelMesh = SkeletalMeshComponentForPivotActor.Get();
+	if (bUseBoneForDetection && IsValid(PivotSkelMesh))
 	{
-		PivotPosition = SkeletalMeshComponentForPivotActor->GetSocketLocation(BoneName);
+		PivotPosition = PivotSkelMesh->GetSocketLocation(BoneName);
 	}
 	else
 	{
@@ -219,14 +274,19 @@ FComposableCameraHitResult UComposableCameraCollisionPushNode::FindCollisionPoin
 	FVector Direction = Start - End;
 	Direction.Normalize();
 	
-	TArray<AActor*> ActorsToIgnore;
-	for (TSoftClassPtr<AActor> ActorType: ActorTypesToIgnore)
+	// Rebuild the raw ignore-list from the cached weak snapshot taken at
+	// OnInitialize. Reuses `ResolvedActorsToIgnore`'s heap capacity across
+	// frames (Reset preserves it) so steady-state operation is allocation-
+	// free. Actors that have been destroyed since OnInitialize drop out
+	// silently via the TWeakObjectPtr resolve. The previous code called
+	// `GetAllActorsOfClass` every frame, which scaled with the entire
+	// world's actor count.
+	ResolvedActorsToIgnore.Reset(ActorsToIgnoreWeak.Num());
+	for (const TWeakObjectPtr<AActor>& Weak : ActorsToIgnoreWeak)
 	{
-		if (ActorType.IsValid())
+		if (AActor* Live = Weak.Get(); IsValid(Live))
 		{
-			TArray<AActor*> IgnoredActors;
-			UGameplayStatics::GetAllActorsOfClass(this, ActorType.Get(), IgnoredActors);
-			ActorsToIgnore.Append(IgnoredActors);
+			ResolvedActorsToIgnore.Add(Live);
 		}
 	}
 
@@ -240,11 +300,11 @@ FComposableCameraHitResult UComposableCameraCollisionPushNode::FindCollisionPoin
 
 	if (bTraceUseSphere)
 	{
-		UKismetSystemLibrary::SphereTraceSingle(this, Start, End, TraceSphereRadius, TraceCollisionChannel, true, ActorsToIgnore, DrawDebugType, TraceCollisionHit, true);
+		UKismetSystemLibrary::SphereTraceSingle(this, Start, End, TraceSphereRadius, TraceCollisionChannel, true, ResolvedActorsToIgnore, DrawDebugType, TraceCollisionHit, true);
 	}
 	else
 	{
-		UKismetSystemLibrary::LineTraceSingle(this, Start, End, TraceCollisionChannel, true, ActorsToIgnore, DrawDebugType, TraceCollisionHit, true);
+		UKismetSystemLibrary::LineTraceSingle(this, Start, End, TraceCollisionChannel, true, ResolvedActorsToIgnore, DrawDebugType, TraceCollisionHit, true);
 	}
 
 	// Gather trace collision information and do self collision.
@@ -268,7 +328,7 @@ FComposableCameraHitResult UComposableCameraCollisionPushNode::FindCollisionPoin
 	FVector SelfCollisionEnd = PendingTargetPosition + CameraRotation.RotateVector(FVector::ForwardVector + FVector{0.1, 0., 0 }) * SelfSphereDistanceOffsetFromCenter;
 	
 	FHitResult SelfCollisionHit;
-	UKismetSystemLibrary::SphereTraceSingle(this, SelfCollisionStart, SelfCollisionEnd, SelfSphereRadius, SelfCollisionChannel, false, ActorsToIgnore, DrawDebugType, SelfCollisionHit, true);
+	UKismetSystemLibrary::SphereTraceSingle(this, SelfCollisionStart, SelfCollisionEnd, SelfSphereRadius, SelfCollisionChannel, false, ResolvedActorsToIgnore, DrawDebugType, SelfCollisionHit, true);
 
 	if (SelfCollisionHit.bBlockingHit)
 	{
@@ -278,7 +338,7 @@ FComposableCameraHitResult UComposableCameraCollisionPushNode::FindCollisionPoin
 		TArray<FHitResult> SelfHitResults;
 
 		FCollisionQueryParams QueryParams =  FCollisionQueryParams::DefaultQueryParam;
-		QueryParams.AddIgnoredActors(ActorsToIgnore);
+		QueryParams.AddIgnoredActors(ResolvedActorsToIgnore);
 		QueryParams.bTraceComplex = true;
 
 		AActor* IgnoredSelf = nullptr;
@@ -328,6 +388,15 @@ FComposableCameraHitResult UComposableCameraCollisionPushNode::FindCollisionPoin
 	bLastTraceBlocked    = TraceCollisionHit.bBlockingHit;
 	LastTraceHitLocation = TraceCollisionHit.bBlockingHit ? TraceCollisionHit.Location : End;
 #endif
+
+	// Drop raw AActor* pointers before returning. `ResolvedActorsToIgnore`
+	// is a non-UPROPERTY UObject-pointer container (UCLASS member); GC sweeps
+	// between frames cannot see raw pointers stored here, so a stale pointer
+	// from a since-destroyed actor would dangle invisibly. Reset() preserves
+	// the underlying TArray capacity so the next-frame rebuild stays alloc-
+	// free, while leaving the array empty whenever execution is outside this
+	// function.
+	ResolvedActorsToIgnore.Reset();
 
 	return FComposableCameraHitResult  {
 		.bHasHit = PendingTargetPosition != CameraPosition,

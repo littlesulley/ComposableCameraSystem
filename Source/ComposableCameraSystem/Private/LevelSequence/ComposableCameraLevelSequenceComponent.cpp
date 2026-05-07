@@ -409,7 +409,7 @@ void UComposableCameraLevelSequenceComponent::DestroyInternalCamera()
 	// EndPlay → DestroyInternalCamera) those evaluators must go too. Without
 	// this, Sequencer Save / spawnable re-spawn / hot-reload would leak one
 	// evaluator per registered patch section per teardown cycle.
-	for (TPair<TObjectPtr<UMovieSceneComposableCameraPatchSection>, FComposableCameraSequencerPatchOverlay>& Pair : SequencerPatchOverlays)
+	for (TPair<TWeakObjectPtr<UMovieSceneComposableCameraPatchSection>, FComposableCameraSequencerPatchOverlay>& Pair : SequencerPatchOverlays)
 	{
 		if (Pair.Value.Evaluator && IsValid(Pair.Value.Evaluator))
 		{
@@ -424,6 +424,46 @@ void UComposableCameraLevelSequenceComponent::DestroyInternalCamera()
 	// above; on the next EnsureInternalCamera the framing node is fresh
 	// (default-constructed Shot) until a new override fires.
 	SequencerShotOverrides.Reset();
+}
+
+void UComposableCameraLevelSequenceComponent::AddReferencedObjects(UObject* InThis, FReferenceCollector& Collector)
+{
+	UComposableCameraLevelSequenceComponent* This = CastChecked<UComposableCameraLevelSequenceComponent>(InThis);
+
+	// `SequencerPatchOverlays` is intentionally NOT UPROPERTY-tagged (its
+	// keys are TWeakObjectPtr — see header). Without this manual walk, the
+	// inner `Evaluator` actor and the UObject contents of `LatestParameters`
+	// would be GC-blind, even though they have UPROPERTY tags inside the
+	// FComposableCameraSequencerPatchOverlay struct: reflection cannot reach
+	// the struct fields when the containing TMap itself is invisible to
+	// reflection.
+	for (TPair<TWeakObjectPtr<UMovieSceneComposableCameraPatchSection>, FComposableCameraSequencerPatchOverlay>& Pair : This->SequencerPatchOverlays)
+	{
+		Collector.AddReferencedObject(Pair.Value.Evaluator);
+		// LatestParameters is a USTRUCT (FComposableCameraParameterBlock); walk
+		// its reflected property graph so the embedded TObjectPtr maps
+		// (ActorValues / ObjectValues / StructValues) and the FInstancedStruct
+		// slots inside StructValues are kept alive. Same pattern the runtime
+		// data block uses (see ComposableCameraRuntimeDataBlock.cpp's
+		// AddReferencedObjects).
+		Collector.AddPropertyReferencesWithStructARO(
+			FComposableCameraParameterBlock::StaticStruct(),
+			&Pair.Value.LatestParameters);
+	}
+
+	// `SequencerShotOverrides` is also non-UPROPERTY (same TWeakObjectPtr-key
+	// reflection constraint). Walk each entry's reflected USTRUCT graph so
+	// the inner `EnterTransition` TObjectPtr and any UObject references
+	// inside the `Shot` (FShotTarget actor refs) stay GC-pinned for the
+	// lifetime of the entry.
+	for (TPair<TWeakObjectPtr<UMovieSceneComposableCameraShotSection>, FComposableCameraSequencerShotEntry>& Pair : This->SequencerShotOverrides)
+	{
+		Collector.AddPropertyReferencesWithStructARO(
+			FComposableCameraSequencerShotEntry::StaticStruct(),
+			&Pair.Value);
+	}
+
+	Super::AddReferencedObjects(InThis, Collector);
 }
 
 void UComposableCameraLevelSequenceComponent::ProjectPoseToCineCamera(const FComposableCameraPose& Pose)
@@ -605,43 +645,60 @@ void UComposableCameraLevelSequenceComponent::RemoveSequencerPatchOverlay(
 void UComposableCameraLevelSequenceComponent::ApplySequencerPatchOverlays(
 	FComposableCameraPose& InOutPose, float DeltaTime)
 {
-	// Stable iteration order: snapshot the keys, sort by the section's resolved
-	// LayerIndex (asset default OR per-call override on Params), then walk.
-	// Sorting matches the runtime PatchManager's ActivePatches ordering so
-	// editor preview composition is deterministic and consistent with PIE.
-	// Use raw pointers for the local sorted array — `TArray<TObjectPtr>::Sort`
-	// goes through TDereferenceWrapper which constructs `TObjectPtr` from a
-	// reference (deprecated in UE 5.6, removed in next release).
-	TArray<UMovieSceneComposableCameraPatchSection*, TInlineAllocator<8>> SortedKeys;
+	// Stable iteration order: snapshot the WEAK keys (NOT raw pointers — a
+	// stale weak key resolves to null but its TMap hash still matches the
+	// original-section hash, so Remove(WeakKey) hits the right slot. Pushing
+	// raw nullptr through Find/Remove would miss stale entries entirely
+	// because TWeakObjectPtr(nullptr) has a different hash from a stale
+	// TWeakObjectPtr that originally pointed at a now-GC'd section). Sort by
+	// the section's resolved LayerIndex so editor-preview composition is
+	// deterministic and matches PIE's PatchManager ordering.
+	//
+	// Per-frame snapshot+sort is the simple correct shape: TInlineAllocator
+	// keeps the typical small-N case stack-resident, sort is O(N log N) on
+	// a handful of overlays. A previous attempt at a dirty-sorted cache
+	// regressed correctness — designer-driven LayerIndex changes don't
+	// flow through the per-frame Set path, so the cache stayed stale until
+	// the next add/remove. Reverted to the always-rebuild form; the saved
+	// cycles weren't worth the additional invariant.
+	using FOverlayKey = TWeakObjectPtr<UMovieSceneComposableCameraPatchSection>;
+	TArray<FOverlayKey, TInlineAllocator<8>> SortedKeys;
 	SortedKeys.Reserve(SequencerPatchOverlays.Num());
-	for (const TPair<TObjectPtr<UMovieSceneComposableCameraPatchSection>, FComposableCameraSequencerPatchOverlay>& Pair : SequencerPatchOverlays)
+	for (const TPair<FOverlayKey, FComposableCameraSequencerPatchOverlay>& Pair : SequencerPatchOverlays)
 	{
 		SortedKeys.Add(Pair.Key);
 	}
-	SortedKeys.Sort([](const UMovieSceneComposableCameraPatchSection& A,
-	                   const UMovieSceneComposableCameraPatchSection& B)
+	SortedKeys.Sort([](const FOverlayKey& A, const FOverlayKey& B)
 	{
+		const UMovieSceneComposableCameraPatchSection* AObj = A.Get();
+		const UMovieSceneComposableCameraPatchSection* BObj = B.Get();
+		// Stale (null) keys sort last so the walk prunes them after applying
+		// every live overlay; stable order between two stale keys is irrelevant.
+		if (!AObj && !BObj) { return false; }
+		if (!AObj) { return false; }
+		if (!BObj) { return true; }
 		auto LayerOf = [](const UMovieSceneComposableCameraPatchSection& S) -> int32
 		{
-			if (!S.PatchAsset) return 0;
+			if (!S.PatchAsset) { return 0; }
 			return S.Params.bOverrideLayerIndex ? S.Params.LayerIndex : S.PatchAsset->DefaultLayerIndex;
 		};
-		return LayerOf(A) < LayerOf(B);
+		return LayerOf(*AObj) < LayerOf(*BObj);
 	});
 
 	bool bAnyOverlayApplied = false;
 
 	// Stale-entry collection — sections that have been GC'd or whose evaluator
 	// is invalid. Cleaned up after the walk to avoid mid-iteration map mutation.
-	TArray<UMovieSceneComposableCameraPatchSection*, TInlineAllocator<4>> ToPrune;
+	TArray<FOverlayKey, TInlineAllocator<4>> ToPrune;
 
-	for (UMovieSceneComposableCameraPatchSection* Key : SortedKeys)
+	for (const FOverlayKey& WeakKey : SortedKeys)
 	{
-		FComposableCameraSequencerPatchOverlay* Overlay = SequencerPatchOverlays.Find(Key);
+		FComposableCameraSequencerPatchOverlay* Overlay = SequencerPatchOverlays.Find(WeakKey);
 		if (!Overlay) { continue; }
+		UMovieSceneComposableCameraPatchSection* Key = WeakKey.Get();
 		if (!Key || !IsValid(Key) || !Overlay->Evaluator || !IsValid(Overlay->Evaluator))
 		{
-			ToPrune.Add(Key);
+			ToPrune.Add(WeakKey);
 			continue;
 		}
 		if (Overlay->Alpha <= 0.f)
@@ -680,14 +737,14 @@ void UComposableCameraLevelSequenceComponent::ApplySequencerPatchOverlays(
 		bAnyOverlayApplied = true;
 	}
 
-	for (UMovieSceneComposableCameraPatchSection* Key : ToPrune)
+	for (const FOverlayKey& WeakKey : ToPrune)
 	{
-		FComposableCameraSequencerPatchOverlay* Found = SequencerPatchOverlays.Find(Key);
+		FComposableCameraSequencerPatchOverlay* Found = SequencerPatchOverlays.Find(WeakKey);
 		if (Found && Found->Evaluator && IsValid(Found->Evaluator))
 		{
 			Found->Evaluator->Destroy();
 		}
-		SequencerPatchOverlays.Remove(Key);
+		SequencerPatchOverlays.Remove(WeakKey);
 	}
 
 	// Patch-driven FOV writes need to land on the CineCamera too — the normal
@@ -936,11 +993,14 @@ void UComposableCameraLevelSequenceComponent::BuildSequencerPatchSnapshot(
 	// consistently regardless of which path produced each entry.
 	TArray<UMovieSceneComposableCameraPatchSection*> SortedKeys;
 	SortedKeys.Reserve(SequencerPatchOverlays.Num());
-	for (const TPair<TObjectPtr<UMovieSceneComposableCameraPatchSection>, FComposableCameraSequencerPatchOverlay>& Pair : SequencerPatchOverlays)
+	for (const TPair<TWeakObjectPtr<UMovieSceneComposableCameraPatchSection>, FComposableCameraSequencerPatchOverlay>& Pair : SequencerPatchOverlays)
 	{
-		if (Pair.Key && IsValid(Pair.Key))
+		// Resolve weak key once; null = section GC'd, skip from the panel.
+		// Stale entries get cleaned up by the prune pass inside
+		// ApplySequencerPatchOverlays — the debug panel just doesn't show them.
+		if (UMovieSceneComposableCameraPatchSection* Key = Pair.Key.Get(); IsValid(Key))
 		{
-			SortedKeys.Add(Pair.Key);
+			SortedKeys.Add(Key);
 		}
 	}
 	SortedKeys.Sort([](const UMovieSceneComposableCameraPatchSection& A,

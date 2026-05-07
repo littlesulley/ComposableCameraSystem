@@ -255,7 +255,12 @@ void UComposableCameraEvaluationTree::OnActivateNewCamera(
 	UComposableCameraTransitionBase* InTransition,
 	bool bFreezeSourceCamera)
 {
-	check(NewCamera);
+	if (!ensureMsgf(IsValid(NewCamera), TEXT(
+		"EvaluationTree::OnActivateNewCamera: NewCamera is null or invalid. "
+		"Aborting to avoid installing a null camera leaf and clobbering RunningCamera.")))
+	{
+		return;
+	}
 
 	// Create a leaf node for the new camera.
 	TSharedPtr<FComposableCameraEvaluationTreeNode> NewLeaf = MakeShared<FComposableCameraEvaluationTreeNode>();
@@ -359,8 +364,14 @@ void UComposableCameraEvaluationTree::OnActivateNewCameraWithReferenceSource(
 	UComposableCameraDirector* SourceDirector,
 	bool bFreezeSourceCamera)
 {
-	check(NewCamera);
-	check(SourceDirector);
+	if (!ensureMsgf(NewCamera && SourceDirector, TEXT(
+		"EvaluationTree::OnActivateNewCameraWithReferenceSource: NewCamera=%s, SourceDirector=%s. "
+		"Both must be valid — aborting to avoid null leaf / null GetEvaluationTree() crash."),
+		NewCamera ? TEXT("valid") : TEXT("null"),
+		SourceDirector ? TEXT("valid") : TEXT("null")))
+	{
+		return;
+	}
 
 	// Create a leaf node for the new camera.
 	TSharedPtr<FComposableCameraEvaluationTreeNode> NewLeaf = MakeShared<FComposableCameraEvaluationTreeNode>();
@@ -441,7 +452,12 @@ void UComposableCameraEvaluationTree::OnResumeCurrentTreeWithReferenceSource(
 	UComposableCameraDirector* SourceDirector,
 	bool bFreezeSourceCamera)
 {
-	check(SourceDirector);
+	if (!ensureMsgf(SourceDirector, TEXT(
+		"EvaluationTree::OnResumeCurrentTreeWithReferenceSource: SourceDirector is null. "
+		"Aborting to avoid null GetEvaluationTree() crash.")))
+	{
+		return;
+	}
 
 	// Pre-existing tree is required. Without RootNode there's nothing
 	// to "resume" — caller should take the ActivateNew path instead.
@@ -920,10 +936,29 @@ void UComposableCameraEvaluationTree::AddTreeReferencedObjects(
 		return;
 	}
 
+	// Walk the UObject references inside a cached `FComposableCameraPose`.
+	// `FPostProcessSettings` (a UPROPERTY field on the pose) carries TObjectPtr
+	// references to materials / textures / WeightedBlendables; when a pose
+	// lives in a non-UPROPERTY field on this struct (the wrapper structs are
+	// held via TSharedPtr from a UObject member, not directly UPROPERTY-
+	// reflected), UE's GC reflection walk does not surface those refs.
+	// `AddPropertyReferencesWithStructARO` walks the pose's reflected
+	// property graph and surfaces every UObject reference inside the
+	// embedded FPostProcessSettings (and any future UObject pose fields).
+	auto WalkPose = [&Collector](FComposableCameraPose& Pose)
+	{
+		Collector.AddPropertyReferencesWithStructARO(
+			FComposableCameraPose::StaticStruct(),
+			&Pose);
+	};
+
 	if (Node->IsLeaf())
 	{
 		FComposableCameraEvaluationTreeLeafNodeWrapper& Leaf = Node->AsLeaf();
 		Collector.AddReferencedObject(Leaf.RunningCamera);
+		// Leaf wrapper has no cached pose of its own — the live camera owns
+		// `CameraPose` as a UPROPERTY, so its UObject contents are GC-walked
+		// through the camera UObject's normal reflection.
 	}
 	else if (Node->IsReferenceLeaf())
 	{
@@ -934,6 +969,7 @@ void UComposableCameraEvaluationTree::AddTreeReferencedObjects(
 		// originating director has already been popped off the stack.
 		// DebugSourceDirector is a weak ref and isn't collected here.
 		AddTreeReferencedObjects(RefLeaf.SnapshotRoot, Collector);
+		WalkPose(RefLeaf.CachedPose);
 	}
 	else if (Node->IsInner())
 	{
@@ -941,5 +977,6 @@ void UComposableCameraEvaluationTree::AddTreeReferencedObjects(
 		Collector.AddReferencedObject(Inner.Transition);
 		AddTreeReferencedObjects(Inner.LeftNode, Collector);
 		AddTreeReferencedObjects(Inner.RightNode, Collector);
+		WalkPose(Inner.CachedBlendedPose);
 	}
 }

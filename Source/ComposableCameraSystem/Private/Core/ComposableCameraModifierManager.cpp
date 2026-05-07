@@ -7,6 +7,41 @@
 #include "Modifiers/ComposableCameraModifierBase.h"
 #include "Nodes/ComposableCameraCameraNodeBase.h"
 
+void UComposableCameraModifierManager::AddReferencedObjects(UObject* InThis, FReferenceCollector& Collector)
+{
+	UComposableCameraModifierManager* This = CastChecked<UComposableCameraModifierManager>(InThis);
+
+	auto AddEntryRefs = [&Collector](FModifierEntry& Entry)
+	{
+		if (Entry.Modifier)
+		{
+			Collector.AddReferencedObject(Entry.Modifier);
+		}
+		if (Entry.Asset)
+		{
+			Collector.AddReferencedObject(Entry.Asset);
+		}
+	};
+
+	for (auto& TagPair : This->ModifierData.ModifierData)
+	{
+		for (auto& NodeClassPair : TagPair.Value)
+		{
+			for (FModifierEntry& Entry : NodeClassPair.Value)
+			{
+				AddEntryRefs(Entry);
+			}
+		}
+	}
+
+	for (auto& EffectivePair : This->ModifierData.EffectiveModifiers)
+	{
+		AddEntryRefs(EffectivePair.Value);
+	}
+
+	Super::AddReferencedObjects(InThis, Collector);
+}
+
 void UComposableCameraModifierManager::AddModifier(UComposableCameraNodeModifierDataAsset* ModifierAsset)
 {
 	if (!ModifierAsset || ModifierAsset->CameraTags.IsEmpty() || ModifierAsset->Modifiers.IsEmpty())

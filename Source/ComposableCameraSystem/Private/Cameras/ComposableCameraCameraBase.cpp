@@ -279,6 +279,13 @@ void AComposableCameraCameraBase::Initialize(AComposableCameraPlayerCameraManage
 {
 	CameraManager = Manager;
 
+	// Cache the gameplay-tag string for per-tick Insights scope naming.
+	// `FGameplayTag::ToString` allocates an FString; the previous code
+	// regenerated it every TickCamera, paying one heap alloc per camera
+	// per frame just for the dynamic trace label. CameraTag is
+	// EditDefaultsOnly, so caching once here is safe.
+	CameraTagTraceName = CameraTag.ToString();
+
 	// Per-node initialization is factored out so type-asset cameras can run it
 	// later, once OnTypeAssetCameraConstructed has populated CameraNodes.
 	InitializeNodes();
@@ -369,8 +376,12 @@ void AComposableCameraCameraBase::BeginPlayCamera()
 		// BuildRuntimeDataLayout used to allocate the pin key offsets.
 		const int32 ComputeNodeIndexBase = TypeAssetNodeTemplateCount;
 
-		for (const FComposableCameraExecEntry& Entry : ComputeFullExecChain)
+		// Indexed walk so SetVariable can cross-reference DataBlock's
+		// InvalidSetVariableComputeExecEntries set (see camera-chain comment
+		// above for the type-validation rationale).
+		for (int32 EntryIdx = 0; EntryIdx < ComputeFullExecChain.Num(); ++EntryIdx)
 		{
+			const FComposableCameraExecEntry& Entry = ComputeFullExecChain[EntryIdx];
 			switch (Entry.EntryType)
 			{
 			case EComposableCameraExecEntryType::CameraNode:
@@ -393,7 +404,8 @@ void AComposableCameraCameraBase::BeginPlayCamera()
 				// editor's SyncPhase_RebuildComputeExecutionChain.
 				if (Entry.CameraNodeIndex == INDEX_NONE
 					|| Entry.VariableName.IsNone()
-					|| Entry.VariableSlotSize <= 0)
+					|| Entry.VariableSlotSize <= 0
+					|| DataBlock.InvalidSetVariableComputeExecEntries.Contains(EntryIdx))
 				{
 					break;
 				}
@@ -429,6 +441,37 @@ namespace
 	// Fire every node-scoped action whose TargetNodeClass matches Node's class.
 	// Pose is passed as the same in/out slot (matching TickNode's convention —
 	// actions mutate the pose in place and the next node/action sees the update).
+	//
+	// `Action->OnExecute` is allowed to call `PCM->AddCameraAction(...)` /
+	// `RemoveCameraAction(...)`, which routes to
+	// `AComposableCameraCameraBase::RegisterNodeAction` /
+	// `UnregisterNodeAction` and mutates the very `PreNodeTickActions` /
+	// `PostNodeTickActions` array we'd be iterating. The PCM-level
+	// `bIsUpdatingActions` reentrancy gate covers the PCM `CameraActions`
+	// TSet but does NOT cover the camera-side TArrays — Register/Unregister
+	// happen unconditionally inside the public Add/Remove paths. Iterating
+	// a stable snapshot decouples "what fires this broadcast" from "what
+	// gets registered for next broadcast"; AddUnique-induced reallocation
+	// or RemoveSingleSwap-induced re-ordering during OnExecute can no
+	// longer invalidate the iteration. New registrations made during
+	// OnExecute take effect on the NEXT broadcast (matches the PCM
+	// pending-add semantics for symmetry).
+	//
+	// Snapshot stores `TWeakObjectPtr<UComposableCameraActionBase>` — NOT
+	// raw pointers. `Action->OnExecute` is a `BlueprintNativeEvent`, so
+	// the body can run arbitrary BP that triggers GC mid-loop (sync
+	// `LoadObject`, async-load completion, BP exception unwind, slow BP
+	// that yields to the engine for a tick). A re-entrant
+	// `RemoveCameraAction(SiblingAction)` from inside one OnExecute drops
+	// the sibling from `CameraActions` TSet AND from this NodeActions
+	// array — so the next GC pass legitimately reclaims the sibling and
+	// any later `Action->TargetNodeClass` deref against our raw snapshot
+	// reads freed memory. Weak ptr survives the reclaim cleanly; the
+	// per-iteration `Pin() + IsValid` check skips reclaimed entries.
+	//
+	// `TInlineAllocator<8>` keeps the snapshot on the stack for the
+	// typical "0–3 actions targeting this node class" case; oversized
+	// cases spill once.
 	FORCEINLINE void BroadcastNodeActions(
 		const TArray<UComposableCameraActionBase*>& NodeActions,
 		UComposableCameraCameraNodeBase* Node,
@@ -441,9 +484,27 @@ namespace
 		}
 
 		UClass* NodeClass = Node->GetClass();
+
+		// Build a weak-ptr snapshot — convert from the live raw-pointer
+		// array up-front so the loop body can iterate without touching
+		// `NodeActions` (which `OnExecute` may mutate).
+		TArray<TWeakObjectPtr<UComposableCameraActionBase>, TInlineAllocator<8>> Snapshot;
+		Snapshot.Reserve(NodeActions.Num());
 		for (UComposableCameraActionBase* Action : NodeActions)
 		{
-			if (Action && Action->TargetNodeClass == NodeClass)
+			Snapshot.Emplace(Action);
+		}
+
+		for (const TWeakObjectPtr<UComposableCameraActionBase>& Weak : Snapshot)
+		{
+			UComposableCameraActionBase* Action = Weak.Get();
+			if (!IsValid(Action))
+			{
+				// Reclaimed mid-broadcast (re-entrant Remove + GC, or
+				// the action was destroyed by an unrelated path).
+				continue;
+			}
+			if (Action->TargetNodeClass == NodeClass)
 			{
 				Action->OnExecute(DeltaTime, InOutPose, InOutPose);
 			}
@@ -506,7 +567,9 @@ FComposableCameraPose AComposableCameraCameraBase::TickCamera(float DeltaTime)
 {
 	SCOPE_CYCLE_COUNTER(STAT_CCS_Camera_TickCamera);
 	TRACE_CPUPROFILER_EVENT_SCOPE(CCS_Camera_TickCamera);
-	TRACE_CPUPROFILER_EVENT_SCOPE_STR(*CameraTag.ToString());
+	// Read the cached trace name from Initialize — never allocate a fresh
+	// FString here on the per-tick hot path.
+	TRACE_CPUPROFILER_EVENT_SCOPE_STR(*CameraTagTraceName);
 
 	// Per-frame memoization. Under the snapshot-DAG evaluation topology,
 	// a single camera can be reached via multiple paths in one frame
@@ -543,8 +606,13 @@ FComposableCameraPose AComposableCameraCameraBase::TickCamera(float DeltaTime)
 	{
 		FComposableCameraRuntimeDataBlock& DataBlock = *OwnedRuntimeDataBlock;
 
-		for (const FComposableCameraExecEntry& Entry : FullExecChain)
+		// Indexed walk so SetVariable can cross-reference DataBlock's
+		// InvalidSetVariableExecEntries set, populated by activation-time
+		// type validation in BuildRuntimeDataLayout. Range-based form would
+		// lose the EntryIdx that the set is keyed on.
+		for (int32 EntryIdx = 0; EntryIdx < FullExecChain.Num(); ++EntryIdx)
 		{
+			const FComposableCameraExecEntry& Entry = FullExecChain[EntryIdx];
 			switch (Entry.EntryType)
 			{
 			case EComposableCameraExecEntryType::CameraNode:
@@ -566,9 +634,17 @@ FComposableCameraPose AComposableCameraCameraBase::TickCamera(float DeltaTime)
 				// Copy the source camera node's output pin value into the
 				// internal variable slot. Camera chain CameraNodeIndex
 				// directly indexes NodeTemplates / CameraNodes (no offset).
+				//
+				// Skip entries whose source-pin / variable type pair was
+				// flagged as incompatible at activation time — without this
+				// gate, a stale entry would cross-read bytes between
+				// mismatched-shape slots (Float source → Actor variable would
+				// memcpy 4 bytes past the float slot then have RefreshReferenceSlot
+				// hand a garbage pointer to the GC mirror).
 				if (Entry.CameraNodeIndex == INDEX_NONE
 					|| Entry.VariableName.IsNone()
-					|| Entry.VariableSlotSize <= 0)
+					|| Entry.VariableSlotSize <= 0
+					|| DataBlock.InvalidSetVariableExecEntries.Contains(EntryIdx))
 				{
 					break;
 				}

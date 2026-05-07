@@ -108,7 +108,17 @@ public:
 private:
 	FVector PreviousOffset { FVector::ZeroVector };
 	float ElapsedWaitingTime { 0.f };
-	
-	TArray<AActor*> ActorsToIgnore;
+
+	// Snapshot of actors-to-ignore taken at OnBeginPlay (resolved from
+	// `ActorTypesToIgnore` via GetAllActorsOfClass). Stored as
+	// TWeakObjectPtr — across the multi-frame lifetime of a transition the
+	// ignored actors can be destroyed / GC'd, and a raw cached `AActor*`
+	// would dangle. The runtime trace API needs a `TArray<AActor*>`, so
+	// `ResolvedActorsToIgnore` is rebuilt from the weak snapshot each
+	// Evaluate (cheap — typical N is a handful, no hot-path alloc since
+	// the array reuses its capacity across frames).
+	TArray<TWeakObjectPtr<AActor>> ActorsToIgnoreWeak;
+	TArray<AActor*> ResolvedActorsToIgnore;
+
 	EDrawDebugTrace::Type DrawDebugType;
 };

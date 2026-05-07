@@ -26,6 +26,13 @@ class COMPOSABLECAMERASYSTEM_API UComposableCameraModifierManager : public UObje
 	GENERATED_BODY()
 
 public:
+	// FModifierEntry holds raw UObject* (Modifier / Asset) inside a non-reflected
+	// nested TMap. Without this override the GC would not see those references —
+	// callers that pass a transiently-rooted asset to AddModifier would see it
+	// collected and the next UpdateEffectiveModifiers / ApplyModifiers would
+	// dereference a dangling pointer.
+	static void AddReferencedObjects(UObject* InThis, FReferenceCollector& Collector);
+
 	void AddModifier(UComposableCameraNodeModifierDataAsset* ModifierAsset);
 	void RemoveModifier(UComposableCameraNodeModifierDataAsset* ModifierAsset);
 	

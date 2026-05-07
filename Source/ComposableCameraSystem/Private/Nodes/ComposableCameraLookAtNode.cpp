@@ -28,17 +28,36 @@ void UComposableCameraLookAtNode::OnInitialize_Implementation()
 
 	Interpolator_T = IsValid(SoftLookAtInterpolator) ? SoftLookAtInterpolator->BuildRotatorInterpolator() : nullptr;
 
-	if (LookAtType == EComposableCameraLookAtType::ByActor)
+	// Don't resolve the SkelMesh component here — LookAtActor can be driven
+	// by an input pin and change every frame. Resolution happens lazily in
+	// Tick when the active LookAtActor differs from `LastResolvedLookAtActor`.
+	SkeletalMeshComponentForLookAtActor.Reset();
+	LastResolvedLookAtActor.Reset();
+}
+
+namespace
+{
+	// Lazy-resolve the SkelMesh on `Actor` only when it differs from what the
+	// cache last resolved against. Keeps Tick allocation-free in the common
+	// case (LookAtActor stable across frames) while still picking up actor
+	// swaps and component churn.
+	static void ResolveSkelMeshForLookAtActor(
+		AActor* Actor,
+		TWeakObjectPtr<USkeletalMeshComponent>& InOutSkelMesh,
+		TWeakObjectPtr<AActor>& InOutLastResolvedActor)
 	{
-		if (!LookAtActor)
+		if (!IsValid(Actor))
 		{
+			InOutSkelMesh.Reset();
+			InOutLastResolvedActor.Reset();
 			return;
 		}
-		
-		if (USkeletalMeshComponent* Comp = LookAtActor->GetComponentByClass<USkeletalMeshComponent>())
+		if (InOutLastResolvedActor.Get() == Actor && InOutSkelMesh.IsValid())
 		{
-			SkeletalMeshComponentForLookAtActor = Comp;
+			return; // cache hit
 		}
+		InOutLastResolvedActor = Actor;
+		InOutSkelMesh = Actor->GetComponentByClass<USkeletalMeshComponent>();
 	}
 }
 
@@ -46,18 +65,23 @@ void UComposableCameraLookAtNode::OnTickNode_Implementation(float DeltaTime,
 	const FComposableCameraPose& CurrentCameraPose, FComposableCameraPose& OutCameraPose)
 {
 	FVector CurrentLookAtPosition = FVector::ZeroVector;
-	
+
 	if (LookAtType == EComposableCameraLookAtType::ByPosition)
 	{
 		CurrentLookAtPosition = LookAtPosition;
 	}
 	else if (LookAtType == EComposableCameraLookAtType::ByActor)
 	{
-		if (SkeletalMeshComponentForLookAtActor && SkeletalMeshComponentForLookAtActor->DoesSocketExist(LookAtSocket))
+		// LookAtActor may have just been written by ResolveAllInputPins;
+		// re-resolve the cached SkelMesh whenever the active actor changed.
+		ResolveSkelMeshForLookAtActor(LookAtActor, SkeletalMeshComponentForLookAtActor, LastResolvedLookAtActor);
+
+		USkeletalMeshComponent* Comp = SkeletalMeshComponentForLookAtActor.Get();
+		if (IsValid(Comp) && Comp->DoesSocketExist(LookAtSocket))
 		{
-			CurrentLookAtPosition = SkeletalMeshComponentForLookAtActor->GetSocketLocation(LookAtSocket);
+			CurrentLookAtPosition = Comp->GetSocketLocation(LookAtSocket);
 		}
-		else if (LookAtActor)
+		else if (IsValid(LookAtActor))
 		{
 			CurrentLookAtPosition = LookAtActor->GetActorLocation();
 		}
@@ -124,11 +148,12 @@ void UComposableCameraLookAtNode::DrawNodeDebug(UWorld* World, bool bViewerIsOut
 	}
 	else if (LookAtType == EComposableCameraLookAtType::ByActor)
 	{
-		if (SkeletalMeshComponentForLookAtActor && SkeletalMeshComponentForLookAtActor->DoesSocketExist(LookAtSocket))
+		USkeletalMeshComponent* Comp = SkeletalMeshComponentForLookAtActor.Get();
+		if (IsValid(Comp) && Comp->DoesSocketExist(LookAtSocket))
 		{
-			TargetPosition = SkeletalMeshComponentForLookAtActor->GetSocketLocation(LookAtSocket);
+			TargetPosition = Comp->GetSocketLocation(LookAtSocket);
 		}
-		else if (LookAtActor)
+		else if (IsValid(LookAtActor))
 		{
 			TargetPosition = LookAtActor->GetActorLocation();
 		}

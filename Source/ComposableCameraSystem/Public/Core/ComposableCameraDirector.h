@@ -159,6 +159,13 @@ public:
 	 *  the stack knows its own structure. */
 	void BuildDebugSnapshot(FComposableCameraContextSnapshot& OutSnapshot) const;
 
+	/** Walk UObject references inside the non-UPROPERTY cached poses
+	 *  `LastEvaluatedPose` / `PreviousEvaluatedPose`. Both poses' embedded
+	 *  `FPostProcessSettings` carries TObjectPtr references to materials /
+	 *  textures / WeightedBlendables that would otherwise be GC-blind here
+	 *  (the poses are not reflected fields on this UObject). */
+	static void AddReferencedObjects(UObject* InThis, FReferenceCollector& Collector);
+
 private:
 	UPROPERTY(Transient)
 	UComposableCameraEvaluationTree* EvaluationTree { nullptr };

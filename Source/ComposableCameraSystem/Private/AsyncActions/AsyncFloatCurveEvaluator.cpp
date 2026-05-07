@@ -31,16 +31,27 @@ TStatId UAsyncFloatCurveEvaluator::GetStatId() const
 
 bool UAsyncFloatCurveEvaluator::IsTickable() const
 {
-	return bShouldTick;
+	// FTickableGameObject ticks every registered object including the CDO and
+	// archetype templates. Without these guards the CDO would enter Tick with
+	// Curve == nullptr, fire OnComplete on whatever delegates the CDO has and
+	// call SetReadyToDestroy on a class default — undefined behaviour.
+	// bShouldTick is also gated false until the factory has finished assigning
+	// Curve / Duration so a partially-initialised instance is never ticked.
+	return bShouldTick
+		&& !IsTemplate()
+		&& !HasAnyFlags(RF_BeginDestroyed | RF_FinishDestroyed)
+		&& !IsUnreachable();
 }
 
 UAsyncFloatCurveEvaluator* UAsyncFloatCurveEvaluator::AsyncFloatCurveEvaluator(UObject* WorldContextObject,
                                                                                UCurveFloat* Curve, float Duration)
 {
 	UAsyncFloatCurveEvaluator* Action = NewObject<UAsyncFloatCurveEvaluator>();
-	
+
 	Action->RegisterWithGameInstance(WorldContextObject);
 	Action->Curve = Curve;
 	Action->Duration = Duration;
+	// Flip last so IsTickable cannot return true on a half-constructed action.
+	Action->bShouldTick = true;
 	return Action;
 }

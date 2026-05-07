@@ -68,7 +68,7 @@ public:
 	TSubclassOf<UComposableCameraCameraNodeBase> TargetNodeClass;
 
 	// How will this action get expired.
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, meta = (Bitmask, BitmaskEnum = EComposableCameraActionExpirationType))
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, meta = (Bitmask, BitmaskEnum = "/Script/ComposableCameraSystem.EComposableCameraActionExpirationType"))
 	uint8 ExpirationType { static_cast<uint8>(EComposableCameraActionExpirationType::Duration | EComposableCameraActionExpirationType::Condition) };
 	
 	// Duration if this action expiration type is Duration. If <=0, this action will not be added.

@@ -306,6 +306,14 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "ComposableCameraSystem|Composable Camera")
 	FGameplayTag CameraTag {};
 
+	/** Cached `CameraTag.ToString()` populated once at Initialize and reused
+	 *  by per-tick `TRACE_CPUPROFILER_EVENT_SCOPE_STR` so the dynamic Insights
+	 *  scope name doesn't allocate an FString per tick. CameraTag is
+	 *  EditDefaultsOnly so the cache is stable across the camera's lifetime
+	 *  — repopulated only on Initialize (in case the runtime mutates the
+	 *  tag before construction completes). */
+	FString CameraTagTraceName;
+
 	/** Enter transition. Usually used for returning back to this camera from a transient camera. */
 	UPROPERTY(EditDefaultsOnly, Instanced, Category = "ComposableCameraSystem|Composable Camera")
 	UComposableCameraTransitionBase* EnterTransition;
@@ -626,9 +634,25 @@ public:
 	 * Stored so that ReactivateCurrentCamera (triggered by modifier changes)
 	 * can fully reconstruct the camera from the same source asset instead of
 	 * producing an empty shell.
+	 *
+	 * STRONG ref by design (not weak). Reactivation routes through
+	 * `OnTypeAssetCameraConstructed`, which dereferences this to walk the
+	 * type asset's NodeTemplates / ExposedParameters / FullExecChain. If
+	 * the asset was originally loaded transiently — soft path resolved
+	 * mid-frame, DataTable row asset, BP local that already went out of
+	 * scope — the only remaining reference at activation time may be this
+	 * one. A weak ref would let GC reclaim the asset between activation
+	 * and a later modifier-triggered Reactivate, the `.Get()` would return
+	 * null, and the new camera would be built as an empty shell with no
+	 * nodes / no data block (silent regression, no crash). The strong
+	 * ref's only cost is keeping the type asset alive for the camera's
+	 * lifetime — acceptable because (a) type assets are small metadata,
+	 * (b) the camera owns this anyway in spirit (it can't function
+	 * without it), and (c) the field is `Transient` so save / load is
+	 * unaffected.
 	 */
 	UPROPERTY(Transient)
-	TWeakObjectPtr<UComposableCameraTypeAsset> SourceTypeAsset;
+	TObjectPtr<UComposableCameraTypeAsset> SourceTypeAsset;
 
 	/**
 	 * The parameter block that was applied when this camera was activated

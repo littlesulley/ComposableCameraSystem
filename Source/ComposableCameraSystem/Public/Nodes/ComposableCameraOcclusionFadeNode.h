@@ -5,6 +5,7 @@
 #include "CoreMinimal.h"
 #include "ComposableCameraCameraNodeBase.h"
 #include "Engine/EngineTypes.h"
+#include "Engine/OverlapResult.h"
 #include "Templates/SubclassOf.h"
 #include "UObject/WeakObjectPtr.h"
 #include "WorldCollision.h"
@@ -229,6 +230,29 @@ private:
 	/** Cached camera position resolved this tick — same reason. */
 	FVector LastCameraPosition { FVector::ZeroVector };
 
+	// ─── Per-tick scratch buffers (hot-path no-alloc steady state) ────────
+	//
+	// OnTickNode previously declared `TSet<UPrimitiveComponent*>` and
+	// `TArray<FOverlapResult>` locals plus a per-actor `TArray<UPrimitive
+	// Component*>` and called `Reserve(N)` on each — every Reserve hits the
+	// allocator on first call, and node-enabled = hot path. Member-scoping
+	// the buffers amortises the initial allocation across activations and
+	// keeps capacity hot in the steady state. The per-actor PrimComps array
+	// stays function-local but uses TInlineAllocator<8> so the typical
+	// pawn-with-a-handful-of-mesh-components case never touches the heap.
+	//
+	// Lifetime contract (matches PCM::CameraActionsRemovalScratch in
+	// PlayerCameraManager.h): these scratches are intentionally NOT
+	// UPROPERTY and NOT TWeakObjectPtr — raw `UPrimitiveComponent*` entries
+	// are valid WITHIN a single OnTickNode call but MUST NOT span GC
+	// sweeps. `Reset()` runs both at the top and at the bottom of
+	// OnTickNode so no stale raw pointers ever live across frames.
+	// ProximityOverlapsScratch holds FOverlapResult which uses
+	// TWeakObjectPtr internally and is GC-safe by itself, but is reset
+	// the same way for symmetry.
+	TSet<UPrimitiveComponent*> DesiredFadedScratch;
+	TArray<FOverlapResult> ProximityOverlapsScratch;
+
 	// ─── Helpers ──────────────────────────────────────────────────────────
 
 	/** Resolve the target world location from PivotActor + BoneName / PivotZOffset.
@@ -244,8 +268,10 @@ private:
 	void SubmitOcclusionSweep(UWorld* World, const FVector& CameraPos, const FVector& TargetPos);
 
 	/** Run the synchronous proximity overlap at the camera position, collect
-	 *  all fadable components on matching actors into OutFadableComponents. */
-	void RunProximityQuery(UWorld* World, const FVector& CameraPos, TSet<UPrimitiveComponent*>& OutFadableComponents) const;
+	 *  all fadable components on matching actors into OutFadableComponents.
+	 *  Non-const because it writes to ProximityOverlapsScratch, the per-tick
+	 *  member-scoped scratch buffer (see hot-path allocation note in §7.1). */
+	void RunProximityQuery(UWorld* World, const FVector& CameraPos, TSet<UPrimitiveComponent*>& OutFadableComponents);
 
 	/** Whether this primitive passes the mesh-type + component-tag filters.
 	 *  OccluderContext toggles the component-tag check (proximity fade does

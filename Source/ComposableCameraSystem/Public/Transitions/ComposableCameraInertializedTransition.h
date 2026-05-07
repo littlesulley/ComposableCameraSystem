@@ -128,9 +128,9 @@ public:
 
 	FVector Evaluate(float BlendDuration, FVector TargetLocation)
 	{
-		float NewLength = Poly.Evaluate(BlendDuration);
-		
-		UKismetSystemLibrary::PrintString(GEngine->GetWorld(), "_InitialLength is: " + FString::SanitizeFloat(_InitialLength) + " _InitialDirection is: " + _InitialDirection.ToString() + " NewLength is: " + FString::SanitizeFloat(NewLength));
+		// Hot path — every active transition calls this each tick. Stray
+		// PrintString / FString-concat / GEngine-deref calls go here.
+		const float NewLength = Poly.Evaluate(BlendDuration);
 		return NewLength * _InitialDirection + TargetLocation;
 	}
 

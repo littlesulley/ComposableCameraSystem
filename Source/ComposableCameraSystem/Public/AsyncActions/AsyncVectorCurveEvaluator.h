@@ -41,5 +41,9 @@ protected:
 	float Duration { 0.f };
 	float ElapsedTime { 0.f };
 
-	bool bShouldTick { true };
+	// Default OFF. The factory flips this to true only after Curve / Duration
+	// have been assigned and the action is fully constructed, so a CDO / template
+	// or partially-initialised instance is never tickable. See IsTickable for
+	// the matching template / lifecycle guards.
+	bool bShouldTick { false };
 };

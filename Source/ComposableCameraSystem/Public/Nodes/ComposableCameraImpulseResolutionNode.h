@@ -29,15 +29,8 @@ public:
 	virtual void GetPinDeclarations_Implementation(TArray<FComposableCameraNodePinDeclaration>& OutPins) const override;
 
 public:
-	void AddImpulseShape(AActor* Shape)
-	{
-		ImpulseShapes.AddUnique(Shape);	
-	}
-
-	void RemoveImpulseShape(AActor* Shape)
-	{
-		ImpulseShapes.Remove(Shape);
-	}
+	void AddImpulseShape(AActor* Shape);
+	void RemoveImpulseShape(AActor* Shape);
 
 public:
 	// Controls how fast the camera moves.
@@ -51,9 +44,18 @@ public:
 private:
 	UPROPERTY()
 	TObjectPtr<USphereComponent> Sphere;
-	
-	UPROPERTY()
-	TArray<TScriptInterface<IComposableCameraImpulseShapeInterface>> ImpulseShapes;
+
+	// Weak refs by design — the previous strong `TScriptInterface` array kept
+	// destroyed actors alive whenever the corresponding `EndOverlap` event was
+	// missed (actor PendingKill, level-streamed-out, or the overlap component
+	// was destroyed before broadcasting). The weak form lets each entry self-
+	// invalidate on actor destruction; OnTickNode resolves + prunes stale
+	// entries before calling the interface, and AddImpulseShape validates
+	// that the actor implements `IComposableCameraImpulseShapeInterface`
+	// before storing — a non-implementing actor passed in by mistake is
+	// rejected at Add-time rather than dispatched against a null interface
+	// vtable at Tick-time.
+	TArray<TWeakObjectPtr<AActor>> ImpulseShapeActors;
 
 	FVector OldVelocity { FVector::ZeroVector };
 	TUniquePtr<TCameraInterpolator<TValueTypeWrapper<FVector>>> Interpolator_T;

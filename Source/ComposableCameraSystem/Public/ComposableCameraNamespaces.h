@@ -11,8 +11,11 @@ namespace ComposableCameraModifier
 	
 	struct FModifierEntry
 	{
-		UComposableCameraModifierBase* Modifier;
-		UComposableCameraNodeModifierDataAsset* Asset;
+		// TObjectPtr (not raw UObject*) so the new FReferenceCollector::AddReferencedObject
+		// overload accepts these fields directly — the raw-pointer overload is now
+		// deprecated under incremental GC and emits C4996.
+		TObjectPtr<UComposableCameraModifierBase> Modifier;
+		TObjectPtr<UComposableCameraNodeModifierDataAsset> Asset;
 
 		bool operator==(const FModifierEntry& Other) const
 		{

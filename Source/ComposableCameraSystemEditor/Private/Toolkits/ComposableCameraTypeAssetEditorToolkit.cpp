@@ -129,6 +129,23 @@ FComposableCameraTypeAssetEditorToolkit::~FComposableCameraTypeAssetEditorToolki
 		}
 		NodeGraph->RemoveFromRoot();
 	}
+
+	// Unbind the AddRaw(this) hook on NodeDetailsView's property-changed
+	// delegate. Without this, the details widget — which Slate's deferred
+	// deletion can keep alive past this destructor — would fire the
+	// delegate against a freed `this` on the next property edit. Belt-and-
+	// braces: try the saved handle path first; fall back to RemoveAll(this)
+	// in case the handle was somehow lost (e.g. NodeDetailsView was reset
+	// and re-created without us re-saving the handle).
+	if (NodeDetailsView.IsValid())
+	{
+		if (NodeDetailsPropertyChangedHandle.IsValid())
+		{
+			NodeDetailsView->OnFinishedChangingProperties().Remove(NodeDetailsPropertyChangedHandle);
+			NodeDetailsPropertyChangedHandle.Reset();
+		}
+		NodeDetailsView->OnFinishedChangingProperties().RemoveAll(this);
+	}
 }
 
 void FComposableCameraTypeAssetEditorToolkit::SetTypeAsset(UComposableCameraTypeAsset* InTypeAsset)
@@ -267,7 +284,7 @@ void FComposableCameraTypeAssetEditorToolkit::CreateWidgets()
 	// asset so we can refresh any Get/Set variable graph nodes that reference
 	// the affected variable (Issue 2 — variable rename/retype doesn't propagate
 	// to existing variable graph nodes).
-	NodeDetailsView->OnFinishedChangingProperties().AddRaw(
+	NodeDetailsPropertyChangedHandle = NodeDetailsView->OnFinishedChangingProperties().AddRaw(
 		this, &FComposableCameraTypeAssetEditorToolkit::OnTypeAssetPropertyChanged);
 
 	// Set the type asset as the initial details object.

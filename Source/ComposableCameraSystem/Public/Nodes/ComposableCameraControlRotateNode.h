@@ -6,7 +6,8 @@
 #include "ComposableCameraCameraNodeBase.h"
 #include "ComposableCameraControlRotateNode.generated.h"
 
-struct FEnhancedInputActionValueBinding;
+class UEnhancedInputComponent;
+class UInputAction;
 
 /**
  * Node for receiving user input and applying it to camera rotation. \n
@@ -67,8 +68,32 @@ public:
 private:
 	void ApplyAcceleration(float DeltaTime, const FVector2D& Damping, double& ThisFrameRotationInput, const double& LastFrameRotationInput);
 
-	UEnhancedInputComponent* InputComponent;
-	FEnhancedInputActionValueBinding* InputBinding;
+	// Make sure the (pin-driven) RotationInputActor's EnhancedInputComponent
+	// has a value-binding registered for RotateAction. Called from OnTickNode
+	// because RotationInputActor is an input pin and is auto-resolved per frame —
+	// resolving once in OnInitialize would (a) read the pre-pin-resolution
+	// default value and (b) leave us bound to a stale actor if the pin is
+	// later wired to a different one or the original actor is destroyed.
+	//
+	// Does NOT cache the FEnhancedInputActionValueBinding* returned by
+	// BindActionValue. That pointer aliases an entry inside
+	// UEnhancedInputComponent::EnhancedActionValueBindings — a
+	// TArray<FEnhancedInputActionValueBinding> stored by-value, so any other
+	// BindActionValue call on the same component (BP node, gameplay code,
+	// another camera node sharing the actor) can reallocate the array and
+	// dangle our pointer with no signal. Read the value at tick time via
+	// EIC->GetBoundActionValue(RotateAction) instead — it does a linear
+	// search that is safe across reallocations and cheap for the handful of
+	// bindings a typical InputComponent holds.
+	void EnsureInputBinding();
+
+	// Weak refs let us detect actor / component destruction across frames
+	// without keeping the input owner alive ourselves, and let us notice
+	// pin-driven actor / action swaps so we can rebind on the new owner.
+	TWeakObjectPtr<UEnhancedInputComponent> CachedInputComponent;
+	TWeakObjectPtr<AActor> LastBoundInputActor;
+	TWeakObjectPtr<UInputAction> LastBoundAction;
+
 	FVector2D LastFrameCameraRotationInput;
 };
 

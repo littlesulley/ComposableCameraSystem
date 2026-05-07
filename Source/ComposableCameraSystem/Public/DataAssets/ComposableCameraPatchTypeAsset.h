@@ -56,7 +56,7 @@ public:
 	 *  Per-AddPatch override always wins when non-zero (no sentinel — bitmask of 0 from
 	 *  the caller is treated as "use asset default"). */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Patch|Lifetime",
-		meta = (Bitmask, BitmaskEnum = EComposableCameraPatchExpirationType))
+		meta = (Bitmask, BitmaskEnum = "/Script/ComposableCameraSystem.EComposableCameraPatchExpirationType"))
 	uint8 DefaultExpirationType = static_cast<uint8>(EComposableCameraPatchExpirationType::Duration);
 
 	/** Default duration in seconds for the Duration expiration channel. Used when

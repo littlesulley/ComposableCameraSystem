@@ -172,6 +172,17 @@ private:
 	/** Details panel for selected node properties. */
 	TSharedPtr<IDetailsView> NodeDetailsView;
 
+	/** Handle to `NodeDetailsView->OnFinishedChangingProperties().AddRaw(this, …)`.
+	 *  The details view is a Slate widget held by the property tree;
+	 *  Slate's deferred deletion can keep it alive at least one tick past
+	 *  the toolkit's destruction (tab close → toolkit dtor runs while
+	 *  the widget is still scheduled for deletion). A property edit on
+	 *  that surviving widget would then fire the delegate against a
+	 *  freed `this`. The destructor calls
+	 *  `NodeDetailsView->OnFinishedChangingProperties().Remove(handle)`
+	 *  to break the binding before `this` goes away. */
+	FDelegateHandle NodeDetailsPropertyChangedHandle;
+
 	/** Delegate handle for graph change notification cleanup. */
 	FDelegateHandle GraphChangedDelegateHandle;
 

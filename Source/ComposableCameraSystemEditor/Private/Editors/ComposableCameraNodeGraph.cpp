@@ -62,7 +62,11 @@ void UComposableCameraNodeGraph::BuildVariableLookup(
 			}
 			FVariableLookupInfo Info;
 			Info.Name = Var.VariableName;
-			Info.SlotSize = GetPinTypeSize(Var.VariableType, Var.StructType);
+			// GetVariableSlotSize returns FComposableCameraExecEntry::StructSlotSentinel
+			// for non-POD struct variables so the runtime CopySlot dispatch can route
+			// to StructSlots; plain GetPinTypeSize would return 0 here and the runtime
+			// SetVariable handler's `<= 0` early-out would silently swallow every write.
+			Info.SlotSize = GetVariableSlotSize(Var.VariableType, Var.StructType);
 			OutLookup.Add(Var.VariableGuid, Info);
 		}
 	};
@@ -79,7 +83,7 @@ void UComposableCameraNodeGraph::BuildVariableLookup(
 		}
 		FVariableLookupInfo Info;
 		Info.Name = Var.VariableName;
-		Info.SlotSize = GetPinTypeSize(Var.VariableType, Var.StructType);
+		Info.SlotSize = GetVariableSlotSize(Var.VariableType, Var.StructType);
 		OutLookup.Add(Var.VariableGuid, Info);
 	}
 }

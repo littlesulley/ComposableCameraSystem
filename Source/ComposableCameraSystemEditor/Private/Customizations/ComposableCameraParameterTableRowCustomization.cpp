@@ -1060,21 +1060,56 @@ TSharedRef<SWidget> FComposableCameraParameterTableRowCustomization::BuildStruct
 		PropertyModule.CreateStructureDetailView(ViewArgs, StructViewArgs, StructScope);
 
 	// Serialize back to the Values map whenever the user edits a property.
+	//
+	// CRITICAL: never capture `this`. The IStructureDetailsView's internally
+	// retained widget tree + Slate's deferred deletion can keep this delegate
+	// alive past the customization being rebuilt (when the row's parameter
+	// list shape changes, when the parent details panel refreshes, etc.).
+	// A `[this, …]` capture would dereference freed `WrapperPropertyHandle` /
+	// `ValuesHandle` members on the next user edit. Inline the equivalent of
+	// `SetParameterString` using only weak / strong captures of the handles
+	// the operation actually needs — `InternalVariableCustomization` already
+	// follows this pattern (see TechDoc §7.2 "Editor lambdas attached to
+	// long-lived widgets…").
+	TWeakPtr<FStructOnScope> WeakScope = StructScope;
+	TSharedPtr<IPropertyHandle> CapturedWrapperHandle = WrapperPropertyHandle;
+	TSharedPtr<IPropertyHandle> CapturedValuesHandle = ValuesHandle;
 	StructView->GetOnFinishedChangingPropertiesDelegate().AddLambda(
-		[this, ParameterName, StructScope, InStructType](const FPropertyChangedEvent&)
+		[WeakScope, CapturedWrapperHandle, CapturedValuesHandle, ParameterName, InStructType](const FPropertyChangedEvent&)
 		{
-			if (StructScope.IsValid())
+			TSharedPtr<FStructOnScope> ScopePinned = WeakScope.Pin();
+			if (!ScopePinned.IsValid()
+				|| !CapturedWrapperHandle.IsValid() || !CapturedWrapperHandle->IsValidHandle()
+				|| !CapturedValuesHandle.IsValid()  || !CapturedValuesHandle->IsValidHandle())
 			{
-				FString NewValue;
-				InStructType->ExportText(
-					NewValue,
-					StructScope->GetStructMemory(),
-					/*Defaults=*/ nullptr,
-					/*OwnerObject=*/ nullptr,
-					PPF_None,
-					/*ExportRootScope=*/ nullptr);
-				SetParameterString(ParameterName, NewValue);
+				return;
 			}
+
+			// Resolve the wrapper raw ptr inline (mirrors GetWrapperPtr) so we
+			// don't reach back through `this`.
+			TArray<void*> RawData;
+			CapturedWrapperHandle->AccessRawData(RawData);
+			if (RawData.Num() != 1 || RawData[0] == nullptr)
+			{
+				return;
+			}
+			FComposableCameraExposedParameterValues* Wrapper =
+				static_cast<FComposableCameraExposedParameterValues*>(RawData[0]);
+
+			FString NewValue;
+			InStructType->ExportText(
+				NewValue,
+				ScopePinned->GetStructMemory(),
+				/*Defaults=*/ nullptr,
+				/*OwnerObject=*/ nullptr,
+				PPF_None,
+				/*ExportRootScope=*/ nullptr);
+
+			FScopedTransaction Transaction(LOCTEXT("EditParameterValue_Typed_Struct", "Edit Parameter Value"));
+			CapturedValuesHandle->NotifyPreChange();
+			Wrapper->Values.FindOrAdd(ParameterName) = NewValue;
+			CapturedValuesHandle->NotifyPostChange(EPropertyChangeType::ValueSet);
+			CapturedValuesHandle->NotifyFinishedChangingProperties();
 		});
 
 	// Keep the scope and view alive for the lifetime of this customization rebuild.

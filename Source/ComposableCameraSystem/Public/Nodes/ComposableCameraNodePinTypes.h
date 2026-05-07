@@ -409,9 +409,24 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraExecEntry
 	/** Byte size of the variable's data slot. Pre-computed from the variable's
 	 *  EComposableCameraPinType at sync time so the runtime can do a raw memcpy
 	 *  from the source output pin offset to the variable offset without a
-	 *  type-dispatch. Used when EntryType == SetVariable. */
+	 *  type-dispatch. Used when EntryType == SetVariable.
+	 *
+	 *  Sentinel value `StructSlotSentinel` (`TNumericLimits<int32>::Max()`)
+	 *  means "the variable is a non-POD struct — its slot lives in the
+	 *  RuntimeDataBlock's `StructSlots` pool, not the byte `Storage` pool, so
+	 *  the byte-size value does not apply". The runtime SetVariable handler
+	 *  passes this verbatim into `RuntimeDataBlock::CopySlot`, which dispatches
+	 *  on the source/target offsets' storage class (struct slot vs Storage) and
+	 *  ignores the size argument when the struct branch fires. The non-zero
+	 *  sentinel is required so the existing `<= 0` early-out in the runtime
+	 *  handler (which guards against editor failures setting size=0 for POD
+	 *  variables) does not silently swallow non-POD struct writes. */
 	UPROPERTY()
 	int32 VariableSlotSize = 0;
+
+	/** Sentinel for `VariableSlotSize` indicating "this variable lives in
+	 *  RuntimeDataBlock::StructSlots" — see field doc above. */
+	static constexpr int32 StructSlotSentinel = TNumericLimits<int32>::Max();
 };
 
 /**
@@ -453,16 +468,46 @@ struct FComposableCameraPinKey
  *   - ApplyStringValue (string -> struct import path)
  *   - UComposableCameraTypeAsset::Build (authoring-time validation)
  *
- * Decision logic:
- *   1. STRUCT_IsPlainOldData flag set -> safe (UHT / TStructOpsTypeTraits opted in).
- *   2. Walk every UPROPERTY of the struct. Reject on FStr / FText / containers /
- *      object refs / interfaces / delegates -- all carry heap-owned storage or
- *      GC-tracked references that cannot survive a raw byte copy.
- *   3. Recurse into nested FStructProperty.
- *   4. Everything else (Bool, numeric, Byte/Enum, Name, FieldPath) -> safe.
+ * Decision logic — strict whitelist, no reflection-layout heuristics:
+ *   1. Engine math fast-path (FVector / FRotator / FTransform / etc.) → safe.
+ *   2. `STRUCT_IsPlainOldData` flag set → safe (caller opted in via
+ *      `template<> struct TStructOpsTypeTraits<MyStruct> :
+ *       TStructOpsTypeTraitsBase2<MyStruct> { enum { WithIsPlainOldData = true }; };`).
+ *   3. Anything else → unsafe. Caller must route through `FInstancedStruct`
+ *      / the typed slot pool.
  *
- * Bounded by reflection nesting depth (UE structs cannot be circularly
- * self-containing); no cycle guard required.
+ * Why this is strict by design: a UPROPERTY-walk-and-validate approach (the
+ * previous implementation) cannot see non-UPROPERTY members. UE allows native
+ * C++ members in a USTRUCT body — `FString`, `TArray`, `UObject*`, custom
+ * dtors — that the reflection iterator skips entirely. Such members appearing
+ * as hidden leading / interior members shift visible-member offsets so the
+ * compiler-generated layout looks "consistent" through reflection eyes; even
+ * a trailing-padding sanity check fails to catch them when the hidden
+ * member's size is exactly absorbed by alignment slack. Concrete bite:
+ *
+ *   USTRUCT()
+ *   struct FBad
+ *   {
+ *       GENERATED_BODY();
+ *       UPROPERTY() float A;
+ *       FString Hidden;        // NOT UPROPERTY
+ *   };
+ *
+ * The previous walk reported `A` at offset 0 (size 4); trailing-padding
+ * sanity check passes if the struct's natural alignment (8 from FString)
+ * absorbs the FString into the padded end. Function returned true. Downstream
+ * memcpy'd FString bytes — shallow copy + dtor leak + GC blindness.
+ *
+ * The strict whitelist removes the entire failure surface: any user-defined
+ * USTRUCT that wants bytewise transport must explicitly opt into
+ * `STRUCT_IsPlainOldData` (a one-line trait template), confirming under the
+ * author's responsibility that the struct is genuinely POD. Everything else
+ * routes through `FInstancedStruct`, which uses `CopyScriptStruct` (per-
+ * property `operator=` via FProperty graph) and is correct for any USTRUCT
+ * regardless of hidden members. The cost is one extra heap allocation per
+ * non-POD slot at activation + slightly slower per-frame copy — both
+ * negligible for typical camera pin counts and dwarfed by the cost of
+ * silently-corrupt memcpy crashes the strict path prevents.
  */
 inline bool IsBytewiseSafeStruct(const UScriptStruct* Struct)
 {
@@ -472,7 +517,7 @@ inline bool IsBytewiseSafeStruct(const UScriptStruct* Struct)
 	}
 	// Fast-path the engine math structs and FFloatInterval. These are guaranteed
 	// POD by construction; calling them out explicitly bypasses any quirk in the
-	// reflection walk below (UE 5.6 LWC FVector / FRotator do not have
+	// flag-based check below (UE 5.6 LWC FVector / FRotator do not have
 	// STRUCT_IsPlainOldData set even though they're trivially copyable, and the
 	// TStructOpsTypeTraitsBase2<FVector>::WithCopy=true flag does not imply
 	// "non-POD" -- it just means there's a custom operator= which happens to be
@@ -486,33 +531,14 @@ inline bool IsBytewiseSafeStruct(const UScriptStruct* Struct)
 	{
 		return true;
 	}
-	if (Struct->StructFlags & STRUCT_IsPlainOldData)
-	{
-		return true;
-	}
-	for (TFieldIterator<FProperty> It(Struct); It; ++It)
-	{
-		const FProperty* P = *It;
-		if (!P)
-		{
-			continue;
-		}
-		if (P->IsA<FStrProperty>() || P->IsA<FTextProperty>()
-			|| P->IsA<FArrayProperty>() || P->IsA<FMapProperty>() || P->IsA<FSetProperty>()
-			|| P->IsA<FObjectPropertyBase>() || P->IsA<FInterfaceProperty>()
-			|| P->IsA<FDelegateProperty>() || P->IsA<FMulticastDelegateProperty>())
-		{
-			return false;
-		}
-		if (const FStructProperty* SP = CastField<FStructProperty>(P))
-		{
-			if (!IsBytewiseSafeStruct(SP->Struct))
-			{
-				return false;
-			}
-		}
-	}
-	return true;
+	// Strict opt-in. Any user-defined USTRUCT that wants bytewise transport
+	// must explicitly set WithIsPlainOldData=true in its TStructOpsTypeTraits
+	// specialization. Reflection-based heuristics deliberately removed —
+	// non-UPROPERTY members are invisible to the walk and the previous
+	// trailing-padding sanity check could not catch hidden interior or
+	// leading members. FInstancedStruct handles every other USTRUCT
+	// correctly via CopyScriptStruct.
+	return (Struct->StructFlags & STRUCT_IsPlainOldData) != 0;
 }
 
 /**
@@ -664,6 +690,36 @@ inline int32 GetPinTypeSize(EComposableCameraPinType PinType, UScriptStruct* Str
 	default:
 		return 0;
 	}
+}
+
+/**
+ * Resolve the value to store in `FComposableCameraExecEntry::VariableSlotSize`
+ * for a SetVariable exec entry whose target variable has the given (PinType,
+ * StructType).
+ *
+ * For POD pin types (including bytewise-safe USTRUCTs like FVector / FRotator
+ * / FTransform / user POD structs), returns the byte size to copy at runtime.
+ *
+ * For non-POD struct pin types, returns `FComposableCameraExecEntry::StructSlotSentinel`.
+ * Returning 0 here would cause the runtime SetVariable handler's `<= 0` early
+ * out to silently skip every Set on a non-POD struct variable. The sentinel
+ * passes that gate; the runtime then routes to `RuntimeDataBlock::CopySlot`
+ * which dispatches on storage class via `IsStructSlotOffset` and ignores the
+ * byte-size argument when the struct branch fires.
+ *
+ * Used by editor-side exec-chain construction (`UComposableCameraNodeGraph::
+ * BuildVariableLookup`) so the same dispatch rule lands on every SetVariable
+ * entry regardless of which graph phase recorded it.
+ */
+inline int32 GetVariableSlotSize(EComposableCameraPinType PinType, UScriptStruct* StructType = nullptr)
+{
+	if (PinType == EComposableCameraPinType::Struct
+		&& StructType != nullptr
+		&& !IsBytewiseSafeStruct(StructType))
+	{
+		return FComposableCameraExecEntry::StructSlotSentinel;
+	}
+	return GetPinTypeSize(PinType, StructType);
 }
 
 /**

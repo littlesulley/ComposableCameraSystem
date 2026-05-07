@@ -89,16 +89,18 @@ void UComposableCameraOcclusionFadeNode::OnTickNode_Implementation(
 	LastResolvedTargetPoint = TargetPos;
 
 	// ── Gather this frame's desired-to-fade set from both detection paths.
-	// Reserve upfront: typical scenes produce ≤16 fadable primitives between
-	// the two paths combined, so 16 slots cover the common case with zero
-	// internal-bucket rehash. ──
-	TSet<UPrimitiveComponent*> DesiredFaded;
-	DesiredFaded.Reserve(16);
+	// DesiredFadedScratch is a member-scoped TSet — Reset on entry clears
+	// any leftover from a (defensive: shouldn't happen) prior abnormal
+	// exit, then Reserve to the empirical ≤16 steady-state size so the
+	// internal bucket array sits at full capacity from frame two onward.
+	// Reset (NOT Empty) keeps the existing allocation. ──
+	DesiredFadedScratch.Reset();
+	DesiredFadedScratch.Reserve(16);
 
 	// Scenario A: consume last frame's sweep and submit a fresh one.
 	if (bFadeOccluders && bHasTarget)
 	{
-		ConsumePendingSweep(World, DesiredFaded);
+		ConsumePendingSweep(World, DesiredFadedScratch);
 		SubmitOcclusionSweep(World, CameraPos, TargetPos);
 	}
 	else
@@ -111,7 +113,7 @@ void UComposableCameraOcclusionFadeNode::OnTickNode_Implementation(
 	// Scenario B: synchronous overlap at the camera position.
 	if (bFadeNearbyActors)
 	{
-		RunProximityQuery(World, CameraPos, DesiredFaded);
+		RunProximityQuery(World, CameraPos, DesiredFadedScratch);
 	}
 
 	// ── Delta against AppliedMaterialOverrides: restore components that left
@@ -120,16 +122,22 @@ void UComposableCameraOcclusionFadeNode::OnTickNode_Implementation(
 	for (int32 i = AppliedMaterialOverrides.Num() - 1; i >= 0; --i)
 	{
 		UPrimitiveComponent* Comp = AppliedMaterialOverrides[i].Component.Get();
-		if (!Comp || !DesiredFaded.Contains(Comp))
+		if (!Comp || !DesiredFadedScratch.Contains(Comp))
 		{
 			RestoreAndRemoveOverrideAt(i);
 		}
 	}
 
-	for (UPrimitiveComponent* Comp : DesiredFaded)
+	for (UPrimitiveComponent* Comp : DesiredFadedScratch)
 	{
 		ApplyOcclusionMaterial(Comp);
 	}
+
+	// ── End-of-tick clear — see lifetime contract on DesiredFadedScratch.
+	// Raw UPrimitiveComponent* entries must NOT live across a GC sweep;
+	// Reset() drops them while keeping the bucket-array allocation hot
+	// for the next tick.
+	DesiredFadedScratch.Reset();
 }
 
 bool UComposableCameraOcclusionFadeNode::ResolveTargetPoint(FVector& OutTargetPoint) const
@@ -238,14 +246,17 @@ void UComposableCameraOcclusionFadeNode::SubmitOcclusionSweep(
 }
 
 void UComposableCameraOcclusionFadeNode::RunProximityQuery(
-	UWorld* World, const FVector& CameraPos, TSet<UPrimitiveComponent*>& OutFadableComponents) const
+	UWorld* World, const FVector& CameraPos, TSet<UPrimitiveComponent*>& OutFadableComponents)
 {
 	// Default to APawn when the class is unset — matches the common
 	// "characters and NPCs" intent without requiring configuration.
 	const UClass* EffectiveClass = ProximityActorClass ? *ProximityActorClass : APawn::StaticClass();
 
-	TArray<FOverlapResult> Overlaps;
-	Overlaps.Reserve(8);  // typical nearby-pawn count is small; avoids realloc in the common case
+	// Member-scoped scratch — Reset (not Empty) keeps the array allocation
+	// hot across ticks. OverlapMultiByObjectType appends to OutOverlaps so
+	// we must clear before the call. FOverlapResult uses TWeakObjectPtr
+	// internally → GC-safe even if entries linger transiently.
+	ProximityOverlapsScratch.Reset();
 	const FCollisionShape Shape = FCollisionShape::MakeSphere(FMath::Max(ProximityRadius, 0.f));
 
 	// Use an object-type query on ECC_Pawn — that's what Pawn-derived actors
@@ -269,9 +280,9 @@ void UComposableCameraOcclusionFadeNode::RunProximityQuery(
 		}
 	}
 
-	World->OverlapMultiByObjectType(Overlaps, CameraPos, FQuat::Identity, ObjParams, Shape, QueryParams);
+	World->OverlapMultiByObjectType(ProximityOverlapsScratch, CameraPos, FQuat::Identity, ObjParams, Shape, QueryParams);
 
-	for (const FOverlapResult& Overlap : Overlaps)
+	for (const FOverlapResult& Overlap : ProximityOverlapsScratch)
 	{
 		AActor* HitActor = Overlap.GetActor();
 		if (!HitActor || !HitActor->IsA(EffectiveClass))
@@ -319,8 +330,11 @@ void UComposableCameraOcclusionFadeNode::CollectFadableComponentsOnActor(
 {
 	if (!Actor) { return; }
 
-	TArray<UPrimitiveComponent*> PrimComps;
-	PrimComps.Reserve(8);  // most pawns carry a handful of mesh components
+	// TInlineAllocator<8> stores the first 8 elements inline on the stack —
+	// most pawns carry a handful of mesh components, so the heap is never
+	// touched in the common case. AActor::GetComponents<T> accepts an
+	// allocator-templated TArray since UE 4.18.
+	TArray<UPrimitiveComponent*, TInlineAllocator<8>> PrimComps;
 	Actor->GetComponents<UPrimitiveComponent>(PrimComps);
 	for (UPrimitiveComponent* Comp : PrimComps)
 	{

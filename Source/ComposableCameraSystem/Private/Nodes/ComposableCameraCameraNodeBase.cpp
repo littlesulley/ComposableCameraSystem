@@ -6,6 +6,79 @@
 #include "Core/ComposableCameraRuntimeDataBlock.h"
 #include "ComposableCameraSystemModule.h"
 
+namespace
+{
+	/**
+	 * Verify that `V` (resolved from an Object/Actor pin's data block slot)
+	 * actually satisfies the target FObjectProperty's class constraint
+	 * before writing it through `SetObjectPropertyValue`. The auto-resolve
+	 * pipeline collapses every object-class pin into the generic Object /
+	 * Actor `EComposableCameraPinType` for storage, so the runtime data
+	 * block has no record of the original PropertyClass — a stale asset,
+	 * a hand-edited connection, or a BP wildcard mismatch could deliver,
+	 * say, a `UCurveVector` to a `TObjectPtr<UCurveFloat>` field. The raw
+	 * `SetObjectPropertyValue` writes any UObject*-shaped pointer into
+	 * the field's memory regardless of class; the next typed C++ access
+	 * (`GetCurrentValue` etc.) then reinterprets bytes of the wrong type
+	 * and crashes or corrupts state.
+	 *
+	 * Returns true if the assignment is type-safe and writes the value.
+	 * On a mismatch, logs once and writes nullptr (the field's documented
+	 * unset state) so the consumer's existing nullcheck path takes over
+	 * rather than seeing a wrong-class instance.
+	 */
+	static void AssignObjectPropertyChecked(
+		const FObjectPropertyBase* ObjectProp,
+		void* ValuePtr,
+		UObject* V,
+		const TCHAR* PinKind,
+		FName PinName)
+	{
+		UObject* WriteValue = IsValid(V) ? V : nullptr;
+		if (WriteValue && ObjectProp)
+		{
+			if (const FClassProperty* ClassProp = CastField<FClassProperty>(ObjectProp))
+			{
+				// FClassProperty stores a UClass*. The "class constraint"
+				// is `MetaClass` (the base class the stored UClass* must
+				// inherit from). `IsChildOf(nullptr)` returns true so an
+				// unset MetaClass means "any class".
+				UClass* AsClass = Cast<UClass>(WriteValue);
+				const bool bOk = AsClass
+					&& (!ClassProp->MetaClass || AsClass->IsChildOf(ClassProp->MetaClass));
+				if (!bOk)
+				{
+					UE_LOG(LogComposableCameraSystem, Warning,
+						TEXT("ResolveAllInputPins: %s pin '%s' got a class '%s' that does not derive from required '%s'. Writing nullptr."),
+						PinKind, *PinName.ToString(),
+						AsClass ? *AsClass->GetName() : TEXT("(non-class UObject)"),
+						ClassProp->MetaClass ? *ClassProp->MetaClass->GetName() : TEXT("UClass"));
+					WriteValue = nullptr;
+				}
+			}
+			else if (ObjectProp->PropertyClass && !WriteValue->IsA(ObjectProp->PropertyClass))
+			{
+				// Plain object-class constraint (FObjectProperty / Actor /
+				// soft-object base). `IsA` walks the runtime class chain;
+				// fails for sibling types or unrelated UObjects. Writing
+				// the wrong-class instance through SetObjectPropertyValue
+				// would corrupt the field — its consumers cast back to
+				// the typed pointer and dereference.
+				UE_LOG(LogComposableCameraSystem, Warning,
+					TEXT("ResolveAllInputPins: %s pin '%s' got a '%s' but field expects '%s'. Writing nullptr."),
+					PinKind, *PinName.ToString(),
+					*WriteValue->GetClass()->GetName(),
+					*ObjectProp->PropertyClass->GetName());
+				WriteValue = nullptr;
+			}
+		}
+		if (ObjectProp)
+		{
+			ObjectProp->SetObjectPropertyValue(ValuePtr, WriteValue);
+		}
+	}
+}
+
 namespace ComposableCameraSystem::Private
 {
 	/**
@@ -305,13 +378,19 @@ const FComposableCameraNodePinBindingTable& UComposableCameraCameraNodeBase::Get
 		Binding.EnumType = MappedEnum;
 		// BackingProperty is needed by the auto-resolve loop's runtime dispatch:
 		// Enum uses it to narrow-cast int64 storage into the actual property
-		// width (FByteProperty / FEnumProperty), and Struct uses it to look up
+		// width (FByteProperty / FEnumProperty); Struct uses it to look up
 		// the FStructProperty's UScriptStruct for CopyScriptStruct dispatch
-		// (POD bytes vs FInstancedStruct slot). Other types resolve via the
-		// templated TryResolveInputPin<T> path and don't need it.
+		// (POD bytes vs FInstancedStruct slot); Actor / Object use it as the
+		// FObjectPropertyBase to call SetObjectPropertyValue (TObjectPtr-
+		// correct write + GC-token bookkeeping; see the matching dispatch
+		// in ResolveAllInputPins). Other primitive types (Bool / Int32 /
+		// Float / Vector / etc.) resolve via the templated TryResolveInputPin<T>
+		// path and write directly through static_cast — no FProperty needed.
 		Binding.BackingProperty =
 			(MappedType == EComposableCameraPinType::Enum
-				|| MappedType == EComposableCameraPinType::Struct)
+				|| MappedType == EComposableCameraPinType::Struct
+				|| MappedType == EComposableCameraPinType::Actor
+				|| MappedType == EComposableCameraPinType::Object)
 				? *FoundProperty
 				: nullptr;
 		Binding.FieldOffset = (*FoundProperty)->GetOffset_ForInternal();
@@ -387,10 +466,27 @@ void UComposableCameraCameraNodeBase::ResolveAllInputPins()
 			break;
 		case EComposableCameraPinType::Actor:
 			{
+				// Route through FObjectPropertyBase::SetObjectPropertyValue
+				// instead of `*static_cast<AActor**>(ValuePtr) = V`. The field
+				// is declared `TObjectPtr<AActor>` per project rule; the
+				// TObjectPtr storage layout may differ from a raw `AActor*`
+				// in some engine configurations, and the GC integrity-token
+				// bookkeeping (UE_GC_TRACK_OBJ_AVAILABLE in dev builds)
+				// updates from inside SetObjectPropertyValue. A raw cast
+				// write skips both, producing false-positive GC warnings and
+				// (in TObjectPtr-instrumented builds) the wrong stored bytes.
+				//
+				// AssignObjectPropertyChecked also verifies V satisfies the
+				// FObjectProperty's PropertyClass constraint before writing
+				// — auto-resolve storage is class-erased to "Actor / Object",
+				// so wrong-class deliveries (stale asset, BP wildcard) would
+				// otherwise corrupt the typed field.
 				AActor* V = nullptr;
 				if (RuntimeDataBlock->TryResolveInputPin<AActor*>(RuntimeNodeIndex, Binding.PinName, V))
 				{
-					*static_cast<AActor**>(ValuePtr) = IsValid(V) ? V : nullptr;
+					AssignObjectPropertyChecked(
+						CastField<FObjectPropertyBase>(Binding.BackingProperty),
+						ValuePtr, V, TEXT("Actor"), Binding.PinName);
 				}
 			}
 			break;
@@ -399,7 +495,9 @@ void UComposableCameraCameraNodeBase::ResolveAllInputPins()
 				UObject* V = nullptr;
 				if (RuntimeDataBlock->TryResolveInputPin<UObject*>(RuntimeNodeIndex, Binding.PinName, V))
 				{
-					*static_cast<UObject**>(ValuePtr) = IsValid(V) ? V : nullptr;
+					AssignObjectPropertyChecked(
+						CastField<FObjectPropertyBase>(Binding.BackingProperty),
+						ValuePtr, V, TEXT("Object"), Binding.PinName);
 				}
 			}
 			break;
@@ -441,8 +539,18 @@ void UComposableCameraCameraNodeBase::ResolveAllInputPins()
 
 				if (RuntimeDataBlock->IsStructSlotOffset(Offset))
 				{
-					const FInstancedStruct& Slot = RuntimeDataBlock->GetStructSlotChecked(Offset);
-					if (Slot.IsValid() && Slot.GetScriptStruct() == StructProp->Struct)
+					// `TryGetStructSlot` over `GetStructSlotChecked`:
+					// the offset comes from `ResolveInputPinOffset` /
+					// the resolved pin source, which COULD be stale
+					// across a runtime layout edit; a wrong offset
+					// would otherwise hit Checked's fatal-error path
+					// in Shipping (or a `check()`-strip out-of-bounds
+					// read in old builds). Try-form fails-skip + the
+					// silent no-op below is the same degradation the
+					// templated `ReadValue<T>` path uses on shape
+					// mismatch.
+					if (const FInstancedStruct* Slot =
+						RuntimeDataBlock->TryGetStructSlot(Offset, StructProp->Struct))
 					{
 						// CopyScriptStruct iterates the struct's properties and
 						// invokes per-property operator= -- FString reuses its
@@ -450,7 +558,7 @@ void UComposableCameraCameraNodeBase::ResolveAllInputPins()
 						// per-frame steady state is no-alloc for stable values.
 						// First-tick or grow events allocate once; documented
 						// in TechDoc.md §7.2 alloc characteristic.
-						StructProp->Struct->CopyScriptStruct(ValuePtr, Slot.GetMemory());
+						StructProp->Struct->CopyScriptStruct(ValuePtr, Slot->GetMemory());
 					}
 				}
 				else
@@ -604,10 +712,16 @@ void UComposableCameraCameraNodeBase::ApplySubobjectPinValues(
 				AActor* V = nullptr;
 				if (RuntimeDataBlock->TryResolveInputPin<AActor*>(RuntimeNodeIndex, CompoundPinName, V))
 				{
-					// Validate before writing into the UPROPERTY — the data block
-					// stores pointers as type-erased bytes invisible to GC, so a
-					// destroyed actor leaves a dangling pointer rather than null.
-					*static_cast<AActor**>(ValuePtr) = IsValid(V) ? V : nullptr;
+					// Route through AssignObjectPropertyChecked for
+					// TObjectPtr-storage / GC-token correctness AND class
+					// constraint verification — see the matching comment in
+					// the top-level ResolveAllInputPins switch above.
+					// Property is the iterator's current FProperty (we're
+					// walking subobject members) so the typed accessor is
+					// already in hand.
+					AssignObjectPropertyChecked(
+						CastField<FObjectPropertyBase>(Property),
+						ValuePtr, V, TEXT("Subobject Actor"), CompoundPinName);
 				}
 			}
 			break;
@@ -616,7 +730,9 @@ void UComposableCameraCameraNodeBase::ApplySubobjectPinValues(
 				UObject* V = nullptr;
 				if (RuntimeDataBlock->TryResolveInputPin<UObject*>(RuntimeNodeIndex, CompoundPinName, V))
 				{
-					*static_cast<UObject**>(ValuePtr) = IsValid(V) ? V : nullptr;
+					AssignObjectPropertyChecked(
+						CastField<FObjectPropertyBase>(Property),
+						ValuePtr, V, TEXT("Subobject Object"), CompoundPinName);
 				}
 			}
 			break;
@@ -655,10 +771,12 @@ void UComposableCameraCameraNodeBase::ApplySubobjectPinValues(
 
 				if (RuntimeDataBlock->IsStructSlotOffset(Offset))
 				{
-					const FInstancedStruct& Slot = RuntimeDataBlock->GetStructSlotChecked(Offset);
-					if (Slot.IsValid() && Slot.GetScriptStruct() == StructProp->Struct)
+					// Try-form fails-skip on stale layout — see the
+					// matching call site above for rationale.
+					if (const FInstancedStruct* Slot =
+						RuntimeDataBlock->TryGetStructSlot(Offset, StructProp->Struct))
 					{
-						StructProp->Struct->CopyScriptStruct(ValuePtr, Slot.GetMemory());
+						StructProp->Struct->CopyScriptStruct(ValuePtr, Slot->GetMemory());
 					}
 				}
 				else

@@ -47,14 +47,24 @@ void UComposableCameraDynamicDeocclusionTransition::OnBeginPlay_Implementation(f
 	// transition-level gizmos are wanted back.
 	DrawDebugType = EDrawDebugTrace::None;
 
-	// Ignored actors.
-	for (TSoftClassPtr<AActor> ActorType: ActorTypesToIgnore)
+	// Ignored actors. Reset both arrays first so a re-used transition object
+	// (NewObject from a previous activation) doesn't accumulate entries
+	// across runs — the original code only `Append`'d, so a transition that
+	// was activated twice ended up with double + stale entries.
+	ActorsToIgnoreWeak.Reset();
+	ResolvedActorsToIgnore.Reset();
+
+	for (TSoftClassPtr<AActor> ActorType : ActorTypesToIgnore)
 	{
 		if (ActorType.IsValid())
 		{
 			TArray<AActor*> IgnoredActors;
 			UGameplayStatics::GetAllActorsOfClass(this, ActorType.Get(), IgnoredActors);
-			ActorsToIgnore.Append(IgnoredActors);
+			ActorsToIgnoreWeak.Reserve(ActorsToIgnoreWeak.Num() + IgnoredActors.Num());
+			for (AActor* Ignored : IgnoredActors)
+			{
+				ActorsToIgnoreWeak.Add(Ignored);
+			}
 		}
 	}
 }
@@ -64,14 +74,36 @@ FComposableCameraPose UComposableCameraDynamicDeocclusionTransition::OnEvaluate_
 {
 	if (!DrivingTransition)
 	{
+		// Returning a default-constructed `FComposableCameraPose{}` here would
+		// hand back zero position / identity rotation / default FOV (90°) /
+		// default projection — a hard snap to a black-frame-ish pose that
+		// looks like missing data, asset corruption, or init-failure error
+		// art. Hard-cutting to the target pose is the standard "transition
+		// ineffective" fallback and matches what `PathGuidedTransition`
+		// already does on its own missing-DrivingTransition guard. Keep the
+		// log so authoring incompletions still surface.
 		UE_LOG(LogComposableCameraSystem, Warning, TEXT("DrivingTransition is not valid in ComposableCameraDynamicDeocclusionTransition."));
-		return FComposableCameraPose{};
+		return CurrentTargetPose;
 	}
 
 	FComposableCameraPose BasePose = DrivingTransition->Evaluate(DeltaTime, CurrentSourcePose, CurrentTargetPose);
 	FComposableCameraPose CandidatePose = BasePose;
 	CandidatePose.Position = PreviousOffset + BasePose.Position;
 	FVector AggregateOffset = FVector::ZeroVector;
+
+	// Rebuild the raw ignore-list from the weak snapshot taken at
+	// OnBeginPlay — actors that have been destroyed during the transition
+	// drop out, the ones still alive flow through. `Reset` keeps the
+	// previously-allocated capacity so this is allocation-free in steady
+	// state.
+	ResolvedActorsToIgnore.Reset(ActorsToIgnoreWeak.Num());
+	for (const TWeakObjectPtr<AActor>& Weak : ActorsToIgnoreWeak)
+	{
+		if (AActor* Live = Weak.Get(); IsValid(Live))
+		{
+			ResolvedActorsToIgnore.Add(Live);
+		}
+	}
 
 	// For each feeler.
 	for (const auto& Feeler : Feelers)
@@ -87,7 +119,7 @@ FComposableCameraPose UComposableCameraDynamicDeocclusionTransition::OnEvaluate_
 			Feeler.Radius,
 			TraceChannel,
 			true,
-			ActorsToIgnore,
+			ResolvedActorsToIgnore,
 			DrawDebugType,
 			Hit,
 			true);
@@ -131,6 +163,16 @@ FComposableCameraPose UComposableCameraDynamicDeocclusionTransition::OnEvaluate_
 	PreviousOffset = AggregateOffset;
 
 	Percentage = DrivingTransition->GetPercentage();
+
+	// Drop raw AActor* pointers before returning. `ResolvedActorsToIgnore`
+	// is a non-UPROPERTY UObject-pointer container on this transition (a
+	// UCLASS member); raw pointers stored here are GC-blind, so leaving the
+	// list populated across frames would let a stale pointer survive an
+	// ignored-actor's destruction. Reset() preserves the underlying TArray
+	// capacity so the next-frame rebuild stays alloc-free, while leaving
+	// the array empty between Evaluate calls.
+	ResolvedActorsToIgnore.Reset();
+
 	return CandidatePose;
 }
 

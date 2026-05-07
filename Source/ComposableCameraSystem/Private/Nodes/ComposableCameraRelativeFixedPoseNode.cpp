@@ -2,10 +2,10 @@
 
 #include "Nodes/ComposableCameraRelativeFixedPoseNode.h"
 
+#include "Components/SkeletalMeshComponent.h"
 #include "Kismet/KismetMathLibrary.h"
 
 #if !UE_BUILD_SHIPPING
-#include "Components/SkeletalMeshComponent.h"
 #include "Debug/ComposableCameraViewportDebug.h"
 #include "DrawDebugHelpers.h"
 #include "HAL/IConsoleManager.h"
@@ -27,11 +27,14 @@ void UComposableCameraRelativeFixedPoseNode::OnInitialize_Implementation()
 
 	if (Method == EComposableCameraRelativeFixedPoseMethod::RelativeToActor)
 	{
-		if (!RelativeActor)
+		if (!IsValid(RelativeActor))
 		{
 			return;
 		}
-		
+
+		// TWeakObjectPtr assignment from a raw component pointer is implicit;
+		// resolution happens via .Get() in Tick / DrawNodeDebug with IsValid check
+		// so a destroyed/re-spawned mesh component doesn't dangle.
 		if (USkeletalMeshComponent* Comp = RelativeActor->GetComponentByClass<USkeletalMeshComponent>())
 		{
 			SkeletalMeshComponentForRelativeActor = Comp;
@@ -43,20 +46,21 @@ void UComposableCameraRelativeFixedPoseNode::OnTickNode_Implementation(float Del
 	const FComposableCameraPose& CurrentCameraPose, FComposableCameraPose& OutCameraPose)
 {
 	FTransform CurrentRelativeTransform = FTransform::Identity;
-	
+
 	if (Method == EComposableCameraRelativeFixedPoseMethod::RelativeToTransform)
 	{
-		CurrentRelativeTransform = RelativeTransform;	
+		CurrentRelativeTransform = RelativeTransform;
 	}
 	else if (Method == EComposableCameraRelativeFixedPoseMethod::RelativeToActor)
 	{
-		if (SkeletalMeshComponentForRelativeActor && SkeletalMeshComponentForRelativeActor->DoesSocketExist(RelativeSocket))
+		USkeletalMeshComponent* Comp = SkeletalMeshComponentForRelativeActor.Get();
+		if (IsValid(Comp) && Comp->DoesSocketExist(RelativeSocket))
 		{
-			CurrentRelativeTransform = SkeletalMeshComponentForRelativeActor->GetSocketTransform(RelativeSocket);
+			CurrentRelativeTransform = Comp->GetSocketTransform(RelativeSocket);
 		}
-		else if (RelativeActor)
+		else if (IsValid(RelativeActor))
 		{
-			CurrentRelativeTransform = RelativeActor->GetActorTransform();	
+			CurrentRelativeTransform = RelativeActor->GetActorTransform();
 		}
 	}
 	
@@ -89,9 +93,10 @@ void UComposableCameraRelativeFixedPoseNode::DrawNodeDebug(UWorld* World, bool /
 	}
 	else if (Method == EComposableCameraRelativeFixedPoseMethod::RelativeToActor)
 	{
-		if (SkeletalMeshComponentForRelativeActor && SkeletalMeshComponentForRelativeActor->DoesSocketExist(RelativeSocket))
+		USkeletalMeshComponent* Comp = SkeletalMeshComponentForRelativeActor.Get();
+		if (IsValid(Comp) && Comp->DoesSocketExist(RelativeSocket))
 		{
-			OriginPos = SkeletalMeshComponentForRelativeActor->GetSocketLocation(RelativeSocket);
+			OriginPos = Comp->GetSocketLocation(RelativeSocket);
 			bHasOrigin = true;
 		}
 		else if (IsValid(RelativeActor))

@@ -12,28 +12,76 @@ UComposableCameraRotateToAction::UComposableCameraRotateToAction(const FObjectIn
 	ExpirationType = static_cast<uint8>(EComposableCameraActionExpirationType::Condition);
 }
 
+UEnhancedInputLocalPlayerSubsystem* UComposableCameraRotateToAction::ResolveInputSubsystem()
+{
+	// Per-link null-check on PCM → OwningPC → LocalPlayer. PIE stop /
+	// controller swap / streaming teardown can null any of these between
+	// frames; chained `->` was a crash risk.
+	if (!IsValid(PlayerCameraManager))
+	{
+		CachedSubsystem.Reset();
+		CachedLocalPlayer.Reset();
+		return nullptr;
+	}
+	APlayerController* PC = PlayerCameraManager->GetOwningPlayerController();
+	if (!IsValid(PC))
+	{
+		CachedSubsystem.Reset();
+		CachedLocalPlayer.Reset();
+		return nullptr;
+	}
+	ULocalPlayer* LP = PC->GetLocalPlayer();
+	if (!IsValid(LP))
+	{
+		CachedSubsystem.Reset();
+		CachedLocalPlayer.Reset();
+		return nullptr;
+	}
+
+	// Controller-swap-without-destruction: chain still resolves but LP
+	// is a different live object than the one the cache belongs to.
+	// Invalidate the subsystem cache whenever the LocalPlayer identity
+	// drifts so we don't keep reading the previous player's input.
+	if (CachedLocalPlayer.Get() != LP)
+	{
+		CachedSubsystem.Reset();
+		CachedLocalPlayer = LP;
+	}
+
+	if (UEnhancedInputLocalPlayerSubsystem* Cached = CachedSubsystem.Get())
+	{
+		return Cached;
+	}
+
+	UEnhancedInputLocalPlayerSubsystem* Subsystem =
+		ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(LP);
+	CachedSubsystem = Subsystem;
+	return Subsystem;
+}
+
 bool UComposableCameraRotateToAction::CanExecute_Implementation(float DeltaTime,
 	const FComposableCameraPose& CurrentCameraPose)
 {
 	bool bHasUserInput { false };
 	bool bCompleteRotate { false };
 
-	if (!Subsystem)
-	{
-		Subsystem = ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(PlayerCameraManager->GetOwningPlayerController()->GetLocalPlayer());
-	}
-	
+	// Always go through the chain — see ResetPitchAction for the
+	// controller-swap-without-destruction rationale.
+	UEnhancedInputLocalPlayerSubsystem* Subsystem = ResolveInputSubsystem();
+
 	if (Subsystem)
 	{
-		UEnhancedPlayerInput* PlayerInput = Subsystem->GetPlayerInput();
-		if (RotateAction && PlayerInput)
+		if (UEnhancedPlayerInput* PlayerInput = Subsystem->GetPlayerInput())
 		{
-			FInputActionValue Value = PlayerInput->GetActionValue(RotateAction);
-			FVector2D LookAxisVector = Value.Get<FVector2D>();
-			bHasUserInput = LookAxisVector != FVector2D::ZeroVector;
+			if (RotateAction)
+			{
+				FInputActionValue Value = PlayerInput->GetActionValue(RotateAction);
+				FVector2D LookAxisVector = Value.Get<FVector2D>();
+				bHasUserInput = LookAxisVector != FVector2D::ZeroVector;
+			}
 		}
 	}
-	
+
 	bCompleteRotate = CurrentCameraPose.Rotation.Equals(TargetRotation, 1e-1);
 	return !bHasUserInput && !bCompleteRotate;
 }

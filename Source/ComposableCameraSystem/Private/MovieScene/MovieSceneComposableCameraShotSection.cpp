@@ -4,6 +4,7 @@
 
 #include "ComposableCameraSystemModule.h"
 #include "DataAssets/ComposableCameraShotAsset.h"
+#include "DataAssets/ComposableCameraTransitionDataAsset.h"
 #include "EntitySystem/BuiltInComponentTypes.h"
 #include "EntitySystem/MovieSceneEntityBuilder.h"
 #include "EntitySystem/MovieSceneSequenceInstance.h"
@@ -63,14 +64,17 @@ const FComposableCameraShot* UMovieSceneComposableCameraShotSection::ResolveActi
 
 		case EComposableCameraShotSource::AssetReference:
 		{
-			// LoadSynchronous is acceptable here — Sequencer evaluation already
-			// loads bound objects synchronously, and Shot data is small. If
-			// the asset is null or fails to load, return nullptr so the caller
-			// can no-op (TrackInstance won't push an override; LS Component
-			// holds last-written Shot).
-			if (UComposableCameraShotAsset* Asset = ShotAssetRef.LoadSynchronous())
+			// Hot-path: read the cached resolved asset, no LoadSynchronous.
+			// Cache is populated at PostLoad / PostEditChangeProperty (off
+			// the eval path); if the asset hasn't been loaded yet AND the
+			// soft pointer happens to already resolve via .Get() (free
+			// lookup in the loaded-objects table), opportunistically
+			// populate the cache for next call. Returns nullptr when the
+			// soft pointer is unloaded so the eval path no-ops rather than
+			// stalling the game thread.
+			if (UComposableCameraShotAsset* Cached = ResolveCachedShotAsset())
 			{
-				return &Asset->Shot;
+				return &Cached->Shot;
 			}
 			return nullptr;
 		}
@@ -87,14 +91,86 @@ FComposableCameraShot* UMovieSceneComposableCameraShotSection::ResolveActiveShot
 
 		case EComposableCameraShotSource::AssetReference:
 		{
-			if (UComposableCameraShotAsset* Asset = ShotAssetRef.LoadSynchronous())
+			if (UComposableCameraShotAsset* Cached = ResolveCachedShotAsset())
 			{
-				return &Asset->Shot;
+				return &Cached->Shot;
 			}
 			return nullptr;
 		}
 	}
 	return nullptr;
+}
+
+UComposableCameraShotAsset* UMovieSceneComposableCameraShotSection::ResolveCachedShotAsset() const
+{
+	if (CachedShotAsset)
+	{
+		return CachedShotAsset;
+	}
+	// Free lookup — `.Get()` only returns non-null when the asset is
+	// already in memory. No load triggered.
+	if (UComposableCameraShotAsset* Loaded = ShotAssetRef.Get())
+	{
+		CachedShotAsset = Loaded;
+		return Loaded;
+	}
+	return nullptr;
+}
+
+UComposableCameraTransitionDataAsset* UMovieSceneComposableCameraShotSection::ResolveCachedEnterTransition() const
+{
+	if (CachedEnterTransition)
+	{
+		return CachedEnterTransition;
+	}
+	if (UComposableCameraTransitionDataAsset* Loaded = EnterTransition.Get())
+	{
+		CachedEnterTransition = Loaded;
+		return Loaded;
+	}
+	return nullptr;
+}
+
+void UMovieSceneComposableCameraShotSection::PostLoad()
+{
+	Super::PostLoad();
+	RefreshCachedAssets();
+}
+
+#if WITH_EDITOR
+void UMovieSceneComposableCameraShotSection::PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent)
+{
+	Super::PostEditChangeProperty(PropertyChangedEvent);
+	const FName PropertyName = PropertyChangedEvent.Property ? PropertyChangedEvent.Property->GetFName() : NAME_None;
+	if (PropertyName == GET_MEMBER_NAME_CHECKED(UMovieSceneComposableCameraShotSection, ShotAssetRef)
+		|| PropertyName == GET_MEMBER_NAME_CHECKED(UMovieSceneComposableCameraShotSection, EnterTransition)
+		|| PropertyName == GET_MEMBER_NAME_CHECKED(UMovieSceneComposableCameraShotSection, Source))
+	{
+		// Designer pointed the soft ref at a different asset (or flipped
+		// Source) — drop the stale cache and re-resolve. LoadSynchronous
+		// here is fine, we're outside of evaluation.
+		CachedShotAsset = nullptr;
+		CachedEnterTransition = nullptr;
+		RefreshCachedAssets();
+	}
+}
+#endif
+
+void UMovieSceneComposableCameraShotSection::RefreshCachedAssets()
+{
+	// Off-hot-path: blocking LoadSynchronous is acceptable here. PostLoad
+	// runs on async-load completion (already off the game thread for cooked
+	// builds), PostEditChangeProperty runs on a designer interaction. The
+	// resolved hard pointer is then read via the cached members for every
+	// subsequent eval-path call without ever blocking again.
+	if (Source == EComposableCameraShotSource::AssetReference && !ShotAssetRef.IsNull())
+	{
+		CachedShotAsset = ShotAssetRef.LoadSynchronous();
+	}
+	if (!EnterTransition.IsNull())
+	{
+		CachedEnterTransition = EnterTransition.LoadSynchronous();
+	}
 }
 
 UObject* UMovieSceneComposableCameraShotSection::ResolveShotEditorHost() const

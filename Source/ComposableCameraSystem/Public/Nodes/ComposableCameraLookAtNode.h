@@ -8,6 +8,7 @@
 #include "ComposableCameraLookAtNode.generated.h"
 
 class UComposableCameraInterpolatorBase;
+class USkeletalMeshComponent;
 
 UENUM()
 enum class EComposableCameraLookAtType : uint8
@@ -85,6 +86,21 @@ public:
 	UComposableCameraInterpolatorBase* SoftLookAtInterpolator { nullptr };
 
 private:
-	USkeletalMeshComponent* SkeletalMeshComponentForLookAtActor { nullptr };
+	// Cached SkeletalMeshComponent on the currently-resolved LookAtActor.
+	// Stored as TWeakObjectPtr (not raw, not UPROPERTY): LookAtActor can be
+	// driven by an input pin and CHANGE every frame, and the SkelMesh
+	// component on that actor can be destroyed / re-spawned independently
+	// of this node — Tick must IsValid()-check before deref. Resolution
+	// happens lazily in Tick when the active LookAtActor differs from the
+	// last actor we resolved against (`LastResolvedLookAtActor`); that
+	// avoids the per-frame `GetComponentByClass` walk while still picking
+	// up actor swaps and component churn.
+	TWeakObjectPtr<USkeletalMeshComponent> SkeletalMeshComponentForLookAtActor;
+
+	// Identity of the actor that produced the cached SkelMesh component.
+	// When LookAtActor changes (driven by input pin) this no longer matches
+	// the current LookAtActor and Tick re-resolves the SkelMesh component.
+	TWeakObjectPtr<AActor> LastResolvedLookAtActor;
+
 	TUniquePtr<TCameraInterpolator<TValueTypeWrapper<FRotator>>> Interpolator_T;
 };

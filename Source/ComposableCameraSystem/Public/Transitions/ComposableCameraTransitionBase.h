@@ -247,4 +247,12 @@ protected:
 	// How much percentage this transition has completed.
 	UPROPERTY(BlueprintReadOnly)
 	float Percentage { 0.f };
+
+	/** Cached `GetClass()->GetName()` populated lazily at first Evaluate
+	 *  and reused by per-evaluate `TRACE_CPUPROFILER_EVENT_SCOPE_STR` so
+	 *  the dynamic Insights label doesn't allocate an FString per
+	 *  evaluation. The class is per-instance immutable after construction,
+	 *  so the lazy populate runs once over the transition's lifetime.
+	 *  Non-UPROPERTY because it's transient diagnostic state, not data. */
+	FString TransitionClassTraceName;
 };

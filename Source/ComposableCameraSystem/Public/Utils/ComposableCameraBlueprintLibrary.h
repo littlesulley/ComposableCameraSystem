@@ -327,25 +327,46 @@ public:
 		P_GET_PROPERTY(FNameProperty, ParameterName);
 
 		// Read the type-erased value.
-		// StepCompiledIn needs a write buffer for literal values (const enum,
-		// const object, etc.) that have no backing property address. 64 bytes
-		// covers all pin-supported types (largest is FTransform at ~48 bytes).
-		uint8 ValueBuffer[64];
-		FMemory::Memzero(ValueBuffer, sizeof(ValueBuffer));
-
+		//
+		// CRITICAL: pass nullptr to StepCompiledIn so the bytecode interpreter
+		// only resolves property addresses (variable / temp / member refs) and
+		// is NEVER asked to materialise a literal into a fixed-size scratch.
+		// Earlier revisions used a stack buffer (64 B → 1024 B); both bumped
+		// the explosion point without fixing it, because `CustomStructureParam`
+		// will accept any user POD USTRUCT, `ValueProperty->GetSize()` is
+		// unbounded, and the literal write happens INSIDE StepCompiledIn before
+		// any post-step size check can run. With nullptr, a literal operand
+		// leaves `MostRecentPropertyAddress == nullptr` (no write attempted)
+		// and we throw a deterministic BP exception telling the author to
+		// rewire the pin. The K2 ExpandNode side guarantees wired operands for
+		// every supported type by spawning typed setters / MakeLiteral nodes;
+		// only arbitrary user struct pins with an authored default fall to
+		// this path, and the exception below is the surface for them.
 		Stack.MostRecentPropertyAddress = nullptr;
 		Stack.MostRecentPropertyContainer = nullptr;
-		Stack.StepCompiledIn<FProperty>(ValueBuffer);
+		Stack.StepCompiledIn<FProperty>(nullptr);
 
 		const FProperty* ValueProperty = Stack.MostRecentProperty;
 		void* ValuePtr = Stack.MostRecentPropertyAddress;
-		if (!ValuePtr)
-		{
-			// Literal value was written into our buffer.
-			ValuePtr = ValueBuffer;
-		}
 
 		P_FINISH;
+
+		if (!ValuePtr)
+		{
+			// Literal wildcard rejected — no backing address means the bytecode
+			// emitted a literal expression and there is no safe way to read it
+			// without a sized scratch. The caller's K2 ExpandNode must wire the
+			// pin (Make Struct, typed setter, temp variable) so the operand
+			// arrives as a property reference.
+			FBlueprintExceptionInfo LiteralException(
+				EBlueprintExceptionType::AbortExecution,
+				FText::Format(
+					LOCTEXT("LiteralWildcardSetParameterBlockValue",
+						"SetParameterBlockValue cannot accept a literal wildcard value for parameter '{0}'. Wire this pin via Make Struct, a typed setter, or a temporary variable so the value arrives via property address."),
+					FText::FromName(ParameterName)));
+			FBlueprintCoreDelegates::ThrowScriptException(P_THIS, Stack, LiteralException);
+			return;
+		}
 
 		if (ValueProperty == nullptr || ValuePtr == nullptr)
 		{
@@ -414,21 +435,52 @@ public:
 			}
 
 			// ── Object / Actor ──────────────────────────────────────
-			// FObjectProperty operates on TObjectPtr<T> whose memory
-			// layout may differ from a raw UObject* in some engine
-			// configurations. Extract the resolved pointer via the
-			// property API to guarantee we store a plain UObject*.
+			// FObjectProperty / FClassProperty operate on TObjectPtr<T> whose
+			// memory layout may differ from a raw UObject* in some engine
+			// configurations. Extract the resolved pointer via the property
+			// API to guarantee we store a plain UObject*.
+			//
+			// FObjectPropertyBase is the common base for FObjectProperty,
+			// FWeakObjectProperty, FLazyObjectProperty, FSoftObjectProperty
+			// (and their *Class subclasses). Soft / weak / lazy variants store
+			// TSoftObjectPtr / TWeakObjectPtr / TLazyObjectPtr in the property
+			// memory — different layout from raw UObject*. Storing the
+			// resolved-now pointer in our raw-pointer slot would either strip
+			// the soft semantics (defeating soft) or, for unloaded weak/soft
+			// ptrs, write a dangling/null pointer. Reject explicitly so callers
+			// get a clear BP exception rather than silent corruption — mirrors
+			// the same rejection in TryMapPropertyToPinType so authoring-time
+			// pin discovery and runtime CustomThunk dispatch agree.
 			if (!bHandled)
 			{
 				if (const FObjectPropertyBase* ObjectProp = CastField<FObjectPropertyBase>(ValueProperty))
 				{
-					UObject* ObjValue = ObjectProp->GetObjectPropertyValue(ValuePtr);
-					const EComposableCameraPinType ObjPinType =
-						(ObjectProp->PropertyClass && ObjectProp->PropertyClass->IsChildOf(AActor::StaticClass()))
-						? EComposableCameraPinType::Actor
-						: EComposableCameraPinType::Object;
-					Entry.Set<UObject*>(ObjPinType, ObjValue);
-					bHandled = true;
+					if (!ObjectProp->IsA<FObjectProperty>() && !ObjectProp->IsA<FClassProperty>())
+					{
+						FBlueprintExceptionInfo SoftRefException(
+							EBlueprintExceptionType::AbortExecution,
+							FText::Format(
+								LOCTEXT("UnsupportedSoftObjectProperty",
+									"SetParameterBlockValue does not support TSoftObjectPtr / TWeakObjectPtr / TLazyObjectPtr wildcards (parameter '{0}'). Resolve to a raw UObject* / TObjectPtr at the call site (e.g. via SoftObjectPtr::Get) before activation."),
+								FText::FromName(ParameterName)));
+						FBlueprintCoreDelegates::ThrowScriptException(P_THIS, Stack, SoftRefException);
+						// Skip the empty-Entry StoreValue at the bottom of this
+						// branch — committing a default-initialized FComposableCameraParameterValue
+						// (PinType=Float, empty Data) under ParameterName would clobber
+						// any prior value with broken-shaped data and let downstream
+						// reads pull garbage from a Float-shaped slot with zero bytes.
+						return;
+					}
+					else
+					{
+						UObject* ObjValue = ObjectProp->GetObjectPropertyValue(ValuePtr);
+						const EComposableCameraPinType ObjPinType =
+							(ObjectProp->PropertyClass && ObjectProp->PropertyClass->IsChildOf(AActor::StaticClass()))
+							? EComposableCameraPinType::Actor
+							: EComposableCameraPinType::Object;
+						Entry.Set<UObject*>(ObjPinType, ObjValue);
+						bHandled = true;
+					}
 				}
 			}
 
@@ -497,7 +549,39 @@ public:
 
 				if (bMemcpySafe)
 				{
+					// Derive PinType from ValueProperty so downstream
+					// consumers (CopyRawTo / Get<T> / StoreValue's GC
+					// dispatch) see the correct shape. The previous
+					// implementation forgot this step and left
+					// `Entry.PinType` at its default `Float`, so an
+					// `int32` / `double` / `FName` / POD-struct value
+					// stored under this thunk was silently rejected by
+					// every type-checked downstream read (PinType
+					// mismatch returns 0 / falls back to authored
+					// default). For POD structs we additionally pin
+					// down the exact UScriptStruct identity by routing
+					// through `Entry.Set<T>` for the engine math
+					// structs — same-size cross-USTRUCT literals are
+					// then refused symmetrically by the byte-storage
+					// shape gate in `RuntimeDataBlock`.
+					EComposableCameraPinType DerivedPinType = EComposableCameraPinType::Float;
+					if (ValueProperty->IsA<FIntProperty>())         { DerivedPinType = EComposableCameraPinType::Int32; }
+					else if (ValueProperty->IsA<FFloatProperty>())  { DerivedPinType = EComposableCameraPinType::Float; }
+					else if (ValueProperty->IsA<FDoubleProperty>()) { DerivedPinType = EComposableCameraPinType::Double; }
+					else if (ValueProperty->IsA<FNameProperty>())   { DerivedPinType = EComposableCameraPinType::Name; }
+					else if (StructProp && StructProp->Struct)
+					{
+						UScriptStruct* Struct = StructProp->Struct;
+						if      (Struct == TBaseStructure<FVector>::Get())    { DerivedPinType = EComposableCameraPinType::Vector3D; }
+						else if (Struct == TBaseStructure<FVector2D>::Get())  { DerivedPinType = EComposableCameraPinType::Vector2D; }
+						else if (Struct == TBaseStructure<FVector4>::Get())   { DerivedPinType = EComposableCameraPinType::Vector4; }
+						else if (Struct == TBaseStructure<FRotator>::Get())   { DerivedPinType = EComposableCameraPinType::Rotator; }
+						else if (Struct == TBaseStructure<FTransform>::Get()) { DerivedPinType = EComposableCameraPinType::Transform; }
+						else                                                   { DerivedPinType = EComposableCameraPinType::Struct; }
+					}
+
 					const int32 Size = ValueProperty->GetSize();
+					Entry.PinType = DerivedPinType;
 					Entry.Data.SetNumUninitialized(Size);
 					ValueProperty->CopyCompleteValue(Entry.Data.GetData(), ValuePtr);
 					ParameterBlock.StoreValue(ParameterName, MoveTemp(Entry));

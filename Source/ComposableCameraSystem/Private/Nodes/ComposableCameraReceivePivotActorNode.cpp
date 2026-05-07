@@ -21,17 +21,42 @@ namespace
 }
 #endif
 
+namespace
+{
+	// Lazy-resolve the SkelMesh on `Actor` only when it differs from what the
+	// cache last resolved against. PivotActor is an input pin so the active
+	// actor can change every frame; resolving lazily avoids per-frame
+	// `GetComponentByClass` walks while still picking up actor swaps and
+	// component churn.
+	static void ResolveSkelMeshForReceivePivotActor(
+		AActor* Actor,
+		TWeakObjectPtr<USkeletalMeshComponent>& InOutSkelMesh,
+		TWeakObjectPtr<AActor>& InOutLastResolvedActor)
+	{
+		if (!IsValid(Actor))
+		{
+			InOutSkelMesh.Reset();
+			InOutLastResolvedActor.Reset();
+			return;
+		}
+		if (InOutLastResolvedActor.Get() == Actor && InOutSkelMesh.IsValid())
+		{
+			return; // cache hit
+		}
+		InOutLastResolvedActor = Actor;
+		InOutSkelMesh = Actor->GetComponentByClass<USkeletalMeshComponent>();
+	}
+}
+
 void UComposableCameraReceivePivotActorNode::OnInitialize_Implementation()
 {
 	Super::OnInitialize_Implementation();
 
-	if (bUseBoneForPivot)
-	{
-		if (IsValid(PivotActor))
-		{
-			SkeletalMeshComponentForPivotActor = PivotActor->GetComponentByClass<USkeletalMeshComponent>();
-		}
-	}
+	// Don't resolve the SkelMesh component here — PivotActor can be driven
+	// by an input pin and change every frame. Resolution happens lazily in
+	// Tick when the active PivotActor differs from `LastResolvedPivotActor`.
+	SkeletalMeshComponentForPivotActor.Reset();
+	LastResolvedPivotActor.Reset();
 }
 
 void UComposableCameraReceivePivotActorNode::OnTickNode_Implementation(
@@ -39,16 +64,18 @@ void UComposableCameraReceivePivotActorNode::OnTickNode_Implementation(
 	const FComposableCameraPose& CurrentCameraPose,
 	FComposableCameraPose& OutCameraPose)
 {
-	// PivotActor and bUseBoneForPivot are pin-matched UPROPERTYs — already resolved
-	// by the base TickNode prologue. Read the member directly.
+	// PivotActor and bUseBoneForPivot are pin-matched UPROPERTYs — already
+	// resolved by the base TickNode prologue. Refresh the SkelMesh cache
+	// against the just-written PivotActor before reading either branch.
 	AActor* InPivotActor = PivotActor.Get();
+	ResolveSkelMeshForReceivePivotActor(InPivotActor, SkeletalMeshComponentForPivotActor, LastResolvedPivotActor);
+
 	FVector OutPivotPosition = FVector::ZeroVector;
 
-	// Use IsValid() for Actor pointers — a destroyed actor may leave a dangling
-	// pointer even via TObjectPtr for non-UPROPERTY copies.
-	if (bUseBoneForPivot && IsValid(SkeletalMeshComponentForPivotActor))
+	USkeletalMeshComponent* PivotSkelMesh = SkeletalMeshComponentForPivotActor.Get();
+	if (bUseBoneForPivot && IsValid(PivotSkelMesh))
 	{
-		OutPivotPosition = SkeletalMeshComponentForPivotActor->GetSocketLocation(BoneName);
+		OutPivotPosition = PivotSkelMesh->GetSocketLocation(BoneName);
 	}
 	else if (IsValid(InPivotActor))
 	{
@@ -69,11 +96,15 @@ void UComposableCameraReceivePivotActorNode::DrawNodeDebug(UWorld* World, bool /
 	// Resolve pivot position the same way OnTickNode does — sphere at the
 	// bone socket if configured, otherwise at the actor origin. White sphere
 	// so it's distinct from PivotOffset's yellow / PivotDamping's magenta.
+	// DrawNodeDebug is `const`; it can read the cached weak ptr from the
+	// last Tick but cannot refresh it (no mutating side effects). Stale-
+	// cache windows are bounded by one tick — fine for a debug gizmo.
 	constexpr uint8 KForeground = 1;
 	FVector PivotPos = FVector::ZeroVector;
-	if (bUseBoneForPivot && IsValid(SkeletalMeshComponentForPivotActor))
+	USkeletalMeshComponent* PivotSkelMesh = SkeletalMeshComponentForPivotActor.Get();
+	if (bUseBoneForPivot && IsValid(PivotSkelMesh))
 	{
-		PivotPos = SkeletalMeshComponentForPivotActor->GetSocketLocation(BoneName);
+		PivotPos = PivotSkelMesh->GetSocketLocation(BoneName);
 	}
 	else if (IsValid(PivotActor.Get()))
 	{

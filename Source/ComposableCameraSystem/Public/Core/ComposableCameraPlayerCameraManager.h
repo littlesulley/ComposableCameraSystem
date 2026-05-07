@@ -106,6 +106,13 @@ public:
 	// ~~~~ Actions.
 	UComposableCameraActionBase* AddCameraAction(TSubclassOf<UComposableCameraActionBase> ActionClass, bool bOnlyForCurrentCamera);
 	UComposableCameraActionBase* FindCameraAction(TSubclassOf<UComposableCameraActionBase> ActionClass);
+	/** Public API: fully remove an action — unbind from RunningCamera AND drop
+	 *  it from the `CameraActions` TSet so neither `FindCameraAction` returns
+	 *  it nor `BindCameraActionsForNewCamera` re-binds it onto the next camera.
+	 *  Previously this only unbound from RunningCamera, leaving the action
+	 *  strongly referenced by the PCM's TSet — external callers that expected
+	 *  "remove" semantics ended up with the action zombie-bound to every
+	 *  subsequent camera switch. */
 	void RemoveCameraAction(UComposableCameraActionBase* Action);
 	void ExpireCameraAction(TSubclassOf<UComposableCameraActionBase> ActionClass);
 	void BindCameraActionsForNewCamera(AComposableCameraCameraBase* Camera);
@@ -201,6 +208,39 @@ protected:
 	virtual void DoUpdateCamera(float DeltaTime) override;
 
 private:
+	/** Safe accessor for the current active director.
+	 *  Returns nullptr if `ContextStack` itself is null (subobject creation
+	 *  failed, post-teardown reentry, etc.) so callers can branch on the
+	 *  result without paying for a manual `ContextStack ? ... : nullptr`
+	 *  expression at every site. Public-edge call sites that need a guaranteed
+	 *  non-null director should use `ResolveActiveDirectorOrFallback` instead. */
+	UComposableCameraDirector* GetActiveDirectorSafe() const;
+
+	/** Resolve a non-null director by:
+	 *    1. Trying the current active director (via `GetActiveDirectorSafe`)
+	 *    2. Falling back to ensuring the project-settings base context
+	 *  Returns nullptr only if both paths fail (no stack, no configured
+	 *  context names). The single shared implementation prevents the
+	 *  "n public APIs, n−1 of them remembered to fall back" drift pattern
+	 *  that recurs whenever a new public entry-point is added. `Caller` is
+	 *  used purely to attribute the failure log — pass a literal string. */
+	UComposableCameraDirector* ResolveActiveDirectorOrFallback(const TCHAR* Caller);
+
+	/** Unbind an action's delegates / node hooks from the running camera, but
+	 *  do NOT touch the `CameraActions` TSet — used by `UpdateActions`'s
+	 *  iterate-then-remove pattern (mutating the TSet during iteration is
+	 *  unsafe; the scratch + post-loop `Remove` handles the membership side).
+	 *  External callers wanting "remove and forget" should call the public
+	 *  `RemoveCameraAction`, which composes this helper with the TSet drop. */
+	void UnbindCameraActionFromCamera(UComposableCameraActionBase* Action);
+
+	/** Mirror of `UnbindCameraActionFromCamera` — the bind side of the
+	 *  per-Action delegate / node-hook setup. Pulled out of the public
+	 *  `AddCameraAction` body so the post-loop sweep in `UpdateActions`
+	 *  can finish the deferred-add path without duplicating the dispatch
+	 *  switch. No-op if Action or RunningCamera is null. */
+	void BindCameraActionToRunningCamera(UComposableCameraActionBase* Action);
+
 	// Update camera actions.
 	void UpdateActions(float DeltaTime);
 
@@ -292,6 +332,54 @@ public:
 	UPROPERTY(Transient, VisibleAnywhere, BlueprintReadOnly, Category = "ComposableCameraSystem")
 	TSet<UComposableCameraActionBase*> CameraActions;
 
+	/** Per-frame scratch buffer for `UpdateActions`: collects pointers of
+	 *  expired/null actions during the iteration so the actual `Remove`s
+	 *  happen in a second pass (safe — TSet mutation during iteration is
+	 *  not). Member-scoped so the TArray's heap allocation amortizes
+	 *  across frames; `Reset()` keeps capacity. Earlier code constructed
+	 *  a fresh `TSet<UObject*>` every tick — TSet allocates a node per
+	 *  insert and may rehash, so even an empty set paid one heap alloc
+	 *  per frame and a populated set paid more. Move to a `TArray` of
+	 *  raw pointers since (a) we never look up by key, (b) actions can't
+	 *  appear twice in the source set so dedup-via-set buys nothing.
+	 *
+	 *  **Lifetime contract**: this scratch is intentionally NOT UPROPERTY
+	 *  and NOT TWeakObjectPtr. It must therefore be EMPTY whenever
+	 *  control is outside `UpdateActions` — `Reset()` runs both at the
+	 *  start AND at the end of the function so a GC sweep between frames
+	 *  cannot encounter stale raw `UObject*` entries here. Do not add
+	 *  any code path that leaves entries live across the function
+	 *  boundary; if a future use case requires that, switch the storage
+	 *  to `TArray<TWeakObjectPtr<UComposableCameraActionBase>>`. */
+	TArray<UComposableCameraActionBase*> CameraActionsRemovalScratch;
+
+	/** Re-entrancy companion to `CameraActionsRemovalScratch`. When
+	 *  `bIsUpdatingActions` is set, `AddCameraAction` queues newly-
+	 *  constructed actions here instead of mutating `CameraActions`
+	 *  immediately; the post-loop sweep (after the removals sweep) drains
+	 *  this list, adding to `CameraActions` AND binding to RunningCamera in
+	 *  one shot. Net effect: an Action's `OnCanExecute` callback is allowed
+	 *  to call `PCM->AddCameraAction(...)` without invalidating the range-
+	 *  for iterator over `CameraActions`. The newly-added Action takes
+	 *  effect on the NEXT frame's UpdateActions tick (it does not
+	 *  retroactively join the iteration that spawned it).
+	 *
+	 *  This list IS `UPROPERTY(Transient)` because — unlike
+	 *  `CameraActionsRemovalScratch` whose entries are still members of
+	 *  the GC-visible `CameraActions` TSet for the duration of the
+	 *  function — pending-add entries are freshly `NewObject`ed and have
+	 *  NOT been registered into any reflected container yet. A GC pass
+	 *  triggered re-entrantly from inside an Action's `OnCanExecute`
+	 *  (sync `LoadObject`, BP exception during eval, slow Blueprint that
+	 *  yields, etc.) would reclaim the half-constructed Action and the
+	 *  post-loop drain would then read a dangling pointer. The
+	 *  TObjectPtr inside a UPROPERTY array makes the Action root-
+	 *  reachable for the whole gap, closing that window without
+	 *  introducing any per-frame allocation cost (the array's storage
+	 *  amortises across activations the same way the raw form did). */
+	UPROPERTY(Transient)
+	TArray<TObjectPtr<UComposableCameraActionBase>> CameraActionsPendingAddScratch;
+
 	UPROPERTY(Transient)
 	FOnCameraFinishConstructed CurrentOnPreBeginplayEvent;
 
@@ -311,6 +399,18 @@ private:
 	 *  Super::SetViewTarget as part of its bookkeeping — the guard prevents
 	 *  that from recursing back into implicit activation. */
 	bool bIsImplicitlyActivating { false };
+
+	/** True only inside `UpdateActions`'s range-for over `CameraActions`. The
+	 *  public `RemoveCameraAction` checks this — when set, it performs the
+	 *  unbind half + queues the action into `CameraActionsRemovalScratch`
+	 *  instead of mutating the TSet directly. UpdateActions then does a
+	 *  single post-loop sweep that drains the scratch with `Remove`. Without
+	 *  this gate, an `Action->OnCanExecute` callback that calls
+	 *  `PCM->RemoveCameraAction(this)` would mutate the very TSet the caller
+	 *  is iterating, invalidating the range-for's hash buckets and crashing
+	 *  on the next advance. Outside UpdateActions, RemoveCameraAction is
+	 *  the regular "unbind + drop from TSet" public API. */
+	bool bIsUpdatingActions { false };
 
 #if !UE_BUILD_SHIPPING
 	// ─── Pose History Ring Buffer (debug only) ───────────────────────────

@@ -8,6 +8,7 @@
 
 class USplineComponent;
 class ACameraRig_Rail;
+class AComposableCameraCameraBase;
 class UComposableCameraInertializedTransition;
 
 UENUM()
@@ -15,7 +16,7 @@ enum class EComposableCameraPathGuidedTransitionType : uint8
 {
 	// Use inertialized camera as a bridge to achieve path guided transition.
 	Inertialized,
-	
+
 	// Use auto-generated splines to achieve path guided transition. \n
 	// @NOTE: This type won't update TargetCameraPose, so if the target camera is moving during transition, DO NOT use this type.
 	Auto
@@ -41,6 +42,14 @@ public:
 	// authored. Falls back to linear if DrivingTransition is unset.
 	virtual float GetBlendWeightAt(float NormalizedTime) const override;
 
+	// Backup destroy path for the world actors we spawn (IntermediateCamera /
+	// DebugSplineActor). Normal completion goes through OnTransitionFinishesDelegate
+	// registered in OnBeginPlay; BeginDestroy catches the case where this
+	// transition UObject is collected before the transition finishes (camera
+	// destroyed mid-blend, eval tree pruned, etc.) — without this, the spawned
+	// actors leak into the level.
+	virtual void BeginDestroy() override;
+
 #if !UE_BUILD_SHIPPING
 	// Gated on `CCS.Debug.Viewport.Transitions.PathGuided`. Standard triplet
 	// in coral accent, plus the rail / internal spline the camera is
@@ -53,12 +62,12 @@ public:
 public:
 	// Driving transition for base camera transition. Used for both Inertialized and Auto.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Instanced)
-	UComposableCameraTransitionBase* DrivingTransition;
+	TObjectPtr<UComposableCameraTransitionBase> DrivingTransition;
 
 	// Type of path guided transition.
 	UPROPERTY(BlueprintReadWrite, EditAnywhere)
 	EComposableCameraPathGuidedTransitionType Type { EComposableCameraPathGuidedTransitionType::Inertialized };
-	
+
 	// The rail actor thet contains the desired guiding spline. The tangents of the spline should not be too small nor too large.
 	UPROPERTY(BlueprintReadWrite, EditAnywhere)
 	TSoftObjectPtr<ACameraRig_Rail> RailActor;
@@ -66,30 +75,44 @@ public:
 	// Normalized timestamps to start/end guide. It's recommended to set a not-close-to-one end timestamp ensuring the camera can return to the desired target position smoothly.
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, meta = (ClampMin = "0", ClampMax = "1", EditCondition = "Type == EComposableCameraPathGuidedTransitionType::Inertialized", EditConditionHides))
 	FVector2D GuideRange { 0.25, 0.75 };
-	
+
 	// How the virtual camera should move on spline. This curve is normalized. Input range is [0,1], start c[0]=0, c[1]=1.
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, meta = (EditCondition = "Type == EComposableCameraPathGuidedTransitionType::Inertialized", EditConditionHides))
-	UCurveFloat* SplineMoveCurve;
-	
+	TObjectPtr<UCurveFloat> SplineMoveCurve;
+
 private:
 	UPROPERTY()
-	AComposableCameraCameraBase* IntermediateCamera { nullptr };
-	
+	TObjectPtr<AComposableCameraCameraBase> IntermediateCamera { nullptr };
+
 	UPROPERTY()
-	ACameraRig_Rail* Rail;
-	
+	TObjectPtr<ACameraRig_Rail> Rail { nullptr };
+
 	UPROPERTY()
-	UComposableCameraInertializedTransition* EnterTransition { nullptr };
-	
+	TObjectPtr<UComposableCameraInertializedTransition> EnterTransition { nullptr };
+
 	UPROPERTY()
-	UComposableCameraInertializedTransition* ExitTransition { nullptr };
-	
+	TObjectPtr<UComposableCameraInertializedTransition> ExitTransition { nullptr };
+
 	UPROPERTY()
-	USplineComponent* InternalSpline;
-	
+	TObjectPtr<USplineComponent> InternalSpline { nullptr };
+
 	UPROPERTY()
-	AActor* DebugSplineActor;
-	
+	TObjectPtr<AActor> DebugSplineActor { nullptr };
+
 private:
-	void BuildInternalSpline(const FComposableCameraPose& CurrentTargetPose, float DeltaTime);
+	// Resolve RailActor (sync-load if needed), then verify the rail has a
+	// usable spline component with at least one point. Sets `Rail` on success
+	// and returns true; logs and returns false on any failure. Called once at
+	// OnBeginPlay before any actor is spawned, so the failure path leaves the
+	// world clean and the OnEvaluate hard-cut nullcheck takes over.
+	bool ResolveAndValidateRail();
+
+	// Destroy the actors we spawned in OnBeginPlay. Safe to call multiple times
+	// — `IsValid` guards against re-destroy. Used both by the
+	// OnTransitionFinishesDelegate cleanup lambda and by BeginDestroy.
+	void DestroySpawnedActors();
+
+	/** Returns true on success, false if any spawn / duplicate step returned
+	 *  null (caller should DestroySpawnedActors and degrade to a hard cut). */
+	bool BuildInternalSpline(const FComposableCameraPose& CurrentTargetPose, float DeltaTime);
 };

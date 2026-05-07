@@ -42,6 +42,17 @@ public:
 	float InterpSpeed { 1.f };
 	
 private:
-	class UEnhancedInputLocalPlayerSubsystem* Subsystem { nullptr };
+	/** Resolve (or re-resolve) the cached subsystem. Same shape as
+	 *  `UComposableCameraResetPitchAction::ResolveInputSubsystem` — see
+	 *  that header for the LocalPlayer-teardown / chain-null /
+	 *  controller-swap-without-destruction rationale. */
+	class UEnhancedInputLocalPlayerSubsystem* ResolveInputSubsystem();
+
+	/** Weak subsystem cache — see ResetPitchAction. */
+	TWeakObjectPtr<class UEnhancedInputLocalPlayerSubsystem> CachedSubsystem;
+
+	/** LocalPlayer identity guard — see ResetPitchAction. */
+	TWeakObjectPtr<class ULocalPlayer> CachedLocalPlayer;
+
 	TUniquePtr<TCameraInterpolator<TValueTypeWrapper<FRotator>>> Interp_T;
 };

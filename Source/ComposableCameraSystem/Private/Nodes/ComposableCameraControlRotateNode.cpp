@@ -5,6 +5,7 @@
 #include "ComposableCameraSystemModule.h"
 #include "EnhancedInputComponent.h"
 #include "EnhancedInputSubsystems.h"
+#include "InputAction.h"
 #include "Core/ComposableCameraPlayerCameraManager.h"
 #include "Kismet/GameplayStatics.h"
 #include "Math/ComposableCameraMath.h"
@@ -15,31 +16,64 @@ void UComposableCameraControlRotateNode::OnInitialize_Implementation()
 
 	LastFrameCameraRotationInput = FVector2D::ZeroVector;
 
-	if (IsValid(RotationInputActor))
+	// Do NOT resolve RotationInputActor / RotateAction here — input pin values
+	// are not yet applied at OnInitialize time (see UComposableCameraCameraNodeBase::OnInitialize
+	// note). The binding is registered lazily in EnsureInputBinding(), called from OnTickNode.
+	CachedInputComponent.Reset();
+	LastBoundInputActor.Reset();
+	LastBoundAction.Reset();
+}
+
+void UComposableCameraControlRotateNode::EnsureInputBinding()
+{
+	const bool bActorChanged  = LastBoundInputActor.Get() != RotationInputActor;
+	const bool bActionChanged = LastBoundAction.Get()     != RotateAction;
+	const bool bComponentDead = !CachedInputComponent.IsValid();
+
+	if (!bActorChanged && !bActionChanged && !bComponentDead)
 	{
-		InputComponent = Cast<UEnhancedInputComponent>(RotationInputActor->InputComponent);
+		return;
 	}
 
-	if (InputComponent)
+	CachedInputComponent.Reset();
+	LastBoundInputActor = RotationInputActor;
+	LastBoundAction     = RotateAction;
+
+	if (!IsValid(RotationInputActor) || !IsValid(RotateAction))
 	{
-		InputBinding = &InputComponent->BindActionValue(RotateAction);
+		return;
 	}
-	else
+
+	UEnhancedInputComponent* EIC = Cast<UEnhancedInputComponent>(RotationInputActor->InputComponent);
+	if (!EIC)
 	{
 		UE_LOG(LogComposableCameraSystem, Warning, TEXT(
-			"Cannot find an input component of type UEnhancedInputComponent in ControlRotate node."));
+			"ControlRotate: actor '%s' has no UEnhancedInputComponent."), *RotationInputActor->GetName());
+		return;
 	}
+
+	CachedInputComponent = EIC;
+
+	// Register the binding so the EnhancedInput system tracks the action value
+	// for this component. The returned reference is intentionally discarded —
+	// the underlying TArray<FEnhancedInputActionValueBinding> can reallocate
+	// when other code calls BindActionValue, which would dangle any cached
+	// pointer. Tick reads the live value via GetBoundActionValue (linear
+	// search, safe across reallocations).
+	EIC->BindActionValue(RotateAction);
 }
 
 void UComposableCameraControlRotateNode::OnTickNode_Implementation(
 	float DeltaTime, const FComposableCameraPose& CurrentCameraPose, FComposableCameraPose& OutCameraPose)
 {
+	EnsureInputBinding();
+
 	FVector2D CameraRotationInputForThisFrame {};
 
-	// Read camera rotation input from IA.
-	if (InputBinding)
+	if (UEnhancedInputComponent* EIC = CachedInputComponent.Get();
+		EIC && IsValid(RotateAction))
 	{
-		CameraRotationInputForThisFrame = InputBinding->GetValue().Get<FVector2D>();
+		CameraRotationInputForThisFrame = EIC->GetBoundActionValue(RotateAction).Get<FVector2D>();
 
 		if (bInvertPitch)
 		{

@@ -54,9 +54,13 @@ namespace ComposableCameraTypeAssetPrivate
 			return;
 		}
 
-		// CopyRawTo is a no-op on size mismatch, so a stale InitialValueString
-		// from a previous type never corrupts an unrelated slot.
-		Scratch.CopyRawTo(Var.VariableName, Dest, DestSize);
+		// CopyRawTo is a no-op on PinType / exact-size mismatch, so a stale
+		// InitialValueString from a previous type never corrupts an unrelated
+		// slot. Pass the variable's currently-expected PinType so a row whose
+		// authored value was the right SIZE but the wrong TYPE (e.g., Int32
+		// 4 B serialized into what is now a Float 4 B slot) also gets rejected
+		// instead of silently delivering wrong-shape bytes.
+		Scratch.CopyRawTo(Var.VariableName, Dest, DestSize, Var.VariableType);
 	}
 }
 
@@ -143,7 +147,23 @@ FComposableCameraRuntimeDataBlock UComposableCameraTypeAsset::BuildRuntimeDataLa
 			&& StructType != nullptr
 			&& !IsBytewiseSafeStruct(StructType))
 		{
-			return DataBlock.RegisterStructSlot(StructType);
+			const int32 StructOffset = DataBlock.RegisterStructSlot(StructType);
+			// Record the struct slot's shape too. Templated `ReadValue<T>` /
+			// `WriteValue<T>` short-circuit struct-slot offsets via the
+			// `IsStructSlotOffset` early-return when T itself is a USTRUCT;
+			// this entry catches the OPPOSITE mistake — a non-struct T
+			// (`float` / `bool` / etc.) accessing a struct-slot offset.
+			// The recorded size is 0 (sentinel — typed struct slots don't
+			// have a meaningful byte size in the Storage sense) which
+			// makes `Shape->Size != sizeof(T)` reliably trip on any T
+			// other than... well, no T has sizeof 0. Always rejects.
+			// Record StructType too — the templated read/write path's
+			// struct-slot branch verifies T::StaticStruct() == StructType
+			// before CopyScriptStruct so a stale offset table cannot drive
+			// a wrong-shape T into the slot's typed memory.
+			DataBlock.SlotShapes.Add(StructOffset,
+				FComposableCameraRuntimeDataBlock::FSlotShape{ PinType, /*Size=*/0, StructType });
+			return StructOffset;
 		}
 
 		const int32 Size = GetPinTypeSize(PinType, StructType);
@@ -155,6 +175,18 @@ FComposableCameraRuntimeDataBlock UComposableCameraTypeAsset::BuildRuntimeDataLa
 		AlignOffset(Align);
 		const int32 Offset = CurrentOffset;
 		DataBlock.RegisterReferenceSlot(PinType, Offset);
+		// Record shape for the templated read/write path's strict
+		// validation. Stored as PinType+Size — readers compare against
+		// `ExpectedPinTypeFor<T>()` and `sizeof(T)`. For POD struct slots
+		// (FVector / FRotator / user POD USTRUCTs that pass
+		// IsBytewiseSafeStruct) we additionally record StructType so a
+		// same-size cross-struct read (e.g. `ReadValue<FCustom12B>` against
+		// an `FVector` slot) is refused by the symmetric struct-type check
+		// in ReadValue / WriteValue.
+		UScriptStruct* RecordStructType =
+			(PinType == EComposableCameraPinType::Struct) ? StructType : nullptr;
+		DataBlock.SlotShapes.Add(Offset,
+			FComposableCameraRuntimeDataBlock::FSlotShape{ PinType, Size, RecordStructType });
 		CurrentOffset += Size;
 		return Offset;
 	};
@@ -474,14 +506,17 @@ FComposableCameraRuntimeDataBlock UComposableCameraTypeAsset::BuildRuntimeDataLa
 			return;
 		}
 
-		// POD path: CopyRawTo is a no-op on size mismatch, so a stale
-		// override string from a previous type never corrupts the slot.
+		// POD path: CopyRawTo is a no-op on PinType / exact-size mismatch,
+		// so a stale override string from a previous type never corrupts
+		// the slot. Pass the pin's CURRENT PinType so a row whose value
+		// happens to match the slot size but not the type (e.g., Int32 vs
+		// Float, both 4 B) is rejected too.
 		const int32 Size = GetPinTypeSize(PinType, StructType);
 		if (Size <= 0)
 		{
 			return;
 		}
-		Scratch.CopyRawTo(Name, DataBlock.Storage.GetData() + Offset, Size);
+		Scratch.CopyRawTo(Name, DataBlock.Storage.GetData() + Offset, Size, PinType);
 		DataBlock.RefreshReferenceSlot(Offset);
 	};
 
@@ -613,8 +648,100 @@ FComposableCameraRuntimeDataBlock UComposableCameraTypeAsset::BuildRuntimeDataLa
 	}
 
 	// Phase 2: Build the connection and exposure mappings for input pins.
+	//
+	// Every Add into InputPinSourceOffsets / ExposedInputPinOffsets is type-
+	// validated against BOTH source and target pin declarations. The previous
+	// behavior validated only that the source offset existed, so a stale asset
+	// (saved before a pin was renamed / retyped), a hand-edited asset, or a
+	// schema-bypass code path could wire a Float source into an Actor target —
+	// the runtime would then read sizeof(AActor*) bytes from a 4-byte float
+	// slot and dereference garbage as a UObject pointer, crashing inside
+	// CopySlot's struct/POD discrimination check or at the first AActor::*
+	// call.
+	//
+	// Per-node pin declarations are cached on first lookup because the same
+	// target node typically receives several wired/exposed/variable inputs;
+	// repeating GatherAllPinDeclarations once per Add would scale poorly on
+	// graphs with high pin density. Cache key is the runtime NodeIndex space
+	// (NodeTemplates < ComputeNodeIndexBase ≤ ComputeNodeTemplates).
+	//
+	// Storage uses TUniquePtr<TArray<...>> so the inner TArray's address stays
+	// stable across cache growth — TMap::Add can rehash and move its values,
+	// but the heap-allocated TArray that TUniquePtr owns does not. Without
+	// this indirection, holding a pointer into one cached node's pin array
+	// across a FindPinDecl call for a second node could deref reallocated
+	// memory.
+	TMap<int32, TUniquePtr<TArray<FComposableCameraNodePinDeclaration>>> NodePinCache;
 
-	// Wired connections: input pin → source output pin offset
+	auto GetNodePinDecls = [&](int32 RuntimeNodeIndex) -> const TArray<FComposableCameraNodePinDeclaration>*
+	{
+		if (TUniquePtr<TArray<FComposableCameraNodePinDeclaration>>* Cached = NodePinCache.Find(RuntimeNodeIndex))
+		{
+			return Cached->Get();
+		}
+		TUniquePtr<TArray<FComposableCameraNodePinDeclaration>> Pins =
+			MakeUnique<TArray<FComposableCameraNodePinDeclaration>>();
+		if (RuntimeNodeIndex >= ComputeNodeIndexBase)
+		{
+			const int32 ComputeIdx = RuntimeNodeIndex - ComputeNodeIndexBase;
+			if (!ComputeNodeTemplates.IsValidIndex(ComputeIdx) || !ComputeNodeTemplates[ComputeIdx])
+			{
+				return nullptr;
+			}
+			ComputeNodeTemplates[ComputeIdx]->GatherAllPinDeclarations(*Pins);
+		}
+		else
+		{
+			if (!NodeTemplates.IsValidIndex(RuntimeNodeIndex) || !NodeTemplates[RuntimeNodeIndex])
+			{
+				return nullptr;
+			}
+			NodeTemplates[RuntimeNodeIndex]->GatherAllPinDeclarations(*Pins);
+		}
+		const TArray<FComposableCameraNodePinDeclaration>* RawPtr = Pins.Get();
+		NodePinCache.Add(RuntimeNodeIndex, MoveTemp(Pins));
+		return RawPtr;
+	};
+
+	auto FindPinDecl = [&](int32 RuntimeNodeIndex, FName PinName, EComposableCameraPinDirection Dir)
+		-> const FComposableCameraNodePinDeclaration*
+	{
+		const TArray<FComposableCameraNodePinDeclaration>* Pins = GetNodePinDecls(RuntimeNodeIndex);
+		if (!Pins)
+		{
+			return nullptr;
+		}
+		return Pins->FindByPredicate([&](const FComposableCameraNodePinDeclaration& P)
+		{
+			return P.PinName == PinName && P.Direction == Dir;
+		});
+	};
+
+	// Type-compatibility predicate. PinType must match exactly; for Struct
+	// pins the StructType must match; for Enum pins the EnumType must match.
+	// Other carrier metadata (DisplayName, Required, DefaultValue, Tooltip,
+	// SignatureFunction) is irrelevant — only what determines storage layout
+	// and runtime read/write width matters here.
+	auto ArePinTypesCompatible = [](
+		EComposableCameraPinType TypeA, const UScriptStruct* StructA, const UEnum* EnumA,
+		EComposableCameraPinType TypeB, const UScriptStruct* StructB, const UEnum* EnumB) -> bool
+	{
+		if (TypeA != TypeB)
+		{
+			return false;
+		}
+		if (TypeA == EComposableCameraPinType::Struct && StructA != StructB)
+		{
+			return false;
+		}
+		if (TypeA == EComposableCameraPinType::Enum && EnumA != EnumB)
+		{
+			return false;
+		}
+		return true;
+	};
+
+	// Wired connections: input pin → source output pin offset.
 	for (const FComposableCameraPinConnection& Conn : PinConnections)
 	{
 		FComposableCameraPinKey SourceKey;
@@ -625,8 +752,32 @@ FComposableCameraRuntimeDataBlock UComposableCameraTypeAsset::BuildRuntimeDataLa
 		if (!SourceOffset)
 		{
 			UE_LOG(LogComposableCameraSystem, Warning,
-				TEXT("BuildRuntimeDataLayout: Connection source pin '%s' on node %d not found."),
+				TEXT("BuildRuntimeDataLayout: [%s] Connection source pin '%s' on node %d not found. Skipping wire."),
+				*GetName(), *Conn.SourcePinName.ToString(), Conn.SourceNodeIndex);
+			continue;
+		}
+
+		const FComposableCameraNodePinDeclaration* SourceDecl =
+			FindPinDecl(Conn.SourceNodeIndex, Conn.SourcePinName, EComposableCameraPinDirection::Output);
+		const FComposableCameraNodePinDeclaration* TargetDecl =
+			FindPinDecl(Conn.TargetNodeIndex, Conn.TargetPinName, EComposableCameraPinDirection::Input);
+		if (!SourceDecl || !TargetDecl)
+		{
+			UE_LOG(LogComposableCameraSystem, Warning,
+				TEXT("BuildRuntimeDataLayout: [%s] Connection target pin '%s' on node %d not declared (source pin '%s' on node %d). Skipping wire."),
+				*GetName(), *Conn.TargetPinName.ToString(), Conn.TargetNodeIndex,
 				*Conn.SourcePinName.ToString(), Conn.SourceNodeIndex);
+			continue;
+		}
+		if (!ArePinTypesCompatible(
+			SourceDecl->PinType, SourceDecl->StructType, SourceDecl->EnumType,
+			TargetDecl->PinType, TargetDecl->StructType, TargetDecl->EnumType))
+		{
+			UE_LOG(LogComposableCameraSystem, Warning,
+				TEXT("BuildRuntimeDataLayout: [%s] Connection pin-type mismatch: source '%s' on node %d (PinType=%d) → target '%s' on node %d (PinType=%d). Skipping wire to prevent runtime read of incompatible-shape bytes."),
+				*GetName(),
+				*Conn.SourcePinName.ToString(), Conn.SourceNodeIndex, static_cast<int32>(SourceDecl->PinType),
+				*Conn.TargetPinName.ToString(), Conn.TargetNodeIndex, static_cast<int32>(TargetDecl->PinType));
 			continue;
 		}
 
@@ -644,31 +795,86 @@ FComposableCameraRuntimeDataBlock UComposableCameraTypeAsset::BuildRuntimeDataLa
 	// so the lookups hit the compute output pin slots allocated above.
 	for (const FComposableCameraPinConnection& Conn : ComputePinConnections)
 	{
+		const int32 RuntimeSourceIdx = ComputeNodeIndexBase + Conn.SourceNodeIndex;
+		const int32 RuntimeTargetIdx = ComputeNodeIndexBase + Conn.TargetNodeIndex;
+
 		FComposableCameraPinKey SourceKey;
-		SourceKey.NodeIndex = ComputeNodeIndexBase + Conn.SourceNodeIndex;
+		SourceKey.NodeIndex = RuntimeSourceIdx;
 		SourceKey.PinName = Conn.SourcePinName;
 
 		const int32* SourceOffset = DataBlock.OutputPinOffsets.Find(SourceKey);
 		if (!SourceOffset)
 		{
 			UE_LOG(LogComposableCameraSystem, Warning,
-				TEXT("BuildRuntimeDataLayout: Compute connection source pin '%s' on compute node %d not found."),
+				TEXT("BuildRuntimeDataLayout: [%s] Compute connection source pin '%s' on compute node %d not found. Skipping wire."),
+				*GetName(), *Conn.SourcePinName.ToString(), Conn.SourceNodeIndex);
+			continue;
+		}
+
+		const FComposableCameraNodePinDeclaration* SourceDecl =
+			FindPinDecl(RuntimeSourceIdx, Conn.SourcePinName, EComposableCameraPinDirection::Output);
+		const FComposableCameraNodePinDeclaration* TargetDecl =
+			FindPinDecl(RuntimeTargetIdx, Conn.TargetPinName, EComposableCameraPinDirection::Input);
+		if (!SourceDecl || !TargetDecl)
+		{
+			UE_LOG(LogComposableCameraSystem, Warning,
+				TEXT("BuildRuntimeDataLayout: [%s] Compute connection target pin '%s' on compute node %d not declared (source pin '%s' on compute node %d). Skipping wire."),
+				*GetName(), *Conn.TargetPinName.ToString(), Conn.TargetNodeIndex,
 				*Conn.SourcePinName.ToString(), Conn.SourceNodeIndex);
+			continue;
+		}
+		if (!ArePinTypesCompatible(
+			SourceDecl->PinType, SourceDecl->StructType, SourceDecl->EnumType,
+			TargetDecl->PinType, TargetDecl->StructType, TargetDecl->EnumType))
+		{
+			UE_LOG(LogComposableCameraSystem, Warning,
+				TEXT("BuildRuntimeDataLayout: [%s] Compute connection pin-type mismatch: source '%s' on compute node %d (PinType=%d) → target '%s' on compute node %d (PinType=%d). Skipping wire."),
+				*GetName(),
+				*Conn.SourcePinName.ToString(), Conn.SourceNodeIndex, static_cast<int32>(SourceDecl->PinType),
+				*Conn.TargetPinName.ToString(), Conn.TargetNodeIndex, static_cast<int32>(TargetDecl->PinType));
 			continue;
 		}
 
 		FComposableCameraPinKey TargetKey;
-		TargetKey.NodeIndex = ComputeNodeIndexBase + Conn.TargetNodeIndex;
+		TargetKey.NodeIndex = RuntimeTargetIdx;
 		TargetKey.PinName = Conn.TargetPinName;
 		DataBlock.InputPinSourceOffsets.Add(TargetKey, *SourceOffset);
 	}
 
-	// Exposed parameters: input pin → parameter slot offset
+	// Exposed parameters: input pin → parameter slot offset.
+	//
+	// Source side here is the FComposableCameraExposedParameter record itself
+	// — it carries its own (PinType, StructType, EnumType) mirrored from the
+	// pin it was originally exposed from. Validate the mirror still matches
+	// the target node's current pin declaration so a parameter that was
+	// exposed before its underlying pin's type was changed in C++ doesn't
+	// silently route bytes of one shape into a slot of another shape.
 	for (const FComposableCameraExposedParameter& Param : ExposedParameters)
 	{
 		const int32* ParamOffset = DataBlock.ExposedParameterOffsets.Find(Param.ParameterName);
 		if (!ParamOffset)
 		{
+			continue;
+		}
+
+		const FComposableCameraNodePinDeclaration* TargetDecl =
+			FindPinDecl(Param.TargetNodeIndex, Param.TargetPinName, EComposableCameraPinDirection::Input);
+		if (!TargetDecl)
+		{
+			UE_LOG(LogComposableCameraSystem, Warning,
+				TEXT("BuildRuntimeDataLayout: [%s] Exposed parameter '%s' targets undeclared pin '%s' on node %d. Skipping exposure."),
+				*GetName(), *Param.ParameterName.ToString(),
+				*Param.TargetPinName.ToString(), Param.TargetNodeIndex);
+			continue;
+		}
+		if (!ArePinTypesCompatible(
+			Param.PinType, Param.StructType, Param.EnumType,
+			TargetDecl->PinType, TargetDecl->StructType, TargetDecl->EnumType))
+		{
+			UE_LOG(LogComposableCameraSystem, Warning,
+				TEXT("BuildRuntimeDataLayout: [%s] Exposed parameter '%s' (PinType=%d) shape no longer matches target pin '%s' on node %d (PinType=%d). Skipping exposure — re-expose the pin to refresh."),
+				*GetName(), *Param.ParameterName.ToString(), static_cast<int32>(Param.PinType),
+				*Param.TargetPinName.ToString(), Param.TargetNodeIndex, static_cast<int32>(TargetDecl->PinType));
 			continue;
 		}
 
@@ -698,34 +904,58 @@ FComposableCameraRuntimeDataBlock UComposableCameraTypeAsset::BuildRuntimeDataLa
 			continue;
 		}
 
-		// Resolve the variable name for offset lookup.  VariableGuid is the
-		// authoritative identity, but InternalVariableOffsets is keyed by
-		// VariableName.  Walk InternalVariables + ExposedVariables to find
-		// the canonical name via GUID, falling back to Record.VariableName.
+		// Resolve the variable name for offset lookup AND grab the variable
+		// record itself for type validation. VariableGuid is the authoritative
+		// identity, but InternalVariableOffsets is keyed by VariableName. Walk
+		// InternalVariables + ExposedVariables to find the canonical name via
+		// GUID, falling back to Record.VariableName.
 		FName ResolvedName = Record.VariableName;
+		const FComposableCameraInternalVariable* ResolvedVar = nullptr;
+		auto FindVarByGuid = [&](const TArray<FComposableCameraInternalVariable>& Vars)
+			-> const FComposableCameraInternalVariable*
+		{
+			for (const FComposableCameraInternalVariable& V : Vars)
+			{
+				if (V.VariableGuid == Record.VariableGuid)
+				{
+					return &V;
+				}
+			}
+			return nullptr;
+		};
+		auto FindVarByName = [&](const TArray<FComposableCameraInternalVariable>& Vars)
+			-> const FComposableCameraInternalVariable*
+		{
+			for (const FComposableCameraInternalVariable& V : Vars)
+			{
+				if (V.VariableName == ResolvedName)
+				{
+					return &V;
+				}
+			}
+			return nullptr;
+		};
 		if (Record.VariableGuid.IsValid())
 		{
-			auto FindByGuid = [&](const TArray<FComposableCameraInternalVariable>& Vars) -> FName
+			ResolvedVar = FindVarByGuid(InternalVariables);
+			if (!ResolvedVar)
 			{
-				for (const FComposableCameraInternalVariable& V : Vars)
-				{
-					if (V.VariableGuid == Record.VariableGuid)
-					{
-						return V.VariableName;
-					}
-				}
-				return NAME_None;
-			};
-
-			FName Found = FindByGuid(InternalVariables);
-			if (Found.IsNone())
-			{
-				Found = FindByGuid(ExposedVariables);
+				ResolvedVar = FindVarByGuid(ExposedVariables);
 			}
-			if (!Found.IsNone())
+			if (ResolvedVar)
 			{
-				ResolvedName = Found;
+				ResolvedName = ResolvedVar->VariableName;
 			}
+		}
+		// GUID resolution failed (legacy record / GUID lost) — fall back to
+		// name lookup so we still get the type metadata for validation.
+		if (!ResolvedVar)
+		{
+			ResolvedVar = FindVarByName(InternalVariables);
+		}
+		if (!ResolvedVar)
+		{
+			ResolvedVar = FindVarByName(ExposedVariables);
 		}
 
 		const int32* VarOffset = DataBlock.InternalVariableOffsets.Find(ResolvedName);
@@ -737,8 +967,12 @@ FComposableCameraRuntimeDataBlock UComposableCameraTypeAsset::BuildRuntimeDataLa
 			continue;
 		}
 
-		// For each consumer connection, map the consumer's input pin
-		// directly to the variable's storage slot.
+		// For each consumer connection, map the consumer's input pin directly
+		// to the variable's storage slot, but only if the consumer pin's type
+		// matches the variable's type. A type mismatch (variable was retyped
+		// after the Get node was wired) would route variable bytes of one
+		// shape into a consumer slot of another shape — same crash class as
+		// the wired-connection mismatch above.
 		for (const FComposableCameraVariablePinConnection& Conn : Record.Connections)
 		{
 			if (Conn.CameraNodeIndex == INDEX_NONE)
@@ -755,7 +989,7 @@ FComposableCameraRuntimeDataBlock UComposableCameraTypeAsset::BuildRuntimeDataLa
 			TargetKey.PinName = Conn.CameraPinName;
 
 			// If this consumer pin is also covered by an ExposedParameter,
-			// the exposed parameter's slot takes semantic priority.  This
+			// the exposed parameter's slot takes semantic priority. This
 			// prevents stale VariableNodes records — left behind when the
 			// user exposes a pin (which breaks the wire but doesn't rebuild
 			// VariableNodes until the next SyncToTypeAsset) — from
@@ -766,9 +1000,159 @@ FComposableCameraRuntimeDataBlock UComposableCameraTypeAsset::BuildRuntimeDataLa
 				continue;
 			}
 
+			const FComposableCameraNodePinDeclaration* TargetDecl =
+				FindPinDecl(RuntimeNodeIndex, Conn.CameraPinName, EComposableCameraPinDirection::Input);
+			if (!TargetDecl)
+			{
+				UE_LOG(LogComposableCameraSystem, Warning,
+					TEXT("BuildRuntimeDataLayout: [%s] Get variable '%s' wired to undeclared pin '%s' on node %d. Skipping wire."),
+					*GetName(), *ResolvedName.ToString(),
+					*Conn.CameraPinName.ToString(), Conn.CameraNodeIndex);
+				continue;
+			}
+			if (ResolvedVar && !ArePinTypesCompatible(
+				ResolvedVar->VariableType, ResolvedVar->StructType, ResolvedVar->EnumType,
+				TargetDecl->PinType, TargetDecl->StructType, TargetDecl->EnumType))
+			{
+				UE_LOG(LogComposableCameraSystem, Warning,
+					TEXT("BuildRuntimeDataLayout: [%s] Get variable '%s' (VariableType=%d) shape mismatches consumer pin '%s' on node %d (PinType=%d). Skipping wire — fix the variable type or rewire the consumer."),
+					*GetName(), *ResolvedName.ToString(), static_cast<int32>(ResolvedVar->VariableType),
+					*Conn.CameraPinName.ToString(), Conn.CameraNodeIndex, static_cast<int32>(TargetDecl->PinType));
+				continue;
+			}
+
 			DataBlock.InputPinSourceOffsets.Add(TargetKey, *VarOffset);
 		}
 	}
+
+	// SetVariable exec entries: validate source-output-pin type vs target-
+	// variable type. Without this pass, a stale entry whose source pin's
+	// type no longer matches the variable's type reaches CopySlot at
+	// runtime; the POD memcpy branch reads VariableSlotSize bytes from the
+	// source offset regardless of how many bytes actually live there. Float
+	// source → Actor variable (8B target size) reads 4 bytes past the float
+	// slot, then RefreshReferenceSlot reinterprets the resulting 8 bytes as
+	// AActor* and registers the garbage pointer with the GC mirror — next
+	// GC sweep can crash. Validate once at activation; the runtime check is
+	// a single TSet::Contains per entry per tick.
+	auto ValidateSetVariableEntries = [&](
+		const TArray<FComposableCameraExecEntry>& Chain,
+		bool bIsComputeChain,
+		TSet<int32>& OutInvalidIndices,
+		const TCHAR* ChainKind)
+	{
+		for (int32 EntryIdx = 0; EntryIdx < Chain.Num(); ++EntryIdx)
+		{
+			const FComposableCameraExecEntry& Entry = Chain[EntryIdx];
+			if (Entry.EntryType != EComposableCameraExecEntryType::SetVariable)
+			{
+				continue;
+			}
+			// Entries that the runtime already short-circuits on (no source
+			// node wired, no variable name, zero size) need no validation —
+			// the existing `<= 0` early-out covers them. Note: the
+			// StructSlotSentinel value (TNumericLimits<int32>::Max()) is
+			// positive, so non-POD struct variables still get validated here.
+			if (Entry.CameraNodeIndex == INDEX_NONE
+				|| Entry.VariableName.IsNone()
+				|| Entry.VariableSlotSize <= 0)
+			{
+				continue;
+			}
+
+			const int32 RuntimeSourceIdx = bIsComputeChain
+				? (ComputeNodeIndexBase + Entry.CameraNodeIndex)
+				: Entry.CameraNodeIndex;
+			const FComposableCameraNodePinDeclaration* SourceDecl = FindPinDecl(
+				RuntimeSourceIdx, Entry.SourcePinName, EComposableCameraPinDirection::Output);
+
+			// Variable lookup by name (matches the runtime
+			// InternalVariableOffsets keying). Walk InternalVariables first,
+			// then ExposedVariables — same order BuildVariableLookup uses.
+			const FComposableCameraInternalVariable* Var = nullptr;
+			for (const FComposableCameraInternalVariable& V : InternalVariables)
+			{
+				if (V.VariableName == Entry.VariableName)
+				{
+					Var = &V;
+					break;
+				}
+			}
+			if (!Var)
+			{
+				for (const FComposableCameraInternalVariable& V : ExposedVariables)
+				{
+					if (V.VariableName == Entry.VariableName)
+					{
+						Var = &V;
+						break;
+					}
+				}
+			}
+
+			if (!SourceDecl)
+			{
+				UE_LOG(LogComposableCameraSystem, Warning,
+					TEXT("BuildRuntimeDataLayout: [%s] %s SetVariable entry %d: source pin '%s' on node %d not declared. Disabling entry."),
+					*GetName(), ChainKind, EntryIdx,
+					*Entry.SourcePinName.ToString(), Entry.CameraNodeIndex);
+				OutInvalidIndices.Add(EntryIdx);
+				continue;
+			}
+			if (!Var)
+			{
+				UE_LOG(LogComposableCameraSystem, Warning,
+					TEXT("BuildRuntimeDataLayout: [%s] %s SetVariable entry %d: variable '%s' not found. Disabling entry."),
+					*GetName(), ChainKind, EntryIdx, *Entry.VariableName.ToString());
+				OutInvalidIndices.Add(EntryIdx);
+				continue;
+			}
+			if (!ArePinTypesCompatible(
+				SourceDecl->PinType, SourceDecl->StructType, SourceDecl->EnumType,
+				Var->VariableType, Var->StructType, Var->EnumType))
+			{
+				UE_LOG(LogComposableCameraSystem, Warning,
+					TEXT("BuildRuntimeDataLayout: [%s] %s SetVariable entry %d: source pin '%s' on node %d (PinType=%d) → variable '%s' (VariableType=%d) — type mismatch. Disabling entry to prevent runtime cross-slot read of %d bytes from a %d-byte source."),
+					*GetName(), ChainKind, EntryIdx,
+					*Entry.SourcePinName.ToString(), Entry.CameraNodeIndex, static_cast<int32>(SourceDecl->PinType),
+					*Entry.VariableName.ToString(), static_cast<int32>(Var->VariableType),
+					Entry.VariableSlotSize, GetPinTypeSize(SourceDecl->PinType, SourceDecl->StructType));
+				OutInvalidIndices.Add(EntryIdx);
+				continue;
+			}
+
+			// Type passed, now also check the serialized SlotSize matches the
+			// variable's CURRENT type-derived size. Types can match while
+			// SlotSize is stale: if the variable was originally Transform
+			// (SlotSize=48) and later retyped to Float (SlotSize=4), the
+			// editor sync MAY persist the entry with stale SlotSize=48 if the
+			// SyncToTypeAsset path didn't re-walk this entry. CopySlot's POD
+			// branch then reads 48 bytes from a 4-byte Float source slot,
+			// overflowing into adjacent storage — corrupts the next slot
+			// (which might be an Actor/Object reference whose mirror gets
+			// updated by RefreshReferenceSlot on a subsequent tick). The
+			// `<= 0` early-out doesn't help because the stale size is
+			// positive. Use `GetVariableSlotSize` (returns the
+			// `StructSlotSentinel` for non-POD struct, real bytes for POD)
+			// so this check works uniformly across all variable types.
+			const int32 ExpectedSlotSize = GetVariableSlotSize(Var->VariableType, Var->StructType);
+			if (Entry.VariableSlotSize != ExpectedSlotSize)
+			{
+				UE_LOG(LogComposableCameraSystem, Warning,
+					TEXT("BuildRuntimeDataLayout: [%s] %s SetVariable entry %d: variable '%s' currently expects SlotSize=%d but exec entry serialized SlotSize=%d (stale — variable was retyped without re-syncing the asset). Disabling entry to prevent runtime cross-slot memcpy. Re-save the asset to refresh."),
+					*GetName(), ChainKind, EntryIdx,
+					*Entry.VariableName.ToString(), ExpectedSlotSize, Entry.VariableSlotSize);
+				OutInvalidIndices.Add(EntryIdx);
+			}
+		}
+	};
+
+	ValidateSetVariableEntries(
+		FullExecChain, /*bIsComputeChain=*/false,
+		DataBlock.InvalidSetVariableExecEntries, TEXT("camera"));
+	ValidateSetVariableEntries(
+		ComputeFullExecChain, /*bIsComputeChain=*/true,
+		DataBlock.InvalidSetVariableComputeExecEntries, TEXT("compute"));
 
 	return DataBlock;
 }
@@ -812,7 +1196,12 @@ void UComposableCameraTypeAsset::ApplyParameterBlock(
 		{
 			return false;
 		}
-		const int32 Copied = Parameters.CopyRawTo(Name, DataBlock.Storage.GetData() + Offset, Size);
+		// Strict CopyRawTo: only succeeds when caller's parameter PinType
+		// matches the slot's PinType AND Data.Num() == Size exactly. Stale
+		// caller values that have the right name but the wrong shape are
+		// rejected — runtime falls back to whatever the slot already holds
+		// (zero-init or initial-value seed).
+		const int32 Copied = Parameters.CopyRawTo(Name, DataBlock.Storage.GetData() + Offset, Size, PinType);
 		if (Copied > 0)
 		{
 			DataBlock.RefreshReferenceSlot(Offset);
@@ -975,9 +1364,82 @@ void UComposableCameraTypeAsset::ApplyDelegateBindings(
 		}
 
 		FScriptDelegate* DestDelegate = DelegateProp->GetPropertyValuePtr_InContainer(Node);
-		if (DestDelegate)
+		if (!DestDelegate)
+		{
+			continue;
+		}
+
+		// Verify the source delegate's bound function signature matches the
+		// target FDelegateProperty's expected signature before assigning.
+		// FScriptDelegate carries (UObject* Object, FName FunctionName) only
+		// — no signature record — so a stale BP / mistyped C++ caller can
+		// install a delegate whose UFunction has a different parameter
+		// layout than the target. If left unchecked, the eventual `Execute`
+		// call walks the wrong parameter frame: ProcessEvent reads garbage
+		// args / corrupts callee stack / asserts. Resolve the source's
+		// UFunction by name on its bound UObject and compare against
+		// `DelegateProp->SignatureFunction` via `IsSignatureCompatibleWith`
+		// (the same predicate UE itself uses for delegate binding
+		// validation). On mismatch, leave the target unbound and log so
+		// the user can correct the wiring.
+		auto IsDelegateSignatureCompatible = [&]() -> bool
+		{
+			// `FScriptDelegate::GetUObject()` is const-qualified and returns
+			// `const UObject*`; `FindFunction` is const on UObject so we
+			// can resolve through the const pointer. We don't need to
+			// mutate the bound object here, only inspect its class.
+			const UObject* BoundObj = SourceDelegate->GetUObject();
+			if (!BoundObj)
+			{
+				// Empty/cleared delegate is fine — assigning a default-
+				// constructed FScriptDelegate is the documented way to
+				// "unbind" the target.
+				return true;
+			}
+			UFunction* SourceFunc = BoundObj->FindFunction(SourceDelegate->GetFunctionName());
+			if (!SourceFunc)
+			{
+				UE_LOG(LogComposableCameraSystem, Warning,
+					TEXT("ApplyDelegateBindings: Source delegate '%s' bound to '%s::%s' but the function does not exist on the bound object — leaving target unbound."),
+					*Param.ParameterName.ToString(),
+					*BoundObj->GetClass()->GetName(),
+					*SourceDelegate->GetFunctionName().ToString());
+				return false;
+			}
+			if (!DelegateProp->SignatureFunction)
+			{
+				// Unusual — target FDelegateProperty has no signature
+				// recorded. Refuse rather than guess.
+				UE_LOG(LogComposableCameraSystem, Warning,
+					TEXT("ApplyDelegateBindings: Target FDelegateProperty '%s' on node class '%s' has no SignatureFunction — leaving target unbound."),
+					*Param.TargetPinName.ToString(),
+					*Node->GetClass()->GetName());
+				return false;
+			}
+			if (!SourceFunc->IsSignatureCompatibleWith(DelegateProp->SignatureFunction))
+			{
+				UE_LOG(LogComposableCameraSystem, Warning,
+					TEXT("ApplyDelegateBindings: Source delegate '%s' (bound to '%s::%s') signature does not match target FDelegateProperty '%s' on node class '%s' (expected '%s'). Leaving target unbound to prevent ProcessEvent parameter-frame mismatch."),
+					*Param.ParameterName.ToString(),
+					*BoundObj->GetClass()->GetName(),
+					*SourceDelegate->GetFunctionName().ToString(),
+					*Param.TargetPinName.ToString(),
+					*Node->GetClass()->GetName(),
+					*DelegateProp->SignatureFunction->GetName());
+				return false;
+			}
+			return true;
+		};
+
+		if (IsDelegateSignatureCompatible())
 		{
 			*DestDelegate = *SourceDelegate;
+		}
+		else
+		{
+			// Clear the target so a stale binding from a previous activation
+			// doesn't survive the rejected new binding.
+			DestDelegate->Unbind();
 		}
 	}
 }

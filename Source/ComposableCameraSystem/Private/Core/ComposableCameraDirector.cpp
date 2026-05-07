@@ -11,6 +11,92 @@
 #include "DataAssets/ComposableCameraTransitionDataAsset.h"
 #include "Patches/ComposableCameraPatchManager.h"
 
+namespace
+{
+	/** `GetDeltaSeconds` with an explicit null-World guard. The Director
+	 *  outer always has a World during normal play, but multiple eval
+	 *  paths (notably `ResumeCamera` and the activation variants) build
+	 *  `FComposableCameraTransitionInitParams` even during late teardown,
+	 *  test-only Director construction, or commandlet runs where
+	 *  `GetWorld()` legitimately returns null. A bare
+	 *  `GetWorld()->GetDeltaSeconds()` would null-deref. Returning 0.f on
+	 *  null is the documented "no time has elapsed" zero-duration fallback
+	 *  every transition's `TransitionEnabled` already tolerates. */
+	float SafeDeltaSeconds(const UWorld* World)
+	{
+		return World ? World->GetDeltaSeconds() : 0.f;
+	}
+
+	/** Wrap `DuplicateObject<UComposableCameraTransitionBase>` with the null-check
+	 *  every Director transition path needs. `DuplicateObject` legitimately returns
+	 *  nullptr on archetype lookup failure, RF_NeedLoad-during-PostLoad collisions,
+	 *  GC interference, and the source object being mid-destruction. Director
+	 *  paths used to call `Transition->TransitionEnabled(...)` immediately after
+	 *  the dup, crashing instead of falling through to a hard cut.
+	 *
+	 *  Returns nullptr on failure (logged with the call site). Callers should
+	 *  treat that as "no transition" — `EvaluationTree::OnActivateNewCamera`
+	 *  already handles a null Transition by hard-cutting on the next eval
+	 *  frame, which is the documented degradation path. */
+	UComposableCameraTransitionBase* DuplicateTransitionOrNull(
+		UComposableCameraTransitionBase* SourceTransition,
+		UObject* Outer,
+		const TCHAR* CallSite)
+	{
+		if (!SourceTransition)
+		{
+			return nullptr;
+		}
+		UComposableCameraTransitionBase* Duplicated = DuplicateObject(SourceTransition, Outer);
+		if (!Duplicated)
+		{
+			UE_LOG(LogComposableCameraSystem, Warning,
+				TEXT("%s: DuplicateObject returned null for transition '%s'. Falling back to hard cut."),
+				CallSite, *GetNameSafe(SourceTransition));
+		}
+		return Duplicated;
+	}
+
+	/** Wrap `World->SpawnActorDeferred<AComposableCameraCameraBase>` with the
+	 *  null-checks every call site needs. SpawnActorDeferred legitimately
+	 *  returns nullptr on class-load failure, world teardown, blocked spawn
+	 *  collision queries, and a handful of other late-init-time conditions —
+	 *  every Director activation path used to dereference the result
+	 *  immediately to write `bIsTransient` / `LifeTime` / etc., crashing on
+	 *  null instead of falling through to the PCM's outer fallback. The PCM
+	 *  caller's null-handling contract still applies; this helper just makes
+	 *  it reachable. Logs once per failure with enough context to diagnose
+	 *  (which CameraClass, why null) so the silent-crash tail is gone. */
+	AComposableCameraCameraBase* SpawnCameraCheckedOrNull(
+		UWorld* World,
+		TSubclassOf<AComposableCameraCameraBase> CameraClass,
+		const FTransform& InitialTransform,
+		const TCHAR* CallSite)
+	{
+		if (!World)
+		{
+			UE_LOG(LogComposableCameraSystem, Warning,
+				TEXT("%s: cannot spawn camera — World is null."), CallSite);
+			return nullptr;
+		}
+		if (!*CameraClass)
+		{
+			UE_LOG(LogComposableCameraSystem, Warning,
+				TEXT("%s: cannot spawn camera — CameraClass is null."), CallSite);
+			return nullptr;
+		}
+		AComposableCameraCameraBase* Spawned =
+			World->SpawnActorDeferred<AComposableCameraCameraBase>(CameraClass, InitialTransform);
+		if (!Spawned)
+		{
+			UE_LOG(LogComposableCameraSystem, Warning,
+				TEXT("%s: SpawnActorDeferred returned null for class '%s'."),
+				CallSite, *GetNameSafe(*CameraClass));
+		}
+		return Spawned;
+	}
+}
+
 UComposableCameraDirector::UComposableCameraDirector(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
 {
@@ -24,21 +110,57 @@ UComposableCameraDirector::UComposableCameraDirector(const FObjectInitializer& O
 	}
 }
 
+void UComposableCameraDirector::AddReferencedObjects(UObject* InThis, FReferenceCollector& Collector)
+{
+	UComposableCameraDirector* This = CastChecked<UComposableCameraDirector>(InThis);
+	// `LastEvaluatedPose` / `PreviousEvaluatedPose` are non-UPROPERTY fields
+	// (they're owned by the C++ class body, not surfaced through reflection)
+	// so the GC's reflection walk does not see UObject references inside
+	// their embedded FPostProcessSettings — color-grading materials, vignette
+	// textures, weighted-blendable assets. Walk them explicitly via the
+	// pose USTRUCT's reflected property graph so a material that is only
+	// referenced through a cached director pose can't get collected mid-
+	// blend and leave a dangling TObjectPtr behind.
+	Collector.AddPropertyReferencesWithStructARO(
+		FComposableCameraPose::StaticStruct(),
+		&This->LastEvaluatedPose);
+	Collector.AddPropertyReferencesWithStructARO(
+		FComposableCameraPose::StaticStruct(),
+		&This->PreviousEvaluatedPose);
+	Super::AddReferencedObjects(InThis, Collector);
+}
+
 AComposableCameraCameraBase* UComposableCameraDirector::ResumeCamera(AComposableCameraCameraBase* InResumeCamera,
 	UComposableCameraTransitionBase* Transition, const FTransform& Transform)
 {
+	if (!IsValid(InResumeCamera))
+	{
+		UE_LOG(LogComposableCameraSystem, Warning, TEXT(
+			"Director::ResumeCamera: input camera is null or invalid. Aborting to avoid installing a null camera leaf."));
+		return RunningCamera;
+	}
+
+	if (!EvaluationTree)
+	{
+		UE_LOG(LogComposableCameraSystem, Warning, TEXT(
+			"Director::ResumeCamera: EvaluationTree is null. Aborting."));
+		return RunningCamera;
+	}
+
 	if (Transition && RunningCamera)
 	{
 		ForceCameraPoses(InResumeCamera, Transform);
 
-		Transition = DuplicateObject(Transition, this);
-
-		FComposableCameraTransitionInitParams TransInitParams;
-		TransInitParams.CurrentSourcePose = LastEvaluatedPose;
-		TransInitParams.PreviousSourcePose = PreviousEvaluatedPose;
-		TransInitParams.DeltaTime = GetWorld()->GetDeltaSeconds();
-		Transition->TransitionEnabled(TransInitParams);
-		Transition->ResetTransitionState();
+		Transition = DuplicateTransitionOrNull(Transition, this, TEXT("Director::ResumeCamera"));
+		if (Transition)
+		{
+			FComposableCameraTransitionInitParams TransInitParams;
+			TransInitParams.CurrentSourcePose = LastEvaluatedPose;
+			TransInitParams.PreviousSourcePose = PreviousEvaluatedPose;
+			TransInitParams.DeltaTime = SafeDeltaSeconds(GetWorld());
+			Transition->TransitionEnabled(TransInitParams);
+			Transition->ResetTransitionState();
+		}
 	}
 
 	EvaluationTree->OnActivateNewCamera(InResumeCamera, Transition);
@@ -70,8 +192,13 @@ AComposableCameraCameraBase* UComposableCameraDirector::CreateNewCamera(
 	
 	if (UWorld* World = GetWorld())
 	{
-		AComposableCameraCameraBase* NewCamera = World->SpawnActorDeferred<AComposableCameraCameraBase>(CameraClass, InitialTransform);
-		
+		AComposableCameraCameraBase* NewCamera = SpawnCameraCheckedOrNull(
+			World, CameraClass, InitialTransform, TEXT("Director::CreateNewCamera"));
+		if (!NewCamera)
+		{
+			return nullptr;
+		}
+
 		if (bIsTransient)
 		{
 			NewCamera->bIsTransient = true;
@@ -84,9 +211,9 @@ AComposableCameraCameraBase* UComposableCameraDirector::CreateNewCamera(
 			NewCamera->LifeTime = -1.f;
 			NewCamera->RemainingLifeTime = -1.f;
 		}
-		
+
 		ForceCameraPoses(NewCamera, InitialTransform);
-		
+
 		NewCamera->Initialize(PlayerCameraManager);
 		NewCamera->FinishSpawning(InitialTransform);
 
@@ -122,7 +249,12 @@ AComposableCameraCameraBase* UComposableCameraDirector::ActivateNewCamera(
 	
 	if (UWorld* World = GetWorld())
 	{
-		AComposableCameraCameraBase* NewCamera = World->SpawnActorDeferred<AComposableCameraCameraBase>(CameraClass, InitialTransform);
+		AComposableCameraCameraBase* NewCamera = SpawnCameraCheckedOrNull(
+			World, CameraClass, InitialTransform, TEXT("Director::ActivateNewCamera (DataAsset)"));
+		if (!NewCamera)
+		{
+			return RunningCamera;
+		}
 
 		if (bIsTransient)
 		{
@@ -136,7 +268,7 @@ AComposableCameraCameraBase* UComposableCameraDirector::ActivateNewCamera(
 			NewCamera->LifeTime = -1.f;
 			NewCamera->RemainingLifeTime = -1.f;
 		}
-		
+
 		ForceCameraPoses(NewCamera, InitialTransform);
 
 		// Initialization order when creating a new camera:
@@ -154,14 +286,18 @@ AComposableCameraCameraBase* UComposableCameraDirector::ActivateNewCamera(
 		UComposableCameraTransitionBase* Transition = nullptr;
 		if (TransitionDataAsset && TransitionDataAsset->Transition && RunningCamera)
 		{
-			FComposableCameraTransitionInitParams TransInitParams;
-			TransInitParams.CurrentSourcePose = LastEvaluatedPose;
-			TransInitParams.PreviousSourcePose = PreviousEvaluatedPose;
-			TransInitParams.DeltaTime = GetWorld()->GetDeltaSeconds();
-			
-			Transition = DuplicateObject(TransitionDataAsset->Transition, this);
-			Transition->TransitionEnabled(TransInitParams);
-			Transition->ResetTransitionState();
+			Transition = DuplicateTransitionOrNull(TransitionDataAsset->Transition, this,
+				TEXT("Director::ActivateNewCamera (DataAsset)"));
+			if (Transition)
+			{
+				FComposableCameraTransitionInitParams TransInitParams;
+				TransInitParams.CurrentSourcePose = LastEvaluatedPose;
+				TransInitParams.PreviousSourcePose = PreviousEvaluatedPose;
+				TransInitParams.DeltaTime = SafeDeltaSeconds(GetWorld());
+
+				Transition->TransitionEnabled(TransInitParams);
+				Transition->ResetTransitionState();
+			}
 		}
 
 		EvaluationTree->OnActivateNewCamera(NewCamera, Transition, ActivationParams.bFreezeSourceCamera);
@@ -197,7 +333,12 @@ AComposableCameraCameraBase* UComposableCameraDirector::ActivateNewCamera(
 
 	if (UWorld* World = GetWorld())
 	{
-		AComposableCameraCameraBase* NewCamera = World->SpawnActorDeferred<AComposableCameraCameraBase>(CameraClass, InitialTransform);
+		AComposableCameraCameraBase* NewCamera = SpawnCameraCheckedOrNull(
+			World, CameraClass, InitialTransform, TEXT("Director::ActivateNewCamera (Instance)"));
+		if (!NewCamera)
+		{
+			return RunningCamera;
+		}
 
 		if (bIsTransient)
 		{
@@ -222,14 +363,18 @@ AComposableCameraCameraBase* UComposableCameraDirector::ActivateNewCamera(
 		UComposableCameraTransitionBase* Transition = nullptr;
 		if (TransitionInstance && RunningCamera)
 		{
-			FComposableCameraTransitionInitParams TransInitParams;
-			TransInitParams.CurrentSourcePose = LastEvaluatedPose;
-			TransInitParams.PreviousSourcePose = PreviousEvaluatedPose;
-			TransInitParams.DeltaTime = GetWorld()->GetDeltaSeconds();
+			Transition = DuplicateTransitionOrNull(TransitionInstance, this,
+				TEXT("Director::ActivateNewCamera (Instance)"));
+			if (Transition)
+			{
+				FComposableCameraTransitionInitParams TransInitParams;
+				TransInitParams.CurrentSourcePose = LastEvaluatedPose;
+				TransInitParams.PreviousSourcePose = PreviousEvaluatedPose;
+				TransInitParams.DeltaTime = SafeDeltaSeconds(GetWorld());
 
-			Transition = DuplicateObject(TransitionInstance, this);
-			Transition->TransitionEnabled(TransInitParams);
-			Transition->ResetTransitionState();
+				Transition->TransitionEnabled(TransInitParams);
+				Transition->ResetTransitionState();
+			}
 		}
 
 		EvaluationTree->OnActivateNewCamera(NewCamera, Transition, ActivationParams.bFreezeSourceCamera);
@@ -248,7 +393,12 @@ AComposableCameraCameraBase* UComposableCameraDirector::ActivateNewCameraWithRef
 	UComposableCameraDirector* SourceDirector,
 	UComposableCameraTransitionBase** OutTransition)
 {
-	check(SourceDirector);
+	if (!ensureMsgf(SourceDirector, TEXT(
+		"Director::ActivateNewCameraWithReferenceSource (DataAsset): SourceDirector is null. "
+		"Inter-context activation requires a valid source director.")))
+	{
+		return RunningCamera;
+	}
 
 	bool bPreserveCameraPose = ActivationParams.bPreserveCameraPose;
 	FTransform InitialTransform = ActivationParams.InitialTransform;
@@ -270,7 +420,12 @@ AComposableCameraCameraBase* UComposableCameraDirector::ActivateNewCameraWithRef
 
 	if (UWorld* World = GetWorld())
 	{
-		AComposableCameraCameraBase* NewCamera = World->SpawnActorDeferred<AComposableCameraCameraBase>(CameraClass, InitialTransform);
+		AComposableCameraCameraBase* NewCamera = SpawnCameraCheckedOrNull(
+			World, CameraClass, InitialTransform, TEXT("Director::ActivateNewCameraWithReferenceSource (DataAsset)"));
+		if (!NewCamera)
+		{
+			return RunningCamera;
+		}
 
 		if (bIsTransient)
 		{
@@ -295,16 +450,20 @@ AComposableCameraCameraBase* UComposableCameraDirector::ActivateNewCameraWithRef
 		UComposableCameraTransitionBase* Transition = nullptr;
 		if (TransitionDataAsset && TransitionDataAsset->Transition)
 		{
-			// Use the source Director's last evaluated (blended) pose as the transition source.
-			// This is what the player was actually seeing before the context switch.
-			FComposableCameraTransitionInitParams TransInitParams;
-			TransInitParams.CurrentSourcePose = SourceDirector->GetLastEvaluatedPose();
-			TransInitParams.PreviousSourcePose = SourceDirector->GetPreviousEvaluatedPose();
-			TransInitParams.DeltaTime = GetWorld()->GetDeltaSeconds();
-			
-			Transition = DuplicateObject(TransitionDataAsset->Transition, this);
-			Transition->TransitionEnabled(TransInitParams);
-			Transition->ResetTransitionState();
+			Transition = DuplicateTransitionOrNull(TransitionDataAsset->Transition, this,
+				TEXT("Director::ActivateNewCameraWithReferenceSource (DataAsset)"));
+			if (Transition)
+			{
+				// Use the source Director's last evaluated (blended) pose as the transition source.
+				// This is what the player was actually seeing before the context switch.
+				FComposableCameraTransitionInitParams TransInitParams;
+				TransInitParams.CurrentSourcePose = SourceDirector->GetLastEvaluatedPose();
+				TransInitParams.PreviousSourcePose = SourceDirector->GetPreviousEvaluatedPose();
+				TransInitParams.DeltaTime = SafeDeltaSeconds(GetWorld());
+
+				Transition->TransitionEnabled(TransInitParams);
+				Transition->ResetTransitionState();
+			}
 		}
 
 		if (OutTransition)
@@ -329,7 +488,12 @@ AComposableCameraCameraBase* UComposableCameraDirector::ActivateNewCameraWithRef
 	UComposableCameraDirector* SourceDirector,
 	UComposableCameraTransitionBase** OutTransition)
 {
-	check(SourceDirector);
+	if (!ensureMsgf(SourceDirector, TEXT(
+		"Director::ActivateNewCameraWithReferenceSource (Instance): SourceDirector is null. "
+		"Inter-context activation requires a valid source director.")))
+	{
+		return RunningCamera;
+	}
 
 	bool bPreserveCameraPose = ActivationParams.bPreserveCameraPose;
 	FTransform InitialTransform = ActivationParams.InitialTransform;
@@ -350,7 +514,12 @@ AComposableCameraCameraBase* UComposableCameraDirector::ActivateNewCameraWithRef
 
 	if (UWorld* World = GetWorld())
 	{
-		AComposableCameraCameraBase* NewCamera = World->SpawnActorDeferred<AComposableCameraCameraBase>(CameraClass, InitialTransform);
+		AComposableCameraCameraBase* NewCamera = SpawnCameraCheckedOrNull(
+			World, CameraClass, InitialTransform, TEXT("Director::ActivateNewCameraWithReferenceSource (Instance)"));
+		if (!NewCamera)
+		{
+			return RunningCamera;
+		}
 
 		if (bIsTransient)
 		{
@@ -375,14 +544,18 @@ AComposableCameraCameraBase* UComposableCameraDirector::ActivateNewCameraWithRef
 		UComposableCameraTransitionBase* Transition = nullptr;
 		if (TransitionInstance)
 		{
-			FComposableCameraTransitionInitParams TransInitParams;
-			TransInitParams.CurrentSourcePose = SourceDirector->GetLastEvaluatedPose();
-			TransInitParams.PreviousSourcePose = SourceDirector->GetPreviousEvaluatedPose();
-			TransInitParams.DeltaTime = GetWorld()->GetDeltaSeconds();
+			Transition = DuplicateTransitionOrNull(TransitionInstance, this,
+				TEXT("Director::ActivateNewCameraWithReferenceSource (Instance)"));
+			if (Transition)
+			{
+				FComposableCameraTransitionInitParams TransInitParams;
+				TransInitParams.CurrentSourcePose = SourceDirector->GetLastEvaluatedPose();
+				TransInitParams.PreviousSourcePose = SourceDirector->GetPreviousEvaluatedPose();
+				TransInitParams.DeltaTime = SafeDeltaSeconds(GetWorld());
 
-			Transition = DuplicateObject(TransitionInstance, this);
-			Transition->TransitionEnabled(TransInitParams);
-			Transition->ResetTransitionState();
+				Transition->TransitionEnabled(TransInitParams);
+				Transition->ResetTransitionState();
+			}
 		}
 
 		if (OutTransition)
@@ -415,14 +588,19 @@ AComposableCameraCameraBase* UComposableCameraDirector::ReactivateCurrentCamera(
 
 	if (UWorld* World = GetWorld())
 	{
-		
-		AComposableCameraCameraBase* NewCamera = World->SpawnActorDeferred<AComposableCameraCameraBase>(CameraClass, InitialTransform);
+		AComposableCameraCameraBase* NewCamera = SpawnCameraCheckedOrNull(
+			World, CameraClass, InitialTransform, TEXT("Director::ReactivateCurrentCamera"));
+		if (!NewCamera)
+		{
+			return RunningCamera;
+		}
+
 		NewCamera->bIsTransient = false;
 		NewCamera->LifeTime = -1.f;
 		NewCamera->RemainingLifeTime = -1.f;
-		
+
 		ForceCameraPoses(NewCamera, InitialTransform);
-		
+
 		NewCamera->Initialize(PlayerCameraManager);
 		OnPreBeginplayEvent.ExecuteIfBound(NewCamera);
 		PlayerCameraManager->ApplyModifiers(NewCamera);
@@ -430,14 +608,17 @@ AComposableCameraCameraBase* UComposableCameraDirector::ReactivateCurrentCamera(
 
 		if (Transition)
 		{
-			Transition = DuplicateObject(Transition, this);
-
-			FComposableCameraTransitionInitParams TransInitParams;
-			TransInitParams.CurrentSourcePose = LastEvaluatedPose;
-			TransInitParams.PreviousSourcePose = PreviousEvaluatedPose;
-			TransInitParams.DeltaTime = GetWorld()->GetDeltaSeconds();
-			Transition->TransitionEnabled(TransInitParams);
-			Transition->ResetTransitionState();
+			Transition = DuplicateTransitionOrNull(Transition, this,
+				TEXT("Director::ReactivateCurrentCamera"));
+			if (Transition)
+			{
+				FComposableCameraTransitionInitParams TransInitParams;
+				TransInitParams.CurrentSourcePose = LastEvaluatedPose;
+				TransInitParams.PreviousSourcePose = PreviousEvaluatedPose;
+				TransInitParams.DeltaTime = SafeDeltaSeconds(GetWorld());
+				Transition->TransitionEnabled(TransInitParams);
+				Transition->ResetTransitionState();
+			}
 		}
 
 		EvaluationTree->OnActivateNewCamera(NewCamera, Transition);
@@ -453,7 +634,12 @@ AComposableCameraCameraBase* UComposableCameraDirector::ResumeCurrentCameraWithR
 	UComposableCameraDirector* SourceDirector,
 	bool bFreezeSourceCamera)
 {
-	check(SourceDirector);
+	if (!ensureMsgf(SourceDirector, TEXT(
+		"Director::ResumeCurrentCameraWithReferenceSource: SourceDirector is null. "
+		"Pop-resume requires a valid source director to reference as blend source.")))
+	{
+		return nullptr;
+	}
 
 	if (!EvaluationTree || !EvaluationTree->HasActiveCamera())
 	{
@@ -473,7 +659,7 @@ AComposableCameraCameraBase* UComposableCameraDirector::ResumeCurrentCameraWithR
 		FComposableCameraTransitionInitParams TransInitParams;
 		TransInitParams.CurrentSourcePose  = SourceDirector->GetLastEvaluatedPose();
 		TransInitParams.PreviousSourcePose = SourceDirector->GetPreviousEvaluatedPose();
-		TransInitParams.DeltaTime          = GetWorld() ? GetWorld()->GetDeltaSeconds() : 0.f;
+		TransInitParams.DeltaTime          = SafeDeltaSeconds(GetWorld());
 
 		TransitionInstance->TransitionEnabled(TransInitParams);
 		TransitionInstance->ResetTransitionState();

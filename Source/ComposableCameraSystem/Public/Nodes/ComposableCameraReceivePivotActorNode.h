@@ -6,6 +6,8 @@
 #include "ComposableCameraCameraNodeBase.h"
 #include "ComposableCameraReceivePivotActorNode.generated.h"
 
+class USkeletalMeshComponent;
+
 /**
  * Reads a pivot actor's location and publishes it as the pivot position for downstream nodes.
  * This node runs every tick.
@@ -54,5 +56,12 @@ public:
 	FName BoneName;
 
 private:
-	USkeletalMeshComponent* SkeletalMeshComponentForPivotActor { nullptr };
+	// Cached SkelMesh on the currently-resolved PivotActor. TWeakObjectPtr
+	// (not raw, not UPROPERTY) — PivotActor is an input pin and can change
+	// every frame, and the SkelMesh component on that actor can be
+	// destroyed / re-spawned independently. Tick / DrawNodeDebug must
+	// IsValid()-check before deref. Resolution happens lazily in Tick when
+	// the active PivotActor differs from `LastResolvedPivotActor`.
+	TWeakObjectPtr<USkeletalMeshComponent> SkeletalMeshComponentForPivotActor;
+	TWeakObjectPtr<AActor> LastResolvedPivotActor;
 };

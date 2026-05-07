@@ -12,6 +12,7 @@
 #include "DetailWidgetRow.h"
 #include "EdGraph/EdGraph.h"
 #include "IDetailPropertyRow.h"
+#include "IPropertyUtilities.h"
 #include "PropertyEditorModule.h"
 #include "ScopedTransaction.h"
 #include "Widgets/Input/SButton.h"
@@ -265,10 +266,23 @@ void FComposableCameraNodeGraphNodeDetails::CustomizeDetails(IDetailLayoutBuilde
 					// that ForceRefreshDetails triggers when it re-fires child
 					// property-change lambdas. See the struct comment in
 					// ComposableCameraNodeGraph.h for the full explanation.
+					// Capture weak refs only — neither `this` (the IDetailCustomization)
+					// nor `&DetailBuilder` is guaranteed to outlive the property
+					// handle that owns this delegate. The Details panel can tear
+					// down and rebuild the layout (selection change, refresh
+					// cascade) while the underlying property handle survives,
+					// firing this lambda against a freed customization /
+					// destroyed IDetailLayoutBuilder. `WeakGraphNode` is the
+					// customization member already; `IPropertyUtilities` lives
+					// at the SDetailsView level (the actual long-lived owner)
+					// and exposes `ForceRefresh()` as the safe replacement
+					// for `IDetailLayoutBuilder::ForceRefreshDetails()`.
+					const TWeakObjectPtr<UComposableCameraNodeGraphNode> WeakNode = WeakGraphNode;
+					const TWeakPtr<IPropertyUtilities> WeakUtils = DetailBuilder.GetPropertyUtilities().ToWeakPtr();
 					Handle->SetOnPropertyValueChanged(
-						FSimpleDelegate::CreateLambda([this, &DetailBuilder]()
+						FSimpleDelegate::CreateLambda([WeakNode, WeakUtils]()
 						{
-							UComposableCameraNodeGraphNode* GN = GetGraphNode();
+							UComposableCameraNodeGraphNode* GN = WeakNode.Get();
 							UComposableCameraNodeGraph* OwningGraph = GN
 								? Cast<UComposableCameraNodeGraph>(GN->GetGraph())
 								: nullptr;
@@ -282,7 +296,10 @@ void FComposableCameraNodeGraphNodeDetails::CustomizeDetails(IDetailLayoutBuilde
 									OwningGraph->NotifyGraphChanged();
 								}
 							}
-							DetailBuilder.ForceRefreshDetails();
+							if (TSharedPtr<IPropertyUtilities> Utils = WeakUtils.Pin())
+							{
+								Utils->ForceRefresh();
+							}
 						}));
 				}
 			}
@@ -321,12 +338,20 @@ void FComposableCameraNodeGraphNodeDetails::CustomizeDetails(IDetailLayoutBuilde
 				}
 
 				// Attach refresh callback for subobject property changes.
+				// Capture IPropertyUtilities weak (DetailBuilder is local; the
+				// utilities object is owned by the SDetailsView and outlives
+				// the layout). See the matching note above on the compound-
+				// pin class-picker site for the dangling-capture rationale.
 				if (TSharedPtr<IPropertyHandle> SubHandle = SubRow->GetPropertyHandle())
 				{
+					const TWeakPtr<IPropertyUtilities> WeakUtils = DetailBuilder.GetPropertyUtilities().ToWeakPtr();
 					SubHandle->SetOnPropertyValueChanged(
-						FSimpleDelegate::CreateLambda([&DetailBuilder]()
+						FSimpleDelegate::CreateLambda([WeakUtils]()
 						{
-							DetailBuilder.ForceRefreshDetails();
+							if (TSharedPtr<IPropertyUtilities> Utils = WeakUtils.Pin())
+							{
+								Utils->ForceRefresh();
+							}
 						}));
 				}
 
@@ -446,10 +471,16 @@ void FComposableCameraNodeGraphNodeDetails::CustomizeDetails(IDetailLayoutBuilde
 				// uses FComposableCameraDetailsRebuildScope: ForceRefreshDetails
 				// re-fires child lambdas that would otherwise each run a full
 				// SyncToTypeAsset.
+				//
+				// Captures are weak — `this` and `&DetailBuilder` are not
+				// guaranteed to outlive the property handle. See the matching
+				// site above for the full rationale.
+				const TWeakObjectPtr<UComposableCameraNodeGraphNode> WeakNode = WeakGraphNode;
+				const TWeakPtr<IPropertyUtilities> WeakUtils = DetailBuilder.GetPropertyUtilities().ToWeakPtr();
 				Handle->SetOnPropertyValueChanged(
-					FSimpleDelegate::CreateLambda([this, &DetailBuilder]()
+					FSimpleDelegate::CreateLambda([WeakNode, WeakUtils]()
 					{
-						UComposableCameraNodeGraphNode* GN = GetGraphNode();
+						UComposableCameraNodeGraphNode* GN = WeakNode.Get();
 						UComposableCameraNodeGraph* OwningGraph = GN
 							? Cast<UComposableCameraNodeGraph>(GN->GetGraph())
 							: nullptr;
@@ -463,15 +494,22 @@ void FComposableCameraNodeGraphNodeDetails::CustomizeDetails(IDetailLayoutBuilde
 								OwningGraph->NotifyGraphChanged();
 							}
 						}
-						DetailBuilder.ForceRefreshDetails();
+						if (TSharedPtr<IPropertyUtilities> Utils = WeakUtils.Pin())
+						{
+							Utils->ForceRefresh();
+						}
 					}));
 			}
 			else
 			{
+				const TWeakPtr<IPropertyUtilities> WeakUtils = DetailBuilder.GetPropertyUtilities().ToWeakPtr();
 				Handle->SetOnPropertyValueChanged(
-					FSimpleDelegate::CreateLambda([&DetailBuilder]()
+					FSimpleDelegate::CreateLambda([WeakUtils]()
 					{
-						DetailBuilder.ForceRefreshDetails();
+						if (TSharedPtr<IPropertyUtilities> Utils = WeakUtils.Pin())
+						{
+							Utils->ForceRefresh();
+						}
 					}));
 			}
 		}

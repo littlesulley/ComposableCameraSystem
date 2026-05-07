@@ -236,7 +236,12 @@ AComposableCameraCameraBase* UComposableCameraBlueprintLibrary::ActivateComposab
 	}
 	for (TPair<FName, FScriptDelegate>& Entry : OverrideParameters.DelegateValues)
 	{
-		Params.DelegateValues.Add(Entry.Key, MoveTemp(Entry.Value));
+		// Route through SetDelegate so any same-name POD / actor / object /
+		// struct entry left over from row parsing gets cleared. The previous
+		// raw `.Add` left those parallel-map entries live, so a downstream
+		// HasValue / Get<T> by name could read a stale value that the row
+		// authored before the delegate override took effect.
+		Params.SetDelegate(Entry.Key, Entry.Value);
 	}
 
 	// Resolve the transition override. Sync-load only if a path is set so we

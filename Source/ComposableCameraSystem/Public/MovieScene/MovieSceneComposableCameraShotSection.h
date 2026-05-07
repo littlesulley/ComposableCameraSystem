@@ -131,13 +131,17 @@ public:
 	 * Resolves the active Shot for this section.
 	 *
 	 *   Inline          → returns &InlineShot.
-	 *   AssetReference  → loads `ShotAssetRef` (synchronous; soft-pointer
-	 *                     `LoadSynchronous`) and returns &Asset->Shot.
-	 *                     Returns null if the asset is null or fails to load.
+	 *   AssetReference  → returns &CachedShotAsset->Shot via the non-blocking
+	 *                     `ResolveCachedShotAsset()` path. Returns null if the
+	 *                     soft ref is null OR not yet loaded — the eval-path
+	 *                     no-ops in that case rather than stalling the game
+	 *                     thread on `LoadSynchronous`. The blocking refresh
+	 *                     happens in `RefreshCachedAssets()`, fired at
+	 *                     `PostLoad` / `PostEditChangeProperty` only.
 	 *
-	 * Caller must NOT cache the returned pointer across frames — the
-	 * AssetReference path may reload the asset, and the soft-ref target may
-	 * be GC'd between calls. Treat as a per-frame snapshot.
+	 * Caller must NOT cache the returned pointer across frames — the cache
+	 * may be refreshed (asset edit, hot reload) and the previously-returned
+	 * pointer would dangle. Treat as a per-frame snapshot.
 	 *
 	 * Const overload returns a const pointer for read-only callers (the Shot
 	 * Editor's Sequencer-selection-sync uses this); non-const overload allows
@@ -238,9 +242,55 @@ public:
 	 *    from (handoff §F decision Q2).
 	 *
 	 * Soft-ref so the section doesn't force-load the transition asset at
-	 * level streaming time; resolution happens lazily inside the
-	 * TrackInstance per-frame.
+	 * level streaming time. Eval-path resolution goes through
+	 * `ResolveCachedEnterTransition()` (non-blocking, returns null when
+	 * not yet loaded — TrackInstance degrades to "no blend" rather than
+	 * stalling on `LoadSynchronous`). The blocking load happens off the
+	 * hot path in `RefreshCachedAssets()` at PostLoad / PostEdit.
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shot|Transition")
 	TSoftObjectPtr<UComposableCameraTransitionDataAsset> EnterTransition;
+
+public:
+	/** Resolve the cached `ShotAssetRef` to a hard pointer without blocking
+	 *  the eval-path thread. Reads `CachedShotAsset` first; if null,
+	 *  consults the already-loaded `.Get()` form of the soft pointer (no
+	 *  load triggered). The blocking refresh path is in `RefreshCachedAssets`,
+	 *  which fires at `PostLoad` / `PostEditChangeProperty` (off the hot
+	 *  path). Returns nullptr when the soft pointer is null OR not yet
+	 *  loaded — eval-path callers no-op in that case rather than stalling
+	 *  the game thread on `LoadSynchronous`. */
+	UComposableCameraShotAsset* ResolveCachedShotAsset() const;
+
+	/** Same policy as `ResolveCachedShotAsset` but for the `EnterTransition`
+	 *  soft pointer. The Phase F blender treats null as a hard cut, so an
+	 *  unloaded asset on the eval path degrades gracefully to "no blend"
+	 *  rather than blocking on a synchronous load. */
+	UComposableCameraTransitionDataAsset* ResolveCachedEnterTransition() const;
+
+	//~ UObject
+	virtual void PostLoad() override;
+#if WITH_EDITOR
+	virtual void PostEditChangeProperty(struct FPropertyChangedEvent& PropertyChangedEvent) override;
+#endif
+
+private:
+	/** Off-hot-path refresh for the two cached resolution slots. May call
+	 *  `LoadSynchronous` if the soft pointer hasn't been loaded yet — that
+	 *  blocking call is acceptable here because PostLoad / PostEdit fire
+	 *  outside of evaluation. Eval-path callers go through
+	 *  `ResolveCachedShotAsset` / `ResolveCachedEnterTransition`, which never
+	 *  load. */
+	void RefreshCachedAssets();
+
+	/** Cached resolved shot asset. Mutable + Transient: the eval-path
+	 *  `ResolveCachedShotAsset` can opportunistically populate this from
+	 *  `ShotAssetRef.Get()` (free if already loaded) under a const context;
+	 *  Transient because the soft path is the source of truth on disk and
+	 *  the cache is rebuilt on PostLoad. */
+	UPROPERTY(Transient)
+	mutable TObjectPtr<UComposableCameraShotAsset> CachedShotAsset;
+
+	UPROPERTY(Transient)
+	mutable TObjectPtr<UComposableCameraTransitionDataAsset> CachedEnterTransition;
 };
