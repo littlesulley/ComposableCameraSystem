@@ -3,6 +3,7 @@
 #include "Nodes/ComposableCameraRelativeFixedPoseNode.h"
 
 #include "Components/SkeletalMeshComponent.h"
+#include "GameFramework/Actor.h"
 #include "Kismet/KismetMathLibrary.h"
 
 #if !UE_BUILD_SHIPPING
@@ -25,20 +26,29 @@ void UComposableCameraRelativeFixedPoseNode::OnInitialize_Implementation()
 {
 	Super::OnInitialize_Implementation();
 
-	if (Method == EComposableCameraRelativeFixedPoseMethod::RelativeToActor)
+	SkeletalMeshComponentForRelativeActor.Reset();
+	LastResolvedRelativeActor.Reset();
+}
+
+namespace
+{
+	static void ResolveSkelMeshForRelativeActor(
+		AActor* Actor,
+		TWeakObjectPtr<USkeletalMeshComponent>& InOutSkelMesh,
+		TWeakObjectPtr<AActor>& InOutLastResolvedActor)
 	{
-		if (!IsValid(RelativeActor))
+		if (!IsValid(Actor))
+		{
+			InOutSkelMesh.Reset();
+			InOutLastResolvedActor.Reset();
+			return;
+		}
+		if (InOutLastResolvedActor.Get() == Actor && InOutSkelMesh.IsValid())
 		{
 			return;
 		}
-
-		// TWeakObjectPtr assignment from a raw component pointer is implicit;
-		// resolution happens via .Get() in Tick / DrawNodeDebug with IsValid check
-		// so a destroyed/re-spawned mesh component doesn't dangle.
-		if (USkeletalMeshComponent* Comp = RelativeActor->GetComponentByClass<USkeletalMeshComponent>())
-		{
-			SkeletalMeshComponentForRelativeActor = Comp;
-		}
+		InOutLastResolvedActor = Actor;
+		InOutSkelMesh = Actor->GetComponentByClass<USkeletalMeshComponent>();
 	}
 }
 
@@ -53,14 +63,18 @@ void UComposableCameraRelativeFixedPoseNode::OnTickNode_Implementation(float Del
 	}
 	else if (Method == EComposableCameraRelativeFixedPoseMethod::RelativeToActor)
 	{
+		AActor* EffectiveRelativeActor = ComposableCameraSystem::ResolveActorInput(
+			RelativeActorSource, RelativeActor.Get(), GetOwningPlayerCameraManager());
+		ResolveSkelMeshForRelativeActor(EffectiveRelativeActor, SkeletalMeshComponentForRelativeActor, LastResolvedRelativeActor);
+
 		USkeletalMeshComponent* Comp = SkeletalMeshComponentForRelativeActor.Get();
 		if (IsValid(Comp) && Comp->DoesSocketExist(RelativeSocket))
 		{
 			CurrentRelativeTransform = Comp->GetSocketTransform(RelativeSocket);
 		}
-		else if (IsValid(RelativeActor))
+		else if (IsValid(EffectiveRelativeActor))
 		{
-			CurrentRelativeTransform = RelativeActor->GetActorTransform();
+			CurrentRelativeTransform = EffectiveRelativeActor->GetActorTransform();
 		}
 	}
 	
@@ -93,15 +107,17 @@ void UComposableCameraRelativeFixedPoseNode::DrawNodeDebug(UWorld* World, bool /
 	}
 	else if (Method == EComposableCameraRelativeFixedPoseMethod::RelativeToActor)
 	{
+		AActor* EffectiveRelativeActor = ComposableCameraSystem::ResolveActorInput(
+			RelativeActorSource, RelativeActor.Get(), GetOwningPlayerCameraManager());
 		USkeletalMeshComponent* Comp = SkeletalMeshComponentForRelativeActor.Get();
-		if (IsValid(Comp) && Comp->DoesSocketExist(RelativeSocket))
+		if (LastResolvedRelativeActor.Get() == EffectiveRelativeActor && IsValid(Comp) && Comp->DoesSocketExist(RelativeSocket))
 		{
 			OriginPos = Comp->GetSocketLocation(RelativeSocket);
 			bHasOrigin = true;
 		}
-		else if (IsValid(RelativeActor))
+		else if (IsValid(EffectiveRelativeActor))
 		{
-			OriginPos = RelativeActor->GetActorLocation();
+			OriginPos = EffectiveRelativeActor->GetActorLocation();
 			bHasOrigin = true;
 		}
 	}
@@ -146,6 +162,21 @@ void UComposableCameraRelativeFixedPoseNode::GetPinDeclarations_Implementation(T
 
 	{
 		FComposableCameraNodePinDeclaration PinDecl;
+		PinDecl.PinName = TEXT("RelativeActorSource");
+		PinDecl.DisplayName = NSLOCTEXT("UComposableCameraRelativeFixedPoseNode", "RelativeActorSource", "Relative Actor Source");
+		PinDecl.Direction = EComposableCameraPinDirection::Input;
+		PinDecl.PinType = EComposableCameraPinType::Enum;
+		PinDecl.EnumType = StaticEnum<EComposableCameraActorInputSource>();
+		PinDecl.bRequired = false;
+		PinDecl.bDefaultAsPin = false;
+		PinDecl.DefaultValueString = PinDecl.EnumType ? PinDecl.EnumType->GetNameStringByValue(static_cast<int64>(RelativeActorSource)) : FString();
+		PinDecl.Tooltip = NSLOCTEXT("UComposableCameraRelativeFixedPoseNode", "RelativeActorSourceTip",
+			"Selects whether RelativeActor comes from the controller's controlled pawn or an explicit actor.");
+		OutPins.Add(PinDecl);
+	}
+
+	{
+		FComposableCameraNodePinDeclaration PinDecl;
 		PinDecl.PinName = TEXT("RelativeActor");
 		PinDecl.DisplayName = NSLOCTEXT("UComposableCameraRelativeFixedPoseNode", "RelativeActor", "Relative Actor");
 		PinDecl.Direction = EComposableCameraPinDirection::Input;
@@ -181,4 +212,3 @@ void UComposableCameraRelativeFixedPoseNode::GetPinDeclarations_Implementation(T
 		OutPins.Add(PinDecl);
 	}
 }
-

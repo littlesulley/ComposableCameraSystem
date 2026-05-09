@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "Nodes/ComposableCameraCameraNodeBase.h"
+#include "Utils/ComposableCameraActorInputSource.h"
 #include "ComposableCameraPivotOffsetNode.generated.h"
 
 UENUM(BlueprintType)
@@ -54,8 +55,12 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters)
 	ECameraPivotOffset PivotOffsetType = ECameraPivotOffset::WorldSpace;
 
-	// The actor determining the local space if you choose actor local space.
+	// Selects whether the local-space actor comes from the controller's controlled pawn or an explicit actor.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters, meta = (EditCondition = "PivotOffsetType == ECameraPivotOffset::ActorLocalSpace", EditConditionHides))
+	EComposableCameraActorInputSource ActorForLocalSpaceSource { EComposableCameraActorInputSource::ExplicitActor };
+
+	// The explicit actor determining the local space if you choose actor local space.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters, meta = (EditCondition = "PivotOffsetType == ECameraPivotOffset::ActorLocalSpace && ActorForLocalSpaceSource == EComposableCameraActorInputSource::ExplicitActor", EditConditionHides))
 	TSoftObjectPtr<AActor> ActorForLocalSpace = nullptr;
 
 	// The offset.

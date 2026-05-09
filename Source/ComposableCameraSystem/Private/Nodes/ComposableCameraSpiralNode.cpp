@@ -132,14 +132,18 @@ bool UComposableCameraSpiralNode::ResolvePivot(FVector& OutPivot) const
 	switch (PivotSourceType)
 	{
 	case EComposableCameraSpiralPivotSourceType::FromActor:
-		if (!PivotActor)
 		{
-			UE_LOG(LogComposableCameraSystem, Error,
-				TEXT("SpiralNode: PivotSourceType=FromActor but PivotActor is null; node will not evaluate this frame."));
-			return false;
+			AActor* EffectivePivotActor = ComposableCameraSystem::ResolveActorInput(
+				PivotActorSource, PivotActor.Get(), GetOwningPlayerCameraManager());
+			if (!IsValid(EffectivePivotActor))
+			{
+				UE_LOG(LogComposableCameraSystem, Error,
+					TEXT("SpiralNode: PivotSourceType=FromActor but resolved PivotActor is null; node will not evaluate this frame."));
+				return false;
+			}
+			OutPivot = EffectivePivotActor->GetActorLocation();
+			return true;
 		}
-		OutPivot = PivotActor->GetActorLocation();
-		return true;
 
 	case EComposableCameraSpiralPivotSourceType::FromVector:
 		OutPivot = PivotPosition;
@@ -153,14 +157,18 @@ bool UComposableCameraSpiralNode::ResolvePivot(FVector& OutPivot) const
 void UComposableCameraSpiralNode::ResolveSpiralBasis(
 	FVector& OutAxis, FVector& OutForward, FVector& OutRight) const
 {
+	AActor* EffectivePivotActor = (PivotSourceType == EComposableCameraSpiralPivotSourceType::FromActor)
+		? ComposableCameraSystem::ResolveActorInput(PivotActorSource, PivotActor.Get(), GetOwningPlayerCameraManager())
+		: nullptr;
+
 	// ── Axis ──
 	FVector Axis;
 	switch (RotationAxis)
 	{
 	case EComposableCameraSpiralRotationAxis::PivotActorUp:
-		if (PivotSourceType == EComposableCameraSpiralPivotSourceType::FromActor && PivotActor)
+		if (IsValid(EffectivePivotActor))
 		{
-			Axis = PivotActor->GetActorUpVector();
+			Axis = EffectivePivotActor->GetActorUpVector();
 		}
 		else
 		{
@@ -191,9 +199,9 @@ void UComposableCameraSpiralNode::ResolveSpiralBasis(
 	switch (ReferenceDirection)
 	{
 	case EComposableCameraSpiralReferenceDirection::PivotActorForward:
-		if (PivotSourceType == EComposableCameraSpiralPivotSourceType::FromActor && PivotActor)
+		if (IsValid(EffectivePivotActor))
 		{
-			ReferenceForward = PivotActor->GetActorForwardVector();
+			ReferenceForward = EffectivePivotActor->GetActorForwardVector();
 		}
 		else
 		{
@@ -239,6 +247,22 @@ void UComposableCameraSpiralNode::ResolveSpiralBasis(
 void UComposableCameraSpiralNode::GetPinDeclarations_Implementation(
 	TArray<FComposableCameraNodePinDeclaration>& OutPins) const
 {
+	// Input: pivot actor source (FromActor mode).
+	{
+		FComposableCameraNodePinDeclaration Pin;
+		Pin.PinName = "PivotActorSource";
+		Pin.DisplayName = NSLOCTEXT("ComposableCameraSystem", "Spiral_PivotActorSource", "Pivot Actor Source");
+		Pin.Direction = EComposableCameraPinDirection::Input;
+		Pin.PinType = EComposableCameraPinType::Enum;
+		Pin.EnumType = StaticEnum<EComposableCameraActorInputSource>();
+		Pin.bRequired = false;
+		Pin.bDefaultAsPin = false;
+		Pin.DefaultValueString = Pin.EnumType ? Pin.EnumType->GetNameStringByValue(static_cast<int64>(PivotActorSource)) : FString();
+		Pin.Tooltip = NSLOCTEXT("ComposableCameraSystem", "Spiral_PivotActorSource_Tip",
+			"Selects whether PivotActor comes from the controller's controlled pawn or an explicit actor.");
+		OutPins.Add(Pin);
+	}
+
 	// Input: pivot actor (FromActor mode).
 	{
 		FComposableCameraNodePinDeclaration Pin;

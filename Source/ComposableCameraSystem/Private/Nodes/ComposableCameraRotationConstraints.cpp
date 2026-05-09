@@ -2,6 +2,7 @@
 
 #include "Nodes/ComposableCameraRotationConstraints.h"
 
+#include "GameFramework/Actor.h"
 #include "Kismet/KismetMathLibrary.h"
 #include "Math/ComposableCameraMath.h"
 
@@ -22,9 +23,11 @@ void UComposableCameraRotationConstraints::OnTickNode_Implementation(float Delta
 			WorldPivotYaw = 0.;
 			break;
 		case EComposableCameraRotationConstrainType::ActorSpace:
-			if (ActorForYawConstrain.IsValid())
+			if (AActor* EffectiveYawActor = ComposableCameraSystem::ResolveActorInput(
+				ActorForYawConstrainSource, ActorForYawConstrain.Get(), GetOwningPlayerCameraManager());
+				IsValid(EffectiveYawActor))
 			{
-				WorldPivotYaw = ActorForYawConstrain->GetActorRotation().Yaw;
+				WorldPivotYaw = EffectiveYawActor->GetActorRotation().Yaw;
 			}
 			else
 			{
@@ -52,9 +55,11 @@ void UComposableCameraRotationConstraints::OnTickNode_Implementation(float Delta
 			WorldPivotPitch = 0.;
 			break;
 		case EComposableCameraRotationConstrainType::ActorSpace:
-			if (ActorForPitchConstrain.IsValid())
+			if (AActor* EffectivePitchActor = ComposableCameraSystem::ResolveActorInput(
+				ActorForPitchConstrainSource, ActorForPitchConstrain.Get(), GetOwningPlayerCameraManager());
+				IsValid(EffectivePitchActor))
 			{
-				WorldPivotPitch = ActorForPitchConstrain->GetActorRotation().Pitch;
+				WorldPivotPitch = EffectivePitchActor->GetActorRotation().Pitch;
 			}
 			else
 			{
@@ -135,6 +140,20 @@ void UComposableCameraRotationConstraints::GetPinDeclarations_Implementation(TAr
 	PinDecl.Tooltip = NSLOCTEXT("ComposableCameraRotationConstraints", "VectorForYawConstrainTip", "Forward vector for the yaw reference frame when ConstrainYawType is VectorSpace.");
 	OutPins.Add(PinDecl);
 
+	// ActorForYawConstrainSource Input
+	PinDecl = {};
+	PinDecl.PinName = TEXT("ActorForYawConstrainSource");
+	PinDecl.DisplayName = NSLOCTEXT("ComposableCameraRotationConstraints", "ActorForYawConstrainSource", "Actor For Yaw Constrain Source");
+	PinDecl.Direction = EComposableCameraPinDirection::Input;
+	PinDecl.PinType = EComposableCameraPinType::Enum;
+	PinDecl.EnumType = StaticEnum<EComposableCameraActorInputSource>();
+	PinDecl.bRequired = false;
+	PinDecl.bDefaultAsPin = false;
+	PinDecl.DefaultValueString = PinDecl.EnumType ? PinDecl.EnumType->GetNameStringByValue(static_cast<int64>(ActorForYawConstrainSource)) : FString();
+	PinDecl.Tooltip = NSLOCTEXT("ComposableCameraRotationConstraints", "ActorForYawConstrainSourceTip",
+		"Selects whether the yaw reference actor comes from the controller's controlled pawn or an explicit actor.");
+	OutPins.Add(PinDecl);
+
 	// ActorForYawConstrain Input
 	PinDecl = {};
 	PinDecl.PinName = TEXT("ActorForYawConstrain");
@@ -194,6 +213,20 @@ void UComposableCameraRotationConstraints::GetPinDeclarations_Implementation(TAr
 	PinDecl.bDefaultAsPin = false;
 	PinDecl.DefaultValueString = VectorForPitchConstrain.ToString();
 	PinDecl.Tooltip = NSLOCTEXT("ComposableCameraRotationConstraints", "VectorForPitchConstrainTip", "Forward vector for the pitch reference frame when ConstrainPitchType is VectorSpace.");
+	OutPins.Add(PinDecl);
+
+	// ActorForPitchConstrainSource Input
+	PinDecl = {};
+	PinDecl.PinName = TEXT("ActorForPitchConstrainSource");
+	PinDecl.DisplayName = NSLOCTEXT("ComposableCameraRotationConstraints", "ActorForPitchConstrainSource", "Actor For Pitch Constrain Source");
+	PinDecl.Direction = EComposableCameraPinDirection::Input;
+	PinDecl.PinType = EComposableCameraPinType::Enum;
+	PinDecl.EnumType = StaticEnum<EComposableCameraActorInputSource>();
+	PinDecl.bRequired = false;
+	PinDecl.bDefaultAsPin = false;
+	PinDecl.DefaultValueString = PinDecl.EnumType ? PinDecl.EnumType->GetNameStringByValue(static_cast<int64>(ActorForPitchConstrainSource)) : FString();
+	PinDecl.Tooltip = NSLOCTEXT("ComposableCameraRotationConstraints", "ActorForPitchConstrainSourceTip",
+		"Selects whether the pitch reference actor comes from the controller's controlled pawn or an explicit actor.");
 	OutPins.Add(PinDecl);
 
 	// ActorForPitchConstrain Input

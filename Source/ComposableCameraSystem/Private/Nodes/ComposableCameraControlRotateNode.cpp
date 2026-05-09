@@ -24,9 +24,9 @@ void UComposableCameraControlRotateNode::OnInitialize_Implementation()
 	LastBoundAction.Reset();
 }
 
-void UComposableCameraControlRotateNode::EnsureInputBinding()
+void UComposableCameraControlRotateNode::EnsureInputBinding(AActor* EffectiveRotationInputActor)
 {
-	const bool bActorChanged  = LastBoundInputActor.Get() != RotationInputActor;
+	const bool bActorChanged  = LastBoundInputActor.Get() != EffectiveRotationInputActor;
 	const bool bActionChanged = LastBoundAction.Get()     != RotateAction;
 	const bool bComponentDead = !CachedInputComponent.IsValid();
 
@@ -36,19 +36,19 @@ void UComposableCameraControlRotateNode::EnsureInputBinding()
 	}
 
 	CachedInputComponent.Reset();
-	LastBoundInputActor = RotationInputActor;
+	LastBoundInputActor = EffectiveRotationInputActor;
 	LastBoundAction     = RotateAction;
 
-	if (!IsValid(RotationInputActor) || !IsValid(RotateAction))
+	if (!IsValid(EffectiveRotationInputActor) || !IsValid(RotateAction))
 	{
 		return;
 	}
 
-	UEnhancedInputComponent* EIC = Cast<UEnhancedInputComponent>(RotationInputActor->InputComponent);
+	UEnhancedInputComponent* EIC = Cast<UEnhancedInputComponent>(EffectiveRotationInputActor->InputComponent);
 	if (!EIC)
 	{
 		UE_LOG(LogComposableCameraSystem, Warning, TEXT(
-			"ControlRotate: actor '%s' has no UEnhancedInputComponent."), *RotationInputActor->GetName());
+			"ControlRotate: actor '%s' has no UEnhancedInputComponent."), *EffectiveRotationInputActor->GetName());
 		return;
 	}
 
@@ -66,7 +66,9 @@ void UComposableCameraControlRotateNode::EnsureInputBinding()
 void UComposableCameraControlRotateNode::OnTickNode_Implementation(
 	float DeltaTime, const FComposableCameraPose& CurrentCameraPose, FComposableCameraPose& OutCameraPose)
 {
-	EnsureInputBinding();
+	AActor* EffectiveRotationInputActor = ComposableCameraSystem::ResolveActorInput(
+		RotationInputActorSource, RotationInputActor.Get(), GetOwningPlayerCameraManager());
+	EnsureInputBinding(EffectiveRotationInputActor);
 
 	FVector2D CameraRotationInputForThisFrame {};
 
@@ -105,6 +107,20 @@ void UComposableCameraControlRotateNode::OnTickNode_Implementation(
 
 void UComposableCameraControlRotateNode::GetPinDeclarations_Implementation(TArray<FComposableCameraNodePinDeclaration>& OutPins) const
 {
+	{
+		FComposableCameraNodePinDeclaration PinDecl;
+		PinDecl.PinName = TEXT("RotationInputActorSource");
+		PinDecl.DisplayName = NSLOCTEXT("UComposableCameraControlRotateNode", "RotationInputActorSource", "Rotation Input Actor Source");
+		PinDecl.Direction = EComposableCameraPinDirection::Input;
+		PinDecl.PinType = EComposableCameraPinType::Enum;
+		PinDecl.EnumType = StaticEnum<EComposableCameraActorInputSource>();
+		PinDecl.bRequired = false;
+		PinDecl.bDefaultAsPin = false;
+		PinDecl.DefaultValueString = PinDecl.EnumType ? PinDecl.EnumType->GetNameStringByValue(static_cast<int64>(RotationInputActorSource)) : FString();
+		PinDecl.Tooltip = NSLOCTEXT("UComposableCameraControlRotateNode", "RotationInputActorSourceTip", "Selects whether rotation input comes from the controller's controlled pawn or an explicit actor.");
+		OutPins.Add(PinDecl);
+	}
+
 	{
 		FComposableCameraNodePinDeclaration PinDecl;
 		PinDecl.PinName = TEXT("RotationInputActor");

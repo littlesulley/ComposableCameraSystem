@@ -3,6 +3,7 @@
 #include "Nodes/ComposableCameraPivotRotateNode.h"
 
 #include "ComposableCameraSystemModule.h"
+#include "GameFramework/Actor.h"
 #include "Interpolator/ComposableCameraInterpolatorBase.h"
 
 void UComposableCameraPivotRotateNode::OnInitialize_Implementation()
@@ -22,7 +23,9 @@ void UComposableCameraPivotRotateNode::OnTickNode_Implementation(float DeltaTime
 	// wiring is common during early activation (context parameter not yet
 	// pushed); spamming a per-frame log would be noisy. The editor's
 	// required-pin diagnostics surface authoring mistakes instead.
-	if (!IsValid(PivotActor))
+	AActor* EffectivePivotActor = ComposableCameraSystem::ResolveActorInput(
+		PivotActorSource, PivotActor.Get(), GetOwningPlayerCameraManager());
+	if (!IsValid(EffectivePivotActor))
 	{
 		return;
 	}
@@ -32,7 +35,7 @@ void UComposableCameraPivotRotateNode::OnTickNode_Implementation(float DeltaTime
 	// RelativeRotation when attached to PivotActor's root). A raw FRotator
 	// add would alias yaw / pitch / roll across the world frame and produce
 	// gimbal artifacts when the pivot has non-trivial pitch or roll.
-	const FQuat PivotQuat = PivotActor->GetActorQuat();
+	const FQuat PivotQuat = EffectivePivotActor->GetActorQuat();
 	const FQuat OffsetQuat = RotationOffset.Quaternion();
 	const FRotator TargetRotation = (PivotQuat * OffsetQuat).Rotator();
 
@@ -57,6 +60,21 @@ void UComposableCameraPivotRotateNode::OnTickNode_Implementation(float DeltaTime
 void UComposableCameraPivotRotateNode::GetPinDeclarations_Implementation(
 	TArray<FComposableCameraNodePinDeclaration>& OutPins) const
 {
+	{
+		FComposableCameraNodePinDeclaration Pin;
+		Pin.PinName = TEXT("PivotActorSource");
+		Pin.DisplayName = NSLOCTEXT("ComposableCameraPivotRotateNode", "PivotActorSource", "Pivot Actor Source");
+		Pin.Direction = EComposableCameraPinDirection::Input;
+		Pin.PinType = EComposableCameraPinType::Enum;
+		Pin.EnumType = StaticEnum<EComposableCameraActorInputSource>();
+		Pin.bRequired = false;
+		Pin.bDefaultAsPin = false;
+		Pin.DefaultValueString = Pin.EnumType ? Pin.EnumType->GetNameStringByValue(static_cast<int64>(PivotActorSource)) : FString();
+		Pin.Tooltip = NSLOCTEXT("ComposableCameraPivotRotateNode", "PivotActorSourceTip",
+			"Selects whether PivotActor comes from the controller's controlled pawn or an explicit actor.");
+		OutPins.Add(Pin);
+	}
+
 	{
 		FComposableCameraNodePinDeclaration Pin;
 		Pin.PinName = TEXT("PivotActor");

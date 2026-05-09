@@ -3,6 +3,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Utils/ComposableCameraActorInputSource.h"
 #include "ComposableCameraCameraNodeBase.h"
 #include "ComposableCameraReceivePivotActorNode.generated.h"
 
@@ -26,7 +27,7 @@ public:
 	virtual void OnTickNode_Implementation(float DeltaTime, const FComposableCameraPose& CurrentCameraPose, FComposableCameraPose& OutCameraPose) override;
 	virtual void GetPinDeclarations_Implementation(TArray<FComposableCameraNodePinDeclaration>& OutPins) const override;
 
-	// Overrides the Pivot component of the pose from an external actor â€” if the
+	// Overrides the Pivot component of the pose from an external actor â€?if the
 	// upstream has a meaningful pivot already, this node discards it. Legitimate
 	// use in a Patch (e.g. "retarget to a different actor for a moment") but
 	// worth flagging as an author confirmation.
@@ -40,11 +41,16 @@ public:
 #endif
 
 public:
+	// Selects whether the pivot actor is the controller's controlled pawn or
+	// the explicitly supplied PivotActor.
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = InputParameters)
+	EComposableCameraActorInputSource PivotActorSource { EComposableCameraActorInputSource::ExplicitActor };
+
 	// Actor whose location is published as the pivot position. Typically driven
 	// at runtime via a context parameter (e.g. the player pawn); kept as a
 	// UPROPERTY so the Details panel renders a proper object picker and an
 	// authored default is available when unwired.
-	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = InputParameters)
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = InputParameters, meta = (EditCondition = "PivotActorSource == EComposableCameraActorInputSource::ExplicitActor", EditConditionHides))
 	TObjectPtr<AActor> PivotActor;
 
 	// Whether to use a bone as the target pivot point.
@@ -57,11 +63,12 @@ public:
 
 private:
 	// Cached SkelMesh on the currently-resolved PivotActor. TWeakObjectPtr
-	// (not raw, not UPROPERTY) â€” PivotActor is an input pin and can change
+	// (not raw, not UPROPERTY) â€?PivotActor is an input pin and can change
 	// every frame, and the SkelMesh component on that actor can be
 	// destroyed / re-spawned independently. Tick / DrawNodeDebug must
 	// IsValid()-check before deref. Resolution happens lazily in Tick when
 	// the active PivotActor differs from `LastResolvedPivotActor`.
 	TWeakObjectPtr<USkeletalMeshComponent> SkeletalMeshComponentForPivotActor;
 	TWeakObjectPtr<AActor> LastResolvedPivotActor;
+	TWeakObjectPtr<AActor> LastEffectivePivotActor;
 };

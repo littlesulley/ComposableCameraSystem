@@ -74,7 +74,7 @@ void UComposableCameraHitchcockZoomNode::OnTickNode_Implementation(
 	if (!ResolveTargetPoint(TargetPoint))
 	{
 		UE_LOG(LogComposableCameraSystem, Warning,
-			TEXT("HitchcockZoomNode: PivotActor is null on '%s'; pass-through this tick."),
+			TEXT("HitchcockZoomNode: resolved PivotActor is null on '%s'; pass-through this tick."),
 			*GetNameSafe(this));
 		return;
 	}
@@ -223,7 +223,9 @@ void UComposableCameraHitchcockZoomNode::OnTickNode_Implementation(
 
 bool UComposableCameraHitchcockZoomNode::ResolveTargetPoint(FVector& OutTargetPoint) const
 {
-	if (!PivotActor)
+	AActor* EffectivePivotActor = ComposableCameraSystem::ResolveActorInput(
+		PivotActorSource, PivotActor.Get(), GetOwningPlayerCameraManager());
+	if (!EffectivePivotActor)
 	{
 		return false;
 	}
@@ -231,7 +233,7 @@ bool UComposableCameraHitchcockZoomNode::ResolveTargetPoint(FVector& OutTargetPo
 	if (bUseBoneForDetection && !BoneName.IsNone())
 	{
 		TArray<USkeletalMeshComponent*> SkelComps;
-		PivotActor->GetComponents<USkeletalMeshComponent>(SkelComps);
+		EffectivePivotActor->GetComponents<USkeletalMeshComponent>(SkelComps);
 		for (USkeletalMeshComponent* Skel : SkelComps)
 		{
 			if (Skel && Skel->DoesSocketExist(BoneName))
@@ -243,25 +245,39 @@ bool UComposableCameraHitchcockZoomNode::ResolveTargetPoint(FVector& OutTargetPo
 		// Bone missing — fall through to actor + Z offset.
 	}
 
-	OutTargetPoint = PivotActor->GetActorLocation() + FVector(0.f, 0.f, PivotZOffset);
+	OutTargetPoint = EffectivePivotActor->GetActorLocation() + FVector(0.f, 0.f, PivotZOffset);
 	return true;
 }
 
 void UComposableCameraHitchcockZoomNode::GetPinDeclarations_Implementation(
 	TArray<FComposableCameraNodePinDeclaration>& OutPins) const
 {
-	// Only PivotActor is default-exposed as a pin + Required; everything
-	// else is pin-capable but Details-only out of the box (same convention
-	// as FocusPullNode — user flips per-instance via RuntimePinOverrides).
+	// PivotActor remains graph-exposed by default for explicit-actor workflows;
+	// PivotActorSource is Details-only unless promoted per instance.
 
-	// Input: PivotActor (Required).
+	{
+		FComposableCameraNodePinDeclaration Pin;
+		Pin.PinName = "PivotActorSource";
+		Pin.DisplayName = NSLOCTEXT("ComposableCameraSystem", "Hitchcock_PivotActorSource", "Pivot Actor Source");
+		Pin.Direction = EComposableCameraPinDirection::Input;
+		Pin.PinType = EComposableCameraPinType::Enum;
+		Pin.EnumType = StaticEnum<EComposableCameraActorInputSource>();
+		Pin.bRequired = false;
+		Pin.bDefaultAsPin = false;
+		Pin.DefaultValueString = Pin.EnumType ? Pin.EnumType->GetNameStringByValue(static_cast<int64>(PivotActorSource)) : FString();
+		Pin.Tooltip = NSLOCTEXT("ComposableCameraSystem", "Hitchcock_PivotActorSource_Tip",
+			"Selects whether the lock subject comes from the controller's controlled pawn or an explicit actor.");
+		OutPins.Add(Pin);
+	}
+
+	// Input: PivotActor.
 	{
 		FComposableCameraNodePinDeclaration Pin;
 		Pin.PinName = "PivotActor";
 		Pin.DisplayName = NSLOCTEXT("ComposableCameraSystem", "Hitchcock_PivotActor", "Pivot Actor");
 		Pin.Direction = EComposableCameraPinDirection::Input;
 		Pin.PinType = EComposableCameraPinType::Actor;
-		Pin.bRequired = true;
+		Pin.bRequired = false;
 		Pin.bDefaultAsPin = true;
 		Pin.Tooltip = NSLOCTEXT("ComposableCameraSystem", "Hitchcock_PivotActor_Tip",
 			"Subject the effect locks on — camera dollies along the camera→subject axis, FOV compensates to hold subject size.");

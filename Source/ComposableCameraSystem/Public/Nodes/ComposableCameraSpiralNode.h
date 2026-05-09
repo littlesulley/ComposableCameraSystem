@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "ComposableCameraCameraNodeBase.h"
+#include "Utils/ComposableCameraActorInputSource.h"
 #include "ComposableCameraSpiralNode.generated.h"
 
 class UCurveFloat;
@@ -11,13 +12,13 @@ class UCurveFloat;
 /**
  * Source of the pivot the spiral is built around.
  *
- * FromActor  — PivotActor->GetActorLocation() is sampled each frame. The
+ * FromActor  �?PivotActor->GetActorLocation() is sampled each frame. The
  *              actor's Up / Forward are also available as Spiral-Space axis
  *              sources.
- * FromVector — PivotPosition is used directly. When this mode is active,
+ * FromVector �?PivotPosition is used directly. When this mode is active,
  *              RotationAxis = PivotActorUp and ReferenceDirection =
  *              PivotActorForward silently fall back to WorldUp / WorldX
- *              with a runtime warning — there is no actor to read from.
+ *              with a runtime warning �?there is no actor to read from.
  */
 UENUM()
 enum class EComposableCameraSpiralPivotSourceType : uint8
@@ -41,7 +42,7 @@ enum class EComposableCameraSpiralRotationAxis : uint8
  * Direction that anchors θ = 0 in the plane perpendicular to the rotation
  * axis. Defines Spiral Space's Forward direction after projection. The chosen
  * direction is projected onto the plane perpendicular to the rotation axis
- * and renormalized — it does not need to be pre-orthogonal to the axis.
+ * and renormalized �?it does not need to be pre-orthogonal to the axis.
  *
  * CameraInitialForward captures the camera's forward vector on the first
  * tick after activation and reuses it for the lifetime of the node, so the
@@ -58,19 +59,18 @@ enum class EComposableCameraSpiralReferenceDirection : uint8
 
 /**
  * How the spiral evolves past Duration seconds. In every mode, θ / Radius / Height
- * are direct curve evaluations at NormalizedTime — there is no per-frame integration
+ * are direct curve evaluations at NormalizedTime �?there is no per-frame integration
  * and no accumulated state, so the pose at any arbitrary t is computable in O(1).
  *
- * Once      — NormalizedTime clamps at 1 after Duration; all three curves hold their
+ * Once      �?NormalizedTime clamps at 1 after Duration; all three curves hold their
  *             Y at X=1. The pose freezes at the terminal frame.
- * Loop      — NormalizedTime = Fmod(Elapsed, Duration) / Duration. θ visually wraps
+ * Loop      �?NormalizedTime = Fmod(Elapsed, Duration) / Duration. θ visually wraps
  *             cleanly when AngleCurve's Y(1) - Y(0) is a multiple of 360 (trig
  *             periodicity absorbs the jump); non-multiples snap at the cycle seam,
  *             which is the author's explicit choice.
- * PingPong  — NormalizedTime oscillates 0 → 1 → 0 → 1 every 2 * Duration seconds.
+ * PingPong  �?NormalizedTime oscillates 0 �?1 �?0 �?1 every 2 * Duration seconds.
  *             All three curves are sampled at the mirrored time, so θ / Radius /
- *             Height naturally retrace on the return half. No sign flip needed —
- *             the X mirror alone carries the symmetry.
+ *             Height naturally retrace on the return half. No sign flip needed �? *             the X mirror alone carries the symmetry.
  */
 UENUM()
 enum class EComposableCameraSpiralPlayMode : uint8
@@ -83,7 +83,7 @@ enum class EComposableCameraSpiralPlayMode : uint8
 /**
  * Positions the camera on a helical path around a pivot point.
  *
- * Position-only node — rotation is left untouched, to be authored by a
+ * Position-only node �?rotation is left untouched, to be authored by a
  * downstream LookAtNode (or similar). The position formula, evaluated each
  * tick, is:
  *
@@ -100,15 +100,15 @@ enum class EComposableCameraSpiralPlayMode : uint8
  *     θ          = InitialAngleDegrees + AngleCurve(NormalizedTime)
  *
  * Where the Spiral-Space basis (Up, Forward, Right) is resolved from
- * RotationAxis and ReferenceDirection each tick — Forward is the
+ * RotationAxis and ReferenceDirection each tick �?Forward is the
  * ReferenceDirection vector projected onto the plane perpendicular to Axis
  * and renormalized, and Right = Cross(Axis, Forward).
  *
  * Curve authoring convention (Progress pattern, matching SplineNode's
- * AutomaticMoveCurve): all three curves use X ∈ [0, 1] as normalized time
- * within Duration; Y in absolute world units — Radius / Height in cm,
+ * AutomaticMoveCurve): all three curves use X �?[0, 1] as normalized time
+ * within Duration; Y in absolute world units �?Radius / Height in cm,
  * AngleCurve in degrees. Direct curve evaluation means position at any
- * arbitrary t is O(1) computable — no integration history, no accumulated
+ * arbitrary t is O(1) computable �?no integration history, no accumulated
  * state. A Loop-mode orbit typically authors AngleCurve as Y(0)=0,
  * Y(1)=360·N for a seamless N-turn cycle; non-360 multiples produce an
  * intentional retrace at the cycle seam.
@@ -138,9 +138,14 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters)
 	EComposableCameraSpiralPivotSourceType PivotSourceType { EComposableCameraSpiralPivotSourceType::FromActor };
 
+	/** Selects whether PivotActor is read from the controller's controlled
+	 *  pawn or from the explicitly supplied PivotActor. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters, meta = (EditCondition = "PivotSourceType == EComposableCameraSpiralPivotSourceType::FromActor", EditConditionHides))
+	EComposableCameraActorInputSource PivotActorSource { EComposableCameraActorInputSource::ExplicitActor };
+
 	/** Actor whose world location is used as the pivot. Typically driven by
 	 *  an upstream ReceivePivotActorNode's output, or set on the instance. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters, meta = (EditCondition = "PivotSourceType == EComposableCameraSpiralPivotSourceType::FromActor", EditConditionHides))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters, meta = (EditCondition = "PivotSourceType == EComposableCameraSpiralPivotSourceType::FromActor && PivotActorSource == EComposableCameraActorInputSource::ExplicitActor", EditConditionHides))
 	TObjectPtr<AActor> PivotActor { nullptr };
 
 	/** Raw pivot position in world space. Typically driven by an upstream
@@ -187,19 +192,19 @@ public:
 
 	// ─── Time-varying shape (Y = absolute world units) ────────────────────
 
-	/** Radial distance from Axis over normalized time. X ∈ [0,1], Y in cm.
+	/** Radial distance from Axis over normalized time. X �?[0,1], Y in cm.
 	 *  A null curve is treated as a constant 0 radius (camera collapses onto Axis). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters)
 	TObjectPtr<UCurveFloat> RadiusCurve { nullptr };
 
 	/** Signed distance along Axis from the pivot over normalized time.
-	 *  X ∈ [0,1], Y in cm (positive = along Axis, negative = against Axis).
+	 *  X �?[0,1], Y in cm (positive = along Axis, negative = against Axis).
 	 *  A null curve is treated as a constant 0 height. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters)
 	TObjectPtr<UCurveFloat> HeightCurve { nullptr };
 
-	/** Angular position (degrees, absolute) over normalized time. X ∈ [0,1],
-	 *  Y in degrees — positive = right-handed rotation around Axis. Progress
+	/** Angular position (degrees, absolute) over normalized time. X �?[0,1],
+	 *  Y in degrees �?positive = right-handed rotation around Axis. Progress
 	 *  pattern, same as SplineNode's AutomaticMoveCurve: θ at any instant is
 	 *  a direct curve read, not an integral of speed. A null curve is
 	 *  treated as a constant 0 angle. */
@@ -209,7 +214,7 @@ public:
 	// ─── Timing ───────────────────────────────────────────────────────────
 
 	/** Length of one "cycle" of the three curves, in seconds. Values at or
-	 *  below SMALL_NUMBER are treated as a degenerate duration — all three
+	 *  below SMALL_NUMBER are treated as a degenerate duration �?all three
 	 *  curves are sampled at NormalizedTime = 0 and the pose stays frozen
 	 *  at the initial frame. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters, meta = (ClampMin = "0.0"))
@@ -223,7 +228,7 @@ private:
 	// ─── Per-activation state (reset in OnInitialize) ─────────────────────
 
 	/** Seconds elapsed since OnInitialize. Drives NormalizedTime. Accumulated
-	 *  unbounded — Fmod inside OnTickNode handles the wrap. Float precision
+	 *  unbounded �?Fmod inside OnTickNode handles the wrap. Float precision
 	 *  on the ElapsedTime input to Fmod remains acceptable for realistic
 	 *  gameplay durations (hours at 60 fps); if this node is ever used for
 	 *  multi-day always-on installations, wrap ElapsedTime once per cycle. */

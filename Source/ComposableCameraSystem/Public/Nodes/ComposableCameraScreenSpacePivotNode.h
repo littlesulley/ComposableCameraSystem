@@ -5,6 +5,7 @@
 #include "CoreMinimal.h"
 #include "ComposableCameraCameraNodeBase.h"
 #include "Interpolator/ComposableCameraInterpolatorBase.h"
+#include "Utils/ComposableCameraActorInputSource.h"
 #include "ComposableCameraScreenSpacePivotNode.generated.h"
 
 class UComposableCameraInterpolatorBase;
@@ -88,7 +89,7 @@ public:
 
 	// 2D: safe-zone rectangle + center marker + projected-pivot marker on
 	// the HUD. Handles both `bConstrainAspectRatio = false` (whole viewport)
-	// and `bConstrainAspectRatio = true` (letterboxed â€” uses ProjectionData
+	// and `bConstrainAspectRatio = true` (letterboxed â€?uses ProjectionData
 	// to account for the editor viewport offset) cases, matching the logic
 	// the node itself uses for its screen-space math.
 	virtual void DrawNodeDebug2D(UCanvas* Canvas, APlayerController* PC) const override;
@@ -96,20 +97,26 @@ public:
 
 	// Compatible with the Level Sequence path. Viewport size for screen-space
 	// math is resolved through UE::ComposableCameras::TryGetEffectiveViewportSize
-	// (PCM â†’ GameViewport â†’ 16:9 fallback), so the node no longer requires a
+	// (PCM â†?GameViewport â†?16:9 fallback), so the node no longer requires a
 	// PlayerCameraManager.
 
 protected:
 
 public:
 	// How the pivot world-space position is resolved at runtime.
-	// WorldPosition â†’ use PivotWorldPosition directly.
-	// ActorPosition â†’ read PivotActor's world location and add PivotWorldUpOffset along world up.
+	// WorldPosition â†?use PivotWorldPosition directly.
+	// ActorPosition â†?read PivotActor's world location and add PivotWorldUpOffset along world up.
 	// Declared as a pin with bDefaultAsPin = false: it renders in the Details panel
 	// as a design-time choice by default, but individual node instances can
 	// promote it to a wired pin when runtime variation is actually required.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters)
 	EComposableCameraScreenSpacePivotSource PivotSource { EComposableCameraScreenSpacePivotSource::WorldPosition };
+
+	// Selects whether the ActorPosition pivot actor is the controller's
+	// controlled pawn or the explicitly supplied PivotActor.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters,
+		meta = (EditCondition = "PivotSource == EComposableCameraScreenSpacePivotSource::ActorPosition", EditConditionHides))
+	EComposableCameraActorInputSource PivotActorSource { EComposableCameraActorInputSource::ExplicitActor };
 
 	// Pivot in world space. Used when PivotSource == WorldPosition.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters,
@@ -119,7 +126,7 @@ public:
 	// Actor whose world location supplies the pivot. Used when PivotSource == ActorPosition.
 	// If unresolved at runtime, GetCurrentPivot() falls back to FVector::ZeroVector.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters,
-		meta = (EditCondition = "PivotSource == EComposableCameraScreenSpacePivotSource::ActorPosition", EditConditionHides))
+		meta = (EditCondition = "PivotSource == EComposableCameraScreenSpacePivotSource::ActorPosition && PivotActorSource == EComposableCameraActorInputSource::ExplicitActor", EditConditionHides))
 	TObjectPtr<AActor> PivotActor;
 
 	// World-up offset added to PivotActor->GetActorLocation(). Useful for targeting a

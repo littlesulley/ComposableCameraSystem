@@ -1,9 +1,10 @@
-ï»¿// Copyright Sulley. All rights reserved.
+// Copyright Sulley. All rights reserved.
 
 #pragma once
 
 #include "CoreMinimal.h"
 #include "ComposableCameraCameraNodeBase.h"
+#include "Utils/ComposableCameraActorInputSource.h"
 #include "Nodes/ComposableCameraScreenSpacePivotNode.h"
 #include "ComposableCameraScreenSpaceConstraintsNode.generated.h"
 
@@ -28,24 +29,29 @@ public:
 	virtual void DrawNodeDebug(UWorld* World, bool bViewerIsOutsideCamera) const override;
 
 	// 2D: safe-zone rectangle + center marker + projected pivot marker on
-	// the HUD â€” same two-branch math as ScreenSpacePivotNode (handles both
+	// the HUD ¡ª same two-branch math as ScreenSpacePivotNode (handles both
 	// bConstrainAspectRatio modes). Fires during PIE possessed play only.
 	virtual void DrawNodeDebug2D(UCanvas* Canvas, APlayerController* PC) const override;
 #endif
 
 	// Compatible with the Level Sequence path. Viewport size for screen-space
 	// math is resolved through UE::ComposableCameras::TryGetEffectiveViewportSize
-	// (PCM â†’ GameViewport â†’ 16:9 fallback), so the node no longer requires a
+	// (PCM ¡ú GameViewport ¡ú 16:9 fallback), so the node no longer requires a
 	// PlayerCameraManager.
 
 protected:
 
 public:
+	// Selects whether the constrained actor is the controller's controlled
+	// pawn or the explicitly supplied PivotActor.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters)
+	EComposableCameraActorInputSource PivotActorSource { EComposableCameraActorInputSource::ExplicitActor };
+
 	// Actor to constrain in screen space. World location is used as the pivot.
 	// Typically driven at runtime via a context parameter or an upstream pin;
 	// kept as a UPROPERTY so the Details panel renders a proper object picker
 	// and an authored default is available when unwired.
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters, meta = (EditCondition = "PivotActorSource == EComposableCameraActorInputSource::ExplicitActor", EditConditionHides))
 	TObjectPtr<AActor> PivotActor;
 
 	// The method to keep screen space constraints, translation or rotation.

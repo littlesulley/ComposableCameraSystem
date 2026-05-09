@@ -57,6 +57,7 @@ void UComposableCameraReceivePivotActorNode::OnInitialize_Implementation()
 	// Tick when the active PivotActor differs from `LastResolvedPivotActor`.
 	SkeletalMeshComponentForPivotActor.Reset();
 	LastResolvedPivotActor.Reset();
+	LastEffectivePivotActor.Reset();
 }
 
 void UComposableCameraReceivePivotActorNode::OnTickNode_Implementation(
@@ -67,7 +68,9 @@ void UComposableCameraReceivePivotActorNode::OnTickNode_Implementation(
 	// PivotActor and bUseBoneForPivot are pin-matched UPROPERTYs — already
 	// resolved by the base TickNode prologue. Refresh the SkelMesh cache
 	// against the just-written PivotActor before reading either branch.
-	AActor* InPivotActor = PivotActor.Get();
+	AActor* InPivotActor = ComposableCameraSystem::ResolveActorInput(
+		PivotActorSource, PivotActor.Get(), GetOwningPlayerCameraManager());
+	LastEffectivePivotActor = InPivotActor;
 	ResolveSkelMeshForReceivePivotActor(InPivotActor, SkeletalMeshComponentForPivotActor, LastResolvedPivotActor);
 
 	FVector OutPivotPosition = FVector::ZeroVector;
@@ -106,9 +109,9 @@ void UComposableCameraReceivePivotActorNode::DrawNodeDebug(UWorld* World, bool /
 	{
 		PivotPos = PivotSkelMesh->GetSocketLocation(BoneName);
 	}
-	else if (IsValid(PivotActor.Get()))
+	else if (IsValid(LastEffectivePivotActor.Get()))
 	{
-		PivotPos = PivotActor->GetActorLocation();
+		PivotPos = LastEffectivePivotActor->GetActorLocation();
 	}
 	else
 	{
@@ -123,6 +126,22 @@ void UComposableCameraReceivePivotActorNode::DrawNodeDebug(UWorld* World, bool /
 void UComposableCameraReceivePivotActorNode::GetPinDeclarations_Implementation(
 	TArray<FComposableCameraNodePinDeclaration>& OutPins) const
 {
+	// Input: how to resolve the pivot actor.
+	{
+		FComposableCameraNodePinDeclaration Pin;
+		Pin.PinName = "PivotActorSource";
+		Pin.DisplayName = NSLOCTEXT("ComposableCameraSystem", "PivotActorSource", "Pivot Actor Source");
+		Pin.Direction = EComposableCameraPinDirection::Input;
+		Pin.PinType = EComposableCameraPinType::Enum;
+		Pin.EnumType = StaticEnum<EComposableCameraActorInputSource>();
+		Pin.bRequired = false;
+		Pin.bDefaultAsPin = false;
+		Pin.DefaultValueString = Pin.EnumType ? Pin.EnumType->GetNameStringByValue(static_cast<int64>(PivotActorSource)) : FString();
+		Pin.Tooltip = NSLOCTEXT("ComposableCameraSystem", "PivotActorSourceTooltip",
+			"Selects whether the pivot actor comes from the controller's controlled pawn or an explicit actor.");
+		OutPins.Add(Pin);
+	}
+
 	// Input: the actor to use as pivot.
 	{
 		FComposableCameraNodePinDeclaration Pin;
@@ -130,7 +149,7 @@ void UComposableCameraReceivePivotActorNode::GetPinDeclarations_Implementation(
 		Pin.DisplayName = NSLOCTEXT("ComposableCameraSystem", "PivotActor", "Pivot Actor");
 		Pin.Direction = EComposableCameraPinDirection::Input;
 		Pin.PinType = EComposableCameraPinType::Actor;
-		Pin.bRequired = true;
+		Pin.bRequired = false;
 		Pin.DefaultValueString = FString();
 		Pin.Tooltip = NSLOCTEXT("ComposableCameraSystem", "PivotActorTooltip",
 			"The actor whose position is used as the camera pivot point.");

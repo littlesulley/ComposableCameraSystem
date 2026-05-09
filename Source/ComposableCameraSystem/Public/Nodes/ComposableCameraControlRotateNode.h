@@ -3,6 +3,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Utils/ComposableCameraActorInputSource.h"
 #include "ComposableCameraCameraNodeBase.h"
 #include "ComposableCameraControlRotateNode.generated.h"
 
@@ -34,11 +35,16 @@ public:
 protected:
 
 public:
+	// Selects whether camera rotation input is read from the controller's
+	// controlled pawn or from RotationInputActor.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters)
+	EComposableCameraActorInputSource RotationInputActorSource { EComposableCameraActorInputSource::ExplicitActor };
+
 	// Actor providing the EnhancedInputComponent for camera rotation input.
 	// Typically driven at runtime via a context parameter (e.g. the player pawn),
 	// but kept as a UPROPERTY so the Details panel renders a proper object picker
 	// and an authored default is available when unwired.
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters, meta = (EditCondition = "RotationInputActorSource == EComposableCameraActorInputSource::ExplicitActor", EditConditionHides))
 	TObjectPtr<AActor> RotationInputActor;
 
 	// Input action controlling camera rotation. You must use the Enhanced Input Component.
@@ -70,22 +76,21 @@ private:
 
 	// Make sure the (pin-driven) RotationInputActor's EnhancedInputComponent
 	// has a value-binding registered for RotateAction. Called from OnTickNode
-	// because RotationInputActor is an input pin and is auto-resolved per frame â€”
-	// resolving once in OnInitialize would (a) read the pre-pin-resolution
+	// because RotationInputActor is an input pin and is auto-resolved per frame â€?	// resolving once in OnInitialize would (a) read the pre-pin-resolution
 	// default value and (b) leave us bound to a stale actor if the pin is
 	// later wired to a different one or the original actor is destroyed.
 	//
 	// Does NOT cache the FEnhancedInputActionValueBinding* returned by
 	// BindActionValue. That pointer aliases an entry inside
-	// UEnhancedInputComponent::EnhancedActionValueBindings â€” a
+	// UEnhancedInputComponent::EnhancedActionValueBindings â€?a
 	// TArray<FEnhancedInputActionValueBinding> stored by-value, so any other
 	// BindActionValue call on the same component (BP node, gameplay code,
 	// another camera node sharing the actor) can reallocate the array and
 	// dangle our pointer with no signal. Read the value at tick time via
-	// EIC->GetBoundActionValue(RotateAction) instead â€” it does a linear
+	// EIC->GetBoundActionValue(RotateAction) instead â€?it does a linear
 	// search that is safe across reallocations and cheap for the handful of
 	// bindings a typical InputComponent holds.
-	void EnsureInputBinding();
+	void EnsureInputBinding(AActor* EffectiveRotationInputActor);
 
 	// Weak refs let us detect actor / component destruction across frames
 	// without keeping the input owner alive ourselves, and let us notice
@@ -96,5 +101,3 @@ private:
 
 	FVector2D LastFrameCameraRotationInput;
 };
-
-

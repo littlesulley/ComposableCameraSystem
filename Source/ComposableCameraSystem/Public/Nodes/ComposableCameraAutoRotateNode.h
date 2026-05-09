@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "Interpolator/ComposableCameraInterpolatorBase.h"
+#include "Utils/ComposableCameraActorInputSource.h"
 #include "Nodes/ComposableCameraCameraNodeBase.h"
 #include "ComposableCameraAutoRotateNode.generated.h"
 
@@ -46,6 +47,11 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters)
 	EComposableCameraAutoRotateDirectionMode DirectionMode { EComposableCameraAutoRotateDirectionMode::Direction };
 
+	// Selects whether PrimaryActor is read from the controller's controlled
+	// pawn or from the explicitly supplied PrimaryActor.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters, meta = (EditCondition = "DirectionMode == EComposableCameraAutoRotateDirectionMode::ActorForward", EditConditionHides))
+	EComposableCameraActorInputSource PrimaryActorSource { EComposableCameraActorInputSource::ExplicitActor };
+
 	// Explicit reference forward direction (used when DirectionMode == Direction).
 	// Typically driven via an upstream wire or a context parameter; the authored
 	// default is X-forward so a freshly placed node has something sensible.
@@ -54,7 +60,7 @@ public:
 
 	// Actor whose forward vector is used as the reference direction (used when
 	// DirectionMode == ActorForward). Typically wired to the player pawn.
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters, meta = (EditCondition = "DirectionMode == EComposableCameraAutoRotateDirectionMode::ActorForward", EditConditionHides))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters, meta = (EditCondition = "DirectionMode == EComposableCameraAutoRotateDirectionMode::ActorForward && PrimaryActorSource == EComposableCameraActorInputSource::ExplicitActor", EditConditionHides))
 	TObjectPtr<AActor> PrimaryActor;
 
 	// Whether user rotation input should interrupt an in-progress auto-rotation
@@ -63,7 +69,7 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters)
 	bool bInterruptOnUserInput { true };
 
-	// Rotation input this frame (x=yaw, y=pitch) â€” used to detect user interrupt
+	// Rotation input this frame (x=yaw, y=pitch) â€?used to detect user interrupt
 	// when bInterruptOnUserInput is true. Almost always wired from
 	// ControlRotateNode's CameraRotationInput output.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters, meta = (EditCondition = "bInterruptOnUserInput", EditConditionHides))
@@ -93,7 +99,7 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters, meta = (EditCondition = "bInterruptOnUserInput", EditConditionHides))
 	int32 MaxCountAfterInputInterrupt { -1 };
 
-	// Rotator interpolator driving yaw+pitch as a single unified rotation â€” both
+	// Rotator interpolator driving yaw+pitch as a single unified rotation â€?both
 	// axes progress on the same curve so they reach the target together rather
 	// than one axis finishing before the other. If null, the camera teleports to
 	// the target boundary rotation in one frame.

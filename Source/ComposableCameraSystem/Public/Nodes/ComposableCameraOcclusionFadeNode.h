@@ -6,6 +6,7 @@
 #include "ComposableCameraCameraNodeBase.h"
 #include "Engine/EngineTypes.h"
 #include "Engine/OverlapResult.h"
+#include "Utils/ComposableCameraActorInputSource.h"
 #include "Templates/SubclassOf.h"
 #include "UObject/WeakObjectPtr.h"
 #include "WorldCollision.h"
@@ -22,7 +23,7 @@ class UPrimitiveComponent;
  * original material is this record.
  *
  * OverrideMaterials is kept in lockstep with OriginalMaterials for symmetry
- * and debug inspection — it also pins the MID we created from the user's
+ * and debug inspection �?it also pins the MID we created from the user's
  * OcclusionMaterial, so that reloading / hot-reloading the source material
  * doesn't immediately invalidate our swap.
  */
@@ -32,7 +33,7 @@ struct FComposableCameraOcclusionMaterialOverride
 	GENERATED_BODY()
 
 	/** The primitive whose material slots we swapped. Weak ref so actor
-	 *  destruction (e.g. NPC pooled away) cleans itself up — we prune stale
+	 *  destruction (e.g. NPC pooled away) cleans itself up �?we prune stale
 	 *  entries each tick. */
 	UPROPERTY()
 	TWeakObjectPtr<UPrimitiveComponent> Component;
@@ -64,11 +65,10 @@ struct FComposableCameraOcclusionMaterialOverride
  *
  * Both paths produce a union set of primitives to fade this frame. Delta
  * tracking against AppliedMaterialOverrides means we only call SetMaterial /
- * CreateDynamicMaterialInstance on primitives entering or leaving the set —
- * the steady state is zero per-frame material work.
+ * CreateDynamicMaterialInstance on primitives entering or leaving the set �? * the steady state is zero per-frame material work.
  *
  * Fade shape and timing are entirely encoded in OcclusionMaterial's shader
- * (dither, fresnel, Time-driven opacity — your call). The node does instant
+ * (dither, fresnel, Time-driven opacity �?your call). The node does instant
  * material swaps; any smooth cross-fade lives in the shader. This follows
  * Epic's UOcclusionMaterialCameraNode design: no material contract beyond
  * "point at the occlusion material asset".
@@ -76,7 +76,7 @@ struct FComposableCameraOcclusionMaterialOverride
  * Lifecycle:
  *  - OnInitialize seeds state and restores any stale overrides.
  *  - OnTickNode runs both detection paths and applies the delta.
- *  - BeginDestroy restores every remaining override — mandatory to avoid
+ *  - BeginDestroy restores every remaining override �?mandatory to avoid
  *    leaving actors stuck in the transparency material after the camera is
  *    popped / destroyed.
  *
@@ -84,7 +84,7 @@ struct FComposableCameraOcclusionMaterialOverride
  * N+1). Occluder decisions lag by one frame, which is visually acceptable
  * and keeps the game thread off the physics query's critical path.
  *
- * StaticMeshComponent-only is NOT enforced — unlike Epic's node, we consider
+ * StaticMeshComponent-only is NOT enforced �?unlike Epic's node, we consider
  * any UPrimitiveComponent subclass (static mesh, skeletal mesh, instanced,
  * geometry collection) subject to bAffectStaticMeshes / bAffectSkeletalMeshes.
  */
@@ -110,11 +110,16 @@ public:
 public:
 	// ─── Target (aligned with CollisionPushNode's pivot pattern) ──────────
 
+	/** Selects whether the fade target actor is the controller's controlled
+	 *  pawn or the explicitly supplied PivotActor. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters)
+	EComposableCameraActorInputSource PivotActorSource { EComposableCameraActorInputSource::ExplicitActor };
+
 	/** Actor whose location (plus PivotZOffset, or bone socket) is the
 	 *  "protected end" of the line-of-sight sweep and the hit-test anchor
 	 *  for proximity fade. Typically the player pawn. Must be non-null when
 	 *  bFadeOccluders is true; otherwise the sweep is skipped with a warning. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters, meta = (EditCondition = "PivotActorSource == EComposableCameraActorInputSource::ExplicitActor", EditConditionHides))
 	TObjectPtr<AActor> PivotActor { nullptr };
 
 	/** World-Z offset added on top of the actor location when bUseBoneForDetection
@@ -137,8 +142,8 @@ public:
 	// ─── Shared fade mechanism ────────────────────────────────────────────
 
 	/** Transparency material swapped onto every faded primitive's material
-	 *  slots. The shader inside this material owns the fade look — dither,
-	 *  fresnel, opacity — and any smooth fade-in/out animation. Must be set
+	 *  slots. The shader inside this material owns the fade look �?dither,
+	 *  fresnel, opacity �?and any smooth fade-in/out animation. Must be set
 	 *  or the node no-ops. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters)
 	TObjectPtr<UMaterialInterface> OcclusionMaterial { nullptr };
@@ -148,13 +153,13 @@ public:
 	bool bAffectStaticMeshes { true };
 
 	/** Whether skeletal mesh components are eligible for fade. Enabled by
-	 *  default — Epic's node misses this, but NPCs / characters blocking the
+	 *  default �?Epic's node misses this, but NPCs / characters blocking the
 	 *  view are one of the most common fade cases. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters)
 	bool bAffectSkeletalMeshes { true };
 
 	/** Extra actors to exclude from both the sweep and the proximity query.
-	 *  PivotActor is ignored automatically — this list is for teammates,
+	 *  PivotActor is ignored automatically �?this list is for teammates,
 	 *  companions, vehicles, or any other actor that must not fade. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters)
 	TArray<TObjectPtr<AActor>> ExtraIgnoredActors;
@@ -177,8 +182,7 @@ public:
 	/** Optional component-tag filter. When NAME_None (default), every primitive
 	 *  the sweep hits is eligible (same behaviour as Epic's node, where
 	 *  collision channel alone decides). When non-empty, only components
-	 *  carrying this tag via UActorComponent::ComponentTags are considered —
-	 *  the usual way to say "walls on ECC_Camera stay solid, tagged foliage
+	 *  carrying this tag via UActorComponent::ComponentTags are considered �?	 *  the usual way to say "walls on ECC_Camera stay solid, tagged foliage
 	 *  fades". */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Occlusion, meta = (EditCondition = "bFadeOccluders == true"))
 	FName OccluderComponentTag;
@@ -202,7 +206,7 @@ public:
 	TSubclassOf<AActor> ProximityActorClass;
 
 	/** When true, PivotActor is excluded from proximity fade even if it lies
-	 *  within ProximityRadius. Defaults to false — the typical "fade the
+	 *  within ProximityRadius. Defaults to false �?the typical "fade the
 	 *  player when camera vision gets too close" pattern wants PivotActor
 	 *  included. Flip on for cameras where the player body must never
 	 *  disappear (cinematic, over-shoulder with forced full-body view). */
@@ -223,18 +227,18 @@ private:
 	 *  frame. Invalidated after each successful read. */
 	FTraceHandle PendingSweepHandle;
 
-	/** Cached target point resolved this tick — used both by the sweep submit
+	/** Cached target point resolved this tick �?used both by the sweep submit
 	 *  and by debug draw. */
 	FVector LastResolvedTargetPoint { FVector::ZeroVector };
 
-	/** Cached camera position resolved this tick — same reason. */
+	/** Cached camera position resolved this tick �?same reason. */
 	FVector LastCameraPosition { FVector::ZeroVector };
 
 	// ─── Per-tick scratch buffers (hot-path no-alloc steady state) ────────
 	//
 	// OnTickNode previously declared `TSet<UPrimitiveComponent*>` and
 	// `TArray<FOverlapResult>` locals plus a per-actor `TArray<UPrimitive
-	// Component*>` and called `Reserve(N)` on each — every Reserve hits the
+	// Component*>` and called `Reserve(N)` on each �?every Reserve hits the
 	// allocator on first call, and node-enabled = hot path. Member-scoping
 	// the buffers amortises the initial allocation across activations and
 	// keeps capacity hot in the steady state. The per-actor PrimComps array
@@ -243,7 +247,7 @@ private:
 	//
 	// Lifetime contract (matches PCM::CameraActionsRemovalScratch in
 	// PlayerCameraManager.h): these scratches are intentionally NOT
-	// UPROPERTY and NOT TWeakObjectPtr — raw `UPrimitiveComponent*` entries
+	// UPROPERTY and NOT TWeakObjectPtr �?raw `UPrimitiveComponent*` entries
 	// are valid WITHIN a single OnTickNode call but MUST NOT span GC
 	// sweeps. `Reset()` runs both at the top and at the bottom of
 	// OnTickNode so no stale raw pointers ever live across frames.
@@ -255,8 +259,8 @@ private:
 
 	// ─── Helpers ──────────────────────────────────────────────────────────
 
-	/** Resolve the target world location from PivotActor + BoneName / PivotZOffset.
-	 *  Returns false when PivotActor is null. */
+	/** Resolve the target world location from the selected actor source +
+	 *  BoneName / PivotZOffset. Returns false when no actor resolves. */
 	bool ResolveTargetPoint(FVector& OutTargetPoint) const;
 
 	/** Consume the result of a sweep submitted on a previous frame (if any)
@@ -279,8 +283,7 @@ private:
 	bool PassesFadeFilters(UPrimitiveComponent* Component, bool bApplyOccluderTagFilter) const;
 
 	/** Gather every UPrimitiveComponent on Actor that passes the mesh-type
-	 *  filter into Out. The component-tag filter is deliberately skipped —
-	 *  it's sweep-only. */
+	 *  filter into Out. The component-tag filter is deliberately skipped �?	 *  it's sweep-only. */
 	void CollectFadableComponentsOnActor(AActor* Actor, TSet<UPrimitiveComponent*>& Out) const;
 
 	/** Apply the occlusion material to every slot on Component, recording
@@ -290,7 +293,7 @@ private:
 
 	/** Restore originals and remove the record at AppliedMaterialOverrides[Index].
 	 *  Index must be valid; caller is responsible. The array is RemoveAtSwap'd
-	 *  so Index becomes invalid after the call — iterate backwards when
+	 *  so Index becomes invalid after the call �?iterate backwards when
 	 *  removing many. */
 	void RestoreAndRemoveOverrideAt(int32 Index);
 

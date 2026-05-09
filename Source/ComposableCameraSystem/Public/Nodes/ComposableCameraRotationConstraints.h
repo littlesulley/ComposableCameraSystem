@@ -1,10 +1,11 @@
-﻿// Copyright Sulley. All rights reserved.
+// Copyright Sulley. All rights reserved.
 
 #pragma once
 
 #include "CoreMinimal.h"
 #include "ComposableCameraCameraNodeBase.h"
 #include "Interpolator/ComposableCameraInterpolatorBase.h"
+#include "Utils/ComposableCameraActorInputSource.h"
 #include "ComposableCameraRotationConstraints.generated.h"
 
 class UComposableCameraInterpolatorBase;
@@ -58,8 +59,12 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters)
 	EComposableCameraRotationConstrainType ConstrainYawType { EComposableCameraRotationConstrainType::WorldSpace };
 
+	// Selects whether the yaw reference actor comes from the controller's controlled pawn or an explicit actor.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters, meta = (EditCondition = "ConstrainYawType == EComposableCameraRotationConstrainType::ActorSpace", EditConditionHides))
+	EComposableCameraActorInputSource ActorForYawConstrainSource { EComposableCameraActorInputSource::ExplicitActor };
+
 	// Reference actor when ActorSpace is used. Its transform will be used as the reference frame.
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters, meta = (EditCondition = "ConstrainYawType == EComposableCameraRotationConstrainType::ActorSpace"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters, meta = (EditCondition = "ConstrainYawType == EComposableCameraRotationConstrainType::ActorSpace && ActorForYawConstrainSource == EComposableCameraActorInputSource::ExplicitActor", EditConditionHides))
 	TSoftObjectPtr<AActor> ActorForYawConstrain { nullptr };
 
 	// Reference vector when VectorSpace is used. It will serve as the forward vector of the reference frame.
@@ -78,8 +83,12 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters)
 	EComposableCameraRotationConstrainType ConstrainPitchType { EComposableCameraRotationConstrainType::WorldSpace };
 
+	// Selects whether the pitch reference actor comes from the controller's controlled pawn or an explicit actor.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters, meta = (EditCondition = "ConstrainPitchType == EComposableCameraRotationConstrainType::ActorSpace", EditConditionHides))
+	EComposableCameraActorInputSource ActorForPitchConstrainSource { EComposableCameraActorInputSource::ExplicitActor };
+
 	// Reference actor when ActorSpace is used. Its transform will be used as the reference frame.
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters, meta = (EditCondition = "ConstrainPitchType == EComposableCameraRotationConstrainType::ActorSpace"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters, meta = (EditCondition = "ConstrainPitchType == EComposableCameraRotationConstrainType::ActorSpace && ActorForPitchConstrainSource == EComposableCameraActorInputSource::ExplicitActor", EditConditionHides))
 	TSoftObjectPtr<AActor> ActorForPitchConstrain { nullptr };
 
 	// Reference vector when VectorSpace is used. It will serve as the forward vector of the reference frame.

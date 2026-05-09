@@ -6,6 +6,7 @@
 #include "ComposableCameraCameraNodeBase.h"
 #include "Interpolator/ComposableCameraInterpolatorBase.h"
 #include "Math/ComposableCameraSplineInterface.h"
+#include "Utils/ComposableCameraActorInputSource.h"
 #include "ComposableCameraSplineNode.generated.h"
 
 class IComposableCameraSplineInterface;
@@ -76,8 +77,13 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters)
 	EComposableCameraSplineNodeMoveMethod MoveMethod { EComposableCameraSplineNodeMoveMethod::ClosestPoint };
 
-	// Actor for ClosestPoint move method, receiving a FVector.
+	// Selects whether ClosestPoint tracks the controller's controlled pawn or
+	// the explicitly supplied ClosestMoveMethodPivotActor.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters, meta = (EditCondition = "MoveMethod == EComposableCameraSplineNodeMoveMethod::ClosestPoint", EditConditionHides))
+	EComposableCameraActorInputSource ClosestMoveMethodPivotActorSource { EComposableCameraActorInputSource::ExplicitActor };
+
+	// Actor for ClosestPoint move method, receiving a FVector.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters, meta = (EditCondition = "MoveMethod == EComposableCameraSplineNodeMoveMethod::ClosestPoint && ClosestMoveMethodPivotActorSource == EComposableCameraActorInputSource::ExplicitActor", EditConditionHides))
 	TObjectPtr<AActor> ClosestMoveMethodPivotActor { nullptr };
 	
 	// Move curve for Automatic move method. X axis is normalized time in [0,1], Y axis is the normalized distance along the spline within [0,1].

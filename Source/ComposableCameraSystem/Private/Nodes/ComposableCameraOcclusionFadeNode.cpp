@@ -156,7 +156,8 @@ bool UComposableCameraOcclusionFadeNode::ResolveTargetPoint(FVector& OutTargetPo
 	// Explicit `.Get()` to convert TObjectPtr → AActor* → TSoftObjectPtr —
 	// the unambiguous chain. The TargetInfo struct now uses TSoftObjectPtr
 	// (V1.x) so its Details-panel picker can span level actors.
-	Info.Actor               = PivotActor.Get();
+	Info.Actor               = ComposableCameraSystem::ResolveActorInput(
+		PivotActorSource, PivotActor.Get(), GetOwningPlayerCameraManager());
 	Info.bUseBoneAsPivot     = bUseBoneForDetection;
 	Info.BoneName            = BoneName;
 	Info.Offset              = FVector::ZeroVector;
@@ -216,9 +217,11 @@ void UComposableCameraOcclusionFadeNode::SubmitOcclusionSweep(
 	// Auto-ignore the PivotActor — the sweep terminates at its location, and
 	// if we didn't ignore it, the target itself would light up as the first
 	// "occluder" every frame.
-	if (PivotActor)
+	AActor* EffectivePivotActor = ComposableCameraSystem::ResolveActorInput(
+		PivotActorSource, PivotActor.Get(), GetOwningPlayerCameraManager());
+	if (EffectivePivotActor)
 	{
-		Params.AddIgnoredActor(PivotActor);
+		Params.AddIgnoredActor(EffectivePivotActor);
 	}
 	for (const TObjectPtr<AActor>& Extra : ExtraIgnoredActors)
 	{
@@ -268,9 +271,11 @@ void UComposableCameraOcclusionFadeNode::RunProximityQuery(
 	ObjParams.AddObjectTypesToQuery(ECC_Pawn);
 
 	FCollisionQueryParams QueryParams(SCENE_QUERY_STAT(ComposableCameraOcclusionFadeProximity), false);
-	if (PivotActor && bIgnorePivotActorInProximity)
+	AActor* EffectivePivotActor = ComposableCameraSystem::ResolveActorInput(
+		PivotActorSource, PivotActor.Get(), GetOwningPlayerCameraManager());
+	if (EffectivePivotActor && bIgnorePivotActorInProximity)
 	{
-		QueryParams.AddIgnoredActor(PivotActor);
+		QueryParams.AddIgnoredActor(EffectivePivotActor);
 	}
 	for (const TObjectPtr<AActor>& Extra : ExtraIgnoredActors)
 	{
@@ -419,6 +424,22 @@ void UComposableCameraOcclusionFadeNode::RestoreAllOverrides()
 void UComposableCameraOcclusionFadeNode::GetPinDeclarations_Implementation(
 	TArray<FComposableCameraNodePinDeclaration>& OutPins) const
 {
+	// Input: pivot actor source.
+	{
+		FComposableCameraNodePinDeclaration Pin;
+		Pin.PinName = "PivotActorSource";
+		Pin.DisplayName = NSLOCTEXT("ComposableCameraSystem", "OccFade_PivotActorSource", "Pivot Actor Source");
+		Pin.Direction = EComposableCameraPinDirection::Input;
+		Pin.PinType = EComposableCameraPinType::Enum;
+		Pin.EnumType = StaticEnum<EComposableCameraActorInputSource>();
+		Pin.bRequired = false;
+		Pin.bDefaultAsPin = false;
+		Pin.DefaultValueString = Pin.EnumType ? Pin.EnumType->GetNameStringByValue(static_cast<int64>(PivotActorSource)) : FString();
+		Pin.Tooltip = NSLOCTEXT("ComposableCameraSystem", "OccFade_PivotActorSource_Tip",
+			"Selects whether the fade target comes from the controller's controlled pawn or an explicit actor.");
+		OutPins.Add(Pin);
+	}
+
 	// Input: pivot actor (the line-of-sight target and proximity centre).
 	{
 		FComposableCameraNodePinDeclaration Pin;

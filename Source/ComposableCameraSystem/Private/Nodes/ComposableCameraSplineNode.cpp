@@ -140,6 +140,20 @@ void UComposableCameraSplineNode::GetPinDeclarations_Implementation(TArray<FComp
 
 	{
 		FComposableCameraNodePinDeclaration PinDecl;
+		PinDecl.PinName = TEXT("ClosestMoveMethodPivotActorSource");
+		PinDecl.DisplayName = NSLOCTEXT("UComposableCameraSplineNode", "ClosestMoveMethodPivotActorSource", "Closest Move Method Pivot Actor Source");
+		PinDecl.Direction = EComposableCameraPinDirection::Input;
+		PinDecl.PinType = EComposableCameraPinType::Enum;
+		PinDecl.EnumType = StaticEnum<EComposableCameraActorInputSource>();
+		PinDecl.bRequired = false;
+		PinDecl.bDefaultAsPin = false;
+		PinDecl.DefaultValueString = PinDecl.EnumType ? PinDecl.EnumType->GetNameStringByValue(static_cast<int64>(ClosestMoveMethodPivotActorSource)) : FString();
+		PinDecl.Tooltip = NSLOCTEXT("UComposableCameraSplineNode", "ClosestMoveMethodPivotActorSourceTip", "Selects whether ClosestPoint tracks the controller's controlled pawn or an explicit actor.");
+		OutPins.Add(PinDecl);
+	}
+
+	{
+		FComposableCameraNodePinDeclaration PinDecl;
 		PinDecl.PinName = TEXT("ClosestMoveMethodPivotActor");
 		PinDecl.DisplayName = NSLOCTEXT("UComposableCameraSplineNode", "ClosestMoveMethodPivotActor", "Closest Move Method Pivot Actor");
 		PinDecl.Direction = EComposableCameraPinDirection::Input;
@@ -223,15 +237,17 @@ void UComposableCameraSplineNode::UpdateCameraPoseByBuiltInSpline(FVector& OutPo
 	{
 	case EComposableCameraSplineNodeMoveMethod::ClosestPoint:
 		{
-			if (!ClosestMoveMethodPivotActor)
+			AActor* EffectivePivotActor = ComposableCameraSystem::ResolveActorInput(
+				ClosestMoveMethodPivotActorSource, ClosestMoveMethodPivotActor.Get(), GetOwningPlayerCameraManager());
+			if (!IsValid(EffectivePivotActor))
 			{
-				UE_LOG(LogComposableCameraSystem, Error, TEXT("ClosestMoveMethodPivotActor is null, will not proceed."))
+				UE_LOG(LogComposableCameraSystem, Error, TEXT("Resolved ClosestMoveMethodPivotActor is null, will not proceed."))
 				return;
 			}
 
 			USplineComponent* Spline = Rail->GetRailSplineComponent();
 			float SplineLength = Spline->GetSplineLength();
-			float InputKey = Spline->FindInputKeyClosestToWorldLocation(ClosestMoveMethodPivotActor->GetActorLocation());
+			float InputKey = Spline->FindInputKeyClosestToWorldLocation(EffectivePivotActor->GetActorLocation());
 			float Distance = Spline->GetDistanceAlongSplineAtSplineInputKey(InputKey);
 			float TargetPosition = Distance / SplineLength;
 			float CurrentPosition = Rail->CurrentPositionOnRail;

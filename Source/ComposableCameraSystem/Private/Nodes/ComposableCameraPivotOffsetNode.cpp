@@ -3,6 +3,7 @@
 #include "Nodes/ComposableCameraPivotOffsetNode.h"
 
 #include "Core/ComposableCameraPlayerCameraManager.h"
+#include "GameFramework/Actor.h"
 #include "Kismet/KismetMathLibrary.h"
 
 #if !UE_BUILD_SHIPPING
@@ -55,11 +56,13 @@ void UComposableCameraPivotOffsetNode::UpdatePivotOffset(const FVector& InPivot,
 	switch (PivotOffsetType)
 	{
 	case ECameraPivotOffset::ActorLocalSpace:
-		if (ActorForLocalSpace.Get())
+		if (AActor* EffectiveActorForLocalSpace = ComposableCameraSystem::ResolveActorInput(
+			ActorForLocalSpaceSource, ActorForLocalSpace.Get(), GetOwningPlayerCameraManager());
+			IsValid(EffectiveActorForLocalSpace))
 		{
-			Pivot += ActorForLocalSpace.Get()->GetActorForwardVector() * PivotOffset[0];
-			Pivot += ActorForLocalSpace.Get()->GetActorRightVector() * PivotOffset[1];
-			Pivot += ActorForLocalSpace.Get()->GetActorUpVector() * PivotOffset[2];
+			Pivot += EffectiveActorForLocalSpace->GetActorForwardVector() * PivotOffset[0];
+			Pivot += EffectiveActorForLocalSpace->GetActorRightVector() * PivotOffset[1];
+			Pivot += EffectiveActorForLocalSpace->GetActorUpVector() * PivotOffset[2];
 		}
 		else
 		{

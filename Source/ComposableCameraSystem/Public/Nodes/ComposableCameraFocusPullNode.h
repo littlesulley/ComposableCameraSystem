@@ -6,6 +6,7 @@
 #include "ComposableCameraCameraNodeBase.h"
 #include "Interpolator/ComposableCameraInterpolatorBase.h"
 #include "Math/Interval.h"
+#include "Utils/ComposableCameraActorInputSource.h"
 #include "ComposableCameraFocusPullNode.generated.h"
 
 class AActor;
@@ -13,23 +14,23 @@ class UComposableCameraInterpolatorBase;
 
 /**
  * Dynamically drives the camera pose's `FocusDistance` from the distance to a
- * target actor. Single-responsibility node — it only touches `FocusDistance`.
+ * target actor. Single-responsibility node �?it only touches `FocusDistance`.
  * Everything else DoF needs (aperture, blade count, filmback, and the
  * `PhysicalCameraBlendWeight` that gates whether DoF is applied at all) is
  * expected to come from an upstream `LensNode`. The intended composition:
  *
- *     ... → LensNode(FocalLength, Aperture, BlendWeight=1, FocusDistance=-1)
- *         → FocusPullNode(drives FocusDistance from PivotActor)
- *         → ...
+ *     ... �?LensNode(FocalLength, Aperture, BlendWeight=1, FocusDistance=-1)
+ *         �?FocusPullNode(drives FocusDistance from PivotActor)
+ *         �?...
  *
  * LensNode's `FocusDistance = -1` sentinel is the "leave for downstream"
  * signal that pairs cleanly with this node. If LensNode instead writes a
  * concrete focus distance, FocusPullNode will **overwrite** it (last writer
- * wins on the pose) — both work, the sentinel just makes the intent
+ * wins on the pose) �?both work, the sentinel just makes the intent
  * obvious at read time.
  *
  * Without any LensNode upstream, the pose's default `PhysicalCameraBlendWeight`
- * is 0 — `ApplyPhysicalCameraSettings()` will not route `FocusDistance` into
+ * is 0 �?`ApplyPhysicalCameraSettings()` will not route `FocusDistance` into
  * the post-process DoF slots regardless of what this node writes. Add a
  * LensNode (or at minimum wire `PhysicalCameraBlendWeight > 0` some other
  * way) or the node is a no-op at the renderer level.
@@ -48,11 +49,11 @@ class UComposableCameraInterpolatorBase;
  *     if Depth <= 0: pass-through this tick (target is behind camera)
  *     Raw          = Depth + FocusDistanceOffset
  *     if bClampFocusDistance: Raw = FMath::Clamp(Raw, Clamp.Min, Clamp.Max)
- *     if FocusInterpolator:   Raw = Interp.Run(LastFocus → Raw, DeltaTime)
+ *     if FocusInterpolator:   Raw = Interp.Run(LastFocus �?Raw, DeltaTime)
  *     OutCameraPose.FocusDistance = Raw
  *
  * `FocusDistance` is camera-space depth (distance along the view axis),
- * NOT Euclidean distance — that's what `ApplyPhysicalCameraSettings` and
+ * NOT Euclidean distance �?that's what `ApplyPhysicalCameraSettings` and
  * the renderer's DoF system consume. For an off-axis target the two
  * diverge significantly (10 m @ 45° has depth ~7 m), so projecting onto
  * the camera forward is the correct reduction.
@@ -82,10 +83,15 @@ public:
 public:
 	// ─── Target (aligned with CollisionPushNode's pivot pattern) ──────────
 
-	/** Actor whose distance from the camera drives the focus distance.
-	 *  Typically the player pawn or a narrative focal actor. Required — the
-	 *  node pass-throughs with a warning each tick when unset. */
+	/** Selects whether the focus target actor is the controller's controlled
+	 *  pawn or the explicitly supplied PivotActor. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters)
+	EComposableCameraActorInputSource PivotActorSource { EComposableCameraActorInputSource::ExplicitActor };
+
+	/** Actor whose distance from the camera drives the focus distance.
+	 *  Typically the player pawn or a narrative focal actor. Required �?the
+	 *  node pass-throughs with a warning each tick when unset. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters, meta = (EditCondition = "PivotActorSource == EComposableCameraActorInputSource::ExplicitActor", EditConditionHides))
 	TObjectPtr<AActor> PivotActor { nullptr };
 
 	/** When true, the target point is sampled at the named bone / socket on
@@ -99,7 +105,7 @@ public:
 	FName BoneName;
 
 	/** World-Z offset added to ActorLocation when bUseBoneForDetection is
-	 *  false (or the requested bone can't be found). Typical 50–80 to land
+	 *  false (or the requested bone can't be found). Typical 50�?0 to land
 	 *  on a chest/head target rather than foot. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters, meta = (EditCondition = "bUseBoneForDetection == false"))
 	float PivotZOffset { 50.f };
@@ -107,7 +113,7 @@ public:
 	// ─── Behavior ─────────────────────────────────────────────────────────
 
 	/** Master toggle. When false, the node is a no-op pass-through this tick
-	 *  — the previous FocusDistance on the pose is preserved. Useful for
+	 *  �?the previous FocusDistance on the pose is preserved. Useful for
 	 *  Blueprint-driven "focus hold" moments (aim down sights, cinematic
 	 *  freeze, etc.) where external logic wants to take over. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters)
@@ -138,7 +144,7 @@ public:
 
 	/** Optional interpolator applied to the focus distance each tick. When
 	 *  null, the node is stateless and the pose's FocusDistance equals the
-	 *  raw (clamped, offset-adjusted) distance every frame — visually this
+	 *  raw (clamped, offset-adjusted) distance every frame �?visually this
 	 *  means focus tracks the target with zero lag, which is jittery for
 	 *  fast-moving targets. Pick any of the built-in interpolators
 	 *  (SpringDamper / IIR / SimpleSpring) to get a smooth "focus pull"
@@ -151,8 +157,8 @@ public:
 private:
 	// ─── Helpers ──────────────────────────────────────────────────────────
 
-	/** Resolve the target world location from PivotActor + BoneName /
-	 *  PivotZOffset. Returns false when PivotActor is null. Mirrors
+	/** Resolve the target world location from the selected actor source +
+	 *  BoneName / PivotZOffset. Returns false when no actor resolves. Mirrors
 	 *  OcclusionFadeNode::ResolveTargetPoint. */
 	bool ResolveTargetPoint(FVector& OutTargetPoint) const;
 

@@ -57,11 +57,11 @@ void UComposableCameraFocusPullNode::OnTickNode_Implementation(
 	FVector TargetPoint;
 	if (!ResolveTargetPoint(TargetPoint))
 	{
-		// PivotActor is required; log once per frame (matches SplineNode /
+		// A resolved target actor is required; log once per frame (matches SplineNode /
 		// CollisionPush precedent — error paths are cheap enough and the
 		// log surface it so authors catch misconfiguration fast).
 		UE_LOG(LogComposableCameraSystem, Warning,
-			TEXT("FocusPullNode: PivotActor is null on '%s'; focus pass-through this tick."),
+			TEXT("FocusPullNode: resolved PivotActor is null on '%s'; focus pass-through this tick."),
 			*GetNameSafe(this));
 		return;
 	}
@@ -143,7 +143,8 @@ bool UComposableCameraFocusPullNode::ResolveTargetPoint(FVector& OutTargetPoint)
 	// Explicit `.Get()` to convert TObjectPtr → AActor* → TSoftObjectPtr —
 	// the unambiguous chain. The TargetInfo struct now uses TSoftObjectPtr
 	// (V1.x) so its Details-panel picker can span level actors.
-	Info.Actor               = PivotActor.Get();
+	Info.Actor               = ComposableCameraSystem::ResolveActorInput(
+		PivotActorSource, PivotActor.Get(), GetOwningPlayerCameraManager());
 	Info.bUseBoneAsPivot     = bUseBoneForDetection;
 	Info.BoneName            = BoneName;
 	Info.Offset              = FVector::ZeroVector;
@@ -170,11 +171,26 @@ void UComposableCameraFocusPullNode::GetPinDeclarations_Implementation(
 	// but Details-only out of the box (per-instance flip via RuntimePinOverrides).
 	{
 		FComposableCameraNodePinDeclaration Pin;
+		Pin.PinName = "PivotActorSource";
+		Pin.DisplayName = NSLOCTEXT("ComposableCameraSystem", "FocusPull_PivotActorSource", "Pivot Actor Source");
+		Pin.Direction = EComposableCameraPinDirection::Input;
+		Pin.PinType = EComposableCameraPinType::Enum;
+		Pin.EnumType = StaticEnum<EComposableCameraActorInputSource>();
+		Pin.bRequired = false;
+		Pin.bDefaultAsPin = false;
+		Pin.DefaultValueString = Pin.EnumType ? Pin.EnumType->GetNameStringByValue(static_cast<int64>(PivotActorSource)) : FString();
+		Pin.Tooltip = NSLOCTEXT("ComposableCameraSystem", "FocusPull_PivotActorSource_Tip",
+			"Selects whether the focus target comes from the controller's controlled pawn or an explicit actor.");
+		OutPins.Add(Pin);
+	}
+
+	{
+		FComposableCameraNodePinDeclaration Pin;
 		Pin.PinName = "PivotActor";
 		Pin.DisplayName = NSLOCTEXT("ComposableCameraSystem", "FocusPull_PivotActor", "Pivot Actor");
 		Pin.Direction = EComposableCameraPinDirection::Input;
 		Pin.PinType = EComposableCameraPinType::Actor;
-		Pin.bRequired = true;
+		Pin.bRequired = false;
 		Pin.bDefaultAsPin = true;
 		Pin.Tooltip = NSLOCTEXT("ComposableCameraSystem", "FocusPull_PivotActor_Tip",
 			"Actor whose distance from the camera drives FocusDistance.");

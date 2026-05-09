@@ -1,10 +1,11 @@
-ï»¿// Copyright Sulley. All rights reserved.
+// Copyright Sulley. All rights reserved.
 
 #pragma once
 
 #include "CoreMinimal.h"
 #include "ComposableCameraCameraNodeBase.h"
 #include "Interpolator/ComposableCameraInterpolatorBase.h"
+#include "Utils/ComposableCameraActorInputSource.h"
 #include "ComposableCameraLookAtNode.generated.h"
 
 class UComposableCameraInterpolatorBase;
@@ -61,8 +62,13 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters, meta = (EditCondition = "LookAtType == EComposableCameraLookAtType::ByPosition", EditConditionHides))
 	FVector LookAtPosition;
 
-	// Target look-at actor.
+	// Selects whether the look-at actor comes from the controller's controlled
+	// pawn or from the explicitly supplied LookAtActor.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters, meta = (EditCondition = "LookAtType == EComposableCameraLookAtType::ByActor", EditConditionHides))
+	EComposableCameraActorInputSource LookAtActorSource { EComposableCameraActorInputSource::ExplicitActor };
+
+	// Explicit target look-at actor.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters, meta = (EditCondition = "LookAtType == EComposableCameraLookAtType::ByActor && LookAtActorSource == EComposableCameraActorInputSource::ExplicitActor", EditConditionHides))
 	TObjectPtr<AActor> LookAtActor;
 
 	// Target look-at socket when the actor has a SkeletalMeshComponent. If no such component exists, will use LookAtActor's position.
@@ -90,7 +96,7 @@ private:
 	// Stored as TWeakObjectPtr (not raw, not UPROPERTY): LookAtActor can be
 	// driven by an input pin and CHANGE every frame, and the SkelMesh
 	// component on that actor can be destroyed / re-spawned independently
-	// of this node â€” Tick must IsValid()-check before deref. Resolution
+	// of this node ¡ª Tick must IsValid()-check before deref. Resolution
 	// happens lazily in Tick when the active LookAtActor differs from the
 	// last actor we resolved against (`LastResolvedLookAtActor`); that
 	// avoids the per-frame `GetComponentByClass` walk while still picking

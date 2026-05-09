@@ -67,12 +67,25 @@ void UComposableCameraScreenSpaceConstraintsNode::GetPinDeclarations_Implementat
 {
 	FComposableCameraNodePinDeclaration PinDecl;
 
+	// Input: PivotActorSource
+	PinDecl.PinName = TEXT("PivotActorSource");
+	PinDecl.DisplayName = NSLOCTEXT("UComposableCameraScreenSpaceConstraintsNode", "PivotActorSource", "Pivot Actor Source");
+	PinDecl.Direction = EComposableCameraPinDirection::Input;
+	PinDecl.PinType = EComposableCameraPinType::Enum;
+	PinDecl.EnumType = StaticEnum<EComposableCameraActorInputSource>();
+	PinDecl.bRequired = false;
+	PinDecl.bDefaultAsPin = false;
+	PinDecl.DefaultValueString = PinDecl.EnumType ? PinDecl.EnumType->GetNameStringByValue(static_cast<int64>(PivotActorSource)) : FString();
+	PinDecl.Tooltip = NSLOCTEXT("UComposableCameraScreenSpaceConstraintsNode", "PivotActorSourceTip", "Selects whether the constrained actor comes from the controller's controlled pawn or an explicit actor.");
+	OutPins.Add(PinDecl);
+
 	// Input: PivotActor
+	PinDecl = {};
 	PinDecl.PinName = TEXT("PivotActor");
 	PinDecl.DisplayName = NSLOCTEXT("UComposableCameraScreenSpaceConstraintsNode", "PivotActor", "Pivot Actor");
 	PinDecl.Direction = EComposableCameraPinDirection::Input;
 	PinDecl.PinType = EComposableCameraPinType::Actor;
-	PinDecl.bRequired = true;
+	PinDecl.bRequired = false;
 	PinDecl.DefaultValueString = FString();
 	PinDecl.Tooltip = NSLOCTEXT("UComposableCameraScreenSpaceConstraintsNode", "PivotActorTip", "Actor to constrain in screen space.");
 	OutPins.Add(PinDecl);
@@ -231,7 +244,8 @@ FVector UComposableCameraScreenSpaceConstraintsNode::GetCurrentPivot() const
 {
 	// PivotActor is a pin-matched UPROPERTY — resolved by the base TickNode prologue.
 	// Read from the current frame's resolved value.
-	AActor* InPivotActor = PivotActor.Get();
+	AActor* InPivotActor = ComposableCameraSystem::ResolveActorInput(
+		PivotActorSource, PivotActor.Get(), GetOwningPlayerCameraManager());
 	if (IsValid(InPivotActor))
 	{
 		return InPivotActor->GetActorLocation();

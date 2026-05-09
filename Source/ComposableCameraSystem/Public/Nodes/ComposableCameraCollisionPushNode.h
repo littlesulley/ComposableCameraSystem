@@ -5,6 +5,7 @@
 #include "CoreMinimal.h"
 #include "ComposableCameraCameraNodeBase.h"
 #include "Interpolator/ComposableCameraInterpolatorBase.h"
+#include "Utils/ComposableCameraActorInputSource.h"
 #include "ComposableCameraCollisionPushNode.generated.h"
 
 class UComposableCameraInterpolatorBase;
@@ -45,11 +46,16 @@ public:
 protected:
 	
 public:
+	// Selects whether the collision pivot actor is the controller's controlled
+	// pawn or the explicitly supplied PivotActor.
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = InputParameters)
+	EComposableCameraActorInputSource PivotActorSource { EComposableCameraActorInputSource::ExplicitActor };
+
 	// Actor from which collision detection originates (pivot). Typically driven at
 	// runtime via a context parameter (e.g. the player pawn); kept as a UPROPERTY
 	// so the Details panel renders a proper object picker and an authored default
 	// is available when unwired.
-	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = InputParameters)
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = InputParameters, meta = (EditCondition = "PivotActorSource == EComposableCameraActorInputSource::ExplicitActor", EditConditionHides))
 	TObjectPtr<AActor> PivotActor;
 
 	// Collision channel for trace collision.
@@ -121,7 +127,7 @@ private:
 	// TWeakObjectPtr (not raw, not UPROPERTY): PivotActor is an input pin
 	// and can be driven to a new actor every frame, and the SkelMesh
 	// component on that actor can be destroyed / re-spawned independently
-	// of this node â€” Tick / DrawNodeDebug must IsValid()-check before
+	// of this node â€?Tick / DrawNodeDebug must IsValid()-check before
 	// deref. Resolution happens lazily in Tick when the active PivotActor
 	// differs from `LastResolvedPivotActor`, avoiding a per-frame
 	// `GetComponentByClass` walk in the common stable-actor case.
@@ -134,7 +140,7 @@ private:
 	// TWeakObjectPtr so multi-frame collision-ignore lifetime survives
 	// individual actor destruction without dangling. Per-tick rebuild of
 	// `ResolvedActorsToIgnore` from the weak snapshot is one weak-ptr `Get()`
-	// per entry â€” typical N is small. Earlier behavior called
+	// per entry â€?typical N is small. Earlier behavior called
 	// `GetAllActorsOfClass` every Tick which scaled with the world's actor
 	// count and was a real cost on actor-heavy levels.
 	TArray<TWeakObjectPtr<AActor>> ActorsToIgnoreWeak;

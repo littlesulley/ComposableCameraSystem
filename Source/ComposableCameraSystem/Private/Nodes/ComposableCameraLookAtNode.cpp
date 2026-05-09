@@ -72,18 +72,21 @@ void UComposableCameraLookAtNode::OnTickNode_Implementation(float DeltaTime,
 	}
 	else if (LookAtType == EComposableCameraLookAtType::ByActor)
 	{
+		AActor* EffectiveLookAtActor = ComposableCameraSystem::ResolveActorInput(
+			LookAtActorSource, LookAtActor.Get(), GetOwningPlayerCameraManager());
+
 		// LookAtActor may have just been written by ResolveAllInputPins;
 		// re-resolve the cached SkelMesh whenever the active actor changed.
-		ResolveSkelMeshForLookAtActor(LookAtActor, SkeletalMeshComponentForLookAtActor, LastResolvedLookAtActor);
+		ResolveSkelMeshForLookAtActor(EffectiveLookAtActor, SkeletalMeshComponentForLookAtActor, LastResolvedLookAtActor);
 
 		USkeletalMeshComponent* Comp = SkeletalMeshComponentForLookAtActor.Get();
 		if (IsValid(Comp) && Comp->DoesSocketExist(LookAtSocket))
 		{
 			CurrentLookAtPosition = Comp->GetSocketLocation(LookAtSocket);
 		}
-		else if (IsValid(LookAtActor))
+		else if (IsValid(EffectiveLookAtActor))
 		{
-			CurrentLookAtPosition = LookAtActor->GetActorLocation();
+			CurrentLookAtPosition = EffectiveLookAtActor->GetActorLocation();
 		}
 	}
 
@@ -148,14 +151,16 @@ void UComposableCameraLookAtNode::DrawNodeDebug(UWorld* World, bool bViewerIsOut
 	}
 	else if (LookAtType == EComposableCameraLookAtType::ByActor)
 	{
+		AActor* EffectiveLookAtActor = ComposableCameraSystem::ResolveActorInput(
+			LookAtActorSource, LookAtActor.Get(), GetOwningPlayerCameraManager());
 		USkeletalMeshComponent* Comp = SkeletalMeshComponentForLookAtActor.Get();
-		if (IsValid(Comp) && Comp->DoesSocketExist(LookAtSocket))
+		if (LastResolvedLookAtActor.Get() == EffectiveLookAtActor && IsValid(Comp) && Comp->DoesSocketExist(LookAtSocket))
 		{
 			TargetPosition = Comp->GetSocketLocation(LookAtSocket);
 		}
-		else if (IsValid(LookAtActor))
+		else if (IsValid(EffectiveLookAtActor))
 		{
-			TargetPosition = LookAtActor->GetActorLocation();
+			TargetPosition = EffectiveLookAtActor->GetActorLocation();
 		}
 		else
 		{
@@ -194,6 +199,22 @@ void UComposableCameraLookAtNode::GetPinDeclarations_Implementation(TArray<FComp
 		Pin.DefaultValueString = Pin.EnumType ? Pin.EnumType->GetNameStringByValue(static_cast<int64>(LookAtType)) : FString();
 		Pin.Tooltip = NSLOCTEXT("ComposableCameraLookAtNode", "LookAtTypeTip",
 			"Selects whether the camera looks at LookAtPosition or LookAtActor.");
+		OutPins.Add(Pin);
+	}
+
+	// LookAtActorSource - only consumed when LookAtType == ByActor.
+	{
+		FComposableCameraNodePinDeclaration Pin;
+		Pin.PinName = TEXT("LookAtActorSource");
+		Pin.DisplayName = NSLOCTEXT("ComposableCameraLookAtNode", "LookAtActorSource", "Look At Actor Source");
+		Pin.Direction = EComposableCameraPinDirection::Input;
+		Pin.PinType = EComposableCameraPinType::Enum;
+		Pin.EnumType = StaticEnum<EComposableCameraActorInputSource>();
+		Pin.bRequired = false;
+		Pin.bDefaultAsPin = false;
+		Pin.DefaultValueString = Pin.EnumType ? Pin.EnumType->GetNameStringByValue(static_cast<int64>(LookAtActorSource)) : FString();
+		Pin.Tooltip = NSLOCTEXT("ComposableCameraLookAtNode", "LookAtActorSourceTip",
+			"Selects whether LookAtActor comes from the controller's controlled pawn or an explicit actor.");
 		OutPins.Add(Pin);
 	}
 

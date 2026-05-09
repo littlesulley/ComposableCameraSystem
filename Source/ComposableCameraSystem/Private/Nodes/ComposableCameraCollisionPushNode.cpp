@@ -110,7 +110,9 @@ void UComposableCameraCollisionPushNode::OnTickNode_Implementation(float DeltaTi
 	// ExtraPushDistance are pin-matched UPROPERTYs — resolved by the base TickNode
 	// prologue. Refresh the SkelMesh cache against the just-written PivotActor
 	// before reading either branch.
-	ResolveSkelMeshForPivotActor(PivotActor, SkeletalMeshComponentForPivotActor, LastResolvedPivotActor);
+	AActor* InPivotActor = ComposableCameraSystem::ResolveActorInput(
+		PivotActorSource, PivotActor.Get(), GetOwningPlayerCameraManager());
+	ResolveSkelMeshForPivotActor(InPivotActor, SkeletalMeshComponentForPivotActor, LastResolvedPivotActor);
 
 	USkeletalMeshComponent* PivotSkelMesh = SkeletalMeshComponentForPivotActor.Get();
 	if (bUseBoneForDetection && IsValid(PivotSkelMesh))
@@ -119,7 +121,6 @@ void UComposableCameraCollisionPushNode::OnTickNode_Implementation(float DeltaTi
 	}
 	else
 	{
-		AActor* InPivotActor = PivotActor.Get();
 		if (!IsValid(InPivotActor))
 		{
 			UE_LOG(LogComposableCameraSystem, Warning, TEXT("Cannot find a valid pivot actor for collision push."))
@@ -161,12 +162,25 @@ void UComposableCameraCollisionPushNode::GetPinDeclarations_Implementation(TArra
 {
 	FComposableCameraNodePinDeclaration PinDecl;
 
+	// PivotActorSource Input
+	PinDecl.PinName = TEXT("PivotActorSource");
+	PinDecl.DisplayName = NSLOCTEXT("ComposableCameraCollisionPushNode", "PivotActorSource", "Pivot Actor Source");
+	PinDecl.Direction = EComposableCameraPinDirection::Input;
+	PinDecl.PinType = EComposableCameraPinType::Enum;
+	PinDecl.EnumType = StaticEnum<EComposableCameraActorInputSource>();
+	PinDecl.bRequired = false;
+	PinDecl.bDefaultAsPin = false;
+	PinDecl.DefaultValueString = PinDecl.EnumType ? PinDecl.EnumType->GetNameStringByValue(static_cast<int64>(PivotActorSource)) : FString();
+	PinDecl.Tooltip = NSLOCTEXT("ComposableCameraCollisionPushNode", "PivotActorSourceTip", "Selects whether the collision pivot comes from the controller's controlled pawn or an explicit actor.");
+	OutPins.Add(PinDecl);
+
 	// PivotActor Input
+	PinDecl = {};
 	PinDecl.PinName = TEXT("PivotActor");
 	PinDecl.DisplayName = NSLOCTEXT("ComposableCameraCollisionPushNode", "PivotActor", "Pivot Actor");
 	PinDecl.Direction = EComposableCameraPinDirection::Input;
 	PinDecl.PinType = EComposableCameraPinType::Actor;
-	PinDecl.bRequired = true;
+	PinDecl.bRequired = false;
 	PinDecl.DefaultValueString = FString();
 	PinDecl.Tooltip = NSLOCTEXT("ComposableCameraCollisionPushNode", "PivotActorTip", "The actor from which to retrieve collision detection target position.");
 	OutPins.Add(PinDecl);

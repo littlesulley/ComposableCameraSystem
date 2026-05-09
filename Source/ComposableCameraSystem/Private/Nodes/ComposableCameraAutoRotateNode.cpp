@@ -37,9 +37,11 @@ void UComposableCameraAutoRotateNode::OnTickNode_Implementation(float DeltaTime,
 	}
 	else if (DirectionMode == EComposableCameraAutoRotateDirectionMode::ActorForward)
 	{
-		if (PrimaryActor)
+		AActor* EffectivePrimaryActor = ComposableCameraSystem::ResolveActorInput(
+			PrimaryActorSource, PrimaryActor.Get(), GetOwningPlayerCameraManager());
+		if (IsValid(EffectivePrimaryActor))
 		{
-			ResolvedDirection = PrimaryActor->GetActorForwardVector();
+			ResolvedDirection = EffectivePrimaryActor->GetActorForwardVector();
 		}
 	}
 
@@ -135,6 +137,20 @@ void UComposableCameraAutoRotateNode::GetPinDeclarations_Implementation(TArray<F
 		PinDecl.bDefaultAsPin = false;
 		PinDecl.DefaultValueString = PinDecl.EnumType ? PinDecl.EnumType->GetNameStringByValue(static_cast<int64>(DirectionMode)) : FString();
 		PinDecl.Tooltip = NSLOCTEXT("UComposableCameraAutoRotateNode", "DirectionModeTip", "Selects whether the reference forward is taken from MainDirection or from PrimaryActor's forward vector.");
+		OutPins.Add(PinDecl);
+	}
+
+	{
+		FComposableCameraNodePinDeclaration PinDecl;
+		PinDecl.PinName = TEXT("PrimaryActorSource");
+		PinDecl.DisplayName = NSLOCTEXT("UComposableCameraAutoRotateNode", "PrimaryActorSource", "Primary Actor Source");
+		PinDecl.Direction = EComposableCameraPinDirection::Input;
+		PinDecl.PinType = EComposableCameraPinType::Enum;
+		PinDecl.EnumType = StaticEnum<EComposableCameraActorInputSource>();
+		PinDecl.bRequired = false;
+		PinDecl.bDefaultAsPin = false;
+		PinDecl.DefaultValueString = PinDecl.EnumType ? PinDecl.EnumType->GetNameStringByValue(static_cast<int64>(PrimaryActorSource)) : FString();
+		PinDecl.Tooltip = NSLOCTEXT("UComposableCameraAutoRotateNode", "PrimaryActorSourceTip", "Selects whether PrimaryActor comes from the controller's controlled pawn or an explicit actor.");
 		OutPins.Add(PinDecl);
 	}
 
@@ -266,5 +282,3 @@ void UComposableCameraAutoRotateNode::GetPinDeclarations_Implementation(TArray<F
 		OutPins.Add(PinDecl);
 	}
 }
-
-

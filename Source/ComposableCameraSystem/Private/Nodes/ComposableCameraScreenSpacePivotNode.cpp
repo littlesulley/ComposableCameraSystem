@@ -90,6 +90,20 @@ void UComposableCameraScreenSpacePivotNode::GetPinDeclarations_Implementation(TA
 		"Selects whether the pivot is read from PivotWorldPosition (WorldPosition) or derived from PivotActor + PivotWorldUpOffset (ActorPosition).");
 	OutPins.Add(PinDecl);
 
+	// Input: PivotActorSource — consumed when PivotSource == ActorPosition.
+	PinDecl = {};
+	PinDecl.PinName = TEXT("PivotActorSource");
+	PinDecl.DisplayName = NSLOCTEXT("UComposableCameraScreenSpacePivotNode", "PivotActorSource", "Pivot Actor Source");
+	PinDecl.Direction = EComposableCameraPinDirection::Input;
+	PinDecl.PinType = EComposableCameraPinType::Enum;
+	PinDecl.EnumType = StaticEnum<EComposableCameraActorInputSource>();
+	PinDecl.bRequired = false;
+	PinDecl.bDefaultAsPin = false;
+	PinDecl.DefaultValueString = PinDecl.EnumType ? PinDecl.EnumType->GetNameStringByValue(static_cast<int64>(PivotActorSource)) : FString();
+	PinDecl.Tooltip = NSLOCTEXT("UComposableCameraScreenSpacePivotNode", "PivotActorSourceTip",
+		"Selects whether PivotActor comes from the controller's controlled pawn or an explicit actor when PivotSource is ActorPosition.");
+	OutPins.Add(PinDecl);
+
 	// Input: PivotWorldPosition — consumed when PivotSource == WorldPosition.
 	PinDecl = {};
 	PinDecl.PinName = TEXT("PivotWorldPosition");
@@ -379,9 +393,10 @@ FVector UComposableCameraScreenSpacePivotNode::GetCurrentPivot() const
 			// PivotActor may be null if no default is authored and no upstream wire
 			// resolved; fall back to the authored world-position default so screen-space
 			// math doesn't pathologically target the world origin.
-			AActor* Actor = GetInputPinValue<AActor*>("PivotActor");
+			AActor* Actor = ComposableCameraSystem::ResolveActorInput(
+				PivotActorSource, GetInputPinValue<AActor*>("PivotActor"), GetOwningPlayerCameraManager());
 			const float UpOffset = GetInputPinValue<float>("PivotWorldUpOffset");
-			if (Actor)
+			if (IsValid(Actor))
 			{
 				return Actor->GetActorLocation() + FVector::UpVector * UpOffset;
 			}
