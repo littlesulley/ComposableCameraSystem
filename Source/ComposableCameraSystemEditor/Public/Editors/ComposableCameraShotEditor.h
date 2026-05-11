@@ -70,10 +70,10 @@ public:
 
 	/**
 	 * Sequencer-driven entry — open the Shot Editor for a `UMovieSceneComposableCameraShotSection`.
-	 * Resolves the section's active Shot:
+	 * Resolves the section's editable Shot:
 	 *   - Inline → host = the Section itself, Shot = `&Section->InlineShot`.
-	 *   - AssetReference + valid asset → host = the resolved ShotAsset,
-	 *     Shot = `&Asset->Shot`.
+	 *   - AssetReference + valid asset → host = the Section itself,
+	 *     Shot = `&Section->ShotOverrides` seeded from the asset.
 	 *   - AssetReference + null/unresolved asset → still opens the editor
 	 *     with (nullptr Shot, nullptr host), which falls through to the
 	 *     "no shot loaded" placeholder so the user knows their click landed.

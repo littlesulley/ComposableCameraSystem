@@ -58,14 +58,12 @@
  *     SolvedFromBoundsFit is active, the solver converges in 1-2 frames
  *     after a Shot transition.
  *
- *   - Coupling between Placement.ScreenPosition (lateral camera shift) and
- *     Aim.ScreenPosition (rotation) is intentionally one-way: Placement
- *     determines Position with a TENTATIVE look-at-PlacementAnchor
- *     rotation; Aim then OVERRIDES rotation. So when AimAnchor !=
- *     PlacementAnchor, the placement anchor's *final* projected screen
- *     position drifts from `Placement.ScreenPosition`. Document this and
- *     let designers set both equal in the typical AimAnchor==PlacementAnchor
- *     case.
+ *   - AnchorAtScreen + LookAtAnchor has a strict first-frame seed path:
+ *     when no prior pose is supplied, a bounded Picard solve satisfies both
+ *     Placement.ScreenPosition and Aim.ScreenPosition before zone damping
+ *     starts. Once a prior pose exists, the hot path uses the cheaper
+ *     decoupled Position-then-Aim solve and lets zones / damping provide
+ *     the Cinemachine-style steady-state behavior.
  */
 namespace ComposableCameraSystem::ShotSolver
 {
@@ -625,6 +623,104 @@ namespace ComposableCameraSystem::ShotSolver
 		return true;
 	}
 
+	inline FRotator SolveLookAtAnchorRotation(
+		const FVector& CamPos,
+		const FVector& AimAnchorPos,
+		const FVector2D& AimScreenPosition,
+		float RollRad,
+		float TanHalfHOR,
+		float AspectRatio);
+
+	inline bool SolveAnchorAtScreenLookAtJointSeed(
+		const FVector& PlacementAnchorPos,
+		const FVector& AimAnchorPos,
+		FVector2D PlacementScreenPos,
+		const FVector2D& AimScreenPos,
+		float Distance,
+		float EffectiveRollDeg,
+		float TanHalfHOR,
+		float AspectRatio,
+		const FRotator& InitialAssumedRot,
+		FVector& OutCamPos,
+		FRotator& OutCamRot)
+	{
+		if ((PlacementAnchorPos - AimAnchorPos).IsNearlyZero())
+		{
+			UE_LOG(LogComposableCameraSystem, Warning,
+				TEXT("ShotSolver: AnchorAtScreen with PlacementAnchor == AimAnchor "
+				     "is degenerate on the first-frame seed; skipping pose update. "
+				     "Switch to AnchorOrbit for single-anchor framing."));
+			return false;
+		}
+
+		if (ClampAuthoredScreenPosition(PlacementScreenPos))
+		{
+			UE_LOG(LogComposableCameraSystem, Warning,
+				TEXT("ShotSolver: AnchorAtScreen ScreenPosition clamped to %.2f²; "
+				     "authored value was outside the frustum-safe envelope."),
+				ShotSolverScreenClampLimit);
+		}
+
+		constexpr int32 MaxIterations = 24;
+		constexpr float Relaxation = 0.7f;
+		constexpr float ScreenTolerance = 5.e-4f;
+
+		FRotator AssumedRot = InitialAssumedRot;
+		const float RollRad = FMath::DegreesToRadians(EffectiveRollDeg);
+		bool bHaveCandidate = false;
+
+		for (int32 Iter = 0; Iter < MaxIterations; ++Iter)
+		{
+			FVector CandidatePos;
+			if (!SolveAnchorAtScreenPos(
+					PlacementAnchorPos, PlacementScreenPos,
+					Distance, TanHalfHOR, AspectRatio,
+					AssumedRot, CandidatePos))
+			{
+				return false;
+			}
+
+			FRotator CandidateRot = SolveLookAtAnchorRotation(
+				CandidatePos, AimAnchorPos, AimScreenPos,
+				RollRad, TanHalfHOR, AspectRatio);
+			CandidateRot.Roll = EffectiveRollDeg;
+
+			OutCamPos = CandidatePos;
+			OutCamRot = CandidateRot;
+			bHaveCandidate = true;
+
+			FVector2D ProjectedPlacement;
+			FVector2D ProjectedAim;
+			const bool bPlacementProjects = ProjectWorldPointToScreen(
+				PlacementAnchorPos, CandidatePos, CandidateRot,
+				TanHalfHOR, AspectRatio, ProjectedPlacement);
+			const bool bAimProjects = ProjectWorldPointToScreen(
+				AimAnchorPos, CandidatePos, CandidateRot,
+				TanHalfHOR, AspectRatio, ProjectedAim);
+			if (bPlacementProjects && bAimProjects)
+			{
+				const float PlacementErrSq =
+					(ProjectedPlacement - PlacementScreenPos).SizeSquared();
+				const float AimErrSq =
+					(ProjectedAim - AimScreenPos).SizeSquared();
+				if (PlacementErrSq + AimErrSq <= ScreenTolerance * ScreenTolerance)
+				{
+					return true;
+				}
+			}
+
+			AssumedRot = FQuat::Slerp(
+				AssumedRot.Quaternion(),
+				CandidateRot.Quaternion(),
+				Relaxation).GetNormalized().Rotator();
+		}
+
+		// Keep the best candidate instead of holding the upstream pose. This
+		// path runs only on activation/reseed, and a near-joint seed is less
+		// disruptive than a one-frame hold when geometry is merely stiff.
+		return bHaveCandidate;
+	}
+
 	/**
 	 * Computes camera Position based on the Shot's Placement layer.
 	 * Returns false (CamPos unchanged) when an essential anchor can't
@@ -1132,7 +1228,8 @@ namespace ComposableCameraSystem::ShotSolver
 		// Dispatch on Placement.Mode:
 		//   - AnchorAtScreen → closed-form Position pass
 		//     (`SolveAnchorAtScreenPos`) under an assumed rotation, then
-		//     normal Aim pass for rotation. Decoupled (no joint solve);
+		//     normal Aim pass for rotation. First-frame hard seeds run a
+		//     joint Picard pass; prior-pose steady-state stays decoupled.
 		//     PlacementAnchor's projected screen position drifts O(rotation
 		//     delta) from `Placement.ScreenPosition` once the Aim pass
 		//     diverges from the assumed rotation. Drift is washed out by
@@ -1152,7 +1249,8 @@ namespace ComposableCameraSystem::ShotSolver
 			const float SafeDistance = EffectiveDistance;
 
 			// Determine the assumed rotation for the Position pass.
-			FRotator AssumedRot;
+				FRotator AssumedRot;
+				bool bSolvedAnchorAtScreenJointSeed = false;
 			if (Shot.Aim.Mode == EShotAimMode::NoOp)
 			{
 				// Aim NoOp: rotation is fixed at identity + EffectiveRoll.
@@ -1191,15 +1289,29 @@ namespace ComposableCameraSystem::ShotSolver
 							     "Switch to AnchorOrbit for single-anchor framing."));
 						return R;
 					}
-					const FVector InitForward = (-A2P).GetSafeNormal();
-					AssumedRot = FRotationMatrix::MakeFromX(InitForward).Rotator();
-					AssumedRot.Roll = EffectiveRoll;
+						const FVector InitForward = (-A2P).GetSafeNormal();
+						AssumedRot = FRotationMatrix::MakeFromX(InitForward).Rotator();
+						AssumedRot.Roll = EffectiveRoll;
+
+						if (!SolveAnchorAtScreenLookAtJointSeed(
+								PlacementAnchorPos, AimAnchorPosForSeed,
+								EffectivePlacementScreen, EffectiveAimScreen,
+								SafeDistance, EffectiveRoll,
+								TanHalfHOR, Context.ViewportAspectRatio,
+								AssumedRot,
+								R.CameraPosition, R.CameraRotation))
+						{
+							return R;
+						}
+						bSolvedAnchorAtScreenJointSeed = true;
+					}
 				}
-			}
 
 			// Position pass — closed-form.
-			if (!SolveAnchorAtScreenPos(
-					PlacementAnchorPos, EffectivePlacementScreen,
+				if (!bSolvedAnchorAtScreenJointSeed)
+				{
+				if (!SolveAnchorAtScreenPos(
+						PlacementAnchorPos, EffectivePlacementScreen,
 					SafeDistance, TanHalfHOR, Context.ViewportAspectRatio,
 					AssumedRot,
 					R.CameraPosition))
@@ -1222,9 +1334,10 @@ namespace ComposableCameraSystem::ShotSolver
 				{
 					return R;
 				}
+				}
+				}
 			}
-		}
-		else
+			else
 		{
 			// Decoupled pipeline: Placement (Position) → Aim (Rotation).
 			// Placement modes here (AnchorOrbit / FixedWorldPosition) do

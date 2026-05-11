@@ -9,6 +9,7 @@
 #include "DetailWidgetRow.h"
 #include "Editors/ComposableCameraShotEditor.h"
 #include "Engine/SkeletalMesh.h"
+#include "Engine/SkeletalMeshSocket.h"
 #include "GameFramework/Actor.h"
 #include "IDetailChildrenBuilder.h"
 #include "ISequencer.h"
@@ -33,6 +34,114 @@ namespace
 	/** Hint shown inside the combo when no SkelMesh resolves. The combo is
 	 *  also disabled in that state, so this is informational only. */
 	static const FString GNoSkelMeshOptionString = TEXT("(no skeletal mesh found)");
+
+	AActor* ResolveActorFromHandle(const TSharedPtr<IPropertyHandle>& Handle, const TCHAR* DebugLabel)
+	{
+		if (!Handle.IsValid() || !Handle->IsValidHandle())
+		{
+			UE_LOG(LogComposableCameraSystemEditor, Verbose,
+				TEXT("[BonePicker] %s handle invalid"),
+				DebugLabel);
+			return nullptr;
+		}
+
+		UObject* ResolvedObject = nullptr;
+		const FPropertyAccess::Result Res = Handle->GetValue(ResolvedObject);
+		if (Res != FPropertyAccess::Success)
+		{
+			UE_LOG(LogComposableCameraSystemEditor, Verbose,
+				TEXT("[BonePicker] %s GetValue failed (Result=%d)"),
+				DebugLabel,
+				static_cast<int32>(Res));
+		}
+
+		if (!ResolvedObject)
+		{
+			void* RawData = nullptr;
+			if (Handle->GetValueData(RawData) == FPropertyAccess::Success && RawData)
+			{
+				FSoftObjectPtr* SoftPtr = static_cast<FSoftObjectPtr*>(RawData);
+				ResolvedObject = SoftPtr->Get();
+				if (!ResolvedObject && !SoftPtr->IsNull())
+				{
+					ResolvedObject = SoftPtr->LoadSynchronous();
+				}
+				UE_LOG(LogComposableCameraSystemEditor, Verbose,
+					TEXT("[BonePicker] %s soft-ptr fallback: path='%s' resolved=%s"),
+					DebugLabel,
+					*SoftPtr->ToString(),
+					ResolvedObject ? *ResolvedObject->GetName() : TEXT("null"));
+			}
+		}
+
+		if (!ResolvedObject)
+		{
+			UE_LOG(LogComposableCameraSystemEditor, Verbose,
+				TEXT("[BonePicker] %s resolved no actor"),
+				DebugLabel);
+			return nullptr;
+		}
+
+		AActor* Actor = Cast<AActor>(ResolvedObject);
+		if (!Actor)
+		{
+			UE_LOG(LogComposableCameraSystemEditor, Warning,
+				TEXT("[BonePicker] %s resolved object '%s' is not an AActor (class=%s)"),
+				DebugLabel,
+				*ResolvedObject->GetName(),
+				ResolvedObject->GetClass() ? *ResolvedObject->GetClass()->GetName() : TEXT("null"));
+		}
+		return Actor;
+	}
+
+	USkeletalMeshComponent* ResolveFirstSkelMesh(AActor* Actor, const TCHAR* DebugLabel)
+	{
+		if (!Actor)
+		{
+			return nullptr;
+		}
+
+		USkeletalMeshComponent* SkelComp = Actor->FindComponentByClass<USkeletalMeshComponent>();
+		UE_LOG(LogComposableCameraSystemEditor, Verbose,
+			TEXT("[BonePicker] %s actor '%s' SkelMeshComp=%s"),
+			DebugLabel,
+			*Actor->GetName(),
+			SkelComp ? *SkelComp->GetName() : TEXT("none"));
+		return SkelComp;
+	}
+
+	USkeletalMesh* ResolveSkeletalMeshFromHandle(
+		const TSharedPtr<IPropertyHandle>& Handle,
+		const TCHAR* DebugLabel)
+	{
+		if (!Handle.IsValid() || !Handle->IsValidHandle())
+		{
+			return nullptr;
+		}
+
+		UObject* ResolvedObject = nullptr;
+		Handle->GetValue(ResolvedObject);
+		if (!ResolvedObject)
+		{
+			void* RawData = nullptr;
+			if (Handle->GetValueData(RawData) == FPropertyAccess::Success && RawData)
+			{
+				FSoftObjectPtr* SoftPtr = static_cast<FSoftObjectPtr*>(RawData);
+				ResolvedObject = SoftPtr->Get();
+				if (!ResolvedObject && !SoftPtr->IsNull())
+				{
+					ResolvedObject = SoftPtr->LoadSynchronous();
+				}
+			}
+		}
+
+		USkeletalMesh* Mesh = Cast<USkeletalMesh>(ResolvedObject);
+		UE_LOG(LogComposableCameraSystemEditor, Verbose,
+			TEXT("[BonePicker] %s preview mesh=%s"),
+			DebugLabel,
+			Mesh ? *Mesh->GetName() : TEXT("none"));
+		return Mesh;
+	}
 }
 
 TSharedRef<IPropertyTypeCustomization> FComposableCameraTargetInfoCustomization::MakeInstance()
@@ -142,6 +251,17 @@ void FComposableCameraTargetInfoCustomization::CustomizeChildren(
 					BuildEffectiveActorLabel()
 				];
 		}
+#if WITH_EDITORONLY_DATA
+		else if (ChildName == GET_MEMBER_NAME_CHECKED(FComposableCameraTargetInfo, EditorPreviewMesh))
+		{
+			EditorPreviewMeshHandle = Child;
+
+			StructBuilder.AddProperty(Child.ToSharedRef());
+
+			Child->SetOnPropertyValueChanged(FSimpleDelegate::CreateSP(
+				this, &FComposableCameraTargetInfoCustomization::RefreshBoneOptions));
+		}
+#endif
 		else if (ChildName == GET_MEMBER_NAME_CHECKED(FComposableCameraTargetInfo, BoneName))
 		{
 			BoneNameHandle = Child;
@@ -194,44 +314,45 @@ void FComposableCameraTargetInfoCustomization::RefreshBoneOptions()
 	// without disabling `bUseBoneAsPivot`. Treated as NAME_None on commit.
 	Options.Add(MakeShared<FString>(GNoneOptionString));
 
-	if (USkeletalMeshComponent* SkelComp = ResolveSkelMeshComponent())
+	if (USkeletalMesh* SkelMesh = ResolveSkeletalMesh())
 	{
 		// Bone names from the reference skeleton.
-		if (USkeletalMesh* SkelMesh = SkelComp->GetSkeletalMeshAsset())
+		const FReferenceSkeleton& RefSkeleton = SkelMesh->GetRefSkeleton();
+		const int32 NumBones = RefSkeleton.GetNum();
+		TArray<FName> Bones;
+		Bones.Reserve(NumBones);
+		for (int32 i = 0; i < NumBones; ++i)
 		{
-			const FReferenceSkeleton& RefSkeleton = SkelMesh->GetRefSkeleton();
-			const int32 NumBones = RefSkeleton.GetNum();
-			TArray<FName> Bones;
-			Bones.Reserve(NumBones);
-			for (int32 i = 0; i < NumBones; ++i)
+			Bones.Add(RefSkeleton.GetBoneName(i));
+		}
+
+		TArray<FName> Sockets;
+		for (const USkeletalMeshSocket* Socket : SkelMesh->GetActiveSocketList())
+		{
+			if (Socket)
 			{
-				Bones.Add(RefSkeleton.GetBoneName(i));
+				Sockets.Add(Socket->SocketName);
 			}
+		}
 
-			// Socket names from the component (covers sockets defined on
-			// the mesh asset itself; component-level sockets are folded in
-			// by the engine getter).
-			TArray<FName> Sockets = SkelComp->GetAllSocketNames();
+		// Merge + dedup (a few sockets share names with their parent
+		// bones in some assets - Engine convention) + sort
+		// case-insensitively for reading order.
+		TSet<FName> Unique;
+		Unique.Append(Bones);
+		Unique.Append(Sockets);
+		TArray<FName> Sorted = Unique.Array();
+		Sorted.Sort([](const FName& A, const FName& B)
+		{
+			return A.Compare(B) < 0;
+		});
 
-			// Merge + dedup (a few sockets share names with their parent
-			// bones in some assets — Engine convention) + sort
-			// case-insensitively for reading order.
-			TSet<FName> Unique;
-			Unique.Append(Bones);
-			Unique.Append(Sockets);
-			TArray<FName> Sorted = Unique.Array();
-			Sorted.Sort([](const FName& A, const FName& B)
+		Options.Reserve(Options.Num() + Sorted.Num());
+		for (const FName& N : Sorted)
+		{
+			if (!N.IsNone())
 			{
-				return A.Compare(B) < 0;
-			});
-
-			Options.Reserve(Options.Num() + Sorted.Num());
-			for (const FName& N : Sorted)
-			{
-				if (!N.IsNone())
-				{
-					Options.Add(MakeShared<FString>(N.ToString()));
-				}
+				Options.Add(MakeShared<FString>(N.ToString()));
 			}
 		}
 	}
@@ -399,89 +520,37 @@ AActor* FComposableCameraTargetInfoCustomization::ResolveLSOverrideContext(
 	return nullptr;
 }
 
-USkeletalMeshComponent* FComposableCameraTargetInfoCustomization::ResolveSkelMeshComponent() const
+USkeletalMesh* FComposableCameraTargetInfoCustomization::ResolveSkeletalMesh() const
 {
 	// Phase E LS Section override path takes priority: when the section's
 	// right-click "Bind Target Actors" menu has bound this Target index to
 	// a Sequencer binding, the *bound* actor is what runtime + preview both
-	// see — so the bone picker should list bones from that actor, not from
-	// the (likely-None) directly-authored Actor field.
+	// see, so the bone picker should list bones from that actor, not from
+	// the directly-authored Actor field.
 	if (AActor* OverrideActor = ResolveLSOverrideActor())
 	{
-		USkeletalMeshComponent* SkelComp =
-			OverrideActor->FindComponentByClass<USkeletalMeshComponent>();
-		UE_LOG(LogComposableCameraSystemEditor, Verbose,
-			TEXT("[BonePicker] LS-override actor '%s' SkelMeshComp=%s"),
-			*OverrideActor->GetName(),
-			SkelComp ? *SkelComp->GetName() : TEXT("none"));
-		return SkelComp;
-	}
-
-	if (!ActorHandle.IsValid() || !ActorHandle->IsValidHandle())
-	{
-		UE_LOG(LogComposableCameraSystemEditor, Verbose,
-			TEXT("[BonePicker] ActorHandle invalid"));
-		return nullptr;
-	}
-
-	// `IPropertyHandle::GetValue(UObject*&)` reads the property's *currently
-	// loaded* object — for `FSoftObjectProperty` this is the live UObject if
-	// the soft-ref's underlying weak ptr resolves, else `nullptr` (no
-	// force-load). Sufficient for editor-world level actors which are
-	// already loaded by the time the Details panel renders.
-	UObject* ResolvedObject = nullptr;
-	const FPropertyAccess::Result Res = ActorHandle->GetValue(ResolvedObject);
-	if (Res != FPropertyAccess::Success)
-	{
-		UE_LOG(LogComposableCameraSystemEditor, Verbose,
-			TEXT("[BonePicker] GetValue failed (Result=%d)"), static_cast<int32>(Res));
-	}
-
-	// Fallback: if `GetValue` returned no live object (could happen if the
-	// soft-ref's weak cache hasn't been primed yet), fall back to the raw
-	// soft-pointer + LoadSynchronous path. Both layouts are equivalent
-	// (`TSoftObjectPtr<T>` derives from `FSoftObjectPtr` over `FSoftObjectPath`).
-	if (!ResolvedObject)
-	{
-		void* RawData = nullptr;
-		if (ActorHandle->GetValueData(RawData) == FPropertyAccess::Success && RawData)
+		if (USkeletalMeshComponent* SkelComp =
+			ResolveFirstSkelMesh(OverrideActor, TEXT("LS-override")))
 		{
-			FSoftObjectPtr* SoftPtr = static_cast<FSoftObjectPtr*>(RawData);
-			ResolvedObject = SoftPtr->Get();
-			if (!ResolvedObject && !SoftPtr->IsNull())
-			{
-				ResolvedObject = SoftPtr->LoadSynchronous();
-			}
-			UE_LOG(LogComposableCameraSystemEditor, Verbose,
-				TEXT("[BonePicker] Soft-ptr fallback: path='%s' resolved=%s"),
-				*SoftPtr->ToString(),
-				ResolvedObject ? *ResolvedObject->GetName() : TEXT("null"));
+			return SkelComp->GetSkeletalMeshAsset();
 		}
 	}
 
-	if (!ResolvedObject)
+	if (USkeletalMeshComponent* SkelComp =
+		ResolveFirstSkelMesh(ResolveActorFromHandle(ActorHandle, TEXT("Actor")), TEXT("Actor")))
 	{
-		UE_LOG(LogComposableCameraSystemEditor, Verbose,
-			TEXT("[BonePicker] No actor resolved from soft-ref"));
-		return nullptr;
+		return SkelComp->GetSkeletalMeshAsset();
 	}
 
-	AActor* Actor = Cast<AActor>(ResolvedObject);
-	if (!Actor)
+#if WITH_EDITORONLY_DATA
+	if (USkeletalMesh* PreviewMesh =
+		ResolveSkeletalMeshFromHandle(EditorPreviewMeshHandle, TEXT("EditorPreviewMesh")))
 	{
-		UE_LOG(LogComposableCameraSystemEditor, Warning,
-			TEXT("[BonePicker] Resolved object '%s' is not an AActor (class=%s)"),
-			*ResolvedObject->GetName(),
-			ResolvedObject->GetClass() ? *ResolvedObject->GetClass()->GetName() : TEXT("null"));
-		return nullptr;
+		return PreviewMesh;
 	}
+#endif
 
-	USkeletalMeshComponent* SkelComp = Actor->FindComponentByClass<USkeletalMeshComponent>();
-	UE_LOG(LogComposableCameraSystemEditor, Verbose,
-		TEXT("[BonePicker] Actor '%s' SkelMeshComp=%s"),
-		*Actor->GetName(),
-		SkelComp ? *SkelComp->GetName() : TEXT("none"));
-	return SkelComp;
+	return nullptr;
 }
 
 TSharedRef<SWidget> FComposableCameraTargetInfoCustomization::BuildEffectiveActorLabel()

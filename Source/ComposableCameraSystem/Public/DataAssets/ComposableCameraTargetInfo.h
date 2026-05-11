@@ -6,6 +6,7 @@
 #include "ComposableCameraTargetInfo.generated.h"
 
 class AActor;
+class USkeletalMesh;
 
 /**
  * Identifies a single world-frame point on (or near) an Actor — the "pivot"
@@ -65,6 +66,29 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraTargetInfo
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Target)
 	TSoftObjectPtr<AActor> Actor;
+
+#if WITH_EDITORONLY_DATA
+	/**
+	 * Editor-only skeletal mesh used to preview a reusable ShotAsset before
+	 * it has a LevelSequence binding. This is an asset reference, not a
+	 * level Actor reference, mirroring Contextual Animation-style template
+	 * authoring. It never participates in runtime evaluation or Sequencer
+	 * playback; those paths still read Actor or Section TargetActorOverrides.
+	 * The Shot Editor and Details bone picker use this mesh only when no
+	 * runtime actor / LS override resolves.
+	 */
+	UPROPERTY(EditAnywhere, Category = "Target|Editor Preview")
+	TSoftObjectPtr<USkeletalMesh> EditorPreviewMesh;
+
+	/**
+	 * Editor-only transform for the preview mesh proxy used while authoring
+	 * reusable ShotAssets before a LevelSequence binding exists. Runtime and
+	 * Sequencer playback ignore this; LS sections resolve real actor identity
+	 * through TargetActorOverrides.
+	 */
+	UPROPERTY(EditAnywhere, Category = "Target|Editor Preview")
+	FTransform EditorPreviewTransform = FTransform::Identity;
+#endif
 
 	/** When true, BoneName resolves on Actor's skeletal mesh and that bone
 	 *  / socket location is used as the pivot base. When false, Actor's

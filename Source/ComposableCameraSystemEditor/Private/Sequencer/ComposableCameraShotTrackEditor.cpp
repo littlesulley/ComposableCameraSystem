@@ -286,6 +286,7 @@ bool FComposableCameraShotTrackEditor::HandleAssetAdded(UObject* Asset, const FG
 	NewSection->Modify();
 	NewSection->Source = EComposableCameraShotSource::AssetReference;
 	NewSection->ShotAssetRef = ShotAsset;
+	NewSection->RefreshShotOverridesFromSource();
 
 	return true;
 }
@@ -820,8 +821,8 @@ namespace
 			return;
 		}
 
-		const FComposableCameraShot* Shot = ShotSection->ResolveActiveShot();
-		if (!Shot || Shot->Targets.Num() == 0)
+		FComposableCameraShot Shot;
+		if (!ShotSection->BuildEffectiveShotWithoutBindings(Shot) || Shot.Targets.Num() == 0)
 		{
 			MenuBuilder.AddMenuEntry(
 				LOCTEXT("NoTargets",
@@ -835,7 +836,7 @@ namespace
 
 		UMovieScene* MovieScene = ShotSection->GetTypedOuter<UMovieScene>();
 
-		for (int32 i = 0; i < Shot->Targets.Num(); ++i)
+		for (int32 i = 0; i < Shot.Targets.Num(); ++i)
 		{
 			// Compose row label: "Target N" plus current binding name (or
 			// "(no binding)") so the user sees current state at a glance
@@ -887,7 +888,7 @@ void FComposableCameraShotSectionInterface::BuildSectionContextMenu(FMenuBuilder
 		LOCTEXT("EditShotTooltip",
 			"Open the Shot Editor on this section's Shot. For Inline sections, "
 			"the editor binds to the section itself; for AssetReference sections, "
-			"to the underlying ShotAsset."),
+			"the editor edits section-local overrides seeded from the ShotAsset."),
 		FSlateIcon(FAppStyle::GetAppStyleSetName(), "Sequencer.Tracks.CinematicShot"),
 		FUIAction(FExecuteAction::CreateLambda([ShotSection]()
 		{

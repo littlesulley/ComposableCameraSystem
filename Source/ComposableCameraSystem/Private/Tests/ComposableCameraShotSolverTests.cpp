@@ -714,21 +714,11 @@ bool FShotSolveAnchorAtScreenTest::RunTest(const FString&)
 	Ctx.ViewportAspectRatio = 1.f;
 	Ctx.PreviousFrameFOV = 90.f;
 
-	// Two-stage solve to settle the V2.2 decoupled pipeline:
-	//   - Stage 1 (PriorPose == nullptr): seed AssumedRot from PA→AA
-	//     direction, run Position then Aim pass. Result has decoupling
-	//     drift because the seed forward differs from the eventual Aim
-	//     rotation.
-	//   - Stage 2 (PriorPose = stage 1's pose): assumed rotation now
-	//     equals the pose Aim is about to converge to ⇒ decoupling
-	//     drift collapses to float precision. This mimics the steady
-	//     state any runtime caller reaches after one frame of zones-
-	//     style state propagation.
-	const FShotSolveResult R0 = SolveShot(Shot, Ctx);
-	UTEST_TRUE("Stage-1 decoupled solve succeeded", R0.bValid);
-	const FShotPriorPose Prior{ R0.CameraPosition, R0.CameraRotation };
-	const FShotSolveResult R = SolveShot(Shot, Ctx, &Prior, /*dt=*/1.f / 60.f);
-	UTEST_TRUE("Stage-2 decoupled solve succeeded", R.bValid);
+	// First-frame hard seed: PriorPose == nullptr runs the bounded joint
+	// Picard path, so both authored screen positions are satisfied before
+	// framing-zone state is cached.
+	const FShotSolveResult R = SolveShot(Shot, Ctx);
+	UTEST_TRUE("First-frame joint seed succeeded", R.bValid);
 
 	const float TanHalfHOR = FMath::Tan(FMath::DegreesToRadians(90.f * 0.5f));
 
@@ -744,10 +734,7 @@ bool FShotSolveAnchorAtScreenTest::RunTest(const FString&)
 			Projected.X, Projected.Y),
 			Projected.Equals(FVector2D::ZeroVector, 5e-3));
 	}
-	// Verify Hero (PlacementAnchor) projects to (-0.25, 0). At steady
-	// state (Stage 2 above) AssumedRot ≈ Aim's rotation, so Position's
-	// CamPos lands the anchor at the authored screen position to float
-	// precision. Tolerance 5e-3 is the same as the pre-V2.2 joint solve.
+	// Verify Hero (PlacementAnchor) projects to (-0.25, 0) on frame 0.
 	{
 		FVector2D Projected;
 		const bool bOk = ProjectWorldPointToScreen(
@@ -969,11 +956,9 @@ bool FShotSolveAnchorAtScreenDecoupledSettleTest::RunTest(const FString&)
 
 	// Stressful OTS geometry — short Distance (50cm), off-center
 	// PlacementScreenPos (-0.4, +0.3) at the corner of the envelope, +
-	// non-zero Roll (20°). The V2.2 decoupled pipeline takes one
-	// `(stage 1: PriorPose=null) → (stage 2: PriorPose=R0)` round to
-	// settle to within float precision; we test that explicit two-stage
-	// flow here. Runtime callers reach the same steady state implicitly
-	// via their per-frame prior-pose cache.
+	// non-zero Roll (20°). The first-frame joint seed should still land
+	// both anchors at their authored screen positions before any prior-pose
+	// damping state exists.
 	AActor* Hero    = TestWorld.SpawnActorAt(FVector::ZeroVector);
 	AActor* Villain = TestWorld.SpawnActorAt(FVector(800, 0, 50));
 
@@ -999,11 +984,8 @@ bool FShotSolveAnchorAtScreenDecoupledSettleTest::RunTest(const FString&)
 	Ctx.ViewportAspectRatio = 16.f / 9.f;
 	Ctx.PreviousFrameFOV = 90.f;
 
-	const FShotSolveResult R0 = SolveShot(Shot, Ctx);
-	UTEST_TRUE("Stage-1 decoupled solve succeeded", R0.bValid);
-	const FShotPriorPose Prior{ R0.CameraPosition, R0.CameraRotation };
-	const FShotSolveResult R = SolveShot(Shot, Ctx, &Prior, /*dt=*/1.f / 60.f);
-	UTEST_TRUE("Stage-2 decoupled solve succeeded", R.bValid);
+	const FShotSolveResult R = SolveShot(Shot, Ctx);
+	UTEST_TRUE("First-frame joint seed succeeded", R.bValid);
 
 	const float TanHalfHOR = FMath::Tan(FMath::DegreesToRadians(90.f * 0.5f));
 

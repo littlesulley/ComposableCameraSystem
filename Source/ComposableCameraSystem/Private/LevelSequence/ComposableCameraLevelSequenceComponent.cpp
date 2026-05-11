@@ -841,7 +841,20 @@ void UComposableCameraLevelSequenceComponent::RemoveSequencerShotOverride(
 	{
 		return;
 	}
+
+	const bool bRemovedPrimary = (LastActivePrimarySection.Get() == Section);
 	SequencerShotOverrides.Remove(Section);
+
+	// TickComponent only calls ApplyActiveSequencerShotOverride while the
+	// override map is non-empty, so the "empty map clears primary tracker"
+	// branch inside ApplyActiveSequencerShotOverride is not guaranteed to
+	// run. Clear here too: re-entering the same Section after a gap must
+	// look like a fresh cut so framing-zone prior state is reseeded and the
+	// first frame solves against the authored ScreenPosition.
+	if (bRemovedPrimary || SequencerShotOverrides.Num() == 0)
+	{
+		LastActivePrimarySection = nullptr;
+	}
 }
 
 void UComposableCameraLevelSequenceComponent::ApplyActiveSequencerShotOverride()

@@ -372,7 +372,22 @@ void SShotEditorRoot::NotifyPostChange(
 	{
 		return;
 	}
-	if (FProperty* ShotProp = Host->GetClass()->FindPropertyByName(TEXT("Shot")))
+	FProperty* ShotProp = Host->GetClass()->FindPropertyByName(TEXT("Shot"));
+	if (UMovieSceneComposableCameraShotSection* Section =
+			Cast<UMovieSceneComposableCameraShotSection>(Host))
+	{
+		if (ActiveShot == &Section->InlineShot)
+		{
+			ShotProp = Section->GetClass()->FindPropertyByName(
+				GET_MEMBER_NAME_CHECKED(UMovieSceneComposableCameraShotSection, InlineShot));
+		}
+		else if (ActiveShot == &Section->ShotOverrides)
+		{
+			ShotProp = Section->GetClass()->FindPropertyByName(
+				GET_MEMBER_NAME_CHECKED(UMovieSceneComposableCameraShotSection, ShotOverrides));
+		}
+	}
+	if (ShotProp)
 	{
 		FPropertyChangedEvent OuterEvent(ShotProp, PropertyChangedEvent.ChangeType);
 		Host->PostEditChangeProperty(OuterEvent);
@@ -764,6 +779,16 @@ void SShotEditorRoot::TrySetMode(EShotEditorMode NewMode)
 
 FReply SShotEditorRoot::OnKeyDown(const FGeometry& MyGeometry, const FKeyEvent& InKeyEvent)
 {
+	if ((InKeyEvent.IsControlDown() || InKeyEvent.IsCommandDown())
+		&& !InKeyEvent.IsShiftDown()
+		&& !InKeyEvent.IsAltDown()
+		&& InKeyEvent.GetKey() == EKeys::B
+		&& CanBrowse())
+	{
+		OnBrowseClicked();
+		return FReply::Handled();
+	}
+
 	// Only fire on plain key presses (no modifiers) — leaves Ctrl+1 / Alt+2
 	// etc. free for stock editor shortcuts.
 	if (InKeyEvent.IsControlDown() || InKeyEvent.IsShiftDown()

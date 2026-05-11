@@ -128,7 +128,7 @@ void FComposableCameraShotEditor::OpenForShotSection(UMovieSceneComposableCamera
 	// the swap finally commits and a final refresh restores it. Doing
 	// the swap first means the LS-open's nested ticks see the already-
 	// committed current section and the refresh is a no-op.
-	FComposableCameraShot* Shot = Section->ResolveActiveShot();
+	FComposableCameraShot* Shot = Section->ResolveShotEditorShot();
 	UObject* Host = Section->ResolveShotEditorHost();
 	OpenForShot(Shot, Host);
 

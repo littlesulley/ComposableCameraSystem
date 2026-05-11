@@ -45,6 +45,7 @@ class AActor;
 class FScopedTransaction;
 class FPrimitiveDrawInterface;
 class FSceneView;
+class USkeletalMesh;
 
 /**
  * FEditorViewportClient subclass for the Shot Editor's middle region (Phase D.2).
@@ -231,19 +232,28 @@ private:
 	 *  for instant-snap behavior (e.g. one-shot preview rebuilds). */
 	void RunSolverAndDriveCamera(float DeltaSeconds);
 
-	/** Spawn one proxy in the preview world for `SourceActor`. Picks SK / SM /
-	 *  capsule fallback based on what components are available. */
-	AActor* SpawnProxyForActor(AActor* SourceActor);
+	/** Spawn one proxy in the preview world for `SourceActor` or a template
+	 *  preview mesh. Picks live SK / live SM / preview SK / capsule fallback. */
+	AActor* SpawnProxyForTarget(
+		AActor* SourceActor,
+		USkeletalMesh* PreviewMesh,
+		const FTransform& PreviewTransform);
 
 	/** Resolve the source actor for `Targets[TargetIndex]`. When the active
 	 *  host is a `UMovieSceneComposableCameraShotSection`, per-section
 	 *  TargetActorOverrides are consulted first — the override's
 	 *  FMovieSceneObjectBindingID is resolved against the open Sequencer for
-	 *  the section's owning sequence. Falls back to
-	 *  `Targets[TargetIndex].Target.Actor.Get()` (the Shot's authored
-	 *  placeholder) when no override is present, the binding doesn't
-	 *  resolve, or no Sequencer is currently open for the sequence. */
+	 *  the section's owning sequence. Falls back to the Shot's authored
+	 *  runtime actor. Asset-only preview meshes are resolved separately by
+	 *  `ResolvePreviewMeshForTargetIndex`. */
 	AActor* ResolveSourceActorForTargetIndex(int32 TargetIndex) const;
+
+	/** Resolve editor-only SKM preview asset for a target. Used only when no
+	 *  live actor / LS binding resolves. */
+	USkeletalMesh* ResolvePreviewMeshForTargetIndex(int32 TargetIndex) const;
+
+	/** Resolve editor-only preview proxy transform for a target. */
+	FTransform ResolvePreviewTransformForTargetIndex(int32 TargetIndex) const;
 
 	/** Build a value-copy of `*ActiveShot` with each `Targets[i].Target.Actor`
 	 *  replaced by the override-resolved live actor (when an override exists
@@ -298,6 +308,11 @@ private:
 	 *  null-actor case). Each Tick compares this snapshot against the
 	 *  current per-target resolved actors and forces a rebuild on mismatch. */
 	TArray<TWeakObjectPtr<AActor>> LastResolvedSources;
+
+	/** Per-target preview mesh at last RebuildProxies time. Tracked in
+	 *  parallel with LastResolvedSources so changing EditorPreviewMesh
+	 *  respawns the proxy even when no live Actor exists. */
+	TArray<TWeakObjectPtr<USkeletalMesh>> LastResolvedPreviewMeshes;
 
 	/** Per-frame cache for `BuildEffectiveShotForPreview` (Polish P.2).
 	 *  Holds the most recent successful effective-shot computation; reused

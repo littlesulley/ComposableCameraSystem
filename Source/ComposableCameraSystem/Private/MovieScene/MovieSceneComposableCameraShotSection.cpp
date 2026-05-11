@@ -64,19 +64,7 @@ const FComposableCameraShot* UMovieSceneComposableCameraShotSection::ResolveActi
 
 		case EComposableCameraShotSource::AssetReference:
 		{
-			// Hot-path: read the cached resolved asset, no LoadSynchronous.
-			// Cache is populated at PostLoad / PostEditChangeProperty (off
-			// the eval path); if the asset hasn't been loaded yet AND the
-			// soft pointer happens to already resolve via .Get() (free
-			// lookup in the loaded-objects table), opportunistically
-			// populate the cache for next call. Returns nullptr when the
-			// soft pointer is unloaded so the eval path no-ops rather than
-			// stalling the game thread.
-			if (UComposableCameraShotAsset* Cached = ResolveCachedShotAsset())
-			{
-				return &Cached->Shot;
-			}
-			return nullptr;
+			return ShotAssetRef.IsNull() ? nullptr : &ShotOverrides;
 		}
 	}
 	return nullptr;
@@ -91,12 +79,21 @@ FComposableCameraShot* UMovieSceneComposableCameraShotSection::ResolveActiveShot
 
 		case EComposableCameraShotSource::AssetReference:
 		{
-			if (UComposableCameraShotAsset* Cached = ResolveCachedShotAsset())
-			{
-				return &Cached->Shot;
-			}
-			return nullptr;
+			return ShotAssetRef.IsNull() ? nullptr : &ShotOverrides;
 		}
+	}
+	return nullptr;
+}
+
+FComposableCameraShot* UMovieSceneComposableCameraShotSection::ResolveShotEditorShot()
+{
+	switch (Source)
+	{
+		case EComposableCameraShotSource::Inline:
+			return &InlineShot;
+
+		case EComposableCameraShotSource::AssetReference:
+			return ShotAssetRef.IsNull() ? nullptr : &ShotOverrides;
 	}
 	return nullptr;
 }
@@ -135,6 +132,10 @@ void UMovieSceneComposableCameraShotSection::PostLoad()
 {
 	Super::PostLoad();
 	RefreshCachedAssets();
+	if (Source == EComposableCameraShotSource::AssetReference && !bShotOverridesInitialized)
+	{
+		RefreshShotOverridesFromSource();
+	}
 }
 
 #if WITH_EDITOR
@@ -143,13 +144,18 @@ void UMovieSceneComposableCameraShotSection::PostEditChangeProperty(FPropertyCha
 	Super::PostEditChangeProperty(PropertyChangedEvent);
 	const FName PropertyName = PropertyChangedEvent.Property ? PropertyChangedEvent.Property->GetFName() : NAME_None;
 	if (PropertyName == GET_MEMBER_NAME_CHECKED(UMovieSceneComposableCameraShotSection, ShotAssetRef)
-		|| PropertyName == GET_MEMBER_NAME_CHECKED(UMovieSceneComposableCameraShotSection, EnterTransition)
 		|| PropertyName == GET_MEMBER_NAME_CHECKED(UMovieSceneComposableCameraShotSection, Source))
 	{
 		// Designer pointed the soft ref at a different asset (or flipped
 		// Source) — drop the stale cache and re-resolve. LoadSynchronous
 		// here is fine, we're outside of evaluation.
 		CachedShotAsset = nullptr;
+		CachedEnterTransition = nullptr;
+		RefreshCachedAssets();
+		RefreshShotOverridesFromSource();
+	}
+	else if (PropertyName == GET_MEMBER_NAME_CHECKED(UMovieSceneComposableCameraShotSection, EnterTransition))
+	{
 		CachedEnterTransition = nullptr;
 		RefreshCachedAssets();
 	}
@@ -175,37 +181,53 @@ void UMovieSceneComposableCameraShotSection::RefreshCachedAssets()
 
 UObject* UMovieSceneComposableCameraShotSection::ResolveShotEditorHost() const
 {
-	// The Shot Editor uses the host UObject for transaction context + dirty
-	// flag + FNotifyHook routing. Inline edits go to the Section itself;
-	// AssetReference edits go to the underlying asset (so changes propagate
-	// to every Section referencing it).
+	return const_cast<UMovieSceneComposableCameraShotSection*>(this);
+}
+
+bool UMovieSceneComposableCameraShotSection::BuildEffectiveShotWithoutBindings(FComposableCameraShot& OutShot) const
+{
 	switch (Source)
 	{
 		case EComposableCameraShotSource::Inline:
-			return const_cast<UMovieSceneComposableCameraShotSection*>(this);
+			OutShot = InlineShot;
+			return true;
 
 		case EComposableCameraShotSource::AssetReference:
-			return ShotAssetRef.LoadSynchronous();
+			if (ShotAssetRef.IsNull())
+			{
+				return false;
+			}
+			OutShot = ShotOverrides;
+			return true;
 	}
-	return nullptr;
+	return false;
+}
+
+void UMovieSceneComposableCameraShotSection::RefreshShotOverridesFromSource()
+{
+	if (Source != EComposableCameraShotSource::AssetReference)
+	{
+		return;
+	}
+
+	UComposableCameraShotAsset* Asset = ResolveCachedShotAsset();
+	if (!Asset)
+	{
+		return;
+	}
+
+	ShotOverrides = Asset->Shot;
+	bShotOverridesInitialized = true;
 }
 
 bool UMovieSceneComposableCameraShotSection::BuildEffectiveShot(
 	const UE::MovieScene::FSequenceInstance& Instance,
 	FComposableCameraShot& OutShot) const
 {
-	const FComposableCameraShot* SourceShot = ResolveActiveShot();
-	if (!SourceShot)
+	if (!BuildEffectiveShotWithoutBindings(OutShot))
 	{
 		return false;
 	}
-
-	// Value copy first — the LS Component's per-frame override map already
-	// expects a fresh Shot per push, so working off a copy is the right
-	// shape; mutating the source (Inline data on the Section, or the
-	// ShotAsset's Shot field) would silently propagate per-section bindings
-	// back into the asset for the AssetReference flow.
-	OutShot = *SourceShot;
 
 	for (const FComposableCameraShotTargetActorOverride& Override : TargetActorOverrides)
 	{

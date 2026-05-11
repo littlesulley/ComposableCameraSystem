@@ -68,9 +68,9 @@ enum class EComposableCameraShotSource : uint8
 	 *  elsewhere and don't justify a separate asset. */
 	Inline,
 
-	/** `ShotAssetRef` soft-refs a `UComposableCameraShotAsset`. Editing the
-	 *  asset propagates to every Section referencing it. Good for reusable
-	 *  framing presets ("close-up A", "two-shot wide"). */
+	/** `ShotAssetRef` soft-refs a `UComposableCameraShotAsset`. Picking an
+	 *  asset snapshots its Shot into section-local ShotOverrides; later
+	 *  LevelSequence edits mutate only the section copy. */
 	AssetReference
 };
 
@@ -90,8 +90,8 @@ enum class EComposableCameraShotSource : uint8
  * Per-frame the `UMovieSceneComposableCameraShotTrackInstance::OnAnimate`:
  *   1. Resolves the parent binding → bound LS Actor → its
  *      `UComposableCameraLevelSequenceComponent`.
- *   2. Calls `ResolveActiveShot()` to get the active Shot data (Inline or
- *      AssetReference deref).
+ *   2. Calls `BuildEffectiveShot()` to get the section-local Shot data
+ *      plus Sequencer actor-binding overrides.
  *   3. Pushes (Section, Shot, RowIndex) to the LS Component via
  *      `SetSequencerShotOverride`.
  *
@@ -131,23 +131,16 @@ public:
 	 * Resolves the active Shot for this section.
 	 *
 	 *   Inline          → returns &InlineShot.
-	 *   AssetReference  → returns &CachedShotAsset->Shot via the non-blocking
-	 *                     `ResolveCachedShotAsset()` path. Returns null if the
-	 *                     soft ref is null OR not yet loaded — the eval-path
-	 *                     no-ops in that case rather than stalling the game
-	 *                     thread on `LoadSynchronous`. The blocking refresh
-	 *                     happens in `RefreshCachedAssets()`, fired at
-	 *                     `PostLoad` / `PostEditChangeProperty` only.
+	 *   AssetReference  → returns &ShotOverrides, the section-local snapshot
+	 *                     seeded from ShotAssetRef. Returns null if no
+	 *                     ShotAssetRef is assigned.
 	 *
-	 * Caller must NOT cache the returned pointer across frames — the cache
-	 * may be refreshed (asset edit, hot reload) and the previously-returned
-	 * pointer would dangle. Treat as a per-frame snapshot.
+	 * Caller must NOT cache the returned pointer beyond the section lifetime.
 	 *
-	 * Const overload returns a const pointer for read-only callers (the Shot
-	 * Editor's Sequencer-selection-sync uses this); non-const overload allows
-	 * authoring tools that mutate Shot fields directly (the Shot Editor
-	 * opened in AssetReference mode hosts the mutation on the *asset*, not
-	 * the Section, so the Section doesn't need to write through).
+	 * Const overload returns a const pointer for read-only callers. The
+	 * non-const overload is legacy-compatible; AssetReference authoring should
+	 * use ResolveShotEditorShot so edits land on Section ShotOverrides rather
+	 * than the shared ShotAsset.
 	 *
 	 * COMPOSABLECAMERASYSTEM_API: needed because UCLASS(MinimalAPI) only
 	 * exports the class type info, not member functions, and the editor
@@ -156,16 +149,31 @@ public:
 	COMPOSABLECAMERASYSTEM_API const FComposableCameraShot* ResolveActiveShot() const;
 	COMPOSABLECAMERASYSTEM_API FComposableCameraShot* ResolveActiveShot();
 
+	/** Shot data the Shot Editor should edit for this section. Inline writes
+	 *  InlineShot; AssetReference writes the section-local ShotOverrides
+	 *  copy seeded from the referenced ShotAsset. */
+	COMPOSABLECAMERASYSTEM_API FComposableCameraShot* ResolveShotEditorShot();
+
 	/** Resolves the host UObject for the Shot Editor when this Section is
-	 *  selected. Inline → the Section itself; AssetReference → the resolved
-	 *  ShotAsset (or null if unresolved — Shot Editor falls through to its
-	 *  "no shot loaded" placeholder). */
+	 *  selected. The Section remains the host in both source modes so
+	 *  AssetReference edits transact against the LevelSequence, not against
+	 *  the shared ShotAsset. */
 	COMPOSABLECAMERASYSTEM_API UObject* ResolveShotEditorHost() const;
+
+	/** Builds the base effective shot before Sequencer actor-binding
+	 *  overrides. Inline returns InlineShot. AssetReference returns the
+	 *  section-local ShotOverrides snapshot. */
+	COMPOSABLECAMERASYSTEM_API bool BuildEffectiveShotWithoutBindings(FComposableCameraShot& OutShot) const;
+
+	/** Copies the current ShotAsset defaults into the editable section copy.
+	 *  Called when the user changes Source / ShotAssetRef, not during normal
+	 *  evaluation or editor refresh. */
+	COMPOSABLECAMERASYSTEM_API void RefreshShotOverridesFromSource();
 
 	/**
 	 * Build the effective Shot for this section + the running sequence
-	 * instance. Starts from `ResolveActiveShot()` (Inline / AssetReference),
-	 * value-copies it into `OutShot`, then walks `TargetActorOverrides` and
+	 * instance. Starts from `BuildEffectiveShotWithoutBindings()` (Inline
+	 * value or AssetReference section snapshot), then walks `TargetActorOverrides` and
 	 * substitutes each indexed `Targets[i].Target.Actor` with the override
 	 * binding's resolved actor.
 	 *
@@ -220,6 +228,21 @@ public:
 	 *  Sections when the Inline Shot's Targets reference Spawnables. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shot|Target Overrides")
 	TArray<FComposableCameraShotTargetActorOverride> TargetActorOverrides;
+
+	/** AssetReference-only editable copy shown by the Shot Editor. The copy
+	 *  is seeded from ShotAssetRef when the section picks the asset; runtime
+	 *  consumes this section-local value directly and never writes back to
+	 *  the shared ShotAsset. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Shot|Asset Overrides",
+		meta = (EditCondition = "Source == EComposableCameraShotSource::AssetReference",
+		        EditConditionHides))
+	FComposableCameraShot ShotOverrides;
+
+	/** Migration/init guard for AssetReference snapshots. Existing sections
+	 *  created before ShotOverrides existed initialize once from ShotAsset on
+	 *  PostLoad; saved section-local edits must not be re-copied every load. */
+	UPROPERTY()
+	bool bShotOverridesInitialized = false;
 
 	/**
 	 * Transition asset that drives the inter-Shot blend when the playhead

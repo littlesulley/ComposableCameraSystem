@@ -315,7 +315,7 @@ public:
 
 	// Whether to sync current camera rotation to ControlRotation.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera Manager")
-	bool bSyncToControlRotation { false };
+	bool bSyncToControlRotation { true };
 
 	// The currently active context name (debug, read-only).
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Transient, Category = "Camera Manager")

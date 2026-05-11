@@ -76,6 +76,29 @@ namespace
 	const FLinearColor kZoneDeadFillAim       (0.4f, 0.8f,  1.f,  0.18f);  // cyan   ~18% — Aim
 	const FLinearColor kZoneSoftFillAim       (0.4f, 0.8f,  1.f,  0.08f);  // cyan   ~8%
 	const FLinearColor kZoneEdgeHighlightColor(1.f,  1.f,   1.f,  0.85f);  // white-ish on hover/drag
+
+	FProperty* ResolveShotEditorProperty(UObject* Host, FComposableCameraShot* Shot)
+	{
+		if (!Host)
+		{
+			return nullptr;
+		}
+		if (UMovieSceneComposableCameraShotSection* Section =
+				Cast<UMovieSceneComposableCameraShotSection>(Host))
+		{
+			if (Shot == &Section->InlineShot)
+			{
+				return Section->GetClass()->FindPropertyByName(
+					GET_MEMBER_NAME_CHECKED(UMovieSceneComposableCameraShotSection, InlineShot));
+			}
+			if (Shot == &Section->ShotOverrides)
+			{
+				return Section->GetClass()->FindPropertyByName(
+					GET_MEMBER_NAME_CHECKED(UMovieSceneComposableCameraShotSection, ShotOverrides));
+			}
+		}
+		return Host->GetClass()->FindPropertyByName(TEXT("Shot"));
+	}
 }
 
 FComposableCameraShotEditorViewportClient::FComposableCameraShotEditorViewportClient(
@@ -244,7 +267,7 @@ void FComposableCameraShotEditorViewportClient::Tick(float DeltaSeconds)
 	}
 
 	// Rebuild proxies on host change OR Targets count drift OR per-target
-	// source actor identity change. The third check catches the
+	// source actor / preview mesh identity change. The third check catches the
 	// "designer just picked an Actor for an existing Target" path — count
 	// is unchanged and host is unchanged, but the cylinder fallback proxy
 	// from the null-actor moment needs to upgrade to SkelMesh / StaticMesh.
@@ -254,7 +277,7 @@ void FComposableCameraShotEditorViewportClient::Tick(float DeltaSeconds)
 	if (!bHostChanged && !bCountDrift)
 	{
 		const int32 N = ActiveShot->Targets.Num();
-		if (LastResolvedSources.Num() != N)
+		if (LastResolvedSources.Num() != N || LastResolvedPreviewMeshes.Num() != N)
 		{
 			bSourceDrift = true;
 		}
@@ -264,7 +287,9 @@ void FComposableCameraShotEditorViewportClient::Tick(float DeltaSeconds)
 			{
 				const AActor* Now  = ResolveSourceActorForTargetIndex(i);
 				const AActor* Then = LastResolvedSources[i].Get();
-				if (Now != Then)
+				const USkeletalMesh* PreviewNow = ResolvePreviewMeshForTargetIndex(i);
+				const USkeletalMesh* PreviewThen = LastResolvedPreviewMeshes[i].Get();
+				if (Now != Then || PreviewNow != PreviewThen)
 				{
 					bSourceDrift = true;
 					break;
@@ -1395,7 +1420,7 @@ void FComposableCameraShotEditorViewportClient::EndDrag()
 	// at the end.
 	if (UObject* Host = ActiveHost.Get())
 	{
-		if (FProperty* ShotProp = Host->GetClass()->FindPropertyByName(TEXT("Shot")))
+		if (FProperty* ShotProp = ResolveShotEditorProperty(Host, ActiveShot))
 		{
 			FPropertyChangedEvent Event(ShotProp, EPropertyChangeType::ValueSet);
 			Host->PostEditChangeProperty(Event);
@@ -1474,7 +1499,7 @@ void FComposableCameraShotEditorViewportClient::EndRollDrag()
 
 	if (UObject* Host = ActiveHost.Get())
 	{
-		if (FProperty* ShotProp = Host->GetClass()->FindPropertyByName(TEXT("Shot")))
+		if (FProperty* ShotProp = ResolveShotEditorProperty(Host, ActiveShot))
 		{
 			FPropertyChangedEvent Event(ShotProp, EPropertyChangeType::ValueSet);
 			Host->PostEditChangeProperty(Event);
@@ -1560,7 +1585,7 @@ bool FComposableCameraShotEditorViewportClient::TryAdjustDistanceFromMouseWheel(
 		ActiveShot->Placement.Distance = ClampedDistance;
 		if (Host)
 		{
-			if (FProperty* ShotProp = Host->GetClass()->FindPropertyByName(TEXT("Shot")))
+			if (FProperty* ShotProp = ResolveShotEditorProperty(Host, ActiveShot))
 			{
 				FPropertyChangedEvent Event(ShotProp, EPropertyChangeType::ValueSet);
 				Host->PostEditChangeProperty(Event);
@@ -2066,7 +2091,7 @@ bool FComposableCameraShotEditorViewportClient::ReverseSolveCurrentCameraToShot(
 		// Final notify so Details panel refreshes + listeners react.
 		if (Host)
 		{
-			if (FProperty* ShotProp = Host->GetClass()->FindPropertyByName(TEXT("Shot")))
+			if (FProperty* ShotProp = ResolveShotEditorProperty(Host, ActiveShot))
 			{
 				FPropertyChangedEvent Event(ShotProp, EPropertyChangeType::ValueSet);
 				Host->PostEditChangeProperty(Event);
@@ -2091,12 +2116,16 @@ void FComposableCameraShotEditorViewportClient::RebuildProxies()
 
 	ProxyActors.Reserve(ActiveShot->Targets.Num());
 	LastResolvedSources.Reset(ActiveShot->Targets.Num());
+	LastResolvedPreviewMeshes.Reset(ActiveShot->Targets.Num());
 	for (int32 i = 0; i < ActiveShot->Targets.Num(); ++i)
 	{
 		AActor* Source = ResolveSourceActorForTargetIndex(i);
-		AActor* Proxy = SpawnProxyForActor(Source);
+		USkeletalMesh* PreviewMesh = ResolvePreviewMeshForTargetIndex(i);
+		const FTransform PreviewTransform = ResolvePreviewTransformForTargetIndex(i);
+		AActor* Proxy = SpawnProxyForTarget(Source, PreviewMesh, PreviewTransform);
 		ProxyActors.Add(Proxy);
 		LastResolvedSources.Add(Source);
+		LastResolvedPreviewMeshes.Add(PreviewMesh);
 	}
 }
 
@@ -2111,6 +2140,7 @@ void FComposableCameraShotEditorViewportClient::DestroyProxies()
 	}
 	ProxyActors.Reset();
 	LastResolvedSources.Reset();
+	LastResolvedPreviewMeshes.Reset();
 }
 
 void FComposableCameraShotEditorViewportClient::SyncProxyTransforms()
@@ -2136,14 +2166,26 @@ void FComposableCameraShotEditorViewportClient::SyncProxyTransforms()
 		AActor* Source = ResolveSourceActorForTargetIndex(i);
 		if (!Source)
 		{
-			// Source went away — hide the proxy at infinity rather than
-			// destroying it (rebuild on next iteration handles count drift).
-			Proxy->SetActorLocation(FVector(0.f, 0.f, -100000.f));
+			// Template SKM preview has no live source actor. Drive the proxy
+			// from editor-authored preview transform so pure ShotAsset
+			// authoring can arrange multiple targets in space.
+			const FTransform PreviewTransform =
+				ResolvePreviewTransformForTargetIndex(i);
+			if (ResolvePreviewMeshForTargetIndex(i))
+			{
+				Proxy->SetActorTransform(PreviewTransform);
+			}
+			else
+			{
+				Proxy->SetActorLocationAndRotation(
+					PreviewTransform.GetLocation(),
+					PreviewTransform.GetRotation());
+			}
 			continue;
 		}
 
 		// Source-mesh-component-aware transform sync — same rationale as in
-		// SpawnProxyForActor: ACharacter offsets its Mesh component by
+		// SpawnProxyForTarget: ACharacter offsets its Mesh component by
 		// (0, 0, -88) within the actor, so source mesh world transform !=
 		// source actor world transform. ASkeletalMeshActor / AStaticMeshActor
 		// proxies have mesh-as-root, so syncing proxy actor transform to
@@ -2164,7 +2206,7 @@ void FComposableCameraShotEditorViewportClient::SyncProxyTransforms()
 			// SyncProxyTransforms reads whatever the source has settled
 			// to AFTER Sequencer finishes its evaluation pass. Requires
 			// matching skeleton (same SkeletalMeshAsset on both sides);
-			// SpawnProxyForActor sets ProxySK->SetSkeletalMeshAsset(Mesh)
+			// SpawnProxyForTarget sets ProxySK->SetSkeletalMeshAsset(Mesh)
 			// from SrcSK's mesh asset so this holds.
 			if (USkeletalMeshComponent* ProxySK = Cast<USkeletalMeshComponent>(Proxy->GetRootComponent()))
 			{
@@ -2458,8 +2500,41 @@ AActor* FComposableCameraShotEditorViewportClient::ResolveSourceActorForTargetIn
 		}
 	}
 
-	// Authored placeholder.
-	return ActiveShot->Targets[TargetIndex].Target.Actor.Get();
+	// Authored runtime actor / placeholder.
+	if (AActor* AuthoredActor = ActiveShot->Targets[TargetIndex].Target.Actor.Get())
+	{
+		return AuthoredActor;
+	}
+
+	return nullptr;
+}
+
+USkeletalMesh* FComposableCameraShotEditorViewportClient::ResolvePreviewMeshForTargetIndex(int32 TargetIndex) const
+{
+#if WITH_EDITORONLY_DATA
+	if (!ActiveShot || !ActiveShot->Targets.IsValidIndex(TargetIndex))
+	{
+		return nullptr;
+	}
+	const TSoftObjectPtr<USkeletalMesh>& PreviewMesh =
+		ActiveShot->Targets[TargetIndex].Target.EditorPreviewMesh;
+	return PreviewMesh.IsNull() ? nullptr : PreviewMesh.LoadSynchronous();
+#else
+	return nullptr;
+#endif
+}
+
+FTransform FComposableCameraShotEditorViewportClient::ResolvePreviewTransformForTargetIndex(int32 TargetIndex) const
+{
+#if WITH_EDITORONLY_DATA
+	if (!ActiveShot || !ActiveShot->Targets.IsValidIndex(TargetIndex))
+	{
+		return FTransform::Identity;
+	}
+	return ActiveShot->Targets[TargetIndex].Target.EditorPreviewTransform;
+#else
+	return FTransform::Identity;
+#endif
 }
 
 bool FComposableCameraShotEditorViewportClient::BuildEffectiveShotForPreview(FComposableCameraShot& OutShot) const
@@ -2494,7 +2569,20 @@ bool FComposableCameraShotEditorViewportClient::BuildEffectiveShotForPreview(FCo
 	// while the hit happens 5+ times, net win. Building straight into
 	// cache (vs. caller-buffer-then-cache) is simpler and lets later
 	// hits reuse without re-running ResolveSourceActorForTargetIndex.
-	CachedEffectiveShot = *ActiveShot;
+	if (UMovieSceneComposableCameraShotSection* Section =
+			Cast<UMovieSceneComposableCameraShotSection>(ActiveHost.Get()))
+	{
+		if (!Section->BuildEffectiveShotWithoutBindings(CachedEffectiveShot))
+		{
+			bEffectiveShotCacheValid    = true;
+			bEffectiveShotCacheBuiltOk  = false;
+			return false;
+		}
+	}
+	else
+	{
+		CachedEffectiveShot = *ActiveShot;
+	}
 	for (int32 i = 0; i < CachedEffectiveShot.Targets.Num(); ++i)
 	{
 		// `ResolveSourceActorForTargetIndex` already encapsulates the
@@ -2508,6 +2596,15 @@ bool FComposableCameraShotEditorViewportClient::BuildEffectiveShotForPreview(FCo
 		{
 			CachedEffectiveShot.Targets[i].Target.Actor = Resolved;
 		}
+#if WITH_EDITORONLY_DATA
+		else if (ResolvePreviewMeshForTargetIndex(i) && ProxyActors.IsValidIndex(i))
+		{
+			if (AActor* Proxy = ProxyActors[i].Get())
+			{
+				CachedEffectiveShot.Targets[i].Target.Actor = Proxy;
+			}
+		}
+#endif
 	}
 
 	bEffectiveShotCacheValid    = true;
@@ -2516,7 +2613,10 @@ bool FComposableCameraShotEditorViewportClient::BuildEffectiveShotForPreview(FCo
 	return true;
 }
 
-AActor* FComposableCameraShotEditorViewportClient::SpawnProxyForActor(AActor* SourceActor)
+AActor* FComposableCameraShotEditorViewportClient::SpawnProxyForTarget(
+	AActor* SourceActor,
+	USkeletalMesh* PreviewMesh,
+	const FTransform& PreviewTransform)
 {
 	if (!PreviewScene)
 	{
@@ -2629,7 +2729,26 @@ AActor* FComposableCameraShotEditorViewportClient::SpawnProxyForActor(AActor* So
 		}
 	}
 
-	// 3. Fallback: capsule-ish cylinder at the source's transform (or origin).
+	// 3. Template preview mesh? Asset-only ShotAsset authoring path.
+	if (PreviewMesh)
+	{
+		ASkeletalMeshActor* Proxy = PreviewWorld->SpawnActor<ASkeletalMeshActor>(Params);
+		if (Proxy && Proxy->GetSkeletalMeshComponent())
+		{
+			USkeletalMeshComponent* ProxySK = Proxy->GetSkeletalMeshComponent();
+			Proxy->SetActorTransform(PreviewTransform);
+			ProxySK->SetSkeletalMeshAsset(PreviewMesh);
+			ProxySK->SetAnimationMode(EAnimationMode::AnimationSingleNode);
+			ProxySK->SetComponentTickEnabled(false);
+			Proxy->SetActorTickEnabled(false);
+			ProxySK->UpdateBounds();
+			ProxySK->MarkRenderTransformDirty();
+			ProxySK->MarkRenderStateDirty();
+			return Proxy;
+		}
+	}
+
+	// 4. Fallback: capsule-ish cylinder at the source's transform (or origin).
 	UStaticMesh* CapsuleMesh = LoadObject<UStaticMesh>(
 		nullptr, kCapsuleFallbackMeshPath);
 	AStaticMeshActor* Proxy = PreviewWorld->SpawnActor<AStaticMeshActor>(Params);
@@ -2644,6 +2763,12 @@ AActor* FComposableCameraShotEditorViewportClient::SpawnProxyForActor(AActor* So
 		{
 			Proxy->SetActorLocationAndRotation(
 				SourceActor->GetActorLocation(), SourceActor->GetActorRotation());
+		}
+		else
+		{
+			Proxy->SetActorLocationAndRotation(
+				PreviewTransform.GetLocation(),
+				PreviewTransform.GetRotation());
 		}
 	}
 	return Proxy;
