@@ -4,6 +4,11 @@
 
 #include "AssetToolsModule.h"
 #include "Editor.h"
+#include "GameFramework/Actor.h"
+#include "ISequencer.h"
+#include "MovieSceneSequencePlayer.h"
+#include "MovieSceneSpawnableAnnotation.h"
+#include "MovieSceneSpawnRegister.h"
 #include "UnrealClient.h"
 #include "ComposableCameraEditorStyle.h"
 #include "EdGraphUtilities.h"
@@ -27,6 +32,8 @@
 #include "Sequencer/ComposableCameraLevelSequenceComponentTrackEditor.h"
 #include "Sequencer/ComposableCameraPatchTrackEditor.h"
 #include "Sequencer/ComposableCameraShotTrackEditor.h"
+#include "Utilities/ComposableCameraLevelSequenceSpawnTrackTool.h"
+#include "Utilities/ComposableCameraViewportTransformClipboard.h"
 
 class UComposableCameraTypeAsset;
 
@@ -72,6 +79,48 @@ void FComposableCameraSystemEditorModule::StartupModule()
         OutSize = Size;
         return true;
     });
+
+    FGetEditorSequencerPlaybackDeltaTime::GetDeltaTimeDelegate.BindLambda(
+        [this](const AActor* SpawnedActor, float WorldDeltaTime, float& OutDeltaTime) -> bool
+    {
+        if (!SpawnedActor)
+        {
+            return false;
+        }
+
+        const TOptional<FMovieSceneSpawnableAnnotation> Annotation =
+            FMovieSceneSpawnableAnnotation::Find(const_cast<AActor*>(SpawnedActor));
+        if (!Annotation.IsSet())
+        {
+            return false;
+        }
+
+        for (int32 i = ActiveSequencers.Num() - 1; i >= 0; --i)
+        {
+            TSharedPtr<ISequencer> Live = ActiveSequencers[i].Pin();
+            if (!Live.IsValid())
+            {
+                ActiveSequencers.RemoveAtSwap(i, EAllowShrinking::No);
+                continue;
+            }
+
+            UObject* BoundSpawnedObject = Live->GetSpawnRegister()
+                .FindSpawnedObject(Annotation->ObjectBindingID, Annotation->SequenceID)
+                .Get();
+            if (BoundSpawnedObject != SpawnedActor)
+            {
+                continue;
+            }
+
+            OutDeltaTime = Live->GetPlaybackStatus() == EMovieScenePlayerStatus::Playing
+                ? WorldDeltaTime * FMath::Abs(Live->GetPlaybackSpeed())
+                : 0.f;
+            return true;
+        }
+
+        return false;
+    });
+
 #endif
     // Initialize the editor style early so ClassIcon / ClassThumbnail brushes
     // are registered before the Content Browser renders any asset tiles.
@@ -81,6 +130,8 @@ void FComposableCameraSystemEditorModule::StartupModule()
     RegisterNodeGraphPinFactory();
     RegisterGraphNodeFactory();
     RegisterSequencerTrackEditor();
+    FComposableCameraLevelSequenceSpawnTrackTool::Register();
+    FComposableCameraViewportTransformClipboard::Register();
 
     // Shot Editor (Phase D.1+) — registers the nomad tab spawner with
     // FGlobalTabmanager + binds the runtime-side FOpenShotEditor delegate
@@ -102,6 +153,7 @@ void FComposableCameraSystemEditorModule::ShutdownModule()
 #if WITH_EDITOR
     FIsSimulatingInEditor::GetIsSimulatingInEditorDelegate.Unbind();
     FGetActiveEditorViewport::GetSizeDelegate.Unbind();
+    FGetEditorSequencerPlaybackDeltaTime::GetDeltaTimeDelegate.Unbind();
 #endif
     if (SequencerCreatedHandle.IsValid())
     {
@@ -114,6 +166,8 @@ void FComposableCameraSystemEditorModule::ShutdownModule()
     ActiveSequencers.Reset();
 
     FComposableCameraShotEditor::UnregisterTabSpawner();
+    FComposableCameraViewportTransformClipboard::Unregister();
+    FComposableCameraLevelSequenceSpawnTrackTool::Unregister();
     UnregisterSequencerTrackEditor();
     UnregisterGraphNodeFactory();
     UnregisterNodeGraphPinFactory();
@@ -169,6 +223,24 @@ TSharedPtr<ISequencer> FComposableCameraSystemEditorModule::FindOpenSequencerFor
         Hit.IsValid() ? TEXT("HIT") : TEXT("MISS (no Sequencer is focused on this sequence)"));
 
     return Hit;
+}
+
+TArray<TSharedPtr<ISequencer>> FComposableCameraSystemEditorModule::GetLiveSequencers() const
+{
+    TArray<TSharedPtr<ISequencer>> LiveSequencers;
+    for (int32 i = ActiveSequencers.Num() - 1; i >= 0; --i)
+    {
+        TSharedPtr<ISequencer> Live = ActiveSequencers[i].Pin();
+        if (!Live.IsValid())
+        {
+            ActiveSequencers.RemoveAtSwap(i, EAllowShrinking::No);
+            continue;
+        }
+
+        LiveSequencers.Add(Live);
+    }
+
+    return LiveSequencers;
 }
 
 UComposableCameraTypeAssetEditor* FComposableCameraSystemEditorModule::

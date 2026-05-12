@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 
+class AActor;
 struct FComposableCameraShot;
 
 DECLARE_DELEGATE_RetVal(bool, FGetIsSimulatingInEditor);
@@ -93,6 +94,39 @@ public:
 		if (GetSizeDelegate.IsBound())
 		{
 			return GetSizeDelegate.Execute(OutSize);
+		}
+#endif
+		return false;
+	}
+};
+
+/**
+ * Editor Sequencer playback delta resolver for runtime-owned LS components.
+ *
+ * Runtime Level Sequence playback can find a ULevelSequencePlayer directly.
+ * Pure editor Sequencer preview is driven by ISequencer instead, which lives
+ * in the editor module. This hook lets UComposableCameraLevelSequenceComponent
+ * scale history-dependent node DeltaTime by the editor Sequencer playback
+ * speed without adding an editor dependency to the runtime module.
+ */
+DECLARE_DELEGATE_RetVal_ThreeParams(
+	bool,
+	FGetEditorSequencerPlaybackDelta,
+	const AActor* /*SpawnedActor*/,
+	float /*WorldDeltaTime*/,
+	float& /*OutDeltaTime*/);
+
+struct COMPOSABLECAMERASYSTEM_API FGetEditorSequencerPlaybackDeltaTime
+{
+public:
+	static inline FGetEditorSequencerPlaybackDelta GetDeltaTimeDelegate;
+
+	static bool TryGetDeltaTime(const AActor* SpawnedActor, float WorldDeltaTime, float& OutDeltaTime)
+	{
+#if WITH_EDITOR
+		if (GetDeltaTimeDelegate.IsBound())
+		{
+			return GetDeltaTimeDelegate.Execute(SpawnedActor, WorldDeltaTime, OutDeltaTime);
 		}
 #endif
 		return false;

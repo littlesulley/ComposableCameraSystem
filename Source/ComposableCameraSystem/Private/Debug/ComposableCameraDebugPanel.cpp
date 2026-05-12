@@ -1809,7 +1809,7 @@ namespace
 		// SequencerPatchOverlays map and apply directly to the bound CineCamera);
 		// merging here is what makes them visible in the debug panel.
 		// Iteration cost is cheap — typical scene has 0-2 LS Actors active at
-		// once (gated by ECS gate to current cut target + blend partners).
+		// once.
 		if (UWorld* World = Ctx.PCM->GetWorld())
 		{
 			for (TObjectIterator<UComposableCameraLevelSequenceComponent> It; It; ++It)

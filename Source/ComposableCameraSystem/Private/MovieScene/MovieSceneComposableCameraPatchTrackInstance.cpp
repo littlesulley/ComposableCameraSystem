@@ -51,8 +51,7 @@ namespace
 	}
 
 	/** Resolve the input's current evaluation frame via the linker's instance
-	 *  registry → FSequenceInstance::GetContext::GetTime. Same pattern the gate
-	 *  instantiator uses. Falls back to the section's lower bound if the
+	 *  registry. Falls back to the section's lower bound if the
 	 *  registry lookup fails (defensive — shouldn't normally happen). */
 	FFrameNumber ResolveCurrentFrame(
 		const UMovieSceneEntitySystemLinker* Linker,
@@ -132,8 +131,8 @@ void UMovieSceneComposableCameraPatchTrackInstance::OnAnimate()
 	// Diagnostic: confirm OnAnimate is firing at all and how many inputs
 	// the engine has handed us. Verbose so it doesn't spam in normal use,
 	// but lets `Log LogComposableCameraSystem Verbose` reveal a silent
-	// "TrackInstance never fires" bug. Same scope-level log pattern the
-	// Gate Instantiator uses.
+	// "TrackInstance never fires" bug. Same scope-level log pattern used by
+	// other TrackInstances.
 	UE_LOG(LogComposableCameraSystem, Verbose,
 		TEXT("PatchTrackInstance::OnAnimate fired with %d input(s)."),
 		GetInputs().Num());

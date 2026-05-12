@@ -16,10 +16,13 @@ void UComposableCameraDirectionalMoveNode::OnTickNode_Implementation(
 {
 	ElapsedTime += DeltaTime;
 
+	const float MoveTime = Duration >= 0.f
+		? FMath::Clamp(ElapsedTime, 0.f, Duration)
+		: ElapsedTime;
 	const FVector LocalDirection = Direction.GetSafeNormal();
 	const FVector WorldDirection = InitialTransform.TransformVectorNoScale(LocalDirection).GetSafeNormal();
 
-	OutCameraPose.Position = InitialTransform.GetLocation() + WorldDirection * Speed * ElapsedTime;
+	OutCameraPose.Position = InitialTransform.GetLocation() + WorldDirection * Speed * MoveTime;
 	OutCameraPose.Rotation = InitialTransform.GetRotation().Rotator();
 }
 
@@ -64,6 +67,20 @@ void UComposableCameraDirectionalMoveNode::GetPinDeclarations_Implementation(
 		Pin.DefaultValueString = FString::SanitizeFloat(Speed);
 		Pin.Tooltip = NSLOCTEXT("ComposableCameraSystem", "DirectionalMove_Speed_Tip",
 			"Movement speed in centimeters per second.");
+		OutPins.Add(Pin);
+	}
+
+	{
+		FComposableCameraNodePinDeclaration Pin;
+		Pin.PinName = TEXT("Duration");
+		Pin.DisplayName = NSLOCTEXT("ComposableCameraSystem", "DirectionalMove_Duration", "Duration");
+		Pin.Direction = EComposableCameraPinDirection::Input;
+		Pin.PinType = EComposableCameraPinType::Float;
+		Pin.bRequired = false;
+		Pin.bDefaultAsPin = false;
+		Pin.DefaultValueString = FString::SanitizeFloat(Duration);
+		Pin.Tooltip = NSLOCTEXT("ComposableCameraSystem", "DirectionalMove_Duration_Tip",
+			"Seconds spent moving. Negative values move forever; zero holds Initial Transform.");
 		OutPins.Add(Pin);
 	}
 }

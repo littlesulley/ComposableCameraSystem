@@ -780,6 +780,16 @@ void SShotEditorRoot::TrySetMode(EShotEditorMode NewMode)
 FReply SShotEditorRoot::OnKeyDown(const FGeometry& MyGeometry, const FKeyEvent& InKeyEvent)
 {
 	if ((InKeyEvent.IsControlDown() || InKeyEvent.IsCommandDown())
+		&& InKeyEvent.IsAltDown()
+		&& !InKeyEvent.IsShiftDown()
+		&& InKeyEvent.GetKey() == EKeys::C
+		&& CanCopyViewportCameraTransform())
+	{
+		OnCopyViewportCameraTransformClicked();
+		return FReply::Handled();
+	}
+
+	if ((InKeyEvent.IsControlDown() || InKeyEvent.IsCommandDown())
 		&& !InKeyEvent.IsShiftDown()
 		&& !InKeyEvent.IsAltDown()
 		&& InKeyEvent.GetKey() == EKeys::B
@@ -892,6 +902,16 @@ TSharedRef<SWidget> SShotEditorRoot::BuildAssetToolbar()
 	{
 		ToolbarBuilder.AddToolBarButton(
 			FUIAction(
+				FExecuteAction::CreateSP(this, &SShotEditorRoot::OnCopyViewportCameraTransformClicked),
+				FCanExecuteAction::CreateSP(this, &SShotEditorRoot::CanCopyViewportCameraTransform)),
+			NAME_None,
+			LOCTEXT("ToolbarCopyViewportCameraTransform", "Copy Camera"),
+			LOCTEXT("ToolbarCopyViewportCameraTransformTooltip",
+				"Copy the Shot Editor viewport camera transform as pasteable FTransform text."),
+			FSlateIcon(FAppStyle::GetAppStyleSetName(), "Icons.Copy"));
+
+		ToolbarBuilder.AddToolBarButton(
+			FUIAction(
 				FExecuteAction::CreateSP(this, &SShotEditorRoot::OnRefreshClicked)),
 			NAME_None,
 			LOCTEXT("ToolbarRefresh", "Refresh"),
@@ -948,6 +968,19 @@ bool SShotEditorRoot::CanBrowse() const
 void SShotEditorRoot::OnRefreshClicked()
 {
 	RefreshDetailsView();
+}
+
+void SShotEditorRoot::OnCopyViewportCameraTransformClicked()
+{
+	if (Viewport.IsValid())
+	{
+		Viewport->CopyCurrentCameraTransformToClipboard();
+	}
+}
+
+bool SShotEditorRoot::CanCopyViewportCameraTransform() const
+{
+	return Viewport.IsValid();
 }
 
 // ─── Shot outliner (Polish E.4) ──────────────────────────────────────────

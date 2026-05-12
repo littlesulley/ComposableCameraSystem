@@ -7,9 +7,9 @@
 #include "ComposableCameraDirectionalMoveNode.generated.h"
 
 /**
- * Moves the camera continuously from InitialTransform along a camera-space direction.
+ * Moves the camera from InitialTransform along a camera-space direction.
  */
-UCLASS(NotBlueprintable, ClassGroup = ComposableCameraSystem, meta = (ToolTip = "Moves the camera continuously from an initial transform along a camera-space direction at a fixed speed."))
+UCLASS(NotBlueprintable, ClassGroup = ComposableCameraSystem, meta = (ToolTip = "Moves the camera from an initial transform along a camera-space direction at a fixed speed. Negative Duration moves forever."))
 class COMPOSABLECAMERASYSTEM_API UComposableCameraDirectionalMoveNode
 	: public UComposableCameraCameraNodeBase
 {
@@ -40,6 +40,10 @@ public:
 	// Movement speed in centimeters per second.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters)
 	float Speed { 100.f };
+
+	// Seconds spent moving. Negative values move forever; zero holds InitialTransform.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters)
+	float Duration { -1.f };
 
 private:
 	float ElapsedTime { 0.f };

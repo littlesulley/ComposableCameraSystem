@@ -42,10 +42,9 @@ struct FComposableCameraParameterBlock;
  * blends by alpha. Final pose's Position + Rotation + FOV land on the CineCamera.
  *
  * Same code path runs in BOTH editor preview (Sequencer scrub in the editor
- * viewport) and PIE (Camera Cut Track targets the LS Actor). The ECS gate
- * (UMovieSceneComposableCameraGateInstantiator) handles whether the LS
- * Component is ticking at all — Sequencer patches naturally apply only while
- * the LS Actor is the active camera target.
+ * viewport) and PIE (Camera Cut Track targets the LS Actor). Spawn Tracks own
+ * LS Actor lifetime, so patches apply only while the host component exists
+ * and ticks.
  *
  * **Patches added via the BP library (`AddCameraPatch(PlayerIndex, ContextName, ...)`)
  * are a separate path** that lives on the gameplay PCM/Director, not here.

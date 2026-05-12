@@ -212,6 +212,9 @@ private:
 	 *  propagate cleanly to the panel. */
 	void OnRefreshClicked();
 
+	void OnCopyViewportCameraTransformClicked();
+	bool CanCopyViewportCameraTransform() const;
+
 	// ─── Shot outliner (Polish E.4) ──────────────────────────────────────
 	//
 	// Always-visible left-pane list of Shot sections in the active host's

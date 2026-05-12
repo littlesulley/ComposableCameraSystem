@@ -11,19 +11,38 @@
 #include "DataAssets/ComposableCameraTypeAsset.h"
 #include "Debug/ComposableCameraDebugPanelData.h"
 #include "Engine/World.h"
+#include "EngineUtils.h"
+#include "EditorHooks/EditorHooks.h"
 #include "GameFramework/Actor.h"
+#include "IMovieScenePlayer.h"
+#include "LevelSequenceActor.h"
+#include "LevelSequencePlayer.h"
 #include "MovieScene/MovieSceneComposableCameraPatchSection.h"
 #include "MovieScene/MovieSceneComposableCameraShotSection.h"
 #include "MovieScene.h"
+#include "MovieSceneSequencePlayer.h"
+#include "MovieSceneSpawnableAnnotation.h"
+#include "MovieSceneSpawnRegister.h"
 #include "Nodes/ComposableCameraCompositionFramingNode.h"
 #include "Utils/ComposableCameraViewportUtils.h"
+
+namespace
+{
+	bool IsRuntimeSequencePlayerOwningActor(
+		IMovieScenePlayer& Player,
+		AActor& Actor,
+		const FMovieSceneSpawnableAnnotation& Annotation)
+	{
+		return Player.GetSpawnRegister()
+			.FindSpawnedObject(Annotation.ObjectBindingID, Annotation.SequenceID)
+			.Get() == &Actor;
+	}
+}
 
 UComposableCameraLevelSequenceComponent::UComposableCameraLevelSequenceComponent()
 {
 	PrimaryComponentTick.bCanEverTick = true;
-	// Default off: can be flipped by a future ECS instantiator for strict
-	// cut/blend-only gating. V1.4's simplified path auto-enables from
-	// OnRegister, so in practice every spawned LS actor ticks.
+	// Default off; OnRegister enables evaluation for every spawned LS actor.
 	PrimaryComponentTick.bStartWithTickEnabled = false;
 	// Editor preview & Sequencer scrubbing happen in editor-world tick;
 	// SetComponentTickEnabled(true) within editor world respects this flag.
@@ -60,27 +79,14 @@ void UComposableCameraLevelSequenceComponent::OnRegister()
 	// preserves existing values for surviving names + types.
 	TypeAssetReference.RebuildBagsFromTypeAsset();
 
-	// Evaluation gate semantics: unconditionally ON by default. The ECS gate
-	// (UMovieSceneComposableCameraGateInstantiator) does not "open" the gate —
-	// it CLOSES it, turning inactive components off for tracked Spawnables
-	// whose owning actor isn't the Camera Cut Track's current target or a
-	// blend participant. Entities it cannot reach (non-Sequencer hosts like
-	// BlueprintSpawnableComponent on a plain actor) stay at the default (on).
-	//
-	// First-frame setup-then-teardown: for a gated entity that isn't in the
-	// Camera Cut Track's current target the first time the instantiator sees
-	// it, OnRegister enables → tick runs briefly → instantiator flips to false
-	// on its next OnRun. Visually imperceptible; avoids the "component goes
-	// silent forever" trap a default-off model creates.
+	// Spawn Tracks own actor lifetime; while the component exists, it evaluates.
 	SetEvaluationEnabled(true);
 }
 
 void UComposableCameraLevelSequenceComponent::BeginPlay()
 {
 	Super::BeginPlay();
-	// InternalCamera is created lazily on the first tick that actually needs it,
-	// so a dormant LS actor (Spawnable inactive, or Phase C "not participating")
-	// pays no camera-construction cost.
+	// InternalCamera is created lazily on the first tick that actually needs it.
 }
 
 void UComposableCameraLevelSequenceComponent::OnUnregister()
@@ -125,7 +131,94 @@ void UComposableCameraLevelSequenceComponent::TickComponent(
 		TEXT("LS tick [%s]"),
 		GetOwner() ? *GetOwner()->GetName() : TEXT("<no owner>"));
 
-	EvaluateOnce(DeltaTime);
+	const bool bZeroDeltaEvaluation = bEvaluateNextTickWithZeroDelta;
+	if (bZeroDeltaEvaluation)
+	{
+		bEvaluateNextTickWithZeroDelta = false;
+	}
+
+	const float EvaluationDeltaTime = bZeroDeltaEvaluation
+		? 0.f
+		: ResolveSequencerAwareDeltaTime(DeltaTime);
+	EvaluateOnce(EvaluationDeltaTime);
+}
+
+UMovieSceneSequencePlayer* UComposableCameraLevelSequenceComponent::ResolveOwningSequencePlayer()
+{
+	AActor* Owner = GetOwner();
+	if (!Owner)
+	{
+		CachedOwningSequencePlayer.Reset();
+		return nullptr;
+	}
+
+	const TOptional<FMovieSceneSpawnableAnnotation> Annotation = FMovieSceneSpawnableAnnotation::Find(Owner);
+	if (!Annotation.IsSet())
+	{
+		CachedOwningSequencePlayer.Reset();
+		return nullptr;
+	}
+
+	if (UMovieSceneSequencePlayer* CachedPlayer = CachedOwningSequencePlayer.Get())
+	{
+		if (IsRuntimeSequencePlayerOwningActor(*CachedPlayer, *Owner, Annotation.GetValue()))
+		{
+			return CachedPlayer;
+		}
+		CachedOwningSequencePlayer.Reset();
+	}
+
+	UWorld* World = Owner->GetWorld();
+	if (!World)
+	{
+		return nullptr;
+	}
+
+	for (TActorIterator<ALevelSequenceActor> It(World); It; ++It)
+	{
+		ALevelSequenceActor* SequenceActor = *It;
+		ULevelSequencePlayer* SequencePlayer = SequenceActor
+			? SequenceActor->GetSequencePlayer()
+			: nullptr;
+		if (!SequencePlayer)
+		{
+			continue;
+		}
+
+		if (IsRuntimeSequencePlayerOwningActor(*SequencePlayer, *Owner, Annotation.GetValue()))
+		{
+			CachedOwningSequencePlayer = SequencePlayer;
+			return SequencePlayer;
+		}
+	}
+
+	return nullptr;
+}
+
+float UComposableCameraLevelSequenceComponent::ResolveSequencerAwareDeltaTime(float WorldDeltaTime)
+{
+	if (WorldDeltaTime <= 0.f)
+	{
+		return 0.f;
+	}
+
+	float EditorSequencerDeltaTime = 0.f;
+	if (FGetEditorSequencerPlaybackDeltaTime::TryGetDeltaTime(
+		GetOwner(),
+		WorldDeltaTime,
+		EditorSequencerDeltaTime))
+	{
+		return FMath::Max(EditorSequencerDeltaTime, 0.f);
+	}
+
+	if (UMovieSceneSequencePlayer* SequencePlayer = ResolveOwningSequencePlayer())
+	{
+		return SequencePlayer->IsPlaying()
+			? WorldDeltaTime * FMath::Abs(SequencePlayer->GetPlayRate())
+			: 0.f;
+	}
+
+	return WorldDeltaTime;
 }
 
 void UComposableCameraLevelSequenceComponent::EvaluateOnce(float DeltaTime)
@@ -192,11 +285,8 @@ void UComposableCameraLevelSequenceComponent::EvaluateOnce(float DeltaTime)
 	// here) so DollyZoom-style patches preview correctly — the projection
 	// path proper still leaves optics alone for the non-overlay case.
 	//
-	// Whether this LS Component ticks at all is gated by the ECS gate
-	// (UMovieSceneComposableCameraGateInstantiator) — if the LS Actor isn't
-	// the active Camera Cut Track target, the gate closes us and patches
-	// don't fire. That's the right semantic: Sequencer patches are visible
-	// only while their host LS Actor is the camera target.
+	// Spawn Tracks own LS Actor lifetime, so Sequencer patches are visible
+	// only while their host LS Actor exists and ticks.
 	if (SequencerPatchOverlays.Num() > 0)
 	{
 		ApplySequencerPatchOverlays(Pose, DeltaTime);
@@ -249,12 +339,11 @@ void UComposableCameraLevelSequenceComponent::SetEvaluationEnabled(bool bEnabled
 
 	if (bWasEnabled != bEnabled)
 	{
-		// Diagnostic: log every gate transition with the owning actor's name
-		// so you can follow which Spawnables the ECS gate is actually closing.
+		// Diagnostic: log local evaluation switches with the owning actor's name.
 		// Enable with `Log LogComposableCameraSystem Log` (default) — these
 		// fire only on change, so they're low-noise.
 		UE_LOG(LogComposableCameraSystem, Log,
-			TEXT("LS gate [%s]: %s → %s"),
+			TEXT("LS evaluation [%s]: %s -> %s"),
 			GetOwner() ? *GetOwner()->GetName() : TEXT("<no owner>"),
 			bWasEnabled ? TEXT("ON") : TEXT("OFF"),
 			bEnabled ? TEXT("ON") : TEXT("OFF"));
@@ -264,56 +353,19 @@ void UComposableCameraLevelSequenceComponent::SetEvaluationEnabled(bool bEnabled
 	SetComponentTickEnabled(bEnabled);
 	if (!bEnabled)
 	{
-		// Drop the internal camera when told to stop evaluating. Phase B keeps
-		// this simple; Phase C may prefer to keep the camera alive (cheaper
-		// wake-up) depending on how aggressive the gating proves to be in
-		// practice.
+		bEvaluateNextTickWithZeroDelta = false;
+
+		// Drop the internal camera when told to stop evaluating.
 		DestroyInternalCamera();
 		return;
 	}
 
-	// Gate just opened (OFF → ON). Force a full evaluation pass right now,
-	// before any Camera Cut switches the PCM ViewTarget to this LS Actor's
-	// CineCamera and the renderer captures its transform. Without this,
-	// the standard `TickComponent` runs after the first PCM render and
-	// the LS Actor's CineCamera renders one frame at its default (origin)
-	// transform on every cut into a non-overlapping section — visually
-	// "camera at world origin for one frame". Cuts INTO an already-active
-	// LS Actor (overlap case) are unaffected because the LS Component has
-	// been ticking continuously, so its CineCamera transform is already
-	// valid when the cut fires.
-	//
-	// `DeltaTime = 0` snaps V2.2 IIR damping (Distance / FOV / Roll) to
-	// the authored value — exactly the cut-as-cut semantic the rest of
-	// the V2.2 Section-transition handling already enforces.
+	// Defer the zero-delta warm-up until TickComponent,
+	// after Sequencer property tracks have written current bag values.
 	if (bEnabled && !bWasEnabled)
 	{
-		EvaluateOnce(0.f);
+		bEvaluateNextTickWithZeroDelta = true;
 	}
-}
-
-void UComposableCameraLevelSequenceComponent::SetParameterValue(
-	FName Name, const void* Value, EComposableCameraPinType Type)
-{
-	// Phase D simplified path does not use these API hooks. Parameters are
-	// driven by writing directly to the bag (either by Sequencer's stock
-	// property-track evaluation or by the Details panel), and the per-tick
-	// ApplyParameterBlock pulls the current bag values into the camera's
-	// runtime data block automatically.
-	//
-	// The hooks remain here as a forward-compatibility surface: if a future
-	// ECS Instantiator is added (for strict cut/blend gating or pre-animated
-	// restore), this is where it would write through. Left empty on purpose.
-	(void)Name; (void)Value; (void)Type;
-}
-
-void UComposableCameraLevelSequenceComponent::SetVariableValue(
-	FName Name, const void* Value, EComposableCameraPinType Type)
-{
-	// Same as SetParameterValue — forward-compatibility stub for a future
-	// ECS Instantiator. Variables follow the exact same bag → data block
-	// path as parameters (they share the channel through ApplyParameterBlock).
-	(void)Name; (void)Value; (void)Type;
 }
 
 void UComposableCameraLevelSequenceComponent::EnsureInternalCamera()
@@ -476,10 +528,9 @@ void UComposableCameraLevelSequenceComponent::ProjectPoseToCineCamera(const FCom
 	// Framing solver failed this tick — hold the CineCamera's current
 	// transform instead of writing the upstream-default pose (which is
 	// `(0, 0, 0)` for a freshly-spawned InternalCamera and would render
-	// the camera at world origin). Hits the gate-flip-ON edge case: the
-	// synchronous `EvaluateOnce(0)` in `SetEvaluationEnabled(true)` runs
-	// in the instantiation phase, BEFORE the Shot TrackInstance pushes
-	// its first override in the evaluation phase, so the framing node
+	// the camera at world origin). Hits the early-evaluation edge case:
+	// evaluation may run before the Shot TrackInstance pushes its first
+	// override, so the framing node
 	// solves against its default empty Shot and fails. Without this
 	// guard, the failure would burn an origin pose onto the CineCam
 	// before the second `EvaluateOnce` (triggered by `SetSequencerShotOverride`'s
@@ -517,7 +568,7 @@ void UComposableCameraLevelSequenceComponent::ProjectPoseToCineCamera(const FCom
 	// meaningless context (no Section asked for them) and writing them
 	// here would clobber the designer-authored CineCamera optics
 	// (recently made editable via the `OutputCineCameraComponent`
-	// UPROPERTY). The Section-active gate keeps the original Phase B
+	// UPROPERTY). The Section-active check keeps the original Phase B
 	// invariant — "free-standing LSActors don't steal CineCam optic
 	// authoring" — while the V2 Shot system gets its expected
 	// "Shot.Lens flows to CineCam" behaviour.
@@ -788,40 +839,17 @@ void UComposableCameraLevelSequenceComponent::SetSequencerShotOverride(
 	FComposableCameraSequencerShotEntry& Entry = SequencerShotOverrides.FindOrAdd(Section);
 	Entry = InEntry;
 
-	// Cut-into-Shot-driven-camera origin-frame fix.
+	// First-frame-of-section fix.
 	//
-	// On a non-overlapping CameraCut into a gated LS Actor, the gate's
-	// instantiation-phase OFF→ON flip fires `EvaluateOnce(0)` synchronously
-	// (LS Component's `SetEvaluationEnabled` path) BEFORE the Shot
-	// TrackInstance pushes its first override (TrackInstance::OnAnimate runs
-	// in the later evaluation phase). With the override map still empty at
-	// flip time, `ApplyActiveSequencerShotOverride` is a no-op,
-	// CompositionFramingNode falls back to its default (empty Targets) Shot,
-	// the solver returns invalid, and the upstream identity pose lands on
-	// the CineCamera — visually "B's camera at world origin" for the cut
-	// frame in PIE / Game. Editor scrub doesn't hit this because the gate
-	// bypasses editor worlds entirely (see GateInstantiator) so B's
-	// component has been ticking continuously and CineCam is already at the
-	// correct pose by the time the cut fires.
-	//
-	// Re-running EvaluateOnce here, AFTER we've just installed the very
-	// first override entry for a section, runs the framing-node solver with
-	// the now-populated `SequencerShotOverrides` and re-projects to the
-	// CineCam in the same frame the cut renders. The `bEvaluationEnabled`
-	// guard avoids spawning the InternalCamera for a Shot input the gate
-	// has chosen NOT to enable (the `OnAnimate` walk pushes overrides for
-	// every in-range section regardless of gate state, but only enabled
-	// components should pay the per-tick evaluation cost).
-	//
-	// Cost: one extra EvaluateOnce on each section's first in-range frame.
-	// Steady-state in-range frames hit the `!bIsNewEntry` short-circuit and
-	// rely on the normal TickComponent path, so this is not a per-frame
-	// regression.
+	// TrackInstance::OnAnimate can push a Shot override after this component
+	// has already ticked for the frame. Re-run once at zero delta when a
+	// section first appears so the CineCamera receives the authored Shot pose
+	// before the cut renders. Steady-state frames use TickComponent only.
 	if (bIsNewEntry && bEvaluationEnabled)
 	{
 		// `EvaluateOnce` would short-circuit through `TickCamera`'s
-		// per-frame memoization if the gate's flip already ticked the
-		// camera this frame (cached pose was solved against an empty
+		// per-frame memoization if an earlier evaluation already ticked the
+		// camera this frame (cached pose may have been solved against an empty
 		// override map and is exactly the bad pose we're trying to
 		// replace). LSComp's InternalCamera lives outside the snapshot
 		// DAG, so bypassing the cache here is safe — see
@@ -830,6 +858,7 @@ void UComposableCameraLevelSequenceComponent::SetSequencerShotOverride(
 		{
 			InternalCamera->InvalidateTickCache();
 		}
+		bEvaluateNextTickWithZeroDelta = false;
 		EvaluateOnce(0.f);
 	}
 }

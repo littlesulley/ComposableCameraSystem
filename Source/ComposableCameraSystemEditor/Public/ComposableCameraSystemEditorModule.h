@@ -27,6 +27,10 @@ public:
      *  per-section TargetActorOverrides (FMovieSceneObjectBindingID) to
      *  live actors without baking a hard dep on LevelSequenceEditor. */
     TSharedPtr<ISequencer> FindOpenSequencerForSequence(UMovieSceneSequence* Sequence) const;
+
+    /** Returns every live Sequencer instance currently tracked by the editor
+     *  module, pruning closed windows along the way. */
+    TArray<TSharedPtr<ISequencer>> GetLiveSequencers() const;
 private:
     void RegisterDetailsCustomizations();
     void UnregisterDetailsCustomizations();

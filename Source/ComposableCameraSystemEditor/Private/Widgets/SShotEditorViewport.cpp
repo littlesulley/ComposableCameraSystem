@@ -4,6 +4,7 @@
 
 #include "AdvancedPreviewScene.h"
 #include "Editors/ComposableCameraShotEditorViewportClient.h"
+#include "Utilities/ComposableCameraViewportTransformClipboard.h"
 
 void SShotEditorViewport::Construct(const FArguments& /*InArgs*/)
 {
@@ -91,6 +92,14 @@ bool SShotEditorViewport::CanReverseSolveCurrentCamera() const
 bool SShotEditorViewport::ReverseSolveCurrentCameraToShot()
 {
 	return ViewportClient.IsValid() && ViewportClient->ReverseSolveCurrentCameraToShot();
+}
+
+bool SShotEditorViewport::CopyCurrentCameraTransformToClipboard() const
+{
+	return ViewportClient.IsValid()
+		&& FComposableCameraViewportTransformClipboard::CopyViewportCameraTransform(
+			*ViewportClient,
+			NSLOCTEXT("SShotEditorViewport", "ShotEditorViewport", "Shot Editor viewport"));
 }
 
 TSharedRef<FEditorViewportClient> SShotEditorViewport::MakeEditorViewportClient()

@@ -13,6 +13,7 @@
 class AComposableCameraCameraBase;
 class UCineCameraComponent;
 class UComposableCameraTransitionDataAsset;
+class UMovieSceneSequencePlayer;
 class UMovieSceneComposableCameraPatchSection;
 class UMovieSceneComposableCameraShotSection;
 struct FComposableCameraPose;
@@ -205,32 +206,14 @@ public:
 	// ─── Sequencer-facing API ────────────────────────────────────────────
 
 	/**
-	 * Gate for on-demand ticking.
+	 * Enable or disable component-driven evaluation.
 	 *
-	 * Default: ON. OnRegister unconditionally calls SetEvaluationEnabled(true)
-	 * so every LS Actor ticks by default (same as pre-Phase-G behavior). The
-	 * ECS gate (UMovieSceneComposableCameraGateInstantiator) does not "open"
-	 * the gate — it CLOSES it for tracked entities that aren't currently the
-	 * Camera Cut Track's target or a blend participant. Entities it cannot
-	 * reach (pre-upgrade LS assets, UE 5.5+ custom-binding spawnables the hook
-	 * doesn't see, non-Sequencer hosts) keep the default always-on behavior,
-	 * which is the correct graceful degradation.
-	 *
-	 * Toggling to false tears down the internal camera so the Actor can go
-	 * fully idle; toggling back to true respawns it lazily on the first tick.
+	 * Level Sequence Spawn Tracks own actor lifetime. This flag is a local
+	 * component switch used by teardown / external hosts; disabling destroys the
+	 * transient internal camera, and enabling evaluates lazily on the next tick.
 	 */
 	void SetEvaluationEnabled(bool bEnabled);
 	bool IsEvaluationEnabled() const { return bEvaluationEnabled; }
-
-	/**
-	 * Forward-compat hooks for a future ECS instantiator. The V1.4 simplified
-	 * path doesn't route through these — Sequencer's stock property tracks
-	 * write the bag directly and the per-tick ApplyParameterBlock picks it up.
-	 * Left in place (as no-ops) so external integrations don't have to be
-	 * re-wired when a proper instantiator is added later.
-	 */
-	void SetParameterValue(FName Name, const void* Value, EComposableCameraPinType Type);
-	void SetVariableValue(FName Name, const void* Value, EComposableCameraPinType Type);
 
 	/** Access the internal camera for editor-side inspection / debugging. */
 	AComposableCameraCameraBase* GetInternalCamera() const { return InternalCamera; }
@@ -255,10 +238,9 @@ public:
 	// pose (Position + Rotation + FOV) is projected onto the CineCamera.
 	//
 	// Same path runs in BOTH editor preview (Sequencer scrub in the editor
-	// viewport) AND PIE (Camera Cut Track targets the LS Actor). The ECS gate
-	// (UMovieSceneComposableCameraGateInstantiator) handles whether this
-	// component is ticking at all — Sequencer patches naturally apply only
-	// while the LS Actor is the active camera target.
+	// viewport) AND PIE (Camera Cut Track targets the LS Actor). Spawn Tracks
+	// own LS Actor lifetime; patches naturally apply only while their host
+	// component exists and ticks.
 	//
 	// Patches added via the BP library `AddCameraPatch(PlayerIndex, ContextName, ...)`
 	// are a separate path that lives on the gameplay PCM/Director, not here.
@@ -340,8 +322,11 @@ private:
 	UPROPERTY(Transient)
 	TObjectPtr<AComposableCameraCameraBase> InternalCamera;
 
-	/** Gate for on-demand ticking; see SetEvaluationEnabled. */
+	/** Local evaluation switch; see SetEvaluationEnabled. */
 	bool bEvaluationEnabled = false;
+
+	/** One-shot zero-delta evaluation consumed by TickComponent after enabling. */
+	bool bEvaluateNextTickWithZeroDelta = false;
 
 	/** Spawn InternalCamera if it doesn't exist yet, then call
 	 *  ConstructCameraFromTypeAsset with the current bag values. Safe to call
@@ -367,6 +352,15 @@ private:
 	 *  prunes stale entries (section GC'd) from the overlay map. */
 	void ApplySequencerPatchOverlays(FComposableCameraPose& InOutPose, float DeltaTime);
 
+	/** Resolve a DeltaTime that follows the owning Level Sequence playback
+	 *  speed. Falls back to world DeltaTime when this component is not owned by
+	 *  a Sequencer-spawned actor or no player can be found. */
+	float ResolveSequencerAwareDeltaTime(float WorldDeltaTime);
+
+	/** Find the runtime sequence player whose spawn register owns this
+	 *  component's Actor. Editor preview resolves through EditorHooks instead. */
+	UMovieSceneSequencePlayer* ResolveOwningSequencePlayer();
+
 	/** Active overlays keyed by section. Key is `TWeakObjectPtr` (NOT
 	 *  `TObjectPtr`) so a stale section that's been GC'd can actually go
 	 *  stale — a strong-ref key would keep every Sequencer-side patch
@@ -381,6 +375,10 @@ private:
 	 *  itself stays alive via Sequencer's own TrackInstance / SectionInterface
 	 *  ownership while it's a live edit target. */
 	TMap<TWeakObjectPtr<UMovieSceneComposableCameraPatchSection>, FComposableCameraSequencerPatchOverlay> SequencerPatchOverlays;
+
+	/** Runtime player cache used for Sequencer-aware DeltaTime scaling. Weak
+	 *  because players can disappear during Sequencer rebuild / PIE teardown. */
+	TWeakObjectPtr<UMovieSceneSequencePlayer> CachedOwningSequencePlayer;
 
 public:
 	/** Walk UObject references inside the non-UPROPERTY-reflected
@@ -410,12 +408,10 @@ private:
 	 * Run one full evaluation pass (parameter block sync → Shot override
 	 * apply → InternalCamera TickCamera → patch overlays → CineCamera
 	 * projection). Identical to a `TickComponent` body sans the
-	 * `Super::TickComponent` / gate-check shell. Factored out so
-	 * `SetEvaluationEnabled(true)` can force a same-frame solve when the
-	 * ECS gate first opens — without it, the LS Actor's CineCamera renders
-	 * one frame at its default (origin) transform on every cut into a
-	 * non-overlapping section, because the normal `TickComponent`
-	 * happens after the first PCM render.
+	 * `Super::TickComponent` / evaluation guard. Used by TickComponent and by
+	 * the Shot override first-entry path, where Sequencer has already pushed
+	 * the current Section data and the CineCamera must be re-projected before
+	 * the cut renders.
 	 *
 	 * `DeltaTime <= 0` is the standard "first-frame snap" signal —
 	 * downstream solvers (V2.2 IIR damping, scrub-aware nodes) treat it

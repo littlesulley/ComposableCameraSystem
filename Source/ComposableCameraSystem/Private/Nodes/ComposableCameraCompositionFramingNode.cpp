@@ -272,10 +272,9 @@ void UComposableCameraCompositionFramingNode::OnTickNode_Implementation(
 
 		// Signal to the LS Component projection path: this tick produced no
 		// valid framing pose, so don't write the upstream-default pose over
-		// the CineCamera's current transform. Critical for the gate-flip-ON
-		// path where the synchronous EvaluateOnce(0) runs in instantiation
-		// phase — BEFORE the Shot TrackInstance pushes its first override
-		// in evaluation phase — and would otherwise burn an origin pose
+		// the CineCamera's current transform. Critical if evaluation runs
+		// before the Shot TrackInstance pushes its first override and would
+		// otherwise burn an origin pose
 		// onto a freshly-spawned LSShotActor's CineCam, which then leaks
 		// to the PCM ViewTarget POV and renders one frame at world origin.
 		// With the flag set, ProjectPoseToCineCamera holds the CineCam's

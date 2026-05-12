@@ -400,8 +400,8 @@ public:
 	 * `UComposableCameraLevelSequenceComponent`'s `InternalCamera` and the
 	 * Patch-overlay evaluators — can use this hook to rerun the chain after
 	 * pushing fresh inputs in the same frame (e.g. a Sequencer Shot / Patch
-	 * override applied AFTER the gate's instantiation-phase warm-up tick has
-	 * already burned a stale pose into the cache). Inside the DAG, calling
+	 * override applied after an earlier same-frame tick has already cached a
+	 * stale pose). Inside the DAG, calling
 	 * this would re-introduce the double-advance bug the cache exists to
 	 * prevent — DAG callers must not use it.
 	 */
@@ -570,9 +570,8 @@ public:
 	 * to skip the CineCamera transform write on solver failure, so the
 	 * CineCamera holds its last-valid transform instead of having a default-
 	 * identity (or upstream-default) pose burned in. Critical for the
-	 * gate-flip-ON path: when `SetEvaluationEnabled(true)` runs synchronous
-	 * `EvaluateOnce(0)` BEFORE the Shot TrackInstance has had a chance to
-	 * push its first override, the solver runs against the framing node's
+	 * invalid-framing path: if evaluation runs before Sequencer has pushed
+	 * the first Shot override, the solver runs against the framing node's
 	 * default empty Shot, fails, and would otherwise project an origin pose
 	 * onto the CineCam — destroying the camera's spawn-position transform
 	 * just before the PCM ViewTarget switch reads it.

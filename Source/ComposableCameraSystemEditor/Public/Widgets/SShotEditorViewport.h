@@ -131,6 +131,10 @@ public:
 	bool CanReverseSolveCurrentCamera() const;
 	bool ReverseSolveCurrentCameraToShot();
 
+	/** Copy this preview viewport's current camera transform to the system
+	 *  clipboard as FTransform text that UE property rows can paste. */
+	bool CopyCurrentCameraTransformToClipboard() const;
+
 protected:
 	// ─── SEditorViewport overrides ────────────────────────────────────────
 
