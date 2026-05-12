@@ -17,6 +17,7 @@
 #include "HAL/IConsoleManager.h"
 #include "Math/ComposableCameraMath.h"
 #include "Nodes/ComposableCameraCompositionFramingNode.h"
+#include "SceneInterface.h"
 #include "SceneView.h"
 
 namespace
@@ -25,10 +26,10 @@ namespace
 	static TAutoConsoleVariable<int32> CVarShowShotZones(
 		TEXT("CCS.Debug.Viewport.ShotZones"),
 		0,
-		TEXT("Show Cinemachine-style framing-zone overlay in the LS / PIE / Game\n")
+		TEXT("Show Cinemachine-style framing-zone overlay in PIE / Game runtime\n")
 		TEXT("viewport for every active CompositionFramingNode whose Aim or\n")
 		TEXT("Placement zones are enabled. Independent of `CCS.Debug.Viewport`\n")
-		TEXT("(the 3D-gizmo master switch).\n")
+		TEXT("(the 3D-gizmo master switch). Pure editor LS preview is ignored.\n")
 		TEXT("0 = off (default), 1 = on."),
 		ECVF_Default);
 
@@ -51,6 +52,25 @@ namespace
 
 	uint64         GLastDrawFrame  = 0;
 	const FCanvas* GLastDrawCanvas = nullptr;
+
+	const UWorld* ResolveCallbackWorld(const UCanvas* Canvas, const APlayerController* PC)
+	{
+		if (PC)
+		{
+			return PC->GetWorld();
+		}
+		if (Canvas && Canvas->SceneView && Canvas->SceneView->Family && Canvas->SceneView->Family->Scene)
+		{
+			return Canvas->SceneView->Family->Scene->GetWorld();
+		}
+		return nullptr;
+	}
+
+	bool IsRuntimeCallback(const UCanvas* Canvas, const APlayerController* PC)
+	{
+		const UWorld* World = ResolveCallbackWorld(Canvas, PC);
+		return World && World->IsGameWorld();
+	}
 
 	// ─────────────────────────────────────────────────────────────────────
 	// Drawing helpers
@@ -305,6 +325,10 @@ namespace
 			return;
 		}
 		if (!UCanvasObj || !UCanvasObj->Canvas)
+		{
+			return;
+		}
+		if (!IsRuntimeCallback(UCanvasObj, PC))
 		{
 			return;
 		}

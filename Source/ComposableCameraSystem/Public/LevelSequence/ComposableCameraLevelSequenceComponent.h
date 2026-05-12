@@ -436,13 +436,18 @@ private:
 
 	/** Last frame's resolved *primary* Section (lowest RowIndex among the
 	 *  active overrides). `ApplyActiveSequencerShotOverride` compares this
-	 *  to the current frame's primary; mismatch = section transition with
-	 *  no overlap (cut), which the framing node must treat as a hard
-	 *  reseed of its V2.2 damping state to avoid bleeding the previous
-	 *  shot's Distance / FOV / Roll into the new one. Phase F blend
-	 *  exits already trigger the same reseed independently inside
-	 *  `SetActiveShotsFromSequencer`; this tracker is for the
-	 *  non-overlap cut path that the blend logic doesn't cover. */
+	 *  to the current frame's primary; mismatch = section transition.
+	 *  The framing node either reseeds its primary prior state for a true
+	 *  hard cut, or promotes the previous secondary prior when the incoming
+	 *  Section becomes the new primary after an authored overlap. */
 	UPROPERTY(Transient)
 	TWeakObjectPtr<UMovieSceneComposableCameraShotSection> LastActivePrimarySection;
+
+	/** Last frame's resolved *secondary* Section (next-lowest RowIndex).
+	 *  Used to recognize the normal overlap exit A+B -> B, where B should
+	 *  inherit the secondary prior cache instead of hard-seeding as a fresh
+	 *  primary on the first post-blend frame. Also detects secondary swaps
+	 *  like A+B -> A+C so C starts from its own authored pose. */
+	UPROPERTY(Transient)
+	TWeakObjectPtr<UMovieSceneComposableCameraShotSection> LastActiveSecondarySection;
 };

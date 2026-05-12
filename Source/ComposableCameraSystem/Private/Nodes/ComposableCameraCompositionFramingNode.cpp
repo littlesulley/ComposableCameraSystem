@@ -420,22 +420,20 @@ void UComposableCameraCompositionFramingNode::SetActiveShotsFromSequencer(
 	const FComposableCameraShot* InSecondaryShot,
 	UComposableCameraTransitionDataAsset* InTransition,
 	float InAlpha,
-	bool bPrimaryChanged)
+	bool bPrimaryChanged,
+	bool bPrimaryWasPreviousSecondary,
+	bool bSecondaryChanged)
 {
-	const bool bWasInBlend  = bHasSecondaryShot;
 	const bool bWillBeInBlend = (InSecondaryShot != nullptr && InTransition != nullptr);
 
-	// Primary cache must reseed in two distinct cases:
+	// Primary prior state follows Section identity:
 	//
-	//   1. **Leaving a blend** (was secondary-active, now isn't). The
-	//      outgoing primary section has expired and the *new* primary is
-	//      typically what the previous secondary was carrying. The
-	//      framing node has no asset-identity hook to verify "is this
-	//      the same shot that was the secondary last frame", so it
-	//      can't promote `LastSecondaryOutputPose → LastPrimaryOutputPose`.
-	//      Reseed the primary cache so the next OnTickNode V1-hard-seeds.
+	//   1. **Authored overlap exit** (A+B -> B). The LSComponent knows
+	//      the current primary was last frame's secondary, so we promote
+	//      `LastSecondaryOutputPose -> LastPrimaryOutputPose` and keep
+	//      zone / damping state continuous.
 	//
-	//   2. **Section A → B cut, no overlap** (`bPrimaryChanged` set by
+	//   2. **Section A -> B cut, no overlap** (`bPrimaryChanged` set by
 	//      the LSComponent). Without reseeding, V2.2 damping (Distance /
 	//      FOV / Roll) carries the previous shot's pose values into the
 	//      new shot's first frame — the camera glides from Shot A's
@@ -444,16 +442,36 @@ void UComposableCameraCompositionFramingNode::SetActiveShotsFromSequencer(
 	//      reported during V2.2 polish: "进入 Shot 时有 damping 效果而
 	//      不是一帧就到指定位置". Reseeding here makes cuts cuts.
 	//
-	// Designer-visible cost in either case: a single frame where the
-	// anchor snaps into composition center instead of riding the prior
-	// soft-zone trajectory — accepted in the design discussion as the
-	// cost of preserving cut-as-cut semantics on Section transitions.
-	if (bPrimaryChanged || (bWasInBlend && !bWillBeInBlend))
+	// Designer-visible cost on true hard cuts: one hard-seed frame where
+	// the anchor snaps to the authored screen position instead of riding
+	// the previous shot's soft-zone trajectory.
+	if (bPrimaryChanged)
 	{
-		bHasLastPrimaryOutputPose = false;
-		LastPrimaryDistance       = -1.f;
-		LastPrimaryFOV            = -1.f;
-		LastPrimaryRoll           = TNumericLimits<float>::Max();
+		if (bPrimaryWasPreviousSecondary && bHasLastSecondaryOutputPose)
+		{
+			LastPrimaryOutputPosition = LastSecondaryOutputPosition;
+			LastPrimaryOutputRotation = LastSecondaryOutputRotation;
+			LastPrimaryDistance       = LastSecondaryDistance;
+			LastPrimaryFOV            = LastSecondaryFOV;
+			LastPrimaryRoll           = LastSecondaryRoll;
+			bHasLastPrimaryOutputPose = true;
+		}
+		else
+		{
+			bHasLastPrimaryOutputPose = false;
+			LastPrimaryDistance       = -1.f;
+			LastPrimaryFOV            = -1.f;
+			LastPrimaryRoll           = TNumericLimits<float>::Max();
+		}
+	}
+
+	if (bWillBeInBlend && bSecondaryChanged)
+	{
+		// A+B -> A+C: C must not inherit B's zone / damping prior.
+		bHasLastSecondaryOutputPose = false;
+		LastSecondaryDistance       = -1.f;
+		LastSecondaryFOV            = -1.f;
+		LastSecondaryRoll           = TNumericLimits<float>::Max();
 	}
 
 	Shot = InPrimaryShot;
@@ -465,7 +483,7 @@ void UComposableCameraCompositionFramingNode::SetActiveShotsFromSequencer(
 	// Phase F decision that null `EnterTransition` = hard cut, equivalent
 	// to no blending at the section boundary (incoming snaps in only when
 	// the outgoing's range ends and removes itself from the override map).
-	if (InSecondaryShot && InTransition)
+	if (bWillBeInBlend)
 	{
 		SecondaryShot         = *InSecondaryShot;
 		bHasSecondaryShot     = true;

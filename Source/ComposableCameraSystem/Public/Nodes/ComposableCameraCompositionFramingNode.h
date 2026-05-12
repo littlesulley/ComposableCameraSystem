@@ -150,16 +150,19 @@ public:
 	 *                     active *primary* Section has changed since the
 	 *                     previous tick (Section A → Section B with no
 	 *                     overlap, Section bind to a different ShotAsset,
-	 *                     etc.). Triggers a primary-state reseed
-	 *                     (`bHasLastPrimaryOutputPose = false`,
-	 *                     `LastPrimaryDistance / FOV / Roll` cleared) so
-	 *                     V2.2 damping doesn't carry the previous shot's
-	 *                     pose into the new shot's first frame — without
-	 *                     this, Distance / FOV / Roll damping would visibly
-	 *                     glide between the two shots' poses on every cut.
-	 *                     Phase F blend exits already trigger the same
-	 *                     reseed independently; this flag covers the
-	 *                     non-overlap cut case.
+	 *                     etc.).
+	 *   bPrimaryWasPreviousSecondary
+	 *                  → true iff this primary was the previous frame's
+	 *                     secondary. Used for authored overlap exits
+	 *                     (A+B → B): the secondary prior cache is promoted
+	 *                     to primary so the first post-blend frame continues
+	 *                     the same zone / damping state instead of hard-
+	 *                     seeding and popping. When false, a changed primary
+	 *                     is treated as a hard cut and reseeds.
+	 *   bSecondaryChanged
+	 *                  → true iff the active secondary Section identity
+	 *                     changed. Clears secondary prior state so A+B
+	 *                     followed by A+C does not feed B's cache into C.
 	 *
 	 * Persistence: the node retains the last-written state across frames.
 	 * When the LSComponent's override map empties, no further calls happen
@@ -171,7 +174,9 @@ public:
 		const FComposableCameraShot* InSecondaryShot,
 		UComposableCameraTransitionDataAsset* InTransition,
 		float InAlpha,
-		bool bPrimaryChanged = false);
+		bool bPrimaryChanged = false,
+		bool bPrimaryWasPreviousSecondary = false,
+		bool bSecondaryChanged = false);
 
 	/**
 	 * Push the effective render aspect ratio for solver use. The node by
@@ -230,11 +235,12 @@ private:
 	//                                 each shot performs seeds the cache.
 	//   - First successful primary solve  → seeds `LastPrimaryOutputPose`.
 	//   - Same for secondary on first valid blend tick.
-	//   - `SetActiveShotsFromSequencer` detects secondary deactivation
-	//     (incoming `bHasSecondaryShot=false` after a frame where it was
-	//     true) and clears the primary cache so the next tick re-seeds via
-	//     a hard solve — visible as one frame of snap framing on each
-	//     section boundary, accepted in the design discussion.
+	//   - `SetActiveShotsFromSequencer` promotes the secondary prior into
+	//     primary when an authored overlap exits as A+B -> B. True hard
+	//     cuts still clear the primary cache so the next tick re-seeds via
+	//     a hard solve.
+	//   - Secondary Section identity changes clear the secondary cache so
+	//     a new overlap participant starts from its own authored pose.
 	//   - Scrub / reverse playback (`DeltaTime <= 0`) is NOT detected as a
 	//     state-reset trigger by design — designers accept the single-shot
 	//     determinism penalty in exchange for not having to author scrub-

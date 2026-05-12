@@ -476,6 +476,8 @@ void UComposableCameraLevelSequenceComponent::DestroyInternalCamera()
 	// above; on the next EnsureInternalCamera the framing node is fresh
 	// (default-constructed Shot) until a new override fires.
 	SequencerShotOverrides.Reset();
+	LastActivePrimarySection = nullptr;
+	LastActiveSecondarySection = nullptr;
 }
 
 void UComposableCameraLevelSequenceComponent::AddReferencedObjects(UObject* InThis, FReferenceCollector& Collector)
@@ -872,6 +874,7 @@ void UComposableCameraLevelSequenceComponent::RemoveSequencerShotOverride(
 	}
 
 	const bool bRemovedPrimary = (LastActivePrimarySection.Get() == Section);
+	const bool bRemovedSecondary = (LastActiveSecondarySection.Get() == Section);
 	SequencerShotOverrides.Remove(Section);
 
 	// TickComponent only calls ApplyActiveSequencerShotOverride while the
@@ -883,6 +886,10 @@ void UComposableCameraLevelSequenceComponent::RemoveSequencerShotOverride(
 	if (bRemovedPrimary || SequencerShotOverrides.Num() == 0)
 	{
 		LastActivePrimarySection = nullptr;
+	}
+	if (bRemovedSecondary || SequencerShotOverrides.Num() == 0)
+	{
+		LastActiveSecondarySection = nullptr;
 	}
 }
 
@@ -930,6 +937,7 @@ void UComposableCameraLevelSequenceComponent::ApplyActiveSequencerShotOverride()
 		// fail to reseed even though the camera held its last pose
 		// across the gap.
 		LastActivePrimarySection = nullptr;
+		LastActiveSecondarySection = nullptr;
 		return;
 	}
 
@@ -942,6 +950,8 @@ void UComposableCameraLevelSequenceComponent::ApplyActiveSequencerShotOverride()
 	const FComposableCameraSequencerShotEntry* Secondary =
 		SortedEntries.Num() >= 2 ? SortedEntries[1].Entry : nullptr;
 	UMovieSceneComposableCameraShotSection* PrimarySection = SortedEntries[0].Section;
+	UMovieSceneComposableCameraShotSection* SecondarySection =
+		SortedEntries.Num() >= 2 ? SortedEntries[1].Section : nullptr;
 
 	// Find the first UComposableCameraCompositionFramingNode on the
 	// InternalCamera's CameraNodes array. The DefaultShotTypeAsset bootstrap
@@ -984,16 +994,18 @@ void UComposableCameraLevelSequenceComponent::ApplyActiveSequencerShotOverride()
 		UE::ComposableCameras::GetEffectiveAspectRatioForCineCamera(OutputCineCameraComponent);
 	Framing->SetExternalAspectRatioOverride(EffectiveAspect);
 
-	// Detect a *primary section* transition (Section A → B with no overlap,
-	// or section bind to a different ShotAsset). Drives V2.2 damping reseed
-	// on the framing-node side so cuts are visually instantaneous instead
-	// of glided. Comparison uses raw section pointers — TWeakObjectPtr
-	// equality would re-validate every frame, the raw compare costs one
-	// branch and is correct because the LastActivePrimarySection's weak
-	// ptr was set from the same map-key TWeakObjectPtr last frame (no
-	// dangling-after-GC risk here).
+	// Detect primary/secondary Section identity changes. If current primary
+	// was last frame's secondary, this is the authored overlap handoff
+	// (A+B -> B) and the framing node should promote secondary prior state.
+	// A changed secondary reseeds its own prior cache (A+B -> A+C).
+	// Otherwise a changed primary is a true hard cut and should reseed.
 	const bool bPrimaryChanged = (LastActivePrimarySection.Get() != PrimarySection);
+	UMovieSceneComposableCameraShotSection* LastSecondarySection = LastActiveSecondarySection.Get();
+	const bool bPrimaryWasPreviousSecondary =
+		bPrimaryChanged && LastSecondarySection == PrimarySection;
+	const bool bSecondaryChanged = (LastSecondarySection != SecondarySection);
 	LastActivePrimarySection = PrimarySection;
+	LastActiveSecondarySection = SecondarySection;
 
 	// Push (Primary, Secondary?, Transition?, Alpha) tuple to the framing
 	// node. The node's `SetActiveShotsFromSequencer` decides whether to run
@@ -1008,7 +1020,9 @@ void UComposableCameraLevelSequenceComponent::ApplyActiveSequencerShotOverride()
 			&Secondary->Shot,
 			Secondary->EnterTransition,
 			Secondary->BlendAlpha,
-			bPrimaryChanged);
+			bPrimaryChanged,
+			bPrimaryWasPreviousSecondary,
+			bSecondaryChanged);
 	}
 	else
 	{
@@ -1017,7 +1031,9 @@ void UComposableCameraLevelSequenceComponent::ApplyActiveSequencerShotOverride()
 			/*InSecondaryShot=*/nullptr,
 			/*InTransition=*/nullptr,
 			/*InAlpha=*/0.0f,
-			bPrimaryChanged);
+			bPrimaryChanged,
+			bPrimaryWasPreviousSecondary,
+			bSecondaryChanged);
 	}
 }
 
