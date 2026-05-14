@@ -325,14 +325,14 @@ void UComposableCameraNodeGraph::ApplyBuildMessagesToGraphNodes()
 		return;
 	}
 
-	// Collect every camera graph node once so we can both clear existing error
-	// state and look up by NodeIndex without repeated scans of Nodes[]. Only
-	// camera-chain graph nodes are indexed by `NodeIndex` into
-	// OwningTypeAsset->NodeTemplates - variable and sentinel graph nodes are
-	// not addressed by BuildMessages in v1 and keep their error fields as-is
-	// (which is empty from the clear pass below for any node we do touch).
+	// Collect every graph node once so we can both clear existing error state
+	// and look up by chain-local NodeIndex without repeated scans of Nodes[].
+	// Camera nodes and compute nodes each start at NodeIndex 0, so BuildMessages
+	// carry bIsComputeChain to disambiguate the two index spaces.
 	TMap<int32, UComposableCameraNodeGraphNode*> IndexToCameraNode;
+	TMap<int32, UComposableCameraNodeGraphNode*> IndexToComputeNode;
 	IndexToCameraNode.Reserve(Nodes.Num());
+	IndexToComputeNode.Reserve(Nodes.Num());
 
 	for (UEdGraphNode* EdNode: Nodes)
 	{
@@ -346,11 +346,18 @@ void UComposableCameraNodeGraph::ApplyBuildMessagesToGraphNodes()
 		EdNode->ErrorType = EMessageSeverity::Info;
 		EdNode->ErrorMsg.Reset();
 
-		if (UComposableCameraNodeGraphNode* CameraNode = Cast<UComposableCameraNodeGraphNode>(EdNode))
+		if (UComposableCameraNodeGraphNode* GraphNode = Cast<UComposableCameraNodeGraphNode>(EdNode))
 		{
-			if (CameraNode->NodeIndex != INDEX_NONE)
+			if (GraphNode->NodeIndex != INDEX_NONE && GraphNode->NodeTemplate)
 			{
-				IndexToCameraNode.Add(CameraNode->NodeIndex, CameraNode);
+				if (GraphNode->NodeTemplate->IsA<UComposableCameraComputeNodeBase>())
+				{
+					IndexToComputeNode.Add(GraphNode->NodeIndex, GraphNode);
+				}
+				else
+				{
+					IndexToCameraNode.Add(GraphNode->NodeIndex, GraphNode);
+				}
 			}
 		}
 	}
@@ -373,7 +380,9 @@ void UComposableCameraNodeGraph::ApplyBuildMessagesToGraphNodes()
 			continue;
 		}
 
-		UComposableCameraNodeGraphNode** Found = IndexToCameraNode.Find(Msg.NodeIndex);
+		TMap<int32, UComposableCameraNodeGraphNode*>* IndexToNode =
+			Msg.bIsComputeChain ? &IndexToComputeNode : &IndexToCameraNode;
+		UComposableCameraNodeGraphNode** Found = IndexToNode->Find(Msg.NodeIndex);
 		if (!Found || !*Found)
 		{
 			continue;
@@ -662,8 +671,7 @@ void UComposableCameraNodeGraph::SyncPhase_RebuildComputePinConnections(const TA
 	// Cross-chain data wires are schema-disallowed, so we only need to look
 	// at links whose source is also a compute graph node - anything else
 	// indicates corrupted state we'd rather drop than preserve. Variable
-	// nodes cannot legally wire into compute pins in v1, so any variable
-	// node on the other end is treated as stale and skipped.
+	// Get node wires are captured in VariableNodes instead, not here.
 
 	TArray<FComposableCameraPinConnection> NewComputeConnections;
 
@@ -816,8 +824,12 @@ void UComposableCameraNodeGraph::SyncPhase_RebuildExecutionChain(const UComposab
 					if (const UComposableCameraNodeGraphNode* SourceCameraNode =
 						Cast<UComposableCameraNodeGraphNode>(SourcePin->GetOwningNode()))
 					{
-						Entry.CameraNodeIndex = SourceCameraNode->NodeIndex;
-						Entry.SourcePinName = SourcePin->PinName;
+						if (SourceCameraNode->NodeTemplate &&
+							!SourceCameraNode->NodeTemplate->IsA<UComposableCameraComputeNodeBase>())
+						{
+							Entry.CameraNodeIndex = SourceCameraNode->NodeIndex;
+							Entry.SourcePinName = SourcePin->PinName;
+						}
 					}
 				}
 			}
@@ -952,8 +964,12 @@ void UComposableCameraNodeGraph::SyncPhase_RebuildComputeExecutionChain(const UC
 					if (const UComposableCameraNodeGraphNode* SourceComputeNode =
 						Cast<UComposableCameraNodeGraphNode>(SourcePin->GetOwningNode()))
 					{
-						Entry.CameraNodeIndex = SourceComputeNode->NodeIndex;
-						Entry.SourcePinName = SourcePin->PinName;
+						if (SourceComputeNode->NodeTemplate &&
+							SourceComputeNode->NodeTemplate->IsA<UComposableCameraComputeNodeBase>())
+						{
+							Entry.CameraNodeIndex = SourceComputeNode->NodeIndex;
+							Entry.SourcePinName = SourcePin->PinName;
+						}
 					}
 				}
 			}
@@ -985,10 +1001,9 @@ void UComposableCameraNodeGraph::SyncPhase_RebuildVariableNodeRecords(const TArr
 	//
 	// The record's bIsComputeChain flag is determined by the schema's
 	// ClassifyChainForNode - for Set nodes this follows the exec wires
-	// backward; for Get nodes it defaults to camera chain (Get nodes are
-	// chain-agnostic for data wires, so the flag only affects Set nodes'
-	// index-space interpretation). The connection's CameraNodeIndex indexes
-	// into the chain-appropriate template array.
+	// backward. Get nodes are chain-agnostic pure data readers, so each
+	// connection records its own chain from the endpoint node. The connection's
+	// CameraNodeIndex indexes into the chain-appropriate template array.
 
 	TArray<FComposableCameraVariableNodeRecord> NewVariableRecords;
 	NewVariableRecords.Reserve(VariableGraphNodes.Num());
@@ -1032,6 +1047,16 @@ void UComposableCameraNodeGraph::SyncPhase_RebuildVariableNodeRecords(const TArr
 				FComposableCameraVariablePinConnection VarConn;
 				VarConn.CameraNodeIndex = EndpointGraphNode->NodeIndex;
 				VarConn.CameraPinName = LinkedPin->PinName;
+				const EComposableCameraGraphChain EndpointChain =
+					UComposableCameraNodeGraphSchema::ClassifyChainForNode(EndpointGraphNode);
+				VarConn.bIsComputeChain = EndpointChain == EComposableCameraGraphChain::Compute;
+
+				if (Record.bIsSetter
+					&& Chain != EComposableCameraGraphChain::Unclassified
+					&& VarConn.bIsComputeChain != Record.bIsComputeChain)
+				{
+					continue;
+				}
 				Record.Connections.Add(VarConn);
 			}
 		}
@@ -1442,12 +1467,12 @@ void UComposableCameraNodeGraph::RebuildPhase_RestoreVariableGraphNodes(const TA
 			continue;
 		}
 
-		// Choose the graph nodes array based on the record's chain.
-		const TArray<UComposableCameraNodeGraphNode*>& EndpointGraphNodes =
-			Record.bIsComputeChain ? CreatedComputeGraphNodes: CreatedGraphNodes;
-
 		for (const FComposableCameraVariablePinConnection& Conn: Record.Connections)
 		{
+			const bool bConnectionIsComputeChain =
+				Conn.bIsComputeChain || (Record.bIsSetter && Record.bIsComputeChain);
+			const TArray<UComposableCameraNodeGraphNode*>& EndpointGraphNodes =
+				bConnectionIsComputeChain ? CreatedComputeGraphNodes: CreatedGraphNodes;
 			if (!EndpointGraphNodes.IsValidIndex(Conn.CameraNodeIndex))
 			{
 				continue;

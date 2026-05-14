@@ -61,7 +61,7 @@ public:
 
 	// The explicit actor determining the local space if you choose actor local space.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters, meta = (EditCondition = "PivotOffsetType == ECameraPivotOffset::ActorLocalSpace && ActorForLocalSpaceSource == EComposableCameraActorInputSource::ExplicitActor", EditConditionHides))
-	TSoftObjectPtr<AActor> ActorForLocalSpace = nullptr;
+	TObjectPtr<AActor> ActorForLocalSpace { nullptr };
 
 	// The offset.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters)

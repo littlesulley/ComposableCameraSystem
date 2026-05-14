@@ -65,7 +65,7 @@ public:
 
 	// Reference actor when ActorSpace is used. Its transform will be used as the reference frame.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters, meta = (EditCondition = "ConstrainYawType == EComposableCameraRotationConstrainType::ActorSpace && ActorForYawConstrainSource == EComposableCameraActorInputSource::ExplicitActor", EditConditionHides))
-	TSoftObjectPtr<AActor> ActorForYawConstrain { nullptr };
+	TObjectPtr<AActor> ActorForYawConstrain { nullptr };
 
 	// Reference vector when VectorSpace is used. It will serve as the forward vector of the reference frame.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters, meta = (EditCondition = "ConstrainYawType == EComposableCameraRotationConstrainType::VectorSpace"))
@@ -89,7 +89,7 @@ public:
 
 	// Reference actor when ActorSpace is used. Its transform will be used as the reference frame.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters, meta = (EditCondition = "ConstrainPitchType == EComposableCameraRotationConstrainType::ActorSpace && ActorForPitchConstrainSource == EComposableCameraActorInputSource::ExplicitActor", EditConditionHides))
-	TSoftObjectPtr<AActor> ActorForPitchConstrain { nullptr };
+	TObjectPtr<AActor> ActorForPitchConstrain { nullptr };
 
 	// Reference vector when VectorSpace is used. It will serve as the forward vector of the reference frame.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters, meta = (EditCondition = "ConstrainPitchType == EComposableCameraRotationConstrainType::VectorSpace"))
@@ -100,6 +100,6 @@ public:
 	FVector2D PitchRange { FVector2D {-70., 70.} };
 
 private:
-	double FindTargetYawInRange(const double WorldCurrentYaw, const FVector2D& Vector2);
+	double FindTargetYawInRange(double WorldCurrentYaw, double WorldPivotYaw, const FVector2D& PivotSpaceYawRange);
 	double FindTargetPitchInRange(const double WorldCurrentPitch, const FVector2D& Vector2);
 };

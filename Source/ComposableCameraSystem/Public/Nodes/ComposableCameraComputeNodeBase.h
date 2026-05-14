@@ -10,16 +10,17 @@
  * Base class for one-shot compute nodes that run on the BeginPlay chain.
  *
  * Compute nodes are NOT camera nodes in the per-frame-evaluated sense. They
- * run exactly once, between per-node Initialize and the first TickCamera, and
- * their job is to perform arbitrary math / data shaping in C++ and publish
- * the result to camera-level internal variables (or to output pins that are
- * then plumbed through the graph).
+ * run exactly once, between per-node Initialize and the first TickCamera.
+ * Typical nodes perform arbitrary math / data shaping in C++ and publish the
+ * result to camera-level internal variables or output pins. Pose-initializer
+ * nodes may also write the owning camera's CameraPose directly when that is
+ * their explicit responsibility.
  *
  * Why a dedicated base class instead of "just use a camera node"?
  * --------------------------------------------------------------
  *   - Camera nodes are walked per-frame by TickCamera and multicast through
- *     OnPreTick / OnPostTick. A compute node must not touch any of that. It
- *     would otherwise burn hot-path time on values that never change.
+ *     OnPreTick / OnPostTick. Compute nodes deliberately skip that per-frame
+ *     path, so one-shot setup does not burn hot-path time every frame.
  *   - Compute nodes still need the pin system (GetInputPinValue /
  *     SetOutputPinValue / Set/GetInternalVariable), which only lives on
  *     UComposableCameraCameraNodeBase. Inheriting from it is the cheapest
@@ -39,8 +40,10 @@
  *   - K2 math graph nodes from the BlueprintGraph module do not work in our
  *     custom UEdGraph without significant engineering. The pragmatic Option
  *     B is: author a compute node in C++, use FMath / FVector / FQuat /
- *     UKismetMathLibrary directly, publish the result to internal variables,
- *     and let downstream camera nodes consume them.
+ *     UKismetMathLibrary directly, publish the result to internal variables
+ *     or output pins, and let downstream camera nodes consume them. Nodes
+ *     whose whole purpose is initial pose setup can instead write CameraPose
+ *     before the first TickCamera.
  *   - Subclasses describe their inputs and outputs with the same pin
  *     declaration system as camera nodes (GetPinDeclarations), which keeps
  *     editor palette / pin rendering / type-asset authoring uniform.
@@ -56,7 +59,8 @@
  *      AComposableCameraCameraBase::BeginPlayCamera(), which walks the
  *      ComputeNodes array in order and calls ExecuteBeginPlay() on each.
  *   4. First TickCamera then runs with whatever internal variables / output
- *      pins the compute chain published.
+ *      pins the compute chain published, or with any CameraPose initialized
+ *      by an explicit pose-initializer compute node.
  *
  * Compute nodes must NOT register for OnPreTick / OnPostTick and must NOT
  * override OnTickNode_Implementation. They are not per-frame nodes. The

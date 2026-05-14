@@ -658,6 +658,11 @@ void UComposableCameraNodeGraphSchema::GetContextMenuActions(class UToolMenu* Me
 		if (UComposableCameraNodeGraphNode* CameraGraphNode =
 			Cast<UComposableCameraNodeGraphNode>(const_cast<UEdGraphNode*>(ClickedNode)))
 		{
+			if (!CameraGraphNode->NodeTemplate ||
+				CameraGraphNode->NodeTemplate->IsA<UComposableCameraComputeNodeBase>())
+			{
+				return;
+			}
 			if (ClickedPin->Direction == EGPD_Input &&
 				ClickedPin->PinType.PinCategory != UEdGraphSchema_K2::PC_Exec)
 			{

@@ -24,12 +24,19 @@
 //     the runtime's linear-walk fallback path).
 
 #include "DataAssets/ComposableCameraTypeAsset.h"
+#include "Editors/ComposableCameraBeginPlayStartGraphNode.h"
+#include "Editors/ComposableCameraGraphNodeBase.h"
 #include "Editors/ComposableCameraNodeGraph.h"
 #include "Editors/ComposableCameraNodeGraphNode.h"
+#include "Editors/ComposableCameraVariableGraphNode.h"
+#include "EdGraph/EdGraphPin.h"
 #include "Misc/AutomationTest.h"
 #include "Nodes/ComposableCameraCameraNodeBase.h"
 #include "Nodes/ComposableCameraCameraOffsetNode.h"
+#include "Nodes/ComposableCameraComputeDistanceToActorNode.h"
 #include "Nodes/ComposableCameraNodePinTypes.h"
+#include "Nodes/ComposableCameraPivotOffsetNode.h"
+#include "Nodes/ComposableCameraSetRotationNode.h"
 
 #define LOCTEXT_NAMESPACE "ComposableCameraNodeGraphSyncTests"
 
@@ -76,6 +83,78 @@ namespace ComposableCameraNodeGraphSyncTest
 			}
 		}
 	};
+
+	UComposableCameraNodeGraphNode* AddCameraNode(
+		UComposableCameraTypeAsset* Asset,
+		UComposableCameraNodeGraph* Graph,
+		UComposableCameraCameraNodeBase* Template,
+		const FVector2D& Position)
+	{
+		const int32 NewIndex = Asset->NodeTemplates.Add(Template);
+		UComposableCameraNodeGraphNode* GraphNode =
+			NewObject<UComposableCameraNodeGraphNode>(Graph);
+		GraphNode->NodeTemplate = Template;
+		GraphNode->NodeIndex = NewIndex;
+		GraphNode->NodePosX = Position.X;
+		GraphNode->NodePosY = Position.Y;
+		GraphNode->AllocateDefaultPins();
+		Graph->AddNode(GraphNode, /*bFromUI=*/false, /*bSelectNewNode=*/false);
+		return GraphNode;
+	}
+
+	UComposableCameraNodeGraphNode* AddComputeNode(
+		UComposableCameraTypeAsset* Asset,
+		UComposableCameraNodeGraph* Graph,
+		UComposableCameraComputeNodeBase* Template,
+		const FVector2D& Position)
+	{
+		const int32 NewIndex = Asset->ComputeNodeTemplates.Add(Template);
+		UComposableCameraNodeGraphNode* GraphNode =
+			NewObject<UComposableCameraNodeGraphNode>(Graph);
+		GraphNode->NodeTemplate = Template;
+		GraphNode->NodeIndex = NewIndex;
+		GraphNode->NodePosX = Position.X;
+		GraphNode->NodePosY = Position.Y;
+		GraphNode->AllocateDefaultPins();
+		Graph->AddNode(GraphNode, /*bFromUI=*/false, /*bSelectNewNode=*/false);
+		return GraphNode;
+	}
+
+	UComposableCameraVariableGraphNode* AddGetVariableNode(
+		UComposableCameraNodeGraph* Graph,
+		const FComposableCameraInternalVariable& Variable,
+		const FVector2D& Position)
+	{
+		UComposableCameraVariableGraphNode* VarNode =
+			NewObject<UComposableCameraVariableGraphNode>(Graph);
+		VarNode->VariableGuid = Variable.VariableGuid;
+		VarNode->VariableName = Variable.VariableName;
+		VarNode->bIsSetter = false;
+		VarNode->NodePosX = Position.X;
+		VarNode->NodePosY = Position.Y;
+		VarNode->CreateNewGuid();
+		VarNode->AllocateDefaultPins();
+		Graph->AddNode(VarNode, /*bFromUI=*/false, /*bSelectNewNode=*/false);
+		return VarNode;
+	}
+
+	UComposableCameraVariableGraphNode* AddSetVariableNode(
+		UComposableCameraNodeGraph* Graph,
+		const FComposableCameraInternalVariable& Variable,
+		const FVector2D& Position)
+	{
+		UComposableCameraVariableGraphNode* VarNode =
+			NewObject<UComposableCameraVariableGraphNode>(Graph);
+		VarNode->VariableGuid = Variable.VariableGuid;
+		VarNode->VariableName = Variable.VariableName;
+		VarNode->bIsSetter = true;
+		VarNode->NodePosX = Position.X;
+		VarNode->NodePosY = Position.Y;
+		VarNode->CreateNewGuid();
+		VarNode->AllocateDefaultPins();
+		Graph->AddNode(VarNode, /*bFromUI=*/false, /*bSelectNewNode=*/false);
+		return VarNode;
+	}
 }
 
 // Test 1. Visual-position-driven NodeTemplates ordering
@@ -232,6 +311,437 @@ bool FComposableCameraTypeAssetBuildEmptyExecChainSilentTest::RunTest(const FStr
 
 	TestEqual(TEXT("No orphan warning when FullExecChain is empty"),
 		OrphanWarningCount, 0);
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FComposableCameraVariableGetCameraAndComputeFanOutRoundTripTest,
+	"ComposableCameraSystem.Editor.NodeGraphSync.VariableGetCameraAndComputeFanOutRoundTrip",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FComposableCameraVariableGetCameraAndComputeFanOutRoundTripTest::RunTest(const FString& /*Parameters*/)
+{
+	using namespace ComposableCameraNodeGraphSyncTest;
+
+	UComposableCameraTypeAsset* Asset =
+		NewObject<UComposableCameraTypeAsset>(GetTransientPackage());
+	UComposableCameraNodeGraph* Graph = NewObject<UComposableCameraNodeGraph>(Asset);
+	Graph->OwningTypeAsset = Asset;
+
+	FComposableCameraInternalVariable PivotActorVariable;
+	PivotActorVariable.VariableGuid = FGuid::NewGuid();
+	PivotActorVariable.VariableName = TEXT("PivotActor");
+	PivotActorVariable.VariableType = EComposableCameraPinType::Actor;
+	Asset->ExposedVariables.Add(PivotActorVariable);
+
+	TArray<UComposableCameraNodeGraphNode*> SetRotationGraphNodes;
+	for (int32 CameraIdx = 0; CameraIdx < 2; ++CameraIdx)
+	{
+		UComposableCameraSetRotationNode* SetRotationTemplate =
+			NewObject<UComposableCameraSetRotationNode>(Asset);
+		SetRotationTemplate->RotationSource = EComposableCameraSetRotationSource::FromActor;
+		UComposableCameraNodeGraphNode* SetRotationGraphNode = AddCameraNode(
+			Asset, Graph, SetRotationTemplate, FVector2D(0.0, CameraIdx * 100.0));
+		SetRotationGraphNode->SetPinAsPin(TEXT("RotationActor"), true);
+		SetRotationGraphNode->ReconstructPins();
+		SetRotationGraphNodes.Add(SetRotationGraphNode);
+	}
+
+	TArray<UComposableCameraNodeGraphNode*> DistanceGraphNodes;
+	for (int32 ComputeIdx = 0; ComputeIdx < 2; ++ComputeIdx)
+	{
+		UComposableCameraComputeDistanceToActorNode* DistanceTemplate =
+			NewObject<UComposableCameraComputeDistanceToActorNode>(Asset);
+		UComposableCameraNodeGraphNode* DistanceGraphNode = AddComputeNode(
+			Asset, Graph, DistanceTemplate, FVector2D(300.0, ComputeIdx * 100.0));
+		DistanceGraphNode->SetPinAsPin(TEXT("ActorA"), true);
+		DistanceGraphNode->ReconstructPins();
+		DistanceGraphNodes.Add(DistanceGraphNode);
+	}
+
+	UComposableCameraVariableGraphNode* SharedGetNode = AddGetVariableNode(
+		Graph, PivotActorVariable, FVector2D(-250.0, 150.0));
+
+	UEdGraphPin* SharedGetValue =
+		SharedGetNode->FindPin(UComposableCameraVariableGraphNode::PN_Value, EGPD_Output);
+	if (!TestNotNull(TEXT("Shared get value pin exists"), SharedGetValue))
+	{
+		return false;
+	}
+
+	for (UComposableCameraNodeGraphNode* SetRotationGraphNode : SetRotationGraphNodes)
+	{
+		UEdGraphPin* RotationActorPin =
+			SetRotationGraphNode->FindPin(TEXT("RotationActor"), EGPD_Input);
+		if (!TestNotNull(TEXT("SetRotation RotationActor pin exists"), RotationActorPin))
+		{
+			return false;
+		}
+		SharedGetValue->MakeLinkTo(RotationActorPin);
+	}
+	for (UComposableCameraNodeGraphNode* DistanceGraphNode : DistanceGraphNodes)
+	{
+		UEdGraphPin* ActorAPin =
+			DistanceGraphNode->FindPin(TEXT("ActorA"), EGPD_Input);
+		if (!TestNotNull(TEXT("DistanceToActor ActorA pin exists"), ActorAPin))
+		{
+			return false;
+		}
+		SharedGetValue->MakeLinkTo(ActorAPin);
+	}
+
+	Graph->SyncToTypeAsset();
+
+	const FComposableCameraVariableNodeRecord* GetRecord = nullptr;
+	for (const FComposableCameraVariableNodeRecord& Record : Asset->VariableNodes)
+	{
+		if (!Record.bIsSetter && Record.VariableGuid == PivotActorVariable.VariableGuid)
+		{
+			GetRecord = &Record;
+			break;
+		}
+	}
+
+	if (!TestNotNull(TEXT("Shared Get variable record was serialized"), GetRecord))
+	{
+		return false;
+	}
+	TestEqual(TEXT("Single Get variable record stores every fan-out connection"),
+		GetRecord->Connections.Num(), 4);
+
+	int32 CameraConnectionCount = 0;
+	int32 ComputeConnectionCount = 0;
+	for (const FComposableCameraVariablePinConnection& Conn : GetRecord->Connections)
+	{
+		if (Conn.bIsComputeChain)
+		{
+			++ComputeConnectionCount;
+		}
+		else
+		{
+			++CameraConnectionCount;
+		}
+	}
+	TestEqual(TEXT("Shared Get keeps two camera-chain connections"),
+		CameraConnectionCount, 2);
+	TestEqual(TEXT("Shared Get keeps two compute-chain connections"),
+		ComputeConnectionCount, 2);
+
+	const FComposableCameraRuntimeDataBlock RuntimeData = Asset->BuildRuntimeDataLayout();
+	for (int32 CameraIdx = 0; CameraIdx < 2; ++CameraIdx)
+	{
+		TestTrue(TEXT("Runtime layout routes camera Get variable to SetRotation"),
+			RuntimeData.InputPinSourceOffsets.Contains(
+				FComposableCameraPinKey{CameraIdx, TEXT("RotationActor")}));
+	}
+	for (int32 ComputeIdx = 0; ComputeIdx < 2; ++ComputeIdx)
+	{
+		TestTrue(TEXT("Runtime layout routes compute Get variable to DistanceToActor"),
+			RuntimeData.InputPinSourceOffsets.Contains(
+				FComposableCameraPinKey{Asset->NodeTemplates.Num() + ComputeIdx, TEXT("ActorA")}));
+	}
+
+	Graph->RebuildFromTypeAsset();
+
+	TArray<UComposableCameraNodeGraphNode*> RebuiltSetRotationNodes;
+	TArray<UComposableCameraNodeGraphNode*> RebuiltDistanceNodes;
+	UComposableCameraVariableGraphNode* RebuiltSharedGetNode = nullptr;
+	for (UEdGraphNode* Node : Graph->Nodes)
+	{
+		if (UComposableCameraVariableGraphNode* VarNode = Cast<UComposableCameraVariableGraphNode>(Node))
+		{
+			if (!VarNode->bIsSetter && VarNode->VariableGuid == PivotActorVariable.VariableGuid)
+			{
+				RebuiltSharedGetNode = VarNode;
+			}
+			continue;
+		}
+
+		UComposableCameraNodeGraphNode* GraphNode = Cast<UComposableCameraNodeGraphNode>(Node);
+		if (!GraphNode || !GraphNode->NodeTemplate)
+		{
+			continue;
+		}
+
+		if (GraphNode->NodeTemplate->IsA<UComposableCameraSetRotationNode>())
+		{
+			RebuiltSetRotationNodes.Add(GraphNode);
+		}
+		else if (GraphNode->NodeTemplate->IsA<UComposableCameraComputeDistanceToActorNode>())
+		{
+			RebuiltDistanceNodes.Add(GraphNode);
+		}
+	}
+
+	if (!TestNotNull(TEXT("Shared Get node rebuilt"), RebuiltSharedGetNode))
+	{
+		return false;
+	}
+	TestEqual(TEXT("Two SetRotation nodes rebuilt"),
+		RebuiltSetRotationNodes.Num(), 2);
+	TestEqual(TEXT("Two DistanceToActor nodes rebuilt"),
+		RebuiltDistanceNodes.Num(), 2);
+
+	UEdGraphPin* RebuiltSharedGetValue =
+		RebuiltSharedGetNode->FindPin(UComposableCameraVariableGraphNode::PN_Value, EGPD_Output);
+	if (!TestNotNull(TEXT("Rebuilt shared Get value pin exists"), RebuiltSharedGetValue))
+	{
+		return false;
+	}
+	TestEqual(TEXT("Shared Get output keeps all fan-out wires after rebuild"),
+		RebuiltSharedGetValue->LinkedTo.Num(), 4);
+
+	for (UComposableCameraNodeGraphNode* RebuiltSetRotationNode : RebuiltSetRotationNodes)
+	{
+		UEdGraphPin* RebuiltRotationActorPin =
+			RebuiltSetRotationNode->FindPin(TEXT("RotationActor"), EGPD_Input);
+		if (!TestNotNull(TEXT("Rebuilt SetRotation RotationActor pin exists"), RebuiltRotationActorPin))
+		{
+			return false;
+		}
+		TestEqual(TEXT("SetRotation RotationActor keeps its variable wire after rebuild"),
+			RebuiltRotationActorPin->LinkedTo.Num(), 1);
+	}
+	for (UComposableCameraNodeGraphNode* RebuiltDistanceNode : RebuiltDistanceNodes)
+	{
+		UEdGraphPin* RebuiltActorAPin =
+			RebuiltDistanceNode->FindPin(TEXT("ActorA"), EGPD_Input);
+		if (!TestNotNull(TEXT("Rebuilt DistanceToActor ActorA pin exists"), RebuiltActorAPin))
+		{
+			return false;
+		}
+		TestEqual(TEXT("DistanceToActor ActorA keeps its variable wire after rebuild"),
+			RebuiltActorAPin->LinkedTo.Num(), 1);
+	}
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FComposableCameraBuildMessagesUseChainLocalNodeIndicesTest,
+	"ComposableCameraSystem.Editor.NodeGraphSync.BuildMessagesUseChainLocalNodeIndices",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FComposableCameraBuildMessagesUseChainLocalNodeIndicesTest::RunTest(const FString& /*Parameters*/)
+{
+	using namespace ComposableCameraNodeGraphSyncTest;
+
+	UComposableCameraTypeAsset* Asset =
+		NewObject<UComposableCameraTypeAsset>(GetTransientPackage());
+	UComposableCameraNodeGraph* Graph = NewObject<UComposableCameraNodeGraph>(Asset);
+	Graph->OwningTypeAsset = Asset;
+
+	UComposableCameraNodeGraphNode* CameraGraphNode = AddCameraNode(
+		Asset, Graph, NewObject<UComposableCameraCameraOffsetNode>(Asset), FVector2D(0.0, 0.0));
+	UComposableCameraNodeGraphNode* ComputeGraphNode = AddComputeNode(
+		Asset, Graph, NewObject<UComposableCameraComputeDistanceToActorNode>(Asset), FVector2D(300.0, 0.0));
+
+	TestEqual(TEXT("Camera node index starts at zero"),
+		CameraGraphNode->NodeIndex, 0);
+	TestEqual(TEXT("Compute node index also starts at zero"),
+		ComputeGraphNode->NodeIndex, 0);
+
+	FComposableCameraBuildMessage CameraMessage;
+	CameraMessage.Severity = 1;
+	CameraMessage.NodeIndex = 0;
+	CameraMessage.Message = FText::FromString(TEXT("camera warning"));
+	Asset->BuildMessages.Add(CameraMessage);
+
+	FComposableCameraBuildMessage ComputeMessage;
+	ComputeMessage.Severity = 1;
+	ComputeMessage.NodeIndex = 0;
+	ComputeMessage.bIsComputeChain = true;
+	ComputeMessage.Message = FText::FromString(TEXT("compute warning"));
+	Asset->BuildMessages.Add(ComputeMessage);
+
+	Graph->ApplyBuildMessagesToGraphNodes();
+
+	TestTrue(TEXT("Camera node receives camera-chain message"),
+		CameraGraphNode->ErrorMsg.Contains(TEXT("camera warning")));
+	TestFalse(TEXT("Camera node does not receive compute-chain message"),
+		CameraGraphNode->ErrorMsg.Contains(TEXT("compute warning")));
+	TestTrue(TEXT("Compute node receives compute-chain message"),
+		ComputeGraphNode->ErrorMsg.Contains(TEXT("compute warning")));
+	TestFalse(TEXT("Compute node does not receive camera-chain message"),
+		ComputeGraphNode->ErrorMsg.Contains(TEXT("camera warning")));
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FComposableCameraComputePinsAreNotExposedParametersTest,
+	"ComposableCameraSystem.Editor.NodeGraphSync.ComputePinsAreNotExposedParameters",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FComposableCameraComputePinsAreNotExposedParametersTest::RunTest(const FString& /*Parameters*/)
+{
+	using namespace ComposableCameraNodeGraphSyncTest;
+
+	UComposableCameraTypeAsset* Asset =
+		NewObject<UComposableCameraTypeAsset>(GetTransientPackage());
+	UComposableCameraNodeGraph* Graph = NewObject<UComposableCameraNodeGraph>(Asset);
+	Graph->OwningTypeAsset = Asset;
+
+	UComposableCameraNodeGraphNode* ComputeGraphNode = AddComputeNode(
+		Asset, Graph, NewObject<UComposableCameraComputeDistanceToActorNode>(Asset), FVector2D(0.0, 0.0));
+
+	FComposableCameraExposedParameter CameraParam;
+	CameraParam.ParameterName = TEXT("ActorA");
+	CameraParam.TargetNodeIndex = ComputeGraphNode->NodeIndex;
+	CameraParam.TargetPinName = TEXT("ActorA");
+	Asset->ExposedParameters.Add(CameraParam);
+
+	TestFalse(TEXT("Compute node with overlapping NodeIndex is not treated as exposed"),
+		ComputeGraphNode->IsInputPinExposed(TEXT("ActorA")));
+
+	const int32 ExposedCountBefore = Asset->ExposedParameters.Num();
+	ComputeGraphNode->ExposePinAsParameter(TEXT("ActorB"));
+	TestEqual(TEXT("ExposePinAsParameter ignores compute nodes"),
+		Asset->ExposedParameters.Num(), ExposedCountBefore);
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FComposableCameraComputeRequiredInputsValidatedTest,
+	"ComposableCameraSystem.Editor.TypeAssetBuild.ComputeRequiredInputsValidated",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FComposableCameraComputeRequiredInputsValidatedTest::RunTest(const FString& /*Parameters*/)
+{
+	UComposableCameraTypeAsset* Asset =
+		NewObject<UComposableCameraTypeAsset>(GetTransientPackage());
+
+	Asset->NodeTemplates.Add(NewObject<UComposableCameraCameraOffsetNode>(Asset));
+
+	FComposableCameraInternalVariable PivotActorVariable;
+	PivotActorVariable.VariableGuid = FGuid::NewGuid();
+	PivotActorVariable.VariableName = TEXT("PivotActor");
+	PivotActorVariable.VariableType = EComposableCameraPinType::Actor;
+	Asset->ExposedVariables.Add(PivotActorVariable);
+
+	UComposableCameraComputeDistanceToActorNode* DistanceNode =
+		NewObject<UComposableCameraComputeDistanceToActorNode>(Asset);
+	Asset->ComputeNodeTemplates.Add(DistanceNode);
+
+	FComposableCameraVariableNodeRecord GetRecord;
+	GetRecord.VariableGuid = PivotActorVariable.VariableGuid;
+	GetRecord.VariableName = PivotActorVariable.VariableName;
+	GetRecord.bIsSetter = false;
+
+	FComposableCameraVariablePinConnection ActorAConnection;
+	ActorAConnection.CameraNodeIndex = 0;
+	ActorAConnection.CameraPinName = TEXT("ActorA");
+	ActorAConnection.bIsComputeChain = true;
+	GetRecord.Connections.Add(ActorAConnection);
+	Asset->VariableNodes.Add(GetRecord);
+
+	Asset->Build(/*bLogResult=*/false);
+
+	bool bActorAMissing = false;
+	bool bActorBMissing = false;
+	for (const FComposableCameraBuildMessage& Msg : Asset->BuildMessages)
+	{
+		if (Msg.Severity < 2 || !Msg.bIsComputeChain || Msg.NodeIndex != 0)
+		{
+			continue;
+		}
+		if (Msg.PinName == TEXT("ActorA"))
+		{
+			bActorAMissing = true;
+		}
+		else if (Msg.PinName == TEXT("ActorB"))
+		{
+			bActorBMissing = true;
+		}
+	}
+
+	TestFalse(TEXT("Compute variable Get resolves ActorA required input"),
+		bActorAMissing);
+	TestTrue(TEXT("Compute build validation flags unresolved ActorB required input"),
+		bActorBMissing);
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FComposableCameraComputeSetVariableRejectsCameraSourceTest,
+	"ComposableCameraSystem.Editor.NodeGraphSync.ComputeSetVariableRejectsCameraSource",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FComposableCameraComputeSetVariableRejectsCameraSourceTest::RunTest(const FString& /*Parameters*/)
+{
+	using namespace ComposableCameraNodeGraphSyncTest;
+
+	UComposableCameraTypeAsset* Asset =
+		NewObject<UComposableCameraTypeAsset>(GetTransientPackage());
+	UComposableCameraNodeGraph* Graph = NewObject<UComposableCameraNodeGraph>(Asset);
+	Graph->OwningTypeAsset = Asset;
+
+	FComposableCameraInternalVariable PivotVariable;
+	PivotVariable.VariableGuid = FGuid::NewGuid();
+	PivotVariable.VariableName = TEXT("PivotVector");
+	PivotVariable.VariableType = EComposableCameraPinType::Vector3D;
+	Asset->InternalVariables.Add(PivotVariable);
+
+	UComposableCameraNodeGraphNode* CameraSourceNode = AddCameraNode(
+		Asset, Graph, NewObject<UComposableCameraPivotOffsetNode>(Asset), FVector2D(0.0, 0.0));
+	UComposableCameraVariableGraphNode* SetNode = AddSetVariableNode(
+		Graph, PivotVariable, FVector2D(300.0, 0.0));
+
+	UComposableCameraBeginPlayStartGraphNode* BeginPlayStart =
+		NewObject<UComposableCameraBeginPlayStartGraphNode>(Graph);
+	BeginPlayStart->CreateNewGuid();
+	BeginPlayStart->AllocateDefaultPins();
+	Graph->AddNode(BeginPlayStart, /*bFromUI=*/false, /*bSelectNewNode=*/false);
+
+	UEdGraphPin* CameraOutput =
+		CameraSourceNode->FindPin(TEXT("PivotPosition"), EGPD_Output);
+	UEdGraphPin* SetValue =
+		SetNode->FindPin(UComposableCameraVariableGraphNode::PN_Value, EGPD_Input);
+	UEdGraphPin* BeginExecOut =
+		BeginPlayStart->FindPin(UComposableCameraGraphNodeBase::PN_ExecOut, EGPD_Output);
+	UEdGraphPin* SetExecIn =
+		SetNode->FindPin(UComposableCameraVariableGraphNode::PN_ExecIn, EGPD_Input);
+
+	if (!TestNotNull(TEXT("Camera PivotPosition output exists"), CameraOutput) ||
+		!TestNotNull(TEXT("Set Value input exists"), SetValue) ||
+		!TestNotNull(TEXT("BeginPlay ExecOut exists"), BeginExecOut) ||
+		!TestNotNull(TEXT("Set ExecIn exists"), SetExecIn))
+	{
+		return false;
+	}
+
+	CameraOutput->MakeLinkTo(SetValue);
+	BeginExecOut->MakeLinkTo(SetExecIn);
+
+	Graph->SyncToTypeAsset();
+
+	const FComposableCameraVariableNodeRecord* SetRecord = nullptr;
+	for (const FComposableCameraVariableNodeRecord& Record : Asset->VariableNodes)
+	{
+		if (Record.bIsSetter && Record.VariableGuid == PivotVariable.VariableGuid)
+		{
+			SetRecord = &Record;
+			break;
+		}
+	}
+	if (!TestNotNull(TEXT("Set variable record was serialized"), SetRecord))
+	{
+		return false;
+	}
+	TestEqual(TEXT("Compute SetVariable record drops cross-chain value wire"),
+		SetRecord->Connections.Num(), 0);
+
+	if (!TestEqual(TEXT("Compute chain serialized one SetVariable entry"),
+			Asset->ComputeFullExecChain.Num(), 1))
+	{
+		return false;
+	}
+
+	const FComposableCameraExecEntry& Entry = Asset->ComputeFullExecChain[0];
+	TestTrue(TEXT("Entry is SetVariable"),
+		Entry.EntryType == EComposableCameraExecEntryType::SetVariable);
+	TestEqual(TEXT("Compute SetVariable does not serialize a camera-space source index"),
+		Entry.CameraNodeIndex, INDEX_NONE);
+	TestTrue(TEXT("Compute SetVariable keeps source pin empty when source is cross-chain"),
+		Entry.SourcePinName.IsNone());
 
 	return true;
 }

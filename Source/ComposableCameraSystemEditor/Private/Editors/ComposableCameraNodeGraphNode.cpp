@@ -288,6 +288,14 @@ void UComposableCameraNodeGraphNode::ReconstructPins()
 
 bool UComposableCameraNodeGraphNode::IsInputPinExposed(FName PinName) const
 {
+	// ExposedParameters are camera-chain only. Compute graph nodes have their
+	// own NodeIndex space starting at zero, so treating a matching
+	// TargetNodeIndex as exposed here would collide with camera nodes.
+	if (!NodeTemplate || NodeTemplate->IsA<UComposableCameraComputeNodeBase>())
+	{
+		return false;
+	}
+
 	// Walk up to the owning graph -> type asset and check ExposedParameters.
 	if (UEdGraph* Graph = GetGraph())
 	{
@@ -309,6 +317,10 @@ void UComposableCameraNodeGraphNode::ExposePinAsParameter(FName PinName)
 {
 	// Find the pin declaration.
 	if (!NodeTemplate)
+	{
+		return;
+	}
+	if (NodeTemplate->IsA<UComposableCameraComputeNodeBase>())
 	{
 		return;
 	}
@@ -381,7 +393,8 @@ void UComposableCameraNodeGraphNode::ExposePinAsParameter(FName PinName)
 				VarRecord.Connections.RemoveAll(
 					[this, PinName](const FComposableCameraVariablePinConnection& VarConn)
 					{
-						return VarConn.CameraNodeIndex == NodeIndex
+						return !VarConn.bIsComputeChain
+							&& VarConn.CameraNodeIndex == NodeIndex
 							&& VarConn.CameraPinName == PinName;
 					});
 			}
@@ -447,6 +460,11 @@ void UComposableCameraNodeGraphNode::ExposePinAsParameter(FName PinName)
 
 void UComposableCameraNodeGraphNode::UnexposePinParameter(FName PinName)
 {
+	if (!NodeTemplate || NodeTemplate->IsA<UComposableCameraComputeNodeBase>())
+	{
+		return;
+	}
+
 	if (UEdGraph* Graph = GetGraph())
 	{
 		if (UComposableCameraTypeAsset* TypeAsset = Cast<UComposableCameraTypeAsset>(Graph->GetOuter()))

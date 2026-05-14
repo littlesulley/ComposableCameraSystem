@@ -345,6 +345,17 @@ FComposableCameraRuntimeDataBlock UComposableCameraTypeAsset::BuildRuntimeDataLa
 					// via the normal round-trip path.
 					continue;
 				}
+				if (Decl->PinType == EComposableCameraPinType::Actor)
+				{
+					// Actor defaults cannot be reconstructed from the serialized
+					// string channel: actors are live world objects, not assets.
+					// Allocating a default slot here would leave it zero-filled,
+					// then ResolveAllInputPins would treat that zero as an
+					// explicit null and clobber the node template's UPROPERTY
+					// fallback. Wired/exposed Actor inputs still get real slots
+					// through the connection/exposed-parameter paths below.
+					continue;
+				}
 
 				const int32 Offset = AllocateSlot(Decl->PinType, Decl->StructType);
 				if (Offset == INDEX_NONE)
@@ -402,6 +413,13 @@ FComposableCameraRuntimeDataBlock UComposableCameraTypeAsset::BuildRuntimeDataLa
 					});
 				if (!Decl)
 				{
+					continue;
+				}
+				if (Decl->PinType == EComposableCameraPinType::Actor)
+				{
+					// See camera-node default override loop above. Actor defaults
+					// cannot be parsed from strings; preserve the template fallback
+					// instead of creating a null runtime default slot.
 					continue;
 				}
 
@@ -979,7 +997,7 @@ FComposableCameraRuntimeDataBlock UComposableCameraTypeAsset::BuildRuntimeDataLa
 				continue;
 			}
 
-			const int32 RuntimeNodeIndex = Record.bIsComputeChain
+			const int32 RuntimeNodeIndex = Conn.bIsComputeChain
 				? (ComputeNodeIndexBase + Conn.CameraNodeIndex)
 				: Conn.CameraNodeIndex;
 
@@ -1473,6 +1491,21 @@ void UComposableCameraTypeAsset::Build(bool bLogResult)
 			BuildStatus = EComposableCameraBuildStatus::Failed;
 		}
 	}
+	for (int32 i = 0; i < ComputeNodeTemplates.Num(); ++i)
+	{
+		if (!ComputeNodeTemplates[i])
+		{
+			FComposableCameraBuildMessage Msg;
+			Msg.Severity = 2; // Error
+			Msg.Message = FText::Format(
+				FText::FromString(TEXT("Compute node at index {0} is null.")),
+				FText::AsNumber(i));
+			Msg.NodeIndex = i;
+			Msg.bIsComputeChain = true;
+			BuildMessages.Add(Msg);
+			BuildStatus = EComposableCameraBuildStatus::Failed;
+		}
+	}
 
 	// Check: duplicate exposed parameter names.
 	{
@@ -1645,6 +1678,24 @@ void UComposableCameraTypeAsset::Build(bool bLogResult)
 			BuildStatus = EComposableCameraBuildStatus::Failed;
 		}
 	}
+	for (const FComposableCameraPinConnection& Conn : ComputePinConnections)
+	{
+		if (Conn.SourceNodeIndex < 0 || Conn.SourceNodeIndex >= ComputeNodeTemplates.Num()
+			|| Conn.TargetNodeIndex < 0 || Conn.TargetNodeIndex >= ComputeNodeTemplates.Num())
+		{
+			FComposableCameraBuildMessage Msg;
+			Msg.Severity = 2;
+			Msg.Message = FText::FromString(TEXT("Compute connection references out-of-bounds compute node index."));
+			Msg.bIsComputeChain = true;
+			if (Conn.TargetNodeIndex >= 0 && Conn.TargetNodeIndex < ComputeNodeTemplates.Num())
+			{
+				Msg.NodeIndex = Conn.TargetNodeIndex;
+				Msg.PinName = Conn.TargetPinName;
+			}
+			BuildMessages.Add(Msg);
+			BuildStatus = EComposableCameraBuildStatus::Failed;
+		}
+	}
 
 	// Check: exposed + wired conflict (safety net).
 	{
@@ -1706,15 +1757,20 @@ void UComposableCameraTypeAsset::Build(bool bLogResult)
 		}
 
 		// 3. Variable Get node connections. A Get node's output wired to a
-		//    camera node's input pin feeds data from the variable.
+		//    camera node's input pin feeds data from the variable. Compute
+		//    connections are tracked in their own index space below.
 		for (const FComposableCameraVariableNodeRecord& VarRec : VariableNodes)
 		{
-			if (VarRec.bIsSetter || VarRec.bIsComputeChain)
+			if (VarRec.bIsSetter)
 			{
 				continue;
 			}
 			for (const FComposableCameraVariablePinConnection& VarConn : VarRec.Connections)
 			{
+				if (VarConn.bIsComputeChain)
+				{
+					continue;
+				}
 				FComposableCameraPinKey Key;
 				Key.NodeIndex = VarConn.CameraNodeIndex;
 				Key.PinName = VarConn.CameraPinName;
@@ -1839,6 +1895,139 @@ void UComposableCameraTypeAsset::Build(bool bLogResult)
 		}
 	}
 
+	// Check: unwired required input pins on BeginPlay compute nodes.
+	{
+		TSet<FComposableCameraPinKey> ResolvedComputeInputs;
+
+		for (const FComposableCameraPinConnection& Conn : ComputePinConnections)
+		{
+			FComposableCameraPinKey Key;
+			Key.NodeIndex = Conn.TargetNodeIndex;
+			Key.PinName = Conn.TargetPinName;
+			ResolvedComputeInputs.Add(Key);
+		}
+
+		for (const FComposableCameraVariableNodeRecord& VarRec : VariableNodes)
+		{
+			if (VarRec.bIsSetter)
+			{
+				continue;
+			}
+			for (const FComposableCameraVariablePinConnection& VarConn : VarRec.Connections)
+			{
+				if (!VarConn.bIsComputeChain)
+				{
+					continue;
+				}
+				FComposableCameraPinKey Key;
+				Key.NodeIndex = VarConn.CameraNodeIndex;
+				Key.PinName = VarConn.CameraPinName;
+				ResolvedComputeInputs.Add(Key);
+			}
+		}
+
+		for (int32 OverrideIdx = 0; OverrideIdx < ComputeNodePinOverrides.Num(); ++OverrideIdx)
+		{
+			for (const FComposableCameraPinOverride& Override : ComputeNodePinOverrides[OverrideIdx].Overrides)
+			{
+				if (Override.bHasDefaultOverride)
+				{
+					FComposableCameraPinKey Key;
+					Key.NodeIndex = OverrideIdx;
+					Key.PinName = Override.PinName;
+					ResolvedComputeInputs.Add(Key);
+				}
+			}
+		}
+
+		for (int32 NodeIdx = 0; NodeIdx < ComputeNodeTemplates.Num(); ++NodeIdx)
+		{
+			const UComposableCameraComputeNodeBase* Node = ComputeNodeTemplates[NodeIdx];
+			if (!Node)
+			{
+				continue;
+			}
+
+			TArray<FComposableCameraNodePinDeclaration> Pins;
+			Node->GatherAllPinDeclarations(Pins);
+
+			for (const FComposableCameraNodePinDeclaration& Pin : Pins)
+			{
+				if (Pin.Direction != EComposableCameraPinDirection::Input)
+				{
+					continue;
+				}
+
+				FComposableCameraPinKey Key;
+				Key.NodeIndex = NodeIdx;
+				Key.PinName = Pin.PinName;
+
+				if (!ResolvedComputeInputs.Contains(Key))
+				{
+					const bool bHasDefaultValue = !Pin.DefaultValueString.IsEmpty();
+					bool bHasPropertyDefault = false;
+					if (!bHasDefaultValue)
+					{
+						const FProperty* Prop = Node->GetClass()->FindPropertyByName(Pin.PinName);
+						bHasPropertyDefault = Prop && Prop->HasAnyPropertyFlags(CPF_Edit);
+					}
+
+					if (Pin.bRequired && !bHasDefaultValue && !bHasPropertyDefault)
+					{
+						FComposableCameraBuildMessage Msg;
+						Msg.Severity = 2;
+						Msg.Message = FText::Format(
+							FText::FromString(TEXT("Required input pin '{0}' on compute node {1} ({2}) is not connected and has no default value.")),
+							FText::FromString(Pin.PinName.ToString()),
+							FText::AsNumber(NodeIdx),
+							FText::FromString(Node->GetClass()->GetName()));
+						Msg.NodeIndex = NodeIdx;
+						Msg.bIsComputeChain = true;
+						Msg.PinName = Pin.PinName;
+						BuildMessages.Add(Msg);
+						BuildStatus = EComposableCameraBuildStatus::Failed;
+					}
+					else if (Pin.bRequired && (bHasDefaultValue || bHasPropertyDefault))
+					{
+						FComposableCameraBuildMessage Msg;
+						Msg.Severity = 1;
+						Msg.Message = FText::Format(
+							FText::FromString(TEXT("Required input pin '{0}' on compute node {1} ({2}) has no connection or per-instance override. It will use the pin declaration's default or the node's same-named UPROPERTY. Wire it, connect a variable Get, or set a default override to make the intent explicit.")),
+							FText::FromString(Pin.PinName.ToString()),
+							FText::AsNumber(NodeIdx),
+							FText::FromString(Node->GetClass()->GetName()));
+						Msg.NodeIndex = NodeIdx;
+						Msg.bIsComputeChain = true;
+						Msg.PinName = Pin.PinName;
+						BuildMessages.Add(Msg);
+						if (BuildStatus == EComposableCameraBuildStatus::Success)
+						{
+							BuildStatus = EComposableCameraBuildStatus::SuccessWithWarnings;
+						}
+					}
+					else if (!Pin.bRequired && !bHasDefaultValue && !bHasPropertyDefault)
+					{
+						FComposableCameraBuildMessage Msg;
+						Msg.Severity = 1;
+						Msg.Message = FText::Format(
+							FText::FromString(TEXT("Optional input pin '{0}' on compute node {1} ({2}) has no connection and no default value. Will use zero.")),
+							FText::FromString(Pin.PinName.ToString()),
+							FText::AsNumber(NodeIdx),
+							FText::FromString(Node->GetClass()->GetName()));
+						Msg.NodeIndex = NodeIdx;
+						Msg.bIsComputeChain = true;
+						Msg.PinName = Pin.PinName;
+						BuildMessages.Add(Msg);
+						if (BuildStatus == EComposableCameraBuildStatus::Success)
+						{
+							BuildStatus = EComposableCameraBuildStatus::SuccessWithWarnings;
+						}
+					}
+				}
+			}
+		}
+	}
+
 	// Check: camera node templates not reachable from the Start sentinel via
 	// exec wires. The runtime's per-frame TickCamera walks FullExecChain when
 	// it's non-empty (the design's authoritative tick-order surface) and any
@@ -1926,16 +2115,8 @@ void UComposableCameraTypeAsset::Build(bool bLogResult)
 					FText::FromString(TEXT("Compute node {0} ({1}) is not wired into the BeginPlay execution chain (no path from BeginPlay Start through this node). ExecuteBeginPlay will not run.")),
 					FText::AsNumber(NodeIdx),
 					FText::FromString(ComputeNodeTemplates[NodeIdx]->GetClass()->GetName()));
-				// Compute node indices share the per-node-badge namespace with
-				// camera nodes via a (NodeTemplates.Num() + ComputeIdx) offset
-				// the runtime applies to the RuntimeDataBlock; the editor's
-				// per-node-badge pipeline (which keys on
-				// FComposableCameraBuildMessage::NodeIndex against graph nodes'
-				// own NodeIndex) treats the compute chain's NodeIndex space
-				// separately, so write the raw compute-space index without the
-				// offset here -- matches how every other compute-side validation
-				// in this file emits NodeIndex.
 				Msg.NodeIndex = NodeIdx;
+				Msg.bIsComputeChain = true;
 				BuildMessages.Add(Msg);
 				if (BuildStatus == EComposableCameraBuildStatus::Success)
 				{

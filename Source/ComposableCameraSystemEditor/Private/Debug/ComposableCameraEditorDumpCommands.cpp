@@ -209,7 +209,8 @@ namespace
 			B.Appendf(TEXT(" connections=%d\n"), R.Connections.Num());
 			for (const FComposableCameraVariablePinConnection& Conn: R.Connections)
 			{
-				B.Appendf(TEXT(" - %d.%s\n"),
+				B.Appendf(TEXT(" - %s %d.%s\n"),
+					Conn.bIsComputeChain ? TEXT("compute") : TEXT("camera"),
 					Conn.CameraNodeIndex,
 					*Conn.CameraPinName.ToString());
 			}

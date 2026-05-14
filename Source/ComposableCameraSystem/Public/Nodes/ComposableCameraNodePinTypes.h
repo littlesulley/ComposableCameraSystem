@@ -254,13 +254,15 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraPinConnection
  *
  * The "Camera" prefix on CameraNodeIndex / CameraPinName is a legacy naming
  * artifact from before variable nodes could live on the compute chain. The
- * index space depends on the owning FComposableCameraVariableNodeRecord's
- * bIsComputeChain flag:
+ * index space depends on this connection's bIsComputeChain flag:
  *
  *   - bIsComputeChain == false: CameraNodeIndex indexes NodeTemplates.
  *   - bIsComputeChain == true:  CameraNodeIndex indexes ComputeNodeTemplates.
  *
- * The field names are preserved for serialization compatibility.
+ * The field names are preserved for serialization compatibility. The owning
+ * record also carries a legacy bIsComputeChain flag for old Set-variable
+ * records, but Get-variable data wires are connection-scoped because one
+ * variable can be read by both chains.
  */
 USTRUCT()
 struct COMPOSABLECAMERASYSTEM_API FComposableCameraVariablePinConnection
@@ -276,6 +278,12 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraVariablePinConnection
 	/** Name of the pin on the node (input pin for Get, output pin for Set). */
 	UPROPERTY()
 	FName CameraPinName;
+
+	/** True when CameraNodeIndex indexes ComputeNodeTemplates; false when it
+	 *  indexes NodeTemplates. Stored per connection so copied Get-variable nodes
+	 *  can round-trip independently on the camera and BeginPlay compute chains. */
+	UPROPERTY()
+	bool bIsComputeChain = false;
 };
 
 /**
@@ -313,10 +321,10 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraVariableNodeRecord
 	UPROPERTY()
 	bool bIsSetter = false;
 
-	/** True when this variable node lives on the BeginPlay compute chain,
-	 *  false when it lives on the per-frame camera chain. Determines which
-	 *  index space Connections[i].CameraNodeIndex references:
-	 *  false->NodeTemplates, true->ComputeNodeTemplates.
+	/** Legacy node-level chain classification. For Set-variable nodes this
+	 *  still identifies which exec chain owns the node. For Get-variable nodes,
+	 *  each connection's bIsComputeChain is authoritative because a pure getter
+	 *  can feed camera and compute consumers independently.
 	 *
 	 *  Defaults to false for migration safety: records saved before this field
 	 *  existed deserialize as camera-chain, matching v1 behavior. */
@@ -328,7 +336,8 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraVariableNodeRecord
 	FVector2D Position = FVector2D::ZeroVector;
 
 	/** Node endpoints this variable node is wired to. The index space of
-	 *  each connection's CameraNodeIndex depends on bIsComputeChain above. */
+	 *  each connection's CameraNodeIndex depends on the connection's own
+	 *  bIsComputeChain flag. */
 	UPROPERTY()
 	TArray<FComposableCameraVariablePinConnection> Connections;
 };
@@ -627,9 +636,10 @@ inline bool TryMapPropertyToPinType(const FProperty* Property, EComposableCamera
 		}
 		// Soft / weak / lazy object properties have a different memory layout than
 		// raw UObject*/AActor*, so they are NOT safe to drive through the Actor /
-		// Object pin types (both the subobject pin dispatch and the top-level
-		// auto-resolver write raw pointers directly into the field's memory). Only
-		// plain FObjectProperty / FClassProperty are accepted here.
+		// Object pin types. Plain object/TObjectPtr refs and class refs are
+		// accepted because the auto-resolver writes through FObjectPropertyBase.
+		// In UE 5.6, TObjectPtr-backed fields are represented through
+		// FObjectProperty; the old FObjectPtrProperty name is deprecated.
 		if (!Property->IsA<FObjectProperty>() && !Property->IsA<FClassProperty>())
 		{
 			return false;

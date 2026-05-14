@@ -6,43 +6,42 @@
 #include "Kismet/KismetMathLibrary.h"
 #include "Math/ComposableCameraMath.h"
 
+namespace
+{
+	FRotator ReferenceRotationFromActor(AActor* Actor)
+	{
+		return IsValid(Actor)
+			? UKismetMathLibrary::MakeRotFromX(Actor->GetActorForwardVector())
+			: FRotator::ZeroRotator;
+	}
+}
+
 void UComposableCameraRotationConstraints::OnTickNode_Implementation(float DeltaTime,
                                                                      const FComposableCameraPose& CurrentCameraPose, FComposableCameraPose& OutCameraPose)
 {
 	FRotator CurrentCameraRotation = CurrentCameraPose.Rotation;
-	FVector2D WorldTargetYawRange { -180, 180 };
+	double WorldPivotYaw = 0.;
 	FVector2D WorldTargetPitchRange { -90, 90 };
 	
 	if (bConstrainYaw)
 	{
-		double WorldPivotYaw = 0.;
-		
 		switch (ConstrainYawType)
 		{
 		case EComposableCameraRotationConstrainType::WorldSpace:
 			WorldPivotYaw = 0.;
 			break;
 		case EComposableCameraRotationConstrainType::ActorSpace:
-			if (AActor* EffectiveYawActor = ComposableCameraSystem::ResolveActorInput(
-				ActorForYawConstrainSource, ActorForYawConstrain.Get(), GetOwningPlayerCameraManager(), this);
-				IsValid(EffectiveYawActor))
-			{
-				WorldPivotYaw = EffectiveYawActor->GetActorRotation().Yaw;
-			}
-			else
-			{
-				WorldPivotYaw = 0.;
-			}
+			WorldPivotYaw = ReferenceRotationFromActor(ComposableCameraSystem::ResolveActorInput(
+				ActorForYawConstrainSource,
+				ActorForYawConstrain.Get(),
+				GetOwningPlayerCameraManager(),
+				this)).Yaw;
 			break;
 		case EComposableCameraRotationConstrainType::VectorSpace:
 			FRotator VectorSpaceRotation = UKismetMathLibrary::MakeRotFromX(VectorForYawConstrain);
 			WorldPivotYaw = VectorSpaceRotation.Yaw;
 			break;
 		}
-		
-		double WorldSpaceYawLow =  WorldPivotYaw + YawRange[0];
-		double WorldSpaceYawHigh =  WorldPivotYaw + YawRange[1];
-		WorldTargetYawRange = { WorldSpaceYawLow, WorldSpaceYawHigh };
 	}
 
 	if (bConstrainPitch)
@@ -55,16 +54,11 @@ void UComposableCameraRotationConstraints::OnTickNode_Implementation(float Delta
 			WorldPivotPitch = 0.;
 			break;
 		case EComposableCameraRotationConstrainType::ActorSpace:
-			if (AActor* EffectivePitchActor = ComposableCameraSystem::ResolveActorInput(
-				ActorForPitchConstrainSource, ActorForPitchConstrain.Get(), GetOwningPlayerCameraManager(), this);
-				IsValid(EffectivePitchActor))
-			{
-				WorldPivotPitch = EffectivePitchActor->GetActorRotation().Pitch;
-			}
-			else
-			{
-				WorldPivotPitch = 0.;
-			}
+			WorldPivotPitch = ReferenceRotationFromActor(ComposableCameraSystem::ResolveActorInput(
+				ActorForPitchConstrainSource,
+				ActorForPitchConstrain.Get(),
+				GetOwningPlayerCameraManager(),
+				this)).Pitch;
 			break;
 		case EComposableCameraRotationConstrainType::VectorSpace:
 			FRotator VectorSpaceRotation = UKismetMathLibrary::MakeRotFromX(VectorForPitchConstrain);
@@ -80,8 +74,12 @@ void UComposableCameraRotationConstraints::OnTickNode_Implementation(float Delta
 	double WorldCurrentYaw = CurrentCameraRotation.Yaw;
 	double WorldCurrentPitch = CurrentCameraRotation.Pitch;
 
-	double WorldTargetYaw = FindTargetYawInRange(WorldCurrentYaw, WorldTargetYawRange);
-	double WorldTargetPitch = FindTargetPitchInRange(WorldCurrentPitch, WorldTargetPitchRange);
+	double WorldTargetYaw = bConstrainYaw
+		? FindTargetYawInRange(WorldCurrentYaw, WorldPivotYaw, YawRange)
+		: WorldCurrentYaw;
+	double WorldTargetPitch = bConstrainPitch
+		? FindTargetPitchInRange(WorldCurrentPitch, WorldTargetPitchRange)
+		: WorldCurrentPitch;
 
 	OutCameraPose.Rotation = FRotator(WorldTargetPitch, WorldTargetYaw, CurrentCameraRotation.Roll);
 }
@@ -243,24 +241,26 @@ void UComposableCameraRotationConstraints::GetPinDeclarations_Implementation(TAr
 
 
 double UComposableCameraRotationConstraints::FindTargetYawInRange(const double WorldCurrentYaw,
-                                                                  const FVector2D& WorldTargetYawRange)
+                                                                  const double WorldPivotYaw,
+                                                                  const FVector2D& PivotSpaceYawRange)
 {
-	double NormalizedWorldCurrentYaw = ComposableCameraSystem::NormalizeYaw(WorldCurrentYaw);
-	FVector2D NormalizedWorldTargetYawRange = {
-		ComposableCameraSystem::NormalizeYaw(WorldTargetYawRange[0]),
-		ComposableCameraSystem::NormalizeYaw(WorldTargetYawRange[1])
-	};
-
-	if (UKismetMathLibrary::InRange_FloatFloat(
-		NormalizedWorldCurrentYaw, NormalizedWorldTargetYawRange[0], NormalizedWorldTargetYawRange[1]))
+	const double RangeLow = PivotSpaceYawRange[0];
+	const double RangeHigh = PivotSpaceYawRange[1];
+	if (RangeHigh - RangeLow >= 360. - UE_DOUBLE_KINDA_SMALL_NUMBER)
 	{
-		return NormalizedWorldCurrentYaw;
+		return ComposableCameraSystem::NormalizeYaw(WorldCurrentYaw);
 	}
 
-	double DistanceToLow = FMath::Abs(ComposableCameraSystem::NormalizeYaw(NormalizedWorldCurrentYaw - NormalizedWorldTargetYawRange[0]));
-	double DistanceToHigh = FMath::Abs(ComposableCameraSystem::NormalizeYaw(NormalizedWorldCurrentYaw - NormalizedWorldTargetYawRange[1]));
+	const double PivotSpaceCurrentYaw = FMath::FindDeltaAngleDegrees(WorldPivotYaw, WorldCurrentYaw);
+	if (UKismetMathLibrary::InRange_FloatFloat(PivotSpaceCurrentYaw, RangeLow, RangeHigh))
+	{
+		return ComposableCameraSystem::NormalizeYaw(WorldCurrentYaw);
+	}
 
-	return DistanceToLow < DistanceToHigh ? NormalizedWorldTargetYawRange[0] : NormalizedWorldTargetYawRange[1];
+	return ComposableCameraSystem::GetClosestAngleDegree(
+		static_cast<float>(WorldCurrentYaw),
+		static_cast<float>(WorldPivotYaw + RangeLow),
+		static_cast<float>(WorldPivotYaw + RangeHigh));
 }
 
 double UComposableCameraRotationConstraints::FindTargetPitchInRange(const double WorldCurrentPitch,

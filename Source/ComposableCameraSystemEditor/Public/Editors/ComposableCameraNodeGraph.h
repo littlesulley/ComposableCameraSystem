@@ -373,9 +373,9 @@ private:
 	 * OwningTypeAsset->VariableNodes, restore its identity (with the legacy
 	 * GUID-then-name fallback for assets predating the GUID migration),
 	 * position, and Value-pin wires to the appropriate chain's nodes. Uses
-	 * the record's bIsComputeChain flag to choose between CreatedGraphNodes
-	 * (camera chain) and CreatedComputeGraphNodes (compute chain) for
-	 * connection endpoint lookup. Also populates the VariableGuid -> 
+	 * each connection's bIsComputeChain flag to choose between
+	 * CreatedGraphNodes (camera chain) and CreatedComputeGraphNodes (compute
+	 * chain) for endpoint lookup. Also populates the VariableGuid ->
 	 * graph-node lookup so phases 7/7b can wire SetVariable exec entries by
 	 * GUID without rescanning. Variable nodes whose GUID can't be resolved
 	 * are still added to the graph but excluded from the lookup. */

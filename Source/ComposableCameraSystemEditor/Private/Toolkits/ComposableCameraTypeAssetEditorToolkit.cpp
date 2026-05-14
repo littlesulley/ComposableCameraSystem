@@ -8,6 +8,7 @@
 #include "Editors/ComposableCameraVariableGraphNode.h"
 #include "Editors/ComposableCameraNodeGraphSchema.h"
 #include "Nodes/ComposableCameraCameraNodeBase.h"
+#include "Nodes/ComposableCameraComputeNodeBase.h"
 #include "Nodes/ComposableCameraCompositionFramingNode.h"
 #include "Transitions/ComposableCameraTransitionBase.h"
 #include "Nodes/ComposableCameraNodePinTypes.h"
@@ -1226,9 +1227,19 @@ bool FComposableCameraTypeAssetEditorToolkit::DebugTick(float DeltaTime)
 
 		for (UEdGraphNode* RawNode: NodeGraph->Nodes)
 		{
-			// Camera nodes: per-node pose + output pin values 
+			// Camera nodes: per-node pose + output pin values. Runtime debug
+			// snapshots only contain CameraNodes; compute nodes have a separate
+			// authoring index space and are not per-frame ticked, so do not map
+			// them by bare NodeIndex here.
 			if (UComposableCameraNodeGraphNode* GraphNode = Cast<UComposableCameraNodeGraphNode>(RawNode))
 			{
+				if (GraphNode->NodeTemplate &&
+					GraphNode->NodeTemplate->IsA<UComposableCameraComputeNodeBase>())
+				{
+					GraphNode->DebugState.Reset();
+					continue;
+				}
+
 				const FComposableCameraNodeDebugEntry* MatchingEntry = nullptr;
 				for (const FComposableCameraNodeDebugEntry& Entry: Snapshot.NodeEntries)
 				{

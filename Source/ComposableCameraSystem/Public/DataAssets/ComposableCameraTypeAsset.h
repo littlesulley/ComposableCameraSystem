@@ -46,6 +46,10 @@ struct FComposableCameraBuildMessage
 	UPROPERTY()
 	int32 NodeIndex = INDEX_NONE;
 
+	/** True when NodeIndex refers to ComputeNodeTemplates; false for NodeTemplates. */
+	UPROPERTY()
+	bool bIsComputeChain = false;
+
 	/** Which pin the message relates to (None for node-level). */
 	UPROPERTY()
 	FName PinName;
@@ -631,6 +635,7 @@ public:
 	 * Messages appended here flow through the same BuildMessages / inline-badge
 	 * pipeline as the base checks. Used by UComposableCameraPatchTypeAsset to
 	 * flag Patch-incompatible nodes (PatchSystemProposal Section 11).
+	 * Set bIsComputeChain on messages whose NodeIndex targets ComputeNodeTemplates.
 	 */
 	virtual void ValidateAdditional(TArray<FComposableCameraBuildMessage>& OutMessages) const {}
 

@@ -8,17 +8,41 @@
 #include "Core/ComposableCameraDirector.h"
 #include "Core/ComposableCameraEvaluationTree.h"
 #include "Cameras/ComposableCameraCameraBase.h"
+#include "DataAssets/ComposableCameraTypeAsset.h"
 #include "Nodes/ComposableCameraCollisionPushNode.h"
 #include "Nodes/ComposableCameraLookAtNode.h"
+#include "Nodes/ComposableCameraRotationConstraints.h"
+#include "Nodes/ComposableCameraSetRotationNode.h"
 #include "Nodes/ComposableCameraScreenSpacePivotNode.h"
 #include "Nodes/ComposableCameraSpiralNode.h"
+#include "Core/ComposableCameraRuntimeDataBlock.h"
+#include "Components/SceneComponent.h"
 #include "Misc/AutomationTest.h"
 #include "Curves/CurveFloat.h"
 #include "Engine/Engine.h"
 #include "Engine/World.h"
 #include "GameFramework/Actor.h"
+#include "Kismet/KismetMathLibrary.h"
 
 #define LOCTEXT_NAMESPACE "ComposableCameraBugFixTests"
+
+namespace
+{
+	AActor* SpawnTestActorWithRoot(UWorld* World, const FVector& Location, const FRotator& Rotation = FRotator::ZeroRotator)
+	{
+		AActor* Actor = World ? World->SpawnActor<AActor>(AActor::StaticClass(), FTransform::Identity) : nullptr;
+		if (!Actor)
+		{
+			return nullptr;
+		}
+
+		USceneComponent* Root = NewObject<USceneComponent>(Actor, TEXT("TestRoot"));
+		Actor->SetRootComponent(Root);
+		Root->RegisterComponent();
+		Actor->SetActorLocationAndRotation(Location, Rotation);
+		return Actor;
+	}
+}
 
 // ============================================================================
 // Test: SmoothStep and SmootherStep produce different results (BUG 6)
@@ -176,8 +200,8 @@ bool FSpiralPivotActorInitialForwardCapturesOnceTest::RunTest(const FString& Par
 	World->InitializeActorsForPlay(FURL());
 	World->BeginPlay();
 
-	AActor* PivotActor = World->SpawnActor<AActor>(
-		AActor::StaticClass(),
+	AActor* PivotActor = SpawnTestActorWithRoot(
+		World,
 		FVector::ZeroVector,
 		FRotator::ZeroRotator);
 
@@ -390,8 +414,8 @@ bool FScreenSpacePivotActorPositionUpOffsetTest::RunTest(const FString& Paramete
 		AComposableCameraCameraBase::StaticClass(), CameraTransform);
 	Camera->FinishSpawning(CameraTransform);
 
-	AActor* PivotActor = World->SpawnActor<AActor>(
-		AActor::StaticClass(),
+	AActor* PivotActor = SpawnTestActorWithRoot(
+		World,
 		FVector(1000.f, 0.f, 0.f),
 		FRotator::ZeroRotator);
 
@@ -448,8 +472,8 @@ bool FCollisionPushPreTickRestoresInFlightPoseTest::RunTest(const FString& Param
 		AComposableCameraCameraBase::StaticClass(), CameraTransform);
 	Camera->FinishSpawning(CameraTransform);
 
-	AActor* PivotActor = World->SpawnActor<AActor>(
-		AActor::StaticClass(),
+	AActor* PivotActor = SpawnTestActorWithRoot(
+		World,
 		FVector::ZeroVector,
 		FRotator::ZeroRotator);
 
@@ -476,6 +500,452 @@ bool FCollisionPushPreTickRestoresInFlightPoseTest::RunTest(const FString& Param
 	World->DestroyWorld(false);
 
 	UTEST_TRUE("PreTick restores the in-flight pose, not only CameraPose", bRestoredInFlightPose);
+
+	return true;
+}
+
+// ============================================================================
+// Test: SetRotation writes the camera rotation from actor / vector / rotator
+// ============================================================================
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FSetRotationFromActorTest,
+	"System.Engine.ComposableCameraSystem.Nodes.SetRotation.FromActor",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FSetRotationFromActorTest::RunTest(const FString& Parameters)
+{
+	UWorld* World = UWorld::CreateWorld(EWorldType::Game, false);
+	FWorldContext& WorldContext = GEngine->CreateNewWorldContext(EWorldType::Game);
+	WorldContext.SetCurrentWorld(World);
+	World->InitializeActorsForPlay(FURL());
+	World->BeginPlay();
+
+	AActor* ReferenceActor = SpawnTestActorWithRoot(
+		World,
+		FVector::ZeroVector,
+		FRotator(20.f, 45.f, 35.f));
+
+	FComposableCameraRuntimeDataBlock RuntimeData;
+	RuntimeData.Storage.SetNumZeroed(static_cast<int32>(sizeof(AActor*)));
+	RuntimeData.SlotShapes.Add(0, {
+		EComposableCameraPinType::Actor,
+		static_cast<int32>(sizeof(AActor*)),
+		nullptr
+	});
+	FMemory::Memcpy(RuntimeData.Storage.GetData(), &ReferenceActor, sizeof(AActor*));
+	RuntimeData.DefaultValueOffsets.Add(FComposableCameraPinKey{0, TEXT("RotationActor")}, 0);
+
+	UComposableCameraSetRotationNode* Node = NewObject<UComposableCameraSetRotationNode>();
+	Node->RotationSource = EComposableCameraSetRotationSource::FromActor;
+	Node->RotationActorSource = EComposableCameraActorInputSource::ExplicitActor;
+	Node->SetRuntimeDataBlock(&RuntimeData, 0);
+	Node->Initialize(nullptr, nullptr);
+
+	FComposableCameraPose InPose;
+	InPose.Rotation = FRotator::ZeroRotator;
+
+	FComposableCameraPose OutPose = InPose;
+	Node->TickNode(0.016f, InPose, OutPose);
+
+	const FRotator Expected = UKismetMathLibrary::MakeRotFromX(ReferenceActor->GetActorForwardVector());
+
+	GEngine->DestroyWorldContext(World);
+	World->DestroyWorld(false);
+
+	UTEST_TRUE("SetRotation FromActor uses actor forward",
+		OutPose.Rotation.Equals(Expected, 0.01f));
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FSetRotationFromVectorTest,
+	"System.Engine.ComposableCameraSystem.Nodes.SetRotation.FromVector",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FSetRotationFromVectorTest::RunTest(const FString& Parameters)
+{
+	UComposableCameraSetRotationNode* Node = NewObject<UComposableCameraSetRotationNode>();
+	Node->RotationSource = EComposableCameraSetRotationSource::FromVector;
+	Node->RotationVector = FVector(1.f, 1.f, 1.f);
+	Node->Initialize(nullptr, nullptr);
+
+	FComposableCameraPose InPose;
+	InPose.Rotation = FRotator::ZeroRotator;
+
+	FComposableCameraPose OutPose = InPose;
+	Node->TickNode(0.016f, InPose, OutPose);
+
+	const FRotator Expected = UKismetMathLibrary::MakeRotFromX(Node->RotationVector);
+	UTEST_TRUE("SetRotation FromVector uses MakeRotFromX",
+		OutPose.Rotation.Equals(Expected, 0.01f));
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FSetRotationFromRotatorTest,
+	"System.Engine.ComposableCameraSystem.Nodes.SetRotation.FromRotator",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FSetRotationFromRotatorTest::RunTest(const FString& Parameters)
+{
+	UComposableCameraSetRotationNode* Node = NewObject<UComposableCameraSetRotationNode>();
+	Node->RotationSource = EComposableCameraSetRotationSource::FromRotator;
+	Node->Rotation = FRotator(12.f, 34.f, 5.f);
+	Node->Initialize(nullptr, nullptr);
+
+	FComposableCameraPose InPose;
+	InPose.Rotation = FRotator::ZeroRotator;
+
+	FComposableCameraPose OutPose = InPose;
+	Node->TickNode(0.016f, InPose, OutPose);
+
+	UTEST_TRUE("SetRotation FromRotator writes literal rotation",
+		OutPose.Rotation.Equals(Node->Rotation, 0.01f));
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FBeginPlaySetRotationFromRotatorTest,
+	"System.Engine.ComposableCameraSystem.Nodes.SetRotation.BeginPlayFromRotator",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FBeginPlaySetRotationFromRotatorTest::RunTest(const FString& Parameters)
+{
+	UWorld* World = UWorld::CreateWorld(EWorldType::Game, false);
+	FWorldContext& WorldContext = GEngine->CreateNewWorldContext(EWorldType::Game);
+	WorldContext.SetCurrentWorld(World);
+	World->InitializeActorsForPlay(FURL());
+	World->BeginPlay();
+
+	FTransform CameraTransform;
+	CameraTransform.SetLocation(FVector::ZeroVector);
+	AComposableCameraCameraBase* Camera = World->SpawnActorDeferred<AComposableCameraCameraBase>(
+		AComposableCameraCameraBase::StaticClass(), CameraTransform);
+	Camera->FinishSpawning(CameraTransform);
+	Camera->CameraPose.Rotation = FRotator::ZeroRotator;
+
+	UComposableCameraBeginPlaySetRotationNode* Node = NewObject<UComposableCameraBeginPlaySetRotationNode>();
+	Node->RotationSource = EComposableCameraSetRotationSource::FromRotator;
+	Node->Rotation = FRotator(11.f, 22.f, 3.f);
+	Node->Initialize(Camera, nullptr);
+	Node->ExecuteBeginPlay();
+
+	const FRotator ResultRotation = Camera->CameraPose.Rotation;
+	const FRotator ResultLastFrameRotation = Camera->LastFrameCameraPose.Rotation;
+
+	GEngine->DestroyWorldContext(World);
+	World->DestroyWorld(false);
+
+	UTEST_TRUE("BeginPlay SetRotation writes initial camera rotation",
+		ResultRotation.Equals(Node->Rotation, 0.01f));
+	UTEST_TRUE("BeginPlay SetRotation seeds last-frame camera rotation",
+		ResultLastFrameRotation.Equals(Node->Rotation, 0.01f));
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FBeginPlaySetRotationSeedsRotationConstraintsTest,
+	"System.Engine.ComposableCameraSystem.Nodes.SetRotation.BeginPlaySeedsRotationConstraints",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FBeginPlaySetRotationSeedsRotationConstraintsTest::RunTest(const FString& Parameters)
+{
+	UWorld* World = UWorld::CreateWorld(EWorldType::Game, false);
+	FWorldContext& WorldContext = GEngine->CreateNewWorldContext(EWorldType::Game);
+	WorldContext.SetCurrentWorld(World);
+	World->InitializeActorsForPlay(FURL());
+	World->BeginPlay();
+
+	FTransform CameraTransform;
+	CameraTransform.SetLocation(FVector::ZeroVector);
+	AComposableCameraCameraBase* Camera = World->SpawnActorDeferred<AComposableCameraCameraBase>(
+		AComposableCameraCameraBase::StaticClass(), CameraTransform);
+	Camera->FinishSpawning(CameraTransform);
+	Camera->CameraPose.Rotation = FRotator(0.f, 180.f, 0.f);
+	Camera->LastFrameCameraPose.Rotation = Camera->CameraPose.Rotation;
+
+	AActor* PivotActor = SpawnTestActorWithRoot(
+		World,
+		FVector::ZeroVector,
+		FRotator(0.f, 90.f, 0.f));
+
+	UComposableCameraBeginPlaySetRotationNode* InitialRotationNode = NewObject<UComposableCameraBeginPlaySetRotationNode>();
+	InitialRotationNode->RotationSource = EComposableCameraSetRotationSource::FromActor;
+	InitialRotationNode->RotationActorSource = EComposableCameraActorInputSource::ExplicitActor;
+	InitialRotationNode->RotationActor = PivotActor;
+	InitialRotationNode->Initialize(Camera, nullptr);
+	InitialRotationNode->ExecuteBeginPlay();
+
+	UComposableCameraRotationConstraints* ConstraintNode = NewObject<UComposableCameraRotationConstraints>();
+	ConstraintNode->bConstrainYaw = true;
+	ConstraintNode->ConstrainYawType = EComposableCameraRotationConstrainType::ActorSpace;
+	ConstraintNode->ActorForYawConstrainSource = EComposableCameraActorInputSource::ExplicitActor;
+	ConstraintNode->ActorForYawConstrain = PivotActor;
+	ConstraintNode->YawRange = FVector2D(-10.f, 10.f);
+	ConstraintNode->bConstrainPitch = false;
+	ConstraintNode->Initialize(Camera, nullptr);
+
+	FComposableCameraPose OutPose = Camera->CameraPose;
+	ConstraintNode->TickNode(0.016f, Camera->CameraPose, OutPose);
+
+	GEngine->DestroyWorldContext(World);
+	World->DestroyWorld(false);
+
+	UTEST_TRUE("RotationConstraints starts from pivot forward instead of clamping old camera yaw",
+		FMath::IsNearlyEqual(FMath::FindDeltaAngleDegrees(OutPose.Rotation.Yaw, 90.f), 0.f, 0.01f));
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FBeginPlaySetRotationFeedsFirstRuntimeTickTest,
+	"System.Engine.ComposableCameraSystem.Nodes.SetRotation.BeginPlayFeedsFirstRuntimeTick",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FBeginPlaySetRotationFeedsFirstRuntimeTickTest::RunTest(const FString& Parameters)
+{
+	UWorld* World = UWorld::CreateWorld(EWorldType::Game, false);
+	FWorldContext& WorldContext = GEngine->CreateNewWorldContext(EWorldType::Game);
+	WorldContext.SetCurrentWorld(World);
+	World->InitializeActorsForPlay(FURL());
+	World->BeginPlay();
+
+	FTransform CameraTransform;
+	CameraTransform.SetLocation(FVector::ZeroVector);
+	AComposableCameraCameraBase* Camera = World->SpawnActorDeferred<AComposableCameraCameraBase>(
+		AComposableCameraCameraBase::StaticClass(), CameraTransform);
+	Camera->FinishSpawning(CameraTransform);
+	Camera->CameraPose.Rotation = FRotator(0.f, 180.f, 0.f);
+	Camera->LastFrameCameraPose.Rotation = Camera->CameraPose.Rotation;
+
+	AActor* PivotActor = SpawnTestActorWithRoot(
+		World,
+		FVector::ZeroVector,
+		FRotator(0.f, 90.f, 0.f));
+
+	UComposableCameraBeginPlaySetRotationNode* InitialRotationNode = NewObject<UComposableCameraBeginPlaySetRotationNode>();
+	InitialRotationNode->RotationSource = EComposableCameraSetRotationSource::FromActor;
+	InitialRotationNode->RotationActorSource = EComposableCameraActorInputSource::ExplicitActor;
+	InitialRotationNode->RotationActor = PivotActor;
+
+	UComposableCameraRotationConstraints* ConstraintNode = NewObject<UComposableCameraRotationConstraints>();
+	ConstraintNode->bConstrainYaw = true;
+	ConstraintNode->ConstrainYawType = EComposableCameraRotationConstrainType::ActorSpace;
+	ConstraintNode->ActorForYawConstrainSource = EComposableCameraActorInputSource::ExplicitActor;
+	ConstraintNode->ActorForYawConstrain = PivotActor;
+	ConstraintNode->YawRange = FVector2D(-10.f, 10.f);
+	ConstraintNode->bConstrainPitch = false;
+
+	Camera->ComputeNodes.Add(InitialRotationNode);
+	Camera->CameraNodes.Add(ConstraintNode);
+	Camera->OwnedRuntimeDataBlock = MakeUnique<FComposableCameraRuntimeDataBlock>();
+	Camera->OwnedRuntimeDataBlock->Storage.SetNumZeroed(static_cast<int32>(sizeof(AActor*)));
+	Camera->OwnedRuntimeDataBlock->TotalSize = static_cast<int32>(sizeof(AActor*));
+	Camera->TypeAssetNodeTemplateCount = Camera->CameraNodes.Num();
+
+	const int32 ComputeRotationActorOffset = 0;
+	Camera->OwnedRuntimeDataBlock->SlotShapes.Add(ComputeRotationActorOffset, {
+		EComposableCameraPinType::Actor,
+		static_cast<int32>(sizeof(AActor*)),
+		nullptr
+	});
+	FMemory::Memcpy(
+		Camera->OwnedRuntimeDataBlock->Storage.GetData() + ComputeRotationActorOffset,
+		&PivotActor,
+		sizeof(AActor*));
+	Camera->OwnedRuntimeDataBlock->DefaultValueOffsets.Add(
+		FComposableCameraPinKey{Camera->TypeAssetNodeTemplateCount, TEXT("RotationActor")},
+		ComputeRotationActorOffset);
+
+	FComposableCameraExecEntry ComputeEntry;
+	ComputeEntry.EntryType = EComposableCameraExecEntryType::CameraNode;
+	ComputeEntry.CameraNodeIndex = 0;
+	Camera->ComputeFullExecChain.Add(ComputeEntry);
+
+	FComposableCameraExecEntry TickEntry;
+	TickEntry.EntryType = EComposableCameraExecEntryType::CameraNode;
+	TickEntry.CameraNodeIndex = 0;
+	Camera->FullExecChain.Add(TickEntry);
+
+	InitialRotationNode->SetRuntimeDataBlock(Camera->OwnedRuntimeDataBlock.Get(), Camera->TypeAssetNodeTemplateCount);
+	ConstraintNode->SetRuntimeDataBlock(Camera->OwnedRuntimeDataBlock.Get(), 0);
+	Camera->InitializeNodes();
+	Camera->BeginPlayCamera();
+
+	const FRotator BeginPlayRotation = Camera->CameraPose.Rotation;
+
+	Camera->LastTickedFrameCounter = TNumericLimits<uint64>::Max();
+	const FComposableCameraPose FirstTickPose = Camera->TickCamera(0.016f);
+
+	GEngine->DestroyWorldContext(World);
+	World->DestroyWorld(false);
+
+	UTEST_TRUE("BeginPlay chain sets camera to pivot actor forward before the first tick",
+		FMath::IsNearlyEqual(FMath::FindDeltaAngleDegrees(BeginPlayRotation.Yaw, 90.f), 0.f, 0.01f));
+	UTEST_TRUE("First TickCamera keeps the pivot-forward yaw inside RotationConstraints",
+		FMath::IsNearlyEqual(FMath::FindDeltaAngleDegrees(FirstTickPose.Rotation.Yaw, 90.f), 0.f, 0.01f));
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FActorPinDefaultOverrideDoesNotCreateNullRuntimeDefaultTest,
+	"System.Engine.ComposableCameraSystem.TypeAsset.ActorPinDefaultOverrideDoesNotCreateNullRuntimeDefault",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FActorPinDefaultOverrideDoesNotCreateNullRuntimeDefaultTest::RunTest(const FString& Parameters)
+{
+	UComposableCameraTypeAsset* TypeAsset = NewObject<UComposableCameraTypeAsset>();
+
+	UComposableCameraBeginPlaySetRotationNode* ComputeNode =
+		NewObject<UComposableCameraBeginPlaySetRotationNode>(TypeAsset);
+	ComputeNode->RotationSource = EComposableCameraSetRotationSource::FromActor;
+	TypeAsset->ComputeNodeTemplates.Add(ComputeNode);
+
+	FComposableCameraNodeTemplatePinOverrides PinOverrides;
+	FComposableCameraPinOverride ActorOverride;
+	ActorOverride.PinName = TEXT("RotationActor");
+	ActorOverride.bHasDefaultOverride = true;
+	ActorOverride.DefaultValueOverride = TEXT("/Game/Maps/TestMap.TestMap:PersistentLevel.PivotActor");
+	PinOverrides.Overrides.Add(ActorOverride);
+	TypeAsset->ComputeNodePinOverrides.Add(PinOverrides);
+
+	const FComposableCameraRuntimeDataBlock RuntimeData = TypeAsset->BuildRuntimeDataLayout();
+
+	UTEST_FALSE("Actor per-instance defaults are not represented as null runtime defaults",
+		RuntimeData.DefaultValueOffsets.Contains(FComposableCameraPinKey{0, TEXT("RotationActor")}));
+
+	return true;
+}
+
+// ============================================================================
+// Test: RotationConstraints ActorSpace reads explicit actors through the
+// standard pin-to-UPROPERTY auto-resolution path.
+// ============================================================================
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FRotationConstraintsActorSpaceUsesExplicitActorPinDefaultsTest,
+	"System.Engine.ComposableCameraSystem.Nodes.RotationConstraints.ActorSpaceUsesExplicitActorPinDefaults",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FRotationConstraintsActorSpaceUsesExplicitActorPinDefaultsTest::RunTest(const FString& Parameters)
+{
+	UWorld* World = UWorld::CreateWorld(EWorldType::Game, false);
+	FWorldContext& WorldContext = GEngine->CreateNewWorldContext(EWorldType::Game);
+	WorldContext.SetCurrentWorld(World);
+	World->InitializeActorsForPlay(FURL());
+	World->BeginPlay();
+
+	AActor* ReferenceActor = SpawnTestActorWithRoot(
+		World,
+		FVector::ZeroVector,
+		FRotator(30.f, 90.f, 0.f));
+
+	FComposableCameraRuntimeDataBlock RuntimeData;
+	RuntimeData.Storage.SetNumZeroed(static_cast<int32>(sizeof(AActor*)) * 2);
+
+	const int32 YawActorOffset = 0;
+	const int32 PitchActorOffset = static_cast<int32>(sizeof(AActor*));
+	RuntimeData.SlotShapes.Add(YawActorOffset, {
+		EComposableCameraPinType::Actor,
+		static_cast<int32>(sizeof(AActor*)),
+		nullptr
+	});
+	RuntimeData.SlotShapes.Add(PitchActorOffset, {
+		EComposableCameraPinType::Actor,
+		static_cast<int32>(sizeof(AActor*)),
+		nullptr
+	});
+
+	FMemory::Memcpy(RuntimeData.Storage.GetData() + YawActorOffset, &ReferenceActor, sizeof(AActor*));
+	FMemory::Memcpy(RuntimeData.Storage.GetData() + PitchActorOffset, &ReferenceActor, sizeof(AActor*));
+	RuntimeData.DefaultValueOffsets.Add(FComposableCameraPinKey{0, TEXT("ActorForYawConstrain")}, YawActorOffset);
+	RuntimeData.DefaultValueOffsets.Add(FComposableCameraPinKey{0, TEXT("ActorForPitchConstrain")}, PitchActorOffset);
+
+	UComposableCameraRotationConstraints* Node = NewObject<UComposableCameraRotationConstraints>();
+	Node->bConstrainYaw = true;
+	Node->ConstrainYawType = EComposableCameraRotationConstrainType::ActorSpace;
+	Node->ActorForYawConstrainSource = EComposableCameraActorInputSource::ExplicitActor;
+	Node->YawRange = FVector2D(-10.f, 10.f);
+
+	Node->bConstrainPitch = true;
+	Node->ConstrainPitchType = EComposableCameraRotationConstrainType::ActorSpace;
+	Node->ActorForPitchConstrainSource = EComposableCameraActorInputSource::ExplicitActor;
+	Node->PitchRange = FVector2D(-5.f, 5.f);
+
+	Node->SetRuntimeDataBlock(&RuntimeData, 0);
+	Node->Initialize(nullptr, nullptr);
+
+	UTEST_TRUE("ResolveAllInputPins writes yaw actor into UPROPERTY",
+		Node->ActorForYawConstrain.Get() == ReferenceActor);
+	UTEST_TRUE("ResolveAllInputPins writes pitch actor into UPROPERTY",
+		Node->ActorForPitchConstrain.Get() == ReferenceActor);
+
+	FComposableCameraPose InPose;
+	InPose.Rotation = FRotator(50.f, 120.f, 0.f);
+
+	FComposableCameraPose OutPose = InPose;
+	Node->TickNode(0.016f, InPose, OutPose);
+
+	AddInfo(FString::Printf(
+		TEXT("RotationConstraints ActorSpace result: Yaw=%.6f Pitch=%.6f, ExpectedYaw=100.000000 ExpectedPitch=35.000000"),
+		OutPose.Rotation.Yaw,
+		OutPose.Rotation.Pitch));
+
+	GEngine->DestroyWorldContext(World);
+	World->DestroyWorld(false);
+
+	UTEST_TRUE("Yaw range is centered on explicit actor forward",
+		FMath::IsNearlyEqual(FMath::FindDeltaAngleDegrees(OutPose.Rotation.Yaw, 100.f), 0.f, 0.01f));
+	UTEST_TRUE("Pitch range is centered on explicit actor forward",
+		FMath::IsNearlyEqual(OutPose.Rotation.Pitch, 35.f, 0.01f));
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FRotationConstraintsActorSpaceYawRangeWrapsAroundTest,
+	"System.Engine.ComposableCameraSystem.Nodes.RotationConstraints.ActorSpaceYawRangeWrapsAround",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FRotationConstraintsActorSpaceYawRangeWrapsAroundTest::RunTest(const FString& Parameters)
+{
+	UWorld* World = UWorld::CreateWorld(EWorldType::Game, false);
+	FWorldContext& WorldContext = GEngine->CreateNewWorldContext(EWorldType::Game);
+	WorldContext.SetCurrentWorld(World);
+	World->InitializeActorsForPlay(FURL());
+	World->BeginPlay();
+
+	AActor* ReferenceActor = SpawnTestActorWithRoot(
+		World,
+		FVector::ZeroVector,
+		FRotator(0.f, 170.f, 0.f));
+
+	UComposableCameraRotationConstraints* Node = NewObject<UComposableCameraRotationConstraints>();
+	Node->bConstrainYaw = true;
+	Node->ConstrainYawType = EComposableCameraRotationConstrainType::ActorSpace;
+	Node->ActorForYawConstrainSource = EComposableCameraActorInputSource::ExplicitActor;
+	Node->ActorForYawConstrain = ReferenceActor;
+	Node->YawRange = FVector2D(-30.f, 30.f);
+	Node->bConstrainPitch = false;
+	Node->Initialize(nullptr, nullptr);
+
+	FComposableCameraPose InPose;
+	InPose.Rotation = FRotator(0.f, -175.f, 0.f);
+
+	FComposableCameraPose OutPose = InPose;
+	Node->TickNode(0.016f, InPose, OutPose);
+
+	GEngine->DestroyWorldContext(World);
+	World->DestroyWorld(false);
+
+	UTEST_TRUE("Yaw inside actor-relative range across +/-180 is preserved",
+		FMath::IsNearlyEqual(FMath::FindDeltaAngleDegrees(OutPose.Rotation.Yaw, -175.f), 0.f, 0.01f));
 
 	return true;
 }
