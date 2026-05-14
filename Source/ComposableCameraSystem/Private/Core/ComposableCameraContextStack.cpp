@@ -22,13 +22,13 @@ UComposableCameraDirector* UComposableCameraContextStack::EnsureContext(
 	const int32 ExistingIndex = FindContextIndex(ContextName);
 	if (ExistingIndex != INDEX_NONE)
 	{
-		// Already on top — nothing to do.
+		// Already on top. Nothing to do.
 		if (ExistingIndex == Entries.Num() - 1)
 		{
 			return Entries[ExistingIndex].Director;
 		}
 
-		// Not on top — move to top so it becomes the active context.
+		// Not on top. Move to top so it becomes the active context.
 		FComposableCameraContextEntry Entry = Entries[ExistingIndex];
 		Entries.RemoveAt(ExistingIndex);
 		Entries.Add(Entry);
@@ -142,7 +142,7 @@ void UComposableCameraContextStack::PopActiveContextInternal(
 	AComposableCameraCameraBase* ResumingCamera = ResumeEntry.Director->GetRunningCamera();
 	if (!ResumingCamera || !PlayerCameraManager)
 	{
-		// No running camera in resume context or no PCM — instant cut, destroy popped context.
+		// No running camera in resume context or no PCM. Instant cut, destroy popped context.
 		if (PoppedEntry.Director)
 		{
 			PoppedEntry.Director->DestroyAllCameras();
@@ -151,7 +151,7 @@ void UComposableCameraContextStack::PopActiveContextInternal(
 	}
 
 	// Resolve transition through the five-tier chain:
-	//   1. Caller override → 2. Table → 3. Source exit → 4. Target enter → 5. Cut
+	//   1. Caller override ->2. Table ->3. Source exit ->4. Target enter ->5. Cut
 	AComposableCameraCameraBase* PoppedCamera = PoppedEntry.Director->GetRunningCamera();
 	const UComposableCameraTypeAsset* SourceTypeAsset =
 		PoppedCamera ? PoppedCamera->SourceTypeAsset.Get() : nullptr;
@@ -162,7 +162,7 @@ void UComposableCameraContextStack::PopActiveContextInternal(
 
 	if (!ResolvedTransition)
 	{
-		// No transition — instant cut. Destroy popped context immediately.
+		// No transition. Instant cut. Destroy popped context immediately.
 		if (PoppedEntry.Director)
 		{
 			PoppedEntry.Director->DestroyAllCameras();
@@ -173,22 +173,22 @@ void UComposableCameraContextStack::PopActiveContextInternal(
 		return;
 	}
 
-	// Pop path: resume the ORIGINAL ResumingCamera in place — do NOT spawn
+	// Pop path: resume the ORIGINAL ResumingCamera in place. Do NOT spawn
 	// a fresh instance of the same class. The pre-push camera has been
 	// ticking throughout the push period (via the pushed context's
-	// RefLeaf → ResumeEntry.Director) and its per-node state (damping,
+	// RefLeaf->ResumeEntry.Director) and its per-node state (damping,
 	// interpolators, spline progress, etc.) is continuous. Spawning a
 	// replacement instance at pop time would reset all that state and
 	// produce a visible "snap" on the first post-pop frame. The new
 	// `ResumeCurrentCameraWithReferenceSource` path wraps the existing
 	// tree root (holding ResumingCamera) under a new pop Inner node
-	// with a RefLeaf → popped director as the blend source.
+	// with a RefLeaf ->popped director as the blend source.
 	UComposableCameraTransitionBase* PopTransition = DuplicateObject(ResolvedTransition, PlayerCameraManager);
 
 	// Pop with live (not frozen) source: the RefLeaf we install below
 	// captures a TSharedPtr snapshot of the popped director's tree. That
-	// snapshot re-evaluates each frame — the popped cameras and any
-	// in-flight push transition inside them keep ticking — but the
+	// snapshot re-evaluates each frame. The popped cameras and any
+	// in-flight push transition inside them keep ticking. But the
 	// snapshot root is fixed at the shape the popped tree had AT POP TIME,
 	// so it cannot self-reference the newly-installed pop Inner. No cycle,
 	// no feedback loop, no need to freeze.
@@ -196,7 +196,7 @@ void UComposableCameraContextStack::PopActiveContextInternal(
 	// `bFreezeSourceCamera` is a semantic option for transition authors
 	// who explicitly want "B holds its last pose during the pop blend"
 	// behaviour (e.g. a cinematic freeze-frame). It is NOT needed to make
-	// pop mechanically safe anymore. Default to false — honour whatever
+	// pop mechanically safe anymore. Default to false. Honour whatever
 	// the transition data asset / type asset specified.
 	ResumeEntry.Director->ResumeCurrentCameraWithReferenceSource(
 		PlayerCameraManager,
@@ -206,7 +206,7 @@ void UComposableCameraContextStack::PopActiveContextInternal(
 
 	// `ActivationParams` / `PrepareResumeCallback` are intentionally
 	// UNUSED on the resume path: the resuming camera already exists with
-	// its full RuntimeDataBlock, node setup, and exec chain — no
+	// its full RuntimeDataBlock, node setup, and exec chain. No
 	// OnTypeAssetCameraConstructed callback is needed, no InitialTransform
 	// needs applying. (The old activate-new path needed those because it
 	// was spawning a fresh empty shell.) The `ActivationParams` argument
@@ -248,7 +248,7 @@ void UComposableCameraContextStack::PopActiveContextInternal(
 	{
 		// DuplicateObject returned nullptr (shouldn't happen in practice
 		// since ResolvedTransition was already non-null above, but guard
-		// anyway) — instant cut path, destroy popped director immediately.
+		// anyway). Instant cut path, destroy popped director immediately.
 		if (PoppedEntry.Director)
 		{
 			PoppedEntry.Director->DestroyAllCameras();
@@ -265,7 +265,7 @@ void UComposableCameraContextStack::DemoteNonTopTransientContextsToPending(
 	}
 
 	// Walk non-top entries from bottom up and move any whose running camera is
-	// transient. `Entries.Num() - 1` is the new active context — never touched.
+	// transient. `Entries.Num() - 1` is the new active context. Never touched.
 	// Reverse iteration (top-side-first among the non-top range) keeps the
 	// indices of not-yet-visited entries stable across RemoveAt.
 	for (int32 i = Entries.Num() - 2; i >= 0; --i)
@@ -318,7 +318,7 @@ void UComposableCameraContextStack::DemoteNonTopTransientContextsToPending(
 		}
 		else
 		{
-			// No blend — there is no RefLeaf path keeping the camera alive,
+			// No blend. There is no RefLeaf path keeping the camera alive,
 			// so nothing is reading from it after this frame. Destroy now to
 			// match the single-frame semantics of a cut.
 			if (Entry.Director)
@@ -384,7 +384,7 @@ FComposableCameraPose UComposableCameraContextStack::Evaluate(float DeltaTime)
 		return FComposableCameraPose{};
 	}
 
-	// Copy the active entry index rather than holding a reference — PopActiveContextInternal
+	// Copy the active entry index rather than holding a reference -PopActiveContextInternal
 	// mutates the Entries array, which would invalidate any reference to Entries.Last().
 	const int32 ActiveIndex = Entries.Num() - 1;
 
@@ -397,7 +397,7 @@ FComposableCameraPose UComposableCameraContextStack::Evaluate(float DeltaTime)
 
 	// Evaluate only the active (top) context.
 	// Lower contexts may still tick if the active context's tree contains a reference leaf
-	// pointing to them — the reference leaf calls Director->Evaluate() on the source context.
+	// pointing to them. The reference leaf calls Director->Evaluate() on the source context.
 	UComposableCameraDirector* ActiveDirector = Entries[ActiveIndex].Director;
 	FComposableCameraPose ResultPose = ActiveDirector->Evaluate(DeltaTime);
 	Entries[ActiveIndex].LastPose = ResultPose;
@@ -419,7 +419,7 @@ FComposableCameraPose UComposableCameraContextStack::Evaluate(float DeltaTime)
 			FComposableCameraActivateParams ActiveParams;
 			ActiveParams.bPreserveCameraPose = RunningCamera->bDefaultPreserveCameraPose;
 
-			// Pass nullptr as TransitionOverride — PopActiveContextInternal will
+			// Pass nullptr as TransitionOverride -PopActiveContextInternal will
 			// resolve the transition through the five-tier chain (table, source
 			// exit, target enter, etc.) using ResolveTransition.
 			PopActiveContextInternal(PCM, nullptr, ActiveParams);
@@ -437,7 +437,7 @@ void UComposableCameraContextStack::BuildDebugSnapshot(FComposableCameraContextS
 
 	OutSnapshot.Contexts.Reserve(Entries.Num() + PendingDestroyEntries.Num());
 
-	// Live entries emitted top → base so the visual layout reads "active at the
+	// Live entries emitted top ->base so the visual layout reads "active at the
 	// top, base at the bottom" for every consumer (panel + showdebug + dumps).
 	for (int32 i = Entries.Num() - 1; i >= 0; --i)
 	{
@@ -454,7 +454,7 @@ void UComposableCameraContextStack::BuildDebugSnapshot(FComposableCameraContextS
 		OutSnapshot.Contexts.Add(MoveTemp(Snap));
 	}
 
-	// Pending-destroy entries — still evaluating through reference leaves,
+	// Pending-destroy entries. Still evaluating through reference leaves,
 	// shown after the live stack so the reader sees them "trailing off".
 	for (const FComposableCameraContextEntry& Entry : PendingDestroyEntries)
 	{
@@ -477,7 +477,7 @@ void UComposableCameraContextStack::AddReferencedObjects(UObject* InThis, FRefer
 	// Walk Entry.Director (UObject ref) and the embedded `LastPose` whose
 	// `FPostProcessSettings` carries TObjectPtr refs invisible to the
 	// reflection walk (FComposableCameraContextEntry's LastPose is a non-
-	// UPROPERTY struct field — see ComposableCameraContextStack.h). Without
+	// UPROPERTY struct field. See ComposableCameraContextStack.h). Without
 	// the explicit pose walk, a color-grading material referenced ONLY
 	// through a stack-entry's saved pose can be GC'd while the entry sits
 	// underneath the active context, then surface a dangling pointer when

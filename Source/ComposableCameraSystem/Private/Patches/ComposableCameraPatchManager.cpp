@@ -25,13 +25,13 @@ namespace
 	/**
 	 * Advance the envelope state machine by DeltaTime.
 	 *
-	 *   Entering : alpha = ease(t),         t = ElapsedInPhase / EnterDuration; transition → Active when t ≥ 1.
+	 *   Entering : alpha = ease(t),         t = ElapsedInPhase / EnterDuration; transition -> Active when t <=1.
 	 *   Active   : alpha = 1; ElapsedTimeActive accumulates (Stage 4 wires Duration channel against it).
-	 *   Exiting  : alpha = ExitStartAlpha · (1 - ease(t)), t = ElapsedInPhase / ExitDuration; transition → Expired when t ≥ 1.
+	 *   Exiting  : alpha = ExitStartAlpha * (1 - ease(t)), t = ElapsedInPhase / ExitDuration; transition ->Expired when t <=1.
 	 *   Expired  : no-op; Apply's end-of-pass sweep removes the entry.
 	 *
-	 * EnterDuration / ExitDuration ≤ 0 short-circuit to the destination phase
-	 * on the same call (no wasted frame at α=0).
+	 * EnterDuration / ExitDuration <=0 short-circuit to the destination phase
+	 * on the same call (no wasted frame at =0).
 	 */
 	void AdvancePatchEnvelope(UComposableCameraPatchInstance* Instance, float DeltaTime)
 	{
@@ -95,8 +95,8 @@ namespace
 	/**
 	 * Shared "flip to Exiting" transition used by both manual ExpirePatch and
 	 * automatic schedule expiration. Snapshots CurrentAlpha as the exit ramp's
-	 * amplitude (so Entering-mid-fade → Exiting doesn't pop) and short-circuits
-	 * to Expired when there's nothing to fade from (alpha ≤ 0 or ExitDuration ≤ 0).
+	 * amplitude (so Entering-mid-fade ->Exiting doesn't pop) and short-circuits
+	 * to Expired when there's nothing to fade from (alpha <=0 or ExitDuration <=0).
 	 */
 	void TransitionPatchToExiting(UComposableCameraPatchInstance* Instance)
 	{
@@ -118,7 +118,7 @@ namespace
 	 * enabled channel fires. No-op if the Patch is not in Active phase.
 	 *
 	 * Channels checked, in first-to-fire order:
-	 *   - Duration: ElapsedTimeActive ≥ Duration.
+	 *   - Duration: ElapsedTimeActive <=Duration.
 	 *   - Condition: Asset's CanRemain(DeltaTime, UpstreamPose) returns false.
 	 *   - bExpireOnCameraChange: Director's RunningCamera differs from the
 	 *     camera seen at AddPatch time.
@@ -177,8 +177,8 @@ namespace
 
 UComposableCameraPatchManager::UComposableCameraPatchManager()
 {
-	// Cold-path reservation. Per PatchSystemProposal §14: typical scene has
-	// 0–4 active patches; reserving 8 keeps AddPatch alloc-free for the
+	// Cold-path reservation. Per PatchSystemProposal Section 14: typical scene has
+	// 0- active patches; reserving 8 keeps AddPatch alloc-free for the
 	// overwhelming majority of usages.
 	ActivePatches.Reserve(8);
 }
@@ -195,9 +195,8 @@ UComposableCameraPatchHandle* UComposableCameraPatchManager::AddPatch(
 		return nullptr;
 	}
 
-	// Sentinel resolution — each overridable field is gated by its own paired
-	// bOverride* bool (FPostProcessSettings::bOverride_* idiom). Unchecked →
-	// asset default; checked → caller value wins, even when the value is 0.
+	// Sentinel resolution. Each overridable field is gated by its own paired
+	// bOverride* bool (FPostProcessSettings::bOverride_* idiom). Unchecked ->	// asset default; checked ->caller value wins, even when the value is 0.
 	// See FComposableCameraPatchActivateParams doc for the full design rationale.
 	const uint8 EffectiveExpirationType = Params.bOverrideExpirationType
 		? Params.ExpirationType
@@ -264,8 +263,8 @@ UComposableCameraPatchHandle* UComposableCameraPatchManager::AddPatch(
 	// to avoid a wasted scheduler visit. Same pattern as the LS component.
 	Evaluator->SetActorTickEnabled(false);
 
-	// PCM-independent init — Patch evaluators do not participate in PCM-level
-	// Action dispatch (PatchSystemProposal §16.9). The CameraBase's
+	// PCM-independent init -Patch evaluators do not participate in PCM-level
+	// Action dispatch (PatchSystemProposal Section 16.9). The CameraBase's
 	// Initialize(nullptr) path skips BindCameraActionsForNewCamera, so this is
 	// just the existing LS-compatible spine.
 	Evaluator->Initialize(/*Manager=*/nullptr);
@@ -288,9 +287,9 @@ UComposableCameraPatchHandle* UComposableCameraPatchManager::AddPatch(
 	Instance->ExitDuration = EffectiveExit;
 	Instance->EaseType = PatchAsset->DefaultEaseType;
 	// Stage 3: Patch starts in Entering at alpha = 0. Apply's AdvanceEnvelope
-	// ramps alpha 0 → 1 over EnterDuration before the first BlendBy contribution.
+	// ramps alpha 0 ->1 over EnterDuration before the first BlendBy contribution.
 	// EnterDuration <= 0 short-circuits to Active at alpha = 1 on the first
-	// AdvanceEnvelope call — no wasted invisible frame.
+	// AdvanceEnvelope call. No wasted invisible frame.
 	Instance->Phase = EComposableCameraPatchPhase::Entering;
 	Instance->ElapsedInPhase = 0.f;
 	Instance->ElapsedTimeActive = 0.f;
@@ -300,7 +299,7 @@ UComposableCameraPatchHandle* UComposableCameraPatchManager::AddPatch(
 
 	// Cache the Director's RunningCamera at AddPatch time so bExpireOnCameraChange
 	// can detect subsequent camera changes per-patch. Resolved via the outer chain
-	// (PatchManager → Director); a null Director yields a null weak ptr which
+	// (PatchManager->Director); a null Director yields a null weak ptr which
 	// matches correctly against a subsequent null RunningCamera.
 	if (UComposableCameraDirector* OwningDirector = GetTypedOuter<UComposableCameraDirector>())
 	{
@@ -308,7 +307,7 @@ UComposableCameraPatchHandle* UComposableCameraPatchManager::AddPatch(
 	}
 
 	// Sorted insert by (LayerIndex ascending, PushSequence ascending). Linear scan
-	// is appropriate for the expected size (≤ ~8 entries); the array is reserved
+	// is appropriate for the expected size (<=~8 entries); the array is reserved
 	// up front so this is O(N) without reallocation in the typical case.
 	int32 InsertIndex = ActivePatches.Num();
 	for (int32 i = 0; i < ActivePatches.Num(); ++i)
@@ -382,21 +381,21 @@ FComposableCameraPose UComposableCameraPatchManager::Apply(
 		return InputPose;
 	}
 
-	// Resolve the owning Director's RunningCamera once per Apply — the schedule
+	// Resolve the owning Director's RunningCamera once per Apply. The schedule
 	// check needs it for the bExpireOnCameraChange flag. A null Director (test
 	// paths) yields a null camera, which matches correctly against any Patch's
-	// RunningCameraAtAdd snapshot (null → null is "no change").
+	// RunningCameraAtAdd snapshot (null ->null is "no change").
 	UComposableCameraDirector* OwningDirector = GetTypedOuter<UComposableCameraDirector>();
 	AComposableCameraCameraBase* CurrentRunningCamera =
 		OwningDirector ? OwningDirector->GetRunningCamera() : nullptr;
 
-	// Iterate sorted ActivePatches (LayerIndex asc, PushSequence asc — see AddPatch).
+	// Iterate sorted ActivePatches (LayerIndex asc, PushSequence asc. See AddPatch).
 	// For each patch:
-	//   1. Advance the envelope state machine — may flip Phase and update CurrentAlpha.
-	//   2. Check schedule channels (Duration / Condition / OnCameraChange) — may flip
-	//      Active → Exiting. Runs AFTER AdvanceEnvelope so Entering → Active → schedule
+	//   1. Advance the envelope state machine. May flip Phase and update CurrentAlpha.
+	//   2. Check schedule channels (Duration / Condition / OnCameraChange). May flip
+	//      Active->Exiting. Runs AFTER AdvanceEnvelope so Entering->Active ->schedule
 	//      transitions can happen in the correct order on a single frame.
-	//   3. If Expired (envelope finished, schedule fired with ExitDuration≤0, or
+	//   3. If Expired (envelope finished, schedule fired with ExitDuration<=, or
 	//      short-circuited via ExpirePatch), skip ticking.
 	//   4. Otherwise, tick the evaluator with the running upstream pose and contribute
 	//      its result by BlendBy at the new CurrentAlpha. The chain semantics let
@@ -425,7 +424,7 @@ FComposableCameraPose UComposableCameraPatchManager::Apply(
 		{
 			SCOPE_CYCLE_COUNTER(STAT_CCS_Patch_TickEvaluator);
 			TRACE_CPUPROFILER_EVENT_SCOPE(CCS_Patch_TickEvaluator);
-			// Per-Patch-asset breakout in Insights — read the cached name
+			// Per-Patch-asset breakout in Insights. Read the cached name
 			// from AddPatch time so the hot path doesn't allocate. Stays
 			// empty if AddPatch was somehow constructed without an asset
 			// (defensive); the static scope above still groups the work.
@@ -474,7 +473,7 @@ void UComposableCameraPatchManager::ApplyParameterBlockToActivePatch(
 		return;
 	}
 	// Skip Patches whose evaluator has already been destroyed (Expired and swept)
-	// or that are mid-Exiting — pushing parameters into a fade-out evaluator just
+	// or that are mid-Exiting. Pushing parameters into a fade-out evaluator just
 	// flickers the last visible alpha frames. Sequencer keying is for "live"
 	// patches only; the exit ramp is its own concern.
 	if (Instance->Phase == EComposableCameraPatchPhase::Exiting ||
@@ -492,7 +491,7 @@ void UComposableCameraPatchManager::ApplyParameterBlockToActivePatch(
 	{
 		return;
 	}
-	// Cache the latest block on the instance too — keeps any future
+	// Cache the latest block on the instance too. Keeps any future
 	// re-construction (e.g. a hypothetical asset-modified hot-reload path)
 	// reading the most-recently-keyed values instead of the AddPatch snapshot.
 	Instance->CachedParameters = Parameters;
@@ -504,7 +503,7 @@ void UComposableCameraPatchManager::ExpireAll(float ExitDurationOverride)
 	// Soft sweep: route every still-live patch through TransitionPatchToExiting
 	// (via per-handle ExpirePatch) so each one runs its own exit ramp. Removal
 	// is deferred to Apply's end-of-pass sweep, same as for individual ExpirePatch
-	// calls — that way iteration order here is stable even if a future patch
+	// calls. That way iteration order here is stable even if a future patch
 	// node's exit envelope ends up triggering side effects.
 	for (UComposableCameraPatchInstance* Instance : ActivePatches)
 	{

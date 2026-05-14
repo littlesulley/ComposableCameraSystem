@@ -1,4 +1,4 @@
-// Copyright Sulley. All rights reserved.
+﻿// Copyright Sulley. All rights reserved.
 
 #pragma once
 
@@ -9,10 +9,10 @@
 #include "ComposableCameraPatchTypeAsset.generated.h"
 
 /**
- * Data asset describing a Camera Patch type — a small, time-bounded, additively-
+ * Data asset describing a Camera Patch type. A small, time-bounded, additively-
  * composable overlay that reads upstream pose, applies a node graph, writes a
  * modified pose. Authored in the same visual editor as UComposableCameraTypeAsset,
- * with no schema change (PatchSystemProposal §5 / §16.8).
+ * with no schema change (PatchSystemProposal Section 5 / Section 16.8).
  *
  * Subclasses UComposableCameraTypeAsset for type-safe API (AddPatch only accepts
  * UComposableCameraPatchTypeAsset*) and a separate Content Browser factory. The
@@ -20,10 +20,10 @@
  * layout are all inherited unchanged.
  *
  * Patch-incompatible nodes (those that ignore InPose and synthesize pose from
- * scratch — e.g. RelativeFixedPose, MixingCamera, ViewTargetProxy) will be
+ * scratch. E.g. RelativeFixedPose, MixingCamera, ViewTargetProxy) will be
  * caught by the upcoming GetPatchCompatibility() node enum + a yellow-banner
  * editor warning. That enum is introduced in a later staging step (see
- * PatchSystemProposal §11 / §19); until then, any node may be wired into a
+ * PatchSystemProposal Section 11 / Section 19); until then, any node may be wired into a
  * Patch graph without surface-level guard rails.
  */
 UCLASS(BlueprintType, ClassGroup = ComposableCameraSystem)
@@ -41,7 +41,7 @@ public:
 	float DefaultExitDuration = 0.25f;
 
 	/** Easing curve applied symmetrically to BOTH the enter and the exit ramp.
-	 *  Asset-only — see EComposableCameraPatchEase doc comment for the rationale
+	 *  Asset-only. See EComposableCameraPatchEase doc comment for the rationale
 	 *  (no natural sentinel for an enum). */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Patch|Envelope")
 	EComposableCameraPatchEase DefaultEaseType = EComposableCameraPatchEase::EaseInOut;
@@ -53,7 +53,7 @@ public:
 	int32 DefaultLayerIndex = 0;
 
 	/** Default expiration channels. Bitmask of EComposableCameraPatchExpirationType.
-	 *  Per-AddPatch override always wins when non-zero (no sentinel — bitmask of 0 from
+	 *  Per-AddPatch override always wins when non-zero (no sentinel. Bitmask of 0 from
 	 *  the caller is treated as "use asset default"). */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Patch|Lifetime",
 		meta = (Bitmask, BitmaskEnum = "/Script/ComposableCameraSystem.EComposableCameraPatchExpirationType"))
@@ -69,17 +69,17 @@ public:
 	/**
 	 * Condition expiration hook. Override in a Blueprint subclass to decide per-frame
 	 * whether the Patch may remain active. Called ONLY when the Patch is in Active
-	 * phase AND the Condition bit of ExpirationType is enabled — otherwise it is
+	 * phase AND the Condition bit of ExpirationType is enabled. Otherwise it is
 	 * not consulted. Returning false flips the Patch to Exiting via the standard
 	 * envelope ramp (same path as Duration expiration and manual ExpirePatch).
 	 *
 	 * Signature mirrors UComposableCameraActionBase::CanExecute (PatchSystemProposal
-	 * §16.10) — same param shape, same BlueprintNativeEvent idiom. UpstreamPose is
+	 * Section 16.10). Same param shape, same BlueprintNativeEvent idiom. UpstreamPose is
 	 * the pose this Patch would act on (output of the tree evaluation and all
 	 * lower-layer Patches this frame); inspect it to write conditions like "stop
-	 * when the player is looking below the horizon" or "stop when FOV drops below 30°".
+	 * when the player is looking below the horizon" or "stop when FOV drops below 30 deg".
 	 *
-	 * Default implementation returns true (Patch stays) — override in BP to add real gating.
+	 * Default implementation returns true (Patch stays). Override in BP to add real gating.
 	 */
 	UFUNCTION(BlueprintNativeEvent, DisplayName = "CanRemain", Category = "ComposableCameraSystem|Patch")
 	bool CanRemain(float DeltaTime, const FComposableCameraPose& UpstreamPose);

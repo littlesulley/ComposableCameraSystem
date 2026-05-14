@@ -27,7 +27,7 @@ class COMPOSABLECAMERASYSTEM_API UComposableCameraModifierManager : public UObje
 
 public:
 	// FModifierEntry holds raw UObject* (Modifier / Asset) inside a non-reflected
-	// nested TMap. Without this override the GC would not see those references —
+	// nested TMap. Without this override the GC would not see those references -
 	// callers that pass a transiently-rooted asset to AddModifier would see it
 	// collected and the next UpdateEffectiveModifiers / ApplyModifiers would
 	// dereference a dangling pointer.
@@ -59,7 +59,7 @@ public:
 	FComposableCameraModifierData& GetModifierData() { return ModifierData; }
 
 	/** Const overload for read-only access (debug tooling / inspectors).
-	 *  Returns the same struct by const reference — callers can iterate
+	 *  Returns the same struct by const reference - callers can iterate
 	 *  the ModifierData / EffectiveModifiers maps but cannot mutate them. */
 	const FComposableCameraModifierData& GetModifierData() const { return ModifierData; }
 

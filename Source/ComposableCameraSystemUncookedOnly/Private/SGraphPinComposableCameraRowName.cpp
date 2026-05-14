@@ -38,9 +38,7 @@ TSharedRef<SWidget> SGraphPinComposableCameraRowName::GetDefaultValueWidget()
 	SAssignNew(DefaultValueContainer, SBox)
 		.MinDesiredWidth(120.f)
 		.MaxDesiredWidth(260.f)
-		[
-			BuildInnerDefaultValueWidget()
-		];
+		[BuildInnerDefaultValueWidget()];
 
 	return DefaultValueContainer.ToSharedRef();
 }
@@ -76,13 +74,11 @@ TSharedRef<SWidget> SGraphPinComposableCameraRowName::BuildInnerDefaultValueWidg
 		.ToolTipText_Lambda([this]() { return GetWidgetTooltip(); })
 		.IsEnabled(this, &SGraphPin::GetDefaultValueIsEditable)
 		.Content()
-		[
-			SNew(STextBlock)
-			.Text_Lambda([this]() { return GetCurrentRowNameText(); })
-		];
+		[SNew(STextBlock)
+			.Text_Lambda([this]() { return GetCurrentRowNameText(); })];
 }
 
-// ─── Owning K2 Node Access ────────────────────────────────────────────────────
+// Owning K2 Node Access 
 
 UK2Node_ActivateComposableCameraFromDataTable* SGraphPinComposableCameraRowName::GetOwningActivateNode() const
 {
@@ -94,7 +90,7 @@ UK2Node_ActivateComposableCameraFromDataTable* SGraphPinComposableCameraRowName:
 	return Cast<UK2Node_ActivateComposableCameraFromDataTable>(ThisPin->GetOwningNodeUnchecked());
 }
 
-// ─── Data Resolution ──────────────────────────────────────────────────────────
+// Data Resolution 
 
 UDataTable* SGraphPinComposableCameraRowName::ResolveLiteralDataTable() const
 {
@@ -117,7 +113,7 @@ void SGraphPinComposableCameraRowName::RefreshRowOptions()
 		TArray<FName> RowNames = DataTable->GetRowNames();
 		RowNames.Sort([](const FName& A, const FName& B) { return A.LexicalLess(B); });
 		RowOptions.Reserve(RowOptions.Num() + RowNames.Num());
-		for (const FName& RowName : RowNames)
+		for (const FName& RowName: RowNames)
 		{
 			RowOptions.Add(MakeShared<FString>(RowName.ToString()));
 		}
@@ -131,19 +127,18 @@ bool SGraphPinComposableCameraRowName::HasResolvedDataTable() const
 	return RowOptions.Num() > 1;
 }
 
-// ─── Combo Callbacks ──────────────────────────────────────────────────────────
+// Combo Callbacks 
 
 TSharedRef<SWidget> SGraphPinComposableCameraRowName::OnGenerateRowOptionWidget(TSharedPtr<FString> InOption)
 {
 	return SNew(STextBlock)
-		.Text(FText::FromString(InOption.IsValid() ? *InOption : FString()));
+		.Text(FText::FromString(InOption.IsValid() ? *InOption: FString()));
 }
 
-void SGraphPinComposableCameraRowName::OnRowOptionSelected(
-	TSharedPtr<FString> InOption, ESelectInfo::Type InSelectInfo)
+void SGraphPinComposableCameraRowName::OnRowOptionSelected(TSharedPtr<FString> InOption, ESelectInfo::Type InSelectInfo)
 {
 	// ESelectInfo::Direct fires when we programmatically set the selection
-	// during a refresh — we don't want that to register as a user edit.
+	// during a refresh - we don't want that to register as a user edit.
 	if (InSelectInfo == ESelectInfo::Direct || !InOption.IsValid())
 	{
 		return;
@@ -173,10 +168,9 @@ void SGraphPinComposableCameraRowName::OnRowOptionSelected(
 	}
 }
 
-// ─── Text Fallback ────────────────────────────────────────────────────────────
+// Text Fallback 
 
-void SGraphPinComposableCameraRowName::OnFallbackTextCommitted(
-	const FText& NewText, ETextCommit::Type CommitType)
+void SGraphPinComposableCameraRowName::OnFallbackTextCommitted(const FText& NewText, ETextCommit::Type CommitType)
 {
 	if (CommitType != ETextCommit::OnEnter && CommitType != ETextCommit::OnUserMovedFocus)
 	{
@@ -207,7 +201,7 @@ void SGraphPinComposableCameraRowName::OnFallbackTextCommitted(
 	}
 }
 
-// ─── Display Helpers ──────────────────────────────────────────────────────────
+// Display Helpers 
 
 FText SGraphPinComposableCameraRowName::GetCurrentRowNameText() const
 {
@@ -233,26 +227,25 @@ FText SGraphPinComposableCameraRowName::GetWidgetTooltip() const
 
 	if (const UK2Node_ActivateComposableCameraFromDataTable* Node = GetOwningActivateNode())
 	{
-		if (const UEdGraphPin* DataTablePin = Node->FindPin(
-				UK2Node_ActivateComposableCameraFromDataTable::DataTablePinName, EGPD_Input))
+		if (const UEdGraphPin* DataTablePin = Node->FindPin(UK2Node_ActivateComposableCameraFromDataTable::DataTablePinName, EGPD_Input))
 		{
 			if (DataTablePin->LinkedTo.Num() > 0)
 			{
 				return LOCTEXT("RowNameFallbackLinkedTooltip",
 					"The DataTable pin is driven by another node, so the row "
 					"list cannot be resolved statically. Type the row name by "
-					"hand — it will be looked up at runtime.");
+					"hand - it will be looked up at runtime.");
 			}
 		}
 	}
 
 	return LOCTEXT("RowNameFallbackEmptyTooltip",
 		"Assign a DataTable on this node to get a searchable list of row "
-		"names. Until then you can type the row name by hand — it will be "
+		"names. Until then you can type the row name by hand - it will be "
 		"looked up at runtime.");
 }
 
-// ─── Live Refresh ─────────────────────────────────────────────────────────────
+// Live Refresh 
 
 void SGraphPinComposableCameraRowName::HandleDataTablePinChanged()
 {
@@ -263,7 +256,7 @@ void SGraphPinComposableCameraRowName::HandleDataTablePinChanged()
 
 	if (bWasCombo != bIsCombo)
 	{
-		// The "has resolved" state actually flipped — we need to swap
+		// The "has resolved" state actually flipped - we need to swap
 		// between the combo box and the text fallback. SGraphPin caches
 		// the return value of GetDefaultValueWidget() permanently and
 		// there is no public API to ask it to rebuild, so we own the
@@ -278,7 +271,7 @@ void SGraphPinComposableCameraRowName::HandleDataTablePinChanged()
 	// State unchanged. If we're in combo mode, push the refreshed option
 	// list into the existing SSearchableComboBox without rebuilding the
 	// widget. If we're in fallback mode the text box just re-reads its
-	// lambdas and tooltip — no action needed.
+	// lambdas and tooltip - no action needed.
 	if (bIsCombo && RowCombo.IsValid())
 	{
 		RowCombo->RefreshOptions();
@@ -294,8 +287,7 @@ void SGraphPinComposableCameraRowName::BindToOwningNodeDelegate()
 	}
 
 	BoundNode = Node;
-	DelegateHandle = Node->GetOnDataTablePinChanged().AddSP(
-		this, &SGraphPinComposableCameraRowName::HandleDataTablePinChanged);
+	DelegateHandle = Node->GetOnDataTablePinChanged().AddSP(this, &SGraphPinComposableCameraRowName::HandleDataTablePinChanged);
 }
 
 void SGraphPinComposableCameraRowName::UnbindFromOwningNodeDelegate()

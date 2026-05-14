@@ -12,8 +12,7 @@
  * color, and category, and opens the visual node graph editor on double-click.
  */
 UCLASS(ClassGroup = ComposableCameraSystemEditor)
-class UAssetDefinition_ComposableCameraTypeAsset
-	: public UAssetDefinitionDefault
+class UAssetDefinition_ComposableCameraTypeAsset: public UAssetDefinitionDefault
 {
 	GENERATED_BODY()
 

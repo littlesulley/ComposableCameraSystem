@@ -1,4 +1,4 @@
-// Copyright Sulley. All rights reserved.
+﻿// Copyright Sulley. All rights reserved.
 
 #include "Core/ComposableCameraRuntimeDataBlock.h"
 
@@ -94,26 +94,26 @@ void FComposableCameraRuntimeDataBlock::AddReferencedObjects(FReferenceCollector
 	}
 	// Struct slots: two refs per slot to keep GC-safe.
 	//
-	//  (a) The slot's STORAGE — `AddPropertyReferencesWithStructARO` walks
+	//  (a) The slot's STORAGE -`AddPropertyReferencesWithStructARO` walks
 	//      the script-struct's reflected property graph so embedded
 	//      UObject / Actor references inside the user's USTRUCT are kept
 	//      alive. FInstancedStruct itself is not a UObject; this ARO API
 	//      is the only path to surface those.
 	//
-	//  (b) The slot's TYPE — the `UScriptStruct*` itself. For Blueprint
-	//      `UserDefinedStruct` types (which ARE GC-eligible — unlike
+	//  (b) The slot's TYPE. The `UScriptStruct*` itself. For Blueprint
+	//      `UserDefinedStruct` types (which ARE GC-eligible. Unlike
 	//      native USTRUCTs which live in the type registry forever), the
 	//      runtime DataBlock is NOT a UPROPERTY container, and even
 	//      though the camera now strongly owns its `SourceTypeAsset`
 	//      (`TObjectPtr<UComposableCameraTypeAsset>`), the type asset's
 	//      strong ref does not transitively keep individual
-	//      UserDefinedStruct slot types alive — those are independent
+	//      UserDefinedStruct slot types alive. Those are independent
 	//      asset references reachable from the type asset's reflected
 	//      pin metadata only. The runtime DataBlock has to mark slot
 	//      types itself; a GC pass would otherwise reclaim a
 	//      UserDefinedStruct mid-blend and the next
 	//      `Slot.GetScriptStruct()` / `CopyScriptStruct(...)` would
-	//      dereference a freed type pointer — heap corruption inside
+	//      dereference a freed type pointer. Heap corruption inside
 	//      the property walk. Using a `TObjectPtr<UScriptStruct>` local
 	//      satisfies the C4996-clean overload of `AddReferencedObject`.
 	for (FInstancedStruct& Slot : StructSlots)

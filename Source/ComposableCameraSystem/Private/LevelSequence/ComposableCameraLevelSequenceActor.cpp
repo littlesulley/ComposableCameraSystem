@@ -1,4 +1,4 @@
-// Copyright Sulley. All rights reserved.
+﻿// Copyright Sulley. All rights reserved.
 
 #include "LevelSequence/ComposableCameraLevelSequenceActor.h"
 
@@ -16,13 +16,13 @@ AComposableCameraLevelSequenceActor::AComposableCameraLevelSequenceActor(const F
 	// filter hits its root-is-camera fast path for us, identical to how it
 	// handles CineCameraActor. The dedicated `OutputCineCameraComponent`
 	// UPROPERTY (declared on the actor) is what surfaces the component in
-	// the Details panel — without that, native default subobjects exist at
+	// the Details panel. Without that, native default subobjects exist at
 	// runtime but aren't picked up by the component-tree walk and their
 	// internals render uneditable.
 	OutputCineCameraComponent = CreateDefaultSubobject<UCineCameraComponent>(TEXT("OutputCineCameraComponent"));
 	RootComponent = OutputCineCameraComponent;
 
-	// LevelSequenceComponent is a pure UActorComponent (no transform) — just
+	// LevelSequenceComponent is a pure UActorComponent (no transform). Just
 	// a logic/data driver. Hand it the CineCamera reference so it knows where
 	// to project poses.
 	LevelSequenceComponent = CreateDefaultSubobject<UComposableCameraLevelSequenceComponent>(TEXT("LevelSequenceComponent"));

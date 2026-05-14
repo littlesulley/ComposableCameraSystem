@@ -22,7 +22,7 @@ class UComposableCameraPatchHandle;
  *
  * Stage 1 note: Evaluator stays nullptr; PatchManager::Apply does not tick anything
  * yet. The envelope state is populated to "Entering, alpha 0" at construction but
- * is not advanced — Stage 3 adds AdvanceEnvelope. All bookkeeping fields are valid
+ * is not advanced -Stage 3 adds AdvanceEnvelope. All bookkeeping fields are valid
  * as soon as AddPatch returns so debug HUD / introspection work end-to-end.
  */
 UCLASS()
@@ -33,17 +33,16 @@ class COMPOSABLECAMERASYSTEM_API UComposableCameraPatchInstance : public UObject
 public:
 	/** Source patch asset.
 	 *
-	 *  STRONG ref by design (not weak). The schedule's Condition channel —
-	 *  one of the two ways a Patch normally exits — calls
+	 *  STRONG ref by design (not weak). The schedule's Condition channel - one of the two ways a Patch normally exits. Calls
 	 *  `Asset->CanRemain(...)` every Apply tick to decide whether to flip
 	 *  to Exiting. A weak ref that nullifies (asset only loaded
-	 *  transiently — soft path, DataTable row, BP local that fell out of
+	 *  transiently. Soft path, DataTable row, BP local that fell out of
 	 *  scope) silently disables the Condition check in
 	 *  CheckPatchScheduleExpiration and, for a Patch whose ONLY exit
 	 *  channel is Condition, leaves the instance live in `ActivePatches`
 	 *  forever (and the spawned Evaluator actor with it). Strong ref
 	 *  keeps the asset reachable for the instance's lifetime, which the
-	 *  instance was always going to need anyway — `Apply` reads
+	 *  instance was always going to need anyway -`Apply` reads
 	 *  `Asset->Layer / Duration / Envelope...` on every tick, so a "weak
 	 *  ref + survive cleanly when null" model would have to either
 	 *  early-expire or no-op every Apply call, both of which are user-
@@ -64,15 +63,15 @@ public:
 	TObjectPtr<AComposableCameraCameraBase> Evaluator;
 
 	/** Effective composition order. Resolved from the asset default and the per-AddPatch
-	 *  override (Params.bOverrideLayerIndex true → use Params.LayerIndex). */
+	 *  override (Params.bOverrideLayerIndex true ->use Params.LayerIndex). */
 	UPROPERTY()
 	int32 LayerIndex = 0;
 
-	/** Monotonic insertion sequence — tiebreaker for equal LayerIndex. Older first. */
+	/** Monotonic insertion sequence. Tiebreaker for equal LayerIndex. Older first. */
 	UPROPERTY()
 	int32 PushSequence = 0;
 
-	// ─── Schedule ──────────────────────────────────────────────────────────
+	// --- Schedule ----------------------------------------------------------
 
 	/** Bitmask of EComposableCameraPatchExpirationType channels that may fire. */
 	UPROPERTY()
@@ -84,7 +83,7 @@ public:
 	UPROPERTY()
 	bool bExpireOnCameraChange = false;
 
-	// ─── Envelope ──────────────────────────────────────────────────────────
+	// --- Envelope ----------------------------------------------------------
 
 	UPROPERTY()
 	float EnterDuration = 0.f;
@@ -112,11 +111,11 @@ public:
 	/** The CurrentAlpha at the moment Phase flipped to Exiting. The exit ramp
 	 *  scales the eased curve by this value so a Patch retired mid-Entering
 	 *  fades out from wherever it had reached, instead of popping to 1 first.
-	 *  Stays at 1 by default for the common case (Active → Exiting transition). */
+	 *  Stays at 1 by default for the common case (Active ->Exiting transition). */
 	UPROPERTY()
 	float ExitStartAlpha = 1.f;
 
-	// ─── Construction Inputs ───────────────────────────────────────────────
+	// --- Construction Inputs -----------------------------------------------
 
 	/** Cached parameter block from AddPatch. Used by Stage 2's
 	 *  ConstructCameraFromTypeAsset call and any future re-construction
@@ -127,14 +126,14 @@ public:
 	/** RunningCamera observed on the owning Director at AddPatch time. When
 	 *  bExpireOnCameraChange is true, the schedule check compares this against
 	 *  the Director's current RunningCamera each frame and flips the Patch to
-	 *  Exiting if they differ (per-patch tracking — a Patch born during camera
+	 *  Exiting if they differ (per-patch tracking. A Patch born during camera
 	 *  A never treats its own birth as a "change"). */
 	UPROPERTY()
 	TWeakObjectPtr<AComposableCameraCameraBase> RunningCameraAtAdd;
 
-	// ─── Handle Back-Link ──────────────────────────────────────────────────
+	// --- Handle Back-Link --------------------------------------------------
 
-	/** Back-link to the user-facing handle. Weak — the handle can be released by
+	/** Back-link to the user-facing handle. Weak. The handle can be released by
 	 *  the caller while the instance is still alive (the instance keeps running
 	 *  until expiration; the caller has just opted out of further handle queries). */
 	UPROPERTY()

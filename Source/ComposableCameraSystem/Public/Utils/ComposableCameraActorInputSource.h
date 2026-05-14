@@ -7,6 +7,7 @@
 
 class AActor;
 class AComposableCameraPlayerCameraManager;
+class UObject;
 
 /**
  * Common actor-source selector for nodes that usually operate on the local
@@ -24,5 +25,6 @@ namespace ComposableCameraSystem
 	COMPOSABLECAMERASYSTEM_API AActor* ResolveActorInput(
 		EComposableCameraActorInputSource Source,
 		AActor* ExplicitActor,
-		const AComposableCameraPlayerCameraManager* PlayerCameraManager);
+		const AComposableCameraPlayerCameraManager* PlayerCameraManager,
+		const UObject* WorldContextObject = nullptr);
 }

@@ -10,7 +10,7 @@ class IStructureDetailsView;
 class FPropertyEditorModule;
 class FStructOnScope;
 class UEnum;
-enum class EComposableCameraPinType : uint8;
+enum class EComposableCameraPinType: uint8;
 
 /**
  * Property type customization for FComposableCameraInternalVariable.
@@ -28,7 +28,7 @@ enum class EComposableCameraPinType : uint8;
  * ExportText. Types that have no meaningful inline widget (Actor, Object)
  * fall back to a label.
  */
-class FComposableCameraInternalVariableCustomization : public IPropertyTypeCustomization
+class FComposableCameraInternalVariableCustomization: public IPropertyTypeCustomization
 {
 public:
 	static TSharedRef<IPropertyTypeCustomization> MakeInstance();
@@ -36,21 +36,18 @@ public:
 	static void Unregister(FPropertyEditorModule& PropertyEditorModule);
 
 	//~ IPropertyTypeCustomization
-	virtual void CustomizeHeader(
-		TSharedRef<IPropertyHandle> PropertyHandle,
+	virtual void CustomizeHeader(TSharedRef<IPropertyHandle> PropertyHandle,
 		FDetailWidgetRow& HeaderRow,
 		IPropertyTypeCustomizationUtils& Utils) override;
 
-	virtual void CustomizeChildren(
-		TSharedRef<IPropertyHandle> PropertyHandle,
+	virtual void CustomizeChildren(TSharedRef<IPropertyHandle> PropertyHandle,
 		IDetailChildrenBuilder& ChildBuilder,
 		IPropertyTypeCustomizationUtils& Utils) override;
 
 private:
 	/** Build a type-appropriate value widget for InitialValueString.
-	 *  EnumType is consulted only when PinType == Enum; ignored otherwise. */
-	TSharedRef<SWidget> BuildTypedDefaultValueWidget(
-		TSharedPtr<IPropertyHandle> InitialValueHandle,
+	 * EnumType is consulted only when PinType == Enum; ignored otherwise. */
+	TSharedRef<SWidget> BuildTypedDefaultValueWidget(TSharedPtr<IPropertyHandle> InitialValueHandle,
 		EComposableCameraPinType PinType,
 		UScriptStruct* StructType,
 		UEnum* EnumType);
@@ -59,38 +56,36 @@ private:
 	TSharedRef<SWidget> BuildTransformWidget(TSharedPtr<IPropertyHandle> InitialValueHandle);
 
 	/** Build an inline struct editor for Struct types with a known UScriptStruct.
-	 *  Creates an FStructOnScope, parses the current InitialValueString into it,
-	 *  and adds the IStructureDetailsView's widget to ChildBuilder. Changes in
-	 *  the struct editor are serialized back via ExportText. */
-	void BuildStructDefaultValueRows(
-		IDetailChildrenBuilder& ChildBuilder,
+	 * Creates an FStructOnScope, parses the current InitialValueString into it,
+	 * and adds the IStructureDetailsView's widget to ChildBuilder. Changes in
+	 * the struct editor are serialized back via ExportText. */
+	void BuildStructDefaultValueRows(IDetailChildrenBuilder& ChildBuilder,
 		TSharedPtr<IPropertyHandle> InitialValueHandle,
 		UScriptStruct* InStructType);
 
 	/** Helpers for multi-component vector/rotator types. */
-	TSharedRef<SWidget> BuildNumericComponentWidget(
-		TSharedPtr<IPropertyHandle> InitialValueHandle,
+	TSharedRef<SWidget> BuildNumericComponentWidget(TSharedPtr<IPropertyHandle> InitialValueHandle,
 		int32 ComponentIndex,
 		int32 NumComponents,
 		const TCHAR* const* ComponentLabels,
 		const TCHAR* Prefix);
 
 	/** Custom picker for the EnumType field. The default property widget for
-	 *  TObjectPtr<UEnum> shows the asset picker filtered to UUserDefinedEnum
-	 *  assets only -- native `UENUM(BlueprintType)` enums (defined in C++)
-	 *  never appear, leaving the dropdown empty in projects without any
-	 *  BP-defined enums. This builds a combo button whose menu walks every
-	 *  loaded UEnum that opts into BlueprintType, surfacing both BP-defined
-	 *  and native enums uniformly. */
+	 * TObjectPtr<UEnum> shows the asset picker filtered to UUserDefinedEnum
+	 * assets only -- native `UENUM(BlueprintType)` enums (defined in C++)
+	 * never appear, leaving the dropdown empty in projects without any
+	 * BP-defined enums. This builds a combo button whose menu walks every
+	 * loaded UEnum that opts into BlueprintType, surfacing both BP-defined
+	 * and native enums uniformly. */
 	TSharedRef<SWidget> BuildEnumTypePicker(TSharedPtr<IPropertyHandle> EnumTypeHandle);
 
 	/** Combo button menu content -- walks TObjectIterator<UEnum>, filters for
-	 *  BlueprintType + non-deprecated, and emits one menu entry per matching
-	 *  enum that writes the picked UEnum back through the handle. */
+	 * BlueprintType + non-deprecated, and emits one menu entry per matching
+	 * enum that writes the picked UEnum back through the handle. */
 	TSharedRef<SWidget> BuildEnumTypeMenu(TSharedPtr<IPropertyHandle> EnumTypeHandle);
 
 	/** Combo button label text -- reads the current EnumType value from the
-	 *  handle and returns its display name (or "None" when unset). */
+	 * handle and returns its display name (or "None" when unset). */
 	FText GetEnumTypeButtonText(TSharedPtr<IPropertyHandle> EnumTypeHandle) const;
 
 	TSharedPtr<IPropertyHandle> StructHandle;

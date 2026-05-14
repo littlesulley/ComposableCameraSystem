@@ -8,8 +8,7 @@
 
 #define LOCTEXT_NAMESPACE "SComposableCameraVariableGraphNode"
 
-void SComposableCameraVariableGraphNode::Construct(
-	const FArguments& InArgs, UComposableCameraVariableGraphNode* InNode)
+void SComposableCameraVariableGraphNode::Construct(const FArguments& InArgs, UComposableCameraVariableGraphNode* InNode)
 {
 	VariableGraphNode = InNode;
 	GraphNode = InNode;
@@ -27,8 +26,7 @@ bool SComposableCameraVariableGraphNode::IsDebugActive() const
 	return VariableGraphNode && VariableGraphNode->DebugState.bIsActive;
 }
 
-int32 SComposableCameraVariableGraphNode::OnPaint(
-	const FPaintArgs& Args,
+int32 SComposableCameraVariableGraphNode::OnPaint(const FPaintArgs& Args,
 	const FGeometry& AllottedGeometry,
 	const FSlateRect& MyCullingRect,
 	FSlateWindowElementList& OutDrawElements,
@@ -47,8 +45,7 @@ int32 SComposableCameraVariableGraphNode::OnPaint(
 	return LayerId;
 }
 
-void SComposableCameraVariableGraphNode::PaintDebugFooter(
-	const FGeometry& AllottedGeometry,
+void SComposableCameraVariableGraphNode::PaintDebugFooter(const FGeometry& AllottedGeometry,
 	const FSlateRect& MyCullingRect,
 	FSlateWindowElementList& OutDrawElements,
 	int32 LayerId) const
@@ -78,27 +75,22 @@ void SComposableCameraVariableGraphNode::PaintDebugFooter(
 	const FVector2D TextSize = FontMeasure->Measure(DisplayText, MonoFont, RenderScale);
 	const float LocalTextWidth = static_cast<float>(TextSize.X) / RenderScale;
 
-	const float BoxWidth = FMath::Max(
-		static_cast<float>(NodeSize.X),
+	const float BoxWidth = FMath::Max(static_cast<float>(NodeSize.X),
 		LocalTextWidth + Padding * 2.0f);
 	const float BoxHeight = LineHeight + Padding * 2.0f;
 	const float BoxY = static_cast<float>(NodeSize.Y) + 2.0f;
 
 	// Background box.
-	FSlateDrawElement::MakeBox(
-		OutDrawElements, LayerId,
-		AllottedGeometry.ToPaintGeometry(
-			FVector2f(BoxWidth, BoxHeight),
+	FSlateDrawElement::MakeBox(OutDrawElements, LayerId,
+		AllottedGeometry.ToPaintGeometry(FVector2f(BoxWidth, BoxHeight),
 			FSlateLayoutTransform(FVector2f(0.0f, BoxY))),
 		FAppStyle::GetBrush("Graph.Node.Body"),
 		ESlateDrawEffect::None,
 		FLinearColor(0.02f, 0.02f, 0.02f, 0.85f));
 
-	// Value text — yellow-green for variables.
-	FSlateDrawElement::MakeText(
-		OutDrawElements, LayerId + 1,
-		AllottedGeometry.ToPaintGeometry(
-			FVector2f(static_cast<float>(TextSize.X) + Padding, LineHeight),
+	// Value text - yellow-green for variables.
+	FSlateDrawElement::MakeText(OutDrawElements, LayerId + 1,
+		AllottedGeometry.ToPaintGeometry(FVector2f(static_cast<float>(TextSize.X) + Padding, LineHeight),
 			FSlateLayoutTransform(FVector2f(Padding, BoxY + Padding))),
 		DisplayText,
 		MonoFont,

@@ -42,19 +42,19 @@
 
 #define LOCTEXT_NAMESPACE "ComposableCameraTypeAssetEditorToolkit"
 
-// ─── Tab IDs ───────────────────────────────────────────────────────────────────
+// Tab IDs 
 
 const FName FComposableCameraTypeAssetEditorToolkit::GraphEditorTabId(TEXT("ComposableCameraTypeAsset_GraphEditor"));
 const FName FComposableCameraTypeAssetEditorToolkit::DetailsTabId(TEXT("ComposableCameraTypeAsset_Details"));
 const FName FComposableCameraTypeAssetEditorToolkit::BuildMessagesTabId(TEXT("ComposableCameraTypeAsset_BuildMessages"));
 
-// ─── Construction ──────────────────────────────────────────────────────────────
+// Construction 
 
 FComposableCameraTypeAssetEditorToolkit::FComposableCameraTypeAssetEditorToolkit(UAssetEditor* InAssetEditor)
 	: FBaseAssetToolkit(InAssetEditor)
 {
 	// Override FBaseAssetToolkit's default layout with our custom 3-panel layout.
-	// Must be set in the constructor — FBaseAssetToolkit reads this during InitAssetEditor().
+	// Must be set in the constructor - FBaseAssetToolkit reads this during InitAssetEditor().
 	//
 	// The layout version was bumped to _v2 when the Parameters tab was removed.
 	// Users who had the old _v1 layout saved in their editor ini will get a
@@ -63,30 +63,25 @@ FComposableCameraTypeAssetEditorToolkit::FComposableCameraTypeAssetEditorToolkit
 	// empty pane in the tab stack).
 	StandaloneDefaultLayout = FTabManager::NewLayout("ComposableCameraTypeAssetEditor_Layout_v2")
 		->AddArea
-		(
-			FTabManager::NewPrimaryArea()
+		(FTabManager::NewPrimaryArea()
 			->SetOrientation(Orient_Vertical)
 			->Split
-			(
-				FTabManager::NewSplitter()
+			(FTabManager::NewSplitter()
 				->SetOrientation(Orient_Horizontal)
 				->SetSizeCoefficient(0.75f)
 				->Split
-				(
-					FTabManager::NewStack()
+				(FTabManager::NewStack()
 					->SetSizeCoefficient(0.7f)
 					->AddTab(GraphEditorTabId, ETabState::OpenedTab)
 				)
 				->Split
-				(
-					FTabManager::NewStack()
+				(FTabManager::NewStack()
 					->SetSizeCoefficient(0.3f)
 					->AddTab(DetailsTabId, ETabState::OpenedTab)
 				)
 			)
 			->Split
-			(
-				FTabManager::NewStack()
+			(FTabManager::NewStack()
 				->SetSizeCoefficient(0.15f)
 				->AddTab(BuildMessagesTabId, ETabState::OpenedTab)
 			)
@@ -104,7 +99,7 @@ FComposableCameraTypeAssetEditorToolkit::~FComposableCameraTypeAssetEditorToolki
 	}
 	bHasPendingSelection = false;
 
-	// ── Debug monitoring cleanup ─────────────────────────────────────────
+	// Debug monitoring cleanup 
 	if (DebugTickerHandle.IsValid())
 	{
 		FTSTicker::GetCoreTicker().RemoveTicker(DebugTickerHandle);
@@ -131,8 +126,8 @@ FComposableCameraTypeAssetEditorToolkit::~FComposableCameraTypeAssetEditorToolki
 	}
 
 	// Unbind the AddRaw(this) hook on NodeDetailsView's property-changed
-	// delegate. Without this, the details widget — which Slate's deferred
-	// deletion can keep alive past this destructor — would fire the
+	// delegate. Without this, the details widget - which Slate's deferred
+	// deletion can keep alive past this destructor - would fire the
 	// delegate against a freed `this` on the next property edit. Belt-and-
 	// braces: try the saved handle path first; fall back to RemoveAll(this)
 	// in case the handle was somehow lost (e.g. NodeDetailsView was reset
@@ -153,18 +148,16 @@ void FComposableCameraTypeAssetEditorToolkit::SetTypeAsset(UComposableCameraType
 	TypeAsset = InTypeAsset;
 }
 
-// ─── Tab Spawners ──────────────────────────────────────────────────────────────
+// Tab Spawners 
 
-void FComposableCameraTypeAssetEditorToolkit::RegisterTabSpawners(
-	const TSharedRef<FTabManager>& InTabManager)
+void FComposableCameraTypeAssetEditorToolkit::RegisterTabSpawners(const TSharedRef<FTabManager>& InTabManager)
 {
-	// Skip FBaseAssetToolkit::RegisterTabSpawners — we don't want the default viewport tab.
+	// Skip FBaseAssetToolkit::RegisterTabSpawners - we don't want the default viewport tab.
 	// Call FAssetEditorToolkit directly to get the base tab infrastructure.
 	FAssetEditorToolkit::RegisterTabSpawners(InTabManager);
 
 	const TSharedRef<FWorkspaceItem> LocalWorkspaceMenuCategory =
-		InTabManager->AddLocalWorkspaceMenuCategory(
-			LOCTEXT("WorkspaceMenu_TypeAssetEditor", "Camera Type Asset Editor"));
+		InTabManager->AddLocalWorkspaceMenuCategory(LOCTEXT("WorkspaceMenu_TypeAssetEditor", "Camera Type Asset Editor"));
 
 	InTabManager->RegisterTabSpawner(GraphEditorTabId,
 		FOnSpawnTab::CreateSP(this, &FComposableCameraTypeAssetEditorToolkit::SpawnTab_GraphEditor))
@@ -185,8 +178,7 @@ void FComposableCameraTypeAssetEditorToolkit::RegisterTabSpawners(
 		.SetIcon(FSlateIcon(FAppStyle::GetAppStyleSetName(), "LevelEditor.Tabs.StatsViewer"));
 }
 
-void FComposableCameraTypeAssetEditorToolkit::UnregisterTabSpawners(
-	const TSharedRef<FTabManager>& InTabManager)
+void FComposableCameraTypeAssetEditorToolkit::UnregisterTabSpawners(const TSharedRef<FTabManager>& InTabManager)
 {
 	InTabManager->UnregisterTabSpawner(GraphEditorTabId);
 	InTabManager->UnregisterTabSpawner(DetailsTabId);
@@ -195,10 +187,9 @@ void FComposableCameraTypeAssetEditorToolkit::UnregisterTabSpawners(
 	FAssetEditorToolkit::UnregisterTabSpawners(InTabManager);
 }
 
-// ─── Tab Content ───────────────────────────────────────────────────────────────
+// Tab Content 
 
-TSharedRef<SDockTab> FComposableCameraTypeAssetEditorToolkit::SpawnTab_GraphEditor(
-	const FSpawnTabArgs& Args)
+TSharedRef<SDockTab> FComposableCameraTypeAssetEditorToolkit::SpawnTab_GraphEditor(const FSpawnTabArgs& Args)
 {
 	EnsureEditorGraph();
 	CreateGraphEditorCommands();
@@ -206,11 +197,9 @@ TSharedRef<SDockTab> FComposableCameraTypeAssetEditorToolkit::SpawnTab_GraphEdit
 	// Build the graph editor widget.
 	SGraphEditor::FGraphEditorEvents GraphEvents;
 	GraphEvents.OnSelectionChanged =
-		SGraphEditor::FOnSelectionChanged::CreateSP(
-			this, &FComposableCameraTypeAssetEditorToolkit::OnGraphSelectionChanged);
+		SGraphEditor::FOnSelectionChanged::CreateSP(this, &FComposableCameraTypeAssetEditorToolkit::OnGraphSelectionChanged);
 	GraphEvents.OnNodeDoubleClicked =
-		FSingleNodeEvent::CreateSP(
-			this, &FComposableCameraTypeAssetEditorToolkit::OnGraphNodeDoubleClicked);
+		FSingleNodeEvent::CreateSP(this, &FComposableCameraTypeAssetEditorToolkit::OnGraphNodeDoubleClicked);
 
 	GraphEditorWidget = SNew(SGraphEditor)
 		.AdditionalCommands(GraphEditorCommands)
@@ -221,45 +210,35 @@ TSharedRef<SDockTab> FComposableCameraTypeAssetEditorToolkit::SpawnTab_GraphEdit
 	// Subscribe to graph changes for syncing.
 	if (NodeGraph)
 	{
-		GraphChangedDelegateHandle = NodeGraph->AddOnGraphChangedHandler(
-			FOnGraphChanged::FDelegate::CreateSP(
-				this, &FComposableCameraTypeAssetEditorToolkit::OnGraphChanged));
+		GraphChangedDelegateHandle = NodeGraph->AddOnGraphChangedHandler(FOnGraphChanged::FDelegate::CreateSP(this, &FComposableCameraTypeAssetEditorToolkit::OnGraphChanged));
 	}
 
 	return SNew(SDockTab)
 		.Label(LOCTEXT("GraphEditorTabLabel", "Node Graph"))
-		[
-			GraphEditorWidget.ToSharedRef()
-		];
+		[GraphEditorWidget.ToSharedRef()];
 }
 
-TSharedRef<SDockTab> FComposableCameraTypeAssetEditorToolkit::SpawnTab_Details(
-	const FSpawnTabArgs& Args)
+TSharedRef<SDockTab> FComposableCameraTypeAssetEditorToolkit::SpawnTab_Details(const FSpawnTabArgs& Args)
 {
 	return SNew(SDockTab)
 		.Label(LOCTEXT("DetailsTabLabel", "Details"))
-		[
-			NodeDetailsView.IsValid()
+		[NodeDetailsView.IsValid()
 				? NodeDetailsView->AsShared()
-				: SNullWidget::NullWidget
-		];
+				: SNullWidget::NullWidget];
 }
 
-TSharedRef<SDockTab> FComposableCameraTypeAssetEditorToolkit::SpawnTab_BuildMessages(
-	const FSpawnTabArgs& Args)
+TSharedRef<SDockTab> FComposableCameraTypeAssetEditorToolkit::SpawnTab_BuildMessages(const FSpawnTabArgs& Args)
 {
 	return SNew(SDockTab)
 		.Label(LOCTEXT("BuildMessagesTabLabel", "Build Messages"))
-		[
-			BuildBuildMessagesWidget()
-		];
+		[BuildBuildMessagesWidget()];
 }
 
-// ─── Widgets ───────────────────────────────────────────────────────────────────
+// Widgets 
 
 void FComposableCameraTypeAssetEditorToolkit::CreateWidgets()
 {
-	// Skip FBaseAssetToolkit::CreateWidgets() — we don't need the default viewport tab.
+	// Skip FBaseAssetToolkit::CreateWidgets() - we don't need the default viewport tab.
 	// But we MUST call RegisterToolbar() and set the base class's DetailsView member,
 	// otherwise FBaseAssetToolkit crashes in SetObjectsToEdit.
 	RegisterToolbar();
@@ -282,10 +261,9 @@ void FComposableCameraTypeAssetEditorToolkit::CreateWidgets()
 	// Listen for property changes on whatever is currently shown in the details
 	// panel. This is how we learn about InternalVariables edits on the type
 	// asset so we can refresh any Get/Set variable graph nodes that reference
-	// the affected variable (Issue 2 — variable rename/retype doesn't propagate
+	// the affected variable (Issue 2 - variable rename/retype doesn't propagate
 	// to existing variable graph nodes).
-	NodeDetailsPropertyChangedHandle = NodeDetailsView->OnFinishedChangingProperties().AddRaw(
-		this, &FComposableCameraTypeAssetEditorToolkit::OnTypeAssetPropertyChanged);
+	NodeDetailsPropertyChangedHandle = NodeDetailsView->OnFinishedChangingProperties().AddRaw(this, &FComposableCameraTypeAssetEditorToolkit::OnTypeAssetPropertyChanged);
 
 	// Set the type asset as the initial details object.
 	if (TypeAsset)
@@ -307,11 +285,11 @@ void FComposableCameraTypeAssetEditorToolkit::RegisterToolbar()
 
 	FToolMenuSection& Section = ToolbarMenu->FindOrAddSection("CameraTypeAsset");
 
-	// Debug instance picker — shown as a combo button in the toolbar.
+	// Debug instance picker - shown as a combo button in the toolbar.
 	//
 	// IMPORTANT: We use InitWidget + MakeWidget instead of InitComboButton so
 	// that the widget factory receives the per-instance FToolMenuContext.
-	// The UToolMenu system is GLOBAL — all editors of the same type share the
+	// The UToolMenu system is GLOBAL - all editors of the same type share the
 	// same UToolMenu. InitComboButton captures an FOnGetContent delegate at
 	// registration time, so the last editor to call RegisterToolbar() would
 	// overwrite the delegate for all instances, routing every Debug dropdown
@@ -326,7 +304,7 @@ void FComposableCameraTypeAssetEditorToolkit::RegisterToolbar()
 		&FComposableCameraTypeAssetEditorToolkit::MakeDebugInstancePickerWidget);
 	Section.AddEntry(DebugEntry);
 
-	// "Shot Editor" entry — opens the Phase D.1 Shot Editor tab for the
+	// "Shot Editor" entry - opens the Phase D.1 Shot Editor tab for the
 	// currently selected CompositionFraming graph node in this editor.
 	// FToolUIAction (vs FUIAction) so handlers receive the FToolMenuContext
 	// and can resolve the per-instance toolkit, sidestepping the
@@ -364,11 +342,9 @@ void FComposableCameraTypeAssetEditorToolkit::PostInitAssetEditor()
 {
 	EnsureEditorGraph();
 
-	// ── Subscribe to PIE lifecycle for runtime debug monitoring ──────────
-	PIEStartedHandle = FEditorDelegates::PostPIEStarted.AddRaw(
-		this, &FComposableCameraTypeAssetEditorToolkit::OnPIEStarted);
-	PIEEndedHandle = FEditorDelegates::PrePIEEnded.AddRaw(
-		this, &FComposableCameraTypeAssetEditorToolkit::OnPIEEnded);
+	// Subscribe to PIE lifecycle for runtime debug monitoring 
+	PIEStartedHandle = FEditorDelegates::PostPIEStarted.AddRaw(this, &FComposableCameraTypeAssetEditorToolkit::OnPIEStarted);
+	PIEEndedHandle = FEditorDelegates::PrePIEEnded.AddRaw(this, &FComposableCameraTypeAssetEditorToolkit::OnPIEEnded);
 
 	// If PIE is already running when this editor opens, catch up immediately
 	// so the debug ticker starts and the instance picker works.
@@ -387,7 +363,7 @@ void FComposableCameraTypeAssetEditorToolkit::SaveAsset_Execute()
 	// Flush the current visual graph state into the TypeAsset's durable
 	// editor-only fields before the save writes the package. Node canvas
 	// positions live on the (Transient) EdGraph and aren't serialized
-	// directly — the snapshot in TypeAsset->NodeTemplatePositions /
+	// directly - the snapshot in TypeAsset->NodeTemplatePositions /
 	// StartNodePosition / OutputNodePosition is the authoritative on-disk
 	// representation of layout. SGraphEditor does NOT fire NotifyGraphChanged
 	// on node drags (only on structural changes), so without this explicit
@@ -418,7 +394,7 @@ void FComposableCameraTypeAssetEditorToolkit::SaveAssetAs_Execute()
 	FBaseAssetToolkit::SaveAssetAs_Execute();
 }
 
-// ─── IToolkit Interface ────────────────────────────────────────────────────────
+// IToolkit Interface 
 
 FText FComposableCameraTypeAssetEditorToolkit::GetBaseToolkitName() const
 {
@@ -442,7 +418,7 @@ FLinearColor FComposableCameraTypeAssetEditorToolkit::GetWorldCentricTabColorSca
 	return FLinearColor(FColor(20, 150, 140));
 }
 
-// ─── Graph Management ──────────────────────────────────────────────────────────
+// Graph Management 
 
 void FComposableCameraTypeAssetEditorToolkit::EnsureEditorGraph()
 {
@@ -452,7 +428,7 @@ void FComposableCameraTypeAssetEditorToolkit::EnsureEditorGraph()
 	}
 
 #if WITH_EDITORONLY_DATA
-	// The EditorGraph UPROPERTY is Transient — it is never serialized, so on
+	// The EditorGraph UPROPERTY is Transient - it is never serialized, so on
 	// every editor session it starts null and we create + rebuild it from the
 	// durable type-asset state. Creating a new UObject in the already-loaded
 	// package (NewObject with TypeAsset as Outer) and running
@@ -466,8 +442,7 @@ void FComposableCameraTypeAssetEditorToolkit::EnsureEditorGraph()
 
 	if (!TypeAsset->EditorGraph)
 	{
-		UComposableCameraNodeGraph* NewGraph = NewObject<UComposableCameraNodeGraph>(
-			TypeAsset, NAME_None, RF_Transactional);
+		UComposableCameraNodeGraph* NewGraph = NewObject<UComposableCameraNodeGraph>(TypeAsset, NAME_None, RF_Transactional);
 		NewGraph->Schema = UComposableCameraNodeGraphSchema::StaticClass();
 		NewGraph->OwningTypeAsset = TypeAsset;
 		TypeAsset->EditorGraph = NewGraph;
@@ -484,7 +459,7 @@ void FComposableCameraTypeAssetEditorToolkit::EnsureEditorGraph()
 	}
 
 	// Restore the package's pre-existing dirty state. The graph creation and
-	// rebuild are not user edits — they're internal reconstruction of
+	// rebuild are not user edits - they're internal reconstruction of
 	// transient state from the durable serialized data.
 	if (Package && !bWasDirty)
 	{
@@ -493,8 +468,7 @@ void FComposableCameraTypeAssetEditorToolkit::EnsureEditorGraph()
 #endif
 }
 
-void FComposableCameraTypeAssetEditorToolkit::OnGraphSelectionChanged(
-	const TSet<UObject*>& SelectedNodes)
+void FComposableCameraTypeAssetEditorToolkit::OnGraphSelectionChanged(const TSet<UObject*>& SelectedNodes)
 {
 	if (!NodeDetailsView.IsValid())
 	{
@@ -504,7 +478,7 @@ void FComposableCameraTypeAssetEditorToolkit::OnGraphSelectionChanged(
 	// We intentionally do NOT update the details panel synchronously here.
 	//
 	// SGraphEditor fires OnSelectionChanged BEFORE it calls the schema's
-	// GetContextMenuActions on a right-click — which means that when the
+	// GetContextMenuActions on a right-click - which means that when the
 	// user right-clicks a pin, we see a selection-change event that looks
 	// identical to a real node selection. If we updated the details panel
 	// immediately, the Details view would flip to the node's template
@@ -522,7 +496,7 @@ void FComposableCameraTypeAssetEditorToolkit::OnGraphSelectionChanged(
 
 	PendingSelection.Reset();
 	PendingSelection.Reserve(SelectedNodes.Num());
-	for (UObject* Obj : SelectedNodes)
+	for (UObject* Obj: SelectedNodes)
 	{
 		PendingSelection.Add(Obj);
 	}
@@ -530,8 +504,7 @@ void FComposableCameraTypeAssetEditorToolkit::OnGraphSelectionChanged(
 	if (!bHasPendingSelection)
 	{
 		bHasPendingSelection = true;
-		PendingSelectionTickerHandle = FTSTicker::GetCoreTicker().AddTicker(
-			FTickerDelegate::CreateRaw(this, &FComposableCameraTypeAssetEditorToolkit::ApplyPendingSelectionToDetails),
+		PendingSelectionTickerHandle = FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateRaw(this, &FComposableCameraTypeAssetEditorToolkit::ApplyPendingSelectionToDetails),
 			0.0f);
 	}
 }
@@ -549,8 +522,8 @@ bool FComposableCameraTypeAssetEditorToolkit::ApplyPendingSelectionToDetails(flo
 	}
 
 	// If the schema set the "pin context menu" flag since we were queued, the
-	// selection change was incidental — caused by SGraphEditor auto-selecting
-	// the pin's owning node to show a right-click menu — and we must NOT move
+	// selection change was incidental - caused by SGraphEditor auto-selecting
+	// the pin's owning node to show a right-click menu - and we must NOT move
 	// the details panel. ConsumePinContextMenuRequested returns true exactly
 	// once per MarkPinContextMenuRequested call and clears the flag as a side
 	// effect, so we don't touch the field directly.
@@ -575,9 +548,9 @@ bool FComposableCameraTypeAssetEditorToolkit::ApplyPendingSelectionToDetails(flo
 		return false;
 	}
 
-	// ── Single selection ────────────────────────────────────────────────
+	// Single selection 
 	//
-	// For a single camera graph node, show the GRAPH NODE itself — not the
+	// For a single camera graph node, show the GRAPH NODE itself - not the
 	// underlying NodeTemplate. The GraphNode is where per-instance pin
 	// overrides (bAsPin, DefaultValueOverride) live via the transient
 	// RuntimePinOverrides cache, and FComposableCameraNodeGraphNodeDetails is
@@ -594,16 +567,16 @@ bool FComposableCameraTypeAssetEditorToolkit::ApplyPendingSelectionToDetails(flo
 	// the default property grid renders its own UPROPs. Previously this branch
 	// only fired for camera graph nodes, so clicking a Start node or a Get
 	// node left the details pinned to the last camera node the user looked at
-	// — visually confusing because the details no longer match the graph
+	// - visually confusing because the details no longer match the graph
 	// selection highlight. Treating "single selection" as "push whatever
 	// UObject is selected" makes the details track selection for every node
 	// type uniformly.
 	if (NumSelected == 1)
 	{
-		// PendingSelection is a TSet<TWeakObjectPtr<UObject>> — there's no
+		// PendingSelection is a TSet<TWeakObjectPtr<UObject>> - there's no
 		// indexed access, so grab the sole element via a range-for and break.
 		UObject* Obj = nullptr;
-		for (const TWeakObjectPtr<UObject>& WeakObj : PendingSelection)
+		for (const TWeakObjectPtr<UObject>& WeakObj: PendingSelection)
 		{
 			Obj = WeakObj.Get();
 			break;
@@ -614,15 +587,15 @@ bool FComposableCameraTypeAssetEditorToolkit::ApplyPendingSelectionToDetails(flo
 			CurrentDetailsObject = Obj;
 		}
 	}
-	// ── Multi-selection ─────────────────────────────────────────────────
+	// Multi-selection 
 	//
 	// Two or more nodes selected at once. We don't yet support a proper
-	// multi-object details experience for camera graph nodes — the pin-row
+	// multi-object details experience for camera graph nodes - the pin-row
 	// customization is strictly single-object because different nodes have
 	// different pin declarations and per-pin state isn't meaningful across a
 	// heterogeneous selection. Previously this case was a silent no-op, which
 	// meant ctrl-clicking a second node left the panel showing the first
-	// node's info — visually stale and confusing.
+	// node's info - visually stale and confusing.
 	//
 	// Fall back to the type asset instead. The type asset's details view is
 	// always a coherent target: ExposedParameters, InternalVariables, and
@@ -670,8 +643,7 @@ void FComposableCameraTypeAssetEditorToolkit::OnGraphChanged(const FEdGraphEditA
 	NodeGraph->SyncToTypeAsset();
 }
 
-void FComposableCameraTypeAssetEditorToolkit::OnTypeAssetPropertyChanged(
-	const FPropertyChangedEvent& PropertyChangedEvent)
+void FComposableCameraTypeAssetEditorToolkit::OnTypeAssetPropertyChanged(const FPropertyChangedEvent& PropertyChangedEvent)
 {
 	// We only care about edits to the type asset itself (not to a node template
 	// that happens to be in the details view). Bail out if the current object
@@ -694,18 +666,18 @@ void FComposableCameraTypeAssetEditorToolkit::OnTypeAssetPropertyChanged(
 	// etc.), refresh every Get/Set variable graph node that references a
 	// variable from either array. Identity is GUID-based, so renames survive
 	// and the node's title / pin type will pick up the new values via
-	// FindVariable() — which now searches both arrays uniformly.
+	// FindVariable() - which now searches both arrays uniformly.
 	const bool bInternalVarsEdit = (MemberName == GET_MEMBER_NAME_CHECKED(UComposableCameraTypeAsset, InternalVariables));
 	const bool bExposedVarsEdit = (MemberName == GET_MEMBER_NAME_CHECKED(UComposableCameraTypeAsset, ExposedVariables));
 	if (bInternalVarsEdit || bExposedVarsEdit)
 	{
-		for (UEdGraphNode* GraphNode : NodeGraph->Nodes)
+		for (UEdGraphNode* GraphNode: NodeGraph->Nodes)
 		{
 			if (UComposableCameraVariableGraphNode* VarNode = Cast<UComposableCameraVariableGraphNode>(GraphNode))
 			{
 				// ReconstructPins is wire-preserving (see the matching fix for
 				// Issue 4), so wires survive unless the variable's type actually
-				// changed — in which case we deliberately drop the incompatible
+				// changed - in which case we deliberately drop the incompatible
 				// link.
 				VarNode->ReconstructPins();
 			}
@@ -720,7 +692,7 @@ void FComposableCameraTypeAssetEditorToolkit::OnTypeAssetPropertyChanged(
 	}
 }
 
-// ─── Graph Editor Commands ────────────────────────────────────────────────────
+// Graph Editor Commands 
 
 void FComposableCameraTypeAssetEditorToolkit::CreateGraphEditorCommands()
 {
@@ -731,33 +703,27 @@ void FComposableCameraTypeAssetEditorToolkit::CreateGraphEditorCommands()
 
 	GraphEditorCommands = MakeShared<FUICommandList>();
 
-	GraphEditorCommands->MapAction(
-		FGenericCommands::Get().Delete,
+	GraphEditorCommands->MapAction(FGenericCommands::Get().Delete,
 		FExecuteAction::CreateSP(this, &FComposableCameraTypeAssetEditorToolkit::DeleteSelectedNodes),
 		FCanExecuteAction::CreateSP(this, &FComposableCameraTypeAssetEditorToolkit::CanDeleteSelectedNodes));
 
-	GraphEditorCommands->MapAction(
-		FGenericCommands::Get().Copy,
+	GraphEditorCommands->MapAction(FGenericCommands::Get().Copy,
 		FExecuteAction::CreateSP(this, &FComposableCameraTypeAssetEditorToolkit::CopySelectedNodes),
 		FCanExecuteAction::CreateSP(this, &FComposableCameraTypeAssetEditorToolkit::CanCopySelectedNodes));
 
-	GraphEditorCommands->MapAction(
-		FGenericCommands::Get().Paste,
+	GraphEditorCommands->MapAction(FGenericCommands::Get().Paste,
 		FExecuteAction::CreateSP(this, &FComposableCameraTypeAssetEditorToolkit::PasteNodes),
 		FCanExecuteAction::CreateSP(this, &FComposableCameraTypeAssetEditorToolkit::CanPasteNodes));
 
-	GraphEditorCommands->MapAction(
-		FGenericCommands::Get().Cut,
+	GraphEditorCommands->MapAction(FGenericCommands::Get().Cut,
 		FExecuteAction::CreateSP(this, &FComposableCameraTypeAssetEditorToolkit::CutSelectedNodes),
 		FCanExecuteAction::CreateSP(this, &FComposableCameraTypeAssetEditorToolkit::CanCutSelectedNodes));
 
-	GraphEditorCommands->MapAction(
-		FGenericCommands::Get().Duplicate,
+	GraphEditorCommands->MapAction(FGenericCommands::Get().Duplicate,
 		FExecuteAction::CreateSP(this, &FComposableCameraTypeAssetEditorToolkit::DuplicateSelectedNodes),
 		FCanExecuteAction::CreateSP(this, &FComposableCameraTypeAssetEditorToolkit::CanCopySelectedNodes));
 
-	GraphEditorCommands->MapAction(
-		FGenericCommands::Get().SelectAll,
+	GraphEditorCommands->MapAction(FGenericCommands::Get().SelectAll,
 		FExecuteAction::CreateSP(this, &FComposableCameraTypeAssetEditorToolkit::SelectAllNodes),
 		FCanExecuteAction::CreateSP(this, &FComposableCameraTypeAssetEditorToolkit::CanSelectAllNodes));
 }
@@ -769,15 +735,14 @@ void FComposableCameraTypeAssetEditorToolkit::DeleteSelectedNodes()
 		return;
 	}
 
-	const FScopedTransaction Transaction(
-		LOCTEXT("DeleteSelectedNodes", "Delete Selected Camera Nodes"));
+	const FScopedTransaction Transaction(LOCTEXT("DeleteSelectedNodes", "Delete Selected Camera Nodes"));
 	NodeGraph->Modify();
 
 	const FGraphPanelSelectionSet SelectedNodes = GraphEditorWidget->GetSelectedNodes();
 	GraphEditorWidget->ClearSelectionSet();
 
 	bool bAnyDeleted = false;
-	for (UObject* NodeObj : SelectedNodes)
+	for (UObject* NodeObj: SelectedNodes)
 	{
 		UEdGraphNode* Node = Cast<UEdGraphNode>(NodeObj);
 		if (!Node || !Node->CanUserDeleteNode())
@@ -807,7 +772,7 @@ bool FComposableCameraTypeAssetEditorToolkit::CanDeleteSelectedNodes() const
 	}
 
 	const FGraphPanelSelectionSet SelectedNodes = GraphEditorWidget->GetSelectedNodes();
-	for (UObject* NodeObj : SelectedNodes)
+	for (UObject* NodeObj: SelectedNodes)
 	{
 		if (const UEdGraphNode* Node = Cast<UEdGraphNode>(NodeObj))
 		{
@@ -856,7 +821,7 @@ bool FComposableCameraTypeAssetEditorToolkit::CanCopySelectedNodes() const
 	}
 
 	const FGraphPanelSelectionSet SelectedNodes = GraphEditorWidget->GetSelectedNodes();
-	for (UObject* NodeObj : SelectedNodes)
+	for (UObject* NodeObj: SelectedNodes)
 	{
 		if (const UEdGraphNode* Node = Cast<UEdGraphNode>(NodeObj))
 		{
@@ -871,88 +836,87 @@ bool FComposableCameraTypeAssetEditorToolkit::CanCopySelectedNodes() const
 
 void FComposableCameraTypeAssetEditorToolkit::PasteNodes()
 {
-    if (!GraphEditorWidget.IsValid() || !NodeGraph)
-    {
-        return;
-    }
+ if (!GraphEditorWidget.IsValid() || !NodeGraph)
+ {
+ return;
+ }
 
-    FString ClipboardText;
-    FPlatformApplicationMisc::ClipboardPaste(ClipboardText);
+ FString ClipboardText;
+ FPlatformApplicationMisc::ClipboardPaste(ClipboardText);
 
-    // Where to drop the paste. SGraphEditor::GetPasteLocation returns the
-    // mouse position in graph-space when the cursor is over the graph
-    // editor, otherwise the graph view's center. Either way it's a
-    // position the user just looked at, so the paste lands somewhere
-    // they'll find immediately rather than stacked behind the source
-    // nodes (the old `+50, +50` offset placed copies inside the originals'
-    // outline at typical zoom levels — easy to miss). Captured BEFORE the
-    // transaction begins so any UI hit-test is against the pre-import
-    // state.
-    // UE 5.6 deprecated the FVector2D-returning GetPasteLocation in favor of
-    // GetPasteLocation2f. The new function returns FDeprecateVector2DResult —
-    // a bridge type that converts to FVector2D without triggering the
-    // deprecation warning, so the rest of the function (Centroid / Delta math
-    // in FVector2D) stays intact through the migration window.
-    const FVector2D PasteLocation = GraphEditorWidget->GetPasteLocation2f();
+ // Where to drop the paste. SGraphEditor::GetPasteLocation returns the
+ // mouse position in graph-space when the cursor is over the graph
+ // editor, otherwise the graph view's center. Either way it's a
+ // position the user just looked at, so the paste lands somewhere
+ // they'll find immediately rather than stacked behind the source
+ // nodes (the old `+50, +50` offset placed copies inside the originals'
+ // outline at typical zoom levels - easy to miss). Captured BEFORE the
+ // transaction begins so any UI hit-test is against the pre-import
+ // state.
+ // UE 5.6 deprecated the FVector2D-returning GetPasteLocation in favor of
+ // GetPasteLocation2f. The new function returns FDeprecateVector2DResult - 
+ // a bridge type that converts to FVector2D without triggering the
+ // deprecation warning, so the rest of the function (Centroid / Delta math
+ // in FVector2D) stays intact through the migration window.
+ const FVector2D PasteLocation = GraphEditorWidget->GetPasteLocation2f();
 
-    const FScopedTransaction Transaction(
-        LOCTEXT("PasteNodes", "Paste Camera Nodes"));
-    NodeGraph->Modify();
+ const FScopedTransaction Transaction(LOCTEXT("PasteNodes", "Paste Camera Nodes"));
+ NodeGraph->Modify();
 
-    // Import the serialized graph nodes into the graph. This reconstructs
-    // the UEdGraphNode subclass instances (with their non-Transient fields)
-    // and any inter-node pin connections that existed at copy time. Imported
-    // nodes carry their ORIGINAL NodePos values from the source graph; we
-    // re-anchor below so multi-node pastes preserve their relative layout
-    // while landing centered on the cursor.
-    TSet<UEdGraphNode*> PastedNodes;
-    FEdGraphUtilities::ImportNodesFromText(NodeGraph, ClipboardText, /*out*/ PastedNodes);
+ // Import the serialized graph nodes into the graph. This reconstructs
+ // the UEdGraphNode subclass instances (with their non-Transient fields)
+ // and any inter-node pin connections that existed at copy time. Imported
+ // nodes carry their ORIGINAL NodePos values from the source graph; we
+ // re-anchor below so multi-node pastes preserve their relative layout
+ // while landing centered on the cursor.
+ TSet<UEdGraphNode*> PastedNodes;
+ FEdGraphUtilities::ImportNodesFromText(NodeGraph, ClipboardText, /*out*/ PastedNodes);
 
-    if (PastedNodes.Num() > 0)
-    {
-        // Compute the source-side centroid of the paste, then translate the
-        // whole cluster so the centroid lands at PasteLocation. Multi-node
-        // pastes preserve relative spatial layout; single-node pastes drop
-        // the node exactly at the cursor.
-        FVector2D Centroid(0.0, 0.0);
-        for (const UEdGraphNode* Node : PastedNodes)
-        {
-            Centroid.X += Node->NodePosX;
-            Centroid.Y += Node->NodePosY;
-        }
-        Centroid /= static_cast<double>(PastedNodes.Num());
+ if (PastedNodes.Num() > 0)
+ {
+ // Compute the source-side centroid of the paste, then translate the
+ // whole cluster so the centroid lands at PasteLocation. Multi-node
+ // pastes preserve relative spatial layout; single-node pastes drop
+ // the node exactly at the cursor.
+ FVector2D Centroid(0.0, 0.0);
+ for (const UEdGraphNode* Node: PastedNodes)
+ {
+ Centroid.X += Node->NodePosX;
+ Centroid.Y += Node->NodePosY;
+ }
+ Centroid /= static_cast<double>(PastedNodes.Num());
 
-        const FVector2D Delta = PasteLocation - Centroid;
-        for (UEdGraphNode* Node : PastedNodes)
-        {
-            Node->NodePosX = FMath::RoundToInt(static_cast<double>(Node->NodePosX) + Delta.X);
-            Node->NodePosY = FMath::RoundToInt(static_cast<double>(Node->NodePosY) + Delta.Y);
-        }
-    }
+ const FVector2D Delta = PasteLocation - Centroid;
+ for (UEdGraphNode* Node: PastedNodes)
+ {
+ Node->NodePosX = FMath::RoundToInt(static_cast<double>(Node->NodePosX) + Delta.X);
+ Node->NodePosY = FMath::RoundToInt(static_cast<double>(Node->NodePosY) + Delta.Y);
+ }
+ }
 
-    // Run post-paste fixup on each node. For camera graph nodes this
-    // adopts the copy-paste transport template as the live NodeTemplate
-    // and reparents it under the TypeAsset (see
-    // UComposableCameraNodeGraphNode::PostPasteNode). SnapToGrid runs
-    // after the cursor-anchor translation so the final position is on
-    // grid even when the cursor wasn't.
-    for (UEdGraphNode* Node : PastedNodes)
-    {
-        Node->PostPasteNode();
-        Node->SnapToGrid(SNodePanel::GetSnapGridSize());
-    }
+ // Run post-paste fixup on each node. For camera graph nodes this
+ // adopts the copy-paste transport template as the live NodeTemplate
+ // and reparents it under the TypeAsset (see
+ // UComposableCameraNodeGraphNode::PostPasteNode). SnapToGrid runs
+ // after the cursor-anchor translation so the final position is on
+ // grid even when the cursor wasn't.
+ for (UEdGraphNode* Node: PastedNodes)
+ {
+ Node->PostPasteNode();
+ Node->SnapToGrid(SNodePanel::GetSnapGridSize());
+ }
 
-    // Sync the updated graph back to the type asset so the new nodes
-    // get slots in NodeTemplates / PinConnections / VariableNodes.
-    NodeGraph->SyncToTypeAsset();
-    NodeGraph->NotifyGraphChanged();
+ // Sync the updated graph back to the type asset so the new nodes
+ // get slots in NodeTemplates / PinConnections / VariableNodes.
+ NodeGraph->SyncToTypeAsset();
+ NodeGraph->NotifyGraphChanged();
 
-    // Select only the pasted nodes so the user can immediately drag them.
-    GraphEditorWidget->ClearSelectionSet();
-    for (UEdGraphNode* Node : PastedNodes)
-    {
-        GraphEditorWidget->SetNodeSelection(Node, true);
-    }
+ // Select only the pasted nodes so the user can immediately drag them.
+ GraphEditorWidget->ClearSelectionSet();
+ for (UEdGraphNode* Node: PastedNodes)
+ {
+ GraphEditorWidget->SetNodeSelection(Node, true);
+ }
 }
 
 bool FComposableCameraTypeAssetEditorToolkit::CanPasteNodes() const
@@ -1002,7 +966,7 @@ bool FComposableCameraTypeAssetEditorToolkit::CanSelectAllNodes() const
 	return GraphEditorWidget.IsValid();
 }
 
-// ─── Build ─────────────────────────────────────────────────────────────────────
+// Build 
 
 void FComposableCameraTypeAssetEditorToolkit::OnBuild()
 {
@@ -1047,7 +1011,7 @@ void FComposableCameraTypeAssetEditorToolkit::OnBuild()
 #endif
 }
 
-// ─── Widget Builders ───────────────────────────────────────────────────────────
+// Widget Builders 
 
 TSharedRef<SWidget> FComposableCameraTypeAssetEditorToolkit::BuildBuildMessagesWidget()
 {
@@ -1061,7 +1025,7 @@ TSharedRef<SWidget> FComposableCameraTypeAssetEditorToolkit::BuildBuildMessagesW
 			.Font(FAppStyle::GetFontStyle("PropertyWindow.NormalFont"));
 	}
 
-	// ── Status header with icon ──────────────────────────────────────────
+	// Status header with icon 
 
 	FText StatusText;
 	FSlateColor StatusColor;
@@ -1074,16 +1038,14 @@ TSharedRef<SWidget> FComposableCameraTypeAssetEditorToolkit::BuildBuildMessagesW
 		StatusIcon = FAppStyle::GetBrush("Icons.Help");
 		break;
 	case EComposableCameraBuildStatus::Success:
-		StatusText = FText::Format(
-			LOCTEXT("StatusSuccessFmt", "Build Succeeded  ({0} nodes, {1} connections)"),
+		StatusText = FText::Format(LOCTEXT("StatusSuccessFmt", "Build Succeeded ({0} nodes, {1} connections)"),
 			FText::AsNumber(TypeAsset->NodeTemplates.Num()),
 			FText::AsNumber(TypeAsset->PinConnections.Num()));
 		StatusColor = FSlateColor(FLinearColor(0.0f, 0.8f, 0.2f));
 		StatusIcon = FAppStyle::GetBrush("Icons.SuccessWithColor");
 		break;
 	case EComposableCameraBuildStatus::SuccessWithWarnings:
-		StatusText = FText::Format(
-			LOCTEXT("StatusWarningsFmt", "Build Succeeded with {0} Warning(s)"),
+		StatusText = FText::Format(LOCTEXT("StatusWarningsFmt", "Build Succeeded with {0} Warning(s)"),
 			FText::AsNumber(TypeAsset->BuildMessages.Num()));
 		StatusColor = FSlateColor(FLinearColor(1.0f, 0.8f, 0.0f));
 		StatusIcon = FAppStyle::GetBrush("Icons.WarningWithColor");
@@ -1091,12 +1053,11 @@ TSharedRef<SWidget> FComposableCameraTypeAssetEditorToolkit::BuildBuildMessagesW
 	case EComposableCameraBuildStatus::Failed:
 	{
 		int32 ErrorCount = 0;
-		for (const FComposableCameraBuildMessage& Msg : TypeAsset->BuildMessages)
+		for (const FComposableCameraBuildMessage& Msg: TypeAsset->BuildMessages)
 		{
 			if (Msg.Severity >= 2) { ++ErrorCount; }
 		}
-		StatusText = FText::Format(
-			LOCTEXT("StatusFailedFmt", "Build Failed  ({0} Error(s))"),
+		StatusText = FText::Format(LOCTEXT("StatusFailedFmt", "Build Failed ({0} Error(s))"),
 			FText::AsNumber(ErrorCount));
 		StatusColor = FSlateColor(FLinearColor(1.0f, 0.15f, 0.15f));
 		StatusIcon = FAppStyle::GetBrush("Icons.ErrorWithColor");
@@ -1107,57 +1068,47 @@ TSharedRef<SWidget> FComposableCameraTypeAssetEditorToolkit::BuildBuildMessagesW
 	VBox->AddSlot()
 	.AutoHeight()
 	.Padding(6.0f, 4.0f)
-	[
-		SNew(SHorizontalBox)
+	[SNew(SHorizontalBox)
 		+ SHorizontalBox::Slot()
 		.AutoWidth()
 		.VAlign(VAlign_Center)
 		.Padding(0.0f, 0.0f, 6.0f, 0.0f)
-		[
-			SNew(SImage)
+		[SNew(SImage)
 			.Image(StatusIcon)
-			.DesiredSizeOverride(FVector2D(16.0f, 16.0f))
-		]
+			.DesiredSizeOverride(FVector2D(16.0f, 16.0f))]
 		+ SHorizontalBox::Slot()
 		.FillWidth(1.0f)
 		.VAlign(VAlign_Center)
-		[
-			SNew(STextBlock)
+		[SNew(STextBlock)
 			.Text(StatusText)
 			.Font(FAppStyle::GetFontStyle("DetailsView.CategoryFontStyle"))
-			.ColorAndOpacity(StatusColor)
-		]
-	];
+			.ColorAndOpacity(StatusColor)]];
 
-	// ── Separator ────────────────────────────────────────────────────────
+	// Separator 
 
 	if (TypeAsset->BuildMessages.Num() > 0)
 	{
 		VBox->AddSlot()
 		.AutoHeight()
 		.Padding(6.0f, 0.0f)
-		[
-			SNew(SSeparator)
-		];
+		[SNew(SSeparator)];
 	}
 
-	// ── Messages ─────────────────────────────────────────────────────────
+	// Messages 
 
 	if (TypeAsset->BuildMessages.Num() == 0 && TypeAsset->BuildStatus != EComposableCameraBuildStatus::NotBuilt)
 	{
 		VBox->AddSlot()
 		.AutoHeight()
 		.Padding(10.0f, 4.0f)
-		[
-			SNew(STextBlock)
+		[SNew(STextBlock)
 			.Text(LOCTEXT("NoMessages", "No issues found."))
 			.Font(FAppStyle::GetFontStyle("PropertyWindow.NormalFont"))
-			.ColorAndOpacity(FSlateColor(FLinearColor(0.5f, 0.5f, 0.5f)))
-		];
+			.ColorAndOpacity(FSlateColor(FLinearColor(0.5f, 0.5f, 0.5f)))];
 	}
 	else
 	{
-		for (const FComposableCameraBuildMessage& Msg : TypeAsset->BuildMessages)
+		for (const FComposableCameraBuildMessage& Msg: TypeAsset->BuildMessages)
 		{
 			FSlateColor MsgColor;
 			const FSlateBrush* MsgIcon = nullptr;
@@ -1180,49 +1131,40 @@ TSharedRef<SWidget> FComposableCameraTypeAssetEditorToolkit::BuildBuildMessagesW
 			VBox->AddSlot()
 			.AutoHeight()
 			.Padding(10.0f, 2.0f)
-			[
-				SNew(SHorizontalBox)
+			[SNew(SHorizontalBox)
 				+ SHorizontalBox::Slot()
 				.AutoWidth()
 				.VAlign(VAlign_Top)
 				.Padding(0.0f, 1.0f, 6.0f, 0.0f)
-				[
-					SNew(SImage)
+				[SNew(SImage)
 					.Image(MsgIcon)
 					.DesiredSizeOverride(FVector2D(14.0f, 14.0f))
-					.ColorAndOpacity(MsgColor)
-				]
+					.ColorAndOpacity(MsgColor)]
 				+ SHorizontalBox::Slot()
 				.FillWidth(1.0f)
 				.VAlign(VAlign_Center)
-				[
-					SNew(STextBlock)
+				[SNew(STextBlock)
 					.Text(Msg.Message)
 					.Font(FAppStyle::GetFontStyle("PropertyWindow.NormalFont"))
 					.ColorAndOpacity(MsgColor)
-					.AutoWrapText(true)
-				]
-			];
+					.AutoWrapText(true)]];
 		}
 	}
 #endif
 
 	return SNew(SScrollBox)
 		+ SScrollBox::Slot()
-		[
-			VBox
-		];
+		[VBox];
 }
 
-// ─── Runtime Debug Monitoring ─────────────────────────────────────────────────
+// Runtime Debug Monitoring 
 
 void FComposableCameraTypeAssetEditorToolkit::OnPIEStarted(bool bIsSimulating)
 {
 	bIsPIEActive = true;
 
-	// Start the debug ticker — polls every frame while PIE is active.
-	DebugTickerHandle = FTSTicker::GetCoreTicker().AddTicker(
-		FTickerDelegate::CreateRaw(this, &FComposableCameraTypeAssetEditorToolkit::DebugTick));
+	// Start the debug ticker - polls every frame while PIE is active.
+	DebugTickerHandle = FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateRaw(this, &FComposableCameraTypeAssetEditorToolkit::DebugTick));
 
 	// Auto-bind if exactly one matching camera instance is found.
 	TArray<TWeakObjectPtr<AComposableCameraCameraBase>> Instances = FindMatchingCameraInstances();
@@ -1274,21 +1216,21 @@ bool FComposableCameraTypeAssetEditorToolkit::DebugTick(float DeltaTime)
 	// Also push variable values into Get/Set variable graph nodes.
 	if (NodeGraph)
 	{
-		// Build a quick name→value lookup for internal + exposed variable values.
+		// Build a quick name -> value lookup for internal + exposed variable values.
 		TMap<FName, FString> VarValueMap;
 		VarValueMap.Reserve(Snapshot.InternalVariableValues.Num());
-		for (const TPair<FName, FString>& Pair : Snapshot.InternalVariableValues)
+		for (const TPair<FName, FString>& Pair: Snapshot.InternalVariableValues)
 		{
 			VarValueMap.Add(Pair.Key, Pair.Value);
 		}
 
-		for (UEdGraphNode* RawNode : NodeGraph->Nodes)
+		for (UEdGraphNode* RawNode: NodeGraph->Nodes)
 		{
-			// ── Camera nodes: per-node pose + output pin values ──────────
+			// Camera nodes: per-node pose + output pin values 
 			if (UComposableCameraNodeGraphNode* GraphNode = Cast<UComposableCameraNodeGraphNode>(RawNode))
 			{
 				const FComposableCameraNodeDebugEntry* MatchingEntry = nullptr;
-				for (const FComposableCameraNodeDebugEntry& Entry : Snapshot.NodeEntries)
+				for (const FComposableCameraNodeDebugEntry& Entry: Snapshot.NodeEntries)
 				{
 					if (Entry.NodeIndex == GraphNode->NodeIndex)
 					{
@@ -1302,7 +1244,7 @@ bool FComposableCameraTypeAssetEditorToolkit::DebugTick(float DeltaTime)
 					GraphNode->DebugState.bIsActive = MatchingEntry->bWasTicked;
 					GraphNode->DebugState.PoseAfterNode = MatchingEntry->PoseAfterNode;
 					GraphNode->DebugState.OutputPinDisplayValues.Reset();
-					for (const TPair<FName, FString>& PinValue : MatchingEntry->OutputPinValues)
+					for (const TPair<FName, FString>& PinValue: MatchingEntry->OutputPinValues)
 					{
 						GraphNode->DebugState.OutputPinDisplayValues.Add(PinValue.Key, PinValue.Value);
 					}
@@ -1314,7 +1256,7 @@ bool FComposableCameraTypeAssetEditorToolkit::DebugTick(float DeltaTime)
 				continue;
 			}
 
-			// ── Variable nodes: current variable value ───────────────────
+			// Variable nodes: current variable value 
 			if (UComposableCameraVariableGraphNode* VarNode = Cast<UComposableCameraVariableGraphNode>(RawNode))
 			{
 				if (const FString* Value = VarValueMap.Find(VarNode->VariableName))
@@ -1341,7 +1283,7 @@ TArray<TWeakObjectPtr<AComposableCameraCameraBase>> FComposableCameraTypeAssetEd
 	if (!TypeAsset || !GEditor)
 	{
 		UE_LOG(LogComposableCameraSystemEditor, Verbose,
-			TEXT("[DebugPicker] Early-out: TypeAsset=%p  GEditor=%p"),
+			TEXT("[DebugPicker] Early-out: TypeAsset=%p GEditor=%p"),
 			TypeAsset, GEditor);
 		return Result;
 	}
@@ -1357,7 +1299,7 @@ TArray<TWeakObjectPtr<AComposableCameraCameraBase>> FComposableCameraTypeAssetEd
 	{
 		PIEWorlds.AddUnique(GEditor->PlayWorld);
 	}
-	for (const FWorldContext& WorldContext : GEngine->GetWorldContexts())
+	for (const FWorldContext& WorldContext: GEngine->GetWorldContexts())
 	{
 		UWorld* World = WorldContext.World();
 		if (World && (WorldContext.WorldType == EWorldType::PIE || WorldContext.WorldType == EWorldType::Game))
@@ -1370,7 +1312,7 @@ TArray<TWeakObjectPtr<AComposableCameraCameraBase>> FComposableCameraTypeAssetEd
 		TEXT("[DebugPicker] Found %d PIE world(s), PlayWorld=%p"),
 		PIEWorlds.Num(), GEditor->PlayWorld.Get());
 
-	for (UWorld* World : PIEWorlds)
+	for (UWorld* World: PIEWorlds)
 	{
 		int32 TotalCamerasInWorld = 0;
 		for (TActorIterator<AComposableCameraCameraBase> It(World); It; ++It)
@@ -1380,7 +1322,7 @@ TArray<TWeakObjectPtr<AComposableCameraCameraBase>> FComposableCameraTypeAssetEd
 
 			UComposableCameraTypeAsset* CamSource = Camera ? Camera->SourceTypeAsset.Get() : nullptr;
 			UE_LOG(LogComposableCameraSystemEditor, Verbose,
-				TEXT("[DebugPicker]   Camera '%s' — SourceTypeAsset='%s' (%p), match=%s"),
+				TEXT("[DebugPicker] Camera '%s' - SourceTypeAsset='%s' (%p), match=%s"),
 				Camera ? *Camera->GetName() : TEXT("null"),
 				CamSource ? *CamSource->GetName() : TEXT("null"),
 				CamSource,
@@ -1393,7 +1335,7 @@ TArray<TWeakObjectPtr<AComposableCameraCameraBase>> FComposableCameraTypeAssetEd
 		}
 
 		UE_LOG(LogComposableCameraSystemEditor, Verbose,
-			TEXT("[DebugPicker]   World '%s': %d total camera(s), %d matched"),
+			TEXT("[DebugPicker] World '%s': %d total camera(s), %d matched"),
 			*World->GetName(), TotalCamerasInWorld, Result.Num());
 	}
 
@@ -1412,7 +1354,7 @@ void FComposableCameraTypeAssetEditorToolkit::ClearGraphNodeDebugState()
 		return;
 	}
 
-	for (UEdGraphNode* RawNode : NodeGraph->Nodes)
+	for (UEdGraphNode* RawNode: NodeGraph->Nodes)
 	{
 		if (UComposableCameraNodeGraphNode* GraphNode = Cast<UComposableCameraNodeGraphNode>(RawNode))
 		{
@@ -1424,12 +1366,11 @@ void FComposableCameraTypeAssetEditorToolkit::ClearGraphNodeDebugState()
 		}
 	}
 
-	// No explicit repaint needed — the custom SGraphNode OnPaint overlays are
+	// No explicit repaint needed - the custom SGraphNode OnPaint overlays are
 	// re-evaluated by Slate on the next paint pass automatically.
 }
 
-TSharedRef<SWidget> FComposableCameraTypeAssetEditorToolkit::MakeDebugInstancePickerWidget(
-	const FToolMenuContext& Context, const FToolMenuCustomWidgetContext& /*WidgetContext*/)
+TSharedRef<SWidget> FComposableCameraTypeAssetEditorToolkit::MakeDebugInstancePickerWidget(const FToolMenuContext& Context, const FToolMenuCustomWidgetContext& /*WidgetContext*/)
 {
 	UComposableCameraTypeAssetEditorMenuContext* Ctx =
 		Context.FindContext<UComposableCameraTypeAssetEditorMenuContext>();
@@ -1462,25 +1403,19 @@ TSharedRef<SWidget> FComposableCameraTypeAssetEditorToolkit::MakeDebugInstancePi
 		.ButtonStyle(&FAppStyle::Get().GetWidgetStyle<FButtonStyle>("Button"))
 		.ContentPadding(FMargin(4.0f, 2.0f))
 		.ButtonContent()
-		[
-			SNew(SHorizontalBox)
+		[SNew(SHorizontalBox)
 			+ SHorizontalBox::Slot()
 			.AutoWidth()
 			.VAlign(VAlign_Center)
-			[
-				SNew(SImage)
+			[SNew(SImage)
 				.Image(FAppStyle::GetBrush("PlayWorld.Simulate"))
-				.ColorAndOpacity(FSlateColor::UseForeground())
-			]
+				.ColorAndOpacity(FSlateColor::UseForeground())]
 			+ SHorizontalBox::Slot()
 			.AutoWidth()
 			.VAlign(VAlign_Center)
 			.Padding(4.0f, 0.0f, 0.0f, 0.0f)
-			[
-				SNew(STextBlock)
-				.Text(LOCTEXT("DebugLabel", "Debug"))
-			]
-		];
+			[SNew(STextBlock)
+				.Text(LOCTEXT("DebugLabel", "Debug"))]];
 }
 
 TSharedRef<SWidget> FComposableCameraTypeAssetEditorToolkit::BuildDebugInstancePickerWidget()
@@ -1493,14 +1428,12 @@ TSharedRef<SWidget> FComposableCameraTypeAssetEditorToolkit::BuildDebugInstanceP
 
 	if (!bCurrentlyInPIE)
 	{
-		MenuBuilder.AddMenuEntry(
-			LOCTEXT("DebugNotInPIE", "Not in PIE"),
+		MenuBuilder.AddMenuEntry(LOCTEXT("DebugNotInPIE", "Not in PIE"),
 			LOCTEXT("DebugNotInPIETooltip", "Start a Play-In-Editor session to debug camera instances."),
 			FSlateIcon(),
 			FUIAction(),
 			NAME_None,
-			EUserInterfaceActionType::None
-		);
+			EUserInterfaceActionType::None);
 		return MenuBuilder.MakeWidget();
 	}
 
@@ -1508,20 +1441,17 @@ TSharedRef<SWidget> FComposableCameraTypeAssetEditorToolkit::BuildDebugInstanceP
 
 	if (Instances.Num() == 0)
 	{
-		MenuBuilder.AddMenuEntry(
-			LOCTEXT("DebugNoInstances", "No instances found"),
+		MenuBuilder.AddMenuEntry(LOCTEXT("DebugNoInstances", "No instances found"),
 			LOCTEXT("DebugNoInstancesTooltip", "No camera instances matching this type asset were found in the current PIE session."),
 			FSlateIcon(),
 			FUIAction(),
 			NAME_None,
-			EUserInterfaceActionType::None
-		);
+			EUserInterfaceActionType::None);
 	}
 	else
 	{
 		// "None" entry to unbind.
-		MenuBuilder.AddMenuEntry(
-			LOCTEXT("DebugNone", "None"),
+		MenuBuilder.AddMenuEntry(LOCTEXT("DebugNone", "None"),
 			LOCTEXT("DebugNoneTooltip", "Stop debugging any camera instance."),
 			FSlateIcon(),
 			FUIAction(FExecuteAction::CreateLambda([this]()
@@ -1544,8 +1474,7 @@ TSharedRef<SWidget> FComposableCameraTypeAssetEditorToolkit::BuildDebugInstanceP
 			const FText Label = FText::FromString(Camera->GetName());
 			const bool bIsCurrent = (DebuggedCamera == Camera);
 
-			MenuBuilder.AddMenuEntry(
-				Label,
+			MenuBuilder.AddMenuEntry(Label,
 				FText::Format(LOCTEXT("DebugInstanceTooltipFmt", "Debug {0}"), Label),
 				bIsCurrent
 					? FSlateIcon(FAppStyle::GetAppStyleSetName(), "Icons.Check")
@@ -1564,7 +1493,7 @@ TSharedRef<SWidget> FComposableCameraTypeAssetEditorToolkit::BuildDebugInstanceP
 	return MenuBuilder.MakeWidget();
 }
 
-// ─── Shot Editor toolbar entry (Phase D.1) ────────────────────────────────────
+// Shot Editor toolbar entry (Phase D.1) 
 
 UComposableCameraCompositionFramingNode*
 FComposableCameraTypeAssetEditorToolkit::GetSelectedCompositionFramingNode() const
@@ -1579,7 +1508,7 @@ FComposableCameraTypeAssetEditorToolkit::GetSelectedCompositionFramingNode() con
 	// the toolbar button is single-target by design (the Shot Editor is a
 	// single-instance editor).
 	const FGraphPanelSelectionSet SelectedNodes = GraphEditorWidget->GetSelectedNodes();
-	for (UObject* Selected : SelectedNodes)
+	for (UObject* Selected: SelectedNodes)
 	{
 		if (UComposableCameraNodeGraphNode* GraphNode = Cast<UComposableCameraNodeGraphNode>(Selected))
 		{
@@ -1597,7 +1526,7 @@ void FComposableCameraTypeAssetEditorToolkit::OpenShotEditorForSelectedNode()
 {
 	if (UComposableCameraCompositionFramingNode* Composition = GetSelectedCompositionFramingNode())
 	{
-		// Routes through the runtime → editor delegate hook
+		// Routes through the runtime -> editor delegate hook
 		// (Public/EditorHooks/EditorHooks.h) bound by
 		// FComposableCameraSystemEditorModule::StartupModule. Same indirection
 		// the now-removed UFUNCTION(CallInEditor) used; keeping it lets the
@@ -1613,7 +1542,7 @@ void FComposableCameraTypeAssetEditorToolkit::StaticOnOpenShotEditorClicked(cons
 	// call RegisterToolbar. The MenuContext threaded through
 	// InitToolMenuContext carries the per-instance toolkit weak ref;
 	// resolving here picks the right one (same pattern the Debug picker
-	// uses for its widget factory — see RegisterToolbar comment).
+	// uses for its widget factory - see RegisterToolbar comment).
 	if (UComposableCameraTypeAssetEditorMenuContext* MenuCtx =
 		Context.FindContext<UComposableCameraTypeAssetEditorMenuContext>())
 	{

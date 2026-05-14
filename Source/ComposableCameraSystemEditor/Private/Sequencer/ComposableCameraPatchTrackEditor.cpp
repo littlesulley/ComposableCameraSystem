@@ -31,21 +31,20 @@ namespace
 	 * Track's default 5-second duration. Replaces `FSequencerUtilities::CreateNewSection`
 	 * for our flows because the engine helper has two issues for our use case:
 	 *
-	 *   (a) When Sequencer's "Infinite Key Areas" project setting is on, it
-	 *       force-stomps the new section's range to `TRange::All()` *without*
-	 *       checking `GetSupportsInfiniteRange()` (only the menu-driven
-	 *       `PopulateMenu_CreateNewSection` overload checks the flag — the
-	 *       simpler `CreateNewSection` overload doesn't).
-	 *   (b) Doesn't reposition the section to the playhead — it preserves
-	 *       whatever range `Track->CreateNewSection()` produces, which for us
-	 *       is a fixed `[0, 5s]` window starting at frame zero. Result: the
-	 *       new section appears far from the user's current scrub position.
+	 * (a) When Sequencer's "Infinite Key Areas" project setting is on, it
+	 * force-stomps the new section's range to `TRange::All()` *without*
+	 * checking `GetSupportsInfiniteRange()` (only the menu-driven
+	 * `PopulateMenu_CreateNewSection` overload checks the flag - the
+	 * simpler `CreateNewSection` overload doesn't).
+	 * (b) Doesn't reposition the section to the playhead - it preserves
+	 * whatever range `Track->CreateNewSection()` produces, which for us
+	 * is a fixed `[0, 5s]` window starting at frame zero. Result: the
+	 * new section appears far from the user's current scrub position.
 	 *
 	 * Returns the new section so callers can apply post-creation tweaks
 	 * (PatchAsset assignment in HandleAssetAdded, etc).
 	 */
-	UMovieSceneComposableCameraPatchSection* CreatePatchSectionAtPlayhead(
-		UMovieSceneComposableCameraPatchTrack* Track,
+	UMovieSceneComposableCameraPatchSection* CreatePatchSectionAtPlayhead(UMovieSceneComposableCameraPatchTrack* Track,
 		const TSharedPtr<ISequencer>& Sequencer,
 		int32 RowIndex)
 	{
@@ -78,7 +77,7 @@ namespace
 		// Mirror the engine's overlap-priority + blend-type stamps that the
 		// stock CreateNewSection helper would normally apply.
 		int32 OverlapPriority = 0;
-		for (UMovieSceneSection* Existing : Track->GetAllSections())
+		for (UMovieSceneSection* Existing: Track->GetAllSections())
 		{
 			OverlapPriority = FMath::Max(Existing->GetOverlapPriority() + 1, OverlapPriority);
 		}
@@ -106,7 +105,7 @@ namespace
 	}
 }
 
-// ─── FComposableCameraPatchTrackEditor ─────────────────────────────────────
+// FComposableCameraPatchTrackEditor 
 
 TSharedRef<ISequencerTrackEditor> FComposableCameraPatchTrackEditor::CreateTrackEditor(TSharedRef<ISequencer> OwningSequencer)
 {
@@ -135,7 +134,7 @@ bool FComposableCameraPatchTrackEditor::SupportsSequence(UMovieSceneSequence* In
 		return false;
 	}
 	const ETrackSupport TrackSupported = InSequence->IsTrackSupported(UMovieSceneComposableCameraPatchTrack::StaticClass());
-	// Default-enabled for any sequence that doesn't actively veto us — Level
+	// Default-enabled for any sequence that doesn't actively veto us - Level
 	// Sequences are the primary host but the track has no LS-specific bind.
 	return TrackSupported != ETrackSupport::NotSupported;
 }
@@ -145,7 +144,7 @@ const FSlateBrush* FComposableCameraPatchTrackEditor::GetIconBrush() const
 	// `Sequencer.Tracks.CameraShake` doesn't exist as a registered AppStyle
 	// brush in 5.6 (only Audio / Event / Fade / CameraCut / CinematicShot /
 	// Slomo / TimeWarp / Animation / Sub / LevelVisibility / DataLayer / CVar
-	// have entries — see Engine/Source/Editor/EditorStyle/Private/StarshipStyle.cpp).
+	// have entries - see Engine/Source/Editor/EditorStyle/Private/StarshipStyle.cpp).
 	// Use our own registered Patch asset class icon for visual consistency
 	// with the Content Browser thumbnail. Brush name is set in
 	// FComposableCameraEditorStyle::FComposableCameraEditorStyle().
@@ -154,28 +153,25 @@ const FSlateBrush* FComposableCameraPatchTrackEditor::GetIconBrush() const
 
 void FComposableCameraPatchTrackEditor::BuildAddTrackMenu(FMenuBuilder& MenuBuilder)
 {
-	MenuBuilder.AddMenuEntry(
-		LOCTEXT("AddPatchTrack", "Composable Camera Patch Track"),
+	MenuBuilder.AddMenuEntry(LOCTEXT("AddPatchTrack", "Composable Camera Patch Track"),
 		LOCTEXT("AddPatchTrackTooltip",
-			"Adds a track that drives Composable Camera Patches — each section "
+			"Adds a track that drives Composable Camera Patches - each section "
 			"adds a Patch on the configured player/context for the section's "
 			"duration, with envelope parameters keyable in place."),
-		// Same brush as GetIconBrush() — keeps the menu entry icon, the
+		// Same brush as GetIconBrush() - keeps the menu entry icon, the
 		// outliner row icon, and the asset thumbnail visually unified.
 		FSlateIcon(FComposableCameraEditorStyle::Get()->GetStyleSetName(), "ClassIcon.ComposableCameraPatchTypeAsset"),
-		FUIAction(
-			FExecuteAction::CreateRaw(this, &FComposableCameraPatchTrackEditor::HandleAddPatchTrackMenuEntryExecute)));
+		FUIAction(FExecuteAction::CreateRaw(this, &FComposableCameraPatchTrackEditor::HandleAddPatchTrackMenuEntryExecute)));
 }
 
-TSharedPtr<SWidget> FComposableCameraPatchTrackEditor::BuildOutlinerEditWidget(
-	const FGuid& ObjectBinding, UMovieSceneTrack* Track, const FBuildEditWidgetParams& Params)
+TSharedPtr<SWidget> FComposableCameraPatchTrackEditor::BuildOutlinerEditWidget(const FGuid& ObjectBinding, UMovieSceneTrack* Track, const FBuildEditWidgetParams& Params)
 {
 	TWeakPtr<ISequencer> WeakSequencer = GetSequencer();
 	const int32 RowIndex = Params.TrackInsertRowIndex;
 	auto OnClickedCallback = [Track, WeakSequencer, RowIndex]() -> FReply
 	{
 		// Use our own playhead-positioning helper instead of the engine's
-		// FSequencerUtilities::CreateNewSection — see CreatePatchSectionAtPlayhead
+		// FSequencerUtilities::CreateNewSection - see CreatePatchSectionAtPlayhead
 		// header comment for the InfiniteKeyAreas / no-reposition issues that
 		// motivated the local replacement.
 		if (UMovieSceneComposableCameraPatchTrack* PatchTrack = Cast<UMovieSceneComposableCameraPatchTrack>(Track))
@@ -185,14 +181,12 @@ TSharedPtr<SWidget> FComposableCameraPatchTrackEditor::BuildOutlinerEditWidget(
 		}
 		return FReply::Handled();
 	};
-	return UE::Sequencer::MakeAddButton(
-		LOCTEXT("AddSection", "Section"),
+	return UE::Sequencer::MakeAddButton(LOCTEXT("AddSection", "Section"),
 		FOnClicked::CreateLambda(OnClickedCallback),
 		Params.ViewModel);
 }
 
-TSharedRef<ISequencerSection> FComposableCameraPatchTrackEditor::MakeSectionInterface(
-	UMovieSceneSection& SectionObject, UMovieSceneTrack& Track, FGuid ObjectBinding)
+TSharedRef<ISequencerSection> FComposableCameraPatchTrackEditor::MakeSectionInterface(UMovieSceneSection& SectionObject, UMovieSceneTrack& Track, FGuid ObjectBinding)
 {
 	check(SupportsType(SectionObject.GetOuter()->GetClass()));
 	return MakeShareable(new FComposableCameraPatchSectionInterface(SectionObject, GetSequencer()));
@@ -217,11 +211,11 @@ bool FComposableCameraPatchTrackEditor::HandleAssetAdded(UObject* Asset, const F
 
 	// Reuse the single patch track on this sequence. Multiple patch tracks would
 	// be valid (Sequencer doesn't enforce uniqueness), but the runtime overlay
-	// path sorts by LayerIndex regardless of track partition — one track per
+	// path sorts by LayerIndex regardless of track partition - one track per
 	// sequence keeps the outliner tidy and matches how Camera Cuts / Camera
 	// Shakes are organised.
 	UMovieSceneComposableCameraPatchTrack* Track = nullptr;
-	for (UMovieSceneTrack* T : MovieScene->GetTracks())
+	for (UMovieSceneTrack* T: MovieScene->GetTracks())
 	{
 		if (UMovieSceneComposableCameraPatchTrack* PatchTrack = Cast<UMovieSceneComposableCameraPatchTrack>(T))
 		{
@@ -275,7 +269,7 @@ void FComposableCameraPatchTrackEditor::HandleAddPatchTrackMenuEntryExecute()
 	}
 	NewTrack->SetDisplayName(LOCTEXT("PatchTrackDefaultName", "Composable Camera Patch"));
 
-	// Create one empty section by default so the track is immediately usable —
+	// Create one empty section by default so the track is immediately usable - 
 	// matches the CVar track's UX. Designer picks the patch asset in the
 	// Details panel; the section is a no-op until they do.
 	// Routed through CreatePatchSectionAtPlayhead so the section spawns at
@@ -288,10 +282,9 @@ void FComposableCameraPatchTrackEditor::HandleAddPatchTrackMenuEntryExecute()
 	}
 }
 
-// ─── FComposableCameraPatchSectionInterface ────────────────────────────────
+// FComposableCameraPatchSectionInterface 
 
-FComposableCameraPatchSectionInterface::FComposableCameraPatchSectionInterface(
-	UMovieSceneSection& InSection, TWeakPtr<ISequencer> InSequencer)
+FComposableCameraPatchSectionInterface::FComposableCameraPatchSectionInterface(UMovieSceneSection& InSection, TWeakPtr<ISequencer> InSequencer)
 	: Section(InSection)
 	, WeakSequencer(InSequencer)
 {
@@ -327,8 +320,7 @@ int32 FComposableCameraPatchSectionInterface::OnPaintSection(FSequencerSectionPa
 		return LayerId;
 	}
 
-	const FSlateBrush* IconBrush = FComposableCameraEditorStyle::Get()->GetBrush(
-		TEXT("ClassIcon.ComposableCameraPatchTypeAsset"));
+	const FSlateBrush* IconBrush = FComposableCameraEditorStyle::Get()->GetBrush(TEXT("ClassIcon.ComposableCameraPatchTypeAsset"));
 	if (!IconBrush)
 	{
 		return LayerId;
@@ -342,18 +334,16 @@ int32 FComposableCameraPatchSectionInterface::OnPaintSection(FSequencerSectionPa
 	// doesn't fight it for space.
 	const FGeometry& SectionGeometry = Painter.SectionGeometry;
 	const float SectionHeight = SectionGeometry.GetLocalSize().Y;
-	const float IconSize      = FMath::Min(SectionHeight - 4.f, 20.f);
+	const float IconSize = FMath::Min(SectionHeight - 4.f, 20.f);
 	if (IconSize <= 0.f)
 	{
 		return LayerId;
 	}
 	const FVector2f IconPos(4.f, (SectionHeight - IconSize) * 0.5f);
 
-	FSlateDrawElement::MakeBox(
-		Painter.DrawElements,
+	FSlateDrawElement::MakeBox(Painter.DrawElements,
 		++LayerId,
-		SectionGeometry.ToPaintGeometry(
-			FVector2f(IconSize, IconSize),
+		SectionGeometry.ToPaintGeometry(FVector2f(IconSize, IconSize),
 			FSlateLayoutTransform(IconPos)),
 		IconBrush,
 		ESlateDrawEffect::None,
@@ -365,12 +355,11 @@ int32 FComposableCameraPatchSectionInterface::OnPaintSection(FSequencerSectionPa
 namespace
 {
 	/** Snapshot every key (handle + time) on every channel exposed by the
-	 *  section's proxy. Each ResizeSection call recomputes new times from
-	 *  this baseline rather than from the live channel state — using live
-	 *  state would compound the drag delta frame-over-frame and oscillate
-	 *  the keys toward 0 / infinity. */
-	void SnapshotKeyData(
-		UMovieSceneSection* SectionObject,
+	 * section's proxy. Each ResizeSection call recomputes new times from
+	 * this baseline rather than from the live channel state - using live
+	 * state would compound the drag delta frame-over-frame and oscillate
+	 * the keys toward 0 / infinity. */
+	void SnapshotKeyData(UMovieSceneSection* SectionObject,
 		TArray<FComposableCameraPatchSectionInterface::FInitialChannelData>& OutData)
 	{
 		OutData.Reset();
@@ -378,9 +367,9 @@ namespace
 		{
 			return;
 		}
-		for (const FMovieSceneChannelEntry& Entry : SectionObject->GetChannelProxy().GetAllEntries())
+		for (const FMovieSceneChannelEntry& Entry: SectionObject->GetChannelProxy().GetAllEntries())
 		{
-			for (FMovieSceneChannel* Channel : Entry.GetChannels())
+			for (FMovieSceneChannel* Channel: Entry.GetChannels())
 			{
 				if (!Channel)
 				{
@@ -398,23 +387,22 @@ namespace
 	}
 
 	/** Apply `Origin + (InitialTime - Origin) * Factor` to each cached key
-	 *  and write the new times back via Channel->SetKeyTimes. Floor toward
-	 *  zero matches what the engine's FDilateSection does (line 430 in
-	 *  EditToolDragOperations.cpp). */
-	void ApplyDilation(
-		const TArray<FComposableCameraPatchSectionInterface::FInitialChannelData>& InitialKeyData,
+	 * and write the new times back via Channel->SetKeyTimes. Floor toward
+	 * zero matches what the engine's FDilateSection does (line 430 in
+	 * EditToolDragOperations.cpp). */
+	void ApplyDilation(const TArray<FComposableCameraPatchSectionInterface::FInitialChannelData>& InitialKeyData,
 		FFrameNumber Origin,
 		double DilationFactor)
 	{
 		TArray<FFrameNumber> NewTimes;
-		for (const FComposableCameraPatchSectionInterface::FInitialChannelData& ChannelData : InitialKeyData)
+		for (const FComposableCameraPatchSectionInterface::FInitialChannelData& ChannelData: InitialKeyData)
 		{
 			if (!ChannelData.Channel)
 			{
 				continue;
 			}
 			NewTimes.Reset(ChannelData.Times.Num());
-			for (FFrameNumber InitialTime : ChannelData.Times)
+			for (FFrameNumber InitialTime: ChannelData.Times)
 			{
 				const int32 Offset = (InitialTime - Origin).Value;
 				const int32 ScaledOffset = FMath::FloorToInt(Offset * DilationFactor);
@@ -447,7 +435,7 @@ void FComposableCameraPatchSectionInterface::ResizeSection(ESequencerSectionResi
 	}
 
 	// Need both bounds closed AND known initial range for dilation. Without
-	// either, fall back to the engine's default "set bound" behavior — keeps
+	// either, fall back to the engine's default "set bound" behavior - keeps
 	// the patch resizable on a section with an open bound (rare for our use
 	// case but defensive).
 	const bool bCanDilate = InitialResizeRange.GetLowerBound().IsClosed()
@@ -463,7 +451,7 @@ void FComposableCameraPatchSectionInterface::ResizeSection(ESequencerSectionResi
 	const FFrameNumber InitialUpper = InitialResizeRange.GetUpperBoundValue();
 	const int32 InitialSizeTicks = (InitialUpper - InitialLower).Value;
 
-	// Snapshot of zero size → can't compute a meaningful factor; defer to default.
+	// Snapshot of zero size -> can't compute a meaningful factor; defer to default.
 	if (InitialSizeTicks <= 0)
 	{
 		ISequencerSection::ResizeSection(ResizeMode, ResizeFrameNumber);
@@ -471,7 +459,7 @@ void FComposableCameraPatchSectionInterface::ResizeSection(ESequencerSectionResi
 	}
 
 	// Compute the new range with the same clamping the engine default uses
-	// (leading edge ≤ trailing - 1, trailing edge ≥ leading), and from there
+	// (leading edge <= trailing - 1, trailing edge >= leading), and from there
 	// derive the new size + dilation origin (the FIXED edge).
 	FFrameNumber NewLower = InitialLower;
 	FFrameNumber NewUpper = InitialUpper;
@@ -495,7 +483,7 @@ void FComposableCameraPatchSectionInterface::ResizeSection(ESequencerSectionResi
 	const int32 NewSizeTicks = (NewUpper - NewLower).Value;
 	if (NewSizeTicks <= 0)
 	{
-		// Section collapsed to nothing — keep range update but don't dilate
+		// Section collapsed to nothing - keep range update but don't dilate
 		// (would divide by initial size and collapse keys to origin, not useful).
 		ISequencerSection::ResizeSection(ResizeMode, ResizeFrameNumber);
 		return;
@@ -506,7 +494,7 @@ void FComposableCameraPatchSectionInterface::ResizeSection(ESequencerSectionResi
 	SectionObject->Modify();
 	ApplyDilation(InitialKeyData, Origin, DilationFactor);
 
-	// Update section range using the engine's default impl — handles bound
+	// Update section range using the engine's default impl - handles bound
 	// kind (Inclusive/Exclusive) correctly and stays consistent with other
 	// section types' resize semantics for the bounds part.
 	ISequencerSection::ResizeSection(ResizeMode, ResizeFrameNumber);
@@ -514,7 +502,7 @@ void FComposableCameraPatchSectionInterface::ResizeSection(ESequencerSectionResi
 
 void FComposableCameraPatchSectionInterface::BeginDilateSection()
 {
-	// Snapshot for engine Ctrl+drag too — engine's FDilateSection rewrites
+	// Snapshot for engine Ctrl+drag too - engine's FDilateSection rewrites
 	// channel times itself but we still want to update our own range.
 	UMovieSceneSection* SectionObject = GetSectionObject();
 	InitialResizeRange = SectionObject ? SectionObject->GetRange() : TRange<FFrameNumber>::Empty();
@@ -523,7 +511,7 @@ void FComposableCameraPatchSectionInterface::BeginDilateSection()
 void FComposableCameraPatchSectionInterface::DilateSection(const TRange<FFrameNumber>& NewRange, float DilationFactor)
 {
 	// Engine's FDilateSection has already rewritten channel key times by the
-	// time it calls us — our job is purely to commit the new section range.
+	// time it calls us - our job is purely to commit the new section range.
 	// Without this override the empty default ISequencerSection::DilateSection
 	// wouldn't update bounds and Ctrl+drag would leave the section size
 	// unchanged while keys moved.
@@ -549,11 +537,11 @@ void FComposableCameraPatchSectionInterface::BuildSectionContextMenu(FMenuBuilde
 		return;
 	}
 
-	// Two flat sections — "Camera Parameters" and "Camera Variables". One click
+	// Two flat sections - "Camera Parameters" and "Camera Variables". One click
 	// per leaf promotes that exposed param to a keyable channel on the section
 	// (UMovieSceneParameterSection auto-creates the named curve struct + an
 	// initial key at the current playhead time, seeded from the bag's static
-	// value). Already-keyed entries show "(keyed)" suffix and are disabled —
+	// value). Already-keyed entries show "(keyed)" suffix and are disabled - 
 	// designer can clean them via the channel row's right-click "Delete"
 	// (FParameterSection::RequestDeleteCategory).
 	auto BuildSection = [this, &MenuBuilder](FName SectionId, const FText& Header, const TArray<FParameterMenuEntry>& Entries)
@@ -563,18 +551,16 @@ void FComposableCameraPatchSectionInterface::BuildSectionContextMenu(FMenuBuilde
 			return;
 		}
 		MenuBuilder.BeginSection(SectionId, Header);
-		for (const FParameterMenuEntry& Entry : Entries)
+		for (const FParameterMenuEntry& Entry: Entries)
 		{
 			const FText DisplayName = Entry.DisplayName.IsEmpty() ? FText::FromName(Entry.Name) : Entry.DisplayName;
 			const FText Label = Entry.bAlreadyKeyed
 				? FText::Format(LOCTEXT("ParamKeyed", "{0} (keyed)"), DisplayName)
 				: DisplayName;
 
-			FUIAction AddAction(
-				FExecuteAction::CreateSP(this, &FComposableCameraPatchSectionInterface::PromoteParameterToChannel, Entry),
+			FUIAction AddAction(FExecuteAction::CreateSP(this, &FComposableCameraPatchSectionInterface::PromoteParameterToChannel, Entry),
 				FCanExecuteAction::CreateSP(this, &FComposableCameraPatchSectionInterface::CanPromoteParameter, Entry));
-			MenuBuilder.AddMenuEntry(
-				Label,
+			MenuBuilder.AddMenuEntry(Label,
 				LOCTEXT("ParamPromoteTooltip",
 					"Promote this parameter to a keyable channel on the section. "
 					"An initial key at the current playhead time is seeded with "
@@ -586,20 +572,20 @@ void FComposableCameraPatchSectionInterface::BuildSectionContextMenu(FMenuBuilde
 	};
 
 	BuildSection(TEXT("CameraParameters"), LOCTEXT("CameraParameters", "Camera Parameters"), ParameterEntries);
-	BuildSection(TEXT("CameraVariables"),  LOCTEXT("CameraVariables",  "Camera Variables"),  VariableEntries);
+	BuildSection(TEXT("CameraVariables"), LOCTEXT("CameraVariables", "Camera Variables"), VariableEntries);
 }
 
 namespace
 {
 	/** Read the bag's static value for `Name` into typed locals, returning a
-	 *  pin-type-tagged value the AddXxxParameterKey overloads consume.
-	 *  Defaults to type-default if the bag has no entry. */
+	 * pin-type-tagged value the AddXxxParameterKey overloads consume.
+	 * Defaults to type-default if the bag has no entry. */
 	template <typename T>
 	T GetBagDefault(const FInstancedPropertyBag& Bag, FName Name);
 
 	template<> float GetBagDefault<float>(const FInstancedPropertyBag& Bag, FName Name)
 	{
-		if (auto R = Bag.GetValueFloat(Name); R.HasValue())  { return R.GetValue(); }
+		if (auto R = Bag.GetValueFloat(Name); R.HasValue()) { return R.GetValue(); }
 		if (auto R = Bag.GetValueDouble(Name); R.HasValue()) { return static_cast<float>(R.GetValue()); }
 		return 0.f;
 	}
@@ -635,34 +621,34 @@ namespace
 	}
 
 	/** Map a CCS pin type to the UMovieSceneParameterSection channel kind we'll
-	 *  use to key it. Returns false for types that don't have a sensible channel
-	 *  representation (Int32 / Enum / Object / Actor / Name / Struct / Transform /
-	 *  Delegate) — those stay bag-only. */
-	enum class EPatchChannelKind : uint8 { None, Scalar, Bool, Vector2D, Vector, Color };
+	 * use to key it. Returns false for types that don't have a sensible channel
+	 * representation (Int32 / Enum / Object / Actor / Name / Struct / Transform /
+	 * Delegate) - those stay bag-only. */
+	enum class EPatchChannelKind: uint8 { None, Scalar, Bool, Vector2D, Vector, Color };
 
 	EPatchChannelKind PinTypeToChannelKind(EComposableCameraPinType PinType)
 	{
 		switch (PinType)
 		{
 			case EComposableCameraPinType::Float:
-			case EComposableCameraPinType::Double:    return EPatchChannelKind::Scalar;
-			case EComposableCameraPinType::Bool:      return EPatchChannelKind::Bool;
-			case EComposableCameraPinType::Vector2D:  return EPatchChannelKind::Vector2D;
+			case EComposableCameraPinType::Double: return EPatchChannelKind::Scalar;
+			case EComposableCameraPinType::Bool: return EPatchChannelKind::Bool;
+			case EComposableCameraPinType::Vector2D: return EPatchChannelKind::Vector2D;
 			case EComposableCameraPinType::Vector3D:
-			case EComposableCameraPinType::Rotator:   return EPatchChannelKind::Vector;
-			case EComposableCameraPinType::Vector4:   return EPatchChannelKind::Color;
-			default:                                   return EPatchChannelKind::None;
+			case EComposableCameraPinType::Rotator: return EPatchChannelKind::Vector;
+			case EComposableCameraPinType::Vector4: return EPatchChannelKind::Color;
+			default: return EPatchChannelKind::None;
 		}
 	}
 
 	/** True if `Section` already has a channel curve for `Name` of any kind. */
 	bool IsAlreadyKeyed(const UMovieSceneComposableCameraPatchSection& Section, FName Name)
 	{
-		for (const FScalarParameterNameAndCurve& C : Section.GetScalarParameterNamesAndCurves())   { if (C.ParameterName == Name) return true; }
-		for (const FBoolParameterNameAndCurve& C : Section.GetBoolParameterNamesAndCurves())       { if (C.ParameterName == Name) return true; }
-		for (const FVector2DParameterNameAndCurves& C : Section.GetVector2DParameterNamesAndCurves()) { if (C.ParameterName == Name) return true; }
-		for (const FVectorParameterNameAndCurves& C : Section.GetVectorParameterNamesAndCurves())  { if (C.ParameterName == Name) return true; }
-		for (const FColorParameterNameAndCurves& C : Section.GetColorParameterNamesAndCurves())    { if (C.ParameterName == Name) return true; }
+		for (const FScalarParameterNameAndCurve& C: Section.GetScalarParameterNamesAndCurves()) { if (C.ParameterName == Name) return true; }
+		for (const FBoolParameterNameAndCurve& C: Section.GetBoolParameterNamesAndCurves()) { if (C.ParameterName == Name) return true; }
+		for (const FVector2DParameterNameAndCurves& C: Section.GetVector2DParameterNamesAndCurves()) { if (C.ParameterName == Name) return true; }
+		for (const FVectorParameterNameAndCurves& C: Section.GetVectorParameterNamesAndCurves()) { if (C.ParameterName == Name) return true; }
+		for (const FColorParameterNameAndCurves& C: Section.GetColorParameterNamesAndCurves()) { if (C.ParameterName == Name) return true; }
 		return false;
 	}
 }
@@ -678,7 +664,7 @@ void FComposableCameraPatchSectionInterface::GatherParameterEntries(bool bIsVari
 	const UComposableCameraPatchTypeAsset* Asset = PatchSection->PatchAsset;
 
 	auto EmitFromExposedSurface = [&](FName Name, FText DisplayName, EComposableCameraPinType PinType,
-	                                  const UScriptStruct* StructType, const UEnum* EnumType)
+	 const UScriptStruct* StructType, const UEnum* EnumType)
 	{
 		// Filter: only show params whose pin type maps to a UMovieSceneParameterSection
 		// channel kind. Int32 / Enum / Object / Name / Struct / Delegate stay
@@ -700,7 +686,7 @@ void FComposableCameraPatchSectionInterface::GatherParameterEntries(bool bIsVari
 
 	if (bIsVariables)
 	{
-		for (const FComposableCameraInternalVariable& Var : Asset->ExposedVariables)
+		for (const FComposableCameraInternalVariable& Var: Asset->ExposedVariables)
 		{
 			if (!Var.VariableName.IsNone())
 			{
@@ -711,7 +697,7 @@ void FComposableCameraPatchSectionInterface::GatherParameterEntries(bool bIsVari
 	}
 	else
 	{
-		for (const FComposableCameraExposedParameter& Param : Asset->ExposedParameters)
+		for (const FComposableCameraExposedParameter& Param: Asset->ExposedParameters)
 		{
 			if (!Param.ParameterName.IsNone())
 			{
@@ -737,7 +723,7 @@ void FComposableCameraPatchSectionInterface::PromoteParameterToChannel(FParamete
 	}
 
 	const FFrameNumber CurrentFrame = SequencerPtr->GetLocalTime().Time.FloorToFrame();
-	const FInstancedPropertyBag& Bag = Entry.bIsVariable ? PatchSection->Variables : PatchSection->Parameters;
+	const FInstancedPropertyBag& Bag = Entry.bIsVariable ? PatchSection->Variables: PatchSection->Parameters;
 
 	const FScopedTransaction Transaction(LOCTEXT("PromoteParamToChannel", "Promote parameter to keyable channel"));
 	PatchSection->Modify();
@@ -762,7 +748,7 @@ void FComposableCameraPatchSectionInterface::PromoteParameterToChannel(FParamete
 			if (Entry.PinType == EComposableCameraPinType::Rotator)
 			{
 				const FRotator R = GetBagDefault<FRotator>(Bag, Entry.Name);
-				// Match the Pitch/Yaw/Roll → X/Y/Z mapping the runtime
+				// Match the Pitch/Yaw/Roll->X/Y/Z mapping the runtime
 				// SampleVectorCurves uses (FRotator(X, Y, Z)).
 				PatchSection->AddVectorParameterKey(Entry.Name, CurrentFrame, FVector(R.Pitch, R.Yaw, R.Roll));
 			}

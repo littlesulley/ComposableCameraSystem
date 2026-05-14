@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include "Containers/Array.h"
 #include "Containers/Map.h"
@@ -17,7 +17,7 @@ namespace ComposableCameraModifier
 	struct FModifierEntry
 	{
 		// TObjectPtr (not raw UObject*) so the new FReferenceCollector::AddReferencedObject
-		// overload accepts these fields directly — the raw-pointer overload is now
+		// overload accepts these fields directly. The raw-pointer overload is now
 		// deprecated under incremental GC and emits C4996.
 		TObjectPtr<UComposableCameraModifierBase> Modifier;
 		TObjectPtr<UComposableCameraNodeModifierDataAsset> Asset;

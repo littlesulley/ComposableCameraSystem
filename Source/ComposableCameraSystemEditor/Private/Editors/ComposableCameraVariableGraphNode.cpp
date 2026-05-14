@@ -27,7 +27,7 @@ void UComposableCameraVariableGraphNode::AllocateDefaultPins()
 	// Resolve the variable's type. If the variable has been renamed/removed, fall
 	// back to a wildcard pin so the node is still visible and can be repaired.
 	//
-	// The enum→FEdGraphPinType switch lives in
+	// The enum -> FEdGraphPinType switch lives in
 	// ComposableCameraEdGraphPinTypeUtils (UncookedOnly module) as the single
 	// source of truth shared with UComposableCameraNodeGraphNode and the K2
 	// activation node. Any new EComposableCameraPinType case added there is
@@ -35,8 +35,7 @@ void UComposableCameraVariableGraphNode::AllocateDefaultPins()
 	FEdGraphPinType PinType;
 	if (const FComposableCameraInternalVariable* Variable = FindVariable())
 	{
-		PinType = ComposableCameraEdGraphPinTypeUtils::MakeEdGraphPinTypeFromCameraPinType(
-			Variable->VariableType, Variable->StructType, Variable->EnumType);
+		PinType = ComposableCameraEdGraphPinTypeUtils::MakeEdGraphPinTypeFromCameraPinType(Variable->VariableType, Variable->StructType, Variable->EnumType);
 	}
 	else if (bHasValidCachedType)
 	{
@@ -44,8 +43,7 @@ void UComposableCameraVariableGraphNode::AllocateDefaultPins()
 		// FindVariable() success (e.g. cross-graph paste). Use the cached
 		// type so the pin retains the correct type and existing wires stay
 		// compatible, rather than falling through to wildcard.
-		PinType = ComposableCameraEdGraphPinTypeUtils::MakeEdGraphPinTypeFromCameraPinType(
-			CachedVariableType, CachedStructType, CachedEnumType);
+		PinType = ComposableCameraEdGraphPinTypeUtils::MakeEdGraphPinTypeFromCameraPinType(CachedVariableType, CachedStructType, CachedEnumType);
 	}
 	else
 	{
@@ -69,7 +67,7 @@ void UComposableCameraVariableGraphNode::AllocateDefaultPins()
 		}
 	}
 
-	const EEdGraphPinDirection Direction = bIsSetter ? EGPD_Input : EGPD_Output;
+	const EEdGraphPinDirection Direction = bIsSetter ? EGPD_Input: EGPD_Output;
 	UEdGraphPin* ValuePin = CreatePin(Direction, PinType, PN_Value);
 	if (ValuePin)
 	{
@@ -85,7 +83,7 @@ FText UComposableCameraVariableGraphNode::GetNodeTitle(ENodeTitleType::Type Titl
 
 	if (const FComposableCameraInternalVariable* Variable = FindVariable())
 	{
-		// VariableName IS the display label — no separate DisplayName field.
+		// VariableName IS the display label - no separate DisplayName field.
 		const FText Display = FText::FromName(Variable->VariableName);
 		return FText::Format(LOCTEXT("VariableNodeTitleFmt", "{0} {1}"), Prefix, Display);
 	}
@@ -96,7 +94,7 @@ FText UComposableCameraVariableGraphNode::GetNodeTitle(ENodeTitleType::Type Titl
 
 FLinearColor UComposableCameraVariableGraphNode::GetNodeTitleColor() const
 {
-	// Purple — distinct from camera nodes (teal) and Start/Output sentinels.
+	// Purple - distinct from camera nodes (teal) and Start/Output sentinels.
 	// Palette lives in FComposableCameraEditorColors (ComposableCameraEditorStyle.h).
 	return FComposableCameraEditorColors::VariableNodeTitle;
 }
@@ -129,21 +127,21 @@ const FComposableCameraInternalVariable* UComposableCameraVariableGraphNode::Fin
 		return nullptr;
 	}
 
-	// Variables can live in either InternalVariables or ExposedVariables — both
+	// Variables can live in either InternalVariables or ExposedVariables - both
 	// arrays share the same struct type and the same GUID/Name identity rules,
 	// so this lookup iterates both uniformly. The GUID keyspace is enforced
 	// disjoint by UComposableCameraTypeAsset::EnsureExposedVariableGuids /
 	// EnsureInternalVariableGuids (each GUID is minted independently), and
 	// name uniqueness across both arrays is enforced at Build() time.
 
-	// Mutable self for cache updates — all mutations are editor-only display caches.
+	// Mutable self for cache updates - all mutations are editor-only display caches.
 	UComposableCameraVariableGraphNode* MutableSelf =
 		const_cast<UComposableCameraVariableGraphNode*>(this);
 
 	auto SearchByGuid = [MutableSelf](const TArray<FComposableCameraInternalVariable>& Array)
 		-> const FComposableCameraInternalVariable*
 	{
-		for (const FComposableCameraInternalVariable& Variable : Array)
+		for (const FComposableCameraInternalVariable& Variable: Array)
 		{
 			if (Variable.VariableGuid == MutableSelf->VariableGuid)
 			{
@@ -157,7 +155,7 @@ const FComposableCameraInternalVariable* UComposableCameraVariableGraphNode::Fin
 	auto SearchByName = [MutableSelf](const TArray<FComposableCameraInternalVariable>& Array)
 		-> const FComposableCameraInternalVariable*
 	{
-		for (const FComposableCameraInternalVariable& Variable : Array)
+		for (const FComposableCameraInternalVariable& Variable: Array)
 		{
 			if (Variable.VariableName == MutableSelf->VariableName)
 			{
@@ -176,10 +174,10 @@ const FComposableCameraInternalVariable* UComposableCameraVariableGraphNode::Fin
 	auto CacheVariableMetadata = [MutableSelf](const FComposableCameraInternalVariable* Found,
 		bool bIsExposed)
 	{
-		MutableSelf->CachedVariableType  = Found->VariableType;
-		MutableSelf->CachedStructType    = Found->StructType;
-		MutableSelf->CachedEnumType      = Found->EnumType;
-		MutableSelf->bCachedIsExposed    = bIsExposed;
+		MutableSelf->CachedVariableType = Found->VariableType;
+		MutableSelf->CachedStructType = Found->StructType;
+		MutableSelf->CachedEnumType = Found->EnumType;
+		MutableSelf->bCachedIsExposed = bIsExposed;
 		MutableSelf->bHasValidCachedType = true;
 	};
 
@@ -198,7 +196,7 @@ const FComposableCameraInternalVariable* UComposableCameraVariableGraphNode::Fin
 			return Found;
 		}
 
-		// GUID was valid but not found on this asset — this is a pasted node
+		// GUID was valid but not found on this asset - this is a pasted node
 		// whose source variable doesn't exist here. Do NOT fall through to
 		// the name-based search: rebinding by name would silently attach to
 		// a same-name, different-type variable. PostPasteNode will handle
@@ -251,7 +249,7 @@ void UComposableCameraVariableGraphNode::PostPasteNode()
 		return;
 	}
 
-	// Name + type match — silently rebind.
+	// Name + type match - silently rebind.
 	if (TryAutoAssociateWithExistingVariable())
 	{
 		return;
@@ -268,16 +266,16 @@ void UComposableCameraVariableGraphNode::ReconstructPins()
 	Modify();
 
 	// Preserve user wires through the rebuild. See the matching comment in
-	// UComposableCameraNodeGraphNode::ReconstructPins — the pattern is the
+	// UComposableCameraNodeGraphNode::ReconstructPins - the pattern is the
 	// same: snapshot, rebuild, then re-wire by (PinName, Direction).
 	TArray<UEdGraphPin*> OldPins = MoveTemp(Pins);
 	Pins.Reset();
 
 	AllocateDefaultPins();
 
-	for (UEdGraphPin* NewPin : Pins)
+	for (UEdGraphPin* NewPin: Pins)
 	{
-		for (UEdGraphPin*& OldPin : OldPins)
+		for (UEdGraphPin*& OldPin: OldPins)
 		{
 			// Match on (PinName, Direction, PinType). If a variable's declared
 			// type changes, the new Value pin has a different PinType, so we
@@ -294,7 +292,7 @@ void UComposableCameraVariableGraphNode::ReconstructPins()
 		}
 	}
 
-	for (UEdGraphPin* OldPin : OldPins)
+	for (UEdGraphPin* OldPin: OldPins)
 	{
 		if (OldPin)
 		{
@@ -304,7 +302,7 @@ void UComposableCameraVariableGraphNode::ReconstructPins()
 	}
 }
 
-// ─── Auto-Associate & Create Variable ──────────────────────────────────────────
+// Auto-Associate & Create Variable 
 
 bool UComposableCameraVariableGraphNode::TryAutoAssociateWithExistingVariable()
 {
@@ -319,7 +317,7 @@ bool UComposableCameraVariableGraphNode::TryAutoAssociateWithExistingVariable()
 	// point at the existing variable and reconstruct pins.
 	auto TryMatch = [this](TArray<FComposableCameraInternalVariable>& Array, bool bIsExposed) -> bool
 	{
-		for (const FComposableCameraInternalVariable& Variable : Array)
+		for (const FComposableCameraInternalVariable& Variable: Array)
 		{
 			if (Variable.VariableName == VariableName
 				&& Variable.VariableType == CachedVariableType
@@ -361,8 +359,8 @@ void UComposableCameraVariableGraphNode::CreateVariableFromCachedInfo()
 	NewVariable.VariableGuid = FGuid::NewGuid();
 	NewVariable.VariableName = VariableName;
 	NewVariable.VariableType = CachedVariableType;
-	NewVariable.StructType   = CachedStructType;
-	NewVariable.EnumType     = CachedEnumType;
+	NewVariable.StructType = CachedStructType;
+	NewVariable.EnumType = CachedEnumType;
 
 	// Place in the correct array matching the source variable's kind.
 	TypeAsset->Modify();
@@ -388,13 +386,12 @@ void UComposableCameraVariableGraphNode::CreateVariableFromCachedInfo()
 	}
 }
 
-// ─── Type Conflict Resolution ─────────────────────────────────────────────────
+// Type Conflict Resolution 
 
 namespace
 {
 	/** User-facing display name for a variable's type (e.g. "Float", "Struct (FMyPose)"). */
-	FText VariableTypeDisplayName(
-		EComposableCameraPinType Type,
+	FText VariableTypeDisplayName(EComposableCameraPinType Type,
 		const UScriptStruct* StructType,
 		const UEnum* EnumType)
 	{
@@ -421,10 +418,9 @@ namespace
 
 	/**
 	 * Generate a variable name that does not collide with any existing variable
-	 * on the type asset. Appends _1, _2, … until a unique name is found.
+	 * on the type asset. Appends _1, _2, until a unique name is found.
 	 */
-	FName GenerateUniqueVariableName(
-		FName BaseName,
+	FName GenerateUniqueVariableName(FName BaseName,
 		const UComposableCameraTypeAsset* TypeAsset)
 	{
 		const FString BaseStr = BaseName.ToString();
@@ -432,11 +428,11 @@ namespace
 
 		auto NameExists = [TypeAsset](FName Candidate) -> bool
 		{
-			for (const FComposableCameraInternalVariable& Var : TypeAsset->InternalVariables)
+			for (const FComposableCameraInternalVariable& Var: TypeAsset->InternalVariables)
 			{
 				if (Var.VariableName == Candidate) return true;
 			}
-			for (const FComposableCameraInternalVariable& Var : TypeAsset->ExposedVariables)
+			for (const FComposableCameraInternalVariable& Var: TypeAsset->ExposedVariables)
 			{
 				if (Var.VariableName == Candidate) return true;
 			}
@@ -467,9 +463,9 @@ void UComposableCameraVariableGraphNode::HandleVariableTypeConflictIfAny()
 	bool bConflictIsExposed = false;
 
 	auto SearchByName = [this](TArray<FComposableCameraInternalVariable>& Array)
-		-> FComposableCameraInternalVariable*
+		->FComposableCameraInternalVariable*
 	{
-		for (FComposableCameraInternalVariable& Var : Array)
+		for (FComposableCameraInternalVariable& Var: Array)
 		{
 			if (Var.VariableName == VariableName)
 			{
@@ -495,7 +491,7 @@ void UComposableCameraVariableGraphNode::HandleVariableTypeConflictIfAny()
 
 	if (!ConflictVar)
 	{
-		// No name conflict — the variable is simply absent. The right-click
+		// No name conflict - the variable is simply absent. The right-click
 		// "Create Variable" context menu handles that case.
 		return;
 	}
@@ -506,17 +502,14 @@ void UComposableCameraVariableGraphNode::HandleVariableTypeConflictIfAny()
 	const TObjectPtr<UScriptStruct> ConflictStructType = ConflictVar->StructType;
 	const TObjectPtr<UEnum> ConflictEnumType = ConflictVar->EnumType;
 
-	const FText ExistingTypeName = VariableTypeDisplayName(
-		ConflictType, ConflictStructType, ConflictEnumType);
-	const FText PastedTypeName = VariableTypeDisplayName(
-		CachedVariableType, CachedStructType, CachedEnumType);
+	const FText ExistingTypeName = VariableTypeDisplayName(ConflictType, ConflictStructType, ConflictEnumType);
+	const FText PastedTypeName = VariableTypeDisplayName(CachedVariableType, CachedStructType, CachedEnumType);
 
 	// Pre-compute the unique suffix name so the button label is accurate.
 	const FName UniqueName = GenerateUniqueVariableName(VariableName, TypeAsset);
 
-	// ── Build and show the conflict dialog ────────────────────────────────
-	const FText ContentText = FText::Format(
-		LOCTEXT("TypeConflictContent",
+	// Build and show the conflict dialog 
+	const FText ContentText = FText::Format(LOCTEXT("TypeConflictContent",
 			"Variable '{0}' already exists on this camera type with type '{1}'.\n"
 			"The pasted node expects type '{2}'.\n\n"
 			"How would you like to resolve this?"),
@@ -533,95 +526,77 @@ void UComposableCameraVariableGraphNode::HandleVariableTypeConflictIfAny()
 		.SupportsMaximize(false)
 		.SupportsMinimize(false)
 		.IsTopmostWindow(true)
-		[
-			SNew(SVerticalBox)
+		[SNew(SVerticalBox)
 
 			+ SVerticalBox::Slot()
-			.Padding(
-				FComposableCameraEditorPaddings::DialogLR,
+			.Padding(FComposableCameraEditorPaddings::DialogLR,
 				FComposableCameraEditorPaddings::DialogTB,
 				FComposableCameraEditorPaddings::DialogLR,
 				FComposableCameraEditorPaddings::DialogBetweenRowsTB)
 			.AutoHeight()
-			[
-				SNew(STextBlock)
+			[SNew(STextBlock)
 				.Text(ContentText)
 				.AutoWrapText(true)
-				.WrapTextAt(480.f)
-			]
+				.WrapTextAt(480.f)]
 
 			+ SVerticalBox::Slot()
-			.Padding(
-				FComposableCameraEditorPaddings::DialogLR,
+			.Padding(FComposableCameraEditorPaddings::DialogLR,
 				0.f,
 				FComposableCameraEditorPaddings::DialogLR,
 				FComposableCameraEditorPaddings::DialogTB)
 			.AutoHeight()
 			.HAlign(HAlign_Right)
-			[
-				SNew(SHorizontalBox)
+			[SNew(SHorizontalBox)
 
 				+ SHorizontalBox::Slot()
 				.AutoWidth()
 				.Padding(0.f, 0.f, FComposableCameraEditorPaddings::InnerGap, 0.f)
-				[
-					SNew(SButton)
-					.Text(FText::Format(
-						LOCTEXT("AdoptExistingFmt", "Use Existing ({0})"), ExistingTypeName))
+				[SNew(SButton)
+					.Text(FText::Format(LOCTEXT("AdoptExistingFmt", "Use Existing ({0})"), ExistingTypeName))
 					.OnClicked_Lambda([&Choice, &DialogWindow]()
 					{
 						Choice = 0;
 						if (DialogWindow.IsValid()) { DialogWindow->RequestDestroyWindow(); }
 						return FReply::Handled();
-					})
-				]
+					})]
 
 				+ SHorizontalBox::Slot()
 				.AutoWidth()
 				.Padding(FComposableCameraEditorPaddings::InnerGap, 0.f)
-				[
-					SNew(SButton)
-					.Text(FText::Format(
-						LOCTEXT("ChangeExistingFmt", "Change Existing to {0}"), PastedTypeName))
+				[SNew(SButton)
+					.Text(FText::Format(LOCTEXT("ChangeExistingFmt", "Change Existing to {0}"), PastedTypeName))
 					.OnClicked_Lambda([&Choice, &DialogWindow]()
 					{
 						Choice = 1;
 						if (DialogWindow.IsValid()) { DialogWindow->RequestDestroyWindow(); }
 						return FReply::Handled();
-					})
-				]
+					})]
 
 				+ SHorizontalBox::Slot()
 				.AutoWidth()
 				.Padding(FComposableCameraEditorPaddings::InnerGap, 0.f, 0.f, 0.f)
-				[
-					SNew(SButton)
-					.Text(FText::Format(
-						LOCTEXT("RenameFmt", "Create as '{0}'"), FText::FromName(UniqueName)))
+				[SNew(SButton)
+					.Text(FText::Format(LOCTEXT("RenameFmt", "Create as '{0}'"), FText::FromName(UniqueName)))
 					.OnClicked_Lambda([&Choice, &DialogWindow]()
 					{
 						Choice = 2;
 						if (DialogWindow.IsValid()) { DialogWindow->RequestDestroyWindow(); }
 						return FReply::Handled();
-					})
-				]
-			]
-		];
+					})]]];
 
 	FSlateApplication::Get().AddModalWindow(DialogWindow.ToSharedRef(), nullptr);
 
 	if (Choice < 0 || Choice > 2)
 	{
-		// User closed the dialog without choosing — leave the node as "missing".
+		// User closed the dialog without choosing - leave the node as "missing".
 		return;
 	}
 
-	const FScopedTransaction Transaction(
-		LOCTEXT("ResolveTypeConflictTransaction", "Resolve Variable Type Conflict"));
+	const FScopedTransaction Transaction(LOCTEXT("ResolveTypeConflictTransaction", "Resolve Variable Type Conflict"));
 
 	switch (Choice)
 	{
-	case 0: // ── Use existing type ─────────────────────────────────────────
+	case 0: // Use existing type 
 	{
 		// Rebind this node to the existing variable. The pin type changes to
 		// match the existing variable; incompatible wires break automatically
@@ -636,16 +611,16 @@ void UComposableCameraVariableGraphNode::HandleVariableTypeConflictIfAny()
 		ReconstructPins();
 		break;
 	}
-	case 1: // ── Change existing variable's type ───────────────────────────
+	case 1: // Change existing variable's type 
 	{
 		// Re-find the conflict variable by GUID (pointer may be stale after
 		// Modify() calls, though in practice TArray doesn't reallocate on
-		// in-place edits — but being defensive costs nothing).
+		// in-place edits - but being defensive costs nothing).
 		FComposableCameraInternalVariable* VarToChange = nullptr;
 		auto FindByGuid = [&ConflictGuid](TArray<FComposableCameraInternalVariable>& Array)
-			-> FComposableCameraInternalVariable*
+			->FComposableCameraInternalVariable*
 		{
-			for (FComposableCameraInternalVariable& Var : Array)
+			for (FComposableCameraInternalVariable& Var: Array)
 			{
 				if (Var.VariableGuid == ConflictGuid) return &Var;
 			}
@@ -668,11 +643,11 @@ void UComposableCameraVariableGraphNode::HandleVariableTypeConflictIfAny()
 		ReconstructPins();
 
 		// Reconstruct all other variable nodes that reference the same
-		// variable — their pin types need to update to the new type, and
+		// variable - their pin types need to update to the new type, and
 		// any type-incompatible wires on those nodes will break cleanly.
 		if (const UEdGraph* Graph = GetGraph())
 		{
-			for (UEdGraphNode* Node : Graph->Nodes)
+			for (UEdGraphNode* Node: Graph->Nodes)
 			{
 				UComposableCameraVariableGraphNode* VarNode =
 					Cast<UComposableCameraVariableGraphNode>(Node);
@@ -691,7 +666,7 @@ void UComposableCameraVariableGraphNode::HandleVariableTypeConflictIfAny()
 		}
 		break;
 	}
-	case 2: // ── Rename with suffix ────────────────────────────────────────
+	case 2: // Rename with suffix 
 	{
 		Modify();
 		VariableName = UniqueName;
@@ -716,10 +691,9 @@ void UComposableCameraVariableGraphNode::RenameWithUniqueSuffix()
 	CreateVariableFromCachedInfo();
 }
 
-// ─── Context Menu ─────────────────────────────────────────────────────────────
+// Context Menu 
 
-void UComposableCameraVariableGraphNode::GetNodeContextMenuActions(
-	UToolMenu* Menu, UGraphNodeContextMenuContext* Context) const
+void UComposableCameraVariableGraphNode::GetNodeContextMenuActions(UToolMenu* Menu, UGraphNodeContextMenuContext* Context) const
 {
 	Super::GetNodeContextMenuActions(Menu, Context);
 
@@ -751,11 +725,9 @@ void UComposableCameraVariableGraphNode::GetNodeContextMenuActions(
 				: LOCTEXT("InternalLabel", "internal"),
 			FText::FromName(VariableName)),
 		FSlateIcon(),
-		FUIAction(
-			FExecuteAction::CreateLambda([MutableSelf]()
+		FUIAction(FExecuteAction::CreateLambda([MutableSelf]()
 			{
-				const FScopedTransaction Transaction(
-					LOCTEXT("CreateVariableTransaction", "Create Variable from Pasted Node"));
+				const FScopedTransaction Transaction(LOCTEXT("CreateVariableTransaction", "Create Variable from Pasted Node"));
 				MutableSelf->CreateVariableFromCachedInfo();
 			})
 		)

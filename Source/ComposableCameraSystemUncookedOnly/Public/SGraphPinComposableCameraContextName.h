@@ -13,12 +13,11 @@ class SSearchableComboBox;
  *
  * Presents a searchable combo box populated from
  * UComposableCameraProjectSettings::GetContextNames(). Unlike the RowName
- * pin widget, no dynamic dependency on another pin exists — the option list
+ * pin widget, no dynamic dependency on another pin exists - the option list
  * is rebuilt from project settings each time the widget is constructed or
  * the combo is opened.
  */
-class COMPOSABLECAMERASYSTEMUNCOOKEDONLY_API SGraphPinComposableCameraContextName
-	: public SGraphPin
+class COMPOSABLECAMERASYSTEMUNCOOKEDONLY_API SGraphPinComposableCameraContextName: public SGraphPin
 {
 public:
 	SLATE_BEGIN_ARGS(SGraphPinComposableCameraContextName) {}
@@ -27,27 +26,27 @@ public:
 	void Construct(const FArguments& InArgs, UEdGraphPin* InGraphPinObj);
 
 protected:
-	// ─── SGraphPin ────────────────────────────────────────────────────────
+	// SGraphPin 
 	virtual TSharedRef<SWidget> GetDefaultValueWidget() override;
 
 private:
-	// ─── Data Resolution ──────────────────────────────────────────────────
+	// Data Resolution 
 
 	/** Rebuild ContextOptions from UComposableCameraProjectSettings. */
 	void RefreshContextOptions();
 
-	// ─── Combo Box Callbacks ──────────────────────────────────────────────
+	// Combo Box Callbacks 
 
 	TSharedRef<SWidget> OnGenerateOptionWidget(TSharedPtr<FString> InOption);
 	void OnOptionSelected(TSharedPtr<FString> InOption, ESelectInfo::Type InSelectInfo);
 
-	// ─── Display Helpers ──────────────────────────────────────────────────
+	// Display Helpers 
 
 	FText GetCurrentContextNameText() const;
 
 private:
 	/** Current context options shown in the combo. Always has a "None"
-	 *  sentinel as element 0. */
+	 * sentinel as element 0. */
 	TArray<TSharedPtr<FString>> ContextOptions;
 
 	/** Strong ref so we can trigger a refresh on combo open. */

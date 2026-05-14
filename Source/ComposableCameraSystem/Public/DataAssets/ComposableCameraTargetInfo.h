@@ -9,10 +9,10 @@ class AActor;
 class USkeletalMesh;
 
 /**
- * Identifies a single world-frame point on (or near) an Actor — the "pivot"
+ * Identifies a single world-frame point on (or near) an Actor. The "pivot"
  * that camera nodes resolve to a world position each frame.
  *
- * Phase A consumers (V1.x): FocusPullNode, OcclusionFadeNode — both call
+ * Phase A consumers (V1.x): FocusPullNode, OcclusionFadeNode. Both call
  * ResolveWorldPoint() instead of duplicating the same bone-walk-and-fallback
  * logic inline. The other two pivot-using nodes (CollisionPushNode,
  * ScreenSpacePivotNode) keep their own resolution code in V1: CollisionPush
@@ -22,7 +22,7 @@ class USkeletalMesh;
  * win.
  *
  * Phase B+ consumers: the Shot composition system (see
- * Docs/ShotBasedKeyframing.md) — used directly inside FShotTarget and
+ * Docs/ShotBasedKeyframing.md). Used directly inside FShotTarget and
  * resolved via the Composition Solver.
  *
  * Resolution proceeds in two paths:
@@ -37,12 +37,11 @@ class USkeletalMesh;
  *      Actor->GetActorQuat().
  *
  * Then Offset is added on top: in world space if bOffsetInLocalSpace is
- * false (default — matches the legacy "world Z offset" semantics that
+ * false (default. Matches the legacy "world Z offset" semantics that
  * existing pivot-using nodes pass through), or rotated through the pivot
  * frame quaternion first if bOffsetInLocalSpace is true.
  *
- * Properties are BlueprintReadOnly per Docs/ShotBasedKeyframing.md §1.4 —
- * Shot data is designer-authored content, not gameplay-controlled state.
+ * Properties are BlueprintReadOnly per Docs/ShotBasedKeyframing.md Section 1.4 - Shot data is designer-authored content, not gameplay-controlled state.
  * The struct is BlueprintType for editor / Sequencer / Details panel
  * reflection only.
  */
@@ -53,7 +52,7 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraTargetInfo
 
 	/**
 	 * The actor whose pivot this struct describes. Soft-referenced so the
-	 * Details-panel actor picker can span LEVEL actors from any world — the
+	 * Details-panel actor picker can span LEVEL actors from any world. The
 	 * containing UAsset (Camera Type Asset, future Shot Asset) is not bound
 	 * to a specific Level, so a hard `TObjectPtr<AActor>` would only allow
 	 * picking persistent / package-scoped actors and silently fail for
@@ -61,7 +60,7 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraTargetInfo
 	 * BlackEyeCameras' `FBlackEyeSimpleTarget::Actor` for the same reason.
 	 *
 	 * Resolution to a live `AActor*` happens lazily via `Actor.Get()` inside
-	 * `ResolveWorldPoint` — returns the loaded actor if currently in
+	 * `ResolveWorldPoint`. Returns the loaded actor if currently in
 	 * memory, nullptr otherwise (no force-load on the hot path).
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Target)
@@ -109,9 +108,9 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraTargetInfo
 	FVector Offset = FVector::ZeroVector;
 
 	/** When true, Offset is rotated through the resolved pivot's local
-	 *  frame before being added — bone's socket quaternion in bone path,
+	 *  frame before being added. Bone's socket quaternion in bone path,
 	 *  actor's quaternion in actor path. When false (default), Offset is
-	 *  added directly in world space — matches the legacy "PivotZOffset"
+	 *  added directly in world space. Matches the legacy "PivotZOffset"
 	 *  semantics that existing FocusPullNode / OcclusionFadeNode authors
 	 *  expect when their call sites construct an FComposableCameraTargetInfo
 	 *  via the Phase A migration. */
@@ -131,10 +130,10 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraTargetInfo
 	 * convention) visually faces the actor's world +X (the gameplay forward
 	 * axis used by `GetActorForwardVector`, MovementComponent, AI). With
 	 * this flag false, `LocalCameraDirection=(0,0)` places the camera along
-	 * "actor +X" — correct relative to gameplay forward, but offset by 90°
+	 * "actor +X". Correct relative to gameplay forward, but offset by 90 deg
 	 * relative to the **visible** mesh forward (which faces actor +Y). With
 	 * this flag true, the basis is read from the mesh component's world quat
-	 * — `LocalCameraDirection=(0,0)` then places the camera in front of the
+	 * -`LocalCameraDirection=(0,0)` then places the camera in front of the
 	 * visual forward, matching designer expectation for character-style
 	 * subjects.
 	 *
@@ -142,7 +141,7 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraTargetInfo
 	 *   - Shot's `Placement.BasisFrame == World` (basis is forced identity).
 	 *   - This Target isn't the SingleTarget anchor (basis isn't queried).
 	 *   - Resolved Actor has no SkeletalMeshComponent (silently falls back
-	 *     to the actor quat — same as if the flag were false).
+	 *     to the actor quat. Same as if the flag were false).
 	 *
 	 * Default `false` to preserve V1.x behavior for existing assets. Toggle
 	 * to true for Character-style targets when authoring new Shots.
@@ -174,11 +173,11 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraTargetInfo
 	 *                     migration call sites in FocusPullNode /
 	 *                     OcclusionFadeNode to preserve the legacy "Z
 	 *                     offset is applied only when the bone path did
-	 *                     NOT resolve" semantic — see the call sites in
+	 *                     NOT resolve" semantic. See the call sites in
 	 *                     those nodes for the exact pattern.
 	 *
 	 *                     Composition Solver / Shot data callers typically
-	 *                     pass nullptr (default) — they treat Offset as
+	 *                     pass nullptr (default). They treat Offset as
 	 *                     always-applied regardless of which resolution
 	 *                     path fired, which is the cleaner contract for
 	 *                     forward-looking authored content.
@@ -195,14 +194,14 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraTargetInfo
 	 *
 	 * Path:
 	 *   1. Soft-resolve `Actor.Get()` and PIE-remap (same path as
-	 *      `ResolveWorldPoint` — captures live PIE-instance quat instead
+	 *      `ResolveWorldPoint`. Captures live PIE-instance quat instead
 	 *      of editor-world authoring quat).
 	 *   2. If `bUseSkeletalMeshForwardAsBasis` AND the actor has at least
-	 *      one `USkeletalMeshComponent` → return that component's world
+	 *      one `USkeletalMeshComponent` -> return that component's world
 	 *      quat (`GetComponentQuat()`). For UE `ACharacter` this picks up
 	 *      the conventional `(0, -90, 0)` mesh offset that aligns visual
 	 *      forward to actor +X.
-	 *   3. Otherwise → return `Actor->GetActorQuat()`.
+	 *   3. Otherwise -> return `Actor->GetActorQuat()`.
 	 *
 	 * Returns false when the actor is null (`OutQuat` left unchanged so
 	 * callers can pre-seed it to `FQuat::Identity`).

@@ -1,4 +1,4 @@
-// Copyright Sulley. All rights reserved.
+﻿// Copyright Sulley. All rights reserved.
 
 #include "Transitions/ComposableCameraSmoothTransition.h"
 #include "Math/ComposableCameraMath.h"
@@ -36,7 +36,7 @@ FComposableCameraPose UComposableCameraSmoothTransition::OnEvaluate_Implementati
 
 float UComposableCameraSmoothTransition::GetBlendWeightAt(float NormalizedTime) const
 {
-	// Mirrors the OnEvaluate branch exactly — SmootherStep vs SmoothStep,
+	// Mirrors the OnEvaluate branch exactly -SmootherStep vs SmoothStep,
 	// whichever the authored `bSmootherStep` flag picks. Pure math, no
 	// state reads, safe to call many times per frame from the snapshot
 	// sampler.
@@ -53,12 +53,12 @@ void UComposableCameraSmoothTransition::DrawTransitionDebug(UWorld* World, bool 
 	if (CVarShowSmoothTransitionGizmo.GetValueOnGameThread() == 0
 		&& !FComposableCameraViewportDebug::ShouldShowAllTransitionGizmos()) { return; }
 
-	// Gold accent — warm, rich, distinct from Linear's neutral grey.
+	// Gold accent. Warm, rich, distinct from Linear's neutral grey.
 	static const FColor AccentColor { 255, 220, 100 };
 
 	DrawStandardTransitionDebug(World, bViewerIsOutsideCamera, AccentColor);
 
-	// Path is a straight line — position lerps linearly in space; only the
+	// Path is a straight line. Position lerps linearly in space; only the
 	// smooth-step / smoother-step timing curve differs from Linear.
 	DrawDebugLine(World, LastDebugSource.Position, LastDebugTarget.Position, AccentColor,
 		false, -1.f, SDPG_Foreground, /*Thickness=*/0.f);

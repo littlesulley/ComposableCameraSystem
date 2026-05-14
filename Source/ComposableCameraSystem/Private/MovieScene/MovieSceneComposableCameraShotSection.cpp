@@ -18,7 +18,7 @@ UMovieSceneComposableCameraShotSection::UMovieSceneComposableCameraShotSection(c
 {
 	// Section IS the source of truth for "is the shot active". When the
 	// playhead leaves the bounds the override is removed; gap between sections
-	// → CompositionFramingNode keeps the last-written Shot. Project-default
+	// -> CompositionFramingNode keeps the last-written Shot. Project-default
 	// completion is the right baseline for an additive override system.
 	EvalOptions.EnableAndSetCompletionMode(EMovieSceneCompletionMode::ProjectDefault);
 
@@ -40,7 +40,7 @@ void UMovieSceneComposableCameraShotSection::ImportEntityImpl(
 		*GetName(),
 		Source == EComposableCameraShotSource::Inline ? TEXT("Inline") : TEXT("AssetReference"));
 
-	// Per-section TrackInstance dispatch — same pattern as the Patch section.
+	// Per-section TrackInstance dispatch. Same pattern as the Patch section.
 	// The TrackInstance owns per-frame OnAnimate evaluation; this section is
 	// purely a data carrier.
 	FMovieSceneTrackInstanceComponent TrackInstance{
@@ -104,7 +104,7 @@ UComposableCameraShotAsset* UMovieSceneComposableCameraShotSection::ResolveCache
 	{
 		return CachedShotAsset;
 	}
-	// Free lookup — `.Get()` only returns non-null when the asset is
+	// Free lookup -`.Get()` only returns non-null when the asset is
 	// already in memory. No load triggered.
 	if (UComposableCameraShotAsset* Loaded = ShotAssetRef.Get())
 	{
@@ -147,7 +147,7 @@ void UMovieSceneComposableCameraShotSection::PostEditChangeProperty(FPropertyCha
 		|| PropertyName == GET_MEMBER_NAME_CHECKED(UMovieSceneComposableCameraShotSection, Source))
 	{
 		// Designer pointed the soft ref at a different asset (or flipped
-		// Source) — drop the stale cache and re-resolve. LoadSynchronous
+		// Source). Drop the stale cache and re-resolve. LoadSynchronous
 		// here is fine, we're outside of evaluation.
 		CachedShotAsset = nullptr;
 		CachedEnterTransition = nullptr;
@@ -233,7 +233,7 @@ bool UMovieSceneComposableCameraShotSection::BuildEffectiveShot(
 	{
 		if (Override.TargetIndex < 0)
 		{
-			// Negative index — meta=(ClampMin="0") on the UPROPERTY should
+			// Negative index. Meta=(ClampMin="0") on the UPROPERTY should
 			// already prevent this, but defensive skip in case of a hand-
 			// edited asset / migration.
 			continue;
@@ -247,7 +247,7 @@ bool UMovieSceneComposableCameraShotSection::BuildEffectiveShot(
 		if (Bound.Num() == 0)
 		{
 			// Binding hasn't spawned yet (Spawnable outside the active
-			// section range, or pre-warm of the sequence) — leave this
+			// section range, or pre-warm of the sequence). Leave this
 			// target's actor as-is for this frame. Next frame's resolve
 			// retries.
 			continue;
@@ -263,9 +263,9 @@ bool UMovieSceneComposableCameraShotSection::BuildEffectiveShot(
 		// entry for every TargetIndex referenced by an override, so missing
 		// indices were treated as "stale override, silent drop". In practice
 		// designers configure TargetActorOverrides on a Section without first
-		// adding placeholder Targets entries on the InlineShot — the UI
+		// adding placeholder Targets entries on the InlineShot. The UI
 		// invites doing exactly that, and the silent-drop behavior produced a
-		// PIE-only "Targets[] empty → SolveShot fails → CineCam at world
+		// PIE-only "Targets[] empty ->SolveShot fails -> CineCam at world
 		// origin" failure that's invisible at edit time (the Shot Editor's
 		// preview path takes a different code branch and shows the override
 		// resolved correctly). Auto-growing makes the override slot itself

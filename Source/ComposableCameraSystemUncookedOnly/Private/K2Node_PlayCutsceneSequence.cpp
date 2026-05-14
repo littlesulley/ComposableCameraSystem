@@ -21,7 +21,7 @@
 
 #define LOCTEXT_NAMESPACE "K2Node_PlayCutsceneSequence"
 
-// ─── Well-Known Pin Names ──────────────────────────────────────────────────────
+// Well-Known Pin Names 
 
 const FName UK2Node_PlayCutsceneSequence::PN_LevelSequence(TEXT("InLevelSequence"));
 const FName UK2Node_PlayCutsceneSequence::PN_ContextName(TEXT("ContextName"));
@@ -30,18 +30,18 @@ const FName UK2Node_PlayCutsceneSequence::PN_PlaybackSettings(TEXT("PlaybackSett
 const FName UK2Node_PlayCutsceneSequence::PN_CutsceneAction(TEXT("CutsceneAction"));
 const FName UK2Node_PlayCutsceneSequence::PN_OnFinished(TEXT("OnFinished"));
 
-// ─── Pin Allocation ────────────────────────────────────────────────────────────
+// Pin Allocation 
 
 void UK2Node_PlayCutsceneSequence::AllocateDefaultPins()
 {
-	// ── Exec pins ──
+	// Exec pins 
 	CreatePin(EGPD_Input, UEdGraphSchema_K2::PC_Exec, UEdGraphSchema_K2::PN_Execute);
 	CreatePin(EGPD_Output, UEdGraphSchema_K2::PC_Exec, UEdGraphSchema_K2::PN_Then);
 
-	// On Finished exec output — fires when the LS ends naturally.
+	// On Finished exec output - fires when the LS ends naturally.
 	CreatePin(EGPD_Output, UEdGraphSchema_K2::PC_Exec, PN_OnFinished);
 
-	// ── Input data pins ──
+	// Input data pins 
 
 	// Level Sequence (ULevelSequence*).
 	{
@@ -73,9 +73,9 @@ void UK2Node_PlayCutsceneSequence::AllocateDefaultPins()
 		CreatePin(EGPD_Input, PinType, PN_PlaybackSettings);
 	}
 
-	// ── Output data pins ──
+	// Output data pins 
 
-	// Cutscene Action (UAsyncPlayCutsceneSequence*) — the action reference.
+	// Cutscene Action (UAsyncPlayCutsceneSequence*) - the action reference.
 	{
 		FEdGraphPinType PinType;
 		PinType.PinCategory = UEdGraphSchema_K2::PC_Object;
@@ -86,7 +86,7 @@ void UK2Node_PlayCutsceneSequence::AllocateDefaultPins()
 	Super::AllocateDefaultPins();
 }
 
-// ─── Node Display ──────────────────────────────────────────────────────────────
+// Node Display 
 
 FText UK2Node_PlayCutsceneSequence::GetTooltipText() const
 {
@@ -115,10 +115,9 @@ FSlateIcon UK2Node_PlayCutsceneSequence::GetIconAndTint(FLinearColor& OutColor) 
 	return FSlateIcon(FAppStyle::GetAppStyleSetName(), "ClassIcon.LevelSequenceActor");
 }
 
-// ─── Menu Actions ──────────────────────────────────────────────────────────────
+// Menu Actions 
 
-void UK2Node_PlayCutsceneSequence::GetMenuActions(
-	FBlueprintActionDatabaseRegistrar& ActionRegistrar) const
+void UK2Node_PlayCutsceneSequence::GetMenuActions(FBlueprintActionDatabaseRegistrar& ActionRegistrar) const
 {
 	UClass* ActionKey = GetClass();
 	if (ActionRegistrar.IsOpenForRegistration(ActionKey))
@@ -136,10 +135,9 @@ FText UK2Node_PlayCutsceneSequence::GetMenuCategory() const
 	return LOCTEXT("MenuCategory", "ComposableCameraSystem|Level Sequence");
 }
 
-// ─── ExpandNode ────────────────────────────────────────────────────────────────
+// ExpandNode 
 
-void UK2Node_PlayCutsceneSequence::ExpandNode(
-	FKismetCompilerContext& CompilerContext, UEdGraph* SourceGraph)
+void UK2Node_PlayCutsceneSequence::ExpandNode(FKismetCompilerContext& CompilerContext, UEdGraph* SourceGraph)
 {
 	Super::ExpandNode(CompilerContext, SourceGraph);
 
@@ -150,7 +148,7 @@ void UK2Node_PlayCutsceneSequence::ExpandNode(
 	UEdGraphPin* OnFinishedPin = FindPinChecked(PN_OnFinished);
 	UEdGraphPin* CutsceneActionPin = FindPinChecked(PN_CutsceneAction);
 
-	// ── Step 1: Create a temp variable for the proxy (UAsyncPlayCutsceneSequence*) ──
+	// Step 1: Create a temp variable for the proxy (UAsyncPlayCutsceneSequence*) 
 
 	UK2Node_TemporaryVariable* ProxyTempVar =
 		CompilerContext.SpawnIntermediateNode<UK2Node_TemporaryVariable>(this, SourceGraph);
@@ -159,13 +157,11 @@ void UK2Node_PlayCutsceneSequence::ExpandNode(
 	ProxyTempVar->AllocateDefaultPins();
 	UEdGraphPin* ProxyVarPin = ProxyTempVar->GetVariablePin();
 
-	// ── Step 2: Call the factory function (BlueprintLibrary::PlayCutsceneSequence) ──
+	// Step 2: Call the factory function (BlueprintLibrary::PlayCutsceneSequence) 
 
 	UK2Node_CallFunction* CallFactory =
 		CompilerContext.SpawnIntermediateNode<UK2Node_CallFunction>(this, SourceGraph);
-	CallFactory->SetFromFunction(
-		UComposableCameraBlueprintLibrary::StaticClass()->FindFunctionByName(
-			GET_FUNCTION_NAME_CHECKED(UComposableCameraBlueprintLibrary, PlayCutsceneSequence)));
+	CallFactory->SetFromFunction(UComposableCameraBlueprintLibrary::StaticClass()->FindFunctionByName(GET_FUNCTION_NAME_CHECKED(UComposableCameraBlueprintLibrary, PlayCutsceneSequence)));
 	CallFactory->AllocateDefaultPins();
 
 	// Wire input pins to the factory call.
@@ -179,13 +175,13 @@ void UK2Node_PlayCutsceneSequence::ExpandNode(
 	CompilerContext.MovePinLinksToIntermediate(*FindPinChecked(PN_PlaybackSettings),
 		*CallFactory->FindPinChecked(TEXT("PlaybackSettings")));
 
-	// ── Step 3: Assign factory return to temp variable ──
+	// Step 3: Assign factory return to temp variable 
 
 	UK2Node_AssignmentStatement* AssignProxy =
 		CompilerContext.SpawnIntermediateNode<UK2Node_AssignmentStatement>(this, SourceGraph);
 	AssignProxy->AllocateDefaultPins();
 
-	// The assignment's variable AND value pin types must both be set explicitly —
+	// The assignment's variable AND value pin types must both be set explicitly - 
 	// the assignment node creates wildcard pins by default and the K2 compiler
 	// raises "type of Variable is undetermined" if they remain unresolved.
 	FEdGraphPinType ProxyPinType;
@@ -195,14 +191,14 @@ void UK2Node_PlayCutsceneSequence::ExpandNode(
 	AssignProxy->GetVariablePin()->PinType = ProxyPinType;
 	AssignProxy->GetValuePin()->PinType = ProxyPinType;
 
-	// Wire: factory return → assignment value.
+	// Wire: factory return -> assignment value.
 	UEdGraphPin* FactoryReturnPin = CallFactory->GetReturnValuePin();
 	FactoryReturnPin->MakeLinkTo(AssignProxy->GetValuePin());
 
-	// Wire: temp var → assignment variable.
+	// Wire: temp var -> assignment variable.
 	ProxyVarPin->MakeLinkTo(AssignProxy->GetVariablePin());
 
-	// ── Step 4: Bind OnFinished delegate on the proxy ──
+	// Step 4: Bind OnFinished delegate on the proxy 
 
 	// Create a custom event that fires when OnFinished broadcasts.
 	UK2Node_CustomEvent* OnFinishedEvent =
@@ -219,45 +215,42 @@ void UK2Node_PlayCutsceneSequence::ExpandNode(
 	// Create AddDelegate node to bind the custom event to proxy->OnFinished.
 	UK2Node_AddDelegate* AddDelegateNode =
 		CompilerContext.SpawnIntermediateNode<UK2Node_AddDelegate>(this, SourceGraph);
-	AddDelegateNode->DelegateReference.SetExternalMember(
-		FName(TEXT("OnFinished")), UAsyncPlayCutsceneSequence::StaticClass());
+	AddDelegateNode->DelegateReference.SetExternalMember(FName(TEXT("OnFinished")), UAsyncPlayCutsceneSequence::StaticClass());
 	AddDelegateNode->AllocateDefaultPins();
 
-	// Wire: proxy temp var → AddDelegate self (target object).
+	// Wire: proxy temp var -> AddDelegate self (target object).
 	if (UEdGraphPin* AddDelegateSelf = Schema->FindSelfPin(*AddDelegateNode, EGPD_Input))
 	{
 		ProxyVarPin->MakeLinkTo(AddDelegateSelf);
 	}
 
-	// Wire: custom event's delegate output → AddDelegate's delegate input.
+	// Wire: custom event's delegate output -> AddDelegate's delegate input.
 	if (UEdGraphPin* AddDelegateDelegatePin = AddDelegateNode->GetDelegatePin())
 	{
 		UEdGraphPin* EventDelegatePin = OnFinishedEvent->FindPinChecked(UK2Node_CustomEvent::DelegateOutputName);
 		EventDelegatePin->MakeLinkTo(AddDelegateDelegatePin);
 	}
 
-	// ── Step 5: Call Activate() on the proxy ──
+	// Step 5: Call Activate() on the proxy 
 
 	UK2Node_CallFunction* CallActivate =
 		CompilerContext.SpawnIntermediateNode<UK2Node_CallFunction>(this, SourceGraph);
-	CallActivate->SetFromFunction(
-		UBlueprintAsyncActionBase::StaticClass()->FindFunctionByName(
-			GET_FUNCTION_NAME_CHECKED(UBlueprintAsyncActionBase, Activate)));
+	CallActivate->SetFromFunction(UBlueprintAsyncActionBase::StaticClass()->FindFunctionByName(GET_FUNCTION_NAME_CHECKED(UBlueprintAsyncActionBase, Activate)));
 	CallActivate->AllocateDefaultPins();
 
-	// Wire: proxy temp var → Activate self.
+	// Wire: proxy temp var -> Activate self.
 	if (UEdGraphPin* ActivateSelf = Schema->FindSelfPin(*CallActivate, EGPD_Input))
 	{
 		ProxyVarPin->MakeLinkTo(ActivateSelf);
 	}
 
-	// ── Step 6: Wire the Cutscene Action output pin ──
+	// Step 6: Wire the Cutscene Action output pin 
 
 	CompilerContext.MovePinLinksToIntermediate(*CutsceneActionPin, *ProxyVarPin);
 
-	// ── Step 7: Wire the execution chain ──
+	// Step 7: Wire the execution chain 
 	//
-	// ExecIn → CallFactory → AssignProxy → AddDelegate → CallActivate → ThenOut
+	// ExecIn->CallFactory ->AssignProxy->AddDelegate ->CallActivate -> ThenOut
 
 	CompilerContext.MovePinLinksToIntermediate(*ExecPin, *CallFactory->GetExecPin());
 	CallFactory->GetThenPin()->MakeLinkTo(AssignProxy->GetExecPin());

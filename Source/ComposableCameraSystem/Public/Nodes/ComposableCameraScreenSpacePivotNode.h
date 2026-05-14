@@ -89,7 +89,7 @@ public:
 
 	// 2D: safe-zone rectangle + center marker + projected-pivot marker on
 	// the HUD. Handles both `bConstrainAspectRatio = false` (whole viewport)
-	// and `bConstrainAspectRatio = true` (letterboxed â€?uses ProjectionData
+	// and `bConstrainAspectRatio = true` (letterboxed. Uses ProjectionData
 	// to account for the editor viewport offset) cases, matching the logic
 	// the node itself uses for its screen-space math.
 	virtual void DrawNodeDebug2D(UCanvas* Canvas, APlayerController* PC) const override;
@@ -97,15 +97,15 @@ public:
 
 	// Compatible with the Level Sequence path. Viewport size for screen-space
 	// math is resolved through UE::ComposableCameras::TryGetEffectiveViewportSize
-	// (PCM â†?GameViewport â†?16:9 fallback), so the node no longer requires a
+	// (PCM->GameViewport ->16:9 fallback), so the node no longer requires a
 	// PlayerCameraManager.
 
 protected:
 
 public:
 	// How the pivot world-space position is resolved at runtime.
-	// WorldPosition â†?use PivotWorldPosition directly.
-	// ActorPosition â†?read PivotActor's world location and add PivotWorldUpOffset along world up.
+	// WorldPosition ->use PivotWorldPosition directly.
+	// ActorPosition ->read PivotActor's world location and add PivotWorldUpOffset along world up.
 	// Declared as a pin with bDefaultAsPin = false: it renders in the Details panel
 	// as a design-time choice by default, but individual node instances can
 	// promote it to a wired pin when runtime variation is actually required.

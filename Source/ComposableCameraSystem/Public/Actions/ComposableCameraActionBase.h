@@ -1,4 +1,4 @@
-// Copyright Sulley. All rights reserved.
+﻿// Copyright Sulley. All rights reserved.
 
 #pragma once
 
@@ -106,7 +106,7 @@ public:
 	/** Time since this action began ticking, in seconds. Only meaningful when
 	 *  ExpirationType has the Duration bit set (Duration expiration fires
 	 *  when ElapsedTime >= Duration). Exposed for debug tooling (the
-	 *  Actions panel region); gameplay code should not poll it — use the
+	 *  Actions panel region); gameplay code should not poll it. Use the
 	 *  lifecycle hooks instead. */
 	UFUNCTION(BlueprintPure, Category = "ComposableCameraSystem|Action")
 	float GetElapsedTime() const { return ElapsedTime; }

@@ -1,4 +1,4 @@
-// Copyright Sulley. All rights reserved.
+﻿// Copyright Sulley. All rights reserved.
 
 #pragma once
 
@@ -17,7 +17,7 @@
  * The sensor dimensions are consumed by FComposableCameraPose::GetEffectiveFieldOfView()
  * when the pose is in focal-length mode (FieldOfView <= 0), so changing the
  * filmback while holding focal length constant naturally changes the effective
- * FOV — exactly as on a real camera.
+ * FOV. Exactly as on a real camera.
  */
 UCLASS(NotBlueprintable, ClassGroup = ComposableCameraSystem, meta = (ToolTip = "Authors sensor, overscan, and aspect-ratio parameters on the camera pose."))
 class COMPOSABLECAMERASYSTEM_API UComposableCameraFilmbackNode

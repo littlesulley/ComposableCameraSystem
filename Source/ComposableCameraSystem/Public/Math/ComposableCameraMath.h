@@ -1,4 +1,4 @@
-// Copyright Sulley. All rights reserved.
+﻿// Copyright Sulley. All rights reserved.
 
 #pragma once
 
@@ -172,85 +172,85 @@ namespace ComposableCameraSystem
 	/**
 	 * Closed-form solver for (Pitch X, Yaw Y) rotation (Roll = 0) such that
 	 * the world-space ray `Direction` (from camera origin) projects onto the
-	 * normalized screen coords `(ScreenX, ScreenY)` ∈ [-0.5, 0.5]². Returns
+	 * normalized screen coords `(ScreenX, ScreenY)` in [-0.5, 0.5]. Returns
 	 * { Pitch, Yaw } in degrees, UE convention (positive pitch = up,
 	 * positive yaw = right). Replaces the iterative Newton solver formerly
 	 * duplicated inside ScreenSpacePivotNode and ScreenSpaceConstraintsNode.
 	 *
-	 * ── Derivation ───────────────────────────────────────────────────────
+	 * -- Derivation -------------------------------------------------------
 	 *
 	 * Camera basis under (Pitch X, Yaw Y, Roll 0), expressed in world frame:
 	 *
 	 *     F = ( cos X cos Y,  cos X sin Y,  sin X)        // forward (cam +X)
 	 *     R = (-sin Y,        cos Y,        0    )        // right   (cam +Y)
-	 *     U = (-sin X cos Y, -sin X sin Y,  cos X)        // up      (cam +Z)
+	 *     U = (-sin X cos Y,. Sin X sin Y,  cos X)        // up      (cam +Z)
 	 *
-	 * Direction in camera space is Px = F·D, Py = R·D, Pz = U·D, with
+	 * Direction in camera space is Px = F*D, Py = R*D, Pz = U*D, with
 	 * D = (A, B, C) = Direction.
 	 *
-	 * Screen mapping is Py / (2·m·Px) and Pz / (2·n·Px) where m = TanHalfHOR
-	 * and n = TanHalfHOR / AspectRatio. Letting u = 2·ScreenX·m, v = 2·ScreenY·n,
+	 * Screen mapping is Py / (2*m*Px) and Pz / (2*n*Px) where m = TanHalfHOR
+	 * and n = TanHalfHOR / AspectRatio. Letting u = 2*ScreenX*m, v = 2*ScreenY*n,
 	 * the constraint is
 	 *
-	 *     Py = u·Px,    Pz = v·Px                                   (★)
+	 *     Py = u*Px,    Pz = v*Px                                   (?
 	 *
-	 * (★) ⇔ (Px, Py, Pz) ∝ (1, u, v). Geometrically: the pivot must lie on
+	 * (? means(Px, Py, Pz) in(1, u, v). Geometrically: the pivot must lie on
 	 * the ray from camera origin through the screen-plane point (1, u, v).
 	 * The unit direction in camera space is therefore
 	 *
-	 *     d_cam = (1, u, v) / s,    s = √(1 + u² + v²)
+	 *     d_cam = (1, u, v) / s,    s = in1 + u + v)
 	 *
-	 * The same physical ray in world frame is d_world = D / L, with L = ‖D‖.
+	 * The same physical ray in world frame is d_world = D / L, with L = -
 	 * With R the camera-to-world rotation matrix (whose columns are F, R, U),
 	 *
-	 *     R · (1, u, v)ᵀ = K · (A, B, C)ᵀ        where K ≡ s / L
+	 *     R * (1, u, v)- = K * (A, B, C)-        where K <=s / L
 	 *
 	 * Component-wise:
 	 *
-	 *     cos X cos Y - u sin Y - v sin X cos Y = K·A           (I)
-	 *     cos X sin Y + u cos Y - v sin X sin Y = K·B           (II)
-	 *     sin X            + v cos X            = K·C           (III)
+	 *     cos X cos Y - u sin Y - v sin X cos Y = K*A           (I)
+	 *     cos X sin Y + u cos Y - v sin X sin Y = K*B           (II)
+	 *     sin X            + v cos X            = K*C           (III)
 	 *
-	 * (III) contains only X — that is why the system decouples.
+	 * (III) contains only X. That is why the system decouples.
 	 *
 	 * Solve X.  By the harmonic identity
-	 *     sin X + v cos X = √(1+v²) · sin(X + arctan v),
+	 *     sin X + v cos X = in1+v) * sin(X + arctan v),
 	 * (III) becomes
-	 *     X = arcsin(K·C / √(1+v²)) - arctan v               ─── (X)
-	 * The other branch X = π - arcsin(...) - arctan v corresponds to a
+	 *     X = arcsin(K*C / in1+v)) - arctan v               --- (X)
+	 * The other branch X =  - arcsin(...) - arctan v corresponds to a
 	 * back-facing camera and is discarded.
 	 *
-	 * Solve Y.  With X known, let α = cos X - v sin X. (I)+(II) become a
-	 * 2×2 linear system in (cos Y, sin Y):
+	 * Solve Y.  With X known, let  = cos X - v sin X. (I)+(II) become a
+	 * 2x2 linear system in (cos Y, sin Y):
 	 *
-	 *     [α  -u] [cos Y]     [A]
-	 *     [u   α] [sin Y] = K [B]
+	 *     [ . U] [cos Y]     [A]
+	 *     [u   ] [sin Y] = K [B]
 	 *
-	 * Determinant α² + u² > 0 generically, Cramer gives a Y where K cancels:
+	 * Determinant  + u > 0 generically, Cramer gives a Y where K cancels:
 	 *
-	 *     Y = atan2(α·B - u·A,  α·A + u·B)                   ─── (Y)
+	 *     Y = atan2(*B - u*A,  *A + u*B)                   --- (Y)
 	 *
-	 * Y is independent of ‖D‖ — depends only on the direction of D.
+	 * Y is independent of --depends only on the direction of D.
 	 *
-	 * Consistency.  (X)+(III) automatically imply α² + u² = K²(A² + B²),
-	 * i.e. (cos Y, sin Y) lies on the unit circle — no extra check required
+	 * Consistency.  (X)+(III) automatically imply  + u = K(A + B),
+	 * i.e. (cos Y, sin Y) lies on the unit circle. No extra check required
 	 * in the regular regime.
 	 *
-	 * ── Edge cases ───────────────────────────────────────────────────────
+	 * -- Edge cases -------------------------------------------------------
 	 *
-	 *   |T| > 1, T ≡ K·C / √(1+v²)
+	 *   |T| > 1, T <=K*C / in1+v)
 	 *       The pivot cannot be placed at (ScreenX, ScreenY) without
-	 *       exceeding the FOV cone. Clamped to ±1 so the pivot lands at the
+	 *       exceeding the FOV cone. Clamped to 1 so the pivot lands at the
 	 *       closest reachable on-FOV pitch. EnsureWithinBoundsRotation
 	 *       callers usually pre-clamp to a safe zone, so this hits only when
 	 *       the pivot direction itself is outside the FOV.
 	 *
-	 *   A² + B² → 0    Direction parallel to world ±Z (gimbal lock). Yaw is
-	 *       genuinely indeterminate at this configuration — a property of
+	 *   A + B ->0    Direction parallel to world Z (gimbal lock). Yaw is
+	 *       genuinely indeterminate at this configuration. A property of
 	 *       the Pitch+Yaw parameterization, not of the algorithm. Returns
 	 *       Yaw = 0 as the stable choice.
 	 *
-	 *   L < ε    Zero-length Direction (pivot at camera position). Returns
+	 *   L <     Zero-length Direction (pivot at camera position). Returns
 	 *       (0, 0); upstream code should guard before calling here.
 	 */
 	inline std::pair<float, float> SolveCameraRotationForScreenTarget(
@@ -260,7 +260,7 @@ namespace ComposableCameraSystem
 		float ScreenX,
 		float ScreenY)
 	{
-		// Math is done in double — arcsin near ±1 and atan2 near (0, 0) both
+		// Math is done in double. Arcsin near 1 and atan2 near (0, 0) both
 		// benefit from the extra precision; cost is negligible vs. the trig.
 		const double TanHalfVOR = TanHalfHOR / AspectRatio;
 		const double u = 2.0 * ScreenX * TanHalfHOR;
@@ -283,7 +283,7 @@ namespace ComposableCameraSystem
 
 		// Solve X (Pitch) from equation (III).
 		const double SqrtOnePlusVSq = FMath::Sqrt(1.0 + v * v);
-		// T saturates at ±1 when the pivot is outside the FOV cone; clamp
+		// T saturates at 1 when the pivot is outside the FOV cone; clamp
 		// so arcsin stays in its real domain. Result is the closest in-FOV
 		// pitch.
 		const double T = FMath::Clamp((K * C) / SqrtOnePlusVSq, -1.0, 1.0);
@@ -292,7 +292,7 @@ namespace ComposableCameraSystem
 		// Solve Y (Yaw) from equations (I) and (II).
 		if (A * A + B * B < UE_DOUBLE_KINDA_SMALL_NUMBER)
 		{
-			// Direction parallel to world ±Z — gimbal lock. Yaw is
+			// Direction parallel to world Z. Gimbal lock. Yaw is
 			// genuinely free; return 0 as the stable choice.
 			return { static_cast<float>(FMath::RadiansToDegrees(X)), 0.f };
 		}
@@ -307,7 +307,7 @@ namespace ComposableCameraSystem
 	}
 
 	/**
-	 * Forward projection: a world point → normalized screen coords [-0.5, 0.5]²,
+	 * Forward projection: a world point ->normalized screen coords [-0.5, 0.5],
 	 * matching the convention used by SafeZoneCenter on ScreenSpacePivotNode and
 	 * Placement.ScreenPosition / Aim.ScreenPosition on the Shot data structs.
 	 *
@@ -316,16 +316,16 @@ namespace ComposableCameraSystem
 	 * convention so callers can round-trip cleanly.
 	 *
 	 *   1. Transform WorldPoint into camera space:
-	 *        P_cam = R⁻¹ · (WorldPoint - CameraPos)
+	 *        P_cam = R?* (WorldPoint - CameraPos)
 	 *      where R is the camera-to-world rotation. Px = depth (forward),
 	 *      Py = right, Pz = up.
 	 *
-	 *   2. If Px <= 0, the point is behind the camera or on the near plane —
+	 *   2. If Px <= 0, the point is behind the camera or on the near plane -
 	 *      no valid screen projection. Returns false; OutScreenCoord left
 	 *      unchanged.
 	 *
 	 *   3. Apply the perspective division using the screen-coord convention
-	 *      (Py / (2m·Px), Pz / (2n·Px)) where m = tan(FOV_h/2),
+	 *      (Py / (2m*Px), Pz / (2n*Px)) where m = tan(FOV_h/2),
 	 *      n = m / AspectRatio.
 	 *
 	 * @param WorldPoint        Point to project.
@@ -334,8 +334,8 @@ namespace ComposableCameraSystem
 	 * @param TanHalfHOR        tan(FOV_horizontal / 2). Same input convention as
 	 *                          SolveCameraRotationForScreenTarget.
 	 * @param AspectRatio       Viewport aspect ratio (width / height).
-	 * @param OutScreenCoord    Normalized screen coords in [-0.5, 0.5]² when the
-	 *                          point is on screen — but values OUTSIDE that range
+	 * @param OutScreenCoord    Normalized screen coords in [-0.5, 0.5] when the
+	 *                          point is on screen. But values OUTSIDE that range
 	 *                          are returned for off-screen points (no clamping).
 	 *                          The Composition Solver's micro-refinement pass
 	 *                          uses the unclamped values as a gradient signal.

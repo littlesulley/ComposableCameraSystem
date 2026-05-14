@@ -1,4 +1,4 @@
-// Copyright Sulley. All rights reserved.
+﻿// Copyright Sulley. All rights reserved.
 
 #pragma once
 
@@ -15,7 +15,7 @@
  * to read values back from those bags into an FComposableCameraParameterBlock
  * at camera activation time.
  *
- * Delegate pin type is intentionally not supported here — delegates cannot
+ * Delegate pin type is intentionally not supported here. Delegates cannot
  * round-trip through a property bag (they carry heap-owned bindings). Delegate
  * exposed parameters flow through the existing FComposableCameraParameterBlock
  * delegate path at activation time; the Level Sequence component bag covers

@@ -1,4 +1,4 @@
-// Copyright Sulley. All rights reserved.
+﻿// Copyright Sulley. All rights reserved.
 
 #pragma once
 
@@ -31,7 +31,7 @@ public:
 public:
 	/**
 	 * Projection mode to write onto the pose. Defaults to Orthographic since the
-	 * point of this node is to author an ortho setup — authors who want a
+	 * point of this node is to author an ortho setup. Authors who want a
 	 * perspective camera should simply not place this node. Exposed anyway so
 	 * the mode can be toggled at runtime via a wire (e.g. a blueprint action
 	 * flipping between ortho and perspective views).

@@ -1,4 +1,4 @@
-// Copyright Sulley. All rights reserved.
+﻿// Copyright Sulley. All rights reserved.
 
 #pragma once
 
@@ -19,7 +19,7 @@ public:
 
 	// InterpEaseInOut with the authored `Exp`. Exposed so the debug
 	// panel can preview exactly how steep the ease-in / ease-out shoulders
-	// are for the current Exp value — invaluable when tuning Exp by eye.
+	// are for the current Exp value. Invaluable when tuning Exp by eye.
 	virtual float GetBlendWeightAt(float NormalizedTime) const override;
 
 #if !UE_BUILD_SHIPPING

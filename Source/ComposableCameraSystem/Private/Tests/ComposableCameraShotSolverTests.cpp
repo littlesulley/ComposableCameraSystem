@@ -1,13 +1,13 @@
 // Copyright Sulley. All rights reserved.
 
-// Unit tests for the Composition Solver — three-layer pipeline
+// Unit tests for the Composition Solver. Three-layer pipeline
 // (Placement / Aim / Lens) plus independent Focus and Roll composition.
-// See Docs/ShotBasedKeyframing.md §3-4.
+// See Docs/ShotBasedKeyframing.md Section 3-4.
 //
 // Tests that need an AActor (SingleTarget anchor, InheritFromActor basis)
 // spin up a minimal Game-typed world. Pure math tests (anchor arithmetic,
 // position / rotation / FOV / focus math) call the solver functions
-// directly with FixedWorldPosition anchors and pre-computed inputs — no
+// directly with FixedWorldPosition anchors and pre-computed inputs. No
 // world needed.
 
 #include "Components/SceneComponent.h"
@@ -26,7 +26,7 @@
 namespace ComposableCameraShotSolverTest
 {
 	/** Minimal test world for spawning bare AActor instances at known
-	 *  transforms — used by tests that need ResolveWorldPoint / basis
+	 *  transforms. Used by tests that need ResolveWorldPoint / basis
 	 *  resolution to dereference a real actor. */
 	struct FShotTestWorld
 	{
@@ -49,8 +49,7 @@ namespace ComposableCameraShotSolverTest
 
 		AActor* SpawnActorAt(const FVector& Location, const FRotator& Rotation = FRotator::ZeroRotator)
 		{
-			// Bare AActor::StaticClass() spawns WITHOUT a RootComponent —
-			// GetActorLocation/GetActorQuat then always return identity, and
+			// Bare AActor::StaticClass() spawns WITHOUT a RootComponent -			// GetActorLocation/GetActorQuat then always return identity, and
 			// any Transform passed to SpawnActor is silently ignored. We add
 			// a USceneComponent as the root and set the transform after the
 			// fact so test setup actually works.
@@ -176,7 +175,7 @@ bool FShotAnchorWeightedCentroidTest::RunTest(const FString&)
 
 		FVector Out = FVector::ZeroVector;
 		UTEST_TRUE("Weighted centroid resolves", Anchor.ResolveWorldPosition(Targets, Out));
-		UTEST_TRUE("Equal weights → midpoint", Out.Equals(FVector(50, 0, 0), 1e-3));
+		UTEST_TRUE("Equal weights ->midpoint", Out.Equals(FVector(50, 0, 0), 1e-3));
 	}
 	{
 		FComposableCameraAnchorSpec Anchor;
@@ -187,12 +186,12 @@ bool FShotAnchorWeightedCentroidTest::RunTest(const FString&)
 		FVector Out = FVector::ZeroVector;
 		UTEST_TRUE("Asymmetric weighted centroid resolves",
 			Anchor.ResolveWorldPosition(Targets, Out));
-		UTEST_TRUE("3:1 weight → 75% toward B", Out.Equals(FVector(75, 0, 0), 1e-3));
+		UTEST_TRUE("3:1 weight ->75% toward B", Out.Equals(FVector(75, 0, 0), 1e-3));
 	}
 	{
 		FComposableCameraAnchorSpec Anchor;
 		Anchor.Mode = EShotAnchorMode::WeightedWorldCentroid;
-		// Empty weights → no contribution.
+		// Empty weights ->no contribution.
 		FVector Out(999, 999, 999);
 		UTEST_FALSE("Empty weighted centroid returns false",
 			Anchor.ResolveWorldPosition(Targets, Out));
@@ -214,14 +213,14 @@ bool FShotPlacementBasisTest::RunTest(const FString&)
 	using namespace ComposableCameraSystem::ShotSolver;
 	ComposableCameraShotSolverTest::FShotTestWorld TestWorld;
 
-	// World basis → identity quat.
+	// World basis ->identity quat.
 	{
 		FComposableCameraShot Shot;
 		Shot.Placement.BasisFrame = EShotPlacementBasisFrame::World;
 		const FQuat Q = ResolvePlacementBasis(Shot);
 		UTEST_TRUE("World basis = identity", Q.Equals(FQuat::Identity, 1e-4));
 	}
-	// InheritFromActor with valid index → actor's quat.
+	// InheritFromActor with valid index ->actor's quat.
 	{
 		AActor* A = TestWorld.SpawnActorAt(FVector::ZeroVector, FRotator(0, 90, 0));
 		FComposableCameraShot Shot;
@@ -232,20 +231,20 @@ bool FShotPlacementBasisTest::RunTest(const FString&)
 		UTEST_TRUE("InheritFromActor uses actor quat",
 			Q.Equals(FRotator(0, 90, 0).Quaternion(), 1e-3));
 	}
-	// InheritFromActor with out-of-range index → identity fallback (warning).
+	// InheritFromActor with out-of-range index ->identity fallback (warning).
 	{
 		FComposableCameraShot Shot;
 		Shot.Placement.BasisFrame = EShotPlacementBasisFrame::InheritFromActor;
 		Shot.Placement.BasisActorIndex = 5;
 		const FQuat Q = ResolvePlacementBasis(Shot);
-		UTEST_TRUE("Out-of-range index → identity fallback",
+		UTEST_TRUE("Out-of-range index ->identity fallback",
 			Q.Equals(FQuat::Identity, 1e-4));
 	}
 	return true;
 }
 
 // ============================================================================
-// SolveAnchorOrbitPosition (Layer 1 — Position math)
+// SolveAnchorOrbitPosition (Layer 1 -Position math)
 // ============================================================================
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
@@ -258,45 +257,45 @@ bool FShotAnchorOrbitPositionTest::RunTest(const FString&)
 	using namespace ComposableCameraSystem::ShotSolver;
 
 	const FVector AnchorPos(0, 0, 0);
-	const float TanHalfHOR = FMath::Tan(FMath::DegreesToRadians(90.f * 0.5f));   // FOV=90°
+	const float TanHalfHOR = FMath::Tan(FMath::DegreesToRadians(90.f * 0.5f));   // FOV=90 deg
 	const float Aspect = 1.f;
 
-	// Yaw=0, Pitch=0, Distance=200, no screen offset → camera at (200, 0, 0).
+	// Yaw=0, Pitch=0, Distance=200, no screen offset -> camera at (200, 0, 0).
 	{
 		const FVector CamPos = SolveAnchorOrbitPosition(
 			AnchorPos, FQuat::Identity, 200.f,
 			FVector2D(0.f, 0.f), FVector2D::ZeroVector,
 			TanHalfHOR, Aspect);
-		UTEST_TRUE("Yaw 0, Pitch 0 → (+X, 0, 0)",
+		UTEST_TRUE("Yaw 0, Pitch 0 ->(+X, 0, 0)",
 			CamPos.Equals(FVector(200, 0, 0), 1e-2));
 	}
-	// Yaw=180 → camera behind anchor along -X.
+	// Yaw=180 -> camera behind anchor along -X.
 	{
 		const FVector CamPos = SolveAnchorOrbitPosition(
 			AnchorPos, FQuat::Identity, 200.f,
 			FVector2D(180.f, 0.f), FVector2D::ZeroVector,
 			TanHalfHOR, Aspect);
-		UTEST_TRUE("Yaw 180 → (-X, 0, 0)",
+		UTEST_TRUE("Yaw 180 ->(-X, 0, 0)",
 			CamPos.Equals(FVector(-200, 0, 0), 1e-2));
 	}
-	// Yaw=90 → camera at +Y side of anchor.
+	// Yaw=90 -> camera at +Y side of anchor.
 	{
 		const FVector CamPos = SolveAnchorOrbitPosition(
 			AnchorPos, FQuat::Identity, 200.f,
 			FVector2D(90.f, 0.f), FVector2D::ZeroVector,
 			TanHalfHOR, Aspect);
-		UTEST_TRUE("Yaw 90 → (0, +Y, 0)",
+		UTEST_TRUE("Yaw 90 ->(0, +Y, 0)",
 			CamPos.Equals(FVector(0, 200, 0), 1e-2));
 	}
-	// ScreenPosition (0.2, 0) — UE LHS:
+	// ScreenPosition (0.2, 0) -UE LHS:
 	//   Forward_t = -DirWorld = -(1,0,0) = (-1,0,0)
-	//   CamRight  = up × forward = (0,0,1) × (-1,0,0) = (0, -1, 0)
-	//   DRight    = -ScreenPos.X · 2·TanH · Distance = -0.2·2·1·200 = -80
-	//   CamPos   += DRight · CamRight = -80 · (0,-1,0) = (0, 80, 0)
+	//   CamRight  = up x forward = (0,0,1) x (-1,0,0) = (0, -1, 0)
+	//   DRight    = -ScreenPos.X * 2*TanH * Distance = -0.2*2*1*200 = -80
+	//   CamPos   += DRight * CamRight = -80 * (0,-1,0) = (0, 80, 0)
 	// Final: (200, 0, 0) + (0, 80, 0) = (200, 80, 0).
 	// The shift moves the camera to +Y in WORLD, which is the camera's
-	// own LEFT (forward=-X, right=-Y) → anchor relative to camera moves
-	// to camera's RIGHT → screen X positive → matches authored ScreenPos.X=+0.2.
+	// own LEFT (forward=-X, right=-Y) ->anchor relative to camera moves
+	// to camera's RIGHT ->screen X positive ->matches authored ScreenPos.X=+0.2.
 	{
 		const FVector CamPos = SolveAnchorOrbitPosition(
 			AnchorPos, FQuat::Identity, 200.f,
@@ -309,7 +308,7 @@ bool FShotAnchorOrbitPositionTest::RunTest(const FString&)
 }
 
 // ============================================================================
-// SolveLookAtAnchorRotation (Layer 2 — Rotation math)
+// SolveLookAtAnchorRotation (Layer 2 -Rotation math)
 // ============================================================================
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
@@ -328,7 +327,7 @@ bool FShotLookAtAnchorRotationTest::RunTest(const FString&)
 	const float TanHalfHOR = FMath::Tan(FMath::DegreesToRadians(FOV * 0.5f));
 	const float Aspect = 1.f;
 
-	// Aim at center → camera looks back at anchor (yaw 180).
+	// Aim at center -> camera looks back at anchor (yaw 180).
 	{
 		const FRotator R = SolveLookAtAnchorRotation(
 			CamPos, AnchorPos, FVector2D(0.f, 0.f),
@@ -340,7 +339,7 @@ bool FShotLookAtAnchorRotationTest::RunTest(const FString&)
 		UTEST_TRUE("Anchor at screen center",
 			Projected.Equals(FVector2D::ZeroVector, 1e-3));
 	}
-	// Off-center aim → anchor projects to that screen position.
+	// Off-center aim ->anchor projects to that screen position.
 	{
 		const FVector2D ScreenTarget(0.25f, -0.1f);
 		const FRotator R = SolveLookAtAnchorRotation(
@@ -357,7 +356,7 @@ bool FShotLookAtAnchorRotationTest::RunTest(const FString&)
 }
 
 // ============================================================================
-// SolvePlacement (Layer 1 dispatch — AnchorOrbit + FixedWorldPosition)
+// SolvePlacement (Layer 1 dispatch -AnchorOrbit + FixedWorldPosition)
 // ============================================================================
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
@@ -374,7 +373,7 @@ bool FShotSolvePlacementTest::RunTest(const FString&)
 	const float Aspect = 1.f;
 
 	// AnchorOrbit (pure spherical, default): no lateral shift even when
-	// ScreenPosition is non-zero — solver ignores the field for this mode.
+	// ScreenPosition is non-zero. Solver ignores the field for this mode.
 	{
 		FComposableCameraShot Shot;
 		Shot.Placement.Mode = EShotPlacementMode::AnchorOrbit;
@@ -392,7 +391,7 @@ bool FShotSolvePlacementTest::RunTest(const FString&)
 			CamPos.Equals(FVector(200, 0, 0), 1e-2));
 	}
 	// AnchorAtScreen is a joint Position+Rotation solve that
-	// requires Aim data alongside Placement — exercised via SolveShot in
+	// requires Aim data alongside Placement. Exercised via SolveShot in
 	// FShotSolveAnchorAtScreenTest below; SolvePlacement for
 	// this mode is a deliberate ensure-fail (the orchestrator routes
 	// around it).
@@ -408,15 +407,15 @@ bool FShotSolvePlacementTest::RunTest(const FString&)
 		UTEST_TRUE("FixedWorldPosition camera at authored point",
 			CamPos.Equals(FVector(1234, 5678, 90), 1e-2));
 	}
-	// AnchorOrbit with unresolvable placement anchor → false.
+	// AnchorOrbit with unresolvable placement anchor->false.
 	{
 		FComposableCameraShot Shot;
 		Shot.Placement.Mode = EShotPlacementMode::AnchorOrbit;
 		Shot.Placement.PlacementAnchor =
 			ComposableCameraShotSolverTest::MakeSingleTargetAnchor(0);
-		// Targets is empty — index 0 invalid.
+		// Targets is empty. Index 0 invalid.
 		FVector CamPos = FVector(999, 999, 999);
-		UTEST_FALSE("Unresolvable anchor → false",
+		UTEST_FALSE("Unresolvable anchor ->false",
 			SolvePlacement(Shot, Shot.Placement.Distance, TanHalfHOR, Aspect, CamPos));
 	}
 	return true;
@@ -459,7 +458,7 @@ bool FShotSolveAimTest::RunTest(const FString&)
 			SolveAim(Shot, CamPos, Shot.Aim.ScreenPosition, Shot.Roll, TanHalfHOR, Aspect, R));
 		UTEST_TRUE("Output Roll = 25", FMath::IsNearlyEqual(R.Roll, 25.f, 1e-3));
 	}
-	// NoOp short-circuits BEFORE AimAnchor resolution — invalid AimAnchor
+	// NoOp short-circuits BEFORE AimAnchor resolution. Invalid AimAnchor
 	// must not produce a "unresolvable" failure when NoOp is active.
 	{
 		Shot.Aim.Mode = EShotAimMode::NoOp;
@@ -479,7 +478,7 @@ bool FShotSolveAimTest::RunTest(const FString&)
 		FRotator R;
 		UTEST_TRUE("NoOp + Roll resolves",
 			SolveAim(Shot, CamPos, Shot.Aim.ScreenPosition, Shot.Roll, TanHalfHOR, Aspect, R));
-		UTEST_TRUE("NoOp + Roll → (0, 0, 30)",
+		UTEST_TRUE("NoOp + Roll ->(0, 0, 30)",
 			R.Equals(FRotator(0.f, 0.f, 30.f), 1e-3));
 	}
 	return true;
@@ -521,43 +520,43 @@ bool FShotSolveFocusTest::RunTest(const FString&)
 		UTEST_TRUE("Manual returns ManualDistance",
 			FMath::IsNearlyEqual(D, 425.f, 0.5f));
 	}
-	// FollowPlacementAnchor → distance to A (at origin) = 200.
+	// FollowPlacementAnchor ->distance to A (at origin) = 200.
 	{
 		Shot.Focus.Mode = EShotFocusMode::FollowPlacementAnchor;
 		const float D = SolveFocus(Shot, CamPos, CamRot);
-		UTEST_TRUE("FollowPlacementAnchor → 200",
+		UTEST_TRUE("FollowPlacementAnchor ->200",
 			FMath::IsNearlyEqual(D, 200.f, 0.5f));
 	}
-	// FollowAimAnchor → distance to B (at 50,0,0) = 150.
+	// FollowAimAnchor ->distance to B (at 50,0,0) = 150.
 	{
 		Shot.Focus.Mode = EShotFocusMode::FollowAimAnchor;
 		const float D = SolveFocus(Shot, CamPos, CamRot);
-		UTEST_TRUE("FollowAimAnchor → 150",
+		UTEST_TRUE("FollowAimAnchor ->150",
 			FMath::IsNearlyEqual(D, 150.f, 0.5f));
 	}
-	// FollowCustomAnchor with a fixed point at (100, 0, 0) → 100.
+	// FollowCustomAnchor with a fixed point at (100, 0, 0) ->100.
 	{
 		Shot.Focus.Mode = EShotFocusMode::FollowCustomAnchor;
 		Shot.Focus.FocusAnchor =
 			ComposableCameraShotSolverTest::MakeFixedAnchor(FVector(100, 0, 0));
 		const float D = SolveFocus(Shot, CamPos, CamRot);
-		UTEST_TRUE("FollowCustomAnchor → 100",
+		UTEST_TRUE("FollowCustomAnchor ->100",
 			FMath::IsNearlyEqual(D, 100.f, 0.5f));
 	}
-	// FollowCustomAnchor with unresolvable anchor → fallback to ManualDistance.
+	// FollowCustomAnchor with unresolvable anchor ->fallback to ManualDistance.
 	{
 		Shot.Focus.Mode = EShotFocusMode::FollowCustomAnchor;
 		Shot.Focus.FocusAnchor =
 			ComposableCameraShotSolverTest::MakeSingleTargetAnchor(99);
 		const float D = SolveFocus(Shot, CamPos, CamRot);
-		UTEST_TRUE("Unresolvable Custom anchor → ManualDistance fallback",
+		UTEST_TRUE("Unresolvable Custom anchor ->ManualDistance fallback",
 			FMath::IsNearlyEqual(D, 425.f, 0.5f));
 	}
 	return true;
 }
 
 // ============================================================================
-// SolveShot end-to-end — single anchor + dual anchor (OTS-style)
+// SolveShot end-to-end. Single anchor + dual anchor (OTS-style)
 // ============================================================================
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
@@ -599,7 +598,7 @@ bool FShotSolveSingleAnchorTest::RunTest(const FString&)
 	UTEST_TRUE("Solve succeeded", R.bValid);
 	UTEST_TRUE("Camera at +X 200 from anchor",
 		R.CameraPosition.Equals(FVector(200, 0, 0), 1e-2));
-	UTEST_TRUE("Camera yaw ≈ 180 (looking back at anchor)",
+	UTEST_TRUE("Camera yaw <=180 (looking back at anchor)",
 		FMath::IsNearlyEqual(FMath::Abs(R.CameraRotation.Yaw), 180.f, 0.5f));
 	UTEST_TRUE("FOV = 90", FMath::IsNearlyEqual(R.FieldOfView, 90.f, 1e-3));
 	UTEST_TRUE("Aperture = 2.8", FMath::IsNearlyEqual(R.Aperture, 2.8f, 1e-3));
@@ -620,10 +619,10 @@ bool FShotSolveDualAnchorTest::RunTest(const FString&)
 	ComposableCameraShotSolverTest::FShotTestWorld TestWorld;
 
 	// PlacementAnchor = Hero (at origin), AimAnchor = Villain (at +400 X).
-	// Camera placed 200 behind Hero (yaw 180 in world basis) → CamPos at
-	// (-200, 0, 0). Camera looks at Villain → faces +X. Villain projects at
+	// Camera placed 200 behind Hero (yaw 180 in world basis) -> CamPos at
+	// (-200, 0, 0). Camera looks at Villain->faces +X. Villain projects at
 	// screen (0, 0). Hero (between camera and Villain) also projects in
-	// front of camera at center (since Hero is on the camera→Villain line,
+	// front of camera at center (since Hero is on the cameraillain line,
 	// just closer).
 	AActor* Hero    = TestWorld.SpawnActorAt(FVector::ZeroVector);
 	AActor* Villain = TestWorld.SpawnActorAt(FVector(400, 0, 0));
@@ -668,7 +667,7 @@ bool FShotSolveDualAnchorTest::RunTest(const FString&)
 }
 
 // ============================================================================
-// AnchorAtScreen — joint Aim+Placement solve (OTS)
+// AnchorAtScreen. Joint Aim+Placement solve (OTS)
 // ============================================================================
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
@@ -683,8 +682,8 @@ bool FShotSolveAnchorAtScreenTest::RunTest(const FString&)
 	ComposableCameraShotSolverTest::FShotTestWorld TestWorld;
 
 	// OTS-style setup:
-	//   Targets[0] = Hero    at (0, 0, 0)         (PlacementAnchor — foreground)
-	//   Targets[1] = Villain at (1000, 0, 0)      (AimAnchor — distant subject)
+	//   Targets[0] = Hero    at (0, 0, 0)         (PlacementAnchor. Foreground)
+	//   Targets[1] = Villain at (1000, 0, 0)      (AimAnchor. Distant subject)
 	//   Aim.ScreenPosition       = (0, 0)           (Villain centered)
 	//   Placement.ScreenPosition = (-0.25, 0)        (Hero on left third)
 	//   Placement.Distance       = 100              (Hero ~1m in front of camera)
@@ -750,14 +749,14 @@ bool FShotSolveAnchorAtScreenTest::RunTest(const FString&)
 		const FVector Forward = R.CameraRotation.Vector();
 		const float Depth = static_cast<float>(
 			FVector::DotProduct(FVector::ZeroVector - R.CameraPosition, Forward));
-		UTEST_TRUE(*FString::Printf(TEXT("Hero depth ≈ Distance=100 (got %.3f)"), Depth),
+		UTEST_TRUE(*FString::Printf(TEXT("Hero depth <=Distance=100 (got %.3f)"), Depth),
 			FMath::IsNearlyEqual(Depth, 100.f, 0.5f));
 	}
 	return true;
 }
 
 // ============================================================================
-// AnchorAtScreen + Aim NoOp — direct algebraic solve
+// AnchorAtScreen + Aim NoOp. Direct algebraic solve
 // ============================================================================
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
@@ -771,7 +770,7 @@ bool FShotSolveAnchorAtScreenWithNoOpAimTest::RunTest(const FString&)
 	using ComposableCameraSystem::ProjectWorldPointToScreen;
 	ComposableCameraShotSolverTest::FShotTestWorld TestWorld;
 
-	// Single target placement with Aim NoOp → camera rotation = identity
+	// Single target placement with Aim NoOp -> camera rotation = identity
 	// (Roll = 0 for this test). Camera placed such that Hero lands at
 	// screen (0.2, -0.1) at depth 250.
 	AActor* Hero = TestWorld.SpawnActorAt(FVector(500, 0, 0));
@@ -784,7 +783,7 @@ bool FShotSolveAnchorAtScreenWithNoOpAimTest::RunTest(const FString&)
 	Shot.Placement.Distance = 250.f;
 	Shot.Placement.ScreenPosition = FVector2D(0.2f, -0.1f);
 
-	// Aim NoOp — AimAnchor unread; AimScreenPos unread.
+	// Aim NoOp -AimAnchor unread; AimScreenPos unread.
 	Shot.Aim.Mode = EShotAimMode::NoOp;
 	Shot.Aim.AimAnchor = ComposableCameraShotSolverTest::MakeSingleTargetAnchor(0);   // ignored
 
@@ -814,25 +813,25 @@ bool FShotSolveAnchorAtScreenWithNoOpAimTest::RunTest(const FString&)
 	const FVector Forward = R.CameraRotation.Vector();
 	const float Depth = static_cast<float>(
 		FVector::DotProduct(FVector(500, 0, 0) - R.CameraPosition, Forward));
-	UTEST_TRUE(*FString::Printf(TEXT("Hero depth ≈ Distance=250 (got %.3f)"), Depth),
+	UTEST_TRUE(*FString::Printf(TEXT("Hero depth <=Distance=250 (got %.3f)"), Depth),
 		FMath::IsNearlyEqual(Depth, 250.f, 0.5f));
 	return true;
 }
 
 // ============================================================================
-// AnchorAtScreen hardening — A.1 polish (pre-flight + clamp + damping)
+// AnchorAtScreen hardening -A.1 polish (pre-flight + clamp + damping)
 // ============================================================================
 //
 // These tests cover the three failure modes the V2.1 hardening pass
 // (`Docs/_HANDOFF_V2.md` Tier A.1) added to `SolveAnchorAtScreen`:
 //
-//   1. Anchor coincidence (PlacementAnchor == AimAnchor) → bValid=false.
+//   1. Anchor coincidence (PlacementAnchor == AimAnchor) ->bValid=false.
 //      Joint solve has no canonical answer; designer should switch to
 //      AnchorOrbit. Replaces the previous "warn + use ForwardVector
 //      fallback" silent-bad-pose behavior.
 //
 //   2. Authored screen positions outside the soft frustum envelope
-//      (`[-0.49, +0.49]²`) → clamped, solve succeeds at the clamped
+//      (`[-0.49, +0.49]`) ->clamped, solve succeeds at the clamped
 //      value. Designer sees a warning so they know their authored value
 //      was modified.
 //
@@ -851,9 +850,8 @@ bool FShotSolveAnchorAtScreenDegenerateAnchorTest::RunTest(const FString&)
 	using namespace ComposableCameraSystem::ShotSolver;
 	ComposableCameraShotSolverTest::FShotTestWorld TestWorld;
 
-	// Single actor — both Placement and Aim anchors point to the SAME
-	// world position. Joint solve has no canonical (PlacementAnchor →
-	// AimAnchor) direction; the hardened solver hard-fails here.
+	// Single actor. Both Placement and Aim anchors point to the SAME
+	// world position. Joint solve has no canonical (PlacementAnchor ->	// AimAnchor) direction; the hardened solver hard-fails here.
 	AActor* Hero = TestWorld.SpawnActorAt(FVector(500, 0, 0));
 
 	FComposableCameraShot Shot;
@@ -895,8 +893,8 @@ bool FShotSolveAnchorAtScreenScreenPosClampTest::RunTest(const FString&)
 	using ComposableCameraSystem::ProjectWorldPointToScreen;
 	ComposableCameraShotSolverTest::FShotTestWorld TestWorld;
 
-	// OTS-style setup, but PlacementScreenPos = (-0.9, 0) — well outside
-	// the soft envelope `[-0.49, +0.49]²`. The hardened solver clamps to
+	// OTS-style setup, but PlacementScreenPos = (-0.9, 0). Well outside
+	// the soft envelope `[-0.49, +0.49]`. The hardened solver clamps to
 	// (-0.49, 0) and continues; verify the camera lands the
 	// PlacementAnchor at the *clamped* screen position, not the authored
 	// one.
@@ -954,9 +952,9 @@ bool FShotSolveAnchorAtScreenDecoupledSettleTest::RunTest(const FString&)
 	using ComposableCameraSystem::ProjectWorldPointToScreen;
 	ComposableCameraShotSolverTest::FShotTestWorld TestWorld;
 
-	// Stressful OTS geometry — short Distance (50cm), off-center
+	// Stressful OTS geometry. Short Distance (50cm), off-center
 	// PlacementScreenPos (-0.4, +0.3) at the corner of the envelope, +
-	// non-zero Roll (20°). The first-frame joint seed should still land
+	// non-zero Roll (20 deg). The first-frame joint seed should still land
 	// both anchors at their authored screen positions before any prior-pose
 	// damping state exists.
 	AActor* Hero    = TestWorld.SpawnActorAt(FVector::ZeroVector);
@@ -1011,7 +1009,7 @@ bool FShotSolveAnchorAtScreenDecoupledSettleTest::RunTest(const FString&)
 			Projected.X, Projected.Y),
 			Projected.Equals(FVector2D(0.1f, -0.05f), 5e-3));
 	}
-	UTEST_TRUE(*FString::Printf(TEXT("Output Roll matches authored 20° (got %.3f)"),
+	UTEST_TRUE(*FString::Printf(TEXT("Output Roll matches authored 20 deg (got %.3f)"),
 		R.CameraRotation.Roll),
 		FMath::IsNearlyEqual(R.CameraRotation.Roll, 20.f, 1e-3));
 	return true;
@@ -1077,7 +1075,7 @@ bool FShotSolveRollPreservesAnchorTest::RunTest(const FString&)
 }
 
 // ============================================================================
-// Cinemachine-style screen-space framing zones — pure-math tests on the
+// Cinemachine-style screen-space framing zones. Pure-math tests on the
 // `ApplyScreenZones` helper. No world / actor / projection needed; the
 // helper consumes pre-computed screen coords and returns the effective
 // screen target the rest of the solver should aim for.
@@ -1106,7 +1104,7 @@ bool FShotZoneDeadInsideHoldsAnchorTest::RunTest(const FString&)
 
 	const FVector2D Target = ApplyScreenZones(Cur, Authored, Zones, /*dt=*/1.f / 60.f);
 
-	// Inside dead zone → eff = 0 → step = 0 → new_err = err = Cur ⇒ Target == Cur.
+	// Inside dead zone ->eff = 0 ->step = 0 ->new_err = err = Cur means Target == Cur.
 	UTEST_TRUE("Dead-zone interior leaves target == current (camera holds)",
 		Target.Equals(Cur, 1e-6));
 	return true;
@@ -1135,7 +1133,7 @@ bool FShotZoneDeadEdgeHoldsAnchorTest::RunTest(const FString&)
 
 	const FVector2D Target = ApplyScreenZones(Cur, Authored, Zones, /*dt=*/1.f / 60.f);
 
-	// |err| == DeadHalf → SubtractDead returns 0 (the `<=` branch). Target
+	// |err| == DeadHalf ->SubtractDead returns 0 (the `<=` branch). Target
 	// = Authored + Err = Cur. The boundary inclusion choice doesn't matter
 	// behaviorally because the residual is either way zero at the edge,
 	// but lock the convention down to catch off-by-epsilon regressions.
@@ -1168,17 +1166,17 @@ bool FShotZoneSoftDampsTowardCenterTest::RunTest(const FString&)
 	const FVector2D Target = ApplyScreenZones(Cur, Authored, Zones, /*dt=*/1.f / 60.f);
 
 	// eff_x = sign(0.2) * (|0.2| - 0.1) = 0.1
-	// eff_after_x = FInterpTo(0.1, 0, 1/60, 5) ≈ 0.1 * (1 - 5/60) ≈ 0.0917
-	// step_x = eff - eff_after ≈ 0.0083  ← this is HOW FAR the anchor
+	// eff_after_x = FInterpTo(0.1, 0, 1/60, 5) <=0.1 * (1 - 5/60) <=0.0917
+	// step_x = eff - eff_after <=0.0083  ->this is HOW FAR the anchor
 	// is moved toward the dead-zone edge this frame.
-	// new_err_x = 0.2 - 0.0083 ≈ 0.1917
-	// Target.X ≈ 0.1917 — between Cur.X (0.2, undamped hold) and 0.1
+	// new_err_x = 0.2 - 0.0083 <=0.1917
+	// Target.X <=0.1917. Between Cur.X (0.2, undamped hold) and 0.1
 	// (snap-to-dead-edge). Strictly between for any 0 < Speed * dt < 1.
 	UTEST_TRUE("Soft-zone target moves toward authored center (X)",
 		Target.X < Cur.X - UE_KINDA_SMALL_NUMBER);
 	UTEST_TRUE("Soft-zone target stops short of dead-zone edge for finite Speed*dt (X)",
 		Target.X > 0.1f + UE_KINDA_SMALL_NUMBER);
-	UTEST_TRUE("Y axis untouched (err_y = 0 → no motion)",
+	UTEST_TRUE("Y axis untouched (err_y = 0 ->no motion)",
 		FMath::IsNearlyEqual(Target.Y, 0.f, 1e-6));
 	return true;
 }
@@ -1198,7 +1196,7 @@ bool FShotZoneSoftSnapsAtZeroSpeedTest::RunTest(const FString&)
 	Zones.DeadZone.Top  = Zones.DeadZone.Bottom = 0.1f;
 	Zones.SoftZone.Left = Zones.SoftZone.Right = 0.3f;
 	Zones.SoftZone.Top  = Zones.SoftZone.Bottom = 0.3f;
-	Zones.HorizontalSpeed  = 0.f;   // FInterpTo with Speed=0 → Target instantly
+	Zones.HorizontalSpeed  = 0.f;   // FInterpTo with Speed=0 ->Target instantly
 	Zones.VerticalSpeed    = 0.f;
 
 	const FVector2D Authored(0.f, 0.f);
@@ -1206,7 +1204,7 @@ bool FShotZoneSoftSnapsAtZeroSpeedTest::RunTest(const FString&)
 
 	const FVector2D Target = ApplyScreenZones(Cur, Authored, Zones, /*dt=*/1.f / 60.f);
 
-	// Speed=0 → eff_after = 0 → step = eff → new_err = err - eff =
+	// Speed=0 ->eff_after = 0 ->step = eff ->new_err = err - eff =
 	// sign(err) * DeadHalf (the dead-zone edge). Target = Authored + new_err.
 	UTEST_TRUE("Speed=0 snaps target X to dead-zone edge",
 		FMath::IsNearlyEqual(Target.X, 0.1f, 1e-4));
@@ -1234,14 +1232,14 @@ bool FShotZoneSoftHardLimitClampTest::RunTest(const FString&)
 	Zones.VerticalSpeed    = 5.f;
 
 	const FVector2D Authored(0.f, 0.f);
-	// Anchor far outside soft zone — e.g. teleport, scene change. Hard
+	// Anchor far outside soft zone. E.g. teleport, scene change. Hard
 	// limit kicks in regardless of damping.
 	const FVector2D Cur(0.8f, -0.7f);
 
 	const FVector2D Target = ApplyScreenZones(Cur, Authored, Zones, /*dt=*/1.f / 60.f);
 
-	// new_err clamped to ±0.3 component-wise; target = Authored + new_err.
-	// Don't depend on the exact pre-clamp damped step — only that the
+	// new_err clamped to 0.3 component-wise; target = Authored + new_err.
+	// Don't depend on the exact pre-clamp damped step. Only that the
 	// clamp is the dominant constraint (anchor never leaves soft zone).
 	UTEST_TRUE("Hard-limit clamps target X to soft half (preserves sign)",
 		FMath::IsNearlyEqual(Target.X, 0.3f, 1e-4));
@@ -1259,8 +1257,7 @@ bool FShotZoneDisabledIsPassthroughTest::RunTest(const FString&)
 {
 	using namespace ComposableCameraSystem::ShotSolver;
 
-	// Note: ApplyScreenZones itself does NOT short-circuit on bEnabled —
-	// the caller (`ResolveEffectiveScreenTarget`) does. This test verifies
+	// Note: ApplyScreenZones itself does NOT short-circuit on bEnabled -	// the caller (`ResolveEffectiveScreenTarget`) does. This test verifies
 	// the *caller-level* contract via SolveShot's exposed surface: a
 	// disabled zone must produce identical pose to the V1 nullptr-prior
 	// path, end-to-end, for an arbitrary in-zone offset.
@@ -1289,7 +1286,7 @@ bool FShotZoneDisabledIsPassthroughTest::RunTest(const FString&)
 	const FShotSolveResult RV1 = SolveShot(Shot, Ctx);
 	UTEST_TRUE("V1 baseline solves", RV1.bValid);
 
-	// Same shot, with prior pose handed to the solver — disabled zones
+	// Same shot, with prior pose handed to the solver. Disabled zones
 	// should still ignore it and produce the V1 hard solve exactly.
 	const FShotPriorPose Prior{ FVector(50, 50, 50), FRotator(10, 20, 30) };
 	const FShotSolveResult RWithPrior = SolveShot(Shot, Ctx, &Prior, /*dt=*/1.f / 60.f);
@@ -1303,11 +1300,11 @@ bool FShotZoneDisabledIsPassthroughTest::RunTest(const FString&)
 }
 
 // ============================================================================
-// V2.2 IIR damping — Distance / FOV / Roll
+// V2.2 IIR damping -Distance / FOV / Roll
 // ============================================================================
 //
 // Each test exercises one damped axis end-to-end through SolveShot:
-//   - Stage 1: PriorPose=nullptr → solver returns V1 authored value (no damping).
+//   - Stage 1: PriorPose=nullptr ->solver returns V1 authored value (no damping).
 //   - Stage 2: PriorPose carries last-frame values (manually offset from
 //              authored to simulate "designer just changed the field"); the
 //              solver should produce a value strictly between prior and
@@ -1344,15 +1341,14 @@ bool FShotSolveDistanceDampingTest::RunTest(const FString&)
 	Ctx.ViewportAspectRatio = 1.f;
 	Ctx.PreviousFrameFOV = 90.f;
 
-	// Stage 1: PriorPose = nullptr → no damping → EffectiveDistance == authored.
+	// Stage 1: PriorPose = nullptr ->no damping ->EffectiveDistance == authored.
 	{
 		Shot.Placement.DistanceSpeed = 5.f;   // damping requested but no prior
 		const FShotSolveResult R = SolveShot(Shot, Ctx);
-		UTEST_TRUE("Stage 1: no prior → snaps to authored",
+		UTEST_TRUE("Stage 1: no prior ->snaps to authored",
 			FMath::IsNearlyEqual(R.EffectiveDistance, 200.f, 1e-3));
 	}
-	// Stage 2: prior LastDistance = 100 + Speed=5 + dt=1/60 →
-	//   FInterpTo(100, 200, 1/60, 5) ≈ 100 + (200-100) * (5/60) ≈ 108.33
+	// Stage 2: prior LastDistance = 100 + Speed=5 + dt=1/60 ->	//   FInterpTo(100, 200, 1/60, 5) <=100 + (200-100) * (5/60) <=108.33
 	{
 		Shot.Placement.DistanceSpeed = 5.f;
 		FShotPriorPose Prior;
@@ -1367,7 +1363,7 @@ bool FShotSolveDistanceDampingTest::RunTest(const FString&)
 			FMath::IsNearlyEqual(R.EffectiveDistance,
 				FMath::FInterpTo(100.f, 200.f, 1.f / 60.f, 5.f), 1e-3));
 	}
-	// Stage 3: Speed = 0 → snap to authored even with valid prior.
+	// Stage 3: Speed = 0 ->snap to authored even with valid prior.
 	{
 		Shot.Placement.DistanceSpeed = 0.f;
 		FShotPriorPose Prior;
@@ -1404,11 +1400,11 @@ bool FShotSolveFOVDampingTest::RunTest(const FString&)
 	Ctx.ViewportAspectRatio = 1.f;
 	Ctx.PreviousFrameFOV = 90.f;
 
-	// Stage 1: no prior → snap.
+	// Stage 1: no prior->snap.
 	{
 		Shot.Lens.FOVSpeed = 5.f;
 		const FShotSolveResult R = SolveShot(Shot, Ctx);
-		UTEST_TRUE("Stage 1: no prior → FOV = authored",
+		UTEST_TRUE("Stage 1: no prior ->FOV = authored",
 			FMath::IsNearlyEqual(R.FieldOfView, 90.f, 1e-3));
 	}
 	// Stage 2: prior LastFOV = 60, target = 90, Speed = 5, dt = 1/60.
@@ -1424,13 +1420,13 @@ bool FShotSolveFOVDampingTest::RunTest(const FString&)
 			FMath::IsNearlyEqual(R.FieldOfView,
 				FMath::FInterpTo(60.f, 90.f, 1.f / 60.f, 5.f), 1e-3));
 	}
-	// Stage 3: sentinel LastFOV = -1 → no prior → snap.
+	// Stage 3: sentinel LastFOV = -1 ->no prior->snap.
 	{
 		Shot.Lens.FOVSpeed = 5.f;
 		FShotPriorPose Prior;
 		Prior.LastFOV = -1.f;   // sentinel
 		const FShotSolveResult R = SolveShot(Shot, Ctx, &Prior, 1.f / 60.f);
-		UTEST_TRUE("Stage 3: sentinel LastFOV → snap to authored",
+		UTEST_TRUE("Stage 3: sentinel LastFOV ->snap to authored",
 			FMath::IsNearlyEqual(R.FieldOfView, 90.f, 1e-3));
 	}
 	return true;
@@ -1461,15 +1457,15 @@ bool FShotSolveRollDampingTest::RunTest(const FString&)
 	Ctx.ViewportAspectRatio = 1.f;
 	Ctx.PreviousFrameFOV = 90.f;
 
-	// Stage 1: no prior → snap.
+	// Stage 1: no prior->snap.
 	{
 		Shot.Roll = 30.f;
 		Shot.RollSpeed = 5.f;
 		const FShotSolveResult R = SolveShot(Shot, Ctx);
-		UTEST_TRUE("Stage 1: no prior → Roll = authored",
+		UTEST_TRUE("Stage 1: no prior ->Roll = authored",
 			FMath::IsNearlyEqual(R.CameraRotation.Roll, 30.f, 1e-3));
 	}
-	// Stage 2: prior LastRoll = 0, target = 30 → damped between.
+	// Stage 2: prior LastRoll = 0, target = 30 ->damped between.
 	{
 		Shot.Roll = 30.f;
 		Shot.RollSpeed = 5.f;
@@ -1480,31 +1476,31 @@ bool FShotSolveRollDampingTest::RunTest(const FString&)
 			R.CameraRotation.Roll > 0.f + UE_KINDA_SMALL_NUMBER &&
 			R.CameraRotation.Roll < 30.f - UE_KINDA_SMALL_NUMBER);
 	}
-	// Stage 3: wrap-aware short-way. LastRoll = +175°, target = -175°
-	// (visual delta = +10°). Damped Roll should move TOWARD the short
-	// direction and stay close to +175°, not jump backwards through 0.
+	// Stage 3: wrap-aware short-way. LastRoll = +175 deg, target = -175 deg
+	// (visual delta = +10 deg). Damped Roll should move TOWARD the short
+	// direction and stay close to +175 deg, not jump backwards through 0.
 	{
 		Shot.Roll = -175.f;
 		Shot.RollSpeed = 5.f;
 		FShotPriorPose Prior;
 		Prior.LastRoll = 175.f;
 		const FShotSolveResult R = SolveShot(Shot, Ctx, &Prior, 1.f / 60.f);
-		// Short-way step: NormalizeAxis(-175 - 175) = +10°, step = 10*5/60 ≈ 0.833°.
-		// Effective ≈ NormalizeAxis(175 + 0.833) ≈ 175.833° (still positive).
-		UTEST_TRUE("Stage 3: wrap-aware short-way Roll stays positive (≈ +175.8°)",
+		// Short-way step: NormalizeAxis(-175 - 175) = +10 deg, step = 10*5/60 <=0.833 deg.
+		// Effective <=NormalizeAxis(175 + 0.833) <=175.833 deg (still positive).
+		UTEST_TRUE("Stage 3: wrap-aware short-way Roll stays positive (<=+175.8 deg)",
 			R.CameraRotation.Roll > 175.f);
 		UTEST_TRUE("Stage 3: matches DampAngleDeg(175, -175, 1/60, 5)",
 			FMath::IsNearlyEqual(R.CameraRotation.Roll,
 				DampAngleDeg(175.f, -175.f, 1.f / 60.f, 5.f), 1e-3));
 	}
-	// Stage 4: sentinel LastRoll = FLT_MAX → no prior → snap.
+	// Stage 4: sentinel LastRoll = FLT_MAX ->no prior->snap.
 	{
 		Shot.Roll = 30.f;
 		Shot.RollSpeed = 5.f;
 		FShotPriorPose Prior;
 		Prior.LastRoll = TNumericLimits<float>::Max();
 		const FShotSolveResult R = SolveShot(Shot, Ctx, &Prior, 1.f / 60.f);
-		UTEST_TRUE("Stage 4: sentinel LastRoll → snap to authored",
+		UTEST_TRUE("Stage 4: sentinel LastRoll ->snap to authored",
 			FMath::IsNearlyEqual(R.CameraRotation.Roll, 30.f, 1e-3));
 	}
 	return true;

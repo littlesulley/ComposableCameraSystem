@@ -36,7 +36,7 @@ namespace
 	 *  the dup, crashing instead of falling through to a hard cut.
 	 *
 	 *  Returns nullptr on failure (logged with the call site). Callers should
-	 *  treat that as "no transition" — `EvaluationTree::OnActivateNewCamera`
+	 *  treat that as "no transition" -`EvaluationTree::OnActivateNewCamera`
 	 *  already handles a null Transition by hard-cutting on the next eval
 	 *  frame, which is the documented degradation path. */
 	UComposableCameraTransitionBase* DuplicateTransitionOrNull(
@@ -61,8 +61,7 @@ namespace
 	/** Wrap `World->SpawnActorDeferred<AComposableCameraCameraBase>` with the
 	 *  null-checks every call site needs. SpawnActorDeferred legitimately
 	 *  returns nullptr on class-load failure, world teardown, blocked spawn
-	 *  collision queries, and a handful of other late-init-time conditions —
-	 *  every Director activation path used to dereference the result
+	 *  collision queries, and a handful of other late-init-time conditions - every Director activation path used to dereference the result
 	 *  immediately to write `bIsTransient` / `LifeTime` / etc., crashing on
 	 *  null instead of falling through to the PCM's outer fallback. The PCM
 	 *  caller's null-handling contract still applies; this helper just makes
@@ -77,13 +76,13 @@ namespace
 		if (!World)
 		{
 			UE_LOG(LogComposableCameraSystem, Warning,
-				TEXT("%s: cannot spawn camera — World is null."), CallSite);
+				TEXT("%s: cannot spawn camera -World is null."), CallSite);
 			return nullptr;
 		}
 		if (!*CameraClass)
 		{
 			UE_LOG(LogComposableCameraSystem, Warning,
-				TEXT("%s: cannot spawn camera — CameraClass is null."), CallSite);
+				TEXT("%s: cannot spawn camera -CameraClass is null."), CallSite);
 			return nullptr;
 		}
 		AComposableCameraCameraBase* Spawned =
@@ -117,7 +116,7 @@ void UComposableCameraDirector::AddReferencedObjects(UObject* InThis, FReference
 	// `LastEvaluatedPose` / `PreviousEvaluatedPose` are non-UPROPERTY fields
 	// (they're owned by the C++ class body, not surfaced through reflection)
 	// so the GC's reflection walk does not see UObject references inside
-	// their embedded FPostProcessSettings — color-grading materials, vignette
+	// their embedded FPostProcessSettings. Color-grading materials, vignette
 	// textures, weighted-blendable assets. Walk them explicitly via the
 	// pose USTRUCT's reflected property graph so a material that is only
 	// referenced through a cached director pose can't get collected mid-
@@ -274,11 +273,11 @@ AComposableCameraCameraBase* UComposableCameraDirector::ActivateNewCamera(
 
 		// Initialization order when creating a new camera:
 		//    Construct (SpawnActorDeferred)
-		// -> Initialize (Initialize, node initializers applied here)
-		// -> PreBeginPlay (OnPreBeginplayEvent — for type-asset cameras this
+		// ->Initialize (Initialize, node initializers applied here)
+		// ->PreBeginPlay (OnPreBeginplayEvent. For type-asset cameras this
 		//    is OnTypeAssetCameraConstructed, which populates CameraNodes)
-		// -> Modifiers (ApplyModifiers — must run after nodes exist)
-		// -> BeginPlay (FinishSpawning).
+		// ->Modifiers (ApplyModifiers. Must run after nodes exist)
+		// ->BeginPlay (FinishSpawning).
 		NewCamera->Initialize(PlayerCameraManager);
 		OnPreBeginplayEvent.ExecuteIfBound(NewCamera);
 		PlayerCameraManager->ApplyModifiers(NewCamera, true);
@@ -644,7 +643,7 @@ AComposableCameraCameraBase* UComposableCameraDirector::ResumeCurrentCameraWithR
 
 	if (!EvaluationTree || !EvaluationTree->HasActiveCamera())
 	{
-		// Nothing to resume — caller must take the ActivateNew path.
+		// Nothing to resume. Caller must take the ActivateNew path.
 		UE_LOG(LogComposableCameraSystem, Warning,
 			TEXT("ResumeCurrentCameraWithReferenceSource: Director has no running camera to resume. Use ActivateNewCameraWithReferenceSource instead."));
 		return nullptr;
@@ -652,7 +651,7 @@ AComposableCameraCameraBase* UComposableCameraDirector::ResumeCurrentCameraWithR
 
 	// Configure the transition's InitParams from SourceDirector's blended
 	// output so transitions like Inertialized get the right initial
-	// velocity — source context's render output is exactly what the user
+	// velocity. Source context's render output is exactly what the user
 	// was just seeing, so the new pop transition blends FROM that into
 	// our existing tree's output.
 	if (TransitionInstance)
@@ -669,7 +668,7 @@ AComposableCameraCameraBase* UComposableCameraDirector::ResumeCurrentCameraWithR
 	EvaluationTree->OnResumeCurrentTreeWithReferenceSource(
 		TransitionInstance, SourceDirector, bFreezeSourceCamera);
 
-	// RunningCamera unchanged — it was already the correct camera before
+	// RunningCamera unchanged. It was already the correct camera before
 	// this call and remains so after the tree is rewrapped.
 	return RunningCamera;
 }
@@ -683,12 +682,12 @@ FComposableCameraPose UComposableCameraDirector::Evaluate(float DeltaTime)
 
 	// No reentrancy guard is needed here. Inter-context ReferenceLeaves
 	// now hold a TSharedPtr SNAPSHOT of the source tree rather than a
-	// live pointer to the source Director — they re-evaluate the captured
+	// live pointer to the source Director. They re-evaluate the captured
 	// subtree directly, never calling back into Director::Evaluate. The
 	// resulting reachable graph is a pure DAG (same original leaf may be
 	// reached via multiple paths; per-node memoization at the wrapper
 	// layer collapses duplicate work), so Director::Evaluate is invoked
-	// at most once per director per frame — by the ContextStack on the
+	// at most once per director per frame. By the ContextStack on the
 	// single active director. Pending-destroy directors are never ticked
 	// via Evaluate; their trees only contribute through the snapshot
 	// TSharedPtrs held by the active tree.
@@ -697,7 +696,7 @@ FComposableCameraPose UComposableCameraDirector::Evaluate(float DeltaTime)
 
 	// Apply the patch overlay pass after the EvaluationTree produces its blended
 	// pose. PatchManager.Apply iterates active patches sorted by (LayerIndex,
-	// PushSequence) and chains each patch's evaluator on top — see
+	// PushSequence) and chains each patch's evaluator on top. See
 	// UComposableCameraPatchManager::Apply. A null PatchManager would be a
 	// construction-time bug, but the guard keeps test-only Director paths
 	// (NewObject<UComposableCameraDirector>() with no Outer) safe.
@@ -705,7 +704,7 @@ FComposableCameraPose UComposableCameraDirector::Evaluate(float DeltaTime)
 		? PatchManager->Apply(DeltaTime, TreePose)
 		: TreePose;
 
-	// Sync RunningCamera — the tree may have changed it during collapse.
+	// Sync RunningCamera. The tree may have changed it during collapse.
 	RunningCamera = EvaluationTree->GetRunningCamera();
 	return LastEvaluatedPose;
 }
@@ -725,7 +724,7 @@ void UComposableCameraDirector::DestroyAllCameras()
 
 void UComposableCameraDirector::BuildDebugSnapshot(FComposableCameraContextSnapshot& OutSnapshot) const
 {
-	// Running camera display name: type asset → gameplay tag → UObject name → "(none)".
+	// Running camera display name: type asset ->gameplay tag ->UObject name ->"(none)".
 	if (RunningCamera)
 	{
 		if (const UComposableCameraTypeAsset* TA = RunningCamera->SourceTypeAsset.Get())

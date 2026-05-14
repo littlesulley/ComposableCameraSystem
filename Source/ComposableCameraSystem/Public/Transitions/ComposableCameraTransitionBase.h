@@ -74,24 +74,24 @@ public:
 	/**
 	 * Evaluate the transition's timing curve at a given normalized progress
 	 * in [0, 1]. Returns the blend weight this transition would apply at
-	 * that progress — i.e. the shape of its Percentage-over-duration curve.
+	 * that progress. I.e. the shape of its Percentage-over-duration curve.
 	 *
 	 * Used exclusively by the debug panel to render a sparkline preview of
 	 * the blend curve on top of the transition's progress bar. The call
 	 * site is a one-per-frame-per-active-transition sample loop, so the
 	 * implementation must stay cheap (no allocations, no state reads that
-	 * mutate). NOT used on the runtime evaluation hot path — real blend
+	 * mutate). NOT used on the runtime evaluation hot path. Real blend
 	 * weight is still derived from `Percentage` in `OnEvaluate` so that
 	 * per-transition state (polynomials, curves, etc.) keeps driving it.
 	 *
 	 * Default implementation returns the input unchanged, giving a linear
-	 * diagonal — the right fallback for transitions whose concept of
+	 * diagonal. The right fallback for transitions whose concept of
 	 * "blend weight" isn't a simple scalar of normalized time (Inertialized
 	 * position path, for example, is a polynomial trajectory, not a scalar
 	 * lerp; showing a diagonal there still reads as "progress = time" which
 	 * is accurate for its rotational / overall progression).
 	 *
-	 * Concrete overrides should be pure math — no reads of `RemainingTime`,
+	 * Concrete overrides should be pure math. No reads of `RemainingTime`,
 	 * `TransitionTime`, or any internal state. Use only the `NormalizedTime`
 	 * argument plus the transition's authored UPROPERTYs (Exp, bSmootherStep,
 	 * EvaluationCurveType, etc.).
@@ -136,7 +136,7 @@ public:
 	/**
 	 * Per-frame pose snapshot captured for debug visualization.
 	 *
-	 * Deliberately narrower than `FComposableCameraPose` — we only keep the
+	 * Deliberately narrower than `FComposableCameraPose`. We only keep the
 	 * fields `DrawStandardTransitionDebug` actually reads (position,
 	 * rotation, resolved FOV in degrees). Skipping `FPostProcessSettings`
 	 * matters: that struct embeds `TObjectPtr<UTexture>` / similar UObject
@@ -144,7 +144,7 @@ public:
 	 * and our cache is NOT a UPROPERTY, so those references wouldn't be
 	 * tracked by the GC. Caching only POD-like fields sidesteps the issue
 	 * entirely AND shrinks each transition's per-frame debug memory from
-	 * ~3× sizeof(FPostProcessSettings) to a few dozen bytes.
+	 * ~3x sizeof(FPostProcessSettings) to a few dozen bytes.
 	 */
 	struct FTransitionDebugSnapshot
 	{
@@ -153,7 +153,7 @@ public:
 		float    FOVDegrees { 90.f };
 	};
 
-	// ─── Debug: per-frame pose cache ──────────────────────────────────────
+	// --- Debug: per-frame pose cache --------------------------------------
 	//
 	// Written every frame by `FComposableCameraEvaluationTreeInnerNodeWrapper::Evaluate`
 	// (the single place where source / target / blended are all visible
@@ -171,7 +171,7 @@ public:
 	 * Invoked from `UComposableCameraEvaluationTree::DrawTransitionsDebug`
 	 * while `CCS.Debug.Viewport` is on, once per frame for every transition
 	 * that currently sits in an Inner node of the active director's tree
-	 * (and, recursively, of any referenced director's tree — inter-context
+	 * (and, recursively, of any referenced director's tree. Inter-context
 	 * blends see both sides).
 	 *
 	 * Default implementation is empty. Concrete transitions override, check
@@ -186,7 +186,7 @@ public:
 	 * @param bViewerIsOutsideCamera True when the player is NOT viewing
 	 *                              through the camera (F8 eject / SIE).
 	 *                              Overrides use this to skip gizmos that
-	 *                              would occlude the near plane — mostly
+	 *                              would occlude the near plane. Mostly
 	 *                              the source/target frustum pyramids.
 	 *
 	 * Compiled out in shipping builds.
@@ -198,14 +198,13 @@ protected:
 	 * Shared helper that paints the canonical source / target / progress
 	 * endpoint markers. Each concrete transition's override still needs to
 	 * draw its OWN path polyline (straight line, arc, polynomial, spline,
-	 * rail, etc.) on top of these markers — the helper is deliberately
+	 * rail, etc.) on top of these markers. The helper is deliberately
 	 * silent about path shape because that's per-transition-type.
 	 *
 	 * Always drawn (possessed play + F8 eject):
 	 *   - Green sphere at LastDebugSource.Position  (r = 15)
 	 *   - Blue sphere at LastDebugTarget.Position    (r = 15)
-	 *   - AccentColor sphere at LastDebugBlended.Position (r = 20) —
-	 *     the actual camera position this frame. For non-linear transitions
+	 *   - AccentColor sphere at LastDebugBlended.Position (r = 20) - the actual camera position this frame. For non-linear transitions
 	 *     (Spline, Cylindrical, Inertialized, PathGuided) this will visibly
 	 *     sit off the straight source-to-target axis.
 	 *
@@ -218,7 +217,7 @@ protected:
 	 * source/target frustums would pile up against the near plane.
 	 *
 	 * AccentColor should be distinct from every node-gizmo color in the
-	 * codebase (see `Docs/TechDoc.md §3.20.4` for the reserved-color table).
+	 * codebase (see `Docs/TechDoc.md Section 3.20.4` for the reserved-color table).
 	 */
 	void DrawStandardTransitionDebug(class UWorld* World, bool bViewerIsOutsideCamera, const FColor& AccentColor) const;
 #endif // !UE_BUILD_SHIPPING

@@ -15,8 +15,8 @@ class UComposableCameraTransitionDataAsset;
  * FName. Exists as a dedicated USTRUCT (rather than a naked TMap field on the
  * row) so the editor module can register an IPropertyTypeCustomization for it.
  *
- * WHY THIS WRAPPER EXISTS: UE's FStructureDetailsView — the panel used by the
- * DataTable editor to edit a row — does NOT invoke IPropertyTypeCustomization
+ * WHY THIS WRAPPER EXISTS: UE's FStructureDetailsView. The panel used by the
+ * DataTable editor to edit a row. Does NOT invoke IPropertyTypeCustomization
  * at the ROOT struct level. It only applies customizations to child struct
  * properties. If we customized FComposableCameraParameterTableRow directly,
  * the customization would never fire for DataTable row editing. Wrapping the
@@ -24,7 +24,7 @@ class UComposableCameraTransitionDataAsset;
  * view will route through our customization, and from there we walk up to
  * the parent row to find the sibling CameraType.
  *
- * At runtime, code reads Row.Parameters.Values directly — this struct exists
+ * At runtime, code reads Row.Parameters.Values directly. This struct exists
  * purely to give the editor a customization hook.
  */
 USTRUCT(BlueprintType)
@@ -35,7 +35,7 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraExposedParameterValues
 	/**
 	 * Serialized per-parameter values keyed by the exposed parameter's FName.
 	 *
-	 * Not authored directly in the DataTable editor — the property-type
+	 * Not authored directly in the DataTable editor. The property-type
 	 * customization generates a widget per parameter based on the parent row's
 	 * selected CameraType and round-trips values through
 	 * FComposableCameraParameterBlock::ApplyStringValue at activation time.
@@ -81,14 +81,13 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraParameterTableRow : public FT
 
 	/** Activation parameters forwarded to the context stack when this row is
 	 *  used. Contains pose preservation, initial transform, transient settings,
-	 *  etc. — identical to the struct exposed on the K2 node. */
+	 *  etc.. Identical to the struct exposed on the K2 node. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera")
 	FComposableCameraActivateParams ActivationParams;
 
 	/**
 	 * Per-parameter values for this row's CameraType. The wrapper struct
-	 * exists so the editor can hang an IPropertyTypeCustomization off it —
-	 * customizations do not fire at the root of FStructureDetailsView, only
+	 * exists so the editor can hang an IPropertyTypeCustomization off it - customizations do not fire at the root of FStructureDetailsView, only
 	 * on child struct properties.
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera", meta = (DisplayName = "Exposed Parameters"))

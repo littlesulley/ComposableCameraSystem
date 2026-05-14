@@ -1,4 +1,4 @@
-﻿// Copyright Sulley. All rights reserved.
+// Copyright Sulley. All rights reserved.
 
 #pragma once
 
@@ -26,14 +26,14 @@ public:
 	/**
 	 * Named camera contexts that can be used with ActivateCamera.
 	 * Each entry is just a name (e.g., "Gameplay", "UI", "LevelSequence").
-	 * The first entry is treated as the base context — it is always present and cannot be popped.
+	 * The first entry is treated as the base context - it is always present and cannot be popped.
 	 * The context stack is strict LIFO: contexts push on top and pop from top.
 	 */
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Context Stack")
 	TArray<FName> ContextNames;
 
-	// (V2.2: the AnchorAtScreen Picard tuning fields — PicardMaxIterations,
-	// PicardConvergenceTolerance, PicardRelaxation — were removed when the
+	// (V2.2: the AnchorAtScreen Picard tuning fields - PicardMaxIterations,
+	// PicardConvergenceTolerance, PicardRelaxation - were removed when the
 	// joint solver was replaced with a Cinemachine-style decoupled
 	// Position+Rotation pipeline. The decoupled pipeline is closed-form,
 	// has no iteration to tune.)

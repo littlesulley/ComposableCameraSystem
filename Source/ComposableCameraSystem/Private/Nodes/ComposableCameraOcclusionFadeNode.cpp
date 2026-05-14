@@ -29,7 +29,7 @@ namespace
 	static TAutoConsoleVariable<int32> CVarShowOcclusionFadeGizmo(
 		TEXT("CCS.Debug.Viewport.OcclusionFade"),
 		0,
-		TEXT("Show OcclusionFadeNode gizmo: red endpoint sphere at target (always), red sweep line camera→target (F8 / SIE only), cyan proximity sphere at camera (always).\n")
+		TEXT("Show OcclusionFadeNode gizmo: red endpoint sphere at target (always), red sweep line camera-to-target (F8 / SIE only), cyan proximity sphere at camera (always).\n")
 		TEXT("Requires `CCS.Debug.Viewport 1`."),
 		ECVF_Default);
 }
@@ -39,7 +39,7 @@ void UComposableCameraOcclusionFadeNode::OnInitialize_Implementation()
 {
 	Super::OnInitialize_Implementation();
 
-	// Clear anything left over from a previous activation — a re-used node
+	// Clear anything left over from a previous activation. A re-used node
 	// UObject could still hold records to destroyed components, and we want
 	// every activation to start from a clean slate.
 	RestoreAllOverrides();
@@ -69,18 +69,18 @@ void UComposableCameraOcclusionFadeNode::OnTickNode_Implementation(
 	float /*DeltaTime*/, const FComposableCameraPose& CurrentCameraPose, FComposableCameraPose& OutCameraPose)
 {
 	// World resolves through the owning camera (an AActor), which works both
-	// with and without a PCM — important for the Level Sequence authoring
+	// with and without a PCM. Important for the Level Sequence authoring
 	// path where PCM is null.
 	UWorld* World = GetOwningCamera() ? GetOwningCamera()->GetWorld() : nullptr;
 	if (!World || !OcclusionMaterial)
 	{
-		// No world or no transparency material — node is a no-op this tick.
+		// No world or no transparency material. Node is a no-op this tick.
 		// The null-material case was already logged at OnInitialize.
 		return;
 	}
 
-	// ── This is a position-agnostic node; OutCameraPose is passed through
-	// untouched. Read camera position from the upstream pose. ──
+	// -- This is a position-agnostic node; OutCameraPose is passed through
+	// untouched. Read camera position from the upstream pose. --
 	const FVector CameraPos = OutCameraPose.Position;
 	LastCameraPosition = CameraPos;
 
@@ -88,12 +88,12 @@ void UComposableCameraOcclusionFadeNode::OnTickNode_Implementation(
 	const bool bHasTarget = ResolveTargetPoint(TargetPos);
 	LastResolvedTargetPoint = TargetPos;
 
-	// ── Gather this frame's desired-to-fade set from both detection paths.
-	// DesiredFadedScratch is a member-scoped TSet — Reset on entry clears
+	// -- Gather this frame's desired-to-fade set from both detection paths.
+	// DesiredFadedScratch is a member-scoped TSet -Reset on entry clears
 	// any leftover from a (defensive: shouldn't happen) prior abnormal
-	// exit, then Reserve to the empirical ≤16 steady-state size so the
+	// exit, then Reserve to the empirical >=6 steady-state size so the
 	// internal bucket array sits at full capacity from frame two onward.
-	// Reset (NOT Empty) keeps the existing allocation. ──
+	// Reset (NOT Empty) keeps the existing allocation. --
 	DesiredFadedScratch.Reset();
 	DesiredFadedScratch.Reserve(16);
 
@@ -105,7 +105,7 @@ void UComposableCameraOcclusionFadeNode::OnTickNode_Implementation(
 	}
 	else
 	{
-		// Detection disabled or target missing — drop any in-flight sweep
+		// Detection disabled or target missing. Drop any in-flight sweep
 		// handle so we don't consume a stale result on the next enabled frame.
 		PendingSweepHandle = FTraceHandle{};
 	}
@@ -116,9 +116,9 @@ void UComposableCameraOcclusionFadeNode::OnTickNode_Implementation(
 		RunProximityQuery(World, CameraPos, DesiredFadedScratch);
 	}
 
-	// ── Delta against AppliedMaterialOverrides: restore components that left
+	// -- Delta against AppliedMaterialOverrides: restore components that left
 	// the set, then apply to components that just entered. Iterate backwards
-	// because RestoreAndRemoveOverrideAt does a RemoveAtSwap. ──
+	// because RestoreAndRemoveOverrideAt does a RemoveAtSwap. --
 	for (int32 i = AppliedMaterialOverrides.Num() - 1; i >= 0; --i)
 	{
 		UPrimitiveComponent* Comp = AppliedMaterialOverrides[i].Component.Get();
@@ -133,7 +133,7 @@ void UComposableCameraOcclusionFadeNode::OnTickNode_Implementation(
 		ApplyOcclusionMaterial(Comp);
 	}
 
-	// ── End-of-tick clear — see lifetime contract on DesiredFadedScratch.
+	// -- End-of-tick clear. See lifetime contract on DesiredFadedScratch.
 	// Raw UPrimitiveComponent* entries must NOT live across a GC sweep;
 	// Reset() drops them while keeping the bucket-array allocation hot
 	// for the next tick.
@@ -144,20 +144,19 @@ bool UComposableCameraOcclusionFadeNode::ResolveTargetPoint(FVector& OutTargetPo
 {
 	// Phase A migration (V1.x): delegates to the consolidated helper in
 	// DataAssets/ComposableCameraTargetInfo.h. Bit-exact behavior parity
-	// with the prior inline implementation — three cases:
-	//   1. Bone mode + valid bone   → socket location only, no Z offset.
-	//   2. Bone mode + invalid bone → fall back to ActorLocation + Z offset.
-	//   3. Actor mode               → ActorLocation + Z offset.
+	// with the prior inline implementation. Three cases:
+	//   1. Bone mode + valid bone   -> socket location only, no Z offset.
+	//   2. Bone mode + invalid bone ->fall back to ActorLocation + Z offset.
+	//   3. Actor mode->ActorLocation + Z offset.
 	// The struct's Offset is set to ZeroVector and the legacy Z offset is
 	// added by THIS call site only when ResolveWorldPoint reports it did
 	// NOT use the bone path (OutUsedBone == false). This preserves the
 	// original "Z offset applies only on the actor branch" semantic exactly.
 	FComposableCameraTargetInfo Info;
-	// Explicit `.Get()` to convert TObjectPtr → AActor* → TSoftObjectPtr —
-	// the unambiguous chain. The TargetInfo struct now uses TSoftObjectPtr
+	// Explicit `.Get()` to convert TObjectPtr->AActor* ->TSoftObjectPtr -	// the unambiguous chain. The TargetInfo struct now uses TSoftObjectPtr
 	// (V1.x) so its Details-panel picker can span level actors.
 	Info.Actor               = ComposableCameraSystem::ResolveActorInput(
-		PivotActorSource, PivotActor.Get(), GetOwningPlayerCameraManager());
+		PivotActorSource, PivotActor.Get(), GetOwningPlayerCameraManager(), this);
 	Info.bUseBoneAsPivot     = bUseBoneForDetection;
 	Info.BoneName            = BoneName;
 	Info.Offset              = FVector::ZeroVector;
@@ -187,7 +186,7 @@ void UComposableCameraOcclusionFadeNode::ConsumePendingSweep(
 	FTraceDatum Datum;
 	if (!World->QueryTraceData(PendingSweepHandle, Datum))
 	{
-		// Result not ready yet — single-frame stall. We'll pick it up next
+		// Result not ready yet. Single-frame stall. We'll pick it up next
 		// tick. Don't invalidate the handle.
 		return;
 	}
@@ -214,11 +213,11 @@ void UComposableCameraOcclusionFadeNode::SubmitOcclusionSweep(
 	Params.TraceTag = OcclusionTraceTag;
 	Params.OwnerTag = OcclusionTraceOwnerTag;
 
-	// Auto-ignore the PivotActor — the sweep terminates at its location, and
+	// Auto-ignore the PivotActor. The sweep terminates at its location, and
 	// if we didn't ignore it, the target itself would light up as the first
 	// "occluder" every frame.
 	AActor* EffectivePivotActor = ComposableCameraSystem::ResolveActorInput(
-		PivotActorSource, PivotActor.Get(), GetOwningPlayerCameraManager());
+		PivotActorSource, PivotActor.Get(), GetOwningPlayerCameraManager(), this);
 	if (EffectivePivotActor)
 	{
 		Params.AddIgnoredActor(EffectivePivotActor);
@@ -251,18 +250,18 @@ void UComposableCameraOcclusionFadeNode::SubmitOcclusionSweep(
 void UComposableCameraOcclusionFadeNode::RunProximityQuery(
 	UWorld* World, const FVector& CameraPos, TSet<UPrimitiveComponent*>& OutFadableComponents)
 {
-	// Default to APawn when the class is unset — matches the common
+	// Default to APawn when the class is unset. Matches the common
 	// "characters and NPCs" intent without requiring configuration.
 	const UClass* EffectiveClass = ProximityActorClass ? *ProximityActorClass : APawn::StaticClass();
 
-	// Member-scoped scratch — Reset (not Empty) keeps the array allocation
+	// Member-scoped scratch -Reset (not Empty) keeps the array allocation
 	// hot across ticks. OverlapMultiByObjectType appends to OutOverlaps so
 	// we must clear before the call. FOverlapResult uses TWeakObjectPtr
-	// internally → GC-safe even if entries linger transiently.
+	// internally->GC-safe even if entries linger transiently.
 	ProximityOverlapsScratch.Reset();
 	const FCollisionShape Shape = FCollisionShape::MakeSphere(FMath::Max(ProximityRadius, 0.f));
 
-	// Use an object-type query on ECC_Pawn — that's what Pawn-derived actors
+	// Use an object-type query on ECC_Pawn. That's what Pawn-derived actors
 	// register on in stock project settings, and it's the cheapest way to
 	// avoid paging in every static prop near the camera. Non-pawn proximity
 	// targets are rare; if ever needed, widen the query to an additional
@@ -272,7 +271,7 @@ void UComposableCameraOcclusionFadeNode::RunProximityQuery(
 
 	FCollisionQueryParams QueryParams(SCENE_QUERY_STAT(ComposableCameraOcclusionFadeProximity), false);
 	AActor* EffectivePivotActor = ComposableCameraSystem::ResolveActorInput(
-		PivotActorSource, PivotActor.Get(), GetOwningPlayerCameraManager());
+		PivotActorSource, PivotActor.Get(), GetOwningPlayerCameraManager(), this);
 	if (EffectivePivotActor && bIgnorePivotActorInProximity)
 	{
 		QueryParams.AddIgnoredActor(EffectivePivotActor);
@@ -314,11 +313,11 @@ bool UComposableCameraOcclusionFadeNode::PassesFadeFilters(
 	if (!bIsSkeletal && !bIsStatic)
 	{
 		// Other primitive kinds (instanced, geometry collection) pass through
-		// both toggles — there's no separate switch today. If a project wants
+		// both toggles. There's no separate switch today. If a project wants
 		// to gate those, split the switches when the need actually appears.
 	}
 
-	// Component-tag filter — sweep-only, proximity skips it.
+	// Component-tag filter. Sweep-only, proximity skips it.
 	if (bApplyOccluderTagFilter && !OccluderComponentTag.IsNone())
 	{
 		if (!Component->ComponentHasTag(OccluderComponentTag))
@@ -335,8 +334,7 @@ void UComposableCameraOcclusionFadeNode::CollectFadableComponentsOnActor(
 {
 	if (!Actor) { return; }
 
-	// TInlineAllocator<8> stores the first 8 elements inline on the stack —
-	// most pawns carry a handful of mesh components, so the heap is never
+	// TInlineAllocator<8> stores the first 8 elements inline on the stack -	// most pawns carry a handful of mesh components, so the heap is never
 	// touched in the common case. AActor::GetComponents<T> accepts an
 	// allocator-templated TArray since UE 4.18.
 	TArray<UPrimitiveComponent*, TInlineAllocator<8>> PrimComps;
@@ -401,7 +399,7 @@ void UComposableCameraOcclusionFadeNode::RestoreAndRemoveOverrideAt(int32 Index)
 	{
 		// Write originals back in their slot order. Guards against a rare case
 		// where the component grew / shrank its material array while we held
-		// the override — we only restore up to the lesser count, leaving any
+		// the override. We only restore up to the lesser count, leaving any
 		// newly-added slots with whatever they currently hold.
 		const int32 NumToRestore = FMath::Min(Record.OriginalMaterials.Num(), Comp->GetNumMaterials());
 		for (int32 SlotIdx = 0; SlotIdx < NumToRestore; ++SlotIdx)
@@ -506,16 +504,15 @@ void UComposableCameraOcclusionFadeNode::DrawNodeDebug(UWorld* World, bool bView
 	if (CVarShowOcclusionFadeGizmo.GetValueOnGameThread() == 0
 		&& !FComposableCameraViewportDebug::ShouldShowAllNodeGizmos()) { return; }
 
-	// Sweep visualisation, split into two pieces that gate independently —
-	// same pattern as CollisionPushNode's pivot-sphere + trace-line split:
+	// Sweep visualisation, split into two pieces that gate independently -	// same pattern as CollisionPushNode's pivot-sphere + trace-line split:
 	//
 	//  * Endpoint sphere at the target (on the character's head, if
-	//    bUseBoneForDetection) — always drawn. This is the "角色身上的球"
+	//    bUseBoneForDetection). Always drawn. This is the "target sphere"
 	//    that answers "where exactly is the protected point?" and reads
 	//    fine in both possessed play and F8 since it sits out in the world.
-	//  * Line from camera to target — F8 / SIE only. The line axis matches
+	//  * Line from camera to target -F8 / SIE only. The line axis matches
 	//    the view axis in possessed play, projecting to near-zero screen
-	//    length; see TechDoc §3.20.2 "view-aligned lines".
+	//    length; see TechDoc Section 3.20.2 "view-aligned lines".
 	if (bFadeOccluders && bDebugSweepSubmittedThisTick)
 	{
 		const FColor SweepColor(255, 80, 80);  // red
@@ -532,7 +529,7 @@ void UComposableCameraOcclusionFadeNode::DrawNodeDebug(UWorld* World, bool bView
 	}
 
 	// Proximity sphere: cyan translucent wireframe centred on the camera.
-	// Stays visible in both possessed play and F8 — the sphere is a volume
+	// Stays visible in both possessed play and F8. The sphere is a volume
 	// around the camera, not a line, so it reads from either viewpoint.
 	if (bFadeNearbyActors)
 	{

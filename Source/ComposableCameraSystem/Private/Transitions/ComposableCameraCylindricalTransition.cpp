@@ -1,4 +1,4 @@
-// Copyright Sulley. All rights reserved.
+﻿// Copyright Sulley. All rights reserved.
 
 #include "Transitions/ComposableCameraCylindricalTransition.h"
 
@@ -27,15 +27,15 @@ namespace
 		TEXT("Requires `CCS.Debug.Viewport 1`. Gizmo disappears when the transition finishes."),
 		ECVF_Default);
 
-	// Spatial position along the cylindrical arc at parameter t ∈ [0, 1].
+	// Spatial position along the cylindrical arc at parameter t in [0, 1].
 	//
 	// Static file-local helper so the debug path can sample the whole curve
 	// without re-implementing the math. OnEvaluate still inlines the same
 	// formula because it also needs the intermediate StartPivot / TargetPivot
-	// for its look-at rotation branch — splitting the pivot compute into a
+	// for its look-at rotation branch. Splitting the pivot compute into a
 	// separate helper would be pure ceremony for two call sites.
 	//
-	// ⚠ SYNC POINT: if you change the cylindrical formula here, mirror the
+	// ?SYNC POINT: if you change the cylindrical formula here, mirror the
 	// change in `UComposableCameraCylindricalTransition::OnEvaluate_Implementation`
 	// (and vice versa). The debug polyline must trace the same curve the
 	// camera actually follows.
@@ -104,7 +104,7 @@ FComposableCameraPose UComposableCameraCylindricalTransition::OnEvaluate_Impleme
 		(CurrentSourcePose.Rotation + BlendPct * (CurrentTargetPose.Rotation - CurrentSourcePose.Rotation).GetNormalized()).GetNormalized();
 
 	// Blend ALL pose fields (FOV, physical camera, projection, etc.) using the shared BlendBy rule.
-	// Position/Rotation are then overwritten below with the cylindrical path values — this transition's
+	// Position/Rotation are then overwritten below with the cylindrical path values. This transition's
 	// whole point is that positional/rotational blending follow a curved trajectory, not a straight lerp.
 	FComposableCameraPose ResultPose = CurrentSourcePose;
 	ResultPose.BlendBy(CurrentTargetPose, BlendPct);
@@ -112,7 +112,7 @@ FComposableCameraPose UComposableCameraCylindricalTransition::OnEvaluate_Impleme
 	ResultPose.Rotation = ResultRotation;
 
 	// Debug draw lives on the `CCS.Debug.Viewport.Transitions.Cylindrical`
-	// path now — see DrawTransitionDebug below.
+	// path now. See DrawTransitionDebug below.
 
 	return ResultPose;
 }
@@ -131,13 +131,13 @@ void UComposableCameraCylindricalTransition::DrawTransitionDebug(UWorld* World, 
 	if (CVarShowCylindricalTransitionGizmo.GetValueOnGameThread() == 0
 		&& !FComposableCameraViewportDebug::ShouldShowAllTransitionGizmos()) { return; }
 
-	// Aqua — vivid enough to stand out against the curved path, separate
+	// Aqua. Vivid enough to stand out against the curved path, separate
 	// from LookAt's pure cyan.
 	static const FColor AccentColor { 100, 230, 200 };
 
 	DrawStandardTransitionDebug(World, bViewerIsOutsideCamera, AccentColor);
 
-	// Sample the actual cylindrical arc. 32 segments — cheap, and matches
+	// Sample the actual cylindrical arc. 32 segments. Cheap, and matches
 	// the Spline / PathGuided resolution so overlapping transitions visually
 	// look uniform. The polyline IS the transition's path, so the user sees
 	// exactly where the camera will go, not a misleading straight line.

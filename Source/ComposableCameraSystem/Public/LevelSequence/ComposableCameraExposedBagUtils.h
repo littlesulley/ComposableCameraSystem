@@ -1,4 +1,4 @@
-// Copyright Sulley. All rights reserved.
+﻿// Copyright Sulley. All rights reserved.
 
 #pragma once
 
@@ -20,13 +20,13 @@ namespace UE::ComposableCameras::ExposedBag
 	 *
 	 * The descriptor's PropertyFlags include CPF_Edit | CPF_Interp. CPF_Interp
 	 * is what Sequencer's FindPropertySetter checks to decide whether the leaf
-	 * is keyable — without it CanKeyProperty returns false on every leaf and
+	 * is keyable. Without it CanKeyProperty returns false on every leaf and
 	 * any track-editor parameter menu collapses. The flag propagates onto the
 	 * dynamic FProperty that UPropertyBag::GetOrCreateFromDescs creates.
 	 *
 	 * Centralised here so both the LS Component (FComposableCameraTypeAssetReference)
 	 * and the Patch Section (UMovieSceneComposableCameraPatchSection) use the
-	 * exact same descriptor shape — divergence there would mean only one of the
+	 * exact same descriptor shape. Divergence there would mean only one of the
 	 * two surfaces is keyable in Sequencer.
 	 */
 	COMPOSABLECAMERASYSTEM_API bool AddDescIfSupported(
@@ -42,8 +42,8 @@ namespace UE::ComposableCameras::ExposedBag
 	 * for Name, the block is left untouched and the camera will fall back to
 	 * the node's authored default during ApplyParameterBlock.
 	 *
-	 * Centralised for the same reason as AddDescIfSupported above — keeping
-	 * one canonical shape for "bag → parameter block" guarantees any future
+	 * Centralised for the same reason as AddDescIfSupported above. Keeping
+	 * one canonical shape for "bag ->parameter block" guarantees any future
 	 * pin-type addition flows uniformly through every consumer.
 	 */
 	COMPOSABLECAMERASYSTEM_API void CopyBagValueIntoBlock(

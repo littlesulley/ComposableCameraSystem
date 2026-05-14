@@ -1,4 +1,4 @@
-// Copyright Sulley. All Rights Reserved.
+﻿// Copyright Sulley. All Rights Reserved.
 
 #pragma once
 
@@ -22,7 +22,7 @@ public:
 // dependent module that calls UE_LOG(LogComposableCameraSystem, ...).
 COMPOSABLECAMERASYSTEM_API DECLARE_LOG_CATEGORY_EXTERN(LogComposableCameraSystem, Log, All);
 
-// `stat CCS` — per-frame cycle-counter group. Complements the
+// `stat CCS`. Per-frame cycle-counter group. Complements the
 // TRACE_CPUPROFILER_EVENT_SCOPE markers that feed Unreal Insights: this group
 // drives the in-viewport stat HUD with realtime numeric counters (sum of
 // cycles spent in each scope this frame), which is the right surface for

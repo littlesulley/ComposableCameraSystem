@@ -49,10 +49,9 @@ void FComposableCameraParameterTableRowCustomization::Register(FPropertyEditorMo
 {
 	// Register against the WRAPPER sub-struct, not the row. FStructureDetailsView
 	// (used by the DataTable row editor) does not invoke IPropertyTypeCustomization
-	// at the root struct level — only on child struct properties. The wrapper
+	// at the root struct level - only on child struct properties. The wrapper
 	// exists precisely to give us a child-level hook.
-	PropertyEditorModule.RegisterCustomPropertyTypeLayout(
-		FComposableCameraExposedParameterValues::StaticStruct()->GetFName(),
+	PropertyEditorModule.RegisterCustomPropertyTypeLayout(FComposableCameraExposedParameterValues::StaticStruct()->GetFName(),
 		FOnGetPropertyTypeCustomizationInstance::CreateStatic(&FComposableCameraParameterTableRowCustomization::MakeInstance));
 }
 
@@ -60,28 +59,22 @@ void FComposableCameraParameterTableRowCustomization::Unregister(FPropertyEditor
 {
 	if (UObjectInitialized())
 	{
-		PropertyEditorModule.UnregisterCustomPropertyTypeLayout(
-			FComposableCameraExposedParameterValues::StaticStruct()->GetFName());
+		PropertyEditorModule.UnregisterCustomPropertyTypeLayout(FComposableCameraExposedParameterValues::StaticStruct()->GetFName());
 	}
 }
 
-void FComposableCameraParameterTableRowCustomization::CustomizeHeader(
-	TSharedRef<IPropertyHandle> PropertyHandle,
+void FComposableCameraParameterTableRowCustomization::CustomizeHeader(TSharedRef<IPropertyHandle> PropertyHandle,
 	FDetailWidgetRow& HeaderRow,
 	IPropertyTypeCustomizationUtils& CustomizationUtils)
 {
-	// Render the wrapper's header with the default display name — the label
+	// Render the wrapper's header with the default display name - the label
 	// "Exposed Parameters" comes from the row's meta=(DisplayName=...) on the
 	// Parameters field.
-	HeaderRow
-	.NameContent()
-	[
-		PropertyHandle->CreatePropertyNameWidget()
-	];
+	HeaderRow.NameContent()
+	[PropertyHandle->CreatePropertyNameWidget()];
 }
 
-void FComposableCameraParameterTableRowCustomization::CustomizeChildren(
-	TSharedRef<IPropertyHandle> PropertyHandle,
+void FComposableCameraParameterTableRowCustomization::CustomizeChildren(TSharedRef<IPropertyHandle> PropertyHandle,
 	IDetailChildrenBuilder& ChildBuilder,
 	IPropertyTypeCustomizationUtils& CustomizationUtils)
 {
@@ -94,7 +87,7 @@ void FComposableCameraParameterTableRowCustomization::CustomizeChildren(
 	StructDetailViews.Reset();
 
 	// Walk up one level to the parent row. In the DataTable row editor, the
-	// parent is the FComposableCameraParameterTableRow root struct — which
+	// parent is the FComposableCameraParameterTableRow root struct - which
 	// IS where the CameraType field lives.
 	RowPropertyHandle = PropertyHandle->GetParentHandle();
 	if (!RowPropertyHandle.IsValid())
@@ -102,10 +95,8 @@ void FComposableCameraParameterTableRowCustomization::CustomizeChildren(
 		return;
 	}
 
-	CameraTypeHandle = RowPropertyHandle->GetChildHandle(
-		GET_MEMBER_NAME_CHECKED(FComposableCameraParameterTableRow, CameraType));
-	ValuesHandle = PropertyHandle->GetChildHandle(
-		GET_MEMBER_NAME_CHECKED(FComposableCameraExposedParameterValues, Values));
+	CameraTypeHandle = RowPropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FComposableCameraParameterTableRow, CameraType));
+	ValuesHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FComposableCameraExposedParameterValues, Values));
 
 	if (!CameraTypeHandle.IsValid() || !ValuesHandle.IsValid())
 	{
@@ -115,11 +106,10 @@ void FComposableCameraParameterTableRowCustomization::CustomizeChildren(
 	// When the CameraType pick changes, rebuild the per-parameter widgets by
 	// forcing the details panel to re-run CustomizeChildren. Without this the
 	// widgets stay tied to whichever type was selected at construction time.
-	CameraTypeHandle->SetOnPropertyValueChanged(FSimpleDelegate::CreateSP(
-		this, &FComposableCameraParameterTableRowCustomization::RequestRefresh));
+	CameraTypeHandle->SetOnPropertyValueChanged(FSimpleDelegate::CreateSP(this, &FComposableCameraParameterTableRowCustomization::RequestRefresh));
 
 	// Resolve the selected camera type by reading the sibling field. Sync-load
-	// is fine here — this is an editor panel, not a hot path, and DataTable
+	// is fine here - this is an editor panel, not a hot path, and DataTable
 	// edits are rare.
 	UComposableCameraTypeAsset* TypeAsset = nullptr;
 	{
@@ -138,7 +128,7 @@ void FComposableCameraParameterTableRowCustomization::CustomizeChildren(
 
 	// Watch the resolved type asset for content changes (e.g. exposed
 	// parameter list edited in the graph editor). The global broadcast
-	// fires for every UObject — filter by our specific instance.
+	// fires for every UObject - filter by our specific instance.
 	// Capture a weak PropertyUtilities for the refresh callback instead of
 	// capturing `this`, so the lambda stays valid even if the customization
 	// is rebuilt.
@@ -160,21 +150,18 @@ void FComposableCameraParameterTableRowCustomization::CustomizeChildren(
 			});
 	}
 
-	IDetailGroup& ParamsGroup = ChildBuilder.AddGroup(
-		TEXT("ExposedParameters"),
+	IDetailGroup& ParamsGroup = ChildBuilder.AddGroup(TEXT("ExposedParameters"),
 		LOCTEXT("ExposedParametersGroup", "Exposed Parameters"));
 
 	if (!TypeAsset)
 	{
 		ParamsGroup.AddWidgetRow()
 		.WholeRowContent()
-		[
-			SNew(STextBlock)
+		[SNew(STextBlock)
 			.Text(LOCTEXT("NoCameraTypeSelected",
 				"Select a Camera Type to see its exposed parameters."))
 			.Font(IDetailLayoutBuilder::GetDetailFontItalic())
-			.ColorAndOpacity(FSlateColor::UseSubduedForeground())
-		];
+			.ColorAndOpacity(FSlateColor::UseSubduedForeground())];
 		return;
 	}
 
@@ -185,17 +172,15 @@ void FComposableCameraParameterTableRowCustomization::CustomizeChildren(
 	{
 		ParamsGroup.AddWidgetRow()
 		.WholeRowContent()
-		[
-			SNew(STextBlock)
+		[SNew(STextBlock)
 			.Text(LOCTEXT("NoExposedParameters",
 				"This camera type has no exposed parameters."))
 			.Font(IDetailLayoutBuilder::GetDetailFontItalic())
-			.ColorAndOpacity(FSlateColor::UseSubduedForeground())
-		];
+			.ColorAndOpacity(FSlateColor::UseSubduedForeground())];
 	}
 	else
 	{
-		for (const FComposableCameraExposedParameter& Param : Exposed)
+		for (const FComposableCameraExposedParameter& Param: Exposed)
 		{
 			const FName ParamName = Param.ParameterName;
 			const EComposableCameraPinType PinType = Param.PinType;
@@ -209,61 +194,48 @@ void FComposableCameraParameterTableRowCustomization::CustomizeChildren(
 
 			const FText Tooltip = Param.Tooltip.IsEmpty()
 				? GetFormatHint(PinType, StructType, EnumType)
-				: FText::Format(
-					LOCTEXT("ParameterTooltipWithFormat", "{0}\n\nExpected format: {1}"),
+				: FText::Format(LOCTEXT("ParameterTooltipWithFormat", "{0}\n\nExpected format: {1}"),
 					Param.Tooltip,
 					GetFormatHint(PinType, StructType, EnumType));
 
 			ParamsGroup.AddWidgetRow()
 			.NameContent()
-			[
-				SNew(SHorizontalBox)
+			[SNew(SHorizontalBox)
 				+ SHorizontalBox::Slot()
 				.AutoWidth()
 				.VAlign(VAlign_Center)
 				.Padding(0.f, 0.f, 4.f, 0.f)
-				[
-					SNew(SCheckBox)
+				[SNew(SCheckBox)
 					.IsChecked_Lambda([this, ParamName]()
 					{
 						return IsParameterOverridden(ParamName)
-							? ECheckBoxState::Checked
-							: ECheckBoxState::Unchecked;
+							? ECheckBoxState::Checked: ECheckBoxState::Unchecked;
 					})
-					.OnCheckStateChanged(FOnCheckStateChanged::CreateSP(
-						this,
+					.OnCheckStateChanged(FOnCheckStateChanged::CreateSP(this,
 						&FComposableCameraParameterTableRowCustomization::OnOverrideToggled,
 						ParamName, ParamDefault))
 					.ToolTipText(LOCTEXT("OverrideCheckboxTooltip",
-						"When checked, the value in this row overrides the default from the camera type asset."))
-				]
+						"When checked, the value in this row overrides the default from the camera type asset."))]
 				+ SHorizontalBox::Slot()
 				.FillWidth(1.f)
 				.VAlign(VAlign_Center)
-				[
-					SNew(STextBlock)
+				[SNew(STextBlock)
 					.Text(DisplayName)
 					.ToolTipText(Tooltip)
-					.Font(IDetailLayoutBuilder::GetDetailFont())
-				]
-			]
+					.Font(IDetailLayoutBuilder::GetDetailFont())]]
 			.ValueContent()
 			.MinDesiredWidth(200.f)
 			.MaxDesiredWidth(600.f)
-			[
-				SNew(SBox)
+			[SNew(SBox)
 				.IsEnabled_Lambda([this, ParamName]()
 				{
 					return IsParameterOverridden(ParamName);
 				})
-				[
-					BuildTypedValueWidget(ParamName, PinType, StructType, EnumType, ParamDefault)
-				]
-			];
+				[BuildTypedValueWidget(ParamName, PinType, StructType, EnumType, ParamDefault)]];
 		}
 	}
 
-	// ── Exposed Variables group ───────────────────────────────────────────
+	// Exposed Variables group 
 	//
 	// Exposed variables share the same row-level string keyspace as exposed
 	// parameters (the runtime's ApplyParameterBlock walks them in its own
@@ -273,14 +245,13 @@ void FComposableCameraParameterTableRowCustomization::CustomizeChildren(
 	// separate IDetailGroup so the authoring distinction between "one-shot
 	// override" (parameter) and "initial value for a persistent slot"
 	// (variable) stays legible. Only emit the group if the type has at
-	// least one exposed variable — an empty group would just be noise.
+	// least one exposed variable - an empty group would just be noise.
 	if (ExposedVars.Num() > 0)
 	{
-		IDetailGroup& VarsGroup = ChildBuilder.AddGroup(
-			TEXT("ExposedVariables"),
+		IDetailGroup& VarsGroup = ChildBuilder.AddGroup(TEXT("ExposedVariables"),
 			LOCTEXT("ExposedVariablesGroup", "Exposed Variables"));
 
-		for (const FComposableCameraInternalVariable& Var : ExposedVars)
+		for (const FComposableCameraInternalVariable& Var: ExposedVars)
 		{
 			if (Var.VariableName.IsNone())
 			{
@@ -293,64 +264,51 @@ void FComposableCameraParameterTableRowCustomization::CustomizeChildren(
 			UEnum* EnumType = Var.EnumType;
 			const FString VarDefault = Var.InitialValueString;
 
-			// FComposableCameraInternalVariable has no DisplayName — the
+			// FComposableCameraInternalVariable has no DisplayName - the
 			// FName is the display label. Matches the graph editor's
 			// treatment of variable names.
 			const FText DisplayName = FText::FromName(VarName);
 
 			const FText Tooltip = Var.Tooltip.IsEmpty()
 				? GetFormatHint(PinType, StructType, EnumType)
-				: FText::Format(
-					LOCTEXT("VariableTooltipWithFormat", "{0}\n\nExpected format: {1}"),
+				: FText::Format(LOCTEXT("VariableTooltipWithFormat", "{0}\n\nExpected format: {1}"),
 					Var.Tooltip,
 					GetFormatHint(PinType, StructType, EnumType));
 
 			VarsGroup.AddWidgetRow()
 			.NameContent()
-			[
-				SNew(SHorizontalBox)
+			[SNew(SHorizontalBox)
 				+ SHorizontalBox::Slot()
 				.AutoWidth()
 				.VAlign(VAlign_Center)
 				.Padding(0.f, 0.f, 4.f, 0.f)
-				[
-					SNew(SCheckBox)
+				[SNew(SCheckBox)
 					.IsChecked_Lambda([this, VarName]()
 					{
 						return IsParameterOverridden(VarName)
-							? ECheckBoxState::Checked
-							: ECheckBoxState::Unchecked;
+							? ECheckBoxState::Checked: ECheckBoxState::Unchecked;
 					})
-					.OnCheckStateChanged(FOnCheckStateChanged::CreateSP(
-						this,
+					.OnCheckStateChanged(FOnCheckStateChanged::CreateSP(this,
 						&FComposableCameraParameterTableRowCustomization::OnOverrideToggled,
 						VarName, VarDefault))
 					.ToolTipText(LOCTEXT("OverrideVariableCheckboxTooltip",
-						"When checked, the initial value in this row overrides the variable's default from the camera type asset."))
-				]
+						"When checked, the initial value in this row overrides the variable's default from the camera type asset."))]
 				+ SHorizontalBox::Slot()
 				.FillWidth(1.f)
 				.VAlign(VAlign_Center)
-				[
-					SNew(STextBlock)
+				[SNew(STextBlock)
 					.Text(DisplayName)
 					.ToolTipText(Tooltip)
-					.Font(IDetailLayoutBuilder::GetDetailFont())
-				]
-			]
+					.Font(IDetailLayoutBuilder::GetDetailFont())]]
 			.ValueContent()
 			.MinDesiredWidth(200.f)
 			.MaxDesiredWidth(600.f)
-			[
-				SNew(SBox)
+			[SNew(SBox)
 				.IsEnabled_Lambda([this, VarName]()
 				{
 					return IsParameterOverridden(VarName);
 				})
-				[
-					BuildTypedValueWidget(VarName, PinType, StructType, EnumType, VarDefault)
-				]
-			];
+				[BuildTypedValueWidget(VarName, PinType, StructType, EnumType, VarDefault)]];
 		}
 	}
 
@@ -360,11 +318,11 @@ void FComposableCameraParameterTableRowCustomization::CustomizeChildren(
 	// without requiring manual user intervention.
 	TSet<FName> KnownNames;
 	KnownNames.Reserve(Exposed.Num() + ExposedVars.Num());
-	for (const FComposableCameraExposedParameter& Param : Exposed)
+	for (const FComposableCameraExposedParameter& Param: Exposed)
 	{
 		KnownNames.Add(Param.ParameterName);
 	}
-	for (const FComposableCameraInternalVariable& Var : ExposedVars)
+	for (const FComposableCameraInternalVariable& Var: ExposedVars)
 	{
 		if (!Var.VariableName.IsNone())
 		{
@@ -375,7 +333,7 @@ void FComposableCameraParameterTableRowCustomization::CustomizeChildren(
 	if (FComposableCameraExposedParameterValues* Wrapper = GetWrapperPtr())
 	{
 		TArray<FName> OrphanNames;
-		for (const TPair<FName, FString>& Entry : Wrapper->Values)
+		for (const TPair<FName, FString>& Entry: Wrapper->Values)
 		{
 			if (!KnownNames.Contains(Entry.Key))
 			{
@@ -386,7 +344,7 @@ void FComposableCameraParameterTableRowCustomization::CustomizeChildren(
 		if (OrphanNames.Num() > 0 && ValuesHandle.IsValid())
 		{
 			ValuesHandle->NotifyPreChange();
-			for (FName Name : OrphanNames)
+			for (FName Name: OrphanNames)
 			{
 				Wrapper->Values.Remove(Name);
 			}
@@ -444,8 +402,7 @@ bool FComposableCameraParameterTableRowCustomization::IsParameterOverridden(FNam
 	return false;
 }
 
-void FComposableCameraParameterTableRowCustomization::OnOverrideToggled(
-	ECheckBoxState NewState,
+void FComposableCameraParameterTableRowCustomization::OnOverrideToggled(ECheckBoxState NewState,
 	FName ParameterName,
 	FString DefaultValue)
 {
@@ -457,7 +414,7 @@ void FComposableCameraParameterTableRowCustomization::OnOverrideToggled(
 
 	if (NewState == ECheckBoxState::Checked)
 	{
-		// Enable override — seed the map with the asset's default value so the
+		// Enable override - seed the map with the asset's default value so the
 		// text box starts with something meaningful rather than blank.
 		FScopedTransaction Transaction(LOCTEXT("EnableParameterOverride", "Enable Parameter Override"));
 		ValuesHandle->NotifyPreChange();
@@ -469,7 +426,7 @@ void FComposableCameraParameterTableRowCustomization::OnOverrideToggled(
 	}
 	else
 	{
-		// Disable override — remove from the map so the runtime uses the asset default.
+		// Disable override - remove from the map so the runtime uses the asset default.
 		FScopedTransaction Transaction(LOCTEXT("DisableParameterOverride", "Disable Parameter Override"));
 		ValuesHandle->NotifyPreChange();
 
@@ -480,13 +437,12 @@ void FComposableCameraParameterTableRowCustomization::OnOverrideToggled(
 	}
 }
 
-// OnRemoveOrphan and OnRemoveAllOrphans removed — orphaned entries are now
+// OnRemoveOrphan and OnRemoveAllOrphans removed - orphaned entries are now
 // auto-cleaned in CustomizeChildren before the widget tree is built.
 
-// ─── Typed Value Widget Helpers ──────────────────────────────────────────
+// Typed Value Widget Helpers 
 
-FString FComposableCameraParameterTableRowCustomization::GetParameterString(
-	FName ParameterName, const FString& DefaultValue) const
+FString FComposableCameraParameterTableRowCustomization::GetParameterString(FName ParameterName, const FString& DefaultValue) const
 {
 	if (const FComposableCameraExposedParameterValues* Wrapper = GetWrapperPtr())
 	{
@@ -498,8 +454,7 @@ FString FComposableCameraParameterTableRowCustomization::GetParameterString(
 	return DefaultValue;
 }
 
-void FComposableCameraParameterTableRowCustomization::SetParameterString(
-	FName ParameterName, const FString& NewValue)
+void FComposableCameraParameterTableRowCustomization::SetParameterString(FName ParameterName, const FString& NewValue)
 {
 	FComposableCameraExposedParameterValues* Wrapper = GetWrapperPtr();
 	if (!Wrapper || !ValuesHandle.IsValid())
@@ -516,8 +471,7 @@ void FComposableCameraParameterTableRowCustomization::SetParameterString(
 	ValuesHandle->NotifyFinishedChangingProperties();
 }
 
-TSharedRef<SWidget> FComposableCameraParameterTableRowCustomization::BuildTypedValueWidget(
-	FName ParameterName,
+TSharedRef<SWidget> FComposableCameraParameterTableRowCustomization::BuildTypedValueWidget(FName ParameterName,
 	EComposableCameraPinType PinType,
 	UScriptStruct* StructType,
 	UEnum* EnumType,
@@ -525,7 +479,7 @@ TSharedRef<SWidget> FComposableCameraParameterTableRowCustomization::BuildTypedV
 {
 	switch (PinType)
 	{
-	// ── Bool ──────────────────────────────────────────────────────────────
+	// Bool 
 	case EComposableCameraPinType::Bool:
 	{
 		return SNew(SCheckBox)
@@ -533,8 +487,7 @@ TSharedRef<SWidget> FComposableCameraParameterTableRowCustomization::BuildTypedV
 			{
 				const FString Val = GetParameterString(ParameterName, DefaultValue);
 				return Val.Equals(TEXT("true"), ESearchCase::IgnoreCase)
-					? ECheckBoxState::Checked
-					: ECheckBoxState::Unchecked;
+					? ECheckBoxState::Checked: ECheckBoxState::Unchecked;
 			})
 			.OnCheckStateChanged_Lambda([this, ParameterName](ECheckBoxState NewState)
 			{
@@ -545,127 +498,147 @@ TSharedRef<SWidget> FComposableCameraParameterTableRowCustomization::BuildTypedV
 			});
 	}
 
-	// ── Int32 ─────────────────────────────────────────────────────────────
+	// Int32
 	case EComposableCameraPinType::Int32:
 	{
+		// Per-widget drag cache. Live drag writes through the wrapper's
+		// Values map fire PostEditChangeProperty broadcasts that other
+		// subscribers react to, and the resulting refresh cascade can abort
+		// the gesture mid-drag (users see one tick then a freeze). Routing
+		// the drag through a TSharedRef<TOptional<T>> keeps per-tick updates
+		// local: Value_Lambda reads cache, OnValueChanged updates it, and
+		// OnValueCommitted commits once at gesture end. See TechDoc 7.2.
+		TSharedRef<TOptional<int32>> DragCache = MakeShared<TOptional<int32>>();
 		return SNew(SNumericEntryBox<int32>)
 			.AllowSpin(true)
-			.Value_Lambda([this, ParameterName, DefaultValue]() -> TOptional<int32>
+			.Value_Lambda([this, ParameterName, DefaultValue, DragCache]() -> TOptional<int32>
 			{
+				if (DragCache->IsSet()) return DragCache->GetValue();
 				const FString Val = GetParameterString(ParameterName, DefaultValue);
 				if (Val.IsEmpty()) return 0;
 				return FCString::Atoi(*Val);
 			})
-			.OnValueCommitted_Lambda([this, ParameterName](int32 NewValue, ETextCommit::Type)
+			.OnValueChanged_Lambda([DragCache](int32 NewValue)
 			{
+				*DragCache = NewValue;
+			})
+			.OnValueCommitted_Lambda([this, ParameterName, DragCache](int32 NewValue, ETextCommit::Type)
+			{
+				DragCache->Reset();
 				SetParameterString(ParameterName, FString::FromInt(NewValue));
 			})
 			.MinDesiredValueWidth(60.f);
 	}
 
-	// ── Float ─────────────────────────────────────────────────────────────
+	// Float
 	case EComposableCameraPinType::Float:
 	{
+		TSharedRef<TOptional<float>> DragCache = MakeShared<TOptional<float>>();
 		return SNew(SNumericEntryBox<float>)
 			.AllowSpin(true)
-			.Value_Lambda([this, ParameterName, DefaultValue]() -> TOptional<float>
+			.Value_Lambda([this, ParameterName, DefaultValue, DragCache]() -> TOptional<float>
 			{
+				if (DragCache->IsSet()) return DragCache->GetValue();
 				const FString Val = GetParameterString(ParameterName, DefaultValue);
 				if (Val.IsEmpty()) return 0.f;
 				return FCString::Atof(*Val);
 			})
-			.OnValueCommitted_Lambda([this, ParameterName](float NewValue, ETextCommit::Type)
+			.OnValueChanged_Lambda([DragCache](float NewValue)
 			{
+				*DragCache = NewValue;
+			})
+			.OnValueCommitted_Lambda([this, ParameterName, DragCache](float NewValue, ETextCommit::Type)
+			{
+				DragCache->Reset();
 				SetParameterString(ParameterName, FString::SanitizeFloat(NewValue));
 			})
 			.MinDesiredValueWidth(60.f);
 	}
 
-	// ── Double ────────────────────────────────────────────────────────────
+	// Double
 	case EComposableCameraPinType::Double:
 	{
+		TSharedRef<TOptional<double>> DragCache = MakeShared<TOptional<double>>();
 		return SNew(SNumericEntryBox<double>)
 			.AllowSpin(true)
-			.Value_Lambda([this, ParameterName, DefaultValue]() -> TOptional<double>
+			.Value_Lambda([this, ParameterName, DefaultValue, DragCache]() -> TOptional<double>
 			{
+				if (DragCache->IsSet()) return DragCache->GetValue();
 				const FString Val = GetParameterString(ParameterName, DefaultValue);
 				if (Val.IsEmpty()) return 0.0;
 				return FCString::Atod(*Val);
 			})
-			.OnValueCommitted_Lambda([this, ParameterName](double NewValue, ETextCommit::Type)
+			.OnValueChanged_Lambda([DragCache](double NewValue)
 			{
+				*DragCache = NewValue;
+			})
+			.OnValueCommitted_Lambda([this, ParameterName, DragCache](double NewValue, ETextCommit::Type)
+			{
+				DragCache->Reset();
 				SetParameterString(ParameterName, FString::Printf(TEXT("%.6f"), NewValue));
 			})
 			.MinDesiredValueWidth(60.f);
 	}
 
-	// ── Vector2D ──────────────────────────────────────────────────────────
+	// Vector2D 
 	case EComposableCameraPinType::Vector2D:
 	{
 		static const TCHAR* Labels[] = { TEXT("X"), TEXT("Y") };
 		TSharedRef<SHorizontalBox> Box = SNew(SHorizontalBox);
 		for (int32 C = 0; C < 2; ++C)
 		{
-			Box->AddSlot().FillWidth(1.f).Padding(C > 0 ? 4.f : 0.f, 0.f, 0.f, 0.f)
-			[
-				BuildNumericComponentWidget(ParameterName, C, 2, Labels, TEXT("Vector2D"), DefaultValue)
-			];
+			Box->AddSlot().FillWidth(1.f).Padding(C > 0 ? 4.f: 0.f, 0.f, 0.f, 0.f)
+			[BuildNumericComponentWidget(ParameterName, C, 2, Labels, TEXT("Vector2D"), DefaultValue)];
 		}
 		return Box;
 	}
 
-	// ── Vector3D ──────────────────────────────────────────────────────────
+	// Vector3D 
 	case EComposableCameraPinType::Vector3D:
 	{
 		static const TCHAR* Labels[] = { TEXT("X"), TEXT("Y"), TEXT("Z") };
 		TSharedRef<SHorizontalBox> Box = SNew(SHorizontalBox);
 		for (int32 C = 0; C < 3; ++C)
 		{
-			Box->AddSlot().FillWidth(1.f).Padding(C > 0 ? 4.f : 0.f, 0.f, 0.f, 0.f)
-			[
-				BuildNumericComponentWidget(ParameterName, C, 3, Labels, TEXT("Vector3D"), DefaultValue)
-			];
+			Box->AddSlot().FillWidth(1.f).Padding(C > 0 ? 4.f: 0.f, 0.f, 0.f, 0.f)
+			[BuildNumericComponentWidget(ParameterName, C, 3, Labels, TEXT("Vector3D"), DefaultValue)];
 		}
 		return Box;
 	}
 
-	// ── Vector4 ───────────────────────────────────────────────────────────
+	// Vector4 
 	case EComposableCameraPinType::Vector4:
 	{
 		static const TCHAR* Labels[] = { TEXT("X"), TEXT("Y"), TEXT("Z"), TEXT("W") };
 		TSharedRef<SHorizontalBox> Box = SNew(SHorizontalBox);
 		for (int32 C = 0; C < 4; ++C)
 		{
-			Box->AddSlot().FillWidth(1.f).Padding(C > 0 ? 4.f : 0.f, 0.f, 0.f, 0.f)
-			[
-				BuildNumericComponentWidget(ParameterName, C, 4, Labels, TEXT("Vector4"), DefaultValue)
-			];
+			Box->AddSlot().FillWidth(1.f).Padding(C > 0 ? 4.f: 0.f, 0.f, 0.f, 0.f)
+			[BuildNumericComponentWidget(ParameterName, C, 4, Labels, TEXT("Vector4"), DefaultValue)];
 		}
 		return Box;
 	}
 
-	// ── Rotator ───────────────────────────────────────────────────────────
+	// Rotator 
 	case EComposableCameraPinType::Rotator:
 	{
 		static const TCHAR* Labels[] = { TEXT("P"), TEXT("Y"), TEXT("R") };
 		TSharedRef<SHorizontalBox> Box = SNew(SHorizontalBox);
 		for (int32 C = 0; C < 3; ++C)
 		{
-			Box->AddSlot().FillWidth(1.f).Padding(C > 0 ? 4.f : 0.f, 0.f, 0.f, 0.f)
-			[
-				BuildNumericComponentWidget(ParameterName, C, 3, Labels, TEXT("Rotator"), DefaultValue)
-			];
+			Box->AddSlot().FillWidth(1.f).Padding(C > 0 ? 4.f: 0.f, 0.f, 0.f, 0.f)
+			[BuildNumericComponentWidget(ParameterName, C, 3, Labels, TEXT("Rotator"), DefaultValue)];
 		}
 		return Box;
 	}
 
-	// ── Transform ─────────────────────────────────────────────────────────
+	// Transform 
 	case EComposableCameraPinType::Transform:
 	{
 		return BuildTransformWidget(ParameterName, DefaultValue);
 	}
 
-	// ── Actor / Object — not expressible precisely ────────────────────────
+	// Actor / Object - not expressible precisely 
 	case EComposableCameraPinType::Actor:
 	case EComposableCameraPinType::Object:
 	{
@@ -676,7 +649,7 @@ TSharedRef<SWidget> FComposableCameraParameterTableRowCustomization::BuildTypedV
 			.ColorAndOpacity(FSlateColor::UseSubduedForeground());
 	}
 
-	// ── Name ──────────────────────────────────────────────────────────────
+	// Name 
 	case EComposableCameraPinType::Name:
 	{
 		// FName values are authored as plain text. The runtime parser
@@ -702,18 +675,18 @@ TSharedRef<SWidget> FComposableCameraParameterTableRowCustomization::BuildTypedV
 			.ClearKeyboardFocusOnCommit(false);
 	}
 
-	// ── Enum — dropdown driven by the bound UEnum ─────────────────────────
+	// Enum - dropdown driven by the bound UEnum 
 	case EComposableCameraPinType::Enum:
 	{
 		if (!EnumType)
 		{
-			// No UEnum attached — the parameter declaration on the type asset
+			// No UEnum attached - the parameter declaration on the type asset
 			// is incomplete. Render a diagnostic so the author can spot the
 			// missing metadata rather than silently falling through to a
 			// text editor that would write invalid values.
 			return SNew(STextBlock)
 				.Text(LOCTEXT("EnumTypeUnset",
-					"Enum type not set on this parameter — re-expose from the camera node."))
+					"Enum type not set on this parameter - re-expose from the camera node."))
 				.Font(IDetailLayoutBuilder::GetDetailFontItalic())
 				.ColorAndOpacity(FSlateColor::UseSubduedForeground());
 		}
@@ -735,7 +708,7 @@ TSharedRef<SWidget> FComposableCameraParameterTableRowCustomization::BuildTypedV
 				int64 Parsed = EnumType->GetValueByNameString(Val);
 				if (Parsed == INDEX_NONE)
 				{
-					// Author wrote a numeric literal — round-trip through the
+					// Author wrote a numeric literal - round-trip through the
 					// numeric fallback so the dropdown picks the matching entry.
 					Parsed = Val.IsNumeric() ? FCString::Atoi64(*Val) : 0;
 				}
@@ -755,7 +728,7 @@ TSharedRef<SWidget> FComposableCameraParameterTableRowCustomization::BuildTypedV
 			.Font(IDetailLayoutBuilder::GetDetailFont());
 	}
 
-	// ── Struct — inline details view if type is known ─────────────────────
+	// Struct - inline details view if type is known 
 	case EComposableCameraPinType::Struct:
 	{
 		if (StructType)
@@ -765,12 +738,12 @@ TSharedRef<SWidget> FComposableCameraParameterTableRowCustomization::BuildTypedV
 
 		// Fall through to text box if StructType is unset.
 		return SNew(STextBlock)
-			.Text(LOCTEXT("StructTypeUnset", "Struct type not set — invalid parameter."))
+			.Text(LOCTEXT("StructTypeUnset", "Struct type not set - invalid parameter."))
 			.Font(IDetailLayoutBuilder::GetDetailFontItalic())
 			.ColorAndOpacity(FSlateColor::UseSubduedForeground());
 	}
 
-	// ── Delegate — not editable from DataTable rows ──────────────────────
+	// Delegate - not editable from DataTable rows 
 	case EComposableCameraPinType::Delegate:
 	{
 		return SNew(STextBlock)
@@ -779,7 +752,7 @@ TSharedRef<SWidget> FComposableCameraParameterTableRowCustomization::BuildTypedV
 			.ColorAndOpacity(FSlateColor::UseSubduedForeground());
 	}
 
-	// ── Unknown type — raw text fallback ──────────────────────────────────
+	// Unknown type - raw text fallback 
 	default:
 	{
 		return SNew(SEditableTextBox)
@@ -801,10 +774,9 @@ TSharedRef<SWidget> FComposableCameraParameterTableRowCustomization::BuildTypedV
 	}
 }
 
-// ─── Multi-Component Numeric Widget ─────────────────────────────────────
+// Multi-Component Numeric Widget 
 
-TSharedRef<SWidget> FComposableCameraParameterTableRowCustomization::BuildNumericComponentWidget(
-	FName ParameterName,
+TSharedRef<SWidget> FComposableCameraParameterTableRowCustomization::BuildNumericComponentWidget(FName ParameterName,
 	int32 ComponentIndex,
 	int32 NumComponents,
 	const TCHAR* const* ComponentLabels,
@@ -838,34 +810,65 @@ TSharedRef<SWidget> FComposableCameraParameterTableRowCustomization::BuildNumeri
 		}
 	};
 
+	// Per-widget drag cache. See TechDoc 7.2 - SetParameterString during
+	// drag fires PostEditChangeProperty on the wrapper which can abort the
+	// gesture mid-drag. Cache the in-flight component value locally; commit
+	// the reassembled struct string once on gesture end.
+	TSharedRef<TOptional<double>> DragCache = MakeShared<TOptional<double>>();
+
+	auto AssembleValue = [NumComponents, Prefix]
+		(const TArray<double>& Components) -> FString
+	{
+		if (NumComponents == 2)
+		{
+			return FVector2D(Components[0], Components[1]).ToString();
+		}
+		if (NumComponents == 3)
+		{
+			if (FCString::Strcmp(Prefix, TEXT("Rotator")) == 0)
+			{
+				return FRotator(Components[0], Components[1], Components[2]).ToString();
+			}
+			return FVector(Components[0], Components[1], Components[2]).ToString();
+		}
+		if (NumComponents == 4)
+		{
+			return FVector4(Components[0], Components[1], Components[2], Components[3]).ToString();
+		}
+		return FString();
+	};
+
 	return SNew(SHorizontalBox)
 		+ SHorizontalBox::Slot()
 		.AutoWidth()
 		.VAlign(VAlign_Center)
 		.Padding(0.f, 0.f, 2.f, 0.f)
-		[
-			SNew(STextBlock)
+		[SNew(STextBlock)
 			.Text(FText::FromString(ComponentLabels[ComponentIndex]))
 			.Font(IDetailLayoutBuilder::GetDetailFont())
-			.ColorAndOpacity(FSlateColor::UseSubduedForeground())
-		]
+			.ColorAndOpacity(FSlateColor::UseSubduedForeground())]
 		+ SHorizontalBox::Slot()
 		.FillWidth(1.f)
-		[
-			SNew(SNumericEntryBox<double>)
+		[SNew(SNumericEntryBox<double>)
 			.AllowSpin(true)
-			.Value_Lambda([this, ParameterName, DefaultValue, ComponentIndex, NumComponents, ParseComponents]()
+			.Value_Lambda([this, ParameterName, DefaultValue, ComponentIndex, ParseComponents, DragCache]()
 				-> TOptional<double>
 			{
+				if (DragCache->IsSet()) return DragCache->GetValue();
 				const FString Val = GetParameterString(ParameterName, DefaultValue);
 				TArray<double> Components;
 				ParseComponents(Val, Components);
 				return Components.IsValidIndex(ComponentIndex) ? Components[ComponentIndex] : 0.0;
 			})
+			.OnValueChanged_Lambda([DragCache](double NewValue)
+			{
+				*DragCache = NewValue;
+			})
 			.OnValueCommitted_Lambda(
-				[this, ParameterName, DefaultValue, ComponentIndex, NumComponents, Prefix, ParseComponents]
+				[this, ParameterName, DefaultValue, ComponentIndex, ParseComponents, AssembleValue, DragCache]
 				(double NewValue, ETextCommit::Type)
 			{
+				DragCache->Reset();
 				const FString Val = GetParameterString(ParameterName, DefaultValue);
 				TArray<double> Components;
 				ParseComponents(Val, Components);
@@ -873,38 +876,14 @@ TSharedRef<SWidget> FComposableCameraParameterTableRowCustomization::BuildNumeri
 				{
 					Components[ComponentIndex] = NewValue;
 				}
-
-				FString Result;
-				if (NumComponents == 2)
-				{
-					Result = FVector2D(Components[0], Components[1]).ToString();
-				}
-				else if (NumComponents == 3)
-				{
-					if (FCString::Strcmp(Prefix, TEXT("Rotator")) == 0)
-					{
-						Result = FRotator(Components[0], Components[1], Components[2]).ToString();
-					}
-					else
-					{
-						Result = FVector(Components[0], Components[1], Components[2]).ToString();
-					}
-				}
-				else if (NumComponents == 4)
-				{
-					Result = FVector4(Components[0], Components[1], Components[2], Components[3]).ToString();
-				}
-
-				SetParameterString(ParameterName, Result);
+				SetParameterString(ParameterName, AssembleValue(Components));
 			})
-			.MinDesiredValueWidth(40.f)
-		];
+			.MinDesiredValueWidth(40.f)];
 }
 
-// ─── Transform Widget ───────────────────────────────────────────────────
+// Transform Widget 
 
-TSharedRef<SWidget> FComposableCameraParameterTableRowCustomization::BuildTransformWidget(
-	FName ParameterName,
+TSharedRef<SWidget> FComposableCameraParameterTableRowCustomization::BuildTransformWidget(FName ParameterName,
 	const FString& DefaultValue)
 {
 	auto ParseTransform = [](const FString& Str) -> FTransform
@@ -917,8 +896,7 @@ TSharedRef<SWidget> FComposableCameraParameterTableRowCustomization::BuildTransf
 		return T;
 	};
 
-	auto BuildRow = [this, ParameterName, DefaultValue, ParseTransform](
-		const FText& RowLabel,
+	auto BuildRow = [this, ParameterName, DefaultValue, ParseTransform](const FText& RowLabel,
 		const TFunction<FVector(const FTransform&)>& Getter,
 		const TFunction<void(FTransform&, const FVector&)>& Setter) -> TSharedRef<SWidget>
 	{
@@ -930,57 +908,62 @@ TSharedRef<SWidget> FComposableCameraParameterTableRowCustomization::BuildTransf
 		.AutoWidth()
 		.VAlign(VAlign_Center)
 		.Padding(0.f, 0.f, 6.f, 0.f)
-		[
-			SNew(STextBlock)
+		[SNew(STextBlock)
 			.Text(RowLabel)
 			.Font(IDetailLayoutBuilder::GetDetailFont())
 			.ColorAndOpacity(FSlateColor::UseSubduedForeground())
-			.MinDesiredWidth(52.f)
-		];
+			.MinDesiredWidth(52.f)];
 
 		for (int32 C = 0; C < 3; ++C)
 		{
 			Row->AddSlot()
 			.FillWidth(1.f)
-			.Padding(C > 0 ? 4.f : 0.f, 0.f, 0.f, 0.f)
-			[
-				SNew(SHorizontalBox)
+			.Padding(C > 0 ? 4.f: 0.f, 0.f, 0.f, 0.f)
+			[SNew(SHorizontalBox)
 				+ SHorizontalBox::Slot()
 				.AutoWidth()
 				.VAlign(VAlign_Center)
 				.Padding(0.f, 0.f, 2.f, 0.f)
-				[
-					SNew(STextBlock)
+				[SNew(STextBlock)
 					.Text(FText::FromString(XYZ[C]))
 					.Font(IDetailLayoutBuilder::GetDetailFont())
-					.ColorAndOpacity(FSlateColor::UseSubduedForeground())
-				]
+					.ColorAndOpacity(FSlateColor::UseSubduedForeground())]
 				+ SHorizontalBox::Slot()
 				.FillWidth(1.f)
 				[
-					SNew(SNumericEntryBox<double>)
-					.AllowSpin(true)
-					.Value_Lambda([this, ParameterName, DefaultValue, ParseTransform, Getter, C]()
-						-> TOptional<double>
+					[&]() -> TSharedRef<SWidget>
 					{
-						const FString Val = GetParameterString(ParameterName, DefaultValue);
-						FVector V = Getter(ParseTransform(Val));
-						return V[C];
-					})
-					.OnValueCommitted_Lambda(
-						[this, ParameterName, DefaultValue, ParseTransform, Getter, Setter, C]
-						(double NewValue, ETextCommit::Type)
-					{
-						const FString Val = GetParameterString(ParameterName, DefaultValue);
-						FTransform T = ParseTransform(Val);
-						FVector V = Getter(T);
-						V[C] = NewValue;
-						Setter(T, V);
-						SetParameterString(ParameterName, T.ToString());
-					})
-					.MinDesiredValueWidth(40.f)
-				]
-			];
+						// Per-component drag cache. See TechDoc 7.2.
+						TSharedRef<TOptional<double>> DragCache = MakeShared<TOptional<double>>();
+						return SNew(SNumericEntryBox<double>)
+							.AllowSpin(true)
+							.Value_Lambda([this, ParameterName, DefaultValue, ParseTransform, Getter, C, DragCache]()
+								-> TOptional<double>
+							{
+								if (DragCache->IsSet()) return DragCache->GetValue();
+								const FString Val = GetParameterString(ParameterName, DefaultValue);
+								FVector V = Getter(ParseTransform(Val));
+								return V[C];
+							})
+							.OnValueChanged_Lambda([DragCache](double NewValue)
+							{
+								*DragCache = NewValue;
+							})
+							.OnValueCommitted_Lambda(
+								[this, ParameterName, DefaultValue, ParseTransform, Getter, Setter, C, DragCache]
+								(double NewValue, ETextCommit::Type)
+							{
+								DragCache->Reset();
+								const FString Val = GetParameterString(ParameterName, DefaultValue);
+								FTransform T = ParseTransform(Val);
+								FVector V = Getter(T);
+								V[C] = NewValue;
+								Setter(T, V);
+								SetParameterString(ParameterName, T.ToString());
+							})
+							.MinDesiredValueWidth(40.f);
+					}()
+				]];
 		}
 
 		return Row;
@@ -988,16 +971,11 @@ TSharedRef<SWidget> FComposableCameraParameterTableRowCustomization::BuildTransf
 
 	return SNew(SVerticalBox)
 		+ SVerticalBox::Slot().AutoHeight().Padding(0.f, 1.f)
-		[
-			BuildRow(
-				LOCTEXT("TransformLocation", "Location"),
+		[BuildRow(LOCTEXT("TransformLocation", "Location"),
 				[](const FTransform& T) -> FVector { return T.GetTranslation(); },
-				[](FTransform& T, const FVector& V) { T.SetTranslation(V); })
-		]
+				[](FTransform& T, const FVector& V) { T.SetTranslation(V); })]
 		+ SVerticalBox::Slot().AutoHeight().Padding(0.f, 1.f)
-		[
-			BuildRow(
-				LOCTEXT("TransformRotation", "Rotation"),
+		[BuildRow(LOCTEXT("TransformRotation", "Rotation"),
 				[](const FTransform& T) -> FVector
 				{
 					FRotator R = T.Rotator();
@@ -1006,21 +984,16 @@ TSharedRef<SWidget> FComposableCameraParameterTableRowCustomization::BuildTransf
 				[](FTransform& T, const FVector& V)
 				{
 					T.SetRotation(FRotator(V.X, V.Y, V.Z).Quaternion());
-				})
-		]
+				})]
 		+ SVerticalBox::Slot().AutoHeight().Padding(0.f, 1.f)
-		[
-			BuildRow(
-				LOCTEXT("TransformScale", "Scale"),
+		[BuildRow(LOCTEXT("TransformScale", "Scale"),
 				[](const FTransform& T) -> FVector { return T.GetScale3D(); },
-				[](FTransform& T, const FVector& V) { T.SetScale3D(V); })
-		];
+				[](FTransform& T, const FVector& V) { T.SetScale3D(V); })];
 }
 
-// ─── Inline Struct Details View ──────────────────────────────────────────
+// Inline Struct Details View 
 
-TSharedRef<SWidget> FComposableCameraParameterTableRowCustomization::BuildStructValueWidget(
-	FName ParameterName,
+TSharedRef<SWidget> FComposableCameraParameterTableRowCustomization::BuildStructValueWidget(FName ParameterName,
 	UScriptStruct* InStructType,
 	const FString& DefaultValue)
 {
@@ -1065,12 +1038,12 @@ TSharedRef<SWidget> FComposableCameraParameterTableRowCustomization::BuildStruct
 	// retained widget tree + Slate's deferred deletion can keep this delegate
 	// alive past the customization being rebuilt (when the row's parameter
 	// list shape changes, when the parent details panel refreshes, etc.).
-	// A `[this, …]` capture would dereference freed `WrapperPropertyHandle` /
+	// A `[this,]` capture would dereference freed `WrapperPropertyHandle` /
 	// `ValuesHandle` members on the next user edit. Inline the equivalent of
 	// `SetParameterString` using only weak / strong captures of the handles
-	// the operation actually needs — `InternalVariableCustomization` already
-	// follows this pattern (see TechDoc §7.2 "Editor lambdas attached to
-	// long-lived widgets…").
+	// the operation actually needs - `InternalVariableCustomization` already
+	// follows this pattern (see TechDoc Section 7.2 "Editor lambdas attached to
+	// long-lived widgets").
 	TWeakPtr<FStructOnScope> WeakScope = StructScope;
 	TSharedPtr<IPropertyHandle> CapturedWrapperHandle = WrapperPropertyHandle;
 	TSharedPtr<IPropertyHandle> CapturedValuesHandle = ValuesHandle;
@@ -1080,7 +1053,7 @@ TSharedRef<SWidget> FComposableCameraParameterTableRowCustomization::BuildStruct
 			TSharedPtr<FStructOnScope> ScopePinned = WeakScope.Pin();
 			if (!ScopePinned.IsValid()
 				|| !CapturedWrapperHandle.IsValid() || !CapturedWrapperHandle->IsValidHandle()
-				|| !CapturedValuesHandle.IsValid()  || !CapturedValuesHandle->IsValidHandle())
+				|| !CapturedValuesHandle.IsValid() || !CapturedValuesHandle->IsValidHandle())
 			{
 				return;
 			}
@@ -1097,8 +1070,7 @@ TSharedRef<SWidget> FComposableCameraParameterTableRowCustomization::BuildStruct
 				static_cast<FComposableCameraExposedParameterValues*>(RawData[0]);
 
 			FString NewValue;
-			InStructType->ExportText(
-				NewValue,
+			InStructType->ExportText(NewValue,
 				ScopePinned->GetStructMemory(),
 				/*Defaults=*/ nullptr,
 				/*OwnerObject=*/ nullptr,
@@ -1120,8 +1092,7 @@ TSharedRef<SWidget> FComposableCameraParameterTableRowCustomization::BuildStruct
 	return ViewWidget.IsValid() ? ViewWidget.ToSharedRef() : SNullWidget::NullWidget;
 }
 
-FText FComposableCameraParameterTableRowCustomization::GetFormatHint(
-	EComposableCameraPinType PinType, UScriptStruct* StructType, UEnum* EnumType) const
+FText FComposableCameraParameterTableRowCustomization::GetFormatHint(EComposableCameraPinType PinType, UScriptStruct* StructType, UEnum* EnumType) const
 {
 	switch (PinType)
 	{
@@ -1146,27 +1117,25 @@ FText FComposableCameraParameterTableRowCustomization::GetFormatHint(
 			"(Rotation=(X=0,Y=0,Z=0,W=1),Translation=(X=0,Y=0,Z=0),Scale3D=(X=1,Y=1,Z=1))");
 	case EComposableCameraPinType::Actor:
 		return LOCTEXT("HintActor",
-			"Actor parameters cannot be set from a DataTable row — use Object with a class/archetype soft path instead.");
+			"Actor parameters cannot be set from a DataTable row - use Object with a class/archetype soft path instead.");
 	case EComposableCameraPinType::Object:
 		return LOCTEXT("HintObject",
 			"Soft object path (e.g. /Game/Path/ToAsset.ToAsset)");
 	case EComposableCameraPinType::Struct:
 		return StructType
-			? FText::Format(
-				LOCTEXT("HintStruct", "Struct literal for {0} (use Unreal's ImportText format)"),
+			? FText::Format(LOCTEXT("HintStruct", "Struct literal for {0} (use Unreal's ImportText format)"),
 				FText::FromString(StructType->GetName()))
-			: LOCTEXT("HintStructNoType", "Struct literal (StructType unset — invalid pin)");
+			: LOCTEXT("HintStructNoType", "Struct literal (StructType unset - invalid pin)");
 	case EComposableCameraPinType::Name:
 		return LOCTEXT("HintName", "FName text (e.g. MyTag)");
 	case EComposableCameraPinType::Enum:
 		return EnumType
-			? FText::Format(
-				LOCTEXT("HintEnum", "Enum entry name for {0} (e.g. {0}::SomeValue)"),
+			? FText::Format(LOCTEXT("HintEnum", "Enum entry name for {0} (e.g. {0}::SomeValue)"),
 				FText::FromString(EnumType->GetName()))
-			: LOCTEXT("HintEnumNoType", "Enum entry name (EnumType unset — invalid pin)");
+			: LOCTEXT("HintEnumNoType", "Enum entry name (EnumType unset - invalid pin)");
 	case EComposableCameraPinType::Delegate:
 		return LOCTEXT("HintDelegate",
-			"Delegates cannot be set from DataTable rows — bind at activation time through the K2 node.");
+			"Delegates cannot be set from DataTable rows - bind at activation time through the K2 node.");
 	default:
 		return FText::GetEmpty();
 	}

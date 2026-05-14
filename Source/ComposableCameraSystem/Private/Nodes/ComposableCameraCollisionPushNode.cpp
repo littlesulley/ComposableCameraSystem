@@ -67,17 +67,18 @@ void UComposableCameraCollisionPushNode::OnInitialize_Implementation()
 	PushInterpolator_T = IsValid(PushInterpolator) ? PushInterpolator->BuildDoubleInterpolator() : nullptr;
 	PullInterpolator_T = IsValid(PullInterpolator) ? PullInterpolator->BuildDoubleInterpolator() : nullptr;
 
-	// Don't resolve the SkelMesh component here — PivotActor can be driven
+	// Don't resolve the SkelMesh component here -PivotActor can be driven
 	// by an input pin and change every frame. Resolution happens lazily in
 	// Tick when the active PivotActor differs from `LastResolvedPivotActor`.
 	SkeletalMeshComponentForPivotActor.Reset();
 	LastResolvedPivotActor.Reset();
+	bHasOriginalCameraPosition = false;
 
 	// Snapshot the ignore-list once at activation. Earlier behavior was a
 	// per-Tick `GetAllActorsOfClass` walk that scaled with the entire
 	// world's actor count for every camera tick. Snapshotting here means
 	// dynamically-spawned ignore-class actors created AFTER initialization
-	// won't be in the list — acceptable trade because (a) typical use is
+	// won't be in the list. Acceptable trade because (a) typical use is
 	// "ignore the player capsule / specific level geo", which is stable
 	// for the camera's lifetime, and (b) the snapshot uses TWeakObjectPtr
 	// so destroyed entries silently drop on per-tick rebuild rather than
@@ -104,14 +105,15 @@ void UComposableCameraCollisionPushNode::OnTickNode_Implementation(float DeltaTi
                                                                    const FComposableCameraPose& CurrentCameraPose, FComposableCameraPose& OutCameraPose)
 {
 	OriginalCameraPosition = CurrentCameraPose.Position;
+	bHasOriginalCameraPosition = true;
 	FVector PivotPosition = FVector::ZeroVector;
 
 	// PivotActor / bUseBoneForDetection / PivotZOffset / SelfSphereDistanceOffsetFromCenter /
-	// ExtraPushDistance are pin-matched UPROPERTYs — resolved by the base TickNode
+	// ExtraPushDistance are pin-matched UPROPERTYs. Resolved by the base TickNode
 	// prologue. Refresh the SkelMesh cache against the just-written PivotActor
 	// before reading either branch.
 	AActor* InPivotActor = ComposableCameraSystem::ResolveActorInput(
-		PivotActorSource, PivotActor.Get(), GetOwningPlayerCameraManager());
+		PivotActorSource, PivotActor.Get(), GetOwningPlayerCameraManager(), this);
 	ResolveSkelMeshForPivotActor(InPivotActor, SkeletalMeshComponentForPivotActor, LastResolvedPivotActor);
 
 	USkeletalMeshComponent* PivotSkelMesh = SkeletalMeshComponentForPivotActor.Get();
@@ -151,6 +153,13 @@ void UComposableCameraCollisionPushNode::OnTickNode_Implementation(float DeltaTi
 void UComposableCameraCollisionPushNode::OnPreTick(float DeltaTime, const FComposableCameraPose& CurrentCameraPose, FComposableCameraPose& OutCameraPose)
 {
 	Super::OnPreTick(DeltaTime,  CurrentCameraPose, OutCameraPose);
+
+	if (!bHasOriginalCameraPosition)
+	{
+		return;
+	}
+
+	OutCameraPose.Position = OriginalCameraPosition;
 
 	if (OwningCamera)
 	{
@@ -279,7 +288,7 @@ void UComposableCameraCollisionPushNode::GetPinDeclarations_Implementation(TArra
 	OutPins.Add(PinDecl);
 
 	// Subobject pins (e.g. PushInterpolator.Speed) are auto-appended by
-	// GatherAllPinDeclarations in the base class — no manual calls needed.
+	// GatherAllPinDeclarations in the base class, no manual calls needed.
 }
 
 
@@ -308,7 +317,7 @@ FComposableCameraHitResult UComposableCameraCollisionPushNode::FindCollisionPoin
 	}
 
 	FHitResult TraceCollisionHit;
-	// Trace-builtin debug draw is intentionally disabled — visualisation is
+	// Trace-builtin debug draw is intentionally disabled. Visualisation is
 	// now routed through `UComposableCameraCameraNodeBase::DrawNodeDebug`
 	// (enabled via the `CCS.Debug.Viewport` CVar + F8 eject), using the
 	// cached trace state below. Letting KismetSystemLibrary paint its own
@@ -434,9 +443,9 @@ void UComposableCameraCollisionPushNode::DrawNodeDebug(UWorld* World, bool bView
 
 	// Possessed play: just the pivot sphere (and hit sphere if blocked). A
 	// line/arrow from pivot to camera is view-aligned in a standard 3rd-
-	// person setup and every variant tried failed to read reliably — the
+	// person setup and every variant tried failed to read reliably. The
 	// colour of the pivot sphere alone conveys "trace blocked this frame".
-	// F8 eject: draw the full pivot→camera trace line so the reader can see
+	// F8 eject: draw the full pivotamera trace line so the reader can see
 	// what the trace is checking from the outside viewpoint.
 	const FColor TraceColor = bLastTraceBlocked ? FColor(255, 80, 80) : FColor(80, 255, 120);
 
@@ -446,7 +455,7 @@ void UComposableCameraCollisionPushNode::DrawNodeDebug(UWorld* World, bool bView
 			/*bPersistentLines=*/false, /*LifeTime=*/-1.f, KForeground, /*Thickness=*/0.f);
 	}
 
-	// Trace sphere at pivot (start) when using sphere trace — shows the actual
+	// Trace sphere at pivot (start) when using sphere trace. Shows the actual
 	// query geometry. Line trace: just a small marker.
 	if (bTraceUseSphere)
 	{
@@ -460,7 +469,7 @@ void UComposableCameraCollisionPushNode::DrawNodeDebug(UWorld* World, bool bView
 			/*bPersistentLines=*/false, /*LifeTime=*/-1.f, KForeground);
 	}
 
-	// Hit location — red sphere when blocked, to show where the push resolved to.
+	// Hit location. Red sphere when blocked, to show where the push resolved to.
 	if (bLastTraceBlocked)
 	{
 		FComposableCameraViewportDebug::DrawSolidDebugSphere(
@@ -468,12 +477,12 @@ void UComposableCameraCollisionPushNode::DrawNodeDebug(UWorld* World, bool bView
 			/*Alpha=*/140, /*Segments=*/12, KForeground);
 	}
 
-	// Self-collision sphere sits AT the camera's position — hermetically
+	// Self-collision sphere sits AT the camera's position. Hermetically
 	// encloses the player's view during live gameplay. Only useful from
 	// outside the camera, so suppress unless the viewer IS outside
 	// (F8 eject / SIE / AlwaysShow). Same rationale as the frustum.
 	// Extra-low alpha (60) because this is the LARGEST sphere in the
-	// plugin (SelfSphereRadius can be 100+ units) — a solid translucent
+	// plugin (SelfSphereRadius can be 100+ units). A solid translucent
 	// ball that big needs to stay ghost-like to not drown the view.
 	if (bViewerIsOutsideCamera)
 	{

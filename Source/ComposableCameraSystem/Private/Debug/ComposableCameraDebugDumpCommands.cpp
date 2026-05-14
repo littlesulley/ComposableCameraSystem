@@ -47,7 +47,7 @@ namespace
 	// emits a warning.
 	static AComposableCameraPlayerCameraManager* ResolvePCM(UWorld* World)
 	{
-		auto TryWorld = [](UWorld* W) -> AComposableCameraPlayerCameraManager*
+		auto TryWorld = [](UWorld* W) ->AComposableCameraPlayerCameraManager*
 		{
 			if (!W) { return nullptr; }
 			APlayerController* PC = W->GetFirstPlayerController();
@@ -85,7 +85,7 @@ namespace
 			TEXT("%s: %d chars copied to clipboard."), CommandName, Text.Len());
 	}
 
-	// --- Snapshot → text helpers -------------------------------------
+	// --- Snapshot ->text helpers -------------------------------------
 
 	// Compact phase glyph for the in-line dump rows.
 	static const TCHAR* PhaseShortName(int8 Phase)
@@ -176,7 +176,7 @@ namespace
 		B.Appendf(TEXT("Context Stack (depth: %d, pending destroy: %d)\n"),
 			Snap.LiveStackDepth, Snap.PendingDestroyCount);
 
-		// Walk live contexts first (top → base; BuildDebugSnapshot emits
+		// Walk live contexts first (top->base; BuildDebugSnapshot emits
 		// them in that order), then pending-destroy entries. LiveIdx
 		// decrements as we walk live entries so the numeric labels mirror
 		// the PCM DisplayDebug output.
@@ -437,7 +437,7 @@ namespace
 
 		TArray<FComposableCameraPatchSnapshot> Patches;
 
-		// Source 1 — PatchManager (BP path).
+		// Source 1 -PatchManager (BP path).
 		const UComposableCameraContextStack* Stack = PCM->GetContextStack();
 		UComposableCameraDirector* Director = Stack ? Stack->GetActiveDirector() : nullptr;
 		if (const UComposableCameraPatchManager* Manager = Director ? Director->GetPatchManager() : nullptr)
@@ -445,7 +445,7 @@ namespace
 			Manager->BuildDebugSnapshot(Patches);
 		}
 
-		// Source 2 — LS Component overlays (Sequencer path). Walk every LS Component
+		// Source 2 -LS Component overlays (Sequencer path). Walk every LS Component
 		// in the same world and merge in. Mirrors the panel's BuildPatchesLines
 		// logic so the dump and the on-screen panel always agree on what's active.
 		if (UWorld* CmdWorld = PCM->GetWorld())
@@ -467,12 +467,12 @@ namespace
 	}
 
 	// `CCS.Dump.Camera [tag]`
-	//   No arg → active context's RunningCamera.
-	//   With arg → scan each live context's RunningCamera for a CameraTag
+	//   No arg ->active context's RunningCamera.
+	//   With arg ->scan each live context's RunningCamera for a CameraTag
 	//              whose string matches the arg; first match wins.
 	// Source-side cameras in mid-transition aren't searched (they live
 	// inside eval-tree leaves, not on `Director::RunningCamera`). That's
-	// acceptable for the diagnostic use case — "what's this camera doing
+	// acceptable for the diagnostic use case -"what's this camera doing
 	// right now" is almost always about the top/target side of any blend.
 	static void CmdDumpCamera(const TArray<FString>& Args, UWorld* World)
 	{
@@ -540,8 +540,8 @@ namespace
 	static FAutoConsoleCommandWithWorldAndArgs GCmdDumpCamera(
 		TEXT("CCS.Dump.Camera"),
 		TEXT("Print a camera's full state (nodes, per-pin output values, exposed parameters, internal variables, data block summary) to LogComposableCameraSystem at Display and copy to clipboard.\n")
-		TEXT("Usage: CCS.Dump.Camera              — dumps the active context's running camera\n")
-		TEXT("       CCS.Dump.Camera <CameraTag>  — scans each context's running camera for a matching tag (case-insensitive, first match)"),
+		TEXT("Usage: CCS.Dump.Camera             . Dumps the active context's running camera\n")
+		TEXT("       CCS.Dump.Camera <CameraTag> . Scans each context's running camera for a matching tag (case-insensitive, first match)"),
 		FConsoleCommandWithWorldAndArgsDelegate::CreateStatic(&CmdDumpCamera));
 
 	static FAutoConsoleCommandWithWorldAndArgs GCmdDumpPatches(

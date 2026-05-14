@@ -11,7 +11,7 @@
  * from the Content Browser.
  */
 UCLASS(ClassGroup = ComposableCameraSystem)
-class COMPOSABLECAMERASYSTEMEDITOR_API UComposableCameraTransitionTableFactory : public UFactory
+class COMPOSABLECAMERASYSTEMEDITOR_API UComposableCameraTransitionTableFactory: public UFactory
 {
 	GENERATED_BODY()
 

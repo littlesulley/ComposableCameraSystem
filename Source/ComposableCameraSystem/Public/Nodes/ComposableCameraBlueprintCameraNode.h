@@ -1,4 +1,4 @@
-// Copyright Sulley. All rights reserved.
+﻿// Copyright Sulley. All rights reserved.
 
 #pragma once
 
@@ -15,7 +15,7 @@
  *   - Custom pin declarations       (override "GetPinDeclarations")
  *
  * Blueprint subclasses are automatically discovered by the camera type
- * asset editor — they appear in the "Add Node" context menu alongside
+ * asset editor. They appear in the "Add Node" context menu alongside
  * built-in C++ nodes with no manual registration required.
  *
  * Pin values can be read/written from Blueprint via the type-specific
@@ -29,7 +29,7 @@
  * implicit pin with the UPROPERTY's default value. See the build validator
  * for details.
  *
- * This class is Abstract — users must subclass it in Blueprint; it cannot
+ * This class is Abstract. Users must subclass it in Blueprint; it cannot
  * be placed directly.
  */
 UCLASS(Abstract, Blueprintable, ClassGroup = ComposableCameraSystem,
@@ -44,12 +44,12 @@ public:
 	UComposableCameraBlueprintCameraNode() { PaletteCategory = TEXT("Composition"); }
 
 public:
-	// ─── Blueprint Utilities ─────────────────────────────────────────────
+	// --- Blueprint Utilities ---------------------------------------------
 
 	/**
 	 * Read an input pin value as Vector2D from Blueprint.
 	 * (The base class exposes Float/Int32/Bool/Vector/Rotator/Transform/Actor
-	 *  but omits Vector2D and Double — fill the gap here.)
+	 *  but omits Vector2D and Double. Fill the gap here.)
 	 */
 	UFUNCTION(BlueprintCallable, Category = "ComposableCameraSystem|Node|Pins")
 	FVector2D GetInputPinValueVector2D(FName PinName) const;

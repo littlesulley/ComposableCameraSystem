@@ -1,4 +1,4 @@
-// Copyright Sulley. All rights reserved.
+﻿// Copyright Sulley. All rights reserved.
 
 #pragma once
 
@@ -61,14 +61,14 @@ public:
 	virtual FComposableCameraPose OnEvaluate_Implementation(float DeltaTime, const FComposableCameraPose& CurrentSourcePose, const FComposableCameraPose& CurrentTargetPose) override;
 
 	// Deocclusion wraps a DrivingTransition and layers dynamic feeler
-	// offsets on top — the timing curve IS the driving transition's.
+	// offsets on top. The timing curve IS the driving transition's.
 	// Falls back to linear when DrivingTransition is unset.
 	virtual float GetBlendWeightAt(float NormalizedTime) const override;
 
 #if !UE_BUILD_SHIPPING
 	// Gated on `CCS.Debug.Viewport.Transitions.DynamicDeocclusion`.
 	// Standard triplet in red accent, plus the feeler rays emanating from
-	// the current blended pose — essential for tuning feeler angles.
+	// the current blended pose. Essential for tuning feeler angles.
 	virtual void DrawTransitionDebug(UWorld* World, bool bViewerIsOutsideCamera) const override;
 #endif
 
@@ -111,11 +111,11 @@ private:
 
 	// Snapshot of actors-to-ignore taken at OnBeginPlay (resolved from
 	// `ActorTypesToIgnore` via GetAllActorsOfClass). Stored as
-	// TWeakObjectPtr — across the multi-frame lifetime of a transition the
+	// TWeakObjectPtr. Across the multi-frame lifetime of a transition the
 	// ignored actors can be destroyed / GC'd, and a raw cached `AActor*`
 	// would dangle. The runtime trace API needs a `TArray<AActor*>`, so
 	// `ResolvedActorsToIgnore` is rebuilt from the weak snapshot each
-	// Evaluate (cheap — typical N is a handful, no hot-path alloc since
+	// Evaluate (cheap. Typical N is a handful, no hot-path alloc since
 	// the array reuses its capacity across frames).
 	TArray<TWeakObjectPtr<AActor>> ActorsToIgnoreWeak;
 	TArray<AActor*> ResolvedActorsToIgnore;

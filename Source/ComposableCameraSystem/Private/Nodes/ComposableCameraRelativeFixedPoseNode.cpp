@@ -1,4 +1,4 @@
-﻿// Copyright Sulley. All rights reserved.
+// Copyright Sulley. All rights reserved.
 
 #include "Nodes/ComposableCameraRelativeFixedPoseNode.h"
 
@@ -64,7 +64,7 @@ void UComposableCameraRelativeFixedPoseNode::OnTickNode_Implementation(float Del
 	else if (Method == EComposableCameraRelativeFixedPoseMethod::RelativeToActor)
 	{
 		AActor* EffectiveRelativeActor = ComposableCameraSystem::ResolveActorInput(
-			RelativeActorSource, RelativeActor.Get(), GetOwningPlayerCameraManager());
+			RelativeActorSource, RelativeActor.Get(), GetOwningPlayerCameraManager(), this);
 		ResolveSkelMeshForRelativeActor(EffectiveRelativeActor, SkeletalMeshComponentForRelativeActor, LastResolvedRelativeActor);
 
 		USkeletalMeshComponent* Comp = SkeletalMeshComponentForRelativeActor.Get();
@@ -92,7 +92,7 @@ void UComposableCameraRelativeFixedPoseNode::DrawNodeDebug(UWorld* World, bool /
 	if (CVarShowRelativeFixedPoseGizmo.GetValueOnGameThread() == 0
 		&& !FComposableCameraViewportDebug::ShouldShowAllNodeGizmos()) { return; }
 
-	// Resolve the reference transform origin the same way OnTickNode does —
+	// Resolve the reference transform origin the same way OnTickNode does -
 	// a sphere at that origin is the "what am I relative TO?" marker.
 	// The output pose itself (target camera pose) is already visible via
 	// the frustum when in F8 eject, so we don't double up there.
@@ -108,7 +108,7 @@ void UComposableCameraRelativeFixedPoseNode::DrawNodeDebug(UWorld* World, bool /
 	else if (Method == EComposableCameraRelativeFixedPoseMethod::RelativeToActor)
 	{
 		AActor* EffectiveRelativeActor = ComposableCameraSystem::ResolveActorInput(
-			RelativeActorSource, RelativeActor.Get(), GetOwningPlayerCameraManager());
+			RelativeActorSource, RelativeActor.Get(), GetOwningPlayerCameraManager(), this);
 		USkeletalMeshComponent* Comp = SkeletalMeshComponentForRelativeActor.Get();
 		if (LastResolvedRelativeActor.Get() == EffectiveRelativeActor && IsValid(Comp) && Comp->DoesSocketExist(RelativeSocket))
 		{

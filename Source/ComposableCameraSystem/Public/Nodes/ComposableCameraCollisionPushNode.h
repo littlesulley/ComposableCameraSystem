@@ -1,4 +1,4 @@
-// Copyright Sulley. All rights reserved.
+ï»¿// Copyright Sulley. All rights reserved.
 
 #pragma once
 
@@ -127,7 +127,7 @@ private:
 	// TWeakObjectPtr (not raw, not UPROPERTY): PivotActor is an input pin
 	// and can be driven to a new actor every frame, and the SkelMesh
 	// component on that actor can be destroyed / re-spawned independently
-	// of this node â€?Tick / DrawNodeDebug must IsValid()-check before
+	// of this node -Tick / DrawNodeDebug must IsValid()-check before
 	// deref. Resolution happens lazily in Tick when the active PivotActor
 	// differs from `LastResolvedPivotActor`, avoiding a per-frame
 	// `GetComponentByClass` walk in the common stable-actor case.
@@ -140,7 +140,7 @@ private:
 	// TWeakObjectPtr so multi-frame collision-ignore lifetime survives
 	// individual actor destruction without dangling. Per-tick rebuild of
 	// `ResolvedActorsToIgnore` from the weak snapshot is one weak-ptr `Get()`
-	// per entry â€?typical N is small. Earlier behavior called
+	// per entry. Typical N is small. Earlier behavior called
 	// `GetAllActorsOfClass` every Tick which scaled with the world's actor
 	// count and was a real cost on actor-heavy levels.
 	TArray<TWeakObjectPtr<AActor>> ActorsToIgnoreWeak;
@@ -150,6 +150,7 @@ private:
 	double CurrentDistanceFromCamera { 0. };
 
 	FVector OriginalCameraPosition;
+	bool bHasOriginalCameraPosition { false };
 
 #if !UE_BUILD_SHIPPING
 	/** Cache populated in FindCollisionPoint each frame so DrawNodeDebug can

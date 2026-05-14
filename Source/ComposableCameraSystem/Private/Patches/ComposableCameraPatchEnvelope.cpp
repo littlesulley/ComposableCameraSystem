@@ -1,4 +1,4 @@
-// Copyright Sulley. All rights reserved.
+﻿// Copyright Sulley. All rights reserved.
 
 #include "Patches/ComposableCameraPatchEnvelope.h"
 
@@ -34,13 +34,13 @@ namespace UE::ComposableCameras::PatchEnvelope
 		EComposableCameraPatchEase Ease,
 		FFrameRate TickRate)
 	{
-		// Outside the section bounds → no contribution.
+		// Outside the section bounds ->no contribution.
 		if (CurrentFrame < SectionStart || CurrentFrame >= SectionEnd)
 		{
 			return 0.f;
 		}
 
-		// Convert seconds → ticks via the movie scene's tick resolution.
+		// Convert seconds ->ticks via the movie scene's tick resolution.
 		// `* (double, FFrameRate)` is the canonical "X seconds in tick units"
 		// conversion; FloorToFrame matches what the rest of the section /
 		// channel path uses for time comparisons.
@@ -54,7 +54,7 @@ namespace UE::ComposableCameras::PatchEnvelope
 		// Resolve the enter / exit windows, scaling proportionally when their
 		// sum exceeds the section length so EnterEnd == ExitStart (no overlap,
 		// no discontinuity). The naive per-side `Min(Duration, SectionSize)`
-		// clamp lets both windows occupy the same ticks — which then triggers
+		// clamp lets both windows occupy the same ticks. Which then triggers
 		// the "first matching branch wins" preference below and produces a
 		// step jump where Enter hands off to Exit. Proportional scaling
 		// preserves the authored Enter:Exit ratio and yields a continuous
@@ -74,21 +74,21 @@ namespace UE::ComposableCameras::PatchEnvelope
 		const FFrameNumber EnterEnd  = SectionStart + EnterTicks;
 		const FFrameNumber ExitStart = SectionEnd   - ExitTicks;
 
-		// Enter ramp: 0 → 1 over [Start, Start + Enter]. Skip if EnterTicks=0.
+		// Enter ramp: 0 ->1 over [Start, Start + Enter]. Skip if EnterTicks=0.
 		if (EnterTicks > 0 && CurrentFrame < EnterEnd)
 		{
 			const float t = static_cast<float>((CurrentFrame - SectionStart).Value) / static_cast<float>(EnterTicks);
 			return ApplyEase(Ease, t);
 		}
 
-		// Exit ramp: 1 → 0 over [End - Exit, End). Skip if ExitTicks=0.
+		// Exit ramp: 1 ->0 over [End - Exit, End). Skip if ExitTicks=0.
 		if (ExitTicks > 0 && CurrentFrame >= ExitStart)
 		{
 			const float t = static_cast<float>((CurrentFrame - ExitStart).Value) / static_cast<float>(ExitTicks);
 			return 1.f - ApplyEase(Ease, t);
 		}
 
-		// Inside the steady-state middle zone — fully active.
+		// Inside the steady-state middle zone. Fully active.
 		return 1.f;
 	}
 }

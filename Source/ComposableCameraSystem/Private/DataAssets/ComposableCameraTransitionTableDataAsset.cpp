@@ -1,4 +1,4 @@
-// Copyright Sulley. All rights reserved.
+﻿// Copyright Sulley. All rights reserved.
 
 #include "DataAssets/ComposableCameraTransitionTableDataAsset.h"
 #include "DataAssets/ComposableCameraTypeAsset.h"
@@ -11,9 +11,9 @@
 
 #define LOCTEXT_NAMESPACE "ComposableCameraTransitionTableDataAsset"
 
-// ────────────────────────────────────────────────────────────
+// ------------------------------------------------------------
 // FComposableCameraTransitionTableEntry
-// ────────────────────────────────────────────────────────────
+// ------------------------------------------------------------
 
 void FComposableCameraTransitionTableEntry::UpdateDisplayTitle()
 {
@@ -34,11 +34,11 @@ void FComposableCameraTransitionTableEntry::UpdateDisplayTitle()
 	}
 	else if (bMissingSource)
 	{
-		DisplayTitle = FString::Printf(TEXT("%s -> %s  [Missing Source — entry will be ignored]"), *SourceName, *TargetName);
+		DisplayTitle = FString::Printf(TEXT("%s -> %s  [Missing Source. Entry will be ignored]"), *SourceName, *TargetName);
 	}
 	else if (bMissingTarget)
 	{
-		DisplayTitle = FString::Printf(TEXT("%s -> %s  [Missing Target — entry will be ignored]"), *SourceName, *TargetName);
+		DisplayTitle = FString::Printf(TEXT("%s -> %s  [Missing Target. Entry will be ignored]"), *SourceName, *TargetName);
 	}
 	else
 	{
@@ -46,9 +46,9 @@ void FComposableCameraTransitionTableEntry::UpdateDisplayTitle()
 	}
 }
 
-// ────────────────────────────────────────────────────────────
+// ------------------------------------------------------------
 // UComposableCameraTransitionTableDataAsset
-// ────────────────────────────────────────────────────────────
+// ------------------------------------------------------------
 
 void UComposableCameraTransitionTableDataAsset::PostLoad()
 {

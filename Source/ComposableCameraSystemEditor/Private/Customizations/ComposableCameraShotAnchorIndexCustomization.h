@@ -13,18 +13,18 @@ class IPropertyHandle;
  * `FComposableCameraAnchorSpec` AND `FComposableCameraAnchorTargetWeight`.
  *
  * In each struct it intercepts the `TargetIndex` row and replaces the bare
- * integer spinner with the shared `FShotTargetIndexCombo` dropdown — same
+ * integer spinner with the shared `FShotTargetIndexCombo` dropdown - same
  * combo used for `FShotPlacement::BasisActorIndex`. Walking up to the Shot's
- * Targets array handles both the AnchorSpec depth (Shot → Layer → Anchor →
- * TargetIndex) and the AnchorTargetWeight depth (Shot → Layer → Anchor →
- * WeightedTargets[i] → TargetIndex) uniformly.
+ * Targets array handles both the AnchorSpec depth (Shot->Layer ->Anchor -> 
+ * TargetIndex) and the AnchorTargetWeight depth (Shot->Layer ->Anchor -> 
+ * WeightedTargets[i] ->TargetIndex) uniformly.
  *
  * Per-struct visibility:
- *   - `FComposableCameraAnchorSpec`: TargetIndex only applies when
- *     `Mode == SingleTarget`. Mirror that with a manual Visibility attribute
- *     (custom rows don't auto-honor UPROPERTY `EditCondition`).
- *   - `FComposableCameraAnchorTargetWeight`: TargetIndex always applies
- *     when the entry exists — no gate.
+ * - `FComposableCameraAnchorSpec`: TargetIndex only applies when
+ * `Mode == SingleTarget`. Mirror that with a manual Visibility attribute
+ * (custom rows don't auto-honor UPROPERTY `EditCondition`).
+ * - `FComposableCameraAnchorTargetWeight`: TargetIndex always applies
+ * when the entry exists - no gate.
  *
  * One class covers both because the only difference is the visibility
  * predicate and that's evaluated at render time. The CustomizeChildren
@@ -32,20 +32,18 @@ class IPropertyHandle;
  * `GetStructProperty()->Struct` to decide whether to install the
  * `Mode == SingleTarget` gate.
  */
-class FShotAnchorIndexCustomization : public IPropertyTypeCustomization
+class FShotAnchorIndexCustomization: public IPropertyTypeCustomization
 {
 public:
 	static TSharedRef<IPropertyTypeCustomization> MakeInstance();
 	static void Register(FPropertyEditorModule& PropertyEditorModule);
 	static void Unregister(FPropertyEditorModule& PropertyEditorModule);
 
-	virtual void CustomizeHeader(
-		TSharedRef<IPropertyHandle> StructPropertyHandle,
+	virtual void CustomizeHeader(TSharedRef<IPropertyHandle> StructPropertyHandle,
 		class FDetailWidgetRow& HeaderRow,
 		IPropertyTypeCustomizationUtils& StructCustomizationUtils) override;
 
-	virtual void CustomizeChildren(
-		TSharedRef<IPropertyHandle> StructPropertyHandle,
+	virtual void CustomizeChildren(TSharedRef<IPropertyHandle> StructPropertyHandle,
 		class IDetailChildrenBuilder& StructBuilder,
 		IPropertyTypeCustomizationUtils& StructCustomizationUtils) override;
 

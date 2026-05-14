@@ -16,7 +16,7 @@ class FReferenceCollector;
 
 namespace UE::ComposableCameras::Private
 {
-	/** Always-false dependent constant — needed because `static_assert(false, …)`
+	/** Always-false dependent constant. Needed because `static_assert(false, -`
 	 *  in a discarded `if constexpr` branch fires unconditionally on some
 	 *  compilers (DR2518 only mandates per-instantiation evaluation in C++23).
 	 *  The dependent form defers evaluation until the enclosing template is
@@ -35,11 +35,10 @@ namespace UE::ComposableCameras::Private
 	 *  `TModels_V<CStaticStructProvider>`) `static_assert`s instead of
 	 *  silently degrading to `Float`. The earlier Float-fallback let any
 	 *  4-byte T pass the downstream `Shape->Size` check against a `Float`
-	 *  slot — `ReadValue<uint32>(FloatOffset)` would silently reinterpret
+	 *  slot -`ReadValue<uint32>(FloatOffset)` would silently reinterpret
 	 *  the float bytes as `uint32`, same class of type-pun the slot-shape
 	 *  work was meant to close. Forcing a compile error makes the caller
-	 *  pick a supported T (`int32` for signed 32-bit, `int64` for enums —
-	 *  which is the canonical enum storage width — etc.). */
+	 *  pick a supported T (`int32` for signed 32-bit, `int64` for enums - which is the canonical enum storage width. Etc.). */
 	template<typename T>
 	constexpr EComposableCameraPinType ExpectedPinTypeFor()
 	{
@@ -64,7 +63,7 @@ namespace UE::ComposableCameras::Private
 			static_assert(always_false_v<T>,
 				"ExpectedPinTypeFor<T>: T is not a supported pin storage type. "
 				"Use one of: bool / int32 / float / double / FVector{2D,3D,4} / "
-				"FRotator / FTransform / FName / int64 (for enums — narrow at the "
+				"FRotator / FTransform / FName / int64 (for enums. Narrow at the "
 				"call site) / AActor*-derived / UObject*-derived / a USTRUCT.");
 			return EComposableCameraPinType::Float; // unreachable; shuts up the compiler
 		}
@@ -86,7 +85,7 @@ namespace UE::ComposableCameras::Private
  * Each slot is aligned to the type's natural alignment. The per-instance default slots
  * mirror the authoring-layer FComposableCameraPinOverride::DefaultValueOverride values
  * (see Nodes/ComposableCameraNodePinTypes.h) pre-parsed into typed bytes so the per-frame
- * resolution path in TryResolveInputPin is a pure pointer lookup — no string parsing
+ * resolution path in TryResolveInputPin is a pure pointer lookup. No string parsing
  * on the hot path.
  */
 USTRUCT()
@@ -151,13 +150,13 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraRuntimeDataBlock
 		return StructSlotsOffsetBase + Index;
 	}
 
-	/** Lookup: (NodeIndex, PinName) for OUTPUT pins → byte offset in Storage. */
+	/** Lookup: (NodeIndex, PinName) for OUTPUT pins ->byte offset in Storage. */
 	TMap<FComposableCameraPinKey, int32> OutputPinOffsets;
 
-	/** Lookup: ExposedParameterName → byte offset in Storage. */
+	/** Lookup: ExposedParameterName ->byte offset in Storage. */
 	TMap<FName, int32> ExposedParameterOffsets;
 
-	/** Lookup: InternalVariableName → byte offset in Storage. */
+	/** Lookup: InternalVariableName ->byte offset in Storage. */
 	TMap<FName, int32> InternalVariableOffsets;
 
 	/** Object-reference slots mirrored from raw storage for explicit GC collection. */
@@ -173,7 +172,7 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraRuntimeDataBlock
 	 *  fires.
 	 *
 	 *  The earlier ref-slot directionality guard (eleventh-pass P0) only
-	 *  caught one axis of the cross-shape problem — UObject-pointer T
+	 *  caught one axis of the cross-shape problem -UObject-pointer T
 	 *  vs ref-slot membership. It did not catch cross-shape access where
 	 *  neither side involves a ref slot, e.g.
 	 *
@@ -197,7 +196,7 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraRuntimeDataBlock
 		/** Only meaningful when `PinType == Struct`. The exact `UScriptStruct`
 		 *  the slot was allocated for. Templated `ReadValue<T>` /
 		 *  `WriteValue<T>` must verify `T::StaticStruct() == StructType`
-		 *  before letting `CopyScriptStruct` touch the slot — the struct-
+		 *  before letting `CopyScriptStruct` touch the slot. The struct-
 		 *  slot offset table can deliver a wrong-shape T if it ever
 		 *  desyncs (stale type asset, hand-edited connection, asset saved
 		 *  before validation existed), and `CopyScriptStruct` walks T's
@@ -250,10 +249,10 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraRuntimeDataBlock
 	 *  Without this gate, a stale exec entry whose source pin's type no
 	 *  longer matches its target variable (variable retyped after the Set
 	 *  node was wired, asset saved before validation existed, etc.) would
-	 *  reach `CopySlot(SourceOffset, VarOffset, VariableSlotSize)` — and the
+	 *  reach `CopySlot(SourceOffset, VarOffset, VariableSlotSize)`. And the
 	 *  POD memcpy branch reads `VariableSlotSize` bytes from `SourceOffset`
 	 *  regardless of how many bytes actually live in the source slot. For a
-	 *  Float source (4B) → Actor variable (8B), the memcpy reads 4 bytes
+	 *  Float source (4B) -> Actor variable (8B), the memcpy reads 4 bytes
 	 *  past the float slot, then `RefreshReferenceSlot` reinterprets those 8
 	 *  bytes as `AActor*` and registers the resulting garbage pointer with
 	 *  the GC mirror.  GC can crash on the next sweep.
@@ -265,7 +264,7 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraRuntimeDataBlock
 	TSet<int32> InvalidSetVariableExecEntries;
 
 	/** Same as `InvalidSetVariableExecEntries`, but for the type asset's
-	 *  `ComputeFullExecChain` — the parallel exec chain that runs at
+	 *  `ComputeFullExecChain`. The parallel exec chain that runs at
 	 *  `ExecuteBeginPlay` time over compute nodes. */
 	TSet<int32> InvalidSetVariableComputeExecEntries;
 
@@ -280,7 +279,7 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraRuntimeDataBlock
 	 *  UObject-derived pointer T (e.g. `UCurveFloat*`, `AActor*`,
 	 *  `UComposableCameraTypeAsset*`): after the byte-storage memcpy, the
 	 *  resolved pointer is checked against `T::StaticClass()` via `IsA`.
-	 *  Mismatch → returns nullptr. The data block stores object/actor
+	 *  Mismatch -> returns nullptr. The data block stores object/actor
 	 *  pointers class-erased (every Object/Actor pin collapses to a single
 	 *  `EComposableCameraPinType::Object` or `Actor`), so a stale asset, a
 	 *  hand-edited connection, or a Blueprint-wildcard mismatch could
@@ -288,7 +287,7 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraRuntimeDataBlock
 	 *  `AssignObjectPropertyChecked` helper in `ResolveAllInputPins`
 	 *  guards the auto-resolve UPROPERTY-write path; this branch
 	 *  symmetrically guards the explicit-template-read path used by node
-	 *  authors calling `GetInputPinValue<UCurveFloat*>` directly — without
+	 *  authors calling `GetInputPinValue<UCurveFloat*>` directly. Without
 	 *  it, the wrong-class pointer flows back as a typed `T` and the next
 	 *  member access reads a vtable / fields of a different layout and
 	 *  crashes. Returning nullptr surfaces the error as a clean nullcheck
@@ -300,7 +299,7 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraRuntimeDataBlock
 		{
 			if (IsStructSlotOffset(Offset))
 			{
-				// Strict shape gate before CopyScriptStruct — refuse on any
+				// Strict shape gate before CopyScriptStruct. Refuse on any
 				// of: unknown offset, wrong PinType, wrong StructType. The
 				// prior `check()`s were debug-only safety nets that stripped
 				// in Shipping, leaving a stale offset table free to point T
@@ -334,15 +333,14 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraRuntimeDataBlock
 		// Slot-shape strict validation. Looks up `FSlotShape{PinType, Size}`
 		// recorded at layout time and refuses any cross-shape access:
 		//
-		//   * Unknown offset (no shape record) → refuse: caller is
+		//   * Unknown offset (no shape record) -> refuse: caller is
 		//     accessing a slot the layout never allocated.
 		//   * PinType mismatch (e.g., `T = AActor*` against a Float slot,
-		//     or `T = float` against an Object slot) → refuse: would
+		//     or `T = float` against an Object slot) -> refuse: would
 		//     either misinterpret bytes or pollute the GC mirror via
 		//     RefreshReferenceSlot.
 		//   * Size mismatch (e.g., `T = FVector` 12 B against a Float
-		//     slot 4 B, or `T = FTransform` against a Bool slot) →
-		//     refuse: would memcpy past the slot and clobber adjacent
+		//     slot 4 B, or `T = FTransform` against a Bool slot) ->		//     refuse: would memcpy past the slot and clobber adjacent
 		//     storage.
 		//
 		// All three cases short-circuit before any memory read so a
@@ -372,18 +370,18 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraRuntimeDataBlock
 			}
 		}
 
-		// Hard byte-bounds check before the memcpy — `check()` strips in
+		// Hard byte-bounds check before the memcpy -`check()` strips in
 		// Shipping, leaving an out-of-range read free to walk past the end
 		// of `Storage` and read whatever lives in adjacent heap memory.
 		// In normal operation `SlotShapes` is built in lockstep with
 		// `Storage`, so `Offset + sizeof(T) <= Storage.Num()` is implied
-		// by the shape match — but a stale layout (asset edited to shrink
+		// by the shape match. But a stale layout (asset edited to shrink
 		// a slot, future code path that mutates `Storage` without
 		// updating `SlotShapes`, public-member mutation by a debug tool)
 		// could leave a recorded shape pointing past the actual buffer.
 		// Refuse with `T{}` rather than reading garbage; logging is
 		// deliberately omitted on this path because the shape gates
-		// already covered the high-signal cases — this is the
+		// already covered the high-signal cases. This is the
 		// belt-and-braces backstop.
 		if (Offset < 0 || Offset + static_cast<int32>(sizeof(T)) > Storage.Num())
 		{
@@ -416,7 +414,7 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraRuntimeDataBlock
 	 *  POD path: memcpy into Storage.
 	 *  Non-POD struct path: CopyScriptStruct into the existing struct slot's
 	 *  owned memory -- no allocation unless an embedded FString grows beyond
-	 *  its existing capacity (see TechDoc.md §7.2 alloc characteristic). */
+	 *  its existing capacity (see TechDoc.md Section 7.2 alloc characteristic). */
 	template<typename T>
 	void WriteValue(int32 Offset, const T& Value)
 	{
@@ -424,7 +422,7 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraRuntimeDataBlock
 		{
 			if (IsStructSlotOffset(Offset))
 			{
-				// Strict shape gate before CopyScriptStruct — see ReadValue
+				// Strict shape gate before CopyScriptStruct. See ReadValue
 				// for the same rationale. Refuse on unknown offset / wrong
 				// PinType / wrong StructType; silently no-op rather than
 				// stamping a wrong-shape struct's property layout into a
@@ -452,7 +450,7 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraRuntimeDataBlock
 			}
 		}
 
-		// Strict shape validation — see ReadValue for the same rationale.
+		// Strict shape validation. See ReadValue for the same rationale.
 		// Refuse: (1) unknown offset, (2) PinType mismatch (would either
 		// misinterpret bytes or pollute the GC mirror through
 		// RefreshReferenceSlot), (3) size mismatch (would memcpy past the
@@ -466,7 +464,7 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraRuntimeDataBlock
 			{
 				return;
 			}
-			// Symmetric struct-type defense — see ReadValue.
+			// Symmetric struct-type defense. See ReadValue.
 			if constexpr (ExpectedType == EComposableCameraPinType::Struct)
 			{
 				if (Shape->StructType != T::StaticStruct())
@@ -476,12 +474,12 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraRuntimeDataBlock
 			}
 		}
 
-		// Hard byte-bounds check before the memcpy — same rationale as
+		// Hard byte-bounds check before the memcpy. Same rationale as
 		// `ReadValue`. The trailing `RefreshReferenceSlot` is the real
 		// hazard on this side: an out-of-range memcpy could clobber
 		// adjacent ref slots' bytes, and `RefreshReferenceSlot` would
 		// then re-read those polluted bytes as `AActor*` / `UObject*`
-		// and register garbage with the GC mirror — same crash class
+		// and register garbage with the GC mirror. Same crash class
 		// the eleventh-pass review fixed for cross-shape access. No-op
 		// silently rather than poison the GC mirror.
 		if (Offset < 0 || Offset + static_cast<int32>(sizeof(T)) > Storage.Num())
@@ -494,7 +492,7 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraRuntimeDataBlock
 
 	/** Read a value for a specific output pin.
 	 *
-	 *  Real `if`-with-return on the lookup miss — `check()` strips in
+	 *  Real `if`-with-return on the lookup miss -`check()` strips in
 	 *  Shipping, so a typo in a custom C++ node's pin name or a stale
 	 *  output pin (asset edited to remove the pin but the C++ node
 	 *  hasn't been rebuilt) would null-deref the missing offset. The
@@ -531,7 +529,7 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraRuntimeDataBlock
 	 * Resolve an input pin's value. Checks in order:
 	 * 1. Wired connection (InputPinSourceOffsets)
 	 * 2. Exposed parameter (ExposedInputPinOffsets)
-	 * 3. Per-instance default override (DefaultValueOffsets) — authoring-layer
+	 * 3. Per-instance default override (DefaultValueOffsets). Authoring-layer
 	 *    FComposableCameraPinOverride::DefaultValueOverride, pre-parsed by
 	 *    BuildRuntimeDataLayout.
 	 * 4. Returns false if none of the above are found. Callers with a class-level
@@ -569,7 +567,7 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraRuntimeDataBlock
 	}
 
 	/** Resolve an input pin to its source slot offset using the same three-tier
-	 *  priority as TryResolveInputPin (wired -> exposed -> per-instance default),
+	 *  priority as TryResolveInputPin (wired -> exposed ->per-instance default),
 	 *  but without copying the value out -- useful for non-templated paths
 	 *  (auto-resolve Struct case, struct subobject pin dispatch) that need to
 	 *  decide between byte storage and FInstancedStruct slot at runtime.
@@ -599,7 +597,7 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraRuntimeDataBlock
 	template<typename T>
 	T ReadInternalVariable(FName VariableName) const
 	{
-		// Real `if`-with-return on the lookup miss — same Shipping-strips-
+		// Real `if`-with-return on the lookup miss. Same Shipping-strips-
 		// check rationale as `ReadOutputPin`. A renamed / removed variable
 		// in the asset that a custom C++ node still references would
 		// otherwise null-deref the missing offset.
@@ -635,8 +633,7 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraRuntimeDataBlock
 	 *  concrete C++ type at compile time.
 	 *
 	 *  Returns true on success, false on any shape / index / bounds mismatch.
-	 *  The previous void overload guarded mismatches with `check()` only —
-	 *  Shipping strips those, leaving a stale offset table from a legacy
+	 *  The previous void overload guarded mismatches with `check()` only - Shipping strips those, leaving a stale offset table from a legacy
 	 *  asset (variable retyped after wiring, exec entry that escaped the
 	 *  Phase 2 invalid-set, asset round-trip race) free to drive
 	 *  `CopyScriptStruct` into a wrong-type struct slot or `memcpy` past a
@@ -668,12 +665,12 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraRuntimeDataBlock
 
 		if (bSourceIsStruct)
 		{
-			// Both endpoints are non-POD struct slots — verify the
+			// Both endpoints are non-POD struct slots. Verify the
 			// struct types match in BOTH SlotShapes (recorded at layout
 			// time) AND the live FInstancedStruct (the actual typed
 			// memory). Mismatch on either axis means CopyScriptStruct
 			// would walk one struct's property layout against another's
-			// memory — heap corruption / GC pollution under embedded
+			// memory. Heap corruption / GC pollution under embedded
 			// FString / TArray / object refs.
 			if (SrcShape->StructType != DstShape->StructType
 				|| SrcShape->StructType == nullptr)
@@ -707,7 +704,7 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraRuntimeDataBlock
 			return true;
 		}
 
-		// POD path — verify shape (PinType + Size) matches and the
+		// POD path. Verify shape (PinType + Size) matches and the
 		// declared NumBytes does not exceed the recorded slot size on
 		// either endpoint. A stale exec entry whose `VariableSlotSize`
 		// outsizes the actual slots would otherwise stomp adjacent
@@ -756,8 +753,7 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraRuntimeDataBlock
 	 *  on a runtime EComposableCameraPinType value (not a compile-time T) --
 	 *  the templated ReadValue<T> path is preferred when T is known.
 	 *
-	 *  PREFERRED: `TryGetStructSlot(Offset, ExpectedStruct)` —
-	 *  failure-aware, returns nullptr on bad offset / bad index / shape
+	 *  PREFERRED: `TryGetStructSlot(Offset, ExpectedStruct)` - failure-aware, returns nullptr on bad offset / bad index / shape
 	 *  mismatch. Use this from anywhere a wrong / stale offset is even
 	 *  remotely possible (every call site that doesn't carry a layout
 	 *  invariant proving the offset is correct).
@@ -767,7 +763,7 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraRuntimeDataBlock
 	 *  Shipping strips, leaving an out-of-bounds `StructSlots[Index]`
 	 *  read free to walk into adjacent heap then `CopyScriptStruct` on
 	 *  garbage). They `LowLevelFatalError` when something violates the
-	 *  documented precondition — caller still gets the early-detection
+	 *  documented precondition. Caller still gets the early-detection
 	 *  semantic in Debug, but Shipping no longer silently corrupts. New
 	 *  call sites should still prefer the Try* form unless the
 	 *  precondition is provably enforced upstream. */
@@ -820,8 +816,8 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraRuntimeDataBlock
 	const FInstancedStruct& GetStructSlotChecked(int32 Offset) const
 	{
 		// Shipping-safe hardening: real branch to a fatal error rather
-		// than rely on `check()` (stripped in Shipping → out-of-bounds
-		// read → CopyScriptStruct on garbage in adjacent heap). This is
+		// than rely on `check()` (stripped in Shipping means out-of-bounds
+		// read, then CopyScriptStruct on garbage in adjacent heap). This is
 		// the explicit-precondition variant; consumers that can't prove
 		// the offset is good should use TryGetStructSlot above.
 		if (!IsStructSlotOffset(Offset))
@@ -896,7 +892,7 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraRuntimeDataBlock
 			{
 				// InitializeAs(Type) on an already-initialized slot of the
 				// same type runs the slot's destructor then the default
-				// constructor in place — equivalent to "zero-init for non-POD
+				// constructor in place. Equivalent to "zero-init for non-POD
 				// struct" without freeing/reallocating the FInstancedStruct's
 				// owning memory layout.
 				Slot.InitializeAs(Type);

@@ -15,12 +15,12 @@
  * from UComposableCameraGraphNodeBase.
  */
 UCLASS()
-class COMPOSABLECAMERASYSTEMEDITOR_API UComposableCameraStartGraphNode : public UComposableCameraGraphNodeBase
+class COMPOSABLECAMERASYSTEMEDITOR_API UComposableCameraStartGraphNode: public UComposableCameraGraphNodeBase
 {
 	GENERATED_BODY()
 
 public:
-	// ─── UEdGraphNode Interface ────────────────────────────────────────
+	// UEdGraphNode Interface 
 
 	virtual void AllocateDefaultPins() override;
 	virtual FText GetNodeTitle(ENodeTitleType::Type TitleType) const override;

@@ -1,4 +1,4 @@
-// Copyright Sulley. All rights reserved.
+﻿// Copyright Sulley. All rights reserved.
 
 #pragma once
 
@@ -13,13 +13,13 @@
  * Debug formatters used by the ShowDebug HUD (runtime) and the editor debug
  * overlay (WITH_EDITOR). Two faces per formatter:
  *
- *   AppendX(Builder, ...)  — writes into a caller-provided FStringBuilderBase.
+ *   AppendX(Builder, ...) . Writes into a caller-provided FStringBuilderBase.
  *                            Zero-alloc as long as the builder's inline buffer
  *                            is big enough (TStringBuilder<256> comfortably
  *                            fits any single pin value). Use this on any hot
  *                            path that produces one text line per tick.
  *
- *   FormatX(...)           — returns a freshly-allocated FString. Thin
+ *   FormatX(...)          . Returns a freshly-allocated FString. Thin
  *                            wrapper around AppendX. Kept for cold call sites
  *                            (property customizations, tests, showdebug
  *                            sub-headers). Do NOT introduce new hot-path uses.
@@ -241,7 +241,7 @@ namespace ComposableCameraDebug
 		}
 	}
 
-	// ---- FString-returning wrappers — cold call sites only. ------------------
+	// ---- FString-returning wrappers. Cold call sites only. ------------------
 	// These allocate. Prefer AppendX on any code that runs once per frame.
 
 	inline FString FormatFloat(double Value)

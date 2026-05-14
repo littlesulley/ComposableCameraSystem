@@ -1,4 +1,4 @@
-﻿// Copyright Sulley. All rights reserved.
+// Copyright Sulley. All rights reserved.
 
 #include "Nodes/ComposableCameraScreenSpaceConstraintsNode.h"
 
@@ -90,7 +90,7 @@ void UComposableCameraScreenSpaceConstraintsNode::GetPinDeclarations_Implementat
 	PinDecl.Tooltip = NSLOCTEXT("UComposableCameraScreenSpaceConstraintsNode", "PivotActorTip", "Actor to constrain in screen space.");
 	OutPins.Add(PinDecl);
 
-	// Input: Method — Translate vs Rotate strategy for keeping the pivot on-screen.
+	// Input: Method - Translate vs Rotate strategy for keeping the pivot on-screen.
 	PinDecl = {};
 	PinDecl.PinName = TEXT("Method");
 	PinDecl.DisplayName = NSLOCTEXT("UComposableCameraScreenSpaceConstraintsNode", "Method", "Method");
@@ -101,7 +101,7 @@ void UComposableCameraScreenSpaceConstraintsNode::GetPinDeclarations_Implementat
 	PinDecl.bDefaultAsPin = false;
 	PinDecl.DefaultValueString = PinDecl.EnumType ? PinDecl.EnumType->GetNameStringByValue(static_cast<int64>(Method)) : FString();
 	PinDecl.Tooltip = NSLOCTEXT("UComposableCameraScreenSpaceConstraintsNode", "MethodTip",
-		"How to keep the pivot within the safe zone — Translate moves the camera, Rotate turns the camera.");
+		"How to keep the pivot within the safe zone - Translate moves the camera, Rotate turns the camera.");
 	OutPins.Add(PinDecl);
 
 	// Input: SafeZoneCenter
@@ -185,8 +185,8 @@ FRotator UComposableCameraScreenSpaceConstraintsNode::EnsureWithinBoundsRotation
 std::pair<float, float> UComposableCameraScreenSpaceConstraintsNode::GetTanHalfHORAndAspectRatio(
 	const FComposableCameraPose& OutCameraPose)
 {
-	// Viewport size is resolved through a general helper (PCM → GameViewport
-	// → fallback) rather than hard-wiring a PCM deref — this lets the node
+	// Viewport size is resolved through a general helper (PCM->GameViewport
+	// ->fallback) rather than hard-wiring a PCM deref - this lets the node
 	// evaluate correctly in the Level Sequence component path where there is
 	// no PCM. See UE::ComposableCameras::TryGetEffectiveViewportSize.
 	FIntPoint ViewportSize;
@@ -242,10 +242,10 @@ std::pair<float, float> UComposableCameraScreenSpaceConstraintsNode::GetTanHalfH
 
 FVector UComposableCameraScreenSpaceConstraintsNode::GetCurrentPivot() const
 {
-	// PivotActor is a pin-matched UPROPERTY — resolved by the base TickNode prologue.
+	// PivotActor is a pin-matched UPROPERTY - resolved by the base TickNode prologue.
 	// Read from the current frame's resolved value.
 	AActor* InPivotActor = ComposableCameraSystem::ResolveActorInput(
-		PivotActorSource, PivotActor.Get(), GetOwningPlayerCameraManager());
+		PivotActorSource, PivotActor.Get(), GetOwningPlayerCameraManager(), this);
 	if (IsValid(InPivotActor))
 	{
 		return InPivotActor->GetActorLocation();
@@ -271,7 +271,7 @@ void UComposableCameraScreenSpaceConstraintsNode::DrawNodeDebug(UWorld* World, b
 
 namespace
 {
-	/** Filled translucent rect — Canvas equivalent of AHUD::DrawRect. */
+	/** Filled translucent rect - Canvas equivalent of AHUD::DrawRect. */
 	void DrawCanvasRect(UCanvas* Canvas, float X, float Y, float W, float H, const FLinearColor& Color)
 	{
 		FCanvasTileItem Tile(FVector2D(X, Y), FVector2D(W, H), Color);

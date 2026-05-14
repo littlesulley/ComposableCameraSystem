@@ -30,8 +30,7 @@ TSharedRef<IDetailCustomization> FComposableCameraNodeGraphNodeDetails::MakeInst
 
 void FComposableCameraNodeGraphNodeDetails::Register(FPropertyEditorModule& PropertyEditorModule)
 {
-	PropertyEditorModule.RegisterCustomClassLayout(
-		UComposableCameraNodeGraphNode::StaticClass()->GetFName(),
+	PropertyEditorModule.RegisterCustomClassLayout(UComposableCameraNodeGraphNode::StaticClass()->GetFName(),
 		FOnGetDetailCustomizationInstance::CreateStatic(&FComposableCameraNodeGraphNodeDetails::MakeInstance));
 }
 
@@ -39,8 +38,7 @@ void FComposableCameraNodeGraphNodeDetails::Unregister(FPropertyEditorModule& Pr
 {
 	if (UObjectInitialized())
 	{
-		PropertyEditorModule.UnregisterCustomClassLayout(
-			UComposableCameraNodeGraphNode::StaticClass()->GetFName());
+		PropertyEditorModule.UnregisterCustomClassLayout(UComposableCameraNodeGraphNode::StaticClass()->GetFName());
 	}
 }
 
@@ -68,11 +66,11 @@ void FComposableCameraNodeGraphNodeDetails::CustomizeDetails(IDetailLayoutBuilde
 	DetailBuilder.HideProperty(GET_MEMBER_NAME_CHECKED(UComposableCameraNodeGraphNode, NodeIndex));
 	DetailBuilder.HideProperty(GET_MEMBER_NAME_CHECKED(UComposableCameraNodeGraphNode, RuntimePinOverrides));
 
-	// ── Build declared-input-pin lookup ─────────────────────────────────
+	// Build declared-input-pin lookup 
 	TArray<FComposableCameraNodePinDeclaration> Declarations;
 	GraphNode->NodeTemplate->GatherAllPinDeclarations(Declarations);
 
-	// Map: PinName → declaration index (input pins only).
+	// Map: PinName -> declaration index (input pins only).
 	TMap<FName, int32> InputPinNameToIndex;
 	for (int32 i = 0; i < Declarations.Num(); ++i)
 	{
@@ -82,7 +80,7 @@ void FComposableCameraNodeGraphNodeDetails::CustomizeDetails(IDetailLayoutBuilde
 		}
 	}
 
-	// ── Match UPROPERTYs to declared input pins ─────────────────────────
+	// Match UPROPERTYs to declared input pins 
 	//
 	// For each EditAnywhere UPROPERTY on the node template, check if its
 	// name matches a declared input pin name exactly. If so, the Details
@@ -112,15 +110,14 @@ void FComposableCameraNodeGraphNodeDetails::CustomizeDetails(IDetailLayoutBuilde
 		}
 	}
 
-	// ── Unified "Properties" category ───────────────────────────────────
-	IDetailCategoryBuilder& PropertiesCategory = DetailBuilder.EditCategory(
-		TEXT("Properties"),
+	// Unified "Properties" category 
+	IDetailCategoryBuilder& PropertiesCategory = DetailBuilder.EditCategory(TEXT("Properties"),
 		LOCTEXT("PropertiesCategory", "Properties"),
 		ECategoryPriority::Important);
 
 	const TArray<UObject*> ExternalObjects{ GraphNode->NodeTemplate.Get() };
 
-	// ── Helper: build the "As Pin" + "[Exposed]" widget strip ───────────
+	// Helper: build the "As Pin" + "[Exposed]" widget strip 
 	//
 	// Reused by both the inline (CustomWidget) path and the sub-row fallback.
 	auto BuildPinControlStrip = [this](FName PinName) -> TSharedRef<SWidget>
@@ -130,8 +127,7 @@ void FComposableCameraNodeGraphNodeDetails::CustomizeDetails(IDetailLayoutBuilde
 			+ SHorizontalBox::Slot()
 			.AutoWidth()
 			.VAlign(VAlign_Center)
-			[
-				SNew(SCheckBox)
+			[SNew(SCheckBox)
 				.IsChecked_Lambda([this, PinName]()
 				{
 					return GetAsPinCheckState(PinName);
@@ -143,21 +139,17 @@ void FComposableCameraNodeGraphNodeDetails::CustomizeDetails(IDetailLayoutBuilde
 				.ToolTipText(LOCTEXT("AsPinCheckboxTooltip",
 					"When checked, this input appears as a wireable / exposable pin on "
 					"the graph node. When unchecked, the pin is hidden from the graph and "
-					"the property value becomes a constant — turning this off on a wired "
+					"the property value becomes a constant - turning this off on a wired "
 					"or exposed pin auto-breaks the wire and auto-unexposes."))
-				[
-					SNew(STextBlock)
+				[SNew(STextBlock)
 					.Text(LOCTEXT("AsPinLabel", "As Pin"))
-					.Font(IDetailLayoutBuilder::GetDetailFont())
-				]
-			]
+					.Font(IDetailLayoutBuilder::GetDetailFont())]]
 
 			+ SHorizontalBox::Slot()
 			.AutoWidth()
 			.VAlign(VAlign_Center)
 			.Padding(6.f, 0.f, 0.f, 0.f)
-			[
-				SNew(STextBlock)
+			[SNew(STextBlock)
 				.Text(LOCTEXT("ExposedChip", "[Exposed]"))
 				.Font(IDetailLayoutBuilder::GetDetailFontItalic())
 				.ColorAndOpacity(FSlateColor::UseSubduedForeground())
@@ -168,17 +160,16 @@ void FComposableCameraNodeGraphNodeDetails::CustomizeDetails(IDetailLayoutBuilde
 				.ToolTipText(LOCTEXT("ExposedChipTooltip",
 					"This pin is exposed as a camera parameter. The value shown is the "
 					"per-instance fallback; the runtime uses the exposed parameter value "
-					"when one is provided."))
-			];
+					"when one is provided."))];
 	};
 
-	// ── Detect subobject pin prefixes ──────────────────────────────────
+	// Detect subobject pin prefixes 
 	//
 	// Compound pin names like "PushInterpolator.Speed" indicate subobject
 	// property pins. Build a set of prefixes (e.g. "PushInterpolator.")
 	// so we can identify Instanced UPROPERTYs that have exposable children.
 	TSet<FString> SubobjectPinPrefixes;
-	for (const auto& Pair : InputPinNameToIndex)
+	for (const auto& Pair: InputPinNameToIndex)
 	{
 		const FString PinNameStr = Pair.Key.ToString();
 		int32 DotIndex;
@@ -188,21 +179,21 @@ void FComposableCameraNodeGraphNodeDetails::CustomizeDetails(IDetailLayoutBuilde
 		}
 	}
 
-	// ── Surface NodeTemplate UPROPERTYs ─────────────────────────────────
+	// Surface NodeTemplate UPROPERTYs 
 	//
 	// Each UPROPERTY is added via AddExternalObjectProperty.
 	//
 	// Three property categories are handled differently:
 	//
-	//   A. Top-level pin-matched properties → CustomWidget(true) inlines
-	//      "As Pin" + "[Exposed]" controls on the same row.
+	// A. Top-level pin-matched properties -> CustomWidget(true) inlines
+	// "As Pin" + "[Exposed]" controls on the same row.
 	//
-	//   B. Instanced UObject properties with subobject pins → the parent
-	//      row is added normally (class picker visible), then each of the
-	//      subobject's child properties is added as a separate external
-	//      property row, with pin controls on matched children.
+	// B. Instanced UObject properties with subobject pins -> the parent
+	// row is added normally (class picker visible), then each of the
+	// subobject's child properties is added as a separate external
+	// property row, with pin controls on matched children.
 	//
-	//   C. Non-pin UPROPERTYs → plain native row, no controls.
+	// C. Non-pin UPROPERTYs -> plain native row, no controls.
 	//
 	// Every external-object property row gets a ForceRefreshDetails
 	// callback so that EditCondition and subobject class changes trigger
@@ -217,7 +208,7 @@ void FComposableCameraNodeGraphNodeDetails::CustomizeDetails(IDetailLayoutBuilde
 
 		const FName PropName = Property->GetFName();
 
-		// ── Check if this is an Instanced subobject with compound pins ──
+		// Check if this is an Instanced subobject with compound pins 
 		const FString PropPrefix = PropName.ToString() + TEXT(".");
 		const bool bIsSubobjectWithPins =
 			Property->HasAllPropertyFlags(CPF_InstancedReference) &&
@@ -225,14 +216,13 @@ void FComposableCameraNodeGraphNodeDetails::CustomizeDetails(IDetailLayoutBuilde
 
 		if (bIsSubobjectWithPins)
 		{
-			// ── Category B: Instanced subobject with exposable children.
+			// Category B: Instanced subobject with exposable children.
 			//
 			// The parent row shows the class picker; its native child expansion
 			// is suppressed via CustomWidget(false) so that we can add the
 			// children ourselves with inline pin controls.
 
-			IDetailPropertyRow* ParentRow = PropertiesCategory.AddExternalObjectProperty(
-				ExternalObjects, PropName);
+			IDetailPropertyRow* ParentRow = PropertiesCategory.AddExternalObjectProperty(ExternalObjects, PropName);
 			if (ParentRow)
 			{
 				// Extract the class-picker value widget before switching to
@@ -241,19 +231,15 @@ void FComposableCameraNodeGraphNodeDetails::CustomizeDetails(IDetailLayoutBuilde
 				TSharedPtr<SWidget> ParentValueWidget;
 				ParentRow->GetDefaultWidgets(ParentNameWidget, ParentValueWidget);
 
-				// Show only the class picker — no native child expansion.
+				// Show only the class picker - no native child expansion.
 				ParentRow->CustomWidget(/*bShowChildren=*/ false)
 				.NameContent()
-				[
-					SNew(STextBlock)
+				[SNew(STextBlock)
 					.Text(Property->GetDisplayNameText())
 					.ToolTipText(Property->GetToolTipText())
-					.Font(IDetailLayoutBuilder::GetDetailFontBold())
-				]
+					.Font(IDetailLayoutBuilder::GetDetailFontBold())]
 				.ValueContent()
-				[
-					ParentValueWidget.ToSharedRef()
-				];
+				[ParentValueWidget.ToSharedRef()];
 
 				if (TSharedPtr<IPropertyHandle> Handle = ParentRow->GetPropertyHandle())
 				{
@@ -266,7 +252,7 @@ void FComposableCameraNodeGraphNodeDetails::CustomizeDetails(IDetailLayoutBuilde
 					// that ForceRefreshDetails triggers when it re-fires child
 					// property-change lambdas. See the struct comment in
 					// ComposableCameraNodeGraph.h for the full explanation.
-					// Capture weak refs only — neither `this` (the IDetailCustomization)
+					// Capture weak refs only - neither `this` (the IDetailCustomization)
 					// nor `&DetailBuilder` is guaranteed to outlive the property
 					// handle that owns this delegate. The Details panel can tear
 					// down and rebuild the layout (selection change, refresh
@@ -279,9 +265,17 @@ void FComposableCameraNodeGraphNodeDetails::CustomizeDetails(IDetailLayoutBuilde
 					// for `IDetailLayoutBuilder::ForceRefreshDetails()`.
 					const TWeakObjectPtr<UComposableCameraNodeGraphNode> WeakNode = WeakGraphNode;
 					const TWeakPtr<IPropertyUtilities> WeakUtils = DetailBuilder.GetPropertyUtilities().ToWeakPtr();
-					Handle->SetOnPropertyValueChanged(
-						FSimpleDelegate::CreateLambda([WeakNode, WeakUtils]()
+					Handle->SetOnPropertyValueChangedWithData(TDelegate<void(const FPropertyChangedEvent&)>::CreateLambda(
+						[WeakNode, WeakUtils](const FPropertyChangedEvent& ChangeEvent)
 						{
+							// Skip Interactive ticks (SpinBox drag) - the gesture's
+							// final commit fires the same delegate with ValueSet.
+							// Without this guard, an unconditional ForceRefresh tears
+							// down the SNumericEntryBox after the first drag tick.
+							if (ChangeEvent.ChangeType == EPropertyChangeType::Interactive)
+							{
+								return;
+							}
 							UComposableCameraNodeGraphNode* GN = WeakNode.Get();
 							UComposableCameraNodeGraph* OwningGraph = GN
 								? Cast<UComposableCameraNodeGraph>(GN->GetGraph())
@@ -307,8 +301,7 @@ void FComposableCameraNodeGraphNodeDetails::CustomizeDetails(IDetailLayoutBuilde
 			// Resolve the subobject pointer to add its child properties.
 			const FObjectPropertyBase* ObjProp = CastField<FObjectPropertyBase>(Property);
 			UObject* Subobject = ObjProp
-				? ObjProp->GetObjectPropertyValue(
-					ObjProp->ContainerPtrToValuePtr<void>(GraphNode->NodeTemplate.Get()))
+				? ObjProp->GetObjectPropertyValue(ObjProp->ContainerPtrToValuePtr<void>(GraphNode->NodeTemplate.Get()))
 				: nullptr;
 
 			if (!Subobject)
@@ -330,8 +323,7 @@ void FComposableCameraNodeGraphNodeDetails::CustomizeDetails(IDetailLayoutBuilde
 				}
 
 				const FName SubPropName = SubProperty->GetFName();
-				IDetailPropertyRow* SubRow = PropertiesCategory.AddExternalObjectProperty(
-					SubExternalObjects, SubPropName);
+				IDetailPropertyRow* SubRow = PropertiesCategory.AddExternalObjectProperty(SubExternalObjects, SubPropName);
 				if (!SubRow)
 				{
 					continue;
@@ -345,9 +337,14 @@ void FComposableCameraNodeGraphNodeDetails::CustomizeDetails(IDetailLayoutBuilde
 				if (TSharedPtr<IPropertyHandle> SubHandle = SubRow->GetPropertyHandle())
 				{
 					const TWeakPtr<IPropertyUtilities> WeakUtils = DetailBuilder.GetPropertyUtilities().ToWeakPtr();
-					SubHandle->SetOnPropertyValueChanged(
-						FSimpleDelegate::CreateLambda([WeakUtils]()
+					SubHandle->SetOnPropertyValueChangedWithData(TDelegate<void(const FPropertyChangedEvent&)>::CreateLambda(
+						[WeakUtils](const FPropertyChangedEvent& ChangeEvent)
 						{
+							// Skip Interactive ticks (SpinBox drag).
+							if (ChangeEvent.ChangeType == EPropertyChangeType::Interactive)
+							{
+								return;
+							}
 							if (TSharedPtr<IPropertyUtilities> Utils = WeakUtils.Pin())
 							{
 								Utils->ForceRefresh();
@@ -360,16 +357,14 @@ void FComposableCameraNodeGraphNodeDetails::CustomizeDetails(IDetailLayoutBuilde
 				TSharedPtr<SWidget> SubValueWidget;
 				SubRow->GetDefaultWidgets(SubNameWidget, SubValueWidget);
 
-				// Indented name widget — shared by both pin-matched and plain children.
+				// Indented name widget - shared by both pin-matched and plain children.
 				TSharedRef<SWidget> IndentedName =
 					SNew(SBox)
 					.Padding(FMargin(12.f, 0.f, 0.f, 0.f))
-					[
-						SNew(STextBlock)
+					[SNew(STextBlock)
 						.Text(SubProperty->GetDisplayNameText())
 						.ToolTipText(SubProperty->GetToolTipText())
-						.Font(IDetailLayoutBuilder::GetDetailFont())
-					];
+						.Font(IDetailLayoutBuilder::GetDetailFont())];
 
 				// Check if this child property has a compound pin name.
 				const FName CompoundPinName(*(PropPrefix + SubProperty->GetName()));
@@ -384,7 +379,7 @@ void FComposableCameraNodeGraphNodeDetails::CustomizeDetails(IDetailLayoutBuilde
 					// the pin control strip stays interactive regardless of
 					// meta=EditCondition on the subobject child property.
 					// IDetailPropertyRow::IsEnabled only narrows, it cannot
-					// widen — EditCondition override is the only way to break
+					// widen - EditCondition override is the only way to break
 					// the auto-disable cascade. The native value widget below
 					// is still greyed via IPropertyHandle::IsEditable() when
 					// the real EditCondition evaluates to false.
@@ -394,58 +389,43 @@ void FComposableCameraNodeGraphNodeDetails::CustomizeDetails(IDetailLayoutBuilde
 					// Pin-matched child: indented name + value + pin controls.
 					SubRow->CustomWidget(/*bShowChildren=*/ true)
 					.NameContent()
-					[
-						IndentedName
-					]
+					[IndentedName]
 					.ValueContent()
-					[
-						SNew(SHorizontalBox)
+					[SNew(SHorizontalBox)
 
 						+ SHorizontalBox::Slot()
 						.FillWidth(1.f)
 						.VAlign(VAlign_Center)
-						[
-							SNew(SBox)
+						[SNew(SBox)
 							.IsEnabled_Lambda([SubRowHandle]()
 							{
 								return SubRowHandle.IsValid() && SubRowHandle->IsEditable();
 							})
-							[
-								SubValueWidget.ToSharedRef()
-							]
-						]
+							[SubValueWidget.ToSharedRef()]]
 
 						+ SHorizontalBox::Slot()
 						.AutoWidth()
 						.VAlign(VAlign_Center)
 						.Padding(8.f, 0.f, 0.f, 0.f)
-						[
-							BuildPinControlStrip(CompoundPinName)
-						]
-					];
+						[BuildPinControlStrip(CompoundPinName)]];
 				}
 				else
 				{
 					// Non-pin child: indented name + native value, no pin controls.
 					SubRow->CustomWidget(/*bShowChildren=*/ true)
 					.NameContent()
-					[
-						IndentedName
-					]
+					[IndentedName]
 					.ValueContent()
-					[
-						SubValueWidget.ToSharedRef()
-					];
+					[SubValueWidget.ToSharedRef()];
 				}
 			}
 
 			continue; // Parent + children handled, skip the top-level pin logic.
 		}
 
-		// ── Category A & C: normal top-level properties ─────────────────
+		// Category A & C: normal top-level properties 
 
-		IDetailPropertyRow* Row = PropertiesCategory.AddExternalObjectProperty(
-			ExternalObjects, PropName);
+		IDetailPropertyRow* Row = PropertiesCategory.AddExternalObjectProperty(ExternalObjects, PropName);
 		if (!Row)
 		{
 			continue;
@@ -454,6 +434,18 @@ void FComposableCameraNodeGraphNodeDetails::CustomizeDetails(IDetailLayoutBuilde
 		// Force a full detail rebuild when any NodeTemplate property
 		// changes, so EditCondition on sibling external properties is
 		// re-evaluated (e.g. Method change reveals RelativeActor).
+		//
+		// Gate the refresh on ChangeType != Interactive so SpinBox drags
+		// don't tear their own widget down each frame. Stock
+		// SPropertyEditorNumeric writes per-tick with
+		// EPropertyValueSetFlags::InteractiveChange | NotTransactable
+		// during a drag, which fires this delegate every tick; an
+		// unconditional ForceRefresh destroys the SNumericEntryBox after
+		// the first tick (user-visible symptom: value changes by one tick
+		// of motion then refuses to budge further). The final mouse-up
+		// fires the same delegate with ChangeType == ValueSet (no
+		// Interactive flag) which is what we actually need to re-evaluate
+		// EditCondition on. See TechDoc 7.2.
 		//
 		// Instanced properties (interpolators, etc.) need extra handling:
 		// when the subobject is initially None, no compound pins are
@@ -472,14 +464,18 @@ void FComposableCameraNodeGraphNodeDetails::CustomizeDetails(IDetailLayoutBuilde
 				// re-fires child lambdas that would otherwise each run a full
 				// SyncToTypeAsset.
 				//
-				// Captures are weak — `this` and `&DetailBuilder` are not
+				// Captures are weak - `this` and `&DetailBuilder` are not
 				// guaranteed to outlive the property handle. See the matching
 				// site above for the full rationale.
 				const TWeakObjectPtr<UComposableCameraNodeGraphNode> WeakNode = WeakGraphNode;
 				const TWeakPtr<IPropertyUtilities> WeakUtils = DetailBuilder.GetPropertyUtilities().ToWeakPtr();
-				Handle->SetOnPropertyValueChanged(
-					FSimpleDelegate::CreateLambda([WeakNode, WeakUtils]()
+				Handle->SetOnPropertyValueChangedWithData(TDelegate<void(const FPropertyChangedEvent&)>::CreateLambda(
+					[WeakNode, WeakUtils](const FPropertyChangedEvent& ChangeEvent)
 					{
+						if (ChangeEvent.ChangeType == EPropertyChangeType::Interactive)
+						{
+							return;
+						}
 						UComposableCameraNodeGraphNode* GN = WeakNode.Get();
 						UComposableCameraNodeGraph* OwningGraph = GN
 							? Cast<UComposableCameraNodeGraph>(GN->GetGraph())
@@ -503,9 +499,13 @@ void FComposableCameraNodeGraphNodeDetails::CustomizeDetails(IDetailLayoutBuilde
 			else
 			{
 				const TWeakPtr<IPropertyUtilities> WeakUtils = DetailBuilder.GetPropertyUtilities().ToWeakPtr();
-				Handle->SetOnPropertyValueChanged(
-					FSimpleDelegate::CreateLambda([WeakUtils]()
+				Handle->SetOnPropertyValueChangedWithData(TDelegate<void(const FPropertyChangedEvent&)>::CreateLambda(
+					[WeakUtils](const FPropertyChangedEvent& ChangeEvent)
 					{
+						if (ChangeEvent.ChangeType == EPropertyChangeType::Interactive)
+						{
+							return;
+						}
 						if (TSharedPtr<IPropertyUtilities> Utils = WeakUtils.Pin())
 						{
 							Utils->ForceRefresh();
@@ -517,7 +517,7 @@ void FComposableCameraNodeGraphNodeDetails::CustomizeDetails(IDetailLayoutBuilde
 		const FName* FoundPinName = PropNameToPinName.Find(PropName);
 		if (!FoundPinName)
 		{
-			// Category C: non-pin UPROPERTY — plain native row, no controls.
+			// Category C: non-pin UPROPERTY - plain native row, no controls.
 			continue;
 		}
 
@@ -530,19 +530,19 @@ void FComposableCameraNodeGraphNodeDetails::CustomizeDetails(IDetailLayoutBuilde
 		// FilmbackNode's AspectRatioAxisConstraint gated by
 		// bOverrideAspectRatioAxisConstraint). IDetailPropertyRow::IsEnabled
 		// AND-combines with the auto-computed enabled state, so it can only
-		// narrow, not widen — instead we REPLACE the underlying EditCondition
+		// narrow, not widen - instead we REPLACE the underlying EditCondition
 		// with an always-true attribute and no setter. This breaks the row's
 		// auto-disable cascade entirely. The native ValueWidget below is
 		// wrapped in an IsEnabled-driven SBox keyed off IPropertyHandle::
 		// IsEditable(), which still reflects the real metadata-driven state
-		// independent of this override — so only the pin control strip stays
+		// independent of this override - so only the pin control strip stays
 		// interactive when the property is non-editable.
 		Row->EditCondition(TAttribute<bool>(true), FOnBooleanValueChanged());
 		TSharedPtr<IPropertyHandle> RowHandle = Row->GetPropertyHandle();
 
 		// Extract the default value widget from the native row BEFORE
 		// switching to CustomWidget mode. The name widget is built
-		// manually — GetDefaultWidgets yields an empty/broken name for
+		// manually - GetDefaultWidgets yields an empty/broken name for
 		// some struct types.
 		TSharedPtr<SWidget> NameWidget;
 		TSharedPtr<SWidget> ValueWidget;
@@ -550,15 +550,12 @@ void FComposableCameraNodeGraphNodeDetails::CustomizeDetails(IDetailLayoutBuilde
 
 		Row->CustomWidget(/*bShowChildren=*/ true)
 		.NameContent()
-		[
-			SNew(STextBlock)
+		[SNew(STextBlock)
 			.Text(Property->GetDisplayNameText())
 			.ToolTipText(Property->GetToolTipText())
-			.Font(IDetailLayoutBuilder::GetDetailFont())
-		]
+			.Font(IDetailLayoutBuilder::GetDetailFont())]
 		.ValueContent()
-		[
-			SNew(SHorizontalBox)
+		[SNew(SHorizontalBox)
 
 			+ SHorizontalBox::Slot()
 			.FillWidth(1.f)
@@ -571,28 +568,22 @@ void FComposableCameraNodeGraphNodeDetails::CustomizeDetails(IDetailLayoutBuilde
 				{
 					return RowHandle.IsValid() && RowHandle->IsEditable();
 				})
-				[
-					ValueWidget.ToSharedRef()
-				]
-			]
+				[ValueWidget.ToSharedRef()]]
 
 			+ SHorizontalBox::Slot()
 			.AutoWidth()
 			.VAlign(VAlign_Center)
 			.Padding(8.f, 0.f, 0.f, 0.f)
-			[
-				BuildPinControlStrip(PinName)
-			]
-		];
+			[BuildPinControlStrip(PinName)]];
 	}
 
-	// ── Fallback rows for unmatched pins ────────────────────────────────
+	// Fallback rows for unmatched pins 
 	//
 	// Declared input pins that had no matching UPROPERTY (neither exact
 	// nor Context-prefixed). Scalar types get a string-based text editor;
 	// Actor/Object types get a read-only "None" label since a runtime object
 	// reference cannot be meaningfully authored as a string.
-	for (const FComposableCameraNodePinDeclaration& Decl : Declarations)
+	for (const FComposableCameraNodePinDeclaration& Decl: Declarations)
 	{
 		if (Decl.Direction != EComposableCameraPinDirection::Input)
 		{
@@ -618,8 +609,7 @@ void FComposableCameraNodeGraphNodeDetails::CustomizeDetails(IDetailLayoutBuilde
 			Decl.PinType == EComposableCameraPinType::Delegate;
 
 		TSharedRef<SWidget> ValueWidget = (bIsObjectType || bIsDelegateType)
-			? StaticCastSharedRef<SWidget>(
-				SNew(STextBlock)
+			? StaticCastSharedRef<SWidget>(SNew(STextBlock)
 				.Text(bIsDelegateType
 					? LOCTEXT("DelegatePinNone", "Bind at activation")
 					: LOCTEXT("ObjectPinNone", "None"))
@@ -632,8 +622,7 @@ void FComposableCameraNodeGraphNodeDetails::CustomizeDetails(IDetailLayoutBuilde
 					: LOCTEXT("ObjectPinFallbackTooltip",
 						"Actor/Object pins cannot have a default value. "
 						"Wire this pin or expose it as a camera parameter.")))
-			: StaticCastSharedRef<SWidget>(
-				SNew(SEditableTextBox)
+			: StaticCastSharedRef<SWidget>(SNew(SEditableTextBox)
 				.Text_Lambda([this, PinName, ClassDefault]()
 				{
 					return GetPinDefaultValueText(PinName, ClassDefault);
@@ -650,32 +639,26 @@ void FComposableCameraNodeGraphNodeDetails::CustomizeDetails(IDetailLayoutBuilde
 
 		PropertiesCategory.AddCustomRow(DisplayName)
 		.NameContent()
-		[
-			SNew(STextBlock)
+		[SNew(STextBlock)
 			.Text(DisplayName)
 			.ToolTipText(Decl.Tooltip)
-			.Font(IDetailLayoutBuilder::GetDetailFont())
-		]
+			.Font(IDetailLayoutBuilder::GetDetailFont())]
 		.ValueContent()
 		.MinDesiredWidth(200.f)
-		[
-			SNew(SHorizontalBox)
+		[SNew(SHorizontalBox)
 
 			// Value widget (text editor or read-only "None").
 			+ SHorizontalBox::Slot()
 			.FillWidth(1.f)
 			.VAlign(VAlign_Center)
-			[
-				ValueWidget
-			]
+			[ValueWidget]
 
 			// "As Pin" checkbox.
 			+ SHorizontalBox::Slot()
 			.AutoWidth()
 			.VAlign(VAlign_Center)
 			.Padding(8.f, 0.f, 0.f, 0.f)
-			[
-				SNew(SCheckBox)
+			[SNew(SCheckBox)
 				.IsChecked_Lambda([this, PinName]()
 				{
 					return GetAsPinCheckState(PinName);
@@ -687,45 +670,39 @@ void FComposableCameraNodeGraphNodeDetails::CustomizeDetails(IDetailLayoutBuilde
 				.ToolTipText(LOCTEXT("AsPinCheckboxTooltip",
 					"When checked, this input appears as a wireable / exposable pin on "
 					"the graph node. When unchecked, the pin is hidden from the graph and "
-					"the property value above becomes the constant — turning this off on "
+					"the property value above becomes the constant - turning this off on "
 					"a wired or exposed pin auto-breaks the wire and auto-unexposes."))
-				[
-					SNew(STextBlock)
+				[SNew(STextBlock)
 					.Text(LOCTEXT("AsPinLabel", "As Pin"))
-					.Font(IDetailLayoutBuilder::GetDetailFont())
-				]
-			]
+					.Font(IDetailLayoutBuilder::GetDetailFont())]]
 
 			// "[Exposed]" chip.
 			+ SHorizontalBox::Slot()
 			.AutoWidth()
 			.VAlign(VAlign_Center)
 			.Padding(6.f, 0.f, 0.f, 0.f)
-			[
-				SNew(STextBlock)
+			[SNew(STextBlock)
 				.Text(LOCTEXT("ExposedChip", "[Exposed]"))
 				.Font(IDetailLayoutBuilder::GetDetailFontItalic())
 				.ColorAndOpacity(FSlateColor::UseSubduedForeground())
 				.Visibility_Lambda([this, PinName]()
 				{
 					return GetExposedChipVisibility(PinName);
-				})
-			]
-		];
+				})]];
 	}
 
-	// ── CallInEditor UFUNCTION buttons ──────────────────────────────────
+	// CallInEditor UFUNCTION buttons 
 	//
 	// Surface any UFUNCTION(CallInEditor) declared on the underlying camera
 	// node template as a button row at the bottom of the Properties
 	// category. UE's standard UObject Details handling auto-surfaces these,
-	// but our custom layout above replaces the default category — so we
+	// but our custom layout above replaces the default category - so we
 	// explicitly iterate the template's UFUNCTIONs here. Generalises:
 	// any future node that adds a CallInEditor function gets a button
 	// automatically (V1.x first consumer:
 	// `UComposableCameraCompositionFramingNode::OpenShotEditor`).
 	//
-	// Only zero-arg, void-returning functions are wired up — matches the
+	// Only zero-arg, void-returning functions are wired up - matches the
 	// stock UE Details panel CallInEditor behavior. Functions with params
 	// would need a custom row with parameter widgets.
 	for (TFieldIterator<UFunction> FuncIt(GraphNode->NodeTemplate->GetClass()); FuncIt; ++FuncIt)
@@ -746,8 +723,7 @@ void FComposableCameraNodeGraphNodeDetails::CustomizeDetails(IDetailLayoutBuilde
 
 		PropertiesCategory.AddCustomRow(DisplayText)
 		.WholeRowContent()
-		[
-			SNew(SButton)
+		[SNew(SButton)
 			.HAlign(HAlign_Center)
 			.OnClicked_Lambda([WeakTemplate, FuncName]() -> FReply
 			{
@@ -760,16 +736,13 @@ void FComposableCameraNodeGraphNodeDetails::CustomizeDetails(IDetailLayoutBuilde
 				}
 				return FReply::Handled();
 			})
-			[
-				SNew(STextBlock)
+			[SNew(STextBlock)
 				.Text(DisplayText)
-				.Font(IDetailLayoutBuilder::GetDetailFont())
-			]
-		];
+				.Font(IDetailLayoutBuilder::GetDetailFont())]];
 	}
 }
 
-// ─── Private helpers ────────────────────────────────────────────────────────
+// Private helpers 
 
 UComposableCameraNodeGraphNode* FComposableCameraNodeGraphNodeDetails::GetGraphNode() const
 {
@@ -781,8 +754,7 @@ ECheckBoxState FComposableCameraNodeGraphNodeDetails::GetAsPinCheckState(FName P
 	if (UComposableCameraNodeGraphNode* GraphNode = GetGraphNode())
 	{
 		return GraphNode->GetEffectivePinAsPin(PinName)
-			? ECheckBoxState::Checked
-			: ECheckBoxState::Unchecked;
+			? ECheckBoxState::Checked: ECheckBoxState::Unchecked;
 	}
 	return ECheckBoxState::Undetermined;
 }
@@ -841,8 +813,7 @@ FText FComposableCameraNodeGraphNodeDetails::GetPinDefaultValueText(FName PinNam
 	return FText::FromString(ClassDefault);
 }
 
-void FComposableCameraNodeGraphNodeDetails::OnPinDefaultValueCommitted(
-	const FText& NewText, ETextCommit::Type CommitType, FName PinName)
+void FComposableCameraNodeGraphNodeDetails::OnPinDefaultValueCommitted(const FText& NewText, ETextCommit::Type CommitType, FName PinName)
 {
 	if (CommitType != ETextCommit::OnEnter && CommitType != ETextCommit::OnUserMovedFocus)
 	{

@@ -1,4 +1,4 @@
-// Copyright Sulley. All rights reserved.
+ï»¿// Copyright Sulley. All rights reserved.
 
 #pragma once
 
@@ -27,7 +27,7 @@ public:
 	virtual void OnTickNode_Implementation(float DeltaTime, const FComposableCameraPose& CurrentCameraPose, FComposableCameraPose& OutCameraPose) override;
 	virtual void GetPinDeclarations_Implementation(TArray<FComposableCameraNodePinDeclaration>& OutPins) const override;
 
-	// Overrides the Pivot component of the pose from an external actor â€?if the
+	// Overrides the Pivot component of the pose from an external actor. If the
 	// upstream has a meaningful pivot already, this node discards it. Legitimate
 	// use in a Patch (e.g. "retarget to a different actor for a moment") but
 	// worth flagging as an author confirmation.
@@ -63,7 +63,7 @@ public:
 
 private:
 	// Cached SkelMesh on the currently-resolved PivotActor. TWeakObjectPtr
-	// (not raw, not UPROPERTY) â€?PivotActor is an input pin and can change
+	// (not raw, not UPROPERTY) -PivotActor is an input pin and can change
 	// every frame, and the SkelMesh component on that actor can be
 	// destroyed / re-spawned independently. Tick / DrawNodeDebug must
 	// IsValid()-check before deref. Resolution happens lazily in Tick when

@@ -23,7 +23,7 @@ namespace
 	 *  instance to its bound LS Actor's UComposableCameraLevelSequenceComponent.
 	 *  Returns null on any miss (binding unset, actor not yet spawned, bound
 	 *  object isn't an actor, actor has no LS Component). The TrackInstance
-	 *  callbacks tolerate null — silent skip with no log spam (this fires per
+	 *  callbacks tolerate null. Silent skip with no log spam (this fires per
 	 *  Sequencer scrub frame and any noise here would flood the log). */
 	UComposableCameraLevelSequenceComponent* ResolveLSComponent(
 		const UMovieSceneEntitySystemLinker* Linker,
@@ -52,7 +52,7 @@ namespace
 
 	/** Resolve the input's current evaluation frame via the linker's instance
 	 *  registry. Falls back to the section's lower bound if the
-	 *  registry lookup fails (defensive — shouldn't normally happen). */
+	 *  registry lookup fails (defensive. Shouldn't normally happen). */
 	FFrameNumber ResolveCurrentFrame(
 		const UMovieSceneEntitySystemLinker* Linker,
 		const FMovieSceneTrackInstanceInput& Input)
@@ -159,7 +159,7 @@ void UMovieSceneComposableCameraPatchTrackInstance::OnAnimate()
 
 		const FFrameNumber CurrentFrame = ResolveCurrentFrame(Linker, Input);
 
-		// Envelope alpha — stateless, recomputed each frame from playhead vs
+		// Envelope alpha. Stateless, recomputed each frame from playhead vs
 		// section bounds. Same ease curve as runtime PatchManager via shared
 		// PatchEnvelope::ApplyEase.
 		float EnterSeconds = 0.f;
@@ -185,7 +185,7 @@ void UMovieSceneComposableCameraPatchTrackInstance::OnAnimate()
 		LSComp->SetSequencerPatchOverlay(Section, Block, Alpha);
 
 		UE_LOG(LogComposableCameraSystem, Verbose,
-			TEXT("  input '%s' → LSComp '%s', frame=%d, range=[%d..%d), enter=%.3fs (%d ticks), exit=%.3fs (%d ticks), alpha=%.3f"),
+			TEXT("  input '%s' ->LSComp '%s', frame=%d, range=[%d..%d), enter=%.3fs (%d ticks), exit=%.3fs (%d ticks), alpha=%.3f"),
 			*Section->GetName(),
 			*LSComp->GetName(),
 			CurrentFrame.Value,

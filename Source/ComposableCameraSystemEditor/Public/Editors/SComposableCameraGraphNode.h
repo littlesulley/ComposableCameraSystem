@@ -14,11 +14,11 @@ class UComposableCameraNodeGraphNode;
  * When the toolkit's debug ticker is active and pushes FDebugState into the
  * backing UComposableCameraNodeGraphNode, this widget adds visual overlays:
  *
- *   - **Pose footer:** a compact readout of the camera pose after the node
- *     executed (Position, Rotation, FOV), drawn below the node body.
+ * - **Pose footer:** a compact readout of the camera pose after the node
+ * executed (Position, Rotation, FOV), drawn below the node body.
  *
- *   - **Output pin values:** one line per output pin showing the live
- *     formatted value from DebugState.OutputPinDisplayValues.
+ * - **Output pin values:** one line per output pin showing the live
+ * formatted value from DebugState.OutputPinDisplayValues.
  *
  * The debug footer is rendered as an overlay that does NOT participate in the
  * node's width calculation. It can extend vertically and horizontally beyond
@@ -28,7 +28,7 @@ class UComposableCameraNodeGraphNode;
  * Instantiated by FComposableCameraGraphNodeFactory, which is registered with
  * FEdGraphUtilities from the editor module's StartupModule.
  */
-class COMPOSABLECAMERASYSTEMEDITOR_API SComposableCameraGraphNode : public SGraphNode
+class COMPOSABLECAMERASYSTEMEDITOR_API SComposableCameraGraphNode: public SGraphNode
 {
 public:
 	SLATE_BEGIN_ARGS(SComposableCameraGraphNode) {}
@@ -36,14 +36,13 @@ public:
 
 	void Construct(const FArguments& InArgs, UComposableCameraNodeGraphNode* InNode);
 
-	// ─── SGraphNode Interface ──────────────────────────────────────────
+	// SGraphNode Interface 
 
 	virtual void UpdateGraphNode() override;
 
-	// ─── SWidget Interface ─────────────────────────────────────────────
+	// SWidget Interface 
 
-	virtual int32 OnPaint(
-		const FPaintArgs& Args,
+	virtual int32 OnPaint(const FPaintArgs& Args,
 		const FGeometry& AllottedGeometry,
 		const FSlateRect& MyCullingRect,
 		FSlateWindowElementList& OutDrawElements,
@@ -59,20 +58,18 @@ private:
 	bool IsDebugActive() const;
 
 	/** Paint the debug footer below the node body. */
-	void PaintDebugFooter(
-		const FGeometry& AllottedGeometry,
+	void PaintDebugFooter(const FGeometry& AllottedGeometry,
 		const FSlateRect& MyCullingRect,
 		FSlateWindowElementList& OutDrawElements,
 		int32 LayerId) const;
 
 	/** Paint a small warning / error icon at the top-right of the node header
-	 *  when the backing GraphNode has a non-empty `ErrorMsg`. Driven by the
-	 *  build messages pushed onto GraphNode via
-	 *  `UComposableCameraNodeGraph::ApplyBuildMessagesToGraphNodes`. Reads the
-	 *  fields fresh every frame, so fixing a validation issue removes the
-	 *  badge on the next `SyncToTypeAsset`. */
-	void PaintValidationBadge(
-		const FGeometry& AllottedGeometry,
+	 * when the backing GraphNode has a non-empty `ErrorMsg`. Driven by the
+	 * build messages pushed onto GraphNode via
+	 * `UComposableCameraNodeGraph::ApplyBuildMessagesToGraphNodes`. Reads the
+	 * fields fresh every frame, so fixing a validation issue removes the
+	 * badge on the next `SyncToTypeAsset`. */
+	void PaintValidationBadge(const FGeometry& AllottedGeometry,
 		FSlateWindowElementList& OutDrawElements,
 		int32 LayerId) const;
 };

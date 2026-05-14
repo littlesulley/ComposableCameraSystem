@@ -9,19 +9,18 @@
 /**
  * Asset definition for UComposableCameraPatchTypeAsset.
  *
- * Parallel to UAssetDefinition_ComposableCameraTypeAsset — Patch IS-A TypeAsset
+ * Parallel to UAssetDefinition_ComposableCameraTypeAsset - Patch IS-A TypeAsset
  * via inheritance, so without this Patch instances would fall back to the
  * TypeAsset's asset definition (wrong display name, wrong color, wrong category
  * pivot for users browsing). Registering a Patch-specific definition overrides
  * the inherited match for Patch instances.
  *
- * The OpenAssets handler still routes to CreateComposableCameraTypeAssetEditor —
+ * The OpenAssets handler still routes to CreateComposableCameraTypeAssetEditor - 
  * the Patch reuses the existing visual graph editor unchanged
- * (PatchSystemProposal §5 / §16.8).
+ * (PatchSystemProposal Section 5 / Section 16.8).
  */
 UCLASS(ClassGroup = ComposableCameraSystemEditor)
-class UAssetDefinition_ComposableCameraPatchTypeAsset
-	: public UAssetDefinitionDefault
+class UAssetDefinition_ComposableCameraPatchTypeAsset: public UAssetDefinitionDefault
 {
 	GENERATED_BODY()
 

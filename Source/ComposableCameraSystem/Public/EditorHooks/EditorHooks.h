@@ -69,15 +69,15 @@ public:
 /**
  * Editor-world viewport size resolver. Bound by the editor module to
  * `GEditor->GetActiveViewport()->GetSizeXY()` (or the perspective level
- * viewport's size). Lets runtime helpers — `TryGetEffectiveViewportSize`
- * specifically — return the actual editor-scrub viewport dimensions
- * instead of a hardcoded 1920×1080 fallback. Without this, the Composition
+ * viewport's size). Lets runtime helpers - `TryGetEffectiveViewportSize`
+ * specifically - return the actual editor-scrub viewport dimensions
+ * instead of a hardcoded 1920x1080 fallback. Without this, the Composition
  * Solver runs with a wrong aspect during editor scrub of LS Spawnables,
  * causing anchor screen positions to drift from what designers see in the
  * Shot Editor preview.
  *
  * Returns false when no editor viewport is resolvable (cooked builds, very
- * early startup, headless commandlet) — caller falls back through later
+ * early startup, headless commandlet) - caller falls back through later
  * resolution steps.
  */
 DECLARE_DELEGATE_RetVal_OneParam(bool, FGetActiveEditorViewportSize, FIntPoint& /*OutSize*/);

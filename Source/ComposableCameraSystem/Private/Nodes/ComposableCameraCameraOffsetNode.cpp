@@ -1,4 +1,4 @@
-// Copyright Sulley. All rights reserved.
+﻿// Copyright Sulley. All rights reserved.
 
 #include "Nodes/ComposableCameraCameraOffsetNode.h"
 
@@ -7,7 +7,7 @@
 void UComposableCameraCameraOffsetNode::OnTickNode_Implementation(
 	float DeltaTime, const FComposableCameraPose& CurrentCameraPose, FComposableCameraPose& OutCameraPose)
 {
-	// PivotPosition and CameraOffset are pin-matched UPROPERTYs — the base
+	// PivotPosition and CameraOffset are pin-matched UPROPERTYs. The base
 	// TickNode prologue calls ResolveAllInputPins() before OnTickNode_Implementation
 	// runs, so the members already reflect the wired / exposed / default value.
 	FRotator CameraRotation = OutCameraPose.Rotation;

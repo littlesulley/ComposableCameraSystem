@@ -39,12 +39,12 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraParameterValue
 
 	/** Get a typed value. Returns false on:
 	 *    - byte-size mismatch (`Data.Num() != sizeof(T)`),
-	 *    - PinType mismatch (e.g. `Get<float>` on an Int32 entry — same size, wrong meaning),
+	 *    - PinType mismatch (e.g. `Get<float>` on an Int32 entry. Same size, wrong meaning),
 	 *    - unsupported T (no PinType maps to this template parameter),
 	 *    - for UObject pointers, when the stored pointer fails `IsA<T>()`.
 	 *
 	 *  Strict validation rationale: the prior signature only checked `Data.Num()`,
-	 *  so any same-size cross-type read silently succeeded — `Get<float>` would
+	 *  so any same-size cross-type read silently succeeded -`Get<float>` would
 	 *  read an `int32` entry's bit pattern as a float, `Get<UCurveFloat*>` would
 	 *  return any `UObject*` cast to `UCurveFloat*` regardless of actual class.
 	 *  The runtime path is already guarded by `CopyRawTo`'s PinType + size
@@ -63,8 +63,8 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraParameterValue
 		// ComposableCameraRuntimeDataBlock.h but is reproduced inline here so
 		// this header doesn't need to pull in the heavier RuntimeDataBlock
 		// include graph (Concepts/StaticStructProvider, Templates/Models).
-		// Struct values are not stored in this byte-array entry — they live
-		// in FComposableCameraParameterBlock::StructValues — so the Struct
+		// Struct values are not stored in this byte-array entry. They live
+		// in FComposableCameraParameterBlock::StructValues. So the Struct
 		// branch is omitted on purpose.
 		EComposableCameraPinType ExpectedType;
 		if constexpr (std::is_same_v<T, bool>)            ExpectedType = EComposableCameraPinType::Bool;
@@ -84,7 +84,7 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraParameterValue
 			&& std::is_base_of_v<UObject, std::remove_pointer_t<T>>) ExpectedType = EComposableCameraPinType::Object;
 		else
 		{
-			// Unknown T — refuse rather than read raw bytes blindly.
+			// Unknown T. Refuse rather than read raw bytes blindly.
 			return false;
 		}
 
@@ -93,7 +93,7 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraParameterValue
 			return false;
 		}
 
-		// UObject pointer reads need a class-identity check too — the byte
+		// UObject pointer reads need a class-identity check too. The byte
 		// array can hold any UObject*, but the caller asked for a specific
 		// derived type.
 		if constexpr (std::is_pointer_v<T>
@@ -128,7 +128,7 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraParameterBlock
 	GENERATED_BODY()
 
 	/** Type-erased parameter storage, keyed by parameter name.
-	 *  POD-only — delegates are stored in DelegateValues instead. */
+	 *  POD-only. Delegates are stored in DelegateValues instead. */
 	UPROPERTY()
 	TMap<FName, FComposableCameraParameterValue> Values;
 
@@ -174,8 +174,7 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraParameterBlock
 	 *  fall through to the type asset's authored default.
 	 *
 	 *  Used by failure paths in `SetStruct` so a refused setter call does not
-	 *  silently leave a previous-shape stale value live under the same name —
-	 *  the contract is "failed setter = no value here", not "old value
+	 *  silently leave a previous-shape stale value live under the same name - the contract is "failed setter = no value here", not "old value
 	 *  preserved". Public so callers that want to explicitly clear a slot
 	 *  (e.g. a designer-driven "reset to default" affordance) have a single
 	 *  entry point that handles all five maps. */
@@ -225,7 +224,7 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraParameterBlock
 			// Failed setter call (caller passed garbage). Clear any prior
 			// entry under this name so a downstream Get-by-name doesn't
 			// return a stale POD-shaped value the caller intended to
-			// replace — "failed = no value", not "failed = preserve old".
+			// replace -"failed = no value", not "failed = preserve old".
 			RemoveValue(Name);
 			return;
 		}
@@ -271,7 +270,7 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraParameterBlock
 			UE_LOG(LogComposableCameraSystem, Verbose,
 				TEXT("SetStruct refused for CCS infrastructure type '%s'. K2 SetParameterBlockValue CustomThunk received a mis-typed wildcard arg from the BP compiler. With the typed-setter dispatch in K2 ExpandNode this should not normally trigger -- if you see this fire, the wildcard fallback (Enum / arbitrary Struct / Delegate) hit the same bug pattern and the value will silently not propagate."),
 				*Struct->GetName());
-			// Refused setter — clear any stale parallel-map entry so the
+			// Refused setter. Clear any stale parallel-map entry so the
 			// runtime ApplyParameterBlock InitialValueString fallback (rather
 			// than a previous-shape POD value under the same name) determines
 			// what the variable resolves to.
@@ -281,7 +280,7 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraParameterBlock
 
 		// Success path: clear every other storage class first, then add the
 		// fresh struct slot. RemoveValue covers Values / ActorValues /
-		// ObjectValues / StructValues / DelegateValues — the StructValues
+		// ObjectValues / StructValues / DelegateValues. The StructValues
 		// remove is harmless here (we re-Add immediately after) and keeps
 		// the helper's "drop everything under Name" contract uniform.
 		RemoveValue(Name);
@@ -294,12 +293,12 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraParameterBlock
 	void AddReferencedObjects(FReferenceCollector& Collector);
 
 	/**
-	 * Engine reflection hook — called automatically by `AddPropertyReferencesWithStructARO`
+	 * Engine reflection hook. Called automatically by `AddPropertyReferencesWithStructARO`
 	 * (and any UPROPERTY-driven GC walk that reaches this struct) once the matching
 	 * `TStructOpsTypeTraits` opt-in is declared below. Without this hook, embedding the
 	 * struct as a UPROPERTY (`UComposableCameraPatchInstance::CachedParameters`,
 	 * `UComposableCameraLevelSequenceComponent` overlay surfaces, ...) only walked the
-	 * struct's reflected fields — `ActorValues` / `ObjectValues` / `StructValues` are
+	 * struct's reflected fields -`ActorValues` / `ObjectValues` / `StructValues` are
 	 * `UPROPERTY` so reflection sees them, but `DelegateValues` is non-`UPROPERTY` and
 	 * the `FScriptDelegate`'s bound target's strong-mark step (see `AddReferencedObjects`
 	 * body) was therefore unreachable from any reflection-driven owner. Same hole for
@@ -449,7 +448,7 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraParameterBlock
 	 *  slot (8 B Dest) landed 4 bytes of float data in the lower half of the
 	 *  slot and left the upper 4 bytes whatever was already there; the
 	 *  immediately following `RefreshReferenceSlot` reinterpreted the result
-	 *  as `AActor*` and registered a fake pointer with the GC mirror — next
+	 *  as `AActor*` and registered a fake pointer with the GC mirror. Next
 	 *  sweep crashed. Equality-on-size plus a PinType match forces a clean
 	 *  miss for any shape-wrong entry, and the caller's existing zero-init
 	 *  of the destination keeps the slot empty rather than half-populated.
@@ -488,27 +487,27 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraParameterBlock
 	/**
 	 * Parse a serialized string into a typed entry and store it under ParameterName.
 	 *
-	 * This is the single string→typed-value entry point shared by the DataTable
+	 * This is the single string-to-typed-value entry point shared by the DataTable
 	 * activation path and the DataTable row property-type customization. The two
 	 * sides must round-trip through the same parser so that anything you can type
 	 * in the editor is accepted identically at runtime.
 	 *
 	 * Supported types:
-	 *   Bool, Int32, Float, Double  — LexFromString
-	 *   Vector2D/3D/4, Rotator, Transform — ImportText on the matching core struct
-	 *   Struct                      — ImportText on the provided StructType
-	 *   Object                      — resolved via FSoftObjectPath and sync-loaded
-	 *   Name                        — FName::FromString (no Unicode canonicalization)
-	 *   Enum                        — UEnum::GetValueByNameString, stored as int64
+	 *   Bool, Int32, Float, Double  -LexFromString
+	 *   Vector2D/3D/4, Rotator, Transform -ImportText on the matching core struct
+	 *   Struct                      -ImportText on the provided StructType
+	 *   Object                     . Resolved via FSoftObjectPath and sync-loaded
+	 *   Name                        -FName::FromString (no Unicode canonicalization)
+	 *   Enum                        -UEnum::GetValueByNameString, stored as int64
 	 *
 	 * Unsupported (returns false, writes OutError):
-	 *   Actor — actors are world-scoped and cannot be resolved from a DataTable
+	 *   Actor. Actors are world-scoped and cannot be resolved from a DataTable
 	 *           asset. Use Object with a soft path to a CDO/archetype instead if
 	 *           you need a class reference.
 	 *
 	 * @param OutBlock        Parameter block to write into.
 	 * @param ParameterName   Key the entry is stored under in OutBlock.Values.
-	 * @param PinType         Target pin type — dispatches the parse branch.
+	 * @param PinType         Target pin type. Dispatches the parse branch.
 	 * @param StructType      Only read when PinType == Struct; ignored otherwise.
 	 * @param EnumType        Only read when PinType == Enum; ignored otherwise.
 	 *                        Used to parse the display / authored name back to an
@@ -542,7 +541,7 @@ struct TStructOpsTypeTraits<FComposableCameraParameterBlock>
 		// or an explicit `Collector.AddPropertyReferencesWithStructARO(
 		// FComposableCameraParameterBlock::StaticStruct(), &ParamBlock)`).
 		// Without the trait, the walker would only walk reflected fields
-		// — `DelegateValues` is non-UPROPERTY, so its strong-mark step on
+		// -`DelegateValues` is non-UPROPERTY, so its strong-mark step on
 		// the `FScriptDelegate` target would be unreachable from every
 		// reflection-driven owner, and the bound-object would silently
 		// become eligible for collection.

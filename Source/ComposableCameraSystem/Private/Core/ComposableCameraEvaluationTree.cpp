@@ -26,7 +26,7 @@ FComposableCameraPose FComposableCameraEvaluationTreeLeafNodeWrapper::Evaluate(f
 		return RunningCamera->CameraPose;
 	}
 
-	// TickCamera internally short-circuits on same-frame re-entry — see
+	// TickCamera internally short-circuits on same-frame re-entry. See
 	// `AComposableCameraCameraBase::TickCamera` + `LastTickedFrameCounter`.
 	// Under the DAG evaluation topology the same camera can be reached via
 	// multiple paths (e.g. pop-Inner.Right and pop-Inner.Left.RefLeaf
@@ -45,8 +45,7 @@ FComposableCameraPose FComposableCameraEvaluationTreeReferenceLeafNodeWrapper::E
 	{
 		// Legitimate when the source director had no running camera at the
 		// moment the RefLeaf was created (e.g. unit tests that wire a
-		// RefLeaf to an empty director on purpose). Warn, don't error —
-		// the old director-forwarding path logged at the same severity
+		// RefLeaf to an empty director on purpose). Warn, don't error -		// the old director-forwarding path logged at the same severity
 		// via UComposableCameraEvaluationTree::Evaluate's empty-root branch.
 		UE_LOG(LogComposableCameraSystem, Warning, TEXT("SnapshotRoot is null when evaluating reference leaf node."));
 		return FComposableCameraPose{};
@@ -56,7 +55,7 @@ FComposableCameraPose FComposableCameraEvaluationTreeReferenceLeafNodeWrapper::E
 	{
 		// Snapshot subtree is frozen: return the cached pose without walking
 		// it again. CachedPose is set by the first unfrozen evaluation (if
-		// any) or left default — callers that freeze on creation should
+		// any) or left default. Callers that freeze on creation should
 		// prime it via the owning director's LastEvaluatedPose if they need
 		// a meaningful starting value.
 		return CachedPose;
@@ -102,7 +101,7 @@ FComposableCameraPose FComposableCameraEvaluationTreeInnerNodeWrapper::Evaluate(
 	// Per-frame memoization: prevents double-advancing the transition's
 	// RemainingTime when the DAG routes through this Inner twice in a
 	// frame. Must happen BEFORE the subtree walks (so child nodes also
-	// only get hit once via this path — though their own per-node caches
+	// only get hit once via this path. Though their own per-node caches
 	// would catch duplicates anyway, we save unnecessary traversal).
 	const uint64 CurrentFrame = GFrameCounter;
 	if (LastEvaluatedFrameCounter == CurrentFrame)
@@ -131,8 +130,8 @@ FComposableCameraPose FComposableCameraEvaluationTreeInnerNodeWrapper::Evaluate(
 
 #if !UE_BUILD_SHIPPING
 	// Snapshot source / target for DrawTransitionDebug. We capture only the
-	// scalar fields the debug helper reads — NOT the full FComposableCameraPose
-	// — because pose.PostProcessSettings embeds TObjectPtr members that
+	// scalar fields the debug helper reads -NOT the full FComposableCameraPose
+	//. Because pose.PostProcessSettings embeds TObjectPtr members that
 	// wouldn't be GC-tracked through our (non-UPROPERTY) cache. See the
 	// FTransitionDebugSnapshot comment in ComposableCameraTransitionBase.h.
 	Transition->LastDebugSource = {
@@ -301,9 +300,9 @@ void UComposableCameraEvaluationTree::OnActivateNewCamera(
 		// If so, nest the new intra-context activation under the RIGHT subtree instead of
 		// wrapping the entire tree. This preserves the inter-context blend at the root.
 		//
-		// Example: Gameplay --(inter-ctx)--> CamB1, then LS fires CamB2:
-		//   Before:  [InterCtx] → RefLeaf | CamB1
-		//   After:   [InterCtx] → RefLeaf | [IntraCtx] → CamB1 | CamB2
+		// Example: Gameplay --(inter-ctx)-->CamB1, then LS fires CamB2:
+		//   Before:  [InterCtx] ->RefLeaf | CamB1
+		//   After:   [InterCtx] ->RefLeaf | [IntraCtx] -> CamB1 | CamB2
 		//
 		// When the inter-context transition finishes, the right subtree (intra-blend) survives.
 		// When the intra-context transition finishes, it collapses to CamB2.
@@ -337,7 +336,7 @@ void UComposableCameraEvaluationTree::OnActivateNewCamera(
 		}
 
 		// Default path: no inter-context root, or root isn't an inner node.
-		// Freeze the source subtree if requested — all leaves hold their last pose
+		// Freeze the source subtree if requested. All leaves hold their last pose
 		// and stop ticking for the duration of the transition.
 		if (bFreezeSourceCamera)
 		{
@@ -366,7 +365,7 @@ void UComposableCameraEvaluationTree::OnActivateNewCameraWithReferenceSource(
 {
 	if (!ensureMsgf(NewCamera && SourceDirector, TEXT(
 		"EvaluationTree::OnActivateNewCameraWithReferenceSource: NewCamera=%s, SourceDirector=%s. "
-		"Both must be valid — aborting to avoid null leaf / null GetEvaluationTree() crash."),
+		"Both must be valid. Aborting to avoid null leaf / null GetEvaluationTree() crash."),
 		NewCamera ? TEXT("valid") : TEXT("null"),
 		SourceDirector ? TEXT("valid") : TEXT("null")))
 	{
@@ -380,7 +379,7 @@ void UComposableCameraEvaluationTree::OnActivateNewCameraWithReferenceSource(
 
 	if (!InTransition)
 	{
-		// Camera cut — no blending needed. Just replace with the new leaf.
+		// Camera cut. No blending needed. Just replace with the new leaf.
 		DestroySubtreeCameras(RootNode);
 		RootNode = NewLeaf;
 	}
@@ -389,8 +388,8 @@ void UComposableCameraEvaluationTree::OnActivateNewCameraWithReferenceSource(
 		// Capture a snapshot of the source director's current tree shape.
 		// The RefLeaf evaluates THIS captured subtree (not the director's
 		// live tree), so future mutations to the source director's root
-		// — e.g. the source context later being popped and getting its own
-		// RefLeaf→us installed at its root — don't feed back into our
+		//. E.g. the source context later being popped and getting its own
+		// RefLeafs installed at its root. Don't feed back into our
 		// evaluation. Shared-pointer capture keeps the subtree alive as
 		// long as this RefLeaf holds it.
 		FComposableCameraEvaluationTreeReferenceLeafNodeWrapper RefWrapper;
@@ -407,7 +406,7 @@ void UComposableCameraEvaluationTree::OnActivateNewCameraWithReferenceSource(
 		TSharedPtr<FComposableCameraEvaluationTreeNode> RefLeaf = MakeShared<FComposableCameraEvaluationTreeNode>();
 		RefLeaf->Wrapper.Set<FComposableCameraEvaluationTreeReferenceLeafNodeWrapper>(MoveTemp(RefWrapper));
 
-		// Build the inner node: reference leaf (source) → transition → new camera (target).
+		// Build the inner node: reference leaf (source) ->transition ->new camera (target).
 		FComposableCameraEvaluationTreeInnerNodeWrapper InnerWrapper;
 		InnerWrapper.Transition = InTransition;
 		InnerWrapper.LeftNode = RefLeaf;
@@ -418,7 +417,7 @@ void UComposableCameraEvaluationTree::OnActivateNewCameraWithReferenceSource(
 
 		// Defer destruction of the old root. Scenario the deferral addresses:
 		// SourceDirector was previously PUSHED on top of us via
-		// `SourceDirector->ActivateNewCameraWithReferenceSource(…, this)` — at
+		// `SourceDirector->ActivateNewCameraWithReferenceSource(- this)`. At
 		// that moment, SourceDirector's RefLeaf snapshotted OUR then-current
 		// root (= `OldRoot` here) as a TSharedPtr. Destroying OldRoot's
 		// cameras NOW would make SourceDirector's still-live Tick walk into
@@ -426,7 +425,7 @@ void UComposableCameraEvaluationTree::OnActivateNewCameraWithReferenceSource(
 		// the `PendingDestroyOldRoots` comment for the full symptom list.
 		//
 		// Instead: stash OldRoot and destroy only once `InTransition`
-		// finishes — at that point `CollapseFinishedTransitions` drops the
+		// finishes. At that point `CollapseFinishedTransitions` drops the
 		// RefLeaf branch of our new root and OldRoot becomes unreachable
 		// from this tree.
 		TSharedPtr<FComposableCameraEvaluationTreeNode> OldRoot = RootNode;
@@ -460,18 +459,18 @@ void UComposableCameraEvaluationTree::OnResumeCurrentTreeWithReferenceSource(
 	}
 
 	// Pre-existing tree is required. Without RootNode there's nothing
-	// to "resume" — caller should take the ActivateNew path instead.
+	// to "resume". Caller should take the ActivateNew path instead.
 	if (!RootNode)
 	{
 		UE_LOG(LogComposableCameraSystem, Warning,
-			TEXT("OnResumeCurrentTreeWithReferenceSource called with empty RootNode — nothing to resume. Did you mean OnActivateNewCameraWithReferenceSource?"));
+			TEXT("OnResumeCurrentTreeWithReferenceSource called with empty RootNode. Nothing to resume. Did you mean OnActivateNewCameraWithReferenceSource?"));
 		return;
 	}
 
 	if (!InTransition)
 	{
 		// Cut path: no transition needed. Our current RootNode stays as
-		// the root — the resumed context keeps rendering its existing
+		// the root. The resumed context keeps rendering its existing
 		// camera as-is. SourceDirector is not referenced (no blend to
 		// feed back from) and the popped context's cleanup is the
 		// caller's responsibility.
@@ -482,17 +481,17 @@ void UComposableCameraEvaluationTree::OnResumeCurrentTreeWithReferenceSource(
 	// the key to breaking the cycle that used to form during pop-while-
 	// push: the popped director's tree may contain a RefLeaf back at us
 	// (created during the original push), but THAT RefLeaf is also a
-	// snapshot — it captured OUR tree's root from before this pop-wrap
+	// snapshot. It captured OUR tree's root from before this pop-wrap
 	// (i.e. the raw leaf `RunningCamera` node). So the resulting DAG is:
 	//
 	//     A.new_root (this Inner)
-	//       ├─ Left: RefLeaf ──► B.tree (captured at pop moment)
-	//       │                       └─ push_Inner
-	//       │                           ├─ Left: RefLeaf ──► A.OLD leaf
-	//       │                           └─ Right: B leaf
-	//       └─ Right: A.OLD leaf (same TSharedPtr as the innermost A ref)
+	//        Left: RefLeaf --?B.tree (captured at pop moment)
+	//       `|/L`                       push_Inner
+	//       `|/L`                           Left: RefLeaf --?A.OLD leaf
+	//       `|/L`                           Right: B leaf
+	//        Right: A.OLD leaf (same TSharedPtr as the innermost A ref)
 	//
-	// No self-reference back into A.new_root — two paths reach the A leaf
+	// No self-reference back into A.new_root. Two paths reach the A leaf
 	// and Leaf-wrapper memoization ensures it's only ticked once.
 	FComposableCameraEvaluationTreeReferenceLeafNodeWrapper RefWrapper;
 	RefWrapper.SnapshotRoot        = SourceDirector->GetEvaluationTree()
@@ -513,7 +512,7 @@ void UComposableCameraEvaluationTree::OnResumeCurrentTreeWithReferenceSource(
 	// (holding the resuming camera as a Leaf, or an already-transitioning
 	// Inner) is preserved verbatim as the new transition's target. This
 	// keeps the resuming camera ticking with its accumulated per-node
-	// state — no "fresh instance snap" artifact on first post-pop tick.
+	// state. No "fresh instance snap" artifact on first post-pop tick.
 	FComposableCameraEvaluationTreeInnerNodeWrapper InnerWrapper;
 	InnerWrapper.Transition = InTransition;
 	InnerWrapper.LeftNode   = RefLeaf;
@@ -523,7 +522,7 @@ void UComposableCameraEvaluationTree::OnResumeCurrentTreeWithReferenceSource(
 	NewRoot->Wrapper.Set<FComposableCameraEvaluationTreeInnerNodeWrapper>(MoveTemp(InnerWrapper));
 	RootNode = NewRoot;
 
-	// `RunningCamera` stays the same — the resuming camera was already
+	// `RunningCamera` stays the same. The resuming camera was already
 	// running and still is, just nested under a new transition.
 }
 
@@ -565,7 +564,7 @@ TSharedPtr<FComposableCameraEvaluationTreeNode> UComposableCameraEvaluationTree:
 	// Transient cameras are only activated in separate contexts (managed by the context stack).
 	// Within a single context, all camera transitions are explicit replacements.
 	// So the evaluation tree only needs to handle the normal collapse case:
-	// transition finished → promote target, destroy source.
+	// transition finished ->promote target, destroy source.
 	FComposableCameraEvaluationTreeInnerNodeWrapper& Inner = Node->AsInner();
 
 	// Check if the transition is finished or missing, or the source was destroyed externally.
@@ -579,7 +578,7 @@ TSharedPtr<FComposableCameraEvaluationTreeNode> UComposableCameraEvaluationTree:
 		}
 		else if (Inner.LeftNode->IsReferenceLeaf())
 		{
-			// RefLeaf holds a TSharedPtr snapshot — null means nothing to
+			// RefLeaf holds a TSharedPtr snapshot. Null means nothing to
 			// blend from. "Source destroyed" isn't a thing for a snapshot
 			// in the live-director sense; the snapshot's owning directors
 			// may still be alive. We only force-collapse when the capture
@@ -599,7 +598,7 @@ TSharedPtr<FComposableCameraEvaluationTreeNode> UComposableCameraEvaluationTree:
 		return CollapseFinishedTransitions(Inner.RightNode);
 	}
 
-	// Transition still active — collapse finished sub-transitions in both subtrees
+	// Transition still active. Collapse finished sub-transitions in both subtrees
 	// so they don't linger while we keep this node alive.
 	//
 	// Left subtree collapse: e.g., D->B, E->B, B->A, C->A: when B finishes,
@@ -634,7 +633,7 @@ void UComposableCameraEvaluationTree::DestroySubtreeCameras(
 	else if (Node->IsReferenceLeaf())
 	{
 		// Reference leaves don't own the cameras reachable through their
-		// SnapshotRoot — those are owned by the source director that the
+		// SnapshotRoot. Those are owned by the source director that the
 		// snapshot was captured from. Recursing here would destroy cameras
 		// that still belong to a live director. Ownership is deliberately
 		// asymmetric: RefLeaf keeps the SUBTREE struct alive via TSharedPtr,
@@ -681,7 +680,7 @@ void UComposableCameraEvaluationTree::BuildDebugSnapshot(TArray<FComposableCamer
 		return;
 	}
 
-	// Determine the dominant leaf: walk root → always follow the Right child
+	// Determine the dominant leaf: walk root ->always follow the Right child
 	// through InnerTransition nodes until we hit a (non-inner) terminal. This
 	// is the node that would remain if every in-flight transition collapsed.
 	const FComposableCameraEvaluationTreeNode* Dominant = RootNode.Get();
@@ -692,7 +691,7 @@ void UComposableCameraEvaluationTree::BuildDebugSnapshot(TArray<FComposableCamer
 		Dominant = Inner.RightNode.Get();
 	}
 
-	// Root has no siblings → bIsLastSibling = true trivially; no ancestors → mask 0.
+	// Root has no siblings ->bIsLastSibling = true trivially; no ancestors ->mask 0.
 	BuildNodeDebugSnapshot(RootNode, /*Depth=*/0, /*bIsLastSibling=*/true, /*AncestorMask=*/0u, Dominant, OutNodes);
 }
 
@@ -768,7 +767,7 @@ void UComposableCameraEvaluationTree::BuildNodeDebugSnapshot(
 			Entry.DisplayLabel = TEXT("(empty snapshot)");
 		}
 		// A reference leaf can also be the dominant terminal when the root is
-		// itself a reference leaf (no transitions yet). Record that — but
+		// itself a reference leaf (no transitions yet). Record that. But
 		// dominance applies ONLY to the outer (active) tree; nested referenced
 		// subtrees do not participate in the outer collapse chain, so
 		// downstream recursions pass DominantPtr = nullptr.
@@ -815,7 +814,7 @@ void UComposableCameraEvaluationTree::BuildNodeDebugSnapshot(
 			Entry.TransitionElapsed  = Entry.TransitionTotal - Inner.Transition->GetRemainingTime();
 
 			// Sample the timing curve so the panel can render a sparkline.
-			// 24 segments → 25 sample values — enough for Ease-In-Out
+			// 24 segments ->25 sample values. Enough for Ease-In-Out
 			// shoulders and Smoother curves to read distinctly while
 			// keeping the per-frame allocation trivial. Pure math call on
 			// the transition's authored UPROPERTYs only, no state reads.
@@ -843,7 +842,7 @@ void UComposableCameraEvaluationTree::BuildNodeDebugSnapshot(
 			NewMask |= (1u << Depth);
 		}
 
-		// Recurse: Left (source) first, then Right (target) — matches the
+		// Recurse: Left (source) first, then Right (target). Matches the
 		// "Source:" / "Target:" ordering in the string builder and keeps
 		// DFS pre-order stable for the renderer. Left is never last sibling;
 		// Right always is (Inner has exactly two children). `bInReferencedSubtree`
@@ -860,7 +859,7 @@ void UComposableCameraEvaluationTree::DrawTransitionsDebug(UWorld* World, bool b
 	// Track snapshot subtree nodes already walked on this call. With the
 	// new RefLeaf snapshot semantics the whole reachable graph is a DAG
 	// (no Director cross-references), but two RefLeaves can still share
-	// the same SnapshotRoot — and any Inner inside a snapshot could be
+	// the same SnapshotRoot. And any Inner inside a snapshot could be
 	// reachable via two paths through the DAG. Deduplicate on node
 	// identity so we don't redraw the same transition twice per frame.
 	TSet<const FComposableCameraEvaluationTreeNode*> VisitedNodes;
@@ -893,7 +892,7 @@ void UComposableCameraEvaluationTree::DrawTransitionsNodeDebug(
 		const FComposableCameraEvaluationTreeInnerNodeWrapper& Inner = Node->AsInner();
 		if (Inner.Transition)
 		{
-			// Transition self-gates on its own CVar — we always invoke the
+			// Transition self-gates on its own CVar. We always invoke the
 			// virtual; the override returns immediately if its CVar is off.
 			Inner.Transition->DrawTransitionDebug(World, bViewerIsOutsideCamera);
 		}
@@ -904,11 +903,11 @@ void UComposableCameraEvaluationTree::DrawTransitionsNodeDebug(
 	{
 		// Descend into the snapshot so any intra-blend transitions captured
 		// inside the RefLeaf's subtree still participate in debug draw.
-		// Snapshot is a TSharedPtr — no cross-director traversal needed.
+		// Snapshot is a TSharedPtr. No cross-director traversal needed.
 		const FComposableCameraEvaluationTreeReferenceLeafNodeWrapper& RefLeaf = Node->AsReferenceLeaf();
 		DrawTransitionsNodeDebug(RefLeaf.SnapshotRoot, World, bViewerIsOutsideCamera, VisitedNodes);
 	}
-	// Leaf: nothing to do — leaves don't hold transitions.
+	// Leaf: nothing to do. Leaves don't hold transitions.
 }
 #endif // !UE_BUILD_SHIPPING
 
@@ -917,7 +916,7 @@ void UComposableCameraEvaluationTree::AddReferencedObjects(UObject* InThis, FRef
 	UComposableCameraEvaluationTree* This = CastChecked<UComposableCameraEvaluationTree>(InThis);
 	AddTreeReferencedObjects(This->RootNode, Collector);
 	// Deferred-destruction subtrees must stay GC-alive until we explicitly
-	// destroy them — otherwise the actor gets collected out from under the
+	// destroy them. Otherwise the actor gets collected out from under the
 	// `TObjectPtr` in the Leaf wrapper and our `DestroySubtreeCameras` call
 	// at transition finish becomes a no-op on an already-collected pointer.
 	for (const TSharedPtr<FComposableCameraEvaluationTreeNode>& Pending : This->PendingDestroyOldRoots)
@@ -956,7 +955,7 @@ void UComposableCameraEvaluationTree::AddTreeReferencedObjects(
 	{
 		FComposableCameraEvaluationTreeLeafNodeWrapper& Leaf = Node->AsLeaf();
 		Collector.AddReferencedObject(Leaf.RunningCamera);
-		// Leaf wrapper has no cached pose of its own — the live camera owns
+		// Leaf wrapper has no cached pose of its own. The live camera owns
 		// `CameraPose` as a UPROPERTY, so its UObject contents are GC-walked
 		// through the camera UObject's normal reflection.
 	}
@@ -964,7 +963,7 @@ void UComposableCameraEvaluationTree::AddTreeReferencedObjects(
 	{
 		FComposableCameraEvaluationTreeReferenceLeafNodeWrapper& RefLeaf = Node->AsReferenceLeaf();
 		// RefLeaf owns cameras / transitions indirectly through its
-		// captured SnapshotRoot subtree — we must recurse so everything
+		// captured SnapshotRoot subtree. We must recurse so everything
 		// reachable from the snapshot stays GC-pinned, even if the
 		// originating director has already been popped off the stack.
 		// DebugSourceDirector is a weak ref and isn't collected here.

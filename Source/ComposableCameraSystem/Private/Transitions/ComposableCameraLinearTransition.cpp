@@ -1,4 +1,4 @@
-// Copyright Sulley. All rights reserved.
+﻿// Copyright Sulley. All rights reserved.
 
 #include "Transitions/ComposableCameraLinearTransition.h"
 
@@ -47,13 +47,13 @@ void UComposableCameraLinearTransition::DrawTransitionDebug(UWorld* World, bool 
 	if (CVarShowLinearTransitionGizmo.GetValueOnGameThread() == 0
 		&& !FComposableCameraViewportDebug::ShouldShowAllTransitionGizmos()) { return; }
 
-	// Light grey accent — "neutral" progress color to match the linear
+	// Light grey accent -"neutral" progress color to match the linear
 	// blend's unremarkable nature. Distinct from every node gizmo color.
 	static const FColor AccentColor { 200, 200, 200 };
 
 	DrawStandardTransitionDebug(World, bViewerIsOutsideCamera, AccentColor);
 
-	// Path is a straight line — position blends linearly in space (only
+	// Path is a straight line. Position blends linearly in space (only
 	// the timing curve would differ for Smooth/Ease/Cubic siblings).
 	DrawDebugLine(World, LastDebugSource.Position, LastDebugTarget.Position, AccentColor,
 		/*bPersistent=*/false, /*LifeTime=*/-1.f,

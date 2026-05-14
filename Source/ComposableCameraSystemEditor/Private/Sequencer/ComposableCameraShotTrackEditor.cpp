@@ -32,21 +32,20 @@
 namespace
 {
 	/** True if `ObjectClass` is a `AComposableCameraLevelSequenceActor` (or
-	 *  subclass — notably `AComposableCameraLevelSequenceShotActor`). The
-	 *  binding-row menu entry only appears for LSActor bindings; bindings of
-	 *  any other class don't host a CCS internal camera and so a Shot track
-	 *  there is meaningless. */
+	 * subclass - notably `AComposableCameraLevelSequenceShotActor`). The
+	 * binding-row menu entry only appears for LSActor bindings; bindings of
+	 * any other class don't host a CCS internal camera and so a Shot track
+	 * there is meaningless. */
 	bool IsLSActorBinding(const UClass* ObjectClass)
 	{
 		return ObjectClass && ObjectClass->IsChildOf(AComposableCameraLevelSequenceActor::StaticClass());
 	}
 
 	/** Spawn a Shot section positioned at the Sequencer playhead with the
-	 *  Track's default 5-second duration. Same justification as the Patch
-	 *  helper: `FSequencerUtilities::CreateNewSection` mishandles
-	 *  "Infinite Key Areas" + doesn't reposition to the playhead. */
-	UMovieSceneComposableCameraShotSection* CreateShotSectionAtPlayhead(
-		UMovieSceneComposableCameraShotTrack* Track,
+	 * Track's default 5-second duration. Same justification as the Patch
+	 * helper: `FSequencerUtilities::CreateNewSection` mishandles
+	 * "Infinite Key Areas" + doesn't reposition to the playhead. */
+	UMovieSceneComposableCameraShotSection* CreateShotSectionAtPlayhead(UMovieSceneComposableCameraShotTrack* Track,
 		const TSharedPtr<ISequencer>& Sequencer,
 		int32 RowIndex)
 	{
@@ -74,7 +73,7 @@ namespace
 		}
 
 		int32 OverlapPriority = 0;
-		for (UMovieSceneSection* Existing : Track->GetAllSections())
+		for (UMovieSceneSection* Existing: Track->GetAllSections())
 		{
 			OverlapPriority = FMath::Max(Existing->GetOverlapPriority() + 1, OverlapPriority);
 		}
@@ -101,22 +100,22 @@ namespace
 	}
 
 	/** Find an existing Shot track under `BindingGuid`, or null. Sequencer
-	 *  doesn't enforce per-binding track uniqueness, but reusing the binding's
-	 *  single Shot track keeps the outliner tidy and matches the
-	 *  Camera-Cut-Track / Camera-Shake-Track convention. */
+	 * doesn't enforce per-binding track uniqueness, but reusing the binding's
+	 * single Shot track keeps the outliner tidy and matches the
+	 * Camera-Cut-Track / Camera-Shake-Track convention. */
 	UMovieSceneComposableCameraShotTrack* FindShotTrackForBinding(UMovieScene* MovieScene, const FGuid& BindingGuid)
 	{
 		if (!MovieScene || !BindingGuid.IsValid())
 		{
 			return nullptr;
 		}
-		for (const FMovieSceneBinding& Binding : MovieScene->GetBindings())
+		for (const FMovieSceneBinding& Binding: MovieScene->GetBindings())
 		{
 			if (Binding.GetObjectGuid() != BindingGuid)
 			{
 				continue;
 			}
-			for (UMovieSceneTrack* Track : Binding.GetTracks())
+			for (UMovieSceneTrack* Track: Binding.GetTracks())
 			{
 				if (UMovieSceneComposableCameraShotTrack* ShotTrack = Cast<UMovieSceneComposableCameraShotTrack>(Track))
 				{
@@ -128,7 +127,7 @@ namespace
 	}
 }
 
-// ─── FComposableCameraShotTrackEditor ──────────────────────────────────────
+// FComposableCameraShotTrackEditor 
 
 TSharedRef<ISequencerTrackEditor> FComposableCameraShotTrackEditor::CreateTrackEditor(TSharedRef<ISequencer> OwningSequencer)
 {
@@ -142,8 +141,7 @@ FComposableCameraShotTrackEditor::FComposableCameraShotTrackEditor(TSharedRef<IS
 	// LSActor binding is created. The LSActor's CineCamera pose is owned by
 	// the CCS evaluation pipeline; a Transform Track on the same binding
 	// would silently override the per-tick `ProjectPoseToCineCamera` write.
-	ActorAddedHandle = InSequencer->OnActorAddedToSequencer().AddRaw(
-		this, &FComposableCameraShotTrackEditor::OnActorAddedToSequencer);
+	ActorAddedHandle = InSequencer->OnActorAddedToSequencer().AddRaw(this, &FComposableCameraShotTrackEditor::OnActorAddedToSequencer);
 }
 
 FComposableCameraShotTrackEditor::~FComposableCameraShotTrackEditor()
@@ -179,34 +177,30 @@ bool FComposableCameraShotTrackEditor::SupportsSequence(UMovieSceneSequence* InS
 
 const FSlateBrush* FComposableCameraShotTrackEditor::GetIconBrush() const
 {
-	// No registered ShotAsset class icon yet — borrow the generic CameraCut
+	// No registered ShotAsset class icon yet - borrow the generic CameraCut
 	// brush so the row has *something* readable. Replace with a registered
 	// ShotAsset thumbnail when one is added (out of scope for Phase E).
 	return FAppStyle::GetBrush("Sequencer.Tracks.CinematicShot");
 }
 
-void FComposableCameraShotTrackEditor::BuildObjectBindingTrackMenu(
-	FMenuBuilder& MenuBuilder, const TArray<FGuid>& ObjectBindings, const UClass* ObjectClass)
+void FComposableCameraShotTrackEditor::BuildObjectBindingTrackMenu(FMenuBuilder& MenuBuilder, const TArray<FGuid>& ObjectBindings, const UClass* ObjectClass)
 {
 	if (!IsLSActorBinding(ObjectClass))
 	{
 		return;
 	}
 
-	MenuBuilder.AddMenuEntry(
-		LOCTEXT("AddShotTrack", "Composable Camera Shot Track"),
+	MenuBuilder.AddMenuEntry(LOCTEXT("AddShotTrack", "Composable Camera Shot Track"),
 		LOCTEXT("AddShotTrackTooltip",
-			"Add a track that drives Composable Camera Shots — each section "
+			"Add a track that drives Composable Camera Shots - each section "
 			"pushes its Shot data into this LS Actor's CompositionFramingNode "
 			"for the section's duration. Inline sections embed the Shot value-typed; "
 			"AssetReference sections soft-ref a UComposableCameraShotAsset."),
 		FSlateIcon(FAppStyle::GetAppStyleSetName(), "Sequencer.Tracks.CinematicShot"),
-		FUIAction(FExecuteAction::CreateRaw(
-			this, &FComposableCameraShotTrackEditor::HandleAddShotTrackMenuEntryExecute, ObjectBindings)));
+		FUIAction(FExecuteAction::CreateRaw(this, &FComposableCameraShotTrackEditor::HandleAddShotTrackMenuEntryExecute, ObjectBindings)));
 }
 
-TSharedPtr<SWidget> FComposableCameraShotTrackEditor::BuildOutlinerEditWidget(
-	const FGuid& ObjectBinding, UMovieSceneTrack* Track, const FBuildEditWidgetParams& Params)
+TSharedPtr<SWidget> FComposableCameraShotTrackEditor::BuildOutlinerEditWidget(const FGuid& ObjectBinding, UMovieSceneTrack* Track, const FBuildEditWidgetParams& Params)
 {
 	TWeakPtr<ISequencer> WeakSequencer = GetSequencer();
 	const int32 RowIndex = Params.TrackInsertRowIndex;
@@ -219,14 +213,12 @@ TSharedPtr<SWidget> FComposableCameraShotTrackEditor::BuildOutlinerEditWidget(
 		}
 		return FReply::Handled();
 	};
-	return UE::Sequencer::MakeAddButton(
-		LOCTEXT("AddSection", "Section"),
+	return UE::Sequencer::MakeAddButton(LOCTEXT("AddSection", "Section"),
 		FOnClicked::CreateLambda(OnClickedCallback),
 		Params.ViewModel);
 }
 
-TSharedRef<ISequencerSection> FComposableCameraShotTrackEditor::MakeSectionInterface(
-	UMovieSceneSection& SectionObject, UMovieSceneTrack& Track, FGuid ObjectBinding)
+TSharedRef<ISequencerSection> FComposableCameraShotTrackEditor::MakeSectionInterface(UMovieSceneSection& SectionObject, UMovieSceneTrack& Track, FGuid ObjectBinding)
 {
 	check(SupportsType(SectionObject.GetOuter()->GetClass()));
 	return MakeShareable(new FComposableCameraShotSectionInterface(SectionObject, GetSequencer()));
@@ -246,7 +238,7 @@ bool FComposableCameraShotTrackEditor::HandleAssetAdded(UObject* Asset, const FG
 		return false;
 	}
 
-	// Confirm the drop target is an LSActor binding — otherwise the Shot
+	// Confirm the drop target is an LSActor binding - otherwise the Shot
 	// track would be meaningless on that binding row. We can't read the
 	// possessable's class without a Sequencer-side helper, so trust the
 	// outliner's drop validation: the user dropped a ShotAsset onto a binding
@@ -302,7 +294,7 @@ void FComposableCameraShotTrackEditor::HandleAddShotTrackMenuEntryExecute(TArray
 	const FScopedTransaction Transaction(LOCTEXT("AddShotTrack_Transaction", "Add Composable Camera Shot Track"));
 	FocusedMovieScene->Modify();
 
-	for (const FGuid& BindingGuid : ObjectBindings)
+	for (const FGuid& BindingGuid: ObjectBindings)
 	{
 		if (!BindingGuid.IsValid())
 		{
@@ -322,7 +314,7 @@ void FComposableCameraShotTrackEditor::HandleAddShotTrackMenuEntryExecute(TArray
 			Track->SetDisplayName(LOCTEXT("ShotTrackDefaultName", "Composable Camera Shot"));
 		}
 
-		// Seed with one default Inline section at the playhead — matches the
+		// Seed with one default Inline section at the playhead - matches the
 		// CVar / Patch track UX where the row is immediately usable.
 		if (TSharedPtr<ISequencer> SequencerPtr = GetSequencer())
 		{
@@ -355,12 +347,12 @@ void FComposableCameraShotTrackEditor::OnActorAddedToSequencer(AActor* Actor, FG
 		return;
 	}
 
-	// Snapshot first — RemoveTrack mutates the binding's track array and we
+	// Snapshot first - RemoveTrack mutates the binding's track array and we
 	// don't want to invalidate the iterator mid-walk. There can theoretically
 	// be more than one Transform Track on a binding (engine doesn't enforce
 	// uniqueness), so collect every one before removing.
 	TArray<UMovieSceneTrack*> TransformTracks;
-	for (UMovieSceneTrack* Track : Binding->GetTracks())
+	for (UMovieSceneTrack* Track: Binding->GetTracks())
 	{
 		if (Track && Track->IsA(UMovieScene3DTransformTrack::StaticClass()))
 		{
@@ -375,7 +367,7 @@ void FComposableCameraShotTrackEditor::OnActorAddedToSequencer(AActor* Actor, FG
 	const FScopedTransaction Transaction(LOCTEXT("RemoveDefaultTransformTrack",
 		"Remove default Transform Track for Composable Camera Level Sequence Actor"));
 	MovieScene->Modify();
-	for (UMovieSceneTrack* Track : TransformTracks)
+	for (UMovieSceneTrack* Track: TransformTracks)
 	{
 		MovieScene->RemoveTrack(*Track);
 	}
@@ -386,10 +378,9 @@ void FComposableCameraShotTrackEditor::OnActorAddedToSequencer(AActor* Actor, FG
 	}
 }
 
-// ─── FComposableCameraShotSectionInterface ─────────────────────────────────
+// FComposableCameraShotSectionInterface 
 
-FComposableCameraShotSectionInterface::FComposableCameraShotSectionInterface(
-	UMovieSceneSection& InSection, TWeakPtr<ISequencer> InSequencer)
+FComposableCameraShotSectionInterface::FComposableCameraShotSectionInterface(UMovieSceneSection& InSection, TWeakPtr<ISequencer> InSequencer)
 	: Section(InSection)
 	, WeakSequencer(InSequencer)
 {
@@ -413,15 +404,14 @@ FText FComposableCameraShotSectionInterface::GetSectionTitle() const
 		case EComposableCameraShotSource::Inline:
 		{
 			const int32 NumTargets = ShotSection->InlineShot.Targets.Num();
-			return FText::Format(
-				NSLOCTEXT("ComposableCameraShotTrack", "InlineShotTitleFmt",
+			return FText::Format(NSLOCTEXT("ComposableCameraShotTrack", "InlineShotTitleFmt",
 					"Inline Shot ({0} {0}|plural(one=target,other=targets))"),
 				NumTargets);
 		}
 
 		case EComposableCameraShotSource::AssetReference:
 		{
-			// Soft-ptr → use AssetName without forcing a load (live load happens
+			// Soft-ptr -> use AssetName without forcing a load (live load happens
 			// at evaluation time inside the TrackInstance, not at title paint).
 			const FString AssetName = ShotSection->ShotAssetRef.GetAssetName();
 			if (AssetName.IsEmpty())
@@ -443,10 +433,10 @@ int32 FComposableCameraShotSectionInterface::OnPaintSection(FSequencerSectionPai
 {
 	int32 LayerId = Painter.PaintSectionBackground();
 
-	// ─── Phase F overlap visualization ──────────────────────────────────
+	// Phase F overlap visualization 
 	// For every other section on this Track that overlaps the painted
 	// section in time, paint an amber tint band over the overlap window.
-	// Conveys "this is a transition zone — both Shots' solvers run and
+	// Conveys "this is a transition zone - both Shots' solvers run and
 	// blend per the incoming section's EnterTransition" to designers at
 	// a glance, without requiring them to inspect the Details panel.
 	//
@@ -454,7 +444,7 @@ int32 FComposableCameraShotSectionInterface::OnPaintSection(FSequencerSectionPai
 	// so the band visibility is symmetric (designer sees the cue from
 	// either section's perspective). The "owner" of the transition
 	// (incoming side, higher RowIndex) is conveyed by which section's
-	// EnterTransition is set in Details — no need to encode it visually
+	// EnterTransition is set in Details - no need to encode it visually
 	// in V1.
 	const UMovieSceneComposableCameraShotSection* This =
 		Cast<UMovieSceneComposableCameraShotSection>(&Section);
@@ -490,7 +480,7 @@ int32 FComposableCameraShotSectionInterface::OnPaintSection(FSequencerSectionPai
 		return LayerId;
 	}
 
-	// Amber tint at low opacity — distinct from default Sequencer track
+	// Amber tint at low opacity - distinct from default Sequencer track
 	// colors (blues / greens) so the overlap zone reads as "transition"
 	// rather than "another track region". Low alpha ensures the section's
 	// authored content (title, future per-section overlays) stays legible.
@@ -498,10 +488,10 @@ int32 FComposableCameraShotSectionInterface::OnPaintSection(FSequencerSectionPai
 
 	// `FrameToPixel` returns coordinates in the section's local geometry
 	// (verified against engine's BoolPropertySection / EventSection
-	// painters — they pass FrameToPixel results straight to
+	// painters - they pass FrameToPixel results straight to
 	// SectionGeometry.ToPaintGeometry without offset translation). So the
 	// overlap band's local-X is just FrameToPixel(OverlapStart..OverlapEnd).
-	for (UMovieSceneSection* Other : Track->GetAllSections())
+	for (UMovieSceneSection* Other: Track->GetAllSections())
 	{
 		if (!Other || Other == This)
 		{
@@ -516,28 +506,26 @@ int32 FComposableCameraShotSectionInterface::OnPaintSection(FSequencerSectionPai
 			continue;
 		}
 		const FFrameNumber OverlapStart = Overlap.GetLowerBoundValue();
-		const FFrameNumber OverlapEnd   = Overlap.GetUpperBoundValue();
+		const FFrameNumber OverlapEnd = Overlap.GetUpperBoundValue();
 		if ((OverlapEnd - OverlapStart).Value <= 0)
 		{
-			// Touching ranges (zero-width intersection) — no band to draw.
+			// Touching ranges (zero-width intersection) - no band to draw.
 			continue;
 		}
 
 		const float StartLocalX = TimeToPixel.FrameToPixel(OverlapStart);
-		const float EndLocalX   = TimeToPixel.FrameToPixel(OverlapEnd);
+		const float EndLocalX = TimeToPixel.FrameToPixel(OverlapEnd);
 		const float Width = FMath::Max(EndLocalX - StartLocalX, 0.f);
 		if (Width < 0.5f)
 		{
-			// Sub-pixel band — not worth drawing (and would cause Slate
+			// Sub-pixel band - not worth drawing (and would cause Slate
 			// micro-allocation noise).
 			continue;
 		}
 
-		FSlateDrawElement::MakeBox(
-			Painter.DrawElements,
+		FSlateDrawElement::MakeBox(Painter.DrawElements,
 			++LayerId,
-			SectionGeometry.ToPaintGeometry(
-				FVector2f(Width, SectionHeight),
+			SectionGeometry.ToPaintGeometry(FVector2f(Width, SectionHeight),
 				FSlateLayoutTransform(FVector2f(StartLocalX, 0.f))),
 			WhiteBrush,
 			ESlateDrawEffect::None,
@@ -549,9 +537,9 @@ int32 FComposableCameraShotSectionInterface::OnPaintSection(FSequencerSectionPai
 
 namespace
 {
-	/** Display label for an FMovieSceneBinding row — falls back to "(unnamed)"
-	 *  when the binding has no Name (engine allows this, designer-renamed
-	 *  bindings always have one). */
+	/** Display label for an FMovieSceneBinding row - falls back to "(unnamed)"
+	 * when the binding has no Name (engine allows this, designer-renamed
+	 * bindings always have one). */
 	FText GetBindingDisplayLabel(const FMovieSceneBinding& Binding)
 	{
 		const FString Raw = Binding.GetName();
@@ -563,10 +551,9 @@ namespace
 	}
 
 	/** Find or insert an override for the given TargetIndex. Modifies Section. */
-	FComposableCameraShotTargetActorOverride& FindOrAddOverride(
-		UMovieSceneComposableCameraShotSection& Section, int32 TargetIndex)
+	FComposableCameraShotTargetActorOverride& FindOrAddOverride(UMovieSceneComposableCameraShotSection& Section, int32 TargetIndex)
 	{
-		for (FComposableCameraShotTargetActorOverride& Existing : Section.TargetActorOverrides)
+		for (FComposableCameraShotTargetActorOverride& Existing: Section.TargetActorOverrides)
 		{
 			if (Existing.TargetIndex == TargetIndex)
 			{
@@ -582,7 +569,7 @@ namespace
 	/** Resolve the binding currently overriding TargetIndex (if any). */
 	FGuid GetCurrentOverrideGuid(const UMovieSceneComposableCameraShotSection& Section, int32 TargetIndex)
 	{
-		for (const FComposableCameraShotTargetActorOverride& Existing : Section.TargetActorOverrides)
+		for (const FComposableCameraShotTargetActorOverride& Existing: Section.TargetActorOverrides)
 		{
 			if (Existing.TargetIndex == TargetIndex)
 			{
@@ -593,10 +580,10 @@ namespace
 	}
 
 	/** Build a submenu listing sequence bindings as click-to-pick entries for
-	 *  the given TargetIndex. The first entry is "Clear" (removes any
-	 *  existing override on this index); the rest are bindings sorted by
-	 *  display name. The currently-selected binding gets a check-mark via
-	 *  `IsCheckedAction`. */
+	 * the given TargetIndex. The first entry is "Clear" (removes any
+	 * existing override on this index); the rest are bindings sorted by
+	 * display name. The currently-selected binding gets a check-mark via
+	 * `IsCheckedAction`. */
 	void BuildBindingPickerSubmenu(FMenuBuilder& MenuBuilder,
 		UMovieSceneComposableCameraShotSection* ShotSection, int32 TargetIndex)
 	{
@@ -612,15 +599,13 @@ namespace
 
 		const FGuid CurrentGuid = GetCurrentOverrideGuid(*ShotSection, TargetIndex);
 
-		// Clear option — only enabled when there's something to clear.
-		MenuBuilder.AddMenuEntry(
-			LOCTEXT("ClearTargetBinding", "Clear binding"),
+		// Clear option - only enabled when there's something to clear.
+		MenuBuilder.AddMenuEntry(LOCTEXT("ClearTargetBinding", "Clear binding"),
 			LOCTEXT("ClearTargetBindingTooltip",
 				"Remove the per-section binding override for this target. "
 				"Falls back to the Shot's authored Actor (TSoftObjectPtr) at evaluation time."),
 			FSlateIcon(),
-			FUIAction(
-				FExecuteAction::CreateLambda([ShotSection, TargetIndex]()
+			FUIAction(FExecuteAction::CreateLambda([ShotSection, TargetIndex]()
 				{
 					const FScopedTransaction Transaction(LOCTEXT("ClearBindingTx", "Clear Shot Target Binding"));
 					ShotSection->Modify();
@@ -642,7 +627,7 @@ namespace
 		// menu skim-readable when there are many bindings.
 		TArray<const FMovieSceneBinding*> Sorted;
 		Sorted.Reserve(MovieScene->GetBindings().Num());
-		for (const FMovieSceneBinding& B : MovieScene->GetBindings())
+		for (const FMovieSceneBinding& B: MovieScene->GetBindings())
 		{
 			if (B.GetObjectGuid().IsValid())
 			{
@@ -656,8 +641,7 @@ namespace
 
 		if (Sorted.Num() == 0)
 		{
-			MenuBuilder.AddMenuEntry(
-				LOCTEXT("NoBindings", "(no bindings in this sequence)"),
+			MenuBuilder.AddMenuEntry(LOCTEXT("NoBindings", "(no bindings in this sequence)"),
 				FText::GetEmpty(),
 				FSlateIcon(),
 				FUIAction(FExecuteAction(),
@@ -665,21 +649,19 @@ namespace
 			return;
 		}
 
-		for (const FMovieSceneBinding* Binding : Sorted)
+		for (const FMovieSceneBinding* Binding: Sorted)
 		{
 			const FGuid BindingGuid = Binding->GetObjectGuid();
-			const bool bIsCurrent   = (BindingGuid == CurrentGuid);
+			const bool bIsCurrent = (BindingGuid == CurrentGuid);
 
-			MenuBuilder.AddMenuEntry(
-				GetBindingDisplayLabel(*Binding),
+			MenuBuilder.AddMenuEntry(GetBindingDisplayLabel(*Binding),
 				FText::Format(LOCTEXT("BindingEntryTooltip",
 					"Bind Target [{0}] to this Sequencer binding. The override is resolved at "
-					"evaluation time through the running sequence instance — works for both "
+					"evaluation time through the running sequence instance - works for both "
 					"Spawnables and Possessables."),
 					FText::AsNumber(TargetIndex)),
 				FSlateIcon(),
-				FUIAction(
-					FExecuteAction::CreateLambda([ShotSection, TargetIndex, BindingGuid]()
+				FUIAction(FExecuteAction::CreateLambda([ShotSection, TargetIndex, BindingGuid]()
 					{
 						const FScopedTransaction Transaction(LOCTEXT("SetBindingTx", "Set Shot Target Binding"));
 						ShotSection->Modify();
@@ -694,13 +676,13 @@ namespace
 	}
 
 	/** Build the "Set Enter Transition" submenu (Phase F). Top "Clear" entry
-	 *  removes the current selection; embedded `FAssetPickerConfig` picker
-	 *  below lets the designer pick any `UComposableCameraTransitionDataAsset`
-	 *  in the project. Same shape as the LSComponent track editor's Camera
-	 *  Type Asset picker — keyboard-friendly + filterable.
+	 * removes the current selection; embedded `FAssetPickerConfig` picker
+	 * below lets the designer pick any `UComposableCameraTransitionDataAsset`
+	 * in the project. Same shape as the LSComponent track editor's Camera
+	 * Type Asset picker - keyboard-friendly + filterable.
 	 *
-	 *  The picker writes the selection straight to `Section->EnterTransition`
-	 *  (soft-ref) inside an FScopedTransaction so the edit is undoable. */
+	 * The picker writes the selection straight to `Section->EnterTransition`
+	 * (soft-ref) inside an FScopedTransaction so the edit is undoable. */
 	void BuildSetEnterTransitionSubmenu(FMenuBuilder& MenuBuilder,
 		UMovieSceneComposableCameraShotSection* ShotSection)
 	{
@@ -709,18 +691,16 @@ namespace
 			return;
 		}
 
-		// Clear option — disabled when there's nothing to clear so the menu
+		// Clear option - disabled when there's nothing to clear so the menu
 		// reads as an idempotent no-op rather than a "soft" command.
-		MenuBuilder.AddMenuEntry(
-			LOCTEXT("ClearEnterTransition", "Clear"),
+		MenuBuilder.AddMenuEntry(LOCTEXT("ClearEnterTransition", "Clear"),
 			LOCTEXT("ClearEnterTransitionTooltip",
 				"Remove the EnterTransition assignment on this Shot Section. The "
-				"section becomes a hard cut — when it overlaps with a lower-row "
+				"section becomes a hard cut - when it overlaps with a lower-row "
 				"section, the lower-row section's framing wins (V1 top-row "
 				"semantics) instead of pose-blending."),
 			FSlateIcon(),
-			FUIAction(
-				FExecuteAction::CreateLambda([ShotSection]()
+			FUIAction(FExecuteAction::CreateLambda([ShotSection]()
 				{
 					const FScopedTransaction Tx(LOCTEXT("ClearTransitionTx",
 						"Clear Shot Section EnterTransition"));
@@ -735,7 +715,7 @@ namespace
 
 		MenuBuilder.AddSeparator();
 
-		// Embedded asset picker — same `FAssetPickerConfig` shape as
+		// Embedded asset picker - same `FAssetPickerConfig` shape as
 		// `FComposableCameraLevelSequenceComponentTrackEditor::AddCameraTypeAssetSubMenu`.
 		// Filter to UComposableCameraTransitionDataAsset (recursive picks up
 		// any future subclasses). Single-select; on-pick writes to the
@@ -772,34 +752,31 @@ namespace
 						ShotSection->EnterTransition = TransitionAsset;
 					}
 				});
-			PickerConfig.bAllowNullSelection      = false;
-			PickerConfig.bAddFilterUI             = true;
-			PickerConfig.bShowTypeInColumnView    = false;
-			PickerConfig.InitialAssetViewType     = EAssetViewType::List;
-			PickerConfig.SaveSettingsName         = TEXT("ComposableCameraShotEnterTransitionPicker");
-			PickerConfig.Filter.ClassPaths.Add(
-				UComposableCameraTransitionDataAsset::StaticClass()->GetClassPathName());
+			PickerConfig.bAllowNullSelection = false;
+			PickerConfig.bAddFilterUI = true;
+			PickerConfig.bShowTypeInColumnView = false;
+			PickerConfig.InitialAssetViewType = EAssetViewType::List;
+			PickerConfig.SaveSettingsName = TEXT("ComposableCameraShotEnterTransitionPicker");
+			PickerConfig.Filter.ClassPaths.Add(UComposableCameraTransitionDataAsset::StaticClass()->GetClassPathName());
 			PickerConfig.Filter.bRecursiveClasses = true;
 		}
 
 		FContentBrowserModule& ContentBrowserModule =
 			FModuleManager::Get().LoadModuleChecked<FContentBrowserModule>(TEXT("ContentBrowser"));
 
-		const float WidthOverride  = 400.f;
+		const float WidthOverride = 400.f;
 		const float HeightOverride = 350.f;
 		TSharedRef<SBox> PickerWidget = SNew(SBox)
 			.WidthOverride(WidthOverride)
 			.HeightOverride(HeightOverride)
-			[
-				ContentBrowserModule.Get().CreateAssetPicker(PickerConfig)
-			];
+			[ContentBrowserModule.Get().CreateAssetPicker(PickerConfig)];
 
 		MenuBuilder.AddWidget(PickerWidget, FText::GetEmpty(), true);
 	}
 
 	/** Resolve the soft-ref'd EnterTransition's display name without forcing
-	 *  a load — uses `GetAssetName()` which reads the path component. Returns
-	 *  "(none)" for null soft-ref. Kept terse for menu label compositing. */
+	 * a load - uses `GetAssetName()` which reads the path component. Returns
+	 * "(none)" for null soft-ref. Kept terse for menu label compositing. */
 	FText GetEnterTransitionLabel(const UMovieSceneComposableCameraShotSection& Section)
 	{
 		const FString AssetName = Section.EnterTransition.GetAssetName();
@@ -810,9 +787,9 @@ namespace
 		return FText::FromString(AssetName);
 	}
 
-	/** Build the parent "Bind Target Actors" submenu — one row per target in
-	 *  the resolved Inline / AssetReference Shot, each opening a binding
-	 *  picker submenu. Empty Shot → disabled placeholder. */
+	/** Build the parent "Bind Target Actors" submenu - one row per target in
+	 * the resolved Inline / AssetReference Shot, each opening a binding
+	 * picker submenu. Empty Shot -> disabled placeholder. */
 	void BuildBindTargetActorsSubmenu(FMenuBuilder& MenuBuilder,
 		UMovieSceneComposableCameraShotSection* ShotSection)
 	{
@@ -824,9 +801,8 @@ namespace
 		FComposableCameraShot Shot;
 		if (!ShotSection->BuildEffectiveShotWithoutBindings(Shot) || Shot.Targets.Num() == 0)
 		{
-			MenuBuilder.AddMenuEntry(
-				LOCTEXT("NoTargets",
-					"(no targets — add targets in the Shot Editor first)"),
+			MenuBuilder.AddMenuEntry(LOCTEXT("NoTargets",
+					"(no targets - add targets in the Shot Editor first)"),
 				FText::GetEmpty(),
 				FSlateIcon(),
 				FUIAction(FExecuteAction(),
@@ -847,7 +823,7 @@ namespace
 				const FGuid CurrentGuid = GetCurrentOverrideGuid(*ShotSection, i);
 				if (CurrentGuid.IsValid())
 				{
-					for (const FMovieSceneBinding& B : MovieScene->GetBindings())
+					for (const FMovieSceneBinding& B: MovieScene->GetBindings())
 					{
 						if (B.GetObjectGuid() == CurrentGuid)
 						{
@@ -858,8 +834,7 @@ namespace
 				}
 			}
 
-			MenuBuilder.AddSubMenu(
-				FText::Format(LOCTEXT("TargetRowFmt", "Target {0}: {1}"),
+			MenuBuilder.AddSubMenu(FText::Format(LOCTEXT("TargetRowFmt", "Target {0}: {1}"),
 					FText::AsNumber(i), CurrentLabel),
 				FText::Format(LOCTEXT("TargetRowTooltip",
 					"Bind the actor for Target [{0}] to a Sequencer binding. The override is "
@@ -883,8 +858,7 @@ void FComposableCameraShotSectionInterface::BuildSectionContextMenu(FMenuBuilder
 
 	MenuBuilder.BeginSection(TEXT("ComposableCameraShot"), LOCTEXT("ShotSection", "Composable Camera Shot"));
 
-	MenuBuilder.AddMenuEntry(
-		LOCTEXT("EditShotEntry", "Edit Shot..."),
+	MenuBuilder.AddMenuEntry(LOCTEXT("EditShotEntry", "Edit Shot..."),
 		LOCTEXT("EditShotTooltip",
 			"Open the Shot Editor on this section's Shot. For Inline sections, "
 			"the editor binds to the section itself; for AssetReference sections, "
@@ -895,12 +869,11 @@ void FComposableCameraShotSectionInterface::BuildSectionContextMenu(FMenuBuilder
 			FComposableCameraShotEditor::OpenForShotSection(ShotSection);
 		})));
 
-	MenuBuilder.AddSubMenu(
-		LOCTEXT("BindTargetActorsEntry", "Bind Target Actors"),
+	MenuBuilder.AddSubMenu(LOCTEXT("BindTargetActorsEntry", "Bind Target Actors"),
 		LOCTEXT("BindTargetActorsTooltip",
 			"Override per-target Actor resolution with Sequencer bindings (Spawnable / Possessable). "
 			"This lets a ShotAsset authored against placeholder actors drive the camera at runtime "
-			"with the actual sequence-bound actors — the underlying ShotAsset / Inline data is not "
+			"with the actual sequence-bound actors - the underlying ShotAsset / Inline data is not "
 			"mutated."),
 		FNewMenuDelegate::CreateLambda([ShotSection](FMenuBuilder& SubMenuBuilder)
 		{
@@ -910,8 +883,7 @@ void FComposableCameraShotSectionInterface::BuildSectionContextMenu(FMenuBuilder
 	// Phase F: EnterTransition picker. Label includes the current selection
 	// so the parent menu reads "Set Enter Transition: <name>" without forcing
 	// the user to expand the submenu just to check what's set.
-	MenuBuilder.AddSubMenu(
-		FText::Format(LOCTEXT("SetEnterTransitionEntryFmt", "Set Enter Transition: {0}"),
+	MenuBuilder.AddSubMenu(FText::Format(LOCTEXT("SetEnterTransitionEntryFmt", "Set Enter Transition: {0}"),
 			GetEnterTransitionLabel(*ShotSection)),
 		LOCTEXT("SetEnterTransitionTooltip",
 			"Pick the transition asset that drives the inter-Shot blend when the playhead "

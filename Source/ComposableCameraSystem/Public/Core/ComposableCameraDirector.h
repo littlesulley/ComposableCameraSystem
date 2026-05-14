@@ -1,4 +1,4 @@
-// Copyright Sulley. All rights reserved.
+﻿// Copyright Sulley. All rights reserved.
 
 #pragma once
 
@@ -91,12 +91,12 @@ public:
 	 * transition whose source is `SourceDirector`'s output.
 	 *
 	 * Unlike `ActivateNewCameraWithReferenceSource`, this path does NOT
-	 * spawn a new camera and does NOT destroy the current one — the
+	 * spawn a new camera and does NOT destroy the current one. The
 	 * existing `RunningCamera` stays in place and keeps all its per-node
 	 * state (damping, interpolator, spline progress, etc.). The only
 	 * mutation to the tree is wrapping its current `RootNode` as the
 	 * right child of a new Inner node holding the pop transition + a
-	 * `RefLeaf→SourceDirector` as the left child.
+	 * `RefLeaf SourceDirector` as the left child.
 	 *
 	 * This is the correct code path for context-stack pops: the camera
 	 * that was running before the push should resume with no state reset.
@@ -109,7 +109,7 @@ public:
 	 * @param SourceDirector       The popped director to reference as the blend source.
 	 * @param bFreezeSourceCamera  If true, the RefLeaf returns SourceDirector's
 	 *                             cached LastEvaluatedPose every frame instead
-	 *                             of re-evaluating — use when the source context
+	 *                             of re-evaluating. Use when the source context
 	 *                             is about to be destroyed and its live evaluation
 	 *                             would be wasted work.
 	 * @return The resumed (unchanged) camera, or nullptr if the tree had no camera to resume.
@@ -133,11 +133,11 @@ public:
 
 	/** Read-only access to the director's evaluation tree.
 	 *  Intended for debug tooling (viewport debug transition walker,
-	 *  snapshot builders, tests). Returns the raw pointer — do not cache
+	 *  snapshot builders, tests). Returns the raw pointer. Do not cache
 	 *  it across activations, since the tree is torn down with the director. */
 	UComposableCameraEvaluationTree* GetEvaluationTree() const { return EvaluationTree; }
 
-	/** Access to this director's PatchManager — owner of active CameraPatches.
+	/** Access to this director's PatchManager. Owner of active CameraPatches.
 	 *  Lifetime: created in the director ctor, destroyed with the director. Stage 1
 	 *  has the manager wired through but its Apply pass is a no-op stub (see
 	 *  UComposableCameraPatchManager doc comment for the staging plan). */
@@ -176,10 +176,10 @@ private:
 	UPROPERTY(Transient)
 	TObjectPtr<UComposableCameraPatchManager> PatchManager;
 
-	/** Cached blended pose from the last Evaluate() call — represents the Director's actual output. */
+	/** Cached blended pose from the last Evaluate() call. Represents the Director's actual output. */
 	FComposableCameraPose LastEvaluatedPose;
 
-	/** Previous frame's blended pose — used for velocity estimation in transitions. */
+	/** Previous frame's blended pose. Used for velocity estimation in transitions. */
 	FComposableCameraPose PreviousEvaluatedPose;
 
 	void ForceCameraPoses(AComposableCameraCameraBase* Camera, const FTransform& Transform);

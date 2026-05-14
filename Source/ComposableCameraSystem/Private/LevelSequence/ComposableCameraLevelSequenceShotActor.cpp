@@ -1,4 +1,4 @@
-// Copyright Sulley. All rights reserved.
+﻿// Copyright Sulley. All rights reserved.
 
 #include "LevelSequence/ComposableCameraLevelSequenceShotActor.h"
 
@@ -11,7 +11,7 @@
 AComposableCameraLevelSequenceShotActor::AComposableCameraLevelSequenceShotActor(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
 {
-	// Real init happens in PostInitProperties — the inherited
+	// Real init happens in PostInitProperties. The inherited
 	// LevelSequenceComponent must already exist before we can assign its
 	// TypeAssetReference.TypeAsset, and component creation is finalized by
 	// the time PostInitProperties fires.
@@ -21,7 +21,7 @@ void AComposableCameraLevelSequenceShotActor::PostInitProperties()
 {
 	Super::PostInitProperties();
 
-	// Skip CDO — the class default object should not own a runtime-only
+	// Skip CDO. The class default object should not own a runtime-only
 	// TypeAsset instance. Real instances run this path normally.
 	if (HasAnyFlags(RF_ClassDefaultObject))
 	{
@@ -37,16 +37,16 @@ void AComposableCameraLevelSequenceShotActor::EnsureDefaultShotTypeAsset()
 	{
 		// LevelSequenceComponent was created by the base class's constructor
 		// via CreateDefaultSubobject. If it's missing here, something has
-		// gone very wrong with the actor's construction — bail rather than
+		// gone very wrong with the actor's construction. Bail rather than
 		// crash. Logged at Warning so a misconfigured subclass shows up.
 		UE_LOG(LogComposableCameraSystem, Warning,
 			TEXT("AComposableCameraLevelSequenceShotActor::EnsureDefaultShotTypeAsset: "
-			     "LevelSequenceComponent is null on '%s' — cannot wire default TypeAsset."),
+			     "LevelSequenceComponent is null on '%s'. Cannot wire default TypeAsset."),
 			*GetName());
 		return;
 	}
 
-	// Designer-supplied custom TypeAsset wins — only seed when the slot is
+	// Designer-supplied custom TypeAsset wins. Only seed when the slot is
 	// null (or when our owned default has been GC'd / detached). This makes
 	// the override path "set TypeAsset in Details panel" lossless: once a
 	// designer assigns a custom TypeAsset, subsequent PostInitProperties
@@ -66,7 +66,7 @@ void AComposableCameraLevelSequenceShotActor::EnsureDefaultShotTypeAsset()
 			this, UComposableCameraTypeAsset::StaticClass(),
 			TEXT("DefaultShotTypeAsset"), RF_Public);
 
-		// Single CompositionFramingNode — outered to the asset (matches the
+		// Single CompositionFramingNode. Outered to the asset (matches the
 		// editor-graph path's invariant that NodeTemplates entries are
 		// outered to the type asset).
 		UComposableCameraCompositionFramingNode* FramingNode =
@@ -81,7 +81,7 @@ void AComposableCameraLevelSequenceShotActor::EnsureDefaultShotTypeAsset()
 		// CompositionFramingNode (no per-instance overrides in the default).
 		Asset->NodePinOverrides.AddDefaulted();
 
-		// Execution chain — single camera-node entry. The runtime
+		// Execution chain. Single camera-node entry. The runtime
 		// instantiator (ConstructCameraFromTypeAsset) prefers FullExecChain
 		// when non-empty; ExecutionOrder is the camera-node-only projection
 		// kept in lockstep for fast iteration paths.

@@ -1,4 +1,4 @@
-﻿// Copyright Sulley. All rights reserved.
+// Copyright Sulley. All rights reserved.
 
 #include "Nodes/ComposableCameraScreenSpacePivotNode.h"
 
@@ -76,7 +76,7 @@ void UComposableCameraScreenSpacePivotNode::GetPinDeclarations_Implementation(TA
 	// All pin names match their backing UPROPERTY FNames verbatim so the node
 	// Details customization pairs them into single unified rows.
 
-	// Input: PivotSource — selects WorldPosition vs ActorPosition pivot resolution.
+	// Input: PivotSource - selects WorldPosition vs ActorPosition pivot resolution.
 	PinDecl = {};
 	PinDecl.PinName = TEXT("PivotSource");
 	PinDecl.DisplayName = NSLOCTEXT("UComposableCameraScreenSpacePivotNode", "PivotSource", "Pivot Source");
@@ -90,7 +90,7 @@ void UComposableCameraScreenSpacePivotNode::GetPinDeclarations_Implementation(TA
 		"Selects whether the pivot is read from PivotWorldPosition (WorldPosition) or derived from PivotActor + PivotWorldUpOffset (ActorPosition).");
 	OutPins.Add(PinDecl);
 
-	// Input: PivotActorSource — consumed when PivotSource == ActorPosition.
+	// Input: PivotActorSource - consumed when PivotSource == ActorPosition.
 	PinDecl = {};
 	PinDecl.PinName = TEXT("PivotActorSource");
 	PinDecl.DisplayName = NSLOCTEXT("UComposableCameraScreenSpacePivotNode", "PivotActorSource", "Pivot Actor Source");
@@ -104,7 +104,7 @@ void UComposableCameraScreenSpacePivotNode::GetPinDeclarations_Implementation(TA
 		"Selects whether PivotActor comes from the controller's controlled pawn or an explicit actor when PivotSource is ActorPosition.");
 	OutPins.Add(PinDecl);
 
-	// Input: PivotWorldPosition — consumed when PivotSource == WorldPosition.
+	// Input: PivotWorldPosition - consumed when PivotSource == WorldPosition.
 	PinDecl = {};
 	PinDecl.PinName = TEXT("PivotWorldPosition");
 	PinDecl.DisplayName = NSLOCTEXT("UComposableCameraScreenSpacePivotNode", "PivotWorldPosition", "Pivot World Position");
@@ -117,7 +117,7 @@ void UComposableCameraScreenSpacePivotNode::GetPinDeclarations_Implementation(TA
 		"Pivot in world space. Used when PivotSource == WorldPosition.");
 	OutPins.Add(PinDecl);
 
-	// Input: PivotActor — consumed when PivotSource == ActorPosition.
+	// Input: PivotActor - consumed when PivotSource == ActorPosition.
 	PinDecl.PinName = TEXT("PivotActor");
 	PinDecl.DisplayName = NSLOCTEXT("UComposableCameraScreenSpacePivotNode", "PivotActor", "Pivot Actor");
 	PinDecl.Direction = EComposableCameraPinDirection::Input;
@@ -129,7 +129,7 @@ void UComposableCameraScreenSpacePivotNode::GetPinDeclarations_Implementation(TA
 		"Actor whose world location supplies the pivot. Used when PivotSource == ActorPosition.");
 	OutPins.Add(PinDecl);
 
-	// Input: PivotWorldUpOffset — consumed when PivotSource == ActorPosition.
+	// Input: PivotWorldUpOffset - consumed when PivotSource == ActorPosition.
 	PinDecl.PinName = TEXT("PivotWorldUpOffset");
 	PinDecl.DisplayName = NSLOCTEXT("UComposableCameraScreenSpacePivotNode", "PivotWorldUpOffset", "Pivot World Up Offset");
 	PinDecl.Direction = EComposableCameraPinDirection::Input;
@@ -141,7 +141,7 @@ void UComposableCameraScreenSpacePivotNode::GetPinDeclarations_Implementation(TA
 		"World-up offset added to PivotActor->GetActorLocation(). Used when PivotSource == ActorPosition.");
 	OutPins.Add(PinDecl);
 
-	// Input: Method — Translate vs Rotate strategy for keeping the pivot on-screen.
+	// Input: Method - Translate vs Rotate strategy for keeping the pivot on-screen.
 	PinDecl = {};
 	PinDecl.PinName = TEXT("Method");
 	PinDecl.DisplayName = NSLOCTEXT("UComposableCameraScreenSpacePivotNode", "Method", "Method");
@@ -152,7 +152,7 @@ void UComposableCameraScreenSpacePivotNode::GetPinDeclarations_Implementation(TA
 	PinDecl.bDefaultAsPin = false;
 	PinDecl.DefaultValueString = PinDecl.EnumType ? PinDecl.EnumType->GetNameStringByValue(static_cast<int64>(Method)) : FString();
 	PinDecl.Tooltip = NSLOCTEXT("UComposableCameraScreenSpacePivotNode", "MethodTip",
-		"How to keep the pivot within the safe zone — Translate moves the camera, Rotate turns the camera.");
+		"How to keep the pivot within the safe zone - Translate moves the camera, Rotate turns the camera.");
 	OutPins.Add(PinDecl);
 
 	// Input: SafeZoneCenter
@@ -326,8 +326,8 @@ void UComposableCameraScreenSpacePivotNode::EnsureWithinBoundsRotation(const FRo
 
 std::pair<float, float> UComposableCameraScreenSpacePivotNode::GetTanHalfHORAndAspectRatio(const FComposableCameraPose& OutCameraPose)
 {
-	// Viewport size is resolved through a general helper (PCM → GameViewport
-	// → fallback) rather than hard-wiring a PCM deref — this lets the node
+	// Viewport size is resolved through a general helper (PCM->GameViewport
+	// ->fallback) rather than hard-wiring a PCM deref - this lets the node
 	// evaluate correctly in the Level Sequence component path where there is
 	// no PCM. See UE::ComposableCameras::TryGetEffectiveViewportSize.
 	FIntPoint ViewportSize;
@@ -386,19 +386,18 @@ FVector UComposableCameraScreenSpacePivotNode::GetCurrentPivot() const
 	switch (PivotSource)
 	{
 	case EComposableCameraScreenSpacePivotSource::WorldPosition:
-		return GetInputPinValue<FVector>("PivotWorldPosition");
+		return PivotWorldPosition;
 
 	case EComposableCameraScreenSpacePivotSource::ActorPosition:
 		{
-			// PivotActor may be null if no default is authored and no upstream wire
-			// resolved; fall back to the authored world-position default so screen-space
-			// math doesn't pathologically target the world origin.
+			// Pin-matched UPROPERTYs are resolved by the base TickNode prologue.
+			// Read the members here so Details-only defaults work the same as
+			// promoted / wired pins.
 			AActor* Actor = ComposableCameraSystem::ResolveActorInput(
-				PivotActorSource, GetInputPinValue<AActor*>("PivotActor"), GetOwningPlayerCameraManager());
-			const float UpOffset = GetInputPinValue<float>("PivotWorldUpOffset");
+				PivotActorSource, PivotActor.Get(), GetOwningPlayerCameraManager(), this);
 			if (IsValid(Actor))
 			{
-				return Actor->GetActorLocation() + FVector::UpVector * UpOffset;
+				return Actor->GetActorLocation() + FVector::UpVector * PivotWorldUpOffset;
 			}
 			return PivotWorldPosition;
 		}
@@ -416,7 +415,7 @@ void UComposableCameraScreenSpacePivotNode::DrawNodeDebug(UWorld* World, bool /*
 		&& !FComposableCameraViewportDebug::ShouldShowAllNodeGizmos()) { return; }
 	// Sphere at the resolved world pivot. `GetCurrentPivot()` returns either
 	// `PivotWorldPosition` or `PivotActor->GetActorLocation() + up-offset`
-	// depending on `PivotSource` — same resolution the tick path uses.
+	// depending on `PivotSource` - same resolution the tick path uses.
 	constexpr uint8 KForeground = 1;
 	const FVector Pivot = GetCurrentPivot();
 	FComposableCameraViewportDebug::DrawSolidDebugSphere(
@@ -426,7 +425,7 @@ void UComposableCameraScreenSpacePivotNode::DrawNodeDebug(UWorld* World, bool /*
 
 namespace
 {
-	/** Filled translucent rect — Canvas equivalent of AHUD::DrawRect. */
+	/** Filled translucent rect - Canvas equivalent of AHUD::DrawRect. */
 	void DrawCanvasRect(UCanvas* Canvas, float X, float Y, float W, float H, const FLinearColor& Color)
 	{
 		FCanvasTileItem Tile(FVector2D(X, Y), FVector2D(W, H), Color);
@@ -444,7 +443,7 @@ void UComposableCameraScreenSpacePivotNode::DrawNodeDebug2D(UCanvas* Canvas, APl
 
 	// Preserves the exact math of the original HUD-PostRender implementation.
 	// The constrained-aspect-ratio branch in particular uses the LocalPlayer's
-	// ProjectionData to account for the letterboxed viewport offset — if you
+	// ProjectionData to account for the letterboxed viewport offset - if you
 	// simplify to a single branch you get the safe-zone drawn in the wrong
 	// place in letterboxed PIE sessions. Don't collapse the two cases.
 	constexpr FLinearColor RectColor        (0.8f, 0.9f, 1.0f, 0.8f);
@@ -494,7 +493,7 @@ void UComposableCameraScreenSpacePivotNode::DrawNodeDebug2D(UCanvas* Canvas, APl
 		}
 
 		// Read the letterboxed-viewport offset via the LocalPlayer's projection
-		// data — this is the step that keeps the rect aligned when PIE runs
+		// data - this is the step that keeps the rect aligned when PIE runs
 		// windowed with a pillar-boxed game area.
 		FVector2D ScreenOffset = FVector2D::ZeroVector;
 		ULocalPlayer* const LP = PC ? PC->GetLocalPlayer() : nullptr;

@@ -1,4 +1,4 @@
-// Copyright Sulley. All rights reserved.
+﻿// Copyright Sulley. All rights reserved.
 
 #pragma once
 
@@ -45,7 +45,7 @@ class COMPOSABLECAMERASYSTEM_API UAsyncPlayCutsceneSequence
 public:
 	/**
 	 * Create the action and register it with the game instance. Does NOT call
-	 * Activate() — the K2 node's ExpandNode handles that after delegate binding.
+	 * Activate(). The K2 node's ExpandNode handles that after delegate binding.
 	 *
 	 * This is a plain C++ static, not a UFUNCTION. The Blueprint entry point is
 	 * UComposableCameraBlueprintLibrary::PlayCutsceneSequence, which the K2 node
@@ -99,7 +99,7 @@ private:
 	UPROPERTY(Transient)
 	TWeakObjectPtr<AComposableCameraPlayerCameraManager> CachedPCM;
 
-	/** Cached from the WorldContextObject in the factory — GetWorld() on the base class is unreliable. */
+	/** Cached from the WorldContextObject in the factory -GetWorld() on the base class is unreliable. */
 	TWeakObjectPtr<UWorld> CachedWorld;
 
 	FName CutsceneContextName;

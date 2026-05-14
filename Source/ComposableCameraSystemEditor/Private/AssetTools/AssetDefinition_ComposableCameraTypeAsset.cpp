@@ -33,17 +33,15 @@ TConstArrayView<FAssetCategoryPath> UAssetDefinition_ComposableCameraTypeAsset::
 
 FAssetOpenSupport UAssetDefinition_ComposableCameraTypeAsset::GetAssetOpenSupport(const FAssetOpenSupportArgs& OpenSupportArgs) const
 {
-	return FAssetOpenSupport(
-		OpenSupportArgs.OpenMethod,
+	return FAssetOpenSupport(OpenSupportArgs.OpenMethod,
 		OpenSupportArgs.OpenMethod == EAssetOpenMethod::Edit,
-		EToolkitMode::Standalone
-	);
+		EToolkitMode::Standalone);
 }
 
 EAssetCommandResult UAssetDefinition_ComposableCameraTypeAsset::OpenAssets(const FAssetOpenArgs& OpenArgs) const
 {
 	FComposableCameraSystemEditorModule& EditorModule = FModuleManager::LoadModuleChecked<FComposableCameraSystemEditorModule>("ComposableCameraSystemEditor");
-	for (UComposableCameraTypeAsset* TypeAsset : OpenArgs.LoadObjects<UComposableCameraTypeAsset>())
+	for (UComposableCameraTypeAsset* TypeAsset: OpenArgs.LoadObjects<UComposableCameraTypeAsset>())
 	{
 		EditorModule.CreateComposableCameraTypeAssetEditor(OpenArgs.GetToolkitMode(), OpenArgs.ToolkitHost, TypeAsset);
 	}

@@ -1,4 +1,4 @@
-﻿// Copyright Sulley. All rights reserved.
+// Copyright Sulley. All rights reserved.
 
 #include "Nodes/ComposableCameraLookAtNode.h"
 
@@ -28,7 +28,7 @@ void UComposableCameraLookAtNode::OnInitialize_Implementation()
 
 	Interpolator_T = IsValid(SoftLookAtInterpolator) ? SoftLookAtInterpolator->BuildRotatorInterpolator() : nullptr;
 
-	// Don't resolve the SkelMesh component here — LookAtActor can be driven
+	// Don't resolve the SkelMesh component here - LookAtActor can be driven
 	// by an input pin and change every frame. Resolution happens lazily in
 	// Tick when the active LookAtActor differs from `LastResolvedLookAtActor`.
 	SkeletalMeshComponentForLookAtActor.Reset();
@@ -73,7 +73,7 @@ void UComposableCameraLookAtNode::OnTickNode_Implementation(float DeltaTime,
 	else if (LookAtType == EComposableCameraLookAtType::ByActor)
 	{
 		AActor* EffectiveLookAtActor = ComposableCameraSystem::ResolveActorInput(
-			LookAtActorSource, LookAtActor.Get(), GetOwningPlayerCameraManager());
+			LookAtActorSource, LookAtActor.Get(), GetOwningPlayerCameraManager(), this);
 
 		// LookAtActor may have just been written by ResolveAllInputPins;
 		// re-resolve the cached SkelMesh whenever the active actor changed.
@@ -88,6 +88,11 @@ void UComposableCameraLookAtNode::OnTickNode_Implementation(float DeltaTime,
 		{
 			CurrentLookAtPosition = EffectiveLookAtActor->GetActorLocation();
 		}
+	}
+
+	if ((CurrentLookAtPosition - OutCameraPose.Position).SizeSquared() <= FMath::Square(KINDA_SMALL_NUMBER))
+	{
+		return;
 	}
 
 	FRotator ResultRotation = FRotator::ZeroRotator;
@@ -141,7 +146,7 @@ void UComposableCameraLookAtNode::DrawNodeDebug(UWorld* World, bool bViewerIsOut
 	// outside the camera, line is NOT view-aligned from this viewpoint, so
 	// Thickness=0 + SDPG_Foreground reads fine).
 
-	// Resolve current target position — mirrors OnTickNode's resolution chain.
+	// Resolve current target position - mirrors OnTickNode's resolution chain.
 	// Kept duplicated here so DrawNodeDebug stays side-effect-free and doesn't
 	// need any cached state written by the tick path.
 	FVector TargetPosition = FVector::ZeroVector;
@@ -152,7 +157,7 @@ void UComposableCameraLookAtNode::DrawNodeDebug(UWorld* World, bool bViewerIsOut
 	else if (LookAtType == EComposableCameraLookAtType::ByActor)
 	{
 		AActor* EffectiveLookAtActor = ComposableCameraSystem::ResolveActorInput(
-			LookAtActorSource, LookAtActor.Get(), GetOwningPlayerCameraManager());
+			LookAtActorSource, LookAtActor.Get(), GetOwningPlayerCameraManager(), this);
 		USkeletalMeshComponent* Comp = SkeletalMeshComponentForLookAtActor.Get();
 		if (LastResolvedLookAtActor.Get() == EffectiveLookAtActor && IsValid(Comp) && Comp->DoesSocketExist(LookAtSocket))
 		{
@@ -168,7 +173,7 @@ void UComposableCameraLookAtNode::DrawNodeDebug(UWorld* World, bool bViewerIsOut
 		}
 	}
 
-	// DepthPriority=1 (SDPG_Foreground) draws above scene geometry — without
+	// DepthPriority=1 (SDPG_Foreground) draws above scene geometry - without
 	// it, a target anchored on a bone socket would be occluded by the mesh.
 	constexpr uint8 KForeground = 1;
 	const FColor TargetColor(30, 200, 255);
@@ -186,7 +191,7 @@ void UComposableCameraLookAtNode::DrawNodeDebug(UWorld* World, bool bViewerIsOut
 
 void UComposableCameraLookAtNode::GetPinDeclarations_Implementation(TArray<FComposableCameraNodePinDeclaration>& OutPins) const
 {
-	// LookAtType — selects whether the target is LookAtPosition or LookAtActor.
+	// LookAtType - selects whether the target is LookAtPosition or LookAtActor.
 	{
 		FComposableCameraNodePinDeclaration Pin;
 		Pin.PinName = TEXT("LookAtType");
@@ -218,7 +223,7 @@ void UComposableCameraLookAtNode::GetPinDeclarations_Implementation(TArray<FComp
 		OutPins.Add(Pin);
 	}
 
-	// LookAtPosition — target position (used when LookAtType == ByPosition).
+	// LookAtPosition - target position (used when LookAtType == ByPosition).
 	FComposableCameraNodePinDeclaration LookAtPositionPin;
 	LookAtPositionPin.PinName = TEXT("LookAtPosition");
 	LookAtPositionPin.DisplayName = NSLOCTEXT("ComposableCameraLookAtNode", "LookAtPosition", "Look At Position");
@@ -229,7 +234,7 @@ void UComposableCameraLookAtNode::GetPinDeclarations_Implementation(TArray<FComp
 	LookAtPositionPin.Tooltip = NSLOCTEXT("ComposableCameraLookAtNode", "LookAtPositionTip", "World position to look at (when LookAtType is ByPosition).");
 	OutPins.Add(LookAtPositionPin);
 
-	// LookAtActor — target actor (used when LookAtType == ByActor).
+	// LookAtActor - target actor (used when LookAtType == ByActor).
 	FComposableCameraNodePinDeclaration LookAtActorPin;
 	LookAtActorPin.PinName = TEXT("LookAtActor");
 	LookAtActorPin.DisplayName = NSLOCTEXT("ComposableCameraLookAtNode", "LookAtActor", "Look At Actor");
@@ -240,7 +245,7 @@ void UComposableCameraLookAtNode::GetPinDeclarations_Implementation(TArray<FComp
 	LookAtActorPin.Tooltip = NSLOCTEXT("ComposableCameraLookAtNode", "LookAtActorTip", "Actor to look at (when LookAtType is ByActor).");
 	OutPins.Add(LookAtActorPin);
 
-	// LookAtSocket — skeletal-mesh socket on LookAtActor (optional).
+	// LookAtSocket - skeletal-mesh socket on LookAtActor (optional).
 	{
 		FComposableCameraNodePinDeclaration Pin;
 		Pin.PinName = TEXT("LookAtSocket");
@@ -255,7 +260,7 @@ void UComposableCameraLookAtNode::GetPinDeclarations_Implementation(TArray<FComp
 		OutPins.Add(Pin);
 	}
 
-	// LookAtConstraintType — Hard vs Soft look-at.
+	// LookAtConstraintType - Hard vs Soft look-at.
 	{
 		FComposableCameraNodePinDeclaration Pin;
 		Pin.PinName = TEXT("LookAtConstraintType");
@@ -271,7 +276,7 @@ void UComposableCameraLookAtNode::GetPinDeclarations_Implementation(TArray<FComp
 		OutPins.Add(Pin);
 	}
 
-	// SoftLookAtRange — tolerance angle before pulling toward the target.
+	// SoftLookAtRange - tolerance angle before pulling toward the target.
 	{
 		FComposableCameraNodePinDeclaration Pin;
 		Pin.PinName = TEXT("SoftLookAtRange");
@@ -286,7 +291,7 @@ void UComposableCameraLookAtNode::GetPinDeclarations_Implementation(TArray<FComp
 		OutPins.Add(Pin);
 	}
 
-	// SoftLookAtWeight — how strongly the soft look-at pulls toward the target.
+	// SoftLookAtWeight - how strongly the soft look-at pulls toward the target.
 	{
 		FComposableCameraNodePinDeclaration Pin;
 		Pin.PinName = TEXT("SoftLookAtWeight");

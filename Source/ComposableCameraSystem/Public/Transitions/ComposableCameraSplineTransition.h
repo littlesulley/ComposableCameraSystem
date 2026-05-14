@@ -1,4 +1,4 @@
-// Copyright Sulley. All rights reserved.
+﻿// Copyright Sulley. All rights reserved.
 
 #pragma once
 
@@ -12,7 +12,7 @@ enum class EComposableCameraSplineTransitionType : uint8
 	// Using a cubic polynomial to generate the transition spline, given start tangent and end tangent.
 	Hermite,
 	
-	// Using a cubic Bézier curve to generate the transition spline, given start tangent and end tangent.
+	// Using a cubic Bzier curve to generate the transition spline, given start tangent and end tangent.
 	Bezier,
 	
 	// Using piecewise catmull-rom splines to generate the transition spline, given knots between start and end points.
@@ -92,12 +92,12 @@ public:
 	// Gated on `CCS.Debug.Viewport.Transitions.Spline`. Draws the full
 	// spline curve as a 32-segment polyline in the accent color on top of
 	// the standard source/target/progress markers. Seeing the whole path
-	// is the whole point — this transition type's purpose is the shape.
+	// is the whole point. This transition type's purpose is the shape.
 	virtual void DrawTransitionDebug(UWorld* World, bool bViewerIsOutsideCamera) const override;
 
 private:
 	/**
-	 * Evaluate the current spline configuration at parameter t ∈ [0, 1].
+	 * Evaluate the current spline configuration at parameter t in [0, 1].
 	 * Used by both OnEvaluate (with `t = BlendWeight`) and DrawTransitionDebug
 	 * (to sample the whole curve). The two call sites must agree exactly or
 	 * the debug draw would lie about where the camera will go, so they share

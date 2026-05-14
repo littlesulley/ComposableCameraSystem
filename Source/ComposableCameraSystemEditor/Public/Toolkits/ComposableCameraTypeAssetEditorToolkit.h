@@ -18,33 +18,32 @@ class AComposableCameraCameraBase;
  * for Camera Type Assets.
  *
  * Layout:
- * ┌──────────────────────────────────────────────────────────┐
- * │  Toolbar  [Build]                                        │
- * ├──────────────────────┬───────────────────────────────────┤
- * │                      │                                   │
- * │                      │  Details Panel                    │
- * │  Node Graph          │  (selected node properties —      │
- * │                      │   falls back to the type asset    │
- * │                      │   itself when nothing is selected,│
- * │                      │   so Exposed Parameters, Internal │
- * │                      │   Variables, and Default          │
- * │                      │   Transition all remain editable  │
- * │                      │   in-place)                       │
- * │                      │                                   │
- * ├──────────────────────┴───────────────────────────────────┤
- * │  Build Messages (validation log)                         │
- * └──────────────────────────────────────────────────────────┘
+ * 
+ * Toolbar [Build] 
+ * 
+ * 
+ * Details Panel 
+ * Node Graph (selected node properties - 
+ * falls back to the type asset 
+ * itself when nothing is selected,
+ * so Exposed Parameters, Internal 
+ * Variables, and Default 
+ * Transition all remain editable 
+ * in-place) 
+ * 
+ * 
+ * Build Messages (validation log) 
+ * 
  *
  * Note: the editor previously had a dedicated "Parameters" tab that showed a
  * read-only summary of exposed parameters, internal variables, and the default
  * transition. That tab was removed because its contents are all editable
- * directly on the type asset through the main Details panel — clicking on an
+ * directly on the type asset through the main Details panel - clicking on an
  * empty part of the graph (or opening the asset with nothing selected) makes
  * the Details panel show the type asset and surfaces every category the old
  * Parameters tab used to display.
  */
-class FComposableCameraTypeAssetEditorToolkit
-	: public FBaseAssetToolkit
+class FComposableCameraTypeAssetEditorToolkit: public FBaseAssetToolkit
 {
 public:
 	FComposableCameraTypeAssetEditorToolkit(UAssetEditor* InAssetEditor);
@@ -53,7 +52,7 @@ public:
 	void SetTypeAsset(UComposableCameraTypeAsset* InTypeAsset);
 
 protected:
-	// ─── FBaseAssetToolkit Interface ───────────────────────────────────────
+	// FBaseAssetToolkit Interface 
 	virtual void RegisterTabSpawners(const TSharedRef<class FTabManager>& InTabManager) override;
 	virtual void UnregisterTabSpawners(const TSharedRef<FTabManager>& InTabManager) override;
 	virtual void CreateWidgets() override;
@@ -62,42 +61,42 @@ protected:
 	virtual void PostInitAssetEditor() override;
 	virtual void PostRegenerateMenusAndToolbars() override;
 
-	// ─── IToolkit Interface ───────────────────────────────────────────────
+	// IToolkit Interface 
 	virtual FText GetBaseToolkitName() const override;
 	virtual FName GetToolkitFName() const override;
 	virtual FString GetWorldCentricTabPrefix() const override;
 	virtual FLinearColor GetWorldCentricTabColorScale() const override;
 
-	// ─── FAssetEditorToolkit Save Hook ────────────────────────────────────
+	// FAssetEditorToolkit Save Hook 
 	//
 	// Override the save path so the node graph's in-memory visual state
 	// (especially node canvas positions, which the graph doesn't notify on
 	// during drags) is flushed into the TypeAsset's durable editor-only
 	// fields before the package is written to disk. Without this, a user
-	// drags some nodes, saves, reopens, and the drag is lost — because
+	// drags some nodes, saves, reopens, and the drag is lost - because
 	// EditorGraph is Transient so NodePosX/NodePosY aren't serialized
 	// directly, only the snapshot inside TypeAsset->NodeTemplatePositions is.
 	virtual void SaveAsset_Execute() override;
 	virtual void SaveAssetAs_Execute() override;
 
 private:
-	// ─── Graph Management ─────────────────────────────────────────────────
+	// Graph Management 
 
 	/** Ensure the EdGraph exists on the type asset and rebuild it if needed. */
 	void EnsureEditorGraph();
 
-	/** Callback when graph selection changes — schedules a deferred details panel update. */
+	/** Callback when graph selection changes - schedules a deferred details panel update. */
 	void OnGraphSelectionChanged(const TSet<UObject*>& SelectedNodes);
 
 	/** Deferred tick callback that actually applies the pending selection to the details panel.
-	 *  Runs one frame after OnGraphSelectionChanged so we can cancel the update when the
-	 *  schema flags the selection change as incidental (e.g. a pin right-click that SGraphEditor
-	 *  auto-selected the owning node for). See UComposableCameraNodeGraph::MarkPinContextMenuRequested /
-	 *  ConsumePinContextMenuRequested. */
+	 * Runs one frame after OnGraphSelectionChanged so we can cancel the update when the
+	 * schema flags the selection change as incidental (e.g. a pin right-click that SGraphEditor
+	 * auto-selected the owning node for). See UComposableCameraNodeGraph::MarkPinContextMenuRequested /
+	 * ConsumePinContextMenuRequested. */
 	bool ApplyPendingSelectionToDetails(float DeltaTime);
 
 	/** Callback when variable/parameter properties on the type asset change in the main details view.
-	 *  Used to refresh variable graph nodes when InternalVariables is edited. */
+	 * Used to refresh variable graph nodes when InternalVariables is edited. */
 	void OnTypeAssetPropertyChanged(const FPropertyChangedEvent& PropertyChangedEvent);
 
 	/** Callback when a node is double-clicked. */
@@ -142,17 +141,17 @@ private:
 	/** Whether Select All is currently meaningful. */
 	bool CanSelectAllNodes() const;
 
-	// ─── Tab Spawners ─────────────────────────────────────────────────────
+	// Tab Spawners 
 
 	TSharedRef<SDockTab> SpawnTab_GraphEditor(const FSpawnTabArgs& Args);
 	TSharedRef<SDockTab> SpawnTab_Details(const FSpawnTabArgs& Args);
 	TSharedRef<SDockTab> SpawnTab_BuildMessages(const FSpawnTabArgs& Args);
 
-	// ─── Toolbar Actions ──────────────────────────────────────────────────
+	// Toolbar Actions 
 
 	void OnBuild();
 
-	// ─── Widget Builders ──────────────────────────────────────────────────
+	// Widget Builders 
 
 	TSharedRef<SWidget> BuildBuildMessagesWidget();
 
@@ -172,15 +171,15 @@ private:
 	/** Details panel for selected node properties. */
 	TSharedPtr<IDetailsView> NodeDetailsView;
 
-	/** Handle to `NodeDetailsView->OnFinishedChangingProperties().AddRaw(this, …)`.
-	 *  The details view is a Slate widget held by the property tree;
-	 *  Slate's deferred deletion can keep it alive at least one tick past
-	 *  the toolkit's destruction (tab close → toolkit dtor runs while
-	 *  the widget is still scheduled for deletion). A property edit on
-	 *  that surviving widget would then fire the delegate against a
-	 *  freed `this`. The destructor calls
-	 *  `NodeDetailsView->OnFinishedChangingProperties().Remove(handle)`
-	 *  to break the binding before `this` goes away. */
+	/** Handle to `NodeDetailsView->OnFinishedChangingProperties().AddRaw(this, )`.
+	 * The details view is a Slate widget held by the property tree;
+	 * Slate's deferred deletion can keep it alive at least one tick past
+	 * the toolkit's destruction (tab close -> toolkit dtor runs while
+	 * the widget is still scheduled for deletion). A property edit on
+	 * that surviving widget would then fire the delegate against a
+	 * freed `this`. The destructor calls
+	 * `NodeDetailsView->OnFinishedChangingProperties().Remove(handle)`
+	 * to break the binding before `this` goes away. */
 	FDelegateHandle NodeDetailsPropertyChangedHandle;
 
 	/** Delegate handle for graph change notification cleanup. */
@@ -190,7 +189,7 @@ private:
 	TWeakObjectPtr<UObject> CurrentDetailsObject;
 
 	/** Most recent graph selection set captured by OnGraphSelectionChanged and
-	 *  waiting to be applied to the details panel by the ticker. */
+	 * waiting to be applied to the details panel by the ticker. */
 	TSet<TWeakObjectPtr<UObject>> PendingSelection;
 
 	/** Whether a deferred ApplyPendingSelectionToDetails is queued on the core ticker. */
@@ -199,7 +198,7 @@ private:
 	/** Handle for the deferred ApplyPendingSelectionToDetails tick. */
 	FTSTicker::FDelegateHandle PendingSelectionTickerHandle;
 
-	// ─── Runtime Debug Monitoring ─────────────────────────────────────────
+	// Runtime Debug Monitoring 
 
 	/** Called when PIE starts. Begins watching for camera instances. */
 	void OnPIEStarted(bool bIsSimulating);
@@ -208,7 +207,7 @@ private:
 	void OnPIEEnded(bool bIsSimulating);
 
 	/** Debug ticker: runs every frame during PIE when a camera is bound.
-	 *  Polls the debugged camera's state and pushes it into graph nodes. */
+	 * Polls the debugged camera's state and pushes it into graph nodes. */
 	bool DebugTick(float DeltaTime);
 
 	/** Scan the PIE world for cameras spawned from our TypeAsset. */
@@ -224,13 +223,12 @@ private:
 	TSharedRef<SWidget> BuildDebugInstancePickerWidget();
 
 	/** Static factory for the debug combo button widget.
-	 *  Resolves the owning toolkit from FToolMenuContext so each editor
-	 *  instance gets its own button — avoids the global UToolMenu dispatch
-	 *  bug where the last editor to register overwrites all others. */
-	static TSharedRef<SWidget> MakeDebugInstancePickerWidget(
-		const FToolMenuContext& Context, const FToolMenuCustomWidgetContext& WidgetContext);
+	 * Resolves the owning toolkit from FToolMenuContext so each editor
+	 * instance gets its own button - avoids the global UToolMenu dispatch
+	 * bug where the last editor to register overwrites all others. */
+	static TSharedRef<SWidget> MakeDebugInstancePickerWidget(const FToolMenuContext& Context, const FToolMenuCustomWidgetContext& WidgetContext);
 
-	// ─── Shot Editor toolbar entry (Phase D.1) ──────────────────────────
+	// Shot Editor toolbar entry (Phase D.1) 
 	//
 	// Adjacent to the Debug button. Routes to the Shot Editor (in the
 	// editor module) for the currently selected `UComposableCameraCompositionFramingNode`
@@ -238,25 +236,25 @@ private:
 	//
 	// Static handlers receive `FToolMenuContext`, resolve the per-instance
 	// toolkit via `UComposableCameraTypeAssetEditorMenuContext`, and forward
-	// to the member methods below — same pattern as `MakeDebugInstancePickerWidget`,
+	// to the member methods below - same pattern as `MakeDebugInstancePickerWidget`,
 	// avoids the "last-registered-toolkit-wins" bug for global UToolMenu entries.
 
 	/** FToolMenuExecuteAction entry. Resolves toolkit + invokes
-	 *  OpenShotEditorForSelectedNode(). */
+	 * OpenShotEditorForSelectedNode(). */
 	static void StaticOnOpenShotEditorClicked(const FToolMenuContext& Context);
 
 	/** FToolMenuCanExecuteAction entry. Returns true iff a CompositionFraming
-	 *  node is selected in the toolkit's graph editor. */
+	 * node is selected in the toolkit's graph editor. */
 	static bool StaticCanOpenShotEditor(const FToolMenuContext& Context);
 
 	/** Look up the currently selected CompositionFraming graph-node template
-	 *  (returns nullptr if 0 or non-Composition selected). */
+	 * (returns nullptr if 0 or non-Composition selected). */
 	class UComposableCameraCompositionFramingNode* GetSelectedCompositionFramingNode() const;
 
 	/** If a CompositionFraming node is selected, route through the runtime
-	 *  hook (`FOpenShotEditor::Open`) to spawn / focus the Shot Editor tab
-	 *  with that node's `Shot` UPROPERTY as the active context. No-op when
-	 *  CanOpenShotEditor would return false. */
+	 * hook (`FOpenShotEditor::Open`) to spawn / focus the Shot Editor tab
+	 * with that node's `Shot` UPROPERTY as the active context. No-op when
+	 * CanOpenShotEditor would return false. */
 	void OpenShotEditorForSelectedNode();
 
 	/** The camera instance currently being debugged. */
@@ -281,7 +279,7 @@ private:
 };
 
 UCLASS(Experimental)
-class UComposableCameraTypeAssetEditorMenuContext : public UObject
+class UComposableCameraTypeAssetEditorMenuContext: public UObject
 {
 	GENERATED_BODY()
 

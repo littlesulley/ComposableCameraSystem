@@ -1,4 +1,4 @@
-﻿// Copyright Sulley. All rights reserved.
+// Copyright Sulley. All rights reserved.
 
 #include "ComposableCameraSystemUncookedOnly.h"
 
@@ -8,15 +8,15 @@
 
 void FComposableCameraSystemUncookedOnlyModule::StartupModule()
 {
-    ComposableCameraGraphPanelPinFactory = MakeShareable(new FComposableCameraGraphPanelPinFactory());
-    FEdGraphUtilities::RegisterVisualPinFactory(ComposableCameraGraphPanelPinFactory);
+ ComposableCameraGraphPanelPinFactory = MakeShareable(new FComposableCameraGraphPanelPinFactory());
+ FEdGraphUtilities::RegisterVisualPinFactory(ComposableCameraGraphPanelPinFactory);
 }
 
 void FComposableCameraSystemUncookedOnlyModule::ShutdownModule()
 {
-    FEdGraphUtilities::UnregisterVisualPinFactory(ComposableCameraGraphPanelPinFactory);
+ FEdGraphUtilities::UnregisterVisualPinFactory(ComposableCameraGraphPanelPinFactory);
 }
 
 #undef LOCTEXT_NAMESPACE
-    
+ 
 IMPLEMENT_MODULE(FComposableCameraSystemUncookedOnlyModule, ComposableCameraSystemUncookedOnly)

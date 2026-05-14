@@ -11,8 +11,7 @@ UComposableCameraModifierFactory::UComposableCameraModifierFactory(const FObject
 	SupportedClass = UComposableCameraNodeModifierDataAsset::StaticClass();
 }
 
-UObject* UComposableCameraModifierFactory::FactoryCreateNew(
-	UClass* Class, UObject* Parent, FName Name, EObjectFlags Flags, UObject* Context, FFeedbackContext* Warn)
+UObject* UComposableCameraModifierFactory::FactoryCreateNew(UClass* Class, UObject* Parent, FName Name, EObjectFlags Flags, UObject* Context, FFeedbackContext* Warn)
 {
 	return NewObject<UComposableCameraNodeModifierDataAsset>(Parent, Class, Name, Flags | RF_Transactional);
 }

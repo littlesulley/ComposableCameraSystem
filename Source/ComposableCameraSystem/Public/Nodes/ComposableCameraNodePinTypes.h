@@ -44,7 +44,7 @@ enum class EComposableCameraPinType : uint8
 	 *  When this is selected, EnumType must be set. */
 	Enum,
 	/** Single-cast dynamic delegate (FScriptDelegate). NOT stored in the data
-	 *  block — delegates carry heap-owned state and cannot be memcpy'd. Instead
+	 *  block. Delegates carry heap-owned state and cannot be memcpy'd. Instead
 	 *  they are stored in a parallel map on FComposableCameraParameterBlock and
 	 *  applied at activation time via reflection (FDelegateProperty). Per-frame
 	 *  auto-resolve skips this type. When this is selected, SignatureFunction
@@ -111,7 +111,7 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraNodePinDeclaration
 	 *  graph node when a freshly-placed instance has no per-instance override.
 	 *  When false, new instances start out as Details-only (no graph wire, not
 	 *  exposable as a parameter); the user can still flip it on per-instance
-	 *  via the Details panel — same channel as toggling it off on a pin that
+	 *  via the Details panel. Same channel as toggling it off on a pin that
 	 *  defaulted to true. The per-instance toggle lives on
 	 *  FComposableCameraPinOverride::bAsPin and, when present, supersedes
 	 *  this default. Defaults to true so existing pin declarations keep their
@@ -132,7 +132,7 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraNodePinDeclaration
  * Per-asset authoring override for a single pin declared by a camera node class.
  *
  * Pin declarations come from C++ (GetPinDeclarations) and define the *shape* of a
- * node's interface — names, types, directions, required flags, C++-level default
+ * node's interface. Names, types, directions, required flags, C++-level default
  * values. But the authoring experience demands two things the class-level decl
  * can't express per-instance:
  *
@@ -150,7 +150,7 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraNodePinDeclaration
  * override use the C++ declaration's defaults for both fields (bAsPin =
  * Decl.bDefaultAsPin, DefaultValueString = the class-level default). Storing
  * overrides as a sparse array indexed by PinName means adding a new pin
- * declaration in C++ doesn't require any asset migration — the new pin
+ * declaration in C++ doesn't require any asset migration. The new pin
  * simply defaults to (Decl.bDefaultAsPin, class default).
  *
  * The source of truth lives on UComposableCameraTypeAsset::NodePinOverrides
@@ -170,7 +170,7 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraPinOverride
 	FName PinName;
 
 	/** Whether this pin is exposed as a wire on the graph node. When false, the
-	 *  pin is Details-only and does not appear on the graph — it cannot be
+	 *  pin is Details-only and does not appear on the graph. It cannot be
 	 *  wired, and it cannot be exposed as a camera parameter. The Details panel
 	 *  still shows the editable default value, which is used directly as the
 	 *  constant input at runtime.
@@ -201,7 +201,7 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraPinOverride
  * Per-node-template container for pin overrides, forming a parallel array to
  * UComposableCameraTypeAsset::NodeTemplates. Each entry holds the sparse list of
  * overrides for the corresponding node instance. A wrapper struct (rather than
- * TArray<TArray<…>>) is used because Unreal's reflection does not support
+ * TArray<TArray<->) is used because Unreal's reflection does not support
  * nested TArray properties directly.
  */
 USTRUCT()
@@ -281,7 +281,7 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraVariablePinConnection
 /**
  * Editor-only record describing a single internal-variable graph node instance.
  *
- * Multiple Get/Set nodes can exist for the same underlying variable — each is
+ * Multiple Get/Set nodes can exist for the same underlying variable. Each is
  * tracked here by its own FGuid so the editor can round-trip the graph layout
  * and the wires connecting it to camera nodes.
  */
@@ -316,7 +316,7 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraVariableNodeRecord
 	/** True when this variable node lives on the BeginPlay compute chain,
 	 *  false when it lives on the per-frame camera chain. Determines which
 	 *  index space Connections[i].CameraNodeIndex references:
-	 *  false → NodeTemplates, true → ComputeNodeTemplates.
+	 *  false->NodeTemplates, true->ComputeNodeTemplates.
 	 *
 	 *  Defaults to false for migration safety: records saved before this field
 	 *  existed deserialize as camera-chain, matching v1 behavior. */
@@ -397,7 +397,7 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraExecEntry
 	 *  this during SyncToTypeAsset by resolving VariableGuid against the type
 	 *  asset's variable arrays. The runtime uses this to index into
 	 *  FComposableCameraRuntimeDataBlock::InternalVariableOffsets without a
-	 *  GUID→Name lookup. Used when EntryType == SetVariable. */
+	 *  GUIDame lookup. Used when EntryType == SetVariable. */
 	UPROPERTY()
 	FName VariableName;
 
@@ -413,7 +413,7 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraExecEntry
 	 *  type-dispatch. Used when EntryType == SetVariable.
 	 *
 	 *  Sentinel value `StructSlotSentinel` (`TNumericLimits<int32>::Max()`)
-	 *  means "the variable is a non-POD struct — its slot lives in the
+	 *  means "the variable is a non-POD struct. Its slot lives in the
 	 *  RuntimeDataBlock's `StructSlots` pool, not the byte `Storage` pool, so
 	 *  the byte-size value does not apply". The runtime SetVariable handler
 	 *  passes this verbatim into `RuntimeDataBlock::CopySlot`, which dispatches
@@ -426,7 +426,7 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraExecEntry
 	int32 VariableSlotSize = 0;
 
 	/** Sentinel for `VariableSlotSize` indicating "this variable lives in
-	 *  RuntimeDataBlock::StructSlots" — see field doc above. */
+	 *  RuntimeDataBlock::StructSlots". See field doc above. */
 	static constexpr int32 StructSlotSentinel = TNumericLimits<int32>::Max();
 };
 
@@ -469,18 +469,18 @@ struct FComposableCameraPinKey
  *   - ApplyStringValue (string -> struct import path)
  *   - UComposableCameraTypeAsset::Build (authoring-time validation)
  *
- * Decision logic — strict whitelist, no reflection-layout heuristics:
- *   1. Engine math fast-path (FVector / FRotator / FTransform / etc.) → safe.
- *   2. `STRUCT_IsPlainOldData` flag set → safe (caller opted in via
+ * Decision logic. Strict whitelist, no reflection-layout heuristics:
+ *   1. Engine math fast-path (FVector / FRotator / FTransform / etc.) ->safe.
+ *   2. `STRUCT_IsPlainOldData` flag set->safe (caller opted in via
  *      `template<> struct TStructOpsTypeTraits<MyStruct> :
  *       TStructOpsTypeTraitsBase2<MyStruct> { enum { WithIsPlainOldData = true }; };`).
- *   3. Anything else → unsafe. Caller must route through `FInstancedStruct`
+ *   3. Anything else->unsafe. Caller must route through `FInstancedStruct`
  *      / the typed slot pool.
  *
  * Why this is strict by design: a UPROPERTY-walk-and-validate approach (the
  * previous implementation) cannot see non-UPROPERTY members. UE allows native
- * C++ members in a USTRUCT body — `FString`, `TArray`, `UObject*`, custom
- * dtors — that the reflection iterator skips entirely. Such members appearing
+ * C++ members in a USTRUCT body - `FString`, `TArray`, `UObject*`, custom
+ * dtors. That the reflection iterator skips entirely. Such members appearing
  * as hidden leading / interior members shift visible-member offsets so the
  * compiler-generated layout looks "consistent" through reflection eyes; even
  * a trailing-padding sanity check fails to catch them when the hidden
@@ -497,7 +497,7 @@ struct FComposableCameraPinKey
  * The previous walk reported `A` at offset 0 (size 4); trailing-padding
  * sanity check passes if the struct's natural alignment (8 from FString)
  * absorbs the FString into the padded end. Function returned true. Downstream
- * memcpy'd FString bytes — shallow copy + dtor leak + GC blindness.
+ * memcpy'd FString bytes. Shallow copy + dtor leak + GC blindness.
  *
  * The strict whitelist removes the entire failure surface: any user-defined
  * USTRUCT that wants bytewise transport must explicitly opt into
@@ -506,7 +506,7 @@ struct FComposableCameraPinKey
  * routes through `FInstancedStruct`, which uses `CopyScriptStruct` (per-
  * property `operator=` via FProperty graph) and is correct for any USTRUCT
  * regardless of hidden members. The cost is one extra heap allocation per
- * non-POD slot at activation + slightly slower per-frame copy — both
+ * non-POD slot at activation + slightly slower per-frame copy. Both
  * negligible for typical camera pin counts and dwarfed by the cost of
  * silently-corrupt memcpy crashes the strict path prevents.
  */
@@ -534,8 +534,7 @@ inline bool IsBytewiseSafeStruct(const UScriptStruct* Struct)
 	}
 	// Strict opt-in. Any user-defined USTRUCT that wants bytewise transport
 	// must explicitly set WithIsPlainOldData=true in its TStructOpsTypeTraits
-	// specialization. Reflection-based heuristics deliberately removed —
-	// non-UPROPERTY members are invisible to the walk and the previous
+	// specialization. Reflection-based heuristics deliberately removed -	// non-UPROPERTY members are invisible to the walk and the previous
 	// trailing-padding sanity check could not catch hidden interior or
 	// leading members. FInstancedStruct handles every other USTRUCT
 	// correctly via CopyScriptStruct.
@@ -569,7 +568,7 @@ inline bool TryMapPropertyToPinType(const FProperty* Property, EComposableCamera
 	if (Property->IsA<FDoubleProperty>())      { OutPinType = EComposableCameraPinType::Double;    return true; }
 	if (Property->IsA<FNameProperty>())        { OutPinType = EComposableCameraPinType::Name;      return true; }
 
-	// C++ `enum class` properties — reflected as FEnumProperty wrapping a numeric
+	// C++ `enum class` properties. Reflected as FEnumProperty wrapping a numeric
 	// underlying property. The enum object tells us the display names + value set;
 	// the underlying property tells us the actual storage width (uint8 / int32 /
 	// int64). We normalize to int64 in the data block and narrow-cast on write.
@@ -580,7 +579,7 @@ inline bool TryMapPropertyToPinType(const FProperty* Property, EComposableCamera
 		return OutEnumType != nullptr;
 	}
 
-	// Legacy `UENUM() TEnumAsByte<E>`-style properties — reflected as FByteProperty
+	// Legacy `UENUM() TEnumAsByte<E>`-style properties. Reflected as FByteProperty
 	// with an attached UEnum*. Plain FByteProperty without an enum is rejected (we
 	// don't expose raw byte pins).
 	if (const FByteProperty* ByteProp = CastField<FByteProperty>(Property))
@@ -645,7 +644,7 @@ inline bool TryMapPropertyToPinType(const FProperty* Property, EComposableCamera
 	}
 
 	// Single-cast dynamic delegates (DECLARE_DYNAMIC_DELEGATE*). Only accepted when
-	// the caller opts in by passing OutSignatureFunction — auto-discovery paths
+	// the caller opts in by passing OutSignatureFunction. Auto-discovery paths
 	// (subobject pins, per-frame auto-resolve) default to nullptr, causing delegates
 	// to be silently skipped. This is intentional: delegates are bound once at
 	// activation, not per-frame, and subobject delegates are an unusual pattern
@@ -666,7 +665,7 @@ inline bool TryMapPropertyToPinType(const FProperty* Property, EComposableCamera
 
 /**
  * Returns the size in bytes of a given pin type.
- * For Struct types, returns 0 — caller must query StructType->GetStructureSize().
+ * For Struct types, returns 0. Caller must query StructType->GetStructureSize().
  */
 inline int32 GetPinTypeSize(EComposableCameraPinType PinType, UScriptStruct* StructType = nullptr)
 {

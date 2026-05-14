@@ -33,7 +33,7 @@ TSharedPtr<SGraphPin> FComposableCameraNodeGraphPinFactory::CreatePin(UEdGraphPi
 	// asset and checks for a matching TargetNodeIndex + TargetPinName. Because
 	// ReconstructPins drops and recreates every SGraphPin widget on the node
 	// when exposure state changes, the factory is guaranteed to re-dispatch
-	// with a fresh answer each time a user toggles Expose/Unexpose — there's
+	// with a fresh answer each time a user toggles Expose/Unexpose - there's
 	// no need to cache the result or listen for exposure-change broadcasts.
 	if (CameraGraphNode->IsInputPinExposed(InPin->PinName))
 	{

@@ -74,14 +74,12 @@ struct FComposableCameraRayDefinition
 			else
 			{
 				if (W2 <= 0.f)                       //   <---------x (O1)
-				{                                    //                  (O2) x-------->
-					Result.FirstPoint = O1;
+				{                                    //                  (O2) x-------->Result.FirstPoint = O1;
 					Result.SecondPoint = O2;
 					Result.Distance = FVector::Dist(Result.FirstPoint, Result.SecondPoint);
 				}
 				else                                //  <---------x (O1)
-				{                                   //    (O2) x-------->
-					Result.FirstPoint = O1 + (-W1 / 2.) * D1;
+				{                                   //    (O2) x-------->Result.FirstPoint = O1 + (-W1 / 2.) * D1;
 					Result.SecondPoint = O2 + (W2 / 2.) * D2;
 					Result.Distance = FVector::Dist(Result.FirstPoint, Result.SecondPoint);
 				}
@@ -172,13 +170,13 @@ public:
 	virtual FComposableCameraPose OnEvaluate_Implementation(float DeltaTime, const FComposableCameraPose& CurrentSourcePose, const FComposableCameraPose& CurrentTargetPose) override;
 
 	// Cylindrical uses SmootherStep on its timing axis (the arc path
-	// blend) — the spatial curve is separate (see DrawTransitionDebug).
+	// blend). The spatial curve is separate (see DrawTransitionDebug).
 	virtual float GetBlendWeightAt(float NormalizedTime) const override;
 
 #if !UE_BUILD_SHIPPING
 	// Gated on `CCS.Debug.Viewport.Transitions.Cylindrical`. Standard
 	// source/target/progress markers in aqua accent. The curved path is
-	// not explicitly polylined — users can read the curvature off the
+	// not explicitly polylined. Users can read the curvature off the
 	// progress sphere's deviation from the white lerp baseline.
 	virtual void DrawTransitionDebug(UWorld* World, bool bViewerIsOutsideCamera) const override;
 #endif

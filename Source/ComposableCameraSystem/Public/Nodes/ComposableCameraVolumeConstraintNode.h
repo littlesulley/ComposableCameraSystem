@@ -13,11 +13,11 @@ class UComposableCameraInterpolatorBase;
 /**
  * How the constraint volume is sourced.
  *
- * FromActor — Pull the shape from the first `UShapeComponent` on VolumeActor.
+ * FromActor -Pull the shape from the first `UShapeComponent` on VolumeActor.
  *             UBoxComponent and USphereComponent are supported; the component's
  *             world transform + scaled extents drive the volume. Capsule and
  *             other shape subclasses are rejected with a warning.
- * Inline    — The node carries its own world-space volume definition via
+ * Inline    -The node carries its own world-space volume definition via
  *             VolumeCenter / VolumeRotation / BoxExtents / SphereRadius.
  */
 UENUM()
@@ -44,7 +44,7 @@ enum class EComposableCameraVolumeShape : uint8
  * nearest point on the volume's boundary. When it is inside, the node is a
  * no-op and passes the pose through untouched.
  *
- * Single volume only (MVP) — multiple-volume setups with priority / blend
+ * Single volume only (MVP). Multiple-volume setups with priority / blend
  * radius (PostProcessVolume-style) are not supported; swap cameras via
  * transitions to change the active volume. Only the "keep inside" semantic
  * is implemented; "keep outside" (forbidden region) is not.
@@ -53,14 +53,14 @@ enum class EComposableCameraVolumeShape : uint8
  * adds per-axis temporal smoothing so three discontinuity modes stop reading
  * as visible snaps:
  *
- *   1. **Release snap** — upstream crosses from outside to inside in one
+ *   1. **Release snap**. Upstream crosses from outside to inside in one
  *      frame. Without smoothing the output jumps from the boundary point
  *      back to the freely-moving upstream position.
- *   2. **Corner face switch** — upstream orbits past a corner where the
- *      nearest-point face flips (e.g. +X face → corner → +Y face). Position
+ *   2. **Corner face switch**. Upstream orbits past a corner where the
+ *      nearest-point face flips (e.g. +X face->corner ->+Y face). Position
  *      is still Lipschitz continuous but the tangent direction can change
  *      abruptly, reading as a crease.
- *   3. **Teleport / warp** — any scripted camera jump across the boundary.
+ *   3. **Teleport / warp**. Any scripted camera jump across the boundary.
  *
  * When ClampInterpolator is null, the node is fully stateless and the pose
  * is deterministic given the upstream input. When it is set, per-axis
@@ -102,7 +102,7 @@ public:
 #endif
 
 public:
-	// ─── Volume source ────────────────────────────────────────────────────
+	// --- Volume source ----------------------------------------------------
 
 	/** Where the volume geometry comes from. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters)
@@ -110,7 +110,7 @@ public:
 
 	/** Actor with a `UShapeComponent` (UBoxComponent / USphereComponent) whose
 	 *  transform and scaled extents define the volume. The first shape
-	 *  component found via `GetComponents<UShapeComponent>` wins — multiple
+	 *  component found via `GetComponents<UShapeComponent>` wins. Multiple
 	 *  shape components on one actor are not supported; use Inline mode or
 	 *  a dedicated actor with a single shape when precise control is needed. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters, meta = (EditCondition = "VolumeSource == EComposableCameraVolumeSource::FromActor", EditConditionHides))
@@ -125,8 +125,7 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters, meta = (EditCondition = "VolumeSource == EComposableCameraVolumeSource::Inline", EditConditionHides))
 	FVector VolumeCenter { FVector::ZeroVector };
 
-	/** Inline-mode volume rotation (world space). Only affects the Box shape —
-	 *  an OBB is the difference from an AABB. Ignored for Sphere. */
+	/** Inline-mode volume rotation (world space). Only affects the Box shape - an OBB is the difference from an AABB. Ignored for Sphere. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters, meta = (EditCondition = "VolumeSource == EComposableCameraVolumeSource::Inline && Shape == EComposableCameraVolumeShape::Box", EditConditionHides))
 	FRotator VolumeRotation { FRotator::ZeroRotator };
 
@@ -138,7 +137,7 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters, meta = (EditCondition = "VolumeSource == EComposableCameraVolumeSource::Inline && Shape == EComposableCameraVolumeShape::Sphere", EditConditionHides, ClampMin = "0.0"))
 	float SphereRadius { 500.f };
 
-	// ─── Smoothing ────────────────────────────────────────────────────────
+	// --- Smoothing --------------------------------------------------------
 
 	/** Optional interpolator applied per axis to the output position. When
 	 *  set, the node keeps a private `LastSmoothedPosition` and each tick
@@ -148,7 +147,7 @@ public:
 	 *  stateless and the output is a hard projection / pass-through.
 	 *
 	 *  Picks the same UInterpolatorBase instanced subobject pattern that
-	 *  CollisionPush / PivotDamping use — users choose between SpringDamper,
+	 *  CollisionPush / PivotDamping use. Users choose between SpringDamper,
 	 *  IIR, SimpleSpring, etc. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Instanced, Category = InputParameters)
 	TObjectPtr<UComposableCameraInterpolatorBase> ClampInterpolator;
@@ -179,7 +178,7 @@ private:
 
 	/** Per-axis 1D interpolator instances built from ClampInterpolator in
 	 *  OnInitialize. Three independent filter states let the X/Y/Z smoothing
-	 *  dynamics stay decoupled — a spring overshoot on X shouldn't bleed
+	 *  dynamics stay decoupled. A spring overshoot on X shouldn't bleed
 	 *  into Y / Z. */
 	TUniquePtr<TCameraInterpolator<TValueTypeWrapper<double>>> ClampInterpolatorX_T;
 	TUniquePtr<TCameraInterpolator<TValueTypeWrapper<double>>> ClampInterpolatorY_T;
@@ -195,7 +194,7 @@ private:
 	bool bHasSeededSmoothing { false };
 
 #if !UE_BUILD_SHIPPING
-	// ─── Debug mirrors (populated by OnTickNode, consumed by DrawNodeDebug) ───
+	// --- Debug mirrors (populated by OnTickNode, consumed by DrawNodeDebug) ---
 
 	mutable FResolvedVolume DebugResolvedVolume;
 	mutable bool DebugHasResolvedVolume { false };

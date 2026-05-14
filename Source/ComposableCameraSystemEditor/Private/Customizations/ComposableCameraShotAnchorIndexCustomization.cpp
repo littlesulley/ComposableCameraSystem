@@ -23,16 +23,14 @@ TSharedRef<IPropertyTypeCustomization> FShotAnchorIndexCustomization::MakeInstan
 
 void FShotAnchorIndexCustomization::Register(FPropertyEditorModule& PropertyEditorModule)
 {
-	// Same factory registered for both struct types — the customization
+	// Same factory registered for both struct types - the customization
 	// detects which is in play via `StructPropertyHandle->GetProperty()` at
 	// render time. AnchorTargetWeight gets a no-gate visibility (always
 	// shown), AnchorSpec gates on `Mode == SingleTarget`.
-	PropertyEditorModule.RegisterCustomPropertyTypeLayout(
-		FComposableCameraAnchorSpec::StaticStruct()->GetFName(),
+	PropertyEditorModule.RegisterCustomPropertyTypeLayout(FComposableCameraAnchorSpec::StaticStruct()->GetFName(),
 		FOnGetPropertyTypeCustomizationInstance::CreateStatic(
 			&FShotAnchorIndexCustomization::MakeInstance));
-	PropertyEditorModule.RegisterCustomPropertyTypeLayout(
-		FComposableCameraAnchorTargetWeight::StaticStruct()->GetFName(),
+	PropertyEditorModule.RegisterCustomPropertyTypeLayout(FComposableCameraAnchorTargetWeight::StaticStruct()->GetFName(),
 		FOnGetPropertyTypeCustomizationInstance::CreateStatic(
 			&FShotAnchorIndexCustomization::MakeInstance));
 }
@@ -41,38 +39,31 @@ void FShotAnchorIndexCustomization::Unregister(FPropertyEditorModule& PropertyEd
 {
 	if (UObjectInitialized())
 	{
-		PropertyEditorModule.UnregisterCustomPropertyTypeLayout(
-			FComposableCameraAnchorSpec::StaticStruct()->GetFName());
-		PropertyEditorModule.UnregisterCustomPropertyTypeLayout(
-			FComposableCameraAnchorTargetWeight::StaticStruct()->GetFName());
+		PropertyEditorModule.UnregisterCustomPropertyTypeLayout(FComposableCameraAnchorSpec::StaticStruct()->GetFName());
+		PropertyEditorModule.UnregisterCustomPropertyTypeLayout(FComposableCameraAnchorTargetWeight::StaticStruct()->GetFName());
 	}
 }
 
-void FShotAnchorIndexCustomization::CustomizeHeader(
-	TSharedRef<IPropertyHandle> StructPropertyHandle,
+void FShotAnchorIndexCustomization::CustomizeHeader(TSharedRef<IPropertyHandle> StructPropertyHandle,
 	FDetailWidgetRow& HeaderRow,
 	IPropertyTypeCustomizationUtils& /*StructCustomizationUtils*/)
 {
 	StructHandle = StructPropertyHandle;
 
-	// Default-shape header — engine renders the struct name + expand caret.
-	HeaderRow
-		.NameContent()
-		[
-			StructPropertyHandle->CreatePropertyNameWidget()
-		];
+	// Default-shape header - engine renders the struct name + expand caret.
+	HeaderRow.NameContent()
+		[StructPropertyHandle->CreatePropertyNameWidget()];
 }
 
-void FShotAnchorIndexCustomization::CustomizeChildren(
-	TSharedRef<IPropertyHandle> StructPropertyHandle,
+void FShotAnchorIndexCustomization::CustomizeChildren(TSharedRef<IPropertyHandle> StructPropertyHandle,
 	IDetailChildrenBuilder& StructBuilder,
 	IPropertyTypeCustomizationUtils& /*StructCustomizationUtils*/)
 {
-	// Identify which struct we're customizing — the visibility gate differs.
+	// Identify which struct we're customizing - the visibility gate differs.
 	// AnchorSpec gates on Mode == SingleTarget; AnchorTargetWeight is always
 	// editable when its array entry exists. Use the property's struct type
 	// to dispatch (rather than checking the field's owning struct via
-	// reflection) — the property *is* the struct we customize.
+	// reflection) - the property *is* the struct we customize.
 	const FStructProperty* AsStructProp = CastField<FStructProperty>(StructPropertyHandle->GetProperty());
 	const bool bIsAnchorSpec = AsStructProp
 		&& AsStructProp->Struct == FComposableCameraAnchorSpec::StaticStruct();
@@ -89,7 +80,7 @@ void FShotAnchorIndexCustomization::CustomizeChildren(
 		}
 
 		// Both struct types use the property name "TargetIndex" for the
-		// integer slot — different `GET_MEMBER_NAME_CHECKED` macros would
+		// integer slot - different `GET_MEMBER_NAME_CHECKED` macros would
 		// resolve to the same FName, but checking via raw name avoids
 		// duplicating the handler.
 		const FName PropName = ChildHandle->GetProperty()->GetFName();
@@ -110,8 +101,7 @@ void FShotAnchorIndexCustomization::CustomizeChildren(
 					{
 						return EVisibility::Collapsed;
 					}
-					TSharedPtr<IPropertyHandle> ModeHnd = Pin->GetChildHandle(
-						GET_MEMBER_NAME_CHECKED(FComposableCameraAnchorSpec, Mode));
+					TSharedPtr<IPropertyHandle> ModeHnd = Pin->GetChildHandle(GET_MEMBER_NAME_CHECKED(FComposableCameraAnchorSpec, Mode));
 					if (!ModeHnd.IsValid())
 					{
 						return EVisibility::Collapsed;
@@ -122,22 +112,17 @@ void FShotAnchorIndexCustomization::CustomizeChildren(
 						return EVisibility::Collapsed;
 					}
 					return ModeVal == static_cast<uint8>(EShotAnchorMode::SingleTarget)
-						? EVisibility::Visible
-						: EVisibility::Collapsed;
+						? EVisibility::Visible: EVisibility::Collapsed;
 				})
 				: TAttribute<EVisibility>(EVisibility::Visible);
 
 			StructBuilder.AddCustomRow(ChildHandle->GetPropertyDisplayName())
 				.Visibility(VisAttr)
 				.NameContent()
-				[
-					ChildHandle->CreatePropertyNameWidget()
-				]
+				[ChildHandle->CreatePropertyNameWidget()]
 				.ValueContent()
 				.MinDesiredWidth(220.f)
-				[
-					FShotTargetIndexCombo::Build(ChildHandle.ToSharedRef())
-				];
+				[FShotTargetIndexCombo::Build(ChildHandle.ToSharedRef())];
 		}
 		else
 		{

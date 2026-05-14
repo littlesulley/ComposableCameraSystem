@@ -1,4 +1,4 @@
-// Copyright Sulley. All rights reserved.
+﻿// Copyright Sulley. All rights reserved.
 
 #pragma once
 
@@ -18,9 +18,9 @@ class COMPOSABLECAMERASYSTEM_API UComposableCameraSmoothTransition
 public:
 	virtual FComposableCameraPose OnEvaluate_Implementation(float DeltaTime, const FComposableCameraPose& CurrentSourcePose, const FComposableCameraPose& CurrentTargetPose) override;
 
-	// SmoothStep (3t² - 2t³) or SmootherStep (6t⁵ - 15t⁴ + 10t³),
+	// SmoothStep (3t - 2t) or SmootherStep (6t?- 15t?+ 10t),
 	// selected by `bSmootherStep`. Matches the curve OnEvaluate applies
-	// to BlendWeight every frame — the debug panel renders this exact
+	// to BlendWeight every frame. The debug panel renders this exact
 	// shape as a sparkline so the user can compare smooth vs smoother
 	// visually before tweaking the flag.
 	virtual float GetBlendWeightAt(float NormalizedTime) const override;

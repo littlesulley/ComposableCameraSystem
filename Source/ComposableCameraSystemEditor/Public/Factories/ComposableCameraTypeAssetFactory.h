@@ -10,7 +10,7 @@
  * Factory for creating UComposableCameraTypeAsset instances from the Content Browser.
  */
 UCLASS(ClassGroup = ComposableCameraSystem)
-class COMPOSABLECAMERASYSTEMEDITOR_API UComposableCameraTypeAssetFactory : public UFactory
+class COMPOSABLECAMERASYSTEMEDITOR_API UComposableCameraTypeAssetFactory: public UFactory
 {
 	GENERATED_BODY()
 

@@ -16,7 +16,7 @@ UEdGraphPin* UComposableCameraGraphNodeBase::CreateExecInPin()
 	UEdGraphPin* ExecInPin = CreatePin(EGPD_Input, ExecType, PN_ExecIn);
 	if (ExecInPin)
 	{
-		// Empty friendly label — the exec pin shows just the arrow glyph,
+		// Empty friendly label - the exec pin shows just the arrow glyph,
 		// matching Blueprint exec pin presentation.
 		ExecInPin->PinFriendlyName = LOCTEXT("ExecInName", "");
 	}
@@ -58,13 +58,12 @@ FText UComposableCameraGraphNodeBase::GetCameraNodeDisplayNameForClass(const UCl
 	// chosen name) rather than the generated "_C" class identifier.
 	if (NodeClass->ClassGeneratedBy)
 	{
-		return FText::FromString(
-			FName::NameToDisplayString(NodeClass->ClassGeneratedBy->GetName(), /*bIsBool=*/ false));
+		return FText::FromString(FName::NameToDisplayString(NodeClass->ClassGeneratedBy->GetName(), /*bIsBool=*/ false));
 	}
 
 	// Legacy munging fallback: strip the "ComposableCamera" prefix and the
 	// trailing "Node" suffix, then insert a space before each upper-case
-	// letter that follows a lower-case one (camel-case → "Camel Case").
+	// letter that follows a lower-case one (camel-case -> "Camel Case").
 	FString ClassName = NodeClass->GetName();
 	ClassName.RemoveFromStart(TEXT("ComposableCamera"));
 	ClassName.RemoveFromEnd(TEXT("Node"));

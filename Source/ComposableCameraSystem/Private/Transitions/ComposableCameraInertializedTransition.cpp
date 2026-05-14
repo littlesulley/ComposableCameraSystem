@@ -1,4 +1,4 @@
-// Copyright Sulley. All rights reserved.
+﻿// Copyright Sulley. All rights reserved.
 
 #include "Transitions/ComposableCameraInertializedTransition.h"
 
@@ -19,7 +19,7 @@ namespace
 		TEXT("Show InertializedTransition gizmo:\n")
 		TEXT("  - Standard source/target/progress triplet in hot-pink accent.\n")
 		TEXT("  - The polynomial path sampled as a 32-segment polyline. Usually\n")
-		TEXT("    overshoots the straight source-to-target line — that overshoot\n")
+		TEXT("    overshoots the straight source-to-target line. That overshoot\n")
 		TEXT("    IS the signature of inertialization.\n")
 		TEXT("Requires `CCS.Debug.Viewport 1`. Gizmo disappears when the transition finishes."),
 		ECVF_Default);
@@ -54,7 +54,7 @@ void UComposableCameraInertializedTransition::OnBeginPlay_Implementation(float D
 	// means passing a zero Target recovers the pure polynomial offset; adding
 	// the live target position at draw time reproduces the real camera path.
 	// Sampling now (once) keeps the draw path O(NumSamples) line writes per
-	// frame with zero math — critical because the hot-path gizmo walker
+	// frame with zero math. Critical because the hot-path gizmo walker
 	// visits every active transition every tick.
 	DebugPathOffsets.Reset();
 	DebugPathOffsets.Reserve(InertializedDebugSampleCount + 1);
@@ -66,7 +66,7 @@ void UComposableCameraInertializedTransition::OnBeginPlay_Implementation(float D
 		// path for the no-curve branch. For the curve-driven branch the
 		// exact path is only defined at evaluation time (depends on target
 		// at that tick), so we deliberately show the non-additive baseline
-		// curve — users who care about the additive shape read the debug
+		// curve. Users who care about the additive shape read the debug
 		// panel instead.
 		DebugPathOffsets.Add(PositionalInertializer.Evaluate(BlendDuration, FVector::ZeroVector));
 	}
@@ -82,7 +82,7 @@ FComposableCameraPose UComposableCameraInertializedTransition::OnEvaluate_Implem
 	Percentage = BlendPct;
 
 	// Blend ALL pose fields (FOV, physical camera, projection, etc.) using the shared BlendBy rule.
-	// Position/Rotation are then overwritten below with the inertialized values — this transition's
+	// Position/Rotation are then overwritten below with the inertialized values. This transition's
 	// whole point is that transform blending is governed by velocity/acceleration, not linear lerp.
 	FComposableCameraPose OutPose = CurrentSourcePose;
 	OutPose.BlendBy(CurrentTargetPose, BlendPct);
@@ -148,7 +148,7 @@ void UComposableCameraInertializedTransition::DrawTransitionDebug(UWorld* World,
 	if (CVarShowInertializedTransitionGizmo.GetValueOnGameThread() == 0
 		&& !FComposableCameraViewportDebug::ShouldShowAllTransitionGizmos()) { return; }
 
-	// Hot pink — strongly distinct accent because inertialization's overshoot
+	// Hot pink. Strongly distinct accent because inertialization's overshoot
 	// is the most visually interesting thing the debug draw reveals.
 	static const FColor AccentColor { 255, 100, 200 };
 
@@ -164,8 +164,7 @@ void UComposableCameraInertializedTransition::DrawTransitionDebug(UWorld* World,
 
 	// Reconstitute the world-space path by adding this frame's target
 	// position to every cached offset. A moving target during the blend
-	// (live camera actor) still produces a visually consistent path —
-	// offsets are target-relative by construction.
+	// (live camera actor) still produces a visually consistent path -	// offsets are target-relative by construction.
 	const FVector TgtPos = LastDebugTarget.Position;
 	FVector PrevPoint = DebugPathOffsets[0] + TgtPos;
 	for (int32 i = 1; i < DebugPathOffsets.Num(); ++i)

@@ -57,8 +57,7 @@ namespace UE::ComposableCameras
 		// execution chain. Nodes not in this set are orphaned in the graph (no
 		// exec-pin connection) and are skipped during duplication to save memory
 		// and initialization cost. We still push nullptr at their index so that
-		// CameraNodes[i] keeps its 1:1 correspondence with NodeTemplates[i] —
-		// the RuntimeDataBlock pin-key offsets and FullExecChain indices depend
+		// CameraNodes[i] keeps its 1:1 correspondence with NodeTemplates[i] -		// the RuntimeDataBlock pin-key offsets and FullExecChain indices depend
 		// on that mapping.
 		TSet<int32> ConnectedNodeIndices;
 		if (TypeAsset->FullExecChain.Num() > 0)
@@ -80,7 +79,7 @@ namespace UE::ComposableCameras
 			}
 		}
 		// If both are empty (should not happen for type-asset cameras), we
-		// duplicate everything — ConnectedNodeIndices stays empty and the
+		// duplicate everything -ConnectedNodeIndices stays empty and the
 		// bHasExecChain flag below gates the skip logic off.
 		const bool bHasExecChain = ConnectedNodeIndices.Num() > 0;
 
@@ -119,7 +118,7 @@ namespace UE::ComposableCameras
 		// Duplicate compute node templates from the type asset.
 		//
 		// Compute nodes live in their own index space from the data block's point
-		// of view — the runtime NodeIndex used for SetRuntimeDataBlock is
+		// of view. The runtime NodeIndex used for SetRuntimeDataBlock is
 		// (NodeTemplates.Num() + ComputeIdx), matching the layout allocated by
 		// BuildRuntimeDataLayout. That keeps output pin keys (and per-instance
 		// default override keys) unique across chains without the pin key struct
@@ -185,13 +184,13 @@ namespace UE::ComposableCameras
 		TypeAsset->ApplyParameterBlock(*Camera->OwnedRuntimeDataBlock, ParameterBlock);
 
 		// Apply delegate bindings from the parameter block. Delegates are not POD
-		// and cannot live in the data block's byte array — they are stored in a
+		// and cannot live in the data block's byte array. They are stored in a
 		// parallel map on the parameter block and written directly into the target
 		// node's FDelegateProperty UPROPERTY via reflection.
 		TypeAsset->ApplyDelegateBindings(Camera, ParameterBlock);
 
 		// Wire the data block to each node instance.
-		// Nodes hold raw pointers — they never outlive the camera that owns the block.
+		// Nodes hold raw pointers. They never outlive the camera that owns the block.
 		FComposableCameraRuntimeDataBlock* DataBlock = Camera->OwnedRuntimeDataBlock.Get();
 		for (int32 i = 0; i < Camera->CameraNodes.Num(); ++i)
 		{
@@ -204,7 +203,7 @@ namespace UE::ComposableCameras
 		// Wire compute nodes to the same data block, using the offset index space
 		// (NodeTemplates.Num() + ComputeIdx). The base index must come from the
 		// TypeAsset's author-order array count rather than Camera->CameraNodes.Num()
-		// in case the camera-node duplication loop skipped a null template — the
+		// in case the camera-node duplication loop skipped a null template. The
 		// data block layout uses TypeAsset->NodeTemplates.Num() as its base, so we
 		// match that exactly here.
 		const int32 ComputeNodeIndexBase = TypeAsset->NodeTemplates.Num();
@@ -228,7 +227,7 @@ namespace UE::ComposableCameras
 		// ComputeFullExecChain is empty (legacy assets saved before the field
 		// existed). When ComputeFullExecChain is present, the exec chain itself
 		// drives execution order and its CameraNodeIndex entries reference
-		// ComputeNodeTemplates author-order indices — reordering the array
+		// ComputeNodeTemplates author-order indices. Reordering the array
 		// would break that correspondence.
 		if (Camera->ComputeFullExecChain.Num() == 0
 			&& TypeAsset->ComputeExecutionOrder.Num() > 0
@@ -261,7 +260,7 @@ namespace UE::ComposableCameras
 		// Camera->Initialize earlier in the flow, but at that point CameraNodes was
 		// empty (the base class spawned via SpawnActorDeferred has no default nodes),
 		// so the per-node init loop was a no-op. Without this second call, every
-		// type-asset node silently skipped Node::Initialize — meaning OwningCamera /
+		// type-asset node silently skipped Node::Initialize. Meaning OwningCamera /
 		// OwningPlayerCameraManager, the OnInitialize BP event, OnPreTick/OnPostTick
 		// delegate wiring all never ran for type-asset cameras. Exposed parameters
 		// still flowed through the data block and hid the bug in most cases.

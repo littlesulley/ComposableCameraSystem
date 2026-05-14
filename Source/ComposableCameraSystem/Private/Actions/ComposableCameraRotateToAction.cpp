@@ -1,4 +1,4 @@
-﻿// Copyright Sulley. All rights reserved.
+// Copyright Sulley. All rights reserved.
 
 #include "Actions/ComposableCameraRotateToAction.h"
 
@@ -17,7 +17,7 @@ UComposableCameraRotateToAction::UComposableCameraRotateToAction(const FObjectIn
 
 UEnhancedInputLocalPlayerSubsystem* UComposableCameraRotateToAction::ResolveInputSubsystem()
 {
-	// Per-link null-check on PCM → OwningPC → LocalPlayer. PIE stop /
+	// Per-link null-check on PCM -> OwningPC -> LocalPlayer. PIE stop /
 	// controller swap / streaming teardown can null any of these between
 	// frames; chained `->` was a crash risk.
 	if (!IsValid(PlayerCameraManager))
@@ -68,7 +68,7 @@ bool UComposableCameraRotateToAction::CanExecute_Implementation(float DeltaTime,
 	bool bHasUserInput { false };
 	bool bCompleteRotate { false };
 
-	// Always go through the chain — see ResetPitchAction for the
+	// Always go through the chain - see ResetPitchAction for the
 	// controller-swap-without-destruction rationale.
 	UEnhancedInputLocalPlayerSubsystem* Subsystem = ResolveInputSubsystem();
 

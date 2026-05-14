@@ -17,14 +17,14 @@
 #define LOCTEXT_NAMESPACE "ComposableCameraNodeGraph"
 
 // =============================================================================
-//  Pin context-menu signalling
+// Pin context-menu signalling
 // =============================================================================
 //
 // The Mark/Consume pair encapsulates a single-shot signal from the schema's
 // GetContextMenuActions to the toolkit's deferred selection handler. See the
 // field comment on bPinContextMenuRequested for the ordering problem this
 // works around. Keeping both sides behind methods means neither the schema
-// nor the toolkit touches the field directly — the field's entire lifecycle
+// nor the toolkit touches the field directly - the field's entire lifecycle
 // lives in these two lines.
 
 void UComposableCameraNodeGraph::MarkPinContextMenuRequested()
@@ -39,8 +39,7 @@ bool UComposableCameraNodeGraph::ConsumePinContextMenuRequested()
 	return bWasRequested;
 }
 
-void UComposableCameraNodeGraph::BuildVariableLookup(
-	TMap<FGuid, FVariableLookupInfo>& OutLookup) const
+void UComposableCameraNodeGraph::BuildVariableLookup(TMap<FGuid, FVariableLookupInfo>& OutLookup) const
 {
 	OutLookup.Reset();
 	if (!OwningTypeAsset)
@@ -48,13 +47,12 @@ void UComposableCameraNodeGraph::BuildVariableLookup(
 		return;
 	}
 
-	OutLookup.Reserve(
-		OwningTypeAsset->InternalVariables.Num() +
+	OutLookup.Reserve(OwningTypeAsset->InternalVariables.Num() +
 		OwningTypeAsset->ExposedVariables.Num());
 
 	auto AddArray = [&OutLookup](const TArray<FComposableCameraInternalVariable>& Array)
 	{
-		for (const FComposableCameraInternalVariable& Var : Array)
+		for (const FComposableCameraInternalVariable& Var: Array)
 		{
 			if (!Var.VariableGuid.IsValid())
 			{
@@ -72,10 +70,10 @@ void UComposableCameraNodeGraph::BuildVariableLookup(
 	};
 
 	// Internal first so a GUID collision (shouldn't happen, but defensive)
-	// resolves to the Internal record — matching the original lambda's
+	// resolves to the Internal record - matching the original lambda's
 	// "InternalVariables before ExposedVariables" search order.
 	AddArray(OwningTypeAsset->InternalVariables);
-	for (const FComposableCameraInternalVariable& Var : OwningTypeAsset->ExposedVariables)
+	for (const FComposableCameraInternalVariable& Var: OwningTypeAsset->ExposedVariables)
 	{
 		if (!Var.VariableGuid.IsValid() || OutLookup.Contains(Var.VariableGuid))
 		{
@@ -89,7 +87,7 @@ void UComposableCameraNodeGraph::BuildVariableLookup(
 }
 
 // =============================================================================
-//  Details-rebuild coalescing scope
+// Details-rebuild coalescing scope
 // =============================================================================
 //
 // See the struct's header comment for the motivation and call-site pattern.
@@ -97,8 +95,7 @@ void UComposableCameraNodeGraph::BuildVariableLookup(
 // exit, and run one coalesced SyncToTypeAsset if the toolkit's OnGraphChanged
 // recorded a pending request while the outermost scope was active.
 
-FComposableCameraDetailsRebuildScope::FComposableCameraDetailsRebuildScope(
-	UComposableCameraNodeGraph* InGraph)
+FComposableCameraDetailsRebuildScope::FComposableCameraDetailsRebuildScope(UComposableCameraNodeGraph* InGraph)
 	: Graph(InGraph)
 {
 	if (UComposableCameraNodeGraph* G = Graph.Get())
@@ -117,7 +114,7 @@ FComposableCameraDetailsRebuildScope::~FComposableCameraDetailsRebuildScope()
 
 	// Guard against underflow even though construction always increments.
 	// A graph being garbage-collected between ctor and dtor would have made
-	// Graph.Get() return null above, not produced a dangling pointer — so the
+	// Graph.Get() return null above, not produced a dangling pointer - so the
 	// only way to reach here with depth <= 0 is a misuse of the struct.
 	if (G->DetailsRebuildScopeDepth > 0)
 	{
@@ -139,7 +136,7 @@ FComposableCameraDetailsRebuildScope::~FComposableCameraDetailsRebuildScope()
 }
 
 // =============================================================================
-//  Orchestrators
+// Orchestrators
 // =============================================================================
 
 void UComposableCameraNodeGraph::RebuildFromTypeAsset()
@@ -150,7 +147,7 @@ void UComposableCameraNodeGraph::RebuildFromTypeAsset()
 	}
 
 	// Guard against re-entrant SyncToTypeAsset. Step 1 below calls RemoveNode,
-	// which fires NotifyGraphChanged → the toolkit's OnGraphChanged →
+	// which fires NotifyGraphChanged -> the toolkit's OnGraphChanged -> 
 	// SyncToTypeAsset. Without this guard, SyncToTypeAsset would walk the
 	// partially-drained Nodes array and write an empty NodeTemplates back to
 	// OwningTypeAsset, clobbering the durable data we're trying to rebuild
@@ -176,7 +173,7 @@ void UComposableCameraNodeGraph::RebuildFromTypeAsset()
 		RebuildPhase_CreateBeginPlayStartNode();
 
 	// Phase 3: re-create one camera graph node per NodeTemplate entry. The
-	// returned array is parallel to NodeTemplates by index, so phases 5–8 can
+	// returned array is parallel to NodeTemplates by index, so phases 5 - 8 can
 	// resolve connection endpoints by raw index lookup.
 	TArray<UComposableCameraNodeGraphNode*> CreatedGraphNodes;
 	RebuildPhase_CreateCameraGraphNodes(CreatedGraphNodes);
@@ -189,10 +186,10 @@ void UComposableCameraNodeGraph::RebuildFromTypeAsset()
 	// Phase 4: re-create the Output sentinel at the end of the graph.
 	UComposableCameraOutputGraphNode* OutputNode = RebuildPhase_CreateOutputNode();
 
-	// Phase 5: replay camera ↔ camera data wires.
+	// Phase 5: replay camera camera data wires.
 	RebuildPhase_RestoreCameraNodePinConnections(CreatedGraphNodes);
 
-	// Phase 5b: replay compute ↔ compute data wires.
+	// Phase 5b: replay compute compute data wires.
 	RebuildPhase_RestoreComputeNodePinConnections(CreatedComputeGraphNodes);
 
 	// Phase 6: re-create variable graph nodes and wire them to the appropriate
@@ -206,7 +203,7 @@ void UComposableCameraNodeGraph::RebuildFromTypeAsset()
 	RebuildPhase_RestoreExecutionChain(StartNode, OutputNode, CreatedGraphNodes, VariableGuidToGraphNode);
 
 	// Phase 7b: replay the compute execution chain. Runs independently of
-	// the camera chain — the two chains never share nodes or wires by
+	// the camera chain - the two chains never share nodes or wires by
 	// schema construction, so neither phase needs to know about the other.
 	// Needs the VariableGuidToGraphNode lookup for Set-variable exec entries.
 	RebuildPhase_RestoreComputeExecutionChain(BeginPlayStartNode, CreatedComputeGraphNodes, VariableGuidToGraphNode);
@@ -229,7 +226,7 @@ void UComposableCameraNodeGraph::SyncToTypeAsset()
 		return;
 	}
 
-	// Do not let a sync run while we're rebuilding — the graph is in a
+	// Do not let a sync run while we're rebuilding - the graph is in a
 	// transient, partially-drained state. See the comment in
 	// RebuildFromTypeAsset for why this matters.
 	if (bIsRebuildingFromTypeAsset)
@@ -257,28 +254,28 @@ void UComposableCameraNodeGraph::SyncToTypeAsset()
 	SyncPhase_CollectGraphNodes(GraphNodes, ComputeGraphNodes, VariableGraphNodes,
 		StartNode, BeginPlayStartNode, OutputNode);
 
-	// Phase 2: snapshot the old NodeTemplates index → pointer mapping for
-	// exposed-parameter migration in phase 8. Compute nodes have no analog —
+	// Phase 2: snapshot the old NodeTemplates index -> pointer mapping for
+	// exposed-parameter migration in phase 8. Compute nodes have no analog - 
 	// the compute chain does not participate in ExposedParameters in v1.
 	TMap<int32, UComposableCameraCameraNodeBase*> OldIndexToTemplate;
 	SyncPhase_SnapshotOldTemplateIndices(OldIndexToTemplate);
 
 	// Phase 3: rebuild NodeTemplates / NodeTemplatePositions / sentinel positions
 	// from the graph and assign each GraphNode its new NodeIndex. Populates the
-	// template-pointer → new-index map for phase 8.
+	// template-pointer->new-index map for phase 8.
 	TMap<const UComposableCameraCameraNodeBase*, int32> TemplateToNewIndex;
 	SyncPhase_RebuildNodeTemplatesAndPositions(GraphNodes, StartNode, OutputNode, TemplateToNewIndex);
 
 	// Phase 3b: rebuild ComputeNodeTemplates / ComputeNodeTemplatePositions
 	// and the BeginPlay sentinel position. Runs independently of the camera
-	// phases — the two index spaces do not overlap and compute graph nodes'
+	// phases - the two index spaces do not overlap and compute graph nodes'
 	// NodeIndex fields are written exclusively by this phase.
 	SyncPhase_RebuildComputeTemplatesAndPositions(ComputeGraphNodes, BeginPlayStartNode);
 
-	// Phase 4: rebuild PinConnections from camera ↔ camera data wires.
+	// Phase 4: rebuild PinConnections from camera camera data wires.
 	SyncPhase_RebuildPinConnections(GraphNodes);
 
-	// Phase 4b: rebuild ComputePinConnections from compute ↔ compute data wires.
+	// Phase 4b: rebuild ComputePinConnections from compute compute data wires.
 	SyncPhase_RebuildComputePinConnections(ComputeGraphNodes);
 
 	// Phase 5: rebuild ExecutionOrder + FullExecChain by walking from Start.
@@ -311,7 +308,7 @@ void UComposableCameraNodeGraph::SyncToTypeAsset()
 
 	// Post-sync validation drives the inline warning / error badges rendered
 	// by SComposableCameraGraphNode::OnPaint. Build() is silent in this path
-	// (bLogResult = false) — spamming the log on every keystroke isn't useful
+	// (bLogResult = false) - spamming the log on every keystroke isn't useful
 	// and the badges themselves are the ambient status indicator. The Build
 	// Messages tab repopulates on the same BuildMessages array, but it only
 	// refreshes its widget on explicit OnBuild() / SaveAsset_Execute, so
@@ -331,13 +328,13 @@ void UComposableCameraNodeGraph::ApplyBuildMessagesToGraphNodes()
 	// Collect every camera graph node once so we can both clear existing error
 	// state and look up by NodeIndex without repeated scans of Nodes[]. Only
 	// camera-chain graph nodes are indexed by `NodeIndex` into
-	// OwningTypeAsset->NodeTemplates — variable and sentinel graph nodes are
+	// OwningTypeAsset->NodeTemplates - variable and sentinel graph nodes are
 	// not addressed by BuildMessages in v1 and keep their error fields as-is
 	// (which is empty from the clear pass below for any node we do touch).
 	TMap<int32, UComposableCameraNodeGraphNode*> IndexToCameraNode;
 	IndexToCameraNode.Reserve(Nodes.Num());
 
-	for (UEdGraphNode* EdNode : Nodes)
+	for (UEdGraphNode* EdNode: Nodes)
 	{
 		if (!EdNode)
 		{
@@ -365,14 +362,14 @@ void UComposableCameraNodeGraph::ApplyBuildMessagesToGraphNodes()
 	// Severity mapping between FComposableCameraBuildMessage::Severity (0/1/2)
 	// and EMessageSeverity (0=CriticalError / 1=Error / 2=PerformanceWarning /
 	// 3=Warning / 4=Info) picks the UE severity that matches UE's own Blueprint
-	// compiler output: 2 → Error (EMessageSeverity::Error), 1 → Warning, 0 →
+	// compiler output: 2 ->Error (EMessageSeverity::Error), 1 ->Warning, 0 -> 
 	// Info. "Highest" here means the numerically lowest EMessageSeverity (UE's
 	// enum is ordered severity-descending).
-	for (const FComposableCameraBuildMessage& Msg : OwningTypeAsset->BuildMessages)
+	for (const FComposableCameraBuildMessage& Msg: OwningTypeAsset->BuildMessages)
 	{
 		if (Msg.NodeIndex == INDEX_NONE)
 		{
-			// Asset-level — stays in the Build Messages tab only.
+			// Asset-level - stays in the Build Messages tab only.
 			continue;
 		}
 
@@ -384,8 +381,7 @@ void UComposableCameraNodeGraph::ApplyBuildMessagesToGraphNodes()
 
 		UComposableCameraNodeGraphNode* Target = *Found;
 		const int32 MappedSeverity = (Msg.Severity >= 2)
-			? EMessageSeverity::Error
-			: (Msg.Severity == 1 ? EMessageSeverity::Warning : EMessageSeverity::Info);
+			? EMessageSeverity::Error: (Msg.Severity == 1 ? EMessageSeverity::Warning: EMessageSeverity::Info);
 
 		// UE's EMessageSeverity is ordered with Error < Warning < Info, so the
 		// strictest-so-far message on this node is the one with the smallest
@@ -407,11 +403,10 @@ void UComposableCameraNodeGraph::ApplyBuildMessagesToGraphNodes()
 }
 
 // =============================================================================
-//  SyncToTypeAsset phases
+// SyncToTypeAsset phases
 // =============================================================================
 
-void UComposableCameraNodeGraph::SyncPhase_CollectGraphNodes(
-	TArray<UComposableCameraNodeGraphNode*>& OutCameraGraphNodes,
+void UComposableCameraNodeGraph::SyncPhase_CollectGraphNodes(TArray<UComposableCameraNodeGraphNode*>& OutCameraGraphNodes,
 	TArray<UComposableCameraNodeGraphNode*>& OutComputeGraphNodes,
 	TArray<UComposableCameraVariableGraphNode*>& OutVariableGraphNodes,
 	UComposableCameraStartGraphNode*& OutStartNode,
@@ -424,7 +419,7 @@ void UComposableCameraNodeGraph::SyncPhase_CollectGraphNodes(
 	// by NodeTemplate identity (so deleting a node drops the parameter,
 	// renaming an index preserves it).
 	//
-	// Camera and compute graph nodes share UComposableCameraNodeGraphNode —
+	// Camera and compute graph nodes share UComposableCameraNodeGraphNode - 
 	// they're classified here by inspecting the template's C++ class:
 	// UComposableCameraComputeNodeBase-derived templates route to the compute
 	// bucket, everything else routes to the camera bucket. Graph nodes with a
@@ -435,7 +430,7 @@ void UComposableCameraNodeGraph::SyncPhase_CollectGraphNodes(
 	OutBeginPlayStartNode = nullptr;
 	OutOutputNode = nullptr;
 
-	for (UEdGraphNode* Node : Nodes)
+	for (UEdGraphNode* Node: Nodes)
 	{
 		if (UComposableCameraNodeGraphNode* GraphNode = Cast<UComposableCameraNodeGraphNode>(Node))
 		{
@@ -462,7 +457,7 @@ void UComposableCameraNodeGraph::SyncPhase_CollectGraphNodes(
 		}
 		else if (UComposableCameraBeginPlayStartGraphNode* BpStNode = Cast<UComposableCameraBeginPlayStartGraphNode>(Node))
 		{
-			// BeginPlayStart must be checked before Start — it inherits from the
+			// BeginPlayStart must be checked before Start - it inherits from the
 			// same base (UComposableCameraGraphNodeBase), but
 			// UComposableCameraStartGraphNode is a distinct class in its own
 			// right, so the Cast<UComposableCameraStartGraphNode> branch below
@@ -476,25 +471,46 @@ void UComposableCameraNodeGraph::SyncPhase_CollectGraphNodes(
 		}
 	}
 
-	// Preserve the previous order where possible by sorting by the currently
-	// assigned NodeIndex. Nodes created since the last sync have NodeIndex
-	// pointing at the end of the array, so they append naturally. The sort
-	// is applied to the camera and compute buckets independently — their
-	// NodeIndex fields live in disjoint index spaces, so a single combined
-	// sort wouldn't be meaningful.
-	auto NodeIndexLess = [](const UComposableCameraNodeGraphNode& A, const UComposableCameraNodeGraphNode& B)
+	// Sort by visual position (NodePosY ascending, then NodePosX ascending,
+	// then NodeIndex ascending as a final stable tiebreaker). NodeTemplates
+	// order has no semantic meaning for tick dispatch when exec wires are
+	// present (FullExecChain drives that), but it IS the order the
+	// per-frame Tick fallback walks for legacy / unwired assets, and it's
+	// the order users see in the rare "show NodeTemplates" debugger view.
+	// Tying it to visual position means dragging a node above another in
+	// the canvas immediately reorders the underlying array (and therefore
+	// the fallback tick path) the next time SyncToTypeAsset runs - the
+	// dominant user mental model is "boxes higher up in the canvas run
+	// first," and prior to this the array kept its creation-order layout
+	// regardless of where the boxes were dragged.
+	//
+	// NodeIndex is kept as the final tiebreaker so two graph nodes that
+	// share a position - the most common case being multiple nodes
+	// spawned from the same context menu at a single location before the
+	// user drags them apart - retain a deterministic creation-order
+	// arrangement instead of flickering on every sync. The buckets are
+	// sorted independently because their NodeIndex fields live in
+	// disjoint spaces (camera vs compute) and Y/X are per-graph-node
+	// regardless of bucket.
+	auto VisualLess = [](const UComposableCameraNodeGraphNode& A, const UComposableCameraNodeGraphNode& B)
 	{
-		// INDEX_NONE sorts last so freshly-created unassigned nodes end up at the end.
+		if (A.NodePosY != B.NodePosY)
+		{
+			return A.NodePosY < B.NodePosY;
+		}
+		if (A.NodePosX != B.NodePosX)
+		{
+			return A.NodePosX < B.NodePosX;
+		}
 		const int32 IndexA = (A.NodeIndex == INDEX_NONE) ? MAX_int32 : A.NodeIndex;
 		const int32 IndexB = (B.NodeIndex == INDEX_NONE) ? MAX_int32 : B.NodeIndex;
 		return IndexA < IndexB;
 	};
-	OutCameraGraphNodes.Sort(NodeIndexLess);
-	OutComputeGraphNodes.Sort(NodeIndexLess);
+	OutCameraGraphNodes.Sort(VisualLess);
+	OutComputeGraphNodes.Sort(VisualLess);
 }
 
-void UComposableCameraNodeGraph::SyncPhase_SnapshotOldTemplateIndices(
-	TMap<int32, UComposableCameraCameraNodeBase*>& OutOldIndexToTemplate) const
+void UComposableCameraNodeGraph::SyncPhase_SnapshotOldTemplateIndices(TMap<int32, UComposableCameraCameraNodeBase*>& OutOldIndexToTemplate) const
 {
 	for (int32 i = 0; i < OwningTypeAsset->NodeTemplates.Num(); ++i)
 	{
@@ -505,8 +521,7 @@ void UComposableCameraNodeGraph::SyncPhase_SnapshotOldTemplateIndices(
 	}
 }
 
-void UComposableCameraNodeGraph::SyncPhase_RebuildNodeTemplatesAndPositions(
-	const TArray<UComposableCameraNodeGraphNode*>& GraphNodes,
+void UComposableCameraNodeGraph::SyncPhase_RebuildNodeTemplatesAndPositions(const TArray<UComposableCameraNodeGraphNode*>& GraphNodes,
 	const UComposableCameraStartGraphNode* StartNode,
 	const UComposableCameraOutputGraphNode* OutputNode,
 	TMap<const UComposableCameraCameraNodeBase*, int32>& OutTemplateToNewIndex)
@@ -521,7 +536,7 @@ void UComposableCameraNodeGraph::SyncPhase_RebuildNodeTemplatesAndPositions(
 	NewTemplates.Reserve(GraphNodes.Num());
 	NewTemplatePositions.Reserve(GraphNodes.Num());
 
-	for (UComposableCameraNodeGraphNode* GraphNode : GraphNodes)
+	for (UComposableCameraNodeGraphNode* GraphNode: GraphNodes)
 	{
 		const int32 NewIndex = NewTemplates.Num();
 		GraphNode->NodeIndex = NewIndex;
@@ -543,8 +558,7 @@ void UComposableCameraNodeGraph::SyncPhase_RebuildNodeTemplatesAndPositions(
 	}
 }
 
-void UComposableCameraNodeGraph::SyncPhase_RebuildComputeTemplatesAndPositions(
-	const TArray<UComposableCameraNodeGraphNode*>& ComputeGraphNodes,
+void UComposableCameraNodeGraph::SyncPhase_RebuildComputeTemplatesAndPositions(const TArray<UComposableCameraNodeGraphNode*>& ComputeGraphNodes,
 	const UComposableCameraBeginPlayStartGraphNode* BeginPlayStartNode)
 {
 	// Mirror of SyncPhase_RebuildNodeTemplatesAndPositions for the compute
@@ -552,7 +566,7 @@ void UComposableCameraNodeGraph::SyncPhase_RebuildComputeTemplatesAndPositions(
 	// ComputeNodeTemplatePositions and reassigns each compute graph node's
 	// NodeIndex to its position in ComputeNodeTemplates. Compute nodes do
 	// not participate in ExposedParameters (see orchestrator comment), so
-	// we do not populate a template→index map here.
+	// we do not populate a template -> index map here.
 	//
 	// The cast to UComposableCameraComputeNodeBase is safe because phase 1
 	// classified the bucket: every entry in ComputeGraphNodes has a
@@ -564,12 +578,12 @@ void UComposableCameraNodeGraph::SyncPhase_RebuildComputeTemplatesAndPositions(
 	NewComputeTemplates.Reserve(ComputeGraphNodes.Num());
 	NewComputePositions.Reserve(ComputeGraphNodes.Num());
 
-	for (UComposableCameraNodeGraphNode* ComputeGraphNode : ComputeGraphNodes)
+	for (UComposableCameraNodeGraphNode* ComputeGraphNode: ComputeGraphNodes)
 	{
 		UComposableCameraComputeNodeBase* ComputeTemplate =
 			Cast<UComposableCameraComputeNodeBase>(ComputeGraphNode->NodeTemplate);
 		checkf(ComputeTemplate,
-			TEXT("Compute graph node bucket contained a graph node whose NodeTemplate is not a compute node — classification bug in SyncPhase_CollectGraphNodes"));
+			TEXT("Compute graph node bucket contained a graph node whose NodeTemplate is not a compute node - classification bug in SyncPhase_CollectGraphNodes"));
 
 		const int32 NewIndex = NewComputeTemplates.Num();
 		ComputeGraphNode->NodeIndex = NewIndex;
@@ -586,17 +600,16 @@ void UComposableCameraNodeGraph::SyncPhase_RebuildComputeTemplatesAndPositions(
 	}
 }
 
-void UComposableCameraNodeGraph::SyncPhase_RebuildPinConnections(
-	const TArray<UComposableCameraNodeGraphNode*>& GraphNodes)
+void UComposableCameraNodeGraph::SyncPhase_RebuildPinConnections(const TArray<UComposableCameraNodeGraphNode*>& GraphNodes)
 {
 	// Wires whose source OR target is a variable graph node are captured in
-	// the VariableNodes records instead — see SyncPhase_RebuildVariableNodeRecords.
+	// the VariableNodes records instead - see SyncPhase_RebuildVariableNodeRecords.
 
 	TArray<FComposableCameraPinConnection> NewConnections;
 
-	for (UComposableCameraNodeGraphNode* TargetGraphNode : GraphNodes)
+	for (UComposableCameraNodeGraphNode* TargetGraphNode: GraphNodes)
 	{
-		for (UEdGraphPin* InputPin : TargetGraphNode->Pins)
+		for (UEdGraphPin* InputPin: TargetGraphNode->Pins)
 		{
 			if (InputPin->Direction != EGPD_Input || InputPin->LinkedTo.Num() == 0)
 			{
@@ -617,7 +630,7 @@ void UComposableCameraNodeGraph::SyncPhase_RebuildPinConnections(
 				Cast<UComposableCameraNodeGraphNode>(LinkedOutputPin->GetOwningNode());
 			if (!SourceGraphNode)
 			{
-				// Source is a variable node (or something else) — handled in the variable phase.
+				// Source is a variable node (or something else) - handled in the variable phase.
 				continue;
 			}
 			// Defensive cross-chain guard: a compute source paired with a
@@ -643,21 +656,20 @@ void UComposableCameraNodeGraph::SyncPhase_RebuildPinConnections(
 	OwningTypeAsset->PinConnections = MoveTemp(NewConnections);
 }
 
-void UComposableCameraNodeGraph::SyncPhase_RebuildComputePinConnections(
-	const TArray<UComposableCameraNodeGraphNode*>& ComputeGraphNodes)
+void UComposableCameraNodeGraph::SyncPhase_RebuildComputePinConnections(const TArray<UComposableCameraNodeGraphNode*>& ComputeGraphNodes)
 {
 	// Mirror of SyncPhase_RebuildPinConnections for the compute chain.
 	// Cross-chain data wires are schema-disallowed, so we only need to look
-	// at links whose source is also a compute graph node — anything else
+	// at links whose source is also a compute graph node - anything else
 	// indicates corrupted state we'd rather drop than preserve. Variable
 	// nodes cannot legally wire into compute pins in v1, so any variable
 	// node on the other end is treated as stale and skipped.
 
 	TArray<FComposableCameraPinConnection> NewComputeConnections;
 
-	for (UComposableCameraNodeGraphNode* TargetComputeNode : ComputeGraphNodes)
+	for (UComposableCameraNodeGraphNode* TargetComputeNode: ComputeGraphNodes)
 	{
-		for (UEdGraphPin* InputPin : TargetComputeNode->Pins)
+		for (UEdGraphPin* InputPin: TargetComputeNode->Pins)
 		{
 			if (InputPin->Direction != EGPD_Input || InputPin->LinkedTo.Num() == 0)
 			{
@@ -680,7 +692,7 @@ void UComposableCameraNodeGraph::SyncPhase_RebuildComputePinConnections(
 			{
 				continue;
 			}
-			// Source must also be a compute node — cross-chain wires are
+			// Source must also be a compute node - cross-chain wires are
 			// impossible in a schema-conformant graph, but an extra check here
 			// prevents an accidentally-mismatched source from silently being
 			// written into ComputePinConnections with a camera-space NodeIndex.
@@ -701,16 +713,15 @@ void UComposableCameraNodeGraph::SyncPhase_RebuildComputePinConnections(
 	OwningTypeAsset->ComputePinConnections = MoveTemp(NewComputeConnections);
 }
 
-void UComposableCameraNodeGraph::SyncPhase_RebuildExecutionChain(
-	const UComposableCameraStartGraphNode* StartNode)
+void UComposableCameraNodeGraph::SyncPhase_RebuildExecutionChain(const UComposableCameraStartGraphNode* StartNode)
 {
 	// The exec chain can traverse two kinds of nodes:
-	//   - Camera nodes (UComposableCameraNodeGraphNode) → produce a CameraNode
-	//     entry in FullExecChain and also append to ExecutionOrder.
-	//   - Set variable nodes (UComposableCameraVariableGraphNode with bIsSetter)
-	//     → produce a SetVariable entry in FullExecChain only. The entry
-	//     captures the variable GUID plus the (CameraNodeIndex, SourcePinName)
-	//     that feeds the Set node's Value input.
+	// - Camera nodes (UComposableCameraNodeGraphNode) -> produce a CameraNode
+	// entry in FullExecChain and also append to ExecutionOrder.
+	// - Set variable nodes (UComposableCameraVariableGraphNode with bIsSetter)
+	// -> produce a SetVariable entry in FullExecChain only. The entry
+	// captures the variable GUID plus the (CameraNodeIndex, SourcePinName)
+	// that feeds the Set node's Value input.
 	//
 	// Get variable nodes and unknown node kinds break the walk since they don't
 	// participate in exec flow.
@@ -718,7 +729,7 @@ void UComposableCameraNodeGraph::SyncPhase_RebuildExecutionChain(
 	OwningTypeAsset->ExecutionOrder.Empty();
 	OwningTypeAsset->FullExecChain.Empty();
 
-	// Build the GUID → (name, slot-size) lookup once so each SetVariable exec
+	// Build the GUID -> (name, slot-size) lookup once so each SetVariable exec
 	// entry in the walk below becomes an O(1) map probe instead of the old
 	// O(N_vars) linear scan.
 	TMap<FGuid, FVariableLookupInfo> VariableLookup;
@@ -736,8 +747,7 @@ void UComposableCameraNodeGraph::SyncPhase_RebuildExecutionChain(
 	UEdGraphNode* NextExecNode = nullptr;
 	if (StartNode)
 	{
-		UEdGraphPin* StartExecOut = StartNode->FindPin(
-			UComposableCameraStartGraphNode::PN_ExecOut, EGPD_Output);
+		UEdGraphPin* StartExecOut = StartNode->FindPin(UComposableCameraStartGraphNode::PN_ExecOut, EGPD_Output);
 		if (StartExecOut && StartExecOut->LinkedTo.Num() > 0)
 		{
 			NextExecNode = StartExecOut->LinkedTo[0]->GetOwningNode();
@@ -776,12 +786,11 @@ void UComposableCameraNodeGraph::SyncPhase_RebuildExecutionChain(
 			Entry.CameraNodeIndex = CameraExecNode->NodeIndex;
 			OwningTypeAsset->FullExecChain.Add(Entry);
 
-			ExecOutPin = CameraExecNode->FindPin(
-				UComposableCameraNodeGraphNode::PN_ExecOut, EGPD_Output);
+			ExecOutPin = CameraExecNode->FindPin(UComposableCameraNodeGraphNode::PN_ExecOut, EGPD_Output);
 		}
 		else if (UComposableCameraVariableGraphNode* VarExecNode = Cast<UComposableCameraVariableGraphNode>(NextExecNode))
 		{
-			// Only Set nodes carry exec pins — a Get node being wired into an
+			// Only Set nodes carry exec pins - a Get node being wired into an
 			// exec chain is a malformed graph, bail out.
 			if (!VarExecNode->bIsSetter)
 			{
@@ -799,8 +808,7 @@ void UComposableCameraNodeGraph::SyncPhase_RebuildExecutionChain(
 			// Resolve variable name + slot size for runtime dispatch.
 			ResolveVariable(Entry.VariableGuid, Entry.VariableName, Entry.VariableSlotSize);
 
-			if (UEdGraphPin* ValuePin = VarExecNode->FindPin(
-					UComposableCameraVariableGraphNode::PN_Value, EGPD_Input))
+			if (UEdGraphPin* ValuePin = VarExecNode->FindPin(UComposableCameraVariableGraphNode::PN_Value, EGPD_Input))
 			{
 				if (ValuePin->LinkedTo.Num() > 0 && ValuePin->LinkedTo[0])
 				{
@@ -814,18 +822,17 @@ void UComposableCameraNodeGraph::SyncPhase_RebuildExecutionChain(
 				}
 			}
 
-			// Record the entry even if the Value input is unwired — the editor
+			// Record the entry even if the Value input is unwired - the editor
 			// validator will flag it, but round-tripping should preserve the
 			// user's partially-authored graph so the warning doesn't silently
 			// disappear on save/load.
 			OwningTypeAsset->FullExecChain.Add(Entry);
 
-			ExecOutPin = VarExecNode->FindPin(
-				UComposableCameraVariableGraphNode::PN_ExecOut, EGPD_Output);
+			ExecOutPin = VarExecNode->FindPin(UComposableCameraVariableGraphNode::PN_ExecOut, EGPD_Output);
 		}
 		else
 		{
-			// Output sentinel or unknown — terminate the walk.
+			// Output sentinel or unknown - terminate the walk.
 			break;
 		}
 
@@ -837,8 +844,7 @@ void UComposableCameraNodeGraph::SyncPhase_RebuildExecutionChain(
 	}
 }
 
-void UComposableCameraNodeGraph::SyncPhase_RebuildComputeExecutionChain(
-	const UComposableCameraBeginPlayStartGraphNode* BeginPlayStartNode)
+void UComposableCameraNodeGraph::SyncPhase_RebuildComputeExecutionChain(const UComposableCameraBeginPlayStartGraphNode* BeginPlayStartNode)
 {
 	// Walk from BeginPlayStartNode->ExecOut, building both the flat
 	// ComputeExecutionOrder (compute-node indices only) and the full
@@ -852,7 +858,7 @@ void UComposableCameraNodeGraph::SyncPhase_RebuildComputeExecutionChain(
 	// offset (NodeTemplates.Num() + ComputeIdx) when looking up output pin
 	// slots in the RuntimeDataBlock.
 	//
-	// There is no terminating sentinel on the compute chain — the walk
+	// There is no terminating sentinel on the compute chain - the walk
 	// stops at the first unwired ExecOut.
 
 	OwningTypeAsset->ComputeExecutionOrder.Empty();
@@ -863,7 +869,7 @@ void UComposableCameraNodeGraph::SyncPhase_RebuildComputeExecutionChain(
 		return;
 	}
 
-	// Shared lookup with the camera exec-chain phase — see that phase for the
+	// Shared lookup with the camera exec-chain phase - see that phase for the
 	// rationale (O(1) GUID probe instead of linear scan per Set entry).
 	TMap<FGuid, FVariableLookupInfo> VariableLookup;
 	BuildVariableLookup(VariableLookup);
@@ -877,8 +883,7 @@ void UComposableCameraNodeGraph::SyncPhase_RebuildComputeExecutionChain(
 	};
 
 	UEdGraphNode* NextExecNode = nullptr;
-	if (UEdGraphPin* BpExecOut = BeginPlayStartNode->FindPin(
-			UComposableCameraBeginPlayStartGraphNode::PN_ExecOut, EGPD_Output))
+	if (UEdGraphPin* BpExecOut = BeginPlayStartNode->FindPin(UComposableCameraBeginPlayStartGraphNode::PN_ExecOut, EGPD_Output))
 	{
 		if (BpExecOut->LinkedTo.Num() > 0 && BpExecOut->LinkedTo[0])
 		{
@@ -903,7 +908,7 @@ void UComposableCameraNodeGraph::SyncPhase_RebuildComputeExecutionChain(
 				break;
 			}
 			// A camera graph node reachable through the BeginPlay chain is a
-			// schema violation — terminate the walk rather than writing a
+			// schema violation - terminate the walk rather than writing a
 			// camera-space NodeIndex into a compute-space array.
 			if (!ComputeExecNode->NodeTemplate->IsA<UComposableCameraComputeNodeBase>())
 			{
@@ -918,8 +923,7 @@ void UComposableCameraNodeGraph::SyncPhase_RebuildComputeExecutionChain(
 			Entry.CameraNodeIndex = ComputeExecNode->NodeIndex;
 			OwningTypeAsset->ComputeFullExecChain.Add(Entry);
 
-			ExecOutPin = ComputeExecNode->FindPin(
-				UComposableCameraNodeGraphNode::PN_ExecOut, EGPD_Output);
+			ExecOutPin = ComputeExecNode->FindPin(UComposableCameraNodeGraphNode::PN_ExecOut, EGPD_Output);
 		}
 		else if (UComposableCameraVariableGraphNode* VarExecNode =
 			Cast<UComposableCameraVariableGraphNode>(NextExecNode))
@@ -940,8 +944,7 @@ void UComposableCameraNodeGraph::SyncPhase_RebuildComputeExecutionChain(
 			// Resolve variable name + slot size for runtime dispatch.
 			ResolveVariable(Entry.VariableGuid, Entry.VariableName, Entry.VariableSlotSize);
 
-			if (UEdGraphPin* ValuePin = VarExecNode->FindPin(
-					UComposableCameraVariableGraphNode::PN_Value, EGPD_Input))
+			if (UEdGraphPin* ValuePin = VarExecNode->FindPin(UComposableCameraVariableGraphNode::PN_Value, EGPD_Input))
 			{
 				if (ValuePin->LinkedTo.Num() > 0 && ValuePin->LinkedTo[0])
 				{
@@ -957,12 +960,11 @@ void UComposableCameraNodeGraph::SyncPhase_RebuildComputeExecutionChain(
 
 			OwningTypeAsset->ComputeFullExecChain.Add(Entry);
 
-			ExecOutPin = VarExecNode->FindPin(
-				UComposableCameraVariableGraphNode::PN_ExecOut, EGPD_Output);
+			ExecOutPin = VarExecNode->FindPin(UComposableCameraVariableGraphNode::PN_ExecOut, EGPD_Output);
 		}
 		else
 		{
-			// Unknown node type — terminate the walk.
+			// Unknown node type - terminate the walk.
 			break;
 		}
 
@@ -974,8 +976,7 @@ void UComposableCameraNodeGraph::SyncPhase_RebuildComputeExecutionChain(
 	}
 }
 
-void UComposableCameraNodeGraph::SyncPhase_RebuildVariableNodeRecords(
-	const TArray<UComposableCameraVariableGraphNode*>& VariableGraphNodes)
+void UComposableCameraNodeGraph::SyncPhase_RebuildVariableNodeRecords(const TArray<UComposableCameraVariableGraphNode*>& VariableGraphNodes)
 {
 	// Each variable graph node becomes one record. A Get node's connections
 	// are the node input pins its Value output feeds into. A Set node's
@@ -983,7 +984,7 @@ void UComposableCameraNodeGraph::SyncPhase_RebuildVariableNodeRecords(
 	// Wires to non-camera/compute nodes (e.g. Output sentinel) are ignored.
 	//
 	// The record's bIsComputeChain flag is determined by the schema's
-	// ClassifyChainForNode — for Set nodes this follows the exec wires
+	// ClassifyChainForNode - for Set nodes this follows the exec wires
 	// backward; for Get nodes it defaults to camera chain (Get nodes are
 	// chain-agnostic for data wires, so the flag only affects Set nodes'
 	// index-space interpretation). The connection's CameraNodeIndex indexes
@@ -992,7 +993,7 @@ void UComposableCameraNodeGraph::SyncPhase_RebuildVariableNodeRecords(
 	TArray<FComposableCameraVariableNodeRecord> NewVariableRecords;
 	NewVariableRecords.Reserve(VariableGraphNodes.Num());
 
-	for (UComposableCameraVariableGraphNode* VarNode : VariableGraphNodes)
+	for (UComposableCameraVariableGraphNode* VarNode: VariableGraphNodes)
 	{
 		if (!VarNode)
 		{
@@ -1014,7 +1015,7 @@ void UComposableCameraNodeGraph::SyncPhase_RebuildVariableNodeRecords(
 		UEdGraphPin* ValuePin = VarNode->FindPin(UComposableCameraVariableGraphNode::PN_Value);
 		if (ValuePin)
 		{
-			for (UEdGraphPin* LinkedPin : ValuePin->LinkedTo)
+			for (UEdGraphPin* LinkedPin: ValuePin->LinkedTo)
 			{
 				if (!LinkedPin)
 				{
@@ -1041,27 +1042,26 @@ void UComposableCameraNodeGraph::SyncPhase_RebuildVariableNodeRecords(
 	OwningTypeAsset->VariableNodes = MoveTemp(NewVariableRecords);
 }
 
-void UComposableCameraNodeGraph::SyncPhase_MigrateExposedParameters(
-	const TMap<int32, UComposableCameraCameraNodeBase*>& OldIndexToTemplate,
+void UComposableCameraNodeGraph::SyncPhase_MigrateExposedParameters(const TMap<int32, UComposableCameraCameraNodeBase*>& OldIndexToTemplate,
 	const TMap<const UComposableCameraCameraNodeBase*, int32>& TemplateToNewIndex)
 {
 	TArray<FComposableCameraExposedParameter> MigratedExposed;
 	MigratedExposed.Reserve(OwningTypeAsset->ExposedParameters.Num());
 
-	for (FComposableCameraExposedParameter& Param : OwningTypeAsset->ExposedParameters)
+	for (FComposableCameraExposedParameter& Param: OwningTypeAsset->ExposedParameters)
 	{
 		UComposableCameraCameraNodeBase* const* OldTemplatePtr =
 			OldIndexToTemplate.Find(Param.TargetNodeIndex);
 		if (!OldTemplatePtr || !*OldTemplatePtr)
 		{
-			// Old index was invalid (shouldn't happen) — drop the parameter.
+			// Old index was invalid (shouldn't happen) - drop the parameter.
 			continue;
 		}
 
 		const int32* NewIndexPtr = TemplateToNewIndex.Find(*OldTemplatePtr);
 		if (!NewIndexPtr)
 		{
-			// The node this parameter targeted has been deleted — drop it.
+			// The node this parameter targeted has been deleted - drop it.
 			continue;
 		}
 
@@ -1072,8 +1072,7 @@ void UComposableCameraNodeGraph::SyncPhase_MigrateExposedParameters(
 	OwningTypeAsset->ExposedParameters = MoveTemp(MigratedExposed);
 }
 
-void UComposableCameraNodeGraph::SyncPhase_RebuildNodePinOverrides(
-	const TArray<UComposableCameraNodeGraphNode*>& GraphNodes)
+void UComposableCameraNodeGraph::SyncPhase_RebuildNodePinOverrides(const TArray<UComposableCameraNodeGraphNode*>& GraphNodes)
 {
 	// The overrides live on the graph nodes themselves (RuntimePinOverrides is
 	// Transient, so it only persists as long as the editor session does). On
@@ -1089,7 +1088,7 @@ void UComposableCameraNodeGraph::SyncPhase_RebuildNodePinOverrides(
 	TArray<FComposableCameraNodeTemplatePinOverrides> NewOverrides;
 	NewOverrides.Reserve(GraphNodes.Num());
 
-	for (UComposableCameraNodeGraphNode* GraphNode : GraphNodes)
+	for (UComposableCameraNodeGraphNode* GraphNode: GraphNodes)
 	{
 		FComposableCameraNodeTemplatePinOverrides Entry;
 		Entry.Overrides = GraphNode->RuntimePinOverrides;
@@ -1099,19 +1098,18 @@ void UComposableCameraNodeGraph::SyncPhase_RebuildNodePinOverrides(
 	OwningTypeAsset->NodePinOverrides = MoveTemp(NewOverrides);
 }
 
-void UComposableCameraNodeGraph::SyncPhase_RebuildComputeNodePinOverrides(
-	const TArray<UComposableCameraNodeGraphNode*>& ComputeGraphNodes)
+void UComposableCameraNodeGraph::SyncPhase_RebuildComputeNodePinOverrides(const TArray<UComposableCameraNodeGraphNode*>& ComputeGraphNodes)
 {
 	// Mirror of SyncPhase_RebuildNodePinOverrides for the compute chain.
 	// Because ComputeGraphNodes is iterated in the exact same order as
 	// SyncPhase_RebuildComputeTemplatesAndPositions wrote ComputeNodeTemplates,
 	// ComputeNodePinOverrides[i] lines up with ComputeNodeTemplates[i] by
-	// construction — no identity lookup needed.
+	// construction - no identity lookup needed.
 
 	TArray<FComposableCameraNodeTemplatePinOverrides> NewComputeOverrides;
 	NewComputeOverrides.Reserve(ComputeGraphNodes.Num());
 
-	for (UComposableCameraNodeGraphNode* ComputeGraphNode : ComputeGraphNodes)
+	for (UComposableCameraNodeGraphNode* ComputeGraphNode: ComputeGraphNodes)
 	{
 		FComposableCameraNodeTemplatePinOverrides Entry;
 		Entry.Overrides = ComputeGraphNode->RuntimePinOverrides;
@@ -1122,13 +1120,13 @@ void UComposableCameraNodeGraph::SyncPhase_RebuildComputeNodePinOverrides(
 }
 
 // =============================================================================
-//  RebuildFromTypeAsset phases
+// RebuildFromTypeAsset phases
 // =============================================================================
 
 void UComposableCameraNodeGraph::RebuildPhase_RemoveAllGraphNodes()
 {
 	TArray<UEdGraphNode*> NodesToRemove = Nodes;
-	for (UEdGraphNode* Node : NodesToRemove)
+	for (UEdGraphNode* Node: NodesToRemove)
 	{
 		RemoveNode(Node);
 	}
@@ -1137,11 +1135,10 @@ void UComposableCameraNodeGraph::RebuildPhase_RemoveAllGraphNodes()
 UComposableCameraStartGraphNode* UComposableCameraNodeGraph::RebuildPhase_CreateStartNode()
 {
 	// Sentinel positions are scalars on the type asset, not an array, so
-	// they're always "valid" — freshly created assets get the defaults set in
+	// they're always "valid" - freshly created assets get the defaults set in
 	// the UPROPERTY declarations.
 
-	UComposableCameraStartGraphNode* StartNode = NewObject<UComposableCameraStartGraphNode>(
-		this, NAME_None, RF_Transactional);
+	UComposableCameraStartGraphNode* StartNode = NewObject<UComposableCameraStartGraphNode>(this, NAME_None, RF_Transactional);
 	StartNode->CreateNewGuid();
 	StartNode->NodePosX = static_cast<int32>(OwningTypeAsset->StartNodePosition.X);
 	StartNode->NodePosY = static_cast<int32>(OwningTypeAsset->StartNodePosition.Y);
@@ -1152,7 +1149,7 @@ UComposableCameraStartGraphNode* UComposableCameraNodeGraph::RebuildPhase_Create
 
 UComposableCameraBeginPlayStartGraphNode* UComposableCameraNodeGraph::RebuildPhase_CreateBeginPlayStartNode()
 {
-	// Parallel to RebuildPhase_CreateStartNode — a single instance of the
+	// Parallel to RebuildPhase_CreateStartNode - a single instance of the
 	// BeginPlay Start sentinel is spawned on every rebuild, positioned from
 	// OwningTypeAsset->BeginPlayStartNodePosition. The sentinel is present on
 	// every graph regardless of whether any compute nodes exist, so authors
@@ -1160,8 +1157,7 @@ UComposableCameraBeginPlayStartGraphNode* UComposableCameraNodeGraph::RebuildPha
 	// can always offer "drop the first compute node" from a visible anchor.
 
 	UComposableCameraBeginPlayStartGraphNode* BeginPlayStartNode =
-		NewObject<UComposableCameraBeginPlayStartGraphNode>(
-			this, NAME_None, RF_Transactional);
+		NewObject<UComposableCameraBeginPlayStartGraphNode>(this, NAME_None, RF_Transactional);
 	BeginPlayStartNode->CreateNewGuid();
 	BeginPlayStartNode->NodePosX = static_cast<int32>(OwningTypeAsset->BeginPlayStartNodePosition.X);
 	BeginPlayStartNode->NodePosY = static_cast<int32>(OwningTypeAsset->BeginPlayStartNodePosition.Y);
@@ -1170,16 +1166,15 @@ UComposableCameraBeginPlayStartGraphNode* UComposableCameraNodeGraph::RebuildPha
 	return BeginPlayStartNode;
 }
 
-void UComposableCameraNodeGraph::RebuildPhase_CreateCameraGraphNodes(
-	TArray<UComposableCameraNodeGraphNode*>& OutCreatedGraphNodes)
+void UComposableCameraNodeGraph::RebuildPhase_CreateCameraGraphNodes(TArray<UComposableCameraNodeGraphNode*>& OutCreatedGraphNodes)
 {
 	// Each camera graph node uses its saved canvas position when available
 	// (set by SyncToTypeAsset on the previous save). For legacy assets saved
 	// before position persistence existed, NodeTemplatePositions is empty and
 	// we fall back to a default horizontal layout. The layout is derived from:
-	//   - bUseSavedLayout: true iff the saved position array length matches
-	//     the template array length (so every node has a saved position).
-	//   - Default layout constants (XSpacing, YCenter) only used as fallback.
+	// - bUseSavedLayout: true iff the saved position array length matches
+	// the template array length (so every node has a saved position).
+	// - Default layout constants (XSpacing, YCenter) only used as fallback.
 
 	const float XSpacing = 300.0f;
 	const float YCenter = 0.0f;
@@ -1202,8 +1197,7 @@ void UComposableCameraNodeGraph::RebuildPhase_CreateCameraGraphNodes(
 			continue;
 		}
 
-		UComposableCameraNodeGraphNode* GraphNode = NewObject<UComposableCameraNodeGraphNode>(
-			this, NAME_None, RF_Transactional);
+		UComposableCameraNodeGraphNode* GraphNode = NewObject<UComposableCameraNodeGraphNode>(this, NAME_None, RF_Transactional);
 		GraphNode->NodeTemplate = NodeTemplate;
 		GraphNode->NodeIndex = i;
 		GraphNode->CreateNewGuid();
@@ -1224,7 +1218,7 @@ void UComposableCameraNodeGraph::RebuildPhase_CreateCameraGraphNodes(
 		}
 
 		// Hydrate the per-instance pin override cache BEFORE AllocateDefaultPins
-		// runs — the pin materialization loop consults RuntimePinOverrides to
+		// runs - the pin materialization loop consults RuntimePinOverrides to
 		// decide whether to materialize a declared pin at all (bAsPin) and
 		// which default value to seed it with. Doing this in the wrong order
 		// would produce a graph where the correct number of pins exist but
@@ -1245,8 +1239,7 @@ void UComposableCameraNodeGraph::RebuildPhase_CreateCameraGraphNodes(
 	}
 }
 
-void UComposableCameraNodeGraph::RebuildPhase_CreateComputeGraphNodes(
-	TArray<UComposableCameraNodeGraphNode*>& OutCreatedComputeGraphNodes)
+void UComposableCameraNodeGraph::RebuildPhase_CreateComputeGraphNodes(TArray<UComposableCameraNodeGraphNode*>& OutCreatedComputeGraphNodes)
 {
 	// Mirror of RebuildPhase_CreateCameraGraphNodes for the compute chain.
 	// Saved positions live in ComputeNodeTemplatePositions (parallel to
@@ -1260,7 +1253,7 @@ void UComposableCameraNodeGraph::RebuildPhase_CreateComputeGraphNodes(
 	// ComputeNodePinOverrides (parallel to ComputeNodeTemplates). The
 	// hydration must happen BEFORE AllocateDefaultPins runs so the pin
 	// materialization loop can see the per-pin bAsPin / default-value state
-	// — this is the same ordering requirement that camera graph nodes have.
+	// - this is the same ordering requirement that camera graph nodes have.
 
 	const float XSpacing = 300.0f;
 	const float YBelowCameraRow = 400.0f;
@@ -1279,8 +1272,7 @@ void UComposableCameraNodeGraph::RebuildPhase_CreateComputeGraphNodes(
 			continue;
 		}
 
-		UComposableCameraNodeGraphNode* ComputeGraphNode = NewObject<UComposableCameraNodeGraphNode>(
-			this, NAME_None, RF_Transactional);
+		UComposableCameraNodeGraphNode* ComputeGraphNode = NewObject<UComposableCameraNodeGraphNode>(this, NAME_None, RF_Transactional);
 		ComputeGraphNode->NodeTemplate = ComputeTemplate;
 		ComputeGraphNode->NodeIndex = i;
 		ComputeGraphNode->CreateNewGuid();
@@ -1318,8 +1310,7 @@ void UComposableCameraNodeGraph::RebuildPhase_CreateComputeGraphNodes(
 
 UComposableCameraOutputGraphNode* UComposableCameraNodeGraph::RebuildPhase_CreateOutputNode()
 {
-	UComposableCameraOutputGraphNode* OutputNode = NewObject<UComposableCameraOutputGraphNode>(
-		this, NAME_None, RF_Transactional);
+	UComposableCameraOutputGraphNode* OutputNode = NewObject<UComposableCameraOutputGraphNode>(this, NAME_None, RF_Transactional);
 	OutputNode->CreateNewGuid();
 	OutputNode->NodePosX = static_cast<int32>(OwningTypeAsset->OutputNodePosition.X);
 	OutputNode->NodePosY = static_cast<int32>(OwningTypeAsset->OutputNodePosition.Y);
@@ -1328,10 +1319,9 @@ UComposableCameraOutputGraphNode* UComposableCameraNodeGraph::RebuildPhase_Creat
 	return OutputNode;
 }
 
-void UComposableCameraNodeGraph::RebuildPhase_RestoreCameraNodePinConnections(
-	const TArray<UComposableCameraNodeGraphNode*>& CreatedGraphNodes)
+void UComposableCameraNodeGraph::RebuildPhase_RestoreCameraNodePinConnections(const TArray<UComposableCameraNodeGraphNode*>& CreatedGraphNodes)
 {
-	for (const FComposableCameraPinConnection& Connection : OwningTypeAsset->PinConnections)
+	for (const FComposableCameraPinConnection& Connection: OwningTypeAsset->PinConnections)
 	{
 		if (!CreatedGraphNodes.IsValidIndex(Connection.SourceNodeIndex) ||
 			!CreatedGraphNodes.IsValidIndex(Connection.TargetNodeIndex))
@@ -1352,8 +1342,7 @@ void UComposableCameraNodeGraph::RebuildPhase_RestoreCameraNodePinConnections(
 	}
 }
 
-void UComposableCameraNodeGraph::RebuildPhase_RestoreComputeNodePinConnections(
-	const TArray<UComposableCameraNodeGraphNode*>& CreatedComputeGraphNodes)
+void UComposableCameraNodeGraph::RebuildPhase_RestoreComputeNodePinConnections(const TArray<UComposableCameraNodeGraphNode*>& CreatedComputeGraphNodes)
 {
 	// Mirror of RebuildPhase_RestoreCameraNodePinConnections for the compute
 	// chain. The CreatedComputeGraphNodes array is parallel to
@@ -1361,7 +1350,7 @@ void UComposableCameraNodeGraph::RebuildPhase_RestoreComputeNodePinConnections(
 	// so the SourceNodeIndex / TargetNodeIndex fields in each
 	// ComputePinConnection index directly into it.
 
-	for (const FComposableCameraPinConnection& Connection : OwningTypeAsset->ComputePinConnections)
+	for (const FComposableCameraPinConnection& Connection: OwningTypeAsset->ComputePinConnections)
 	{
 		if (!CreatedComputeGraphNodes.IsValidIndex(Connection.SourceNodeIndex) ||
 			!CreatedComputeGraphNodes.IsValidIndex(Connection.TargetNodeIndex))
@@ -1382,15 +1371,13 @@ void UComposableCameraNodeGraph::RebuildPhase_RestoreComputeNodePinConnections(
 	}
 }
 
-void UComposableCameraNodeGraph::RebuildPhase_RestoreVariableGraphNodes(
-	const TArray<UComposableCameraNodeGraphNode*>& CreatedGraphNodes,
+void UComposableCameraNodeGraph::RebuildPhase_RestoreVariableGraphNodes(const TArray<UComposableCameraNodeGraphNode*>& CreatedGraphNodes,
 	const TArray<UComposableCameraNodeGraphNode*>& CreatedComputeGraphNodes,
 	TMap<FGuid, UComposableCameraVariableGraphNode*>& OutVariableGuidToGraphNode)
 {
-	for (const FComposableCameraVariableNodeRecord& Record : OwningTypeAsset->VariableNodes)
+	for (const FComposableCameraVariableNodeRecord& Record: OwningTypeAsset->VariableNodes)
 	{
-		UComposableCameraVariableGraphNode* VarNode = NewObject<UComposableCameraVariableGraphNode>(
-			this, NAME_None, RF_Transactional);
+		UComposableCameraVariableGraphNode* VarNode = NewObject<UComposableCameraVariableGraphNode>(this, NAME_None, RF_Transactional);
 
 		// Prefer the record's GUID as identity. For legacy records saved before
 		// the GUID migration (Record.VariableGuid is invalid), fall back to
@@ -1401,7 +1388,7 @@ void UComposableCameraNodeGraph::RebuildPhase_RestoreVariableGraphNodes(
 		VarNode->VariableName = Record.VariableName;
 		if (!VarNode->VariableGuid.IsValid() && !Record.VariableName.IsNone())
 		{
-			// Legacy fallback covers variables living in either array —
+			// Legacy fallback covers variables living in either array - 
 			// InternalVariables is checked first because it predates
 			// ExposedVariables, so any asset old enough to need this fallback
 			// almost certainly stores its variables there. If a name-match hits
@@ -1409,7 +1396,7 @@ void UComposableCameraNodeGraph::RebuildPhase_RestoreVariableGraphNodes(
 			// the same struct type and identity rules.
 			auto BackfillFromArray = [&](const TArray<FComposableCameraInternalVariable>& Array) -> bool
 			{
-				for (const FComposableCameraInternalVariable& Variable : Array)
+				for (const FComposableCameraInternalVariable& Variable: Array)
 				{
 					if (Variable.VariableName == Record.VariableName && Variable.VariableGuid.IsValid())
 					{
@@ -1442,7 +1429,7 @@ void UComposableCameraNodeGraph::RebuildPhase_RestoreVariableGraphNodes(
 
 		// Key the lookup by the resolved GUID (after the legacy fallback above)
 		// so the exec-chain phase can wire Set-variable exec pins by GUID. Skip
-		// entries whose GUID is still invalid — those can't participate in exec
+		// entries whose GUID is still invalid - those can't participate in exec
 		// chain restore until the user re-saves the asset.
 		if (VarNode->VariableGuid.IsValid())
 		{
@@ -1457,9 +1444,9 @@ void UComposableCameraNodeGraph::RebuildPhase_RestoreVariableGraphNodes(
 
 		// Choose the graph nodes array based on the record's chain.
 		const TArray<UComposableCameraNodeGraphNode*>& EndpointGraphNodes =
-			Record.bIsComputeChain ? CreatedComputeGraphNodes : CreatedGraphNodes;
+			Record.bIsComputeChain ? CreatedComputeGraphNodes: CreatedGraphNodes;
 
-		for (const FComposableCameraVariablePinConnection& Conn : Record.Connections)
+		for (const FComposableCameraVariablePinConnection& Conn: Record.Connections)
 		{
 			if (!EndpointGraphNodes.IsValidIndex(Conn.CameraNodeIndex))
 			{
@@ -1468,8 +1455,8 @@ void UComposableCameraNodeGraph::RebuildPhase_RestoreVariableGraphNodes(
 
 			UComposableCameraNodeGraphNode* EndpointGraphNode = EndpointGraphNodes[Conn.CameraNodeIndex];
 
-			// Get node → input pin; Set node → output pin.
-			const EEdGraphPinDirection PinDir = Record.bIsSetter ? EGPD_Output : EGPD_Input;
+			// Get node -> input pin; Set node -> output pin.
+			const EEdGraphPinDirection PinDir = Record.bIsSetter ? EGPD_Output: EGPD_Input;
 			if (UEdGraphPin* EndpointPin = EndpointGraphNode->FindPin(Conn.CameraPinName, PinDir))
 			{
 				ValuePin->MakeLinkTo(EndpointPin);
@@ -1478,8 +1465,7 @@ void UComposableCameraNodeGraph::RebuildPhase_RestoreVariableGraphNodes(
 	}
 }
 
-void UComposableCameraNodeGraph::RebuildPhase_RestoreExecutionChain(
-	UComposableCameraStartGraphNode* StartNode,
+void UComposableCameraNodeGraph::RebuildPhase_RestoreExecutionChain(UComposableCameraStartGraphNode* StartNode,
 	UComposableCameraOutputGraphNode* OutputNode,
 	const TArray<UComposableCameraNodeGraphNode*>& CreatedGraphNodes,
 	const TMap<FGuid, UComposableCameraVariableGraphNode*>& VariableGuidToGraphNode)
@@ -1490,10 +1476,10 @@ void UComposableCameraNodeGraph::RebuildPhase_RestoreExecutionChain(
 
 	// Resolve a chain entry's ExecIn / ExecOut pin. Switch-on-enum rather than
 	// if/else so adding a new EComposableCameraExecEntryType alternative trips
-	// the compiler's -Wswitch warning at every call site — this project has a
-	// rule about keeping exhaustive handling tight (see .auto-memory feedback
+	// the compiler's -Wswitch warning at every call site - this project has a
+	// rule about keeping exhaustive handling tight (see.auto-memory feedback
 	// entry on TVariant exhaustive handling, same principle applies to enums).
-	auto FindExecPin = [&](int32 ChainIndex, EEdGraphPinDirection Dir) -> UEdGraphPin*
+	auto FindExecPin = [&](int32 ChainIndex, EEdGraphPinDirection Dir) ->UEdGraphPin*
 	{
 		if (!OwningTypeAsset->FullExecChain.IsValidIndex(ChainIndex))
 		{
@@ -1507,8 +1493,7 @@ void UComposableCameraNodeGraph::RebuildPhase_RestoreExecutionChain(
 			if (CreatedGraphNodes.IsValidIndex(Entry.CameraNodeIndex))
 			{
 				const FName PinName = (Dir == EGPD_Input)
-					? UComposableCameraNodeGraphNode::PN_ExecIn
-					: UComposableCameraNodeGraphNode::PN_ExecOut;
+					? UComposableCameraNodeGraphNode::PN_ExecIn: UComposableCameraNodeGraphNode::PN_ExecOut;
 				return CreatedGraphNodes[Entry.CameraNodeIndex]->FindPin(PinName, Dir);
 			}
 			return nullptr;
@@ -1519,8 +1504,7 @@ void UComposableCameraNodeGraph::RebuildPhase_RestoreExecutionChain(
 				VariableGuidToGraphNode.Find(Entry.VariableGuid))
 			{
 				const FName PinName = (Dir == EGPD_Input)
-					? UComposableCameraVariableGraphNode::PN_ExecIn
-					: UComposableCameraVariableGraphNode::PN_ExecOut;
+					? UComposableCameraVariableGraphNode::PN_ExecIn: UComposableCameraVariableGraphNode::PN_ExecOut;
 				return (*VarNodePtr)->FindPin(PinName, Dir);
 			}
 			return nullptr;
@@ -1529,16 +1513,15 @@ void UComposableCameraNodeGraph::RebuildPhase_RestoreExecutionChain(
 		return nullptr;
 	};
 
-	auto FindExecInPin  = [&](int32 ChainIndex) { return FindExecPin(ChainIndex, EGPD_Input);  };
+	auto FindExecInPin = [&](int32 ChainIndex) { return FindExecPin(ChainIndex, EGPD_Input); };
 	auto FindExecOutPin = [&](int32 ChainIndex) { return FindExecPin(ChainIndex, EGPD_Output); };
 
 	if (OwningTypeAsset->FullExecChain.Num() > 0)
 	{
-		// Wire Start → first entry.
+		// Wire Start -> first entry.
 		if (UEdGraphPin* FirstExecIn = FindExecInPin(0))
 		{
-			if (UEdGraphPin* StartExecOut = StartNode->FindPin(
-					UComposableCameraStartGraphNode::PN_ExecOut, EGPD_Output))
+			if (UEdGraphPin* StartExecOut = StartNode->FindPin(UComposableCameraStartGraphNode::PN_ExecOut, EGPD_Output))
 			{
 				StartExecOut->MakeLinkTo(FirstExecIn);
 			}
@@ -1555,11 +1538,10 @@ void UComposableCameraNodeGraph::RebuildPhase_RestoreExecutionChain(
 			}
 		}
 
-		// Wire last entry → Output.
+		// Wire last entry->Output.
 		if (UEdGraphPin* LastExecOut = FindExecOutPin(OwningTypeAsset->FullExecChain.Num() - 1))
 		{
-			if (UEdGraphPin* OutputExecIn = OutputNode->FindPin(
-					UComposableCameraOutputGraphNode::PN_ExecIn, EGPD_Input))
+			if (UEdGraphPin* OutputExecIn = OutputNode->FindPin(UComposableCameraOutputGraphNode::PN_ExecIn, EGPD_Input))
 			{
 				LastExecOut->MakeLinkTo(OutputExecIn);
 			}
@@ -1568,17 +1550,16 @@ void UComposableCameraNodeGraph::RebuildPhase_RestoreExecutionChain(
 	else if (OwningTypeAsset->ExecutionOrder.Num() > 0)
 	{
 		// Legacy fallback: wire the camera-node-only chain. This path is hit
-		// for assets saved before FullExecChain was added — the first SyncToTypeAsset
+		// for assets saved before FullExecChain was added - the first SyncToTypeAsset
 		// after load will rewrite FullExecChain from the restored wires, migrating
 		// the asset forward silently.
 
-		// Wire Start → first node in execution order.
+		// Wire Start -> first node in execution order.
 		const int32 FirstExecIndex = OwningTypeAsset->ExecutionOrder[0];
 		if (CreatedGraphNodes.IsValidIndex(FirstExecIndex))
 		{
 			UEdGraphPin* StartExecOut = StartNode->FindPin(UComposableCameraStartGraphNode::PN_ExecOut, EGPD_Output);
-			UEdGraphPin* FirstExecIn = CreatedGraphNodes[FirstExecIndex]->FindPin(
-				UComposableCameraNodeGraphNode::PN_ExecIn, EGPD_Input);
+			UEdGraphPin* FirstExecIn = CreatedGraphNodes[FirstExecIndex]->FindPin(UComposableCameraNodeGraphNode::PN_ExecIn, EGPD_Input);
 			if (StartExecOut && FirstExecIn)
 			{
 				StartExecOut->MakeLinkTo(FirstExecIn);
@@ -1593,10 +1574,8 @@ void UComposableCameraNodeGraph::RebuildPhase_RestoreExecutionChain(
 
 			if (CreatedGraphNodes.IsValidIndex(CurrentIdx) && CreatedGraphNodes.IsValidIndex(NextIdx))
 			{
-				UEdGraphPin* ExecOut = CreatedGraphNodes[CurrentIdx]->FindPin(
-					UComposableCameraNodeGraphNode::PN_ExecOut, EGPD_Output);
-				UEdGraphPin* ExecIn = CreatedGraphNodes[NextIdx]->FindPin(
-					UComposableCameraNodeGraphNode::PN_ExecIn, EGPD_Input);
+				UEdGraphPin* ExecOut = CreatedGraphNodes[CurrentIdx]->FindPin(UComposableCameraNodeGraphNode::PN_ExecOut, EGPD_Output);
+				UEdGraphPin* ExecIn = CreatedGraphNodes[NextIdx]->FindPin(UComposableCameraNodeGraphNode::PN_ExecIn, EGPD_Input);
 				if (ExecOut && ExecIn)
 				{
 					ExecOut->MakeLinkTo(ExecIn);
@@ -1604,14 +1583,12 @@ void UComposableCameraNodeGraph::RebuildPhase_RestoreExecutionChain(
 			}
 		}
 
-		// Wire last node → Output.
+		// Wire last node->Output.
 		const int32 LastExecIndex = OwningTypeAsset->ExecutionOrder.Last();
 		if (CreatedGraphNodes.IsValidIndex(LastExecIndex))
 		{
-			UEdGraphPin* LastExecOut = CreatedGraphNodes[LastExecIndex]->FindPin(
-				UComposableCameraNodeGraphNode::PN_ExecOut, EGPD_Output);
-			UEdGraphPin* OutputExecIn = OutputNode->FindPin(
-				UComposableCameraOutputGraphNode::PN_ExecIn, EGPD_Input);
+			UEdGraphPin* LastExecOut = CreatedGraphNodes[LastExecIndex]->FindPin(UComposableCameraNodeGraphNode::PN_ExecOut, EGPD_Output);
+			UEdGraphPin* OutputExecIn = OutputNode->FindPin(UComposableCameraOutputGraphNode::PN_ExecIn, EGPD_Input);
 			if (LastExecOut && OutputExecIn)
 			{
 				LastExecOut->MakeLinkTo(OutputExecIn);
@@ -1620,15 +1597,14 @@ void UComposableCameraNodeGraph::RebuildPhase_RestoreExecutionChain(
 	}
 }
 
-void UComposableCameraNodeGraph::RebuildPhase_RestoreComputeExecutionChain(
-	UComposableCameraBeginPlayStartGraphNode* BeginPlayStartNode,
+void UComposableCameraNodeGraph::RebuildPhase_RestoreComputeExecutionChain(UComposableCameraBeginPlayStartGraphNode* BeginPlayStartNode,
 	const TArray<UComposableCameraNodeGraphNode*>& CreatedComputeGraphNodes,
 	const TMap<FGuid, UComposableCameraVariableGraphNode*>& VariableGuidToGraphNode)
 {
 	// Mirror of RebuildPhase_RestoreExecutionChain for the compute chain.
 	// Prefers ComputeFullExecChain (which interleaves compute nodes with
 	// Set-variable nodes) and falls back to the flat ComputeExecutionOrder
-	// for legacy assets. The compute chain has no Output sentinel — the walk
+	// for legacy assets. The compute chain has no Output sentinel - the walk
 	// stops at the last entry.
 
 	if (!BeginPlayStartNode)
@@ -1640,7 +1616,7 @@ void UComposableCameraNodeGraph::RebuildPhase_RestoreComputeExecutionChain(
 	{
 		// Resolve a chain entry's ExecIn / ExecOut pin. Mirrors the camera
 		// chain's lambda in RebuildPhase_RestoreExecutionChain.
-		auto FindExecPin = [&](int32 ChainIndex, EEdGraphPinDirection Dir) -> UEdGraphPin*
+		auto FindExecPin = [&](int32 ChainIndex, EEdGraphPinDirection Dir) ->UEdGraphPin*
 		{
 			if (!OwningTypeAsset->ComputeFullExecChain.IsValidIndex(ChainIndex))
 			{
@@ -1654,8 +1630,7 @@ void UComposableCameraNodeGraph::RebuildPhase_RestoreComputeExecutionChain(
 				if (CreatedComputeGraphNodes.IsValidIndex(Entry.CameraNodeIndex))
 				{
 					const FName PinName = (Dir == EGPD_Input)
-						? UComposableCameraNodeGraphNode::PN_ExecIn
-						: UComposableCameraNodeGraphNode::PN_ExecOut;
+						? UComposableCameraNodeGraphNode::PN_ExecIn: UComposableCameraNodeGraphNode::PN_ExecOut;
 					return CreatedComputeGraphNodes[Entry.CameraNodeIndex]->FindPin(PinName, Dir);
 				}
 				return nullptr;
@@ -1666,8 +1641,7 @@ void UComposableCameraNodeGraph::RebuildPhase_RestoreComputeExecutionChain(
 					VariableGuidToGraphNode.Find(Entry.VariableGuid))
 				{
 					const FName PinName = (Dir == EGPD_Input)
-						? UComposableCameraVariableGraphNode::PN_ExecIn
-						: UComposableCameraVariableGraphNode::PN_ExecOut;
+						? UComposableCameraVariableGraphNode::PN_ExecIn: UComposableCameraVariableGraphNode::PN_ExecOut;
 					return (*VarNodePtr)->FindPin(PinName, Dir);
 				}
 				return nullptr;
@@ -1676,11 +1650,10 @@ void UComposableCameraNodeGraph::RebuildPhase_RestoreComputeExecutionChain(
 			return nullptr;
 		};
 
-		// Wire BeginPlayStart → first entry.
+		// Wire BeginPlayStart -> first entry.
 		if (UEdGraphPin* FirstExecIn = FindExecPin(0, EGPD_Input))
 		{
-			if (UEdGraphPin* BpExecOut = BeginPlayStartNode->FindPin(
-					UComposableCameraBeginPlayStartGraphNode::PN_ExecOut, EGPD_Output))
+			if (UEdGraphPin* BpExecOut = BeginPlayStartNode->FindPin(UComposableCameraBeginPlayStartGraphNode::PN_ExecOut, EGPD_Output))
 			{
 				BpExecOut->MakeLinkTo(FirstExecIn);
 			}
@@ -1697,29 +1670,27 @@ void UComposableCameraNodeGraph::RebuildPhase_RestoreComputeExecutionChain(
 			}
 		}
 
-		// No terminating sentinel — the chain simply stops at the last entry.
+		// No terminating sentinel - the chain simply stops at the last entry.
 	}
 	else if (OwningTypeAsset->ComputeExecutionOrder.Num() > 0)
 	{
 		// Legacy fallback: flat int32 array, compute-nodes only.
-		auto FindComputeExecPin = [&](int32 ComputeIdx, EEdGraphPinDirection Dir) -> UEdGraphPin*
+		auto FindComputeExecPin = [&](int32 ComputeIdx, EEdGraphPinDirection Dir) ->UEdGraphPin*
 		{
 			if (!CreatedComputeGraphNodes.IsValidIndex(ComputeIdx))
 			{
 				return nullptr;
 			}
 			const FName PinName = (Dir == EGPD_Input)
-				? UComposableCameraNodeGraphNode::PN_ExecIn
-				: UComposableCameraNodeGraphNode::PN_ExecOut;
+				? UComposableCameraNodeGraphNode::PN_ExecIn: UComposableCameraNodeGraphNode::PN_ExecOut;
 			return CreatedComputeGraphNodes[ComputeIdx]->FindPin(PinName, Dir);
 		};
 
-		// Wire BeginPlayStart → first entry.
+		// Wire BeginPlayStart -> first entry.
 		const int32 FirstComputeIdx = OwningTypeAsset->ComputeExecutionOrder[0];
 		if (UEdGraphPin* FirstExecIn = FindComputeExecPin(FirstComputeIdx, EGPD_Input))
 		{
-			if (UEdGraphPin* BpExecOut = BeginPlayStartNode->FindPin(
-					UComposableCameraBeginPlayStartGraphNode::PN_ExecOut, EGPD_Output))
+			if (UEdGraphPin* BpExecOut = BeginPlayStartNode->FindPin(UComposableCameraBeginPlayStartGraphNode::PN_ExecOut, EGPD_Output))
 			{
 				BpExecOut->MakeLinkTo(FirstExecIn);
 			}
@@ -1732,7 +1703,7 @@ void UComposableCameraNodeGraph::RebuildPhase_RestoreComputeExecutionChain(
 			const int32 NextIdx = OwningTypeAsset->ComputeExecutionOrder[i + 1];
 
 			UEdGraphPin* OutPin = FindComputeExecPin(CurIdx, EGPD_Output);
-			UEdGraphPin* InPin  = FindComputeExecPin(NextIdx, EGPD_Input);
+			UEdGraphPin* InPin = FindComputeExecPin(NextIdx, EGPD_Input);
 			if (OutPin && InPin)
 			{
 				OutPin->MakeLinkTo(InPin);

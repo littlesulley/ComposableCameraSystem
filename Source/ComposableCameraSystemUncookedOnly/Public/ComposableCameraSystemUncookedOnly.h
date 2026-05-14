@@ -1,4 +1,4 @@
-﻿// Copyright Sulley. All rights reserved.
+// Copyright Sulley. All rights reserved.
 
 #pragma once
 
@@ -7,12 +7,12 @@ class FComposableCameraGraphPanelPinFactory;
 #include "CoreMinimal.h"
 #include "Modules/ModuleManager.h"
 
-class FComposableCameraSystemUncookedOnlyModule : public IModuleInterface
+class FComposableCameraSystemUncookedOnlyModule: public IModuleInterface
 {
 public:
-    virtual void StartupModule() override;
-    virtual void ShutdownModule() override;
+ virtual void StartupModule() override;
+ virtual void ShutdownModule() override;
 
 private:
-    TSharedPtr<FComposableCameraGraphPanelPinFactory> ComposableCameraGraphPanelPinFactory;
+ TSharedPtr<FComposableCameraGraphPanelPinFactory> ComposableCameraGraphPanelPinFactory;
 };

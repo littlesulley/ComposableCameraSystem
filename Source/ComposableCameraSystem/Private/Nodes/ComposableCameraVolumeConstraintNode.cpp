@@ -33,7 +33,7 @@ void UComposableCameraVolumeConstraintNode::OnInitialize_Implementation()
 	// template, so each axis retains its own filter state (a spring
 	// overshoot on X must not bleed into Y / Z). Any of these may be null
 	// if the user left ClampInterpolator unset or the interpolator class
-	// does not support BuildDoubleInterpolator — guarded at call sites.
+	// does not support BuildDoubleInterpolator. Guarded at call sites.
 	ClampInterpolatorX_T = IsValid(ClampInterpolator) ? ClampInterpolator->BuildDoubleInterpolator() : nullptr;
 	ClampInterpolatorY_T = IsValid(ClampInterpolator) ? ClampInterpolator->BuildDoubleInterpolator() : nullptr;
 	ClampInterpolatorZ_T = IsValid(ClampInterpolator) ? ClampInterpolator->BuildDoubleInterpolator() : nullptr;
@@ -58,7 +58,7 @@ void UComposableCameraVolumeConstraintNode::OnTickNode_Implementation(
 	FResolvedVolume Volume;
 	if (!ResolveVolume(Volume))
 	{
-		// Volume unusable — keep smoothing state coherent with the current
+		// Volume unusable. Keep smoothing state coherent with the current
 		// pass-through output so re-enabling the constraint later doesn't
 		// cause a catch-up snap.
 		LastSmoothedPosition = UpstreamPos;
@@ -73,7 +73,7 @@ void UComposableCameraVolumeConstraintNode::OnTickNode_Implementation(
 	const FVector Target = NearestPointInVolume(Volume, UpstreamPos, bAlreadyInside);
 
 	// Apply per-axis smoothing when an interpolator is configured. Each
-	// axis uses its own filter instance — Reset(current, target) updates
+	// axis uses its own filter instance -Reset(current, target) updates
 	// the filter's goal, Run(DT) advances one step. Without an interpolator
 	// the output is the hard clamp (or pass-through when already inside).
 	FVector Output;
@@ -121,7 +121,7 @@ bool UComposableCameraVolumeConstraintNode::ResolveVolume(FResolvedVolume& OutVo
 			}
 
 			// TInlineComponentArray keeps the traversal stack-allocated for the
-			// common single-shape case — zero heap churn on the hot path.
+			// common single-shape case. Zero heap churn on the hot path.
 			TInlineComponentArray<UShapeComponent*> Shapes;
 			VolumeActor->GetComponents(Shapes);
 			if (Shapes.Num() == 0)
@@ -203,8 +203,8 @@ FVector UComposableCameraVolumeConstraintNode::NearestPointInVolume(
 
 			// Handle the degenerate "WorldPos == Center, Radius > 0" case so
 			// SafeNormal doesn't silently return ZeroVector and plant the
-			// camera exactly at center (it's technically valid — any point on
-			// the sphere is "nearest" — but picking world-forward gives a
+			// camera exactly at center (it's technically valid. Any point on
+			// the sphere is "nearest". But picking world-forward gives a
 			// predictable, non-NaN result).
 			const FVector Direction = Delta.IsNearlyZero()
 				? FVector::ForwardVector
@@ -220,7 +220,7 @@ FVector UComposableCameraVolumeConstraintNode::NearestPointInVolume(
 void UComposableCameraVolumeConstraintNode::GetPinDeclarations_Implementation(
 	TArray<FComposableCameraNodePinDeclaration>& OutPins) const
 {
-	// Input: volume actor (FromActor mode — most commonly wired at runtime
+	// Input: volume actor (FromActor mode. Most commonly wired at runtime
 	// from a context parameter naming the room / arena / etc.).
 	{
 		FComposableCameraNodePinDeclaration Pin;
@@ -235,7 +235,7 @@ void UComposableCameraVolumeConstraintNode::GetPinDeclarations_Implementation(
 		OutPins.Add(Pin);
 	}
 
-	// Input: inline sphere radius — commonly driven dynamically in Inline
+	// Input: inline sphere radius. Commonly driven dynamically in Inline
 	// mode ("shrink the arena radius over time" etc.).
 	{
 		FComposableCameraNodePinDeclaration Pin;
@@ -251,7 +251,7 @@ void UComposableCameraVolumeConstraintNode::GetPinDeclarations_Implementation(
 		OutPins.Add(Pin);
 	}
 
-	// Input: inline box extents — same reasoning as SphereRadius.
+	// Input: inline box extents. Same reasoning as SphereRadius.
 	{
 		FComposableCameraNodePinDeclaration Pin;
 		Pin.PinName = "BoxExtents";
@@ -266,7 +266,7 @@ void UComposableCameraVolumeConstraintNode::GetPinDeclarations_Implementation(
 		OutPins.Add(Pin);
 	}
 
-	// Input: inline volume center — allows repositioning the Inline volume
+	// Input: inline volume center. Allows repositioning the Inline volume
 	// at runtime without swapping cameras.
 	{
 		FComposableCameraNodePinDeclaration Pin;
@@ -294,7 +294,7 @@ void UComposableCameraVolumeConstraintNode::DrawNodeDebug(UWorld* World, bool /*
 
 	// Green wireframe when the camera is happily inside; red when we had to
 	// clamp this tick. Volume edges sit out in the world around the player,
-	// not at the camera itself — no F8 gate needed.
+	// not at the camera itself, no F8 gate needed.
 	const FColor VolumeColor = DebugIsClamping ? FColor(255, 90, 90) : FColor(90, 255, 120);
 
 	switch (DebugResolvedVolume.Shape)

@@ -38,7 +38,7 @@ void UComposableCameraAutoRotateNode::OnTickNode_Implementation(float DeltaTime,
 	else if (DirectionMode == EComposableCameraAutoRotateDirectionMode::ActorForward)
 	{
 		AActor* EffectivePrimaryActor = ComposableCameraSystem::ResolveActorInput(
-			PrimaryActorSource, PrimaryActor.Get(), GetOwningPlayerCameraManager());
+			PrimaryActorSource, PrimaryActor.Get(), GetOwningPlayerCameraManager(), this);
 		if (IsValid(EffectivePrimaryActor))
 		{
 			ResolvedDirection = EffectivePrimaryActor->GetActorForwardVector();
@@ -113,7 +113,7 @@ void UComposableCameraAutoRotateNode::OnTickNode_Implementation(float DeltaTime,
 		}
 		else
 		{
-			// No interpolator authored — teleport to the target boundary.
+			// No interpolator authored. Teleport to the target boundary.
 			OutCameraPose.Rotation = TargetRotation;
 		}
 

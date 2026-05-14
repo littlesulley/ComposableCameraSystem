@@ -7,7 +7,7 @@
 
 void UComposableCameraStartGraphNode::AllocateDefaultPins()
 {
-	// Single execution output pin — chains to the first camera node.
+	// Single execution output pin - chains to the first camera node.
 	// PN_ExecOut and the boilerplate live on UComposableCameraGraphNodeBase.
 	CreateExecOutPin();
 }

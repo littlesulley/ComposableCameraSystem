@@ -98,7 +98,7 @@ bool FContextStackEnsureTest::RunTest(const FString& Parameters)
 	UTEST_EQUAL("Stack depth is 1", TestWorld.ContextStack->GetStackDepth(), 1);
 	UTEST_TRUE("Active context is Gameplay", TestWorld.ContextStack->GetActiveContextName() == Setup.GameplayName);
 
-	// Ensure again — should return the same Director, not create a new one.
+	// Ensure again. Should return the same Director, not create a new one.
 	UComposableCameraDirector* SameDirector = TestWorld.ContextStack->EnsureContext(nullptr, Setup.GameplayName);
 	UTEST_EQUAL("Same Director returned on second ensure", SameDirector, GameplayDirector);
 	UTEST_EQUAL("Stack depth unchanged", TestWorld.ContextStack->GetStackDepth(), 1);
@@ -107,7 +107,7 @@ bool FContextStackEnsureTest::RunTest(const FString& Parameters)
 }
 
 // ============================================================================
-// Test: LIFO stack ordering — last pushed is active
+// Test: LIFO stack ordering. Last pushed is active
 // ============================================================================
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
@@ -124,23 +124,23 @@ bool FContextStackLIFOTest::RunTest(const FString& Parameters)
 	TestWorld.ContextStack->EnsureContext(nullptr, Setup.GameplayName);
 	UTEST_TRUE("Active is Gameplay", TestWorld.ContextStack->GetActiveContextName() == Setup.GameplayName);
 
-	// Push UI — should become active (last in, first out).
+	// Push UI. Should become active (last in, first out).
 	TestWorld.ContextStack->EnsureContext(nullptr, Setup.UIName);
 	UTEST_EQUAL("Stack depth is 2", TestWorld.ContextStack->GetStackDepth(), 2);
 	UTEST_TRUE("Active is UI (last pushed)", TestWorld.ContextStack->GetActiveContextName() == Setup.UIName);
 
-	// Push LevelSequence — should become active.
+	// Push LevelSequence. Should become active.
 	TestWorld.ContextStack->EnsureContext(nullptr, Setup.LevelSequenceName);
 	UTEST_EQUAL("Stack depth is 3", TestWorld.ContextStack->GetStackDepth(), 3);
 	UTEST_TRUE("Active is LevelSequence (last pushed)", TestWorld.ContextStack->GetActiveContextName() == Setup.LevelSequenceName);
 
-	// Pop LevelSequence — UI should become active.
+	// Pop LevelSequence -UI should become active.
 	TestWorld.ContextStack->PopActiveContext();
 	UTEST_EQUAL("Stack depth is 2 after pop", TestWorld.ContextStack->GetStackDepth(), 2);
 	UTEST_TRUE("Active is UI after pop", TestWorld.ContextStack->GetActiveContextName() == Setup.UIName);
 
 	// EnsureContext on a buried context moves it to top.
-	// Stack is [Gameplay, UI]. Ensure Gameplay → stack becomes [UI, Gameplay].
+	// Stack is [Gameplay, UI]. Ensure Gameplay ->stack becomes [UI, Gameplay].
 	UComposableCameraDirector* GameplayDir = TestWorld.ContextStack->EnsureContext(nullptr, Setup.GameplayName);
 	UTEST_NOT_NULL("Gameplay Director returned", GameplayDir);
 	UTEST_EQUAL("Stack depth unchanged", TestWorld.ContextStack->GetStackDepth(), 2);
@@ -202,12 +202,12 @@ bool FContextStackCannotPopBaseTest::RunTest(const FString& Parameters)
 	TestWorld.ContextStack->EnsureContext(nullptr, Setup.GameplayName);
 	UTEST_EQUAL("Stack depth is 1", TestWorld.ContextStack->GetStackDepth(), 1);
 
-	// Try to pop the only context — should be rejected.
+	// Try to pop the only context. Should be rejected.
 	TestWorld.ContextStack->PopContext(Setup.GameplayName);
 	UTEST_EQUAL("Stack depth still 1 after attempted pop", TestWorld.ContextStack->GetStackDepth(), 1);
 	UTEST_TRUE("Gameplay still active", TestWorld.ContextStack->GetActiveContextName() == Setup.GameplayName);
 
-	// Also try PopActiveContext — same result.
+	// Also try PopActiveContext. Same result.
 	TestWorld.ContextStack->PopActiveContext();
 	UTEST_EQUAL("Stack depth still 1 after PopActiveContext", TestWorld.ContextStack->GetStackDepth(), 1);
 

@@ -21,7 +21,7 @@
 #include "Patches/ComposableCameraPatchManager.h"
 #include "Patches/ComposableCameraPatchTypes.h"
 #include "GlobalRenderResources.h"
-#include "TextureResource.h"   // GWhiteTexture — needed as the shading source for FCanvasTriangleItem
+#include "TextureResource.h"   // GWhiteTexture. Needed as the shading source for FCanvasTriangleItem
 #include "Engine/Canvas.h"
 #include "Engine/Engine.h"
 #include "Engine/GameInstance.h"
@@ -37,11 +37,11 @@
 #include "Utils/ComposableCameraDebugFormatUtils.h"
 #include "Widgets/SViewport.h"
 
-// ─────────────────────────────────────────────────────────────────────
-// Debug panel — private implementation.
+// ---------------------------------------------------------------------
+// Debug panel. Private implementation.
 // Public surface is only Initialize() / Shutdown(); everything else
 // lives in an anonymous namespace in this translation unit.
-// ─────────────────────────────────────────────────────────────────────
+// ---------------------------------------------------------------------
 namespace
 {
 	// ---- Console variables ---------------------------------------------
@@ -65,7 +65,7 @@ namespace
 		TEXT("Show the color legend region at the bottom of the debug panel.\n")
 		TEXT("  0: legend region always hidden\n")
 		TEXT("  1: legend shown when at least one viewport debug CVar\n")
-		TEXT("     (CCS.Debug.Viewport.*) is enabled — lists a color swatch\n")
+		TEXT("     (CCS.Debug.Viewport.*) is enabled. Lists a color swatch\n")
 		TEXT("     and label for each currently-drawing gizmo so the user\n")
 		TEXT("     can match screen colors to node/transition names."),
 		ECVF_Default);
@@ -105,7 +105,7 @@ namespace
 		0,
 		TEXT("Toggle the right-side Pose History panel.\n")
 		TEXT("  0: disabled (draw delegate early-outs)\n")
-		TEXT("  1: enabled — draws 6 sparkline rows (Pos.X/Y/Z, Rot.P/Y/R)\n")
+		TEXT("  1: enabled. Draws 6 sparkline rows (Pos.X/Y/Z, Rot.P/Y/R)\n")
 		TEXT("     showing the last ~2 seconds of pose history, plus a\n")
 		TEXT("     mouse-hover scrub cursor that pops a tooltip with the\n")
 		TEXT("     pose at the hovered frame."),
@@ -119,7 +119,7 @@ namespace
 		ECVF_Default);
 
 	// ---- Visual constants ---------------------------------------------
-	// Alpha budget note: translucent canvas tiles COMPOUND — two 0.85-alpha
+	// Alpha budget note: translucent canvas tiles COMPOUND. Two 0.85-alpha
 	// layers stacked over the same pixel produce ~0.98 effective coverage,
 	// which reads as opaque. The panel therefore uses a single outer BG fill
 	// (content area has exactly one translucent layer = KPanelBGAlpha), with
@@ -162,7 +162,7 @@ namespace
 		Canvas->DrawItem(Box);
 	}
 
-	/** Measure a string's pixel width in the given font. Empty string → 0. */
+	/** Measure a string's pixel width in the given font. Empty string ->0. */
 	static float MeasureTextWidth(UCanvas* Canvas, UFont* Font, const FString& Text)
 	{
 		if (Text.IsEmpty()) { return 0.f; }
@@ -219,12 +219,12 @@ namespace
 		return Y + KLineH;
 	}
 
-	// ─────────────────────────────────────────────────────────────────
+	// -----------------------------------------------------------------
 	// Region definition + renderers.
 	// Each region is a static function that draws into a pre-computed
 	// content rect. Regions are sized by a sibling "height estimator"
 	// that inspects the PCM's live state.
-	// ─────────────────────────────────────────────────────────────────
+	// -----------------------------------------------------------------
 	struct FPanelCtx
 	{
 		UCanvas* Canvas                              = nullptr;
@@ -242,14 +242,14 @@ namespace
 	 *    2. Key/value: both `Label` and `Value` non-empty. The region renderer
 	 *       measures the pixel width of every Label in the region once, and
 	 *       draws each Value aligned to `BodyX + MaxLabelPx + KLabelValueGap`
-	 *       — so values line up under each other regardless of how wide the
+	 *      . So values line up under each other regardless of how wide the
 	 *       individual labels are. This is the only way to get clean
 	 *       vertical alignment in a proportional font; the previous approach
 	 *       of padding labels with spaces in the source only aligned on
 	 *       monospace fonts, which the debug panel does not use.
 	 *
 	 *  Two implicit constructors let call sites keep using brace-init:
-	 *    Out.Lines.Add({ TEXT("…"), Color });            // full-line
+	 *    Out.Lines.Add({ TEXT("-), Color });            // full-line
 	 *    Out.Lines.Add({ TEXT("Label"), TEXT("Value"), Color }); // KV
 	 */
 	struct FPanelLine
@@ -268,7 +268,7 @@ namespace
 	};
 
 	/** One labelled group inside the Current Pose region. The Pose region
-	 *  doesn't use the flat `Lines` path — it packs groups into two columns
+	 *  doesn't use the flat `Lines` path. It packs groups into two columns
 	 *  to keep the panel compact (a single column would push every other
 	 *  region ~15 lines further down). Each group renders as a `-- Header --`
 	 *  label followed by its own KV lines with per-group value alignment. */
@@ -306,7 +306,7 @@ namespace
 		float PoseBodyHeight     = 0.f;
 		int32 PoseLeftGroupCount = 0;
 
-		// Patches region — structured like Stack & Tree so each patch can
+		// Patches region. Structured like Stack & Tree so each patch can
 		// render a phase-colored identity row + two filled progress bars
 		// (Alpha / Time) instead of plain text. The snapshot is stashed here
 		// at build time and the renderer walks it in DrawPatchesStructured.
@@ -314,7 +314,7 @@ namespace
 		TArray<FComposableCameraPatchSnapshot> PatchSnapshots;
 		float PatchesBodyHeight   = 0.f;
 
-		// Warnings region reuses the plain Lines path — no new flag needed.
+		// Warnings region reuses the plain Lines path. No new flag needed.
 		// Each line carries its own verbosity-colored FLinearColor, which
 		// is exactly what Lines was built to express.
 	};
@@ -325,7 +325,7 @@ namespace
 	static constexpr float KTreeGutterThick        = 1.f;   // px stem thickness
 	static constexpr float KTreeElbowInset         = 4.f;   // px between elbow end and text start
 
-	// Row height for InnerTransition rows — taller than KLineH so the row
+	// Row height for InnerTransition rows. Taller than KLineH so the row
 	// can fit the timing-curve sparkline below the text line. Other row
 	// kinds (Leaf / ReferenceLeaf) stay at KLineH.
 	//
@@ -342,7 +342,7 @@ namespace
 	// space the row has. Without this cap the curve gets stretched across
 	// the full row width on wide panels, blowing the aspect ratio into a
 	// ~1:20+ flat landscape where no shape reads distinctly. Cap at 220
-	// so the curve stays in a ~1:10 aspect — narrow-ish, but legible.
+	// so the curve stays in a ~1:10 aspect. Narrow-ish, but legible.
 	// The whitespace to the right of the curve is intentional; users
 	// already read "how far along" from the inline percentage text and
 	// from the amber-vs-grey boundary in the columns themselves.
@@ -354,8 +354,8 @@ namespace
 
 	static const FLinearColor CTreeGutter     (0.55f, 0.45f, 0.75f, 0.55f);
 	static const FLinearColor CProgressBar    (0.75f, 0.55f, 0.15f, 0.35f); // amber underlay (progress), translucent
-	static const FLinearColor CCurveOutline   (1.00f, 0.92f, 0.70f, 0.90f); // warm cream — curve outline
-	static const FLinearColor CCurveAhead     (0.55f, 0.50f, 0.65f, 0.35f); // muted — "not yet reached" curve portion
+	static const FLinearColor CCurveOutline   (1.00f, 0.92f, 0.70f, 0.90f); // warm cream. Curve outline
+	static const FLinearColor CCurveAhead     (0.55f, 0.50f, 0.65f, 0.35f); // muted -"not yet reached" curve portion
 	static const FLinearColor CDominantBar    (0.35f, 0.80f, 0.55f, 0.25f); // green underlay for the dominant leaf
 	static const FLinearColor CBulletInactive (0.60f, 0.55f, 0.80f, 0.90f); // muted lilac for non-active context bullets
 
@@ -366,7 +366,7 @@ namespace
 	 *  both need, so factored into one helper.
 	 *
 	 *  `bShowCurve` reflects whether THIS context is the active (top-of-stack)
-	 *  one — during cross-context transitions the source/pending and target
+	 *  one. During cross-context transitions the source/pending and target
 	 *  contexts would otherwise both render full-height curve rows, doubling
 	 *  the visual noise. Only the active context shows curves; every other
 	 *  context collapses InnerTransition rows to a single-line progress
@@ -381,16 +381,16 @@ namespace
 	// ---- Region: Current Pose -----------------------------------------
 	/** Populate the Current Pose region as four labelled groups, laid out
 	 *  across two columns by the renderer:
-	 *    Left column  — Transform, Context
-	 *    Right column — Projection, Physical
+	 *    Left column  -Transform, Context
+	 *    Right column -Projection, Physical
 	 *
 	 *  Left/right split is controlled by `PoseLeftGroupCount`. The Physical
 	 *  group collapses to a single `Status: off` line when the pose's
 	 *  `PhysicalCameraBlendWeight <= 0` (the common case), so the right
-	 *  column stays short unless DoF / auto-exposure are actually active.
+	 *  column stays short unless DoF / exposure are actually active.
 	 *
 	 *  All reads go through the same public pose / POV accessors the
-	 *  single-column version used — no new state, no hot-path allocation
+	 *  single-column version used. No new state, no hot-path allocation
 	 *  concerns beyond the existing debug-panel baseline. */
 	static void BuildPoseGroups(const FPanelCtx& Ctx, FRegionLines& Out)
 	{
@@ -479,10 +479,10 @@ namespace
 		// ---- Physical (right) ----
 		//
 		// Three-way data source. The pose's Physical block is the "CCS-side
-		// physical contribution gate" — it only carries meaningful values
+		// physical contribution gate". It only carries meaningful values
 		// when a LensNode (or similar) has driven `PhysicalCameraBlendWeight`
 		// above 0. In the proxy-via-CineCamera path (e.g. Level Sequence
-		// Camera Cut Track → LS Actor → ViewTargetProxyNode writes the pose),
+		// Camera Cut Track ->LS Actor ->ViewTargetProxyNode writes the pose),
 		// the CineCamera already bakes DoF / exposure into PostProcessSettings
 		// itself, so the pose's BlendWeight stays 0 and the raw Aperture /
 		// Focus / ISO etc. fields keep their struct defaults (not real values).
@@ -490,12 +490,12 @@ namespace
 		// CineCamera on the PCM's current view target and read physical info
 		// straight off it.
 		//
-		//   1. `PhysicalCameraBlendWeight > 0`     → pose-driven (6 rows).
+		//   1. `PhysicalCameraBlendWeight > 0`     ->pose-driven (6 rows).
 		//   2. BlendWeight == 0 AND ViewTarget has UCineCameraComponent
-		//                                           → CineCamera-driven (6 rows).
-		//   3. neither                              → single "Status: off" row.
+		//                                           ->CineCamera-driven (6 rows).
+		//   3. neither                              ->single "Status: off" row.
 		{
-			const bool bPoseDriven = (Pose.PhysicalCameraBlendWeight > 0.f);
+			const bool bPoseDriven = (Pose.PhysicalCameraBlendWeight > 0.f || Pose.ExposureBlendWeight > 0.f);
 
 			UCineCameraComponent* CineCam = nullptr;
 			if (!bPoseDriven)
@@ -506,7 +506,7 @@ namespace
 				}
 			}
 
-			// Header discriminator — the "(CineCamera)" suffix makes the
+			// Header discriminator. The "(CineCamera)" suffix makes the
 			// data source visible at a glance without spending an extra
 			// full row on a "Source:" line.
 			FPoseGroup& Phys = AddGroup(
@@ -517,7 +517,10 @@ namespace
 			if (bPoseDriven)
 			{
 				B.Reset(); B.Appendf(TEXT("%.2f"), Pose.PhysicalCameraBlendWeight);
-				Phys.Lines.Add({ TEXT("Weight"), FString(B), CValue });
+				Phys.Lines.Add({ TEXT("DoF Weight"), FString(B), CValue });
+
+				B.Reset(); B.Appendf(TEXT("%.2f"), Pose.ExposureBlendWeight);
+				Phys.Lines.Add({ TEXT("Exposure Wt"), FString(B), CValue });
 
 				B.Reset(); B.Appendf(TEXT("f/%.1f"), Pose.Aperture);
 				Phys.Lines.Add({ TEXT("Aperture"), FString(B), CValue });
@@ -533,10 +536,14 @@ namespace
 				}
 				Phys.Lines.Add({ TEXT("Focus"), FString(B), CValue });
 
-				B.Reset(); B.Appendf(TEXT("%.0f"), Pose.ISO);
+				B.Reset();
+				if (Pose.ExposureBlendWeight > 0.f) { B.Appendf(TEXT("%.0f"), Pose.ISO); }
+				else                                { B.Append(TEXT("auto")); }
 				Phys.Lines.Add({ TEXT("ISO"), FString(B), CValue });
 
-				B.Reset(); B.Appendf(TEXT("1/%.0fs"), Pose.ShutterSpeed);
+				B.Reset();
+				if (Pose.ExposureBlendWeight > 0.f) { B.Appendf(TEXT("1/%.0fs"), Pose.ShutterSpeed); }
+				else                                { B.Append(TEXT("auto")); }
 				Phys.Lines.Add({ TEXT("Shutter"), FString(B), CValue });
 
 				B.Reset(); B.Appendf(TEXT("%.1f x %.1f mm"), Pose.SensorWidth, Pose.SensorHeight);
@@ -547,7 +554,7 @@ namespace
 				// Focal length is in the Physical group on this branch (not
 				// the Projection group's `FOV (from Nmm)` annotation) because
 				// the proxy writes FOV in degrees-mode via SetFieldOfViewDegrees
-				// — the pose no longer knows the underlying focal length, but
+				//. The pose no longer knows the underlying focal length, but
 				// the CineCamera still does and it's physical-optics info.
 				B.Reset(); B.Appendf(TEXT("%.1f mm"), CineCam->CurrentFocalLength);
 				Phys.Lines.Add({ TEXT("Focal"), FString(B), CValue });
@@ -559,8 +566,7 @@ namespace
 				Phys.Lines.Add({ TEXT("Focus"), FString(B), CValue });
 
 				// ISO / Shutter on a CineCamera come from PostProcessSettings
-				// overrides. No override = engine default / auto-exposure —
-				// show "auto" rather than the uninitialized numeric slot.
+				// overrides. No override = engine default / auto-exposure -				// show "auto" rather than the uninitialized numeric slot.
 				const FPostProcessSettings& PP = CineCam->PostProcessSettings;
 
 				B.Reset();
@@ -580,7 +586,7 @@ namespace
 			}
 			else
 			{
-				// Collapsed form — pose has no physical contribution and the
+				// Collapsed form. Pose has no physical contribution and the
 				// view target isn't a CineCamera we could mine data from.
 				Phys.Lines.Add({ TEXT("Status"), TEXT("off"), CNeutral });
 			}
@@ -631,16 +637,16 @@ namespace
 	 *
 	 *  Layout of an InnerTransition row (RowH = KTreeTransitionLineH = 22):
 	 *    [ LineY                    ] text line (KLineH = 13 tall)
-	 *    [ LineY + KLineH + pad ↓   ] curve area: amber area-under-curve up
+	 *    [ LineY + KLineH + pad ->  ] curve area: amber area-under-curve up
 	 *                                 to TransitionProgress + cream outline
 	 *                                 polyline across the whole [0..1] span
 	 *
-	 *  Leaf / ReferenceLeaf rows are single-line (RowH = KLineH) — they only
+	 *  Leaf / ReferenceLeaf rows are single-line (RowH = KLineH). They only
 	 *  get the dominant-leaf highlight underlay. `RowH` lets the function
 	 *  know how much vertical space it owns without re-deriving it.
 	 *
 	 *  Disambiguation policy (unchanged):
-	 *   - Tree connectors (├ └ │) are drawn by the caller as geometric rects.
+	 *   - Tree connectors (`|/L``|/L``|/L` are drawn by the caller as geometric rects.
 	 *   - RefLeaf uses `[ref]` label prefix. Dominant leaf is green underlay
 	 *     + CActiveMarker text color. No `*` / `->` glyphs overloaded. */
 	static void DrawTreeNodeLine(
@@ -676,9 +682,9 @@ namespace
 				//    samples[i] and samples[i+1]; bottom = CurveBottom),
 				//    rendered as two triangles submitted together in
 				//    one FCanvasTriangleItem. Produces a genuine
-				//    continuous-looking fill — the top edge is literally
+				//    continuous-looking fill. The top edge is literally
 				//    the piecewise-linear reconstruction of the snapshot
-				//    curve, no staircasing. 24 intervals × 2 tris = 48
+				//    curve, no staircasing. 24 intervals x 2 tris = 48
 				//    tris per transition per frame; if the interval
 				//    containing ProgressX splits for the amber/ahead
 				//    boundary, up to 4 tris for that one interval (so
@@ -735,7 +741,7 @@ namespace
 					}
 					else
 					{
-						// Split the interval at ProgressX — two trapezoids,
+						// Split the interval at ProgressX. Two trapezoids,
 						// meeting at (ProgressX, Ymid) where Ymid is the
 						// linear interpolation of Y0..Y1 at ProgressX.
 						const float T    = (ProgressX - X0) / (X1 - X0);
@@ -747,7 +753,7 @@ namespace
 
 				if (FillTris.Num() > 0)
 				{
-					// FCanvasTriangleItem takes a default TArray — copy
+					// FCanvasTriangleItem takes a default TArray. Copy
 					// the inline-allocated list once here. Cheap; triangle
 					// count is bounded by ~50.
 					TArray<FCanvasUVTri> TriList(FillTris);
@@ -756,7 +762,7 @@ namespace
 					Canvas->DrawItem(TriItem);
 				}
 
-				// 2. Curve outline — thin polyline on top so the line
+				// 2. Curve outline. Thin polyline on top so the line
 				//    reads clearly above the filled area. The outline is
 				//    the same set of 24 segments the trapezoid tops use,
 				//    so the two are pixel-aligned.
@@ -810,13 +816,12 @@ namespace
 		// Role within parent transition.
 		//   In the ACTIVE tree the ONLY parent type is Inner (transition), so
 		//   any non-root node is necessarily a child of a transition. Its role
-		//   ("source" vs "target") is trivially `Left → bIsLastSibling=false`,
-		//   `Right → bIsLastSibling=true` — no extra snapshot field needed.
+		//   ("source" vs "target") is trivially `Left ->bIsLastSibling=false`,
+		//   `Right ->bIsLastSibling=true`. No extra snapshot field needed.
 		//   Root nodes (Depth == 0) have no role and print without prefix.
 		//   EXCEPTION: when a RefLeaf inlines its referenced subtree, the
 		//   direct child of the RefLeaf (tagged `bIsReferencedRoot`) sits at
-		//   Depth > 0 but its parent is a ReferenceLeaf, not a transition —
-		//   so no source/target role applies and the prefix is suppressed.
+		//   Depth > 0 but its parent is a ReferenceLeaf, not a transition -		//   so no source/target role applies and the prefix is suppressed.
 		const TCHAR* RolePrefix = TEXT("");
 		if (TN.Depth > 0 && !TN.bIsReferencedRoot)
 		{
@@ -925,7 +930,7 @@ namespace
 			const bool bShowCurve = Ctxt.bIsActive;
 
 			// Context bullet: every context gets one for visual alignment, color
-			// encodes state (pending → red, active → cyan, live-inactive → lilac).
+			// encodes state (pending->red, active->cyan, live-inactive->lilac).
 			// The constant left inset means context names line up vertically
 			// across the entire stack, and state reads from the bullet alone.
 			FLinearColor BulletColor;
@@ -955,19 +960,19 @@ namespace
 			Y += KLineH;
 
 			// Tree nodes (DFS pre-order, flattened). Draw proper geometric
-			// `├ / └ / │` connectors using bIsLastSibling + AncestorLastFlagsBitmask.
+			// ``|/L`/ `|/L`/  connectors using bIsLastSibling + AncestorLastFlagsBitmask.
 			//
 			//   Rules:
 			//     - For each column L in [0, Depth-2]: draw a continuation stem
-			//       `│` iff bit (L+1) of AncestorLastFlagsBitmask is 0, i.e. the
+			//       ` iff bit (L+1) of AncestorLastFlagsBitmask is 0, i.e. the
 			//       ancestor at depth L+1 was NOT the last child of its parent.
 			//     - At column Depth-1: draw the node's own connector:
-			//         └ (last sibling): half-height stem top→mid + horizontal mid tick
-			//         ├ (middle child): full-height stem top→bottom + horizontal mid tick
+			//         `|/L`(last sibling): half-height stem topid + horizontal mid tick
+			//         `|/L`(middle child): full-height stem topottom + horizontal mid tick
 			//     - Root (Depth == 0): no connectors.
 			for (const FComposableCameraTreeNodeSnapshot& TN : Ctxt.TreeNodes)
 			{
-				// Row height depends on node kind — InnerTransition rows
+				// Row height depends on node kind -InnerTransition rows
 				// are taller because they host the blend-curve sparkline,
 				// but only in the active context (see `bShowCurve` above).
 				const float RowH = GetTreeNodeRowHeight(TN, bShowCurve);
@@ -997,20 +1002,20 @@ namespace
 					}
 				}
 
-				// Own connector at column Depth-1 — guard against narrow panels.
+				// Own connector at column Depth-1. Guard against narrow panels.
 				if (TN.Depth > 0)
 				{
 					const float StemX = X + KTreeGutterInset + (TN.Depth - 1) * KTreeIndentPx;
 					if (StemX + KTreeGutterThick <= RightX)
 					{
-						// bIsLastSibling (└): stem from top down to text mid.
-						// Middle child (├): stem spans the full row height.
+						// bIsLastSibling (`|/L`: stem from top down to text mid.
+						// Middle child (`|/L`: stem spans the full row height.
 						const float StemH = TN.bIsLastSibling ? (TextMidY - Y) : RowH;
 						DrawFilledRect(Canvas,
 							FVector2D(StemX, Y),
 							FVector2D(KTreeGutterThick, StemH),
 							CTreeGutter);
-						// Elbow tick — aligned with text mid, clipped to available width.
+						// Elbow tick. Aligned with text mid, clipped to available width.
 						const float ElbowMaxW = FMath::Min(KTreeIndentPx, RightX - StemX);
 						if (ElbowMaxW > 0.f)
 						{
@@ -1056,23 +1061,23 @@ namespace
 				CValue });
 		}
 
-		// Node list — walked in EXECUTION ORDER, not CameraNodes-array index
+		// Node list. Walked in EXECUTION ORDER, not CameraNodes-array index
 		// order. The camera's tick loop in `AComposableCameraCameraBase::TickCamera`
 		// walks `FullExecChain` (editor-built from graph exec-pin wiring) when
 		// it's populated, so the Panel's display matches what the runtime
 		// actually does. Falls back to linear CameraNodes order when
-		// FullExecChain is absent — matches the same fallback in TickCamera
+		// FullExecChain is absent. Matches the same fallback in TickCamera
 		// so legacy / non-type-asset cameras still show correctly.
 		//
 		// Step numbers ([1], [2], ...) are 1-based execution positions, NOT
-		// CameraNodes array indices — an earlier iteration used the array
+		// CameraNodes array indices. An earlier iteration used the array
 		// index which caused user confusion when the graph's exec wiring
 		// ordered nodes differently from how they were added to the array.
 		//
 		// SetVariable exec-chain entries are shown as indented subtle lines
-		// (→ arrow) interleaved between node steps so the user can see
+		// (->arrow) interleaved between node steps so the user can see
 		// "after this node runs, copy its output pin into this variable"
-		// — matching the camera's tick interleave exactly.
+		//. Matching the camera's tick interleave exactly.
 
 		const bool bHasDataBlock = Camera->OwnedRuntimeDataBlock && Camera->OwnedRuntimeDataBlock->IsValid();
 		const FComposableCameraRuntimeDataBlock* DBForOutputs = bHasDataBlock
@@ -1089,7 +1094,7 @@ namespace
 
 			// Emit output-pin values for this node. GatherAllPinDeclarations
 			// is non-const on the base (it calls the BlueprintNativeEvent
-			// GetPinDeclarations), so const_cast — same pattern editor-side
+			// GetPinDeclarations), so const_cast. Same pattern editor-side
 			// SnapshotDebugState uses. The call is semantically read-only,
 			// it just fills the OutPins array we pass in.
 			if (!DBForOutputs) { return; }
@@ -1118,7 +1123,7 @@ namespace
 
 		if (Camera->FullExecChain.Num() > 0)
 		{
-			// Exec-chain path — the canonical order the camera actually ticks in.
+			// Exec-chain path. The canonical order the camera actually ticks in.
 			// Count nodes + count SetVariable entries separately for the header.
 			int32 NodeStepsInChain = 0;
 			int32 SetVarStepsInChain = 0;
@@ -1172,7 +1177,7 @@ namespace
 		else
 		{
 			// Fallback: FullExecChain absent (legacy / non-type-asset camera).
-			// Walk CameraNodes linearly — matches the fallback branch in
+			// Walk CameraNodes linearly. Matches the fallback branch in
 			// TickCamera exactly.
 			int32 NodeCount = 0;
 			for (const UComposableCameraCameraNodeBase* Node : Camera->CameraNodes) { if (Node) { ++NodeCount; } }
@@ -1261,7 +1266,7 @@ namespace
 			// keys: byte `Storage` for POD slots (offset < StructSlotsOffsetBase)
 			// and the typed `StructSlots` array for non-POD struct slots
 			// (offset >= StructSlotsOffsetBase, indexed by Offset - base). Sizes
-			// must be computed differently per pool — POD slot size is the
+			// must be computed differently per pool -POD slot size is the
 			// distance to the next consecutive POD offset (with `Storage.Num()`
 			// as the upper bound for the last POD slot), struct slot size is
 			// the struct's own `GetStructureSize()`. Subtracting a struct-pool
@@ -1299,7 +1304,7 @@ namespace
 				int32 Size = 0;
 				if (DB.IsStructSlotOffset(Start))
 				{
-					// Struct-pool slot — query the typed FInstancedStruct for
+					// Struct-pool slot. Query the typed FInstancedStruct for
 					// its actual struct size. Layout-padding context doesn't
 					// apply here (each slot owns its own heap allocation).
 					const FInstancedStruct& Instance = DB.GetStructSlotChecked(Start);
@@ -1311,8 +1316,7 @@ namespace
 				else
 				{
 					// POD slot. Look at the next sorted slot to bound the
-					// size, but only if that next slot is also a POD slot —
-					// otherwise we're at the boundary between the two pools
+					// size, but only if that next slot is also a POD slot -					// otherwise we're at the boundary between the two pools
 					// and must use `Storage.Num()` as the upper bound to
 					// avoid the cross-pool phantom-size bug.
 					int32 NextBoundary = DB.Storage.Num();
@@ -1392,16 +1396,16 @@ namespace
 	// ---- Region: Actions ----------------------------------------------
 	//
 	// Three lines per action:
-	//   1. <ClassName>  <scope>   — name + camera/persistent
-	//   2. exec: <Phase> [-> TargetNode]  — when it fires, and for node-
+	//   1. <ClassName>  <scope>  . Name + camera/persistent
+	//   2. exec: <Phase> [->TargetNode] . When it fires, and for node-
 	//      scoped phases the target node class it runs around
-	//   3. expire: <bitmask summary>  — which expiration rules are on,
+	//   3. expire: <bitmask summary> . Which expiration rules are on,
 	//      with ElapsedTime/Duration fraction for the Duration bit
 	//
 	// Keeps every field public-API accessible: ExecutionType / TargetNodeClass
 	// / ExpirationType bits / Duration are all EditAnywhere UPROPERTYs;
 	// ElapsedTime is the only thing that needed a getter exposing (added
-	// as a BlueprintPure getter on the action base — zero runtime cost,
+	// as a BlueprintPure getter on the action base. Zero runtime cost,
 	// debug-only consumer).
 	static const TCHAR* ActionExecToStr(EComposableCameraActionExecutionType Exec)
 	{
@@ -1453,7 +1457,7 @@ namespace
 		const TSet<UComposableCameraActionBase*>& Actions = Ctx.PCM->CameraActions;
 
 		// Header with count so user sees "(0)" vs "(none)" distinction
-		// — makes it clear whether the set is populated at all.
+		//. Makes it clear whether the set is populated at all.
 		Out.Lines.Add({ FString::Printf(TEXT("Actions  (%d)"), Actions.Num()), CLabel });
 		if (Actions.Num() == 0)
 		{
@@ -1483,7 +1487,7 @@ namespace
 			{
 				const FString TargetName = Action->TargetNodeClass
 					? Action->TargetNodeClass->GetName()
-					: TEXT("(null — action will be ignored)");
+					: TEXT("(null. Action will be ignored)");
 				ExecLine = FString::Printf(TEXT("    exec:   %s -> %s"),
 					ActionExecToStr(Exec), *TargetName);
 			}
@@ -1510,17 +1514,16 @@ namespace
 	//   1. "Effective (N)": what's actually driving the running camera
 	//      right now. One line per node class, showing the winning
 	//      modifier (highest priority whose tag matches the camera).
-	//   2. "All (M)": every registered modifier grouped by [CameraTag] →
-	//      [NodeClass] → modifier entries. The one marked `[*]` inside
-	//      each node-class group is the effective winner — makes "why
+	//   2. "All (M)": every registered modifier grouped by [CameraTag] ->	//      [NodeClass] ->modifier entries. The one marked `[*]` inside
+	//      each node-class group is the effective winner. Makes "why
 	//      is my modifier not applying?" trivially answerable (look for
 	//      a [*] mark on a different modifier of the same node class).
 	//
 	// Color convention:
-	//   CLabel    — section / group headers
-	//   CValue    — modifier body lines
-	//   CActiveMarker — effective entry (both in section 1, and `[*]` lines in section 2)
-	//   CNeutral  — empty-state "(none)" placeholders
+	//   CLabel   . Section / group headers
+	//   CValue   . Modifier body lines
+	//   CActiveMarker. Effective entry (both in section 1, and `[*]` lines in section 2)
+	//   CNeutral . Empty-state "(none)" placeholders
 	static void BuildModifiersLines(const FPanelCtx& Ctx, FRegionLines& Out)
 	{
 		Out.Title = TEXT("Modifiers");
@@ -1610,7 +1613,7 @@ namespace
 
 				// Find the effective modifier for this node class so we
 				// can mark the winner with [*] inline. Effective is a flat
-				// NodeClass → Entry map (one entry per node class, camera-tag
+				// NodeClass ->Entry map (one entry per node class, camera-tag
 				// is already factored in by UpdateEffectiveModifiers), so
 				// the comparison uses FModifierEntry::operator==.
 				const FModifierEntry* EffForNode = Effective.Find(NodeClass);
@@ -1635,18 +1638,18 @@ namespace
 	//
 	// Three lines per patch, designed to read at a glance:
 	//
-	//   ▸ AssetName              L0    Active     a 1.00
+	//   ?AssetName              L0    Active     a 1.00
 	//       7.39 / 10.00 s   active (74%)
-	//       expire   Duration · Manual · Condition  +CamChange
+	//       expire   Duration * Manual * Condition  +CamChange
 	//
 	// Visual hierarchy:
-	//   Line 1 — phase-colored (cyan/green/amber/red), highest weight, contains
+	//   Line 1. Phase-colored (cyan/green/amber/red), highest weight, contains
 	//            asset identity + key state fields. The line color makes the
 	//            patch's lifecycle phase readable in one glance even with many
 	//            patches active simultaneously.
-	//   Line 2 — neutral (dim), timing data with progress percentage.
-	//   Line 3 — neutral, expiration channels spelled out (Duration / Manual /
-	//            Condition) rather than D·M·C glyphs — the panel is wide enough
+	//   Line 2. Neutral (dim), timing data with progress percentage.
+	//   Line 3. Neutral, expiration channels spelled out (Duration / Manual /
+	//            Condition) rather than D*M*C glyphs. The panel is wide enough
 	//            to fit the words, and they read as English instead of cipher.
 	//            Skipped entirely when no channels are enabled and OnCameraChange
 	//            is off.
@@ -1680,8 +1683,7 @@ namespace
 	}
 
 	// Emit "X.YY / Z.ZZ s   <action> (NN%)" for the timing line. Action label is
-	// chosen by phase: Entering → "enter", Exiting → "exit", Active+Duration →
-	// "active", Active+no-Duration → just elapsed. Returns empty if there's no
+	// chosen by phase: Entering ->"enter", Exiting ->"exit", Active+Duration ->	// "active", Active+no-Duration ->just elapsed. Returns empty if there's no
 	// meaningful timing (no duration on Active without channel).
 	static FString FormatPatchTimingLine(const FComposableCameraPatchSnapshot& P)
 	{
@@ -1714,7 +1716,7 @@ namespace
 		return FString();
 	}
 
-	// Spelled-out channel names joined by " · ". Plus suffix " +CamChange" if
+	// Spelled-out channel names joined by " * ". Plus suffix " +CamChange" if
 	// the auxiliary flag is set. Returns empty when no channel and no flag.
 	static FString FormatPatchExpirationLine(const FComposableCameraPatchSnapshot& P)
 	{
@@ -1723,7 +1725,7 @@ namespace
 		if (P.ExpirationType & static_cast<uint8>(EComposableCameraPatchExpirationType::Manual))    Channels.Add(TEXT("Manual"));
 		if (P.ExpirationType & static_cast<uint8>(EComposableCameraPatchExpirationType::Condition)) Channels.Add(TEXT("Condition"));
 
-		FString Out = FString::Join(Channels, TEXT(" · "));
+		FString Out = FString::Join(Channels, TEXT(" * "));
 		if (P.bExpireOnCameraChange)
 		{
 			if (!Out.IsEmpty()) Out += TEXT("  ");
@@ -1794,7 +1796,7 @@ namespace
 		Out.Title      = TEXT("Patches");
 		Out.bIsPatches = true;
 
-		// Source 1 — BP path: PCM → ContextStack → ActiveDirector → PatchManager.
+		// Source 1 -BP path: PCM->ContextStack ->ActiveDirector->PatchManager.
 		// One snapshot row per patch added via UComposableCameraBlueprintLibrary::AddCameraPatch.
 		const UComposableCameraContextStack* Stack = Ctx.PCM->GetContextStack();
 		UComposableCameraDirector* Director = Stack ? Stack->GetActiveDirector() : nullptr;
@@ -1803,12 +1805,12 @@ namespace
 			Manager->BuildDebugSnapshot(Out.PatchSnapshots);
 		}
 
-		// Source 2 — Sequencer path: walk every UComposableCameraLevelSequenceComponent
+		// Source 2 -Sequencer path: walk every UComposableCameraLevelSequenceComponent
 		// in the world and ask it for its registered overlays. Sequencer-driven
 		// patches don't go through PatchManager (they live on the LS Component's
 		// SequencerPatchOverlays map and apply directly to the bound CineCamera);
 		// merging here is what makes them visible in the debug panel.
-		// Iteration cost is cheap — typical scene has 0-2 LS Actors active at
+		// Iteration cost is cheap. Typical scene has 0-2 LS Actors active at
 		// once.
 		if (UWorld* World = Ctx.PCM->GetWorld())
 		{
@@ -1829,12 +1831,12 @@ namespace
 	/**
 	 * Render a single progress bar row: "Label  [bar      ] value".
 	 *
-	 * Layout (left → right, pixel offsets from BarOriginX):
-	 *   [0 .. LabelW)                                    — label text
-	 *   [LabelW .. BarRight)                             — bar (bg + filled fill + outline)
-	 *   [BarRight + gap .. RightX)                       — value text, right-aligned
+	 * Layout (left->right, pixel offsets from BarOriginX):
+	 *   [0 .. LabelW)                                   . Label text
+	 *   [LabelW .. BarRight)                            . Bar (bg + filled fill + outline)
+	 *   [BarRight + gap .. RightX)                      . Value text, right-aligned
 	 *
-	 * The bar's background alpha is 0.15 and the fill alpha is 0.75 — same
+	 * The bar's background alpha is 0.15 and the fill alpha is 0.75. Same
 	 * ratio the Stack & Tree transition row uses, so the visual weight of
 	 * "how much is done" versus "total length" reads consistently.
 	 */
@@ -1854,7 +1856,7 @@ namespace
 		const float BarRight = FMath::Max(BarX, ValueX - KPatchBarValueGap);
 		const float BarW    = BarRight - BarX;
 
-		// Label (neutral — the bar carries the phase color).
+		// Label (neutral. The bar carries the phase color).
 		DrawTextLineClipped(Canvas, Font, LabelText,
 			LabelX, RowY + KPatchBarTopInset - 4.f, LabelX + KPatchBarLabelW, CNeutral);
 
@@ -1874,7 +1876,7 @@ namespace
 			DrawBorder(Canvas, FVector2D(BarX, BarY), FVector2D(BarW, KPatchBarHeight), BarBorderColor, 1.f);
 		}
 
-		// Value (numeric) — right-aligned.
+		// Value (numeric). Right-aligned.
 		DrawTextLineClipped(Canvas, Font, ValueText,
 			ValueX, RowY + KPatchBarTopInset - 4.f, RightX, CNeutral);
 	}
@@ -1883,17 +1885,17 @@ namespace
 	 * Render the Patches region. For each patch:
 	 *   Row A: phase-colored identity text line ("> AssetName  L0  Active").
 	 *   Row B: "Alpha  [bar] 1.00" progress bar.
-	 *   Row C: "Time   [bar] X.XX / Y.YY s" — only when a meaningful denominator
+	 *   Row C: "Time   [bar] X.XX / Y.YY s". Only when a meaningful denominator
 	 *          exists (Entering/EnterDuration, Exiting/ExitDuration,
 	 *          Active/Duration-channel).
-	 *   Row D: "Expire  Duration · Manual · Condition  +CamChange" — only when
+	 *   Row D: "Expire  Duration * Manual * Condition  +CamChange". Only when
 	 *          at least one channel or the OnCameraChange flag is on.
 	 *
 	 * The Time bar progress semantic matches the phase's natural direction:
-	 *   Entering  → ElapsedInPhase / EnterDuration (fills up as it enters)
-	 *   Exiting   → ElapsedInPhase / ExitDuration  (fills up as it exits;
+	 *   Entering->ElapsedInPhase / EnterDuration (fills up as it enters)
+	 *   Exiting->ElapsedInPhase / ExitDuration  (fills up as it exits;
 	 *               author reads "how far through the fade-out I am")
-	 *   Active    → ElapsedTimeActive / Duration   (fills up toward expiration)
+	 *   Active->ElapsedTimeActive / Duration   (fills up toward expiration)
 	 */
 	static void DrawPatchesStructured(
 		const FPanelCtx& Ctx,
@@ -1926,12 +1928,12 @@ namespace
 			const EComposableCameraPatchPhase Phase = static_cast<EComposableCameraPatchPhase>(P.Phase);
 			const FLinearColor Hue = PatchPhaseColor(Phase);
 
-			// Row A — identity.
+			// Row A. Identity.
 			// Source-tag prefix lets the designer tell BP-driven patches from
 			// Sequencer-driven overlays at a glance. "[Seq] AssetName on Actor"
 			// for Sequencer overlays since multiple LS Actors can have overlapping
 			// patches and the host actor name disambiguates them; bare AssetName
-			// for the BP path (PatchManager / Director-scoped — no host needed).
+			// for the BP path (PatchManager / Director-scoped. No host needed).
 			FString IdLine;
 			if (P.Source == EComposableCameraPatchSource::Sequencer)
 			{
@@ -1946,13 +1948,13 @@ namespace
 			DrawTextLineClipped(Canvas, Font, IdLine, BodyPos.X, CursorY, RightX, Hue);
 			CursorY += KPatchIdentityRowH + KPatchInterRowGap;
 
-			// Row B — Alpha bar (always).
+			// Row B -Alpha bar (always).
 			const float BarOriginX = BodyPos.X + KPatchBarIndentPx;
 			DrawPatchBarRow(Ctx, BarOriginX, CursorY, RightX,
 				TEXT("Alpha"), P.Alpha, FString::Printf(TEXT("%.2f"), P.Alpha), Hue);
 			CursorY += KPatchBarRowH + KPatchInterRowGap;
 
-			// Row C — Time bar (conditional).
+			// Row C -Time bar (conditional).
 			if (PatchHasTimeBar(P, Phase))
 			{
 				float Elapsed = 0.f, Total = 0.f;
@@ -1976,7 +1978,7 @@ namespace
 				CursorY += KPatchBarRowH + KPatchInterRowGap;
 			}
 
-			// Row D — Expire (conditional).
+			// Row D -Expire (conditional).
 			if (PatchHasExpire(P))
 			{
 				const FString Line = FString::Printf(TEXT("    Expire   %s"),
@@ -2039,7 +2041,7 @@ namespace
 			}
 
 			// Strip the "LogComposableCamera" prefix to save horizontal
-			// space — every line has the same prefix, so the remaining
+			// space. Every line has the same prefix, so the remaining
 			// suffix (`System` / `SystemEditor`) is what's distinguishing.
 			FString CatShort = Entry.CategoryName.ToString();
 			if (CatShort.StartsWith(TEXT("LogComposableCamera")))
@@ -2067,14 +2069,13 @@ namespace
 	// ---- Region: Legend -----------------------------------------------
 	//
 	// Matches screen colors to node/transition names. Populated from a
-	// static table of (label, color, CVar-name, is-transition) tuples —
-	// entries whose CVar is zero (AND the corresponding `.All` CVar is
+	// static table of (label, color, CVar-name, is-transition) tuples -	// entries whose CVar is zero (AND the corresponding `.All` CVar is
 	// zero) are filtered out, so the legend shrinks to the set of gizmos
 	// the user has actually enabled.
 	//
 	// Colors duplicated from each per-node / per-transition draw site.
 	// When a new gizmo is added elsewhere, add its entry here too.
-	// (No central color registry yet — if one gets built later, this
+	// (No central color registry yet. If one gets built later, this
 	// table is the natural consumer.)
 	struct FLegendEntry
 	{
@@ -2085,8 +2086,8 @@ namespace
 	};
 
 	static const FLegendEntry KLegendEntries[] = {
-		// Transitions — accent color used for both the progress sphere and
-		// the path polyline. See TechDoc.md §3.20.4 "Accent-color reservation policy".
+		// Transitions. Accent color used for both the progress sphere and
+		// the path polyline. See TechDoc.md Section 3.20.4 "Accent-color reservation policy".
 		{ TEXT("Linear"),             FLinearColor(200.f / 255.f, 200.f / 255.f, 200.f / 255.f, 1.f), TEXT("CCS.Debug.Viewport.Transitions.Linear"),             true },
 		{ TEXT("Smooth"),             FLinearColor(255.f / 255.f, 220.f / 255.f, 100.f / 255.f, 1.f), TEXT("CCS.Debug.Viewport.Transitions.Smooth"),             true },
 		{ TEXT("Ease"),               FLinearColor(255.f / 255.f, 160.f / 255.f,  80.f / 255.f, 1.f), TEXT("CCS.Debug.Viewport.Transitions.Ease"),               true },
@@ -2097,7 +2098,7 @@ namespace
 		{ TEXT("PathGuided"),         FLinearColor(255.f / 255.f, 130.f / 255.f, 130.f / 255.f, 1.f), TEXT("CCS.Debug.Viewport.Transitions.PathGuided"),         true },
 		{ TEXT("DynamicDeocclusion"), FLinearColor(255.f / 255.f,  90.f / 255.f,  90.f / 255.f, 1.f), TEXT("CCS.Debug.Viewport.Transitions.DynamicDeocclusion"), true },
 
-		// Nodes — colors taken from each node's DrawNodeDebug override.
+		// Nodes. Colors taken from each node's DrawNodeDebug override.
 		{ TEXT("PivotOffset"),          FLinearColor(1.f,        1.f,        0.f,        1.f), TEXT("CCS.Debug.Viewport.PivotOffset"),          false },  // Yellow
 		{ TEXT("PivotDamping"),         FLinearColor(1.f,        0.f,        1.f,        1.f), TEXT("CCS.Debug.Viewport.PivotDamping"),         false },  // Magenta
 		{ TEXT("LookAt"),               FLinearColor(0.f,        1.f,        1.f,        1.f), TEXT("CCS.Debug.Viewport.LookAt"),               false },  // Cyan
@@ -2114,7 +2115,7 @@ namespace
 		{ TEXT("ScreenSpaceConstr."),   FLinearColor(255.f/255.f,180.f/255.f,220.f/255.f, 1.f), TEXT("CCS.Debug.Viewport.ScreenSpaceConstraints"),false },  // Pink
 	};
 
-	// Universal transition endpoint markers — source/target colors painted
+	// Universal transition endpoint markers. Source/target colors painted
 	// by DrawStandardTransitionDebug. Only relevant when at least one
 	// transition CVar is on, so we gate these on ShouldShowAllTransitionGizmos()
 	// OR any per-transition entry being enabled.
@@ -2122,7 +2123,7 @@ namespace
 	static const FLinearColor CLegendTarget  (80.f / 255.f, 170.f / 255.f, 255.f / 255.f, 1.f);
 
 	/** Read an int32 CVar by name. Returns false if the CVar doesn't exist
-	 *  or is zero. String lookup is done fresh each call — fine at legend
+	 *  or is zero. String lookup is done fresh each call. Fine at legend
 	 *  frequency (at most ~20 lookups per frame). */
 	static bool IsCVarEnabled(const TCHAR* Name)
 	{
@@ -2131,7 +2132,7 @@ namespace
 		return CVar && CVar->GetInt() != 0;
 	}
 
-	/** True when at least one transition gizmo is currently drawing — used
+	/** True when at least one transition gizmo is currently drawing. Used
 	 *  to decide whether to show the universal Source/Target swatches. */
 	static bool AnyTransitionEnabled()
 	{
@@ -2150,12 +2151,12 @@ namespace
 	}
 
 	/** Populate a list of legend entries to actually show this frame.
-	 *  Two parallel arrays are built — one per column (transitions on
+	 *  Two parallel arrays are built. One per column (transitions on
 	 *  the left, nodes on the right). Emptiness of both columns means
 	 *  the region is hidden entirely by the height-pass.
 	 *
 	 *  Legend is only useful when viewport debug is actually drawing
-	 *  colors — if the master `CCS.Debug.Viewport` gate is off, every
+	 *  colors. If the master `CCS.Debug.Viewport` gate is off, every
 	 *  per-item CVar is inert and we'd end up labelling colors that
 	 *  aren't on screen. Early-return empty in that case. */
 	static void BuildLegendRows(
@@ -2199,7 +2200,7 @@ namespace
 	}
 
 	/** Height (in px) the legend region would occupy this frame. Zero if
-	 *  both columns are empty — used to skip the region entirely. */
+	 *  both columns are empty. Used to skip the region entirely. */
 	static float ComputeLegendBodyHeight(
 		const TArray<TPair<FString, FLinearColor>>& TransRows,
 		const TArray<TPair<FString, FLinearColor>>& NodeRows)
@@ -2241,7 +2242,7 @@ namespace
 		const float Col1X   = BodyPos.X + ColumnW + KPadding;
 		const float Col2X   = BodyPos.X + 2.f * (ColumnW + KPadding);
 
-		// Column headers — skip for empty columns so the layout doesn't
+		// Column headers. Skip for empty columns so the layout doesn't
 		// show an orphan "Transitions" / "Nodes" label above a blank list.
 		float Y = BodyPos.Y;
 		if (TransRows.Num() > 0)
@@ -2267,7 +2268,7 @@ namespace
 			{
 				const TPair<FString, FLinearColor>& Row = Rows[i];
 
-				// Color swatch aligned to the text baseline — vertically
+				// Color swatch aligned to the text baseline. Vertically
 				// centered in the line by shifting down by ~1.5px.
 				DrawFilledRect(Canvas,
 					FVector2D(ColX, RowY + (KLineH - KSwatchSize) * 0.5f),
@@ -2329,14 +2330,14 @@ namespace
 			{
 				const FPoseGroup& G = R.PoseGroups[GI];
 
-				// Group header — matches the `-- Section --` style used by
+				// Group header. Matches the `-- Section --` style used by
 				// the Running Camera region for visual consistency.
 				if (Y + KLineH > MaxY) { return; }
 				const FString Header = FString::Printf(TEXT("-- %s --"), *G.Header);
 				DrawTextLineClipped(Canvas, Font, Header, ColX, Y, ColRightX, CLabel);
 				Y += KLineH;
 
-				// Per-group label alignment. Proportional font ⇒ measure
+				// Per-group label alignment. Proportional font means measure
 				// the widest label in this group so all values in the group
 				// line up at the same X.
 				float MaxLabelPx = 0.f;
@@ -2394,7 +2395,7 @@ namespace
 	}
 
 	// True if we're currently running a world where a PCM is expected to
-	// exist — PIE (incl. F8-ejected PIE, which keeps the PIE world alive)
+	// exist -PIE (incl. F8-ejected PIE, which keeps the PIE world alive)
 	// or a standalone Game world. Returns false in editor-idle state, so
 	// the "no PCM found" banner in the main panel can stay silent when
 	// the delegate fires via the `"Editor"` debug-draw channel while PIE
@@ -2417,26 +2418,26 @@ namespace
 		return false;
 	}
 
-	// ─────────────────────────────────────────────────────────────────
+	// -----------------------------------------------------------------
 	// Pose History panel (right-side, independent of main panel).
 	//
 	// 6 sparkline rows stacked vertically: Pos.X / Pos.Y / Pos.Z / Rot.P
 	// / Rot.Y / Rot.R. Time axis is shared across all rows (left = oldest
 	// of the ~2-second ring buffer, right = current frame). Each row
 	// auto-normalizes its y-axis to its own min/max over the visible
-	// window, so a 1°-yaw jitter and a 500-unit position spike both look
-	// equally tall — sparklines are about SHAPE, not absolute scale.
+	// window, so a 1 deg-yaw jitter and a 500-unit position spike both look
+	// equally tall. Sparklines are about SHAPE, not absolute scale.
 	//
 	// Context-change markers: whenever two adjacent entries have
 	// different ContextName, a thin vertical line crosses all six rows
-	// at that position — helps correlate pose spikes with context pushes.
+	// at that position. Helps correlate pose spikes with context pushes.
 	//
 	// Mouse hover: when the mouse is inside the sparkline block, draw a
 	// vertical cursor at the hovered frame's X position + a tooltip
 	// block to the right (or left, if it would clip) showing the pose
-	// values at that frame. No cursor when mouse is outside — default
+	// values at that frame. No cursor when mouse is outside. Default
 	// state is static sparklines only.
-	// ─────────────────────────────────────────────────────────────────
+	// -----------------------------------------------------------------
 	static constexpr float KPoseHistoryRowH       = 22.f; // per-sparkline row height
 	static constexpr float KPoseHistoryLabelW     = 52.f; // left column for "Pos.X" / "Rot.Y" label
 	static constexpr float KPoseHistoryValueW     = 60.f; // right column for current numeric value
@@ -2447,11 +2448,11 @@ namespace
 	static const FLinearColor CPoseHistoryContext (0.60f, 1.00f, 0.90f, 0.60f); // context-switch marker
 	static const FLinearColor CPoseHistoryCursor  (1.00f, 0.60f, 0.20f, 0.95f); // hover cursor
 
-	/** One sparkline row descriptor — resolves an entry to the scalar
+	/** One sparkline row descriptor. Resolves an entry to the scalar
 	 *  value that row tracks, plus knows how to format that scalar as a
 	 *  display string. `Format` is a `TFunction` (not a printf-style
 	 *  format string) because UE 5.6's `FString::Printf` requires a
-	 *  `consteval` format literal — runtime `const TCHAR*` variables are
+	 *  `consteval` format literal. Runtime `const TCHAR*` variables are
 	 *  rejected at compile time. Keeping the format call inside each
 	 *  lambda keeps the literal visible to the compile-time check while
 	 *  still letting per-row specs pick different widths (Position rows
@@ -2494,7 +2495,7 @@ namespace
 
 		if (History.Num() < 2)
 		{
-			// Not enough samples to draw a line — just skip the plot,
+			// Not enough samples to draw a line. Just skip the plot,
 			// keep the label visible so the layout doesn't jump on
 			// startup while the ring warms up.
 			return;
@@ -2508,7 +2509,7 @@ namespace
 			MinV = FMath::Min(MinV, V);
 			MaxV = FMath::Max(MaxV, V);
 		}
-		// Guard against flat-line rows — avoid zero range so we don't
+		// Guard against flat-line rows. Avoid zero range so we don't
 		// divide by zero; if all samples are equal, show a centered line.
 		float Range = MaxV - MinV;
 		if (Range < 1e-5f)
@@ -2517,7 +2518,7 @@ namespace
 			MinV -= 0.5f;
 		}
 
-		// Baseline (min-value horizontal line) for context — looks like
+		// Baseline (min-value horizontal line) for context. Looks like
 		// a faint floor under the curve.
 		DrawFilledRect(Canvas,
 			FVector2D(PlotLeft, PlotBot - 1.f),
@@ -2557,7 +2558,7 @@ namespace
 			Prev = Cur;
 		}
 
-		// Context-switch markers — thin vertical lines wherever adjacent
+		// Context-switch markers. Thin vertical lines wherever adjacent
 		// entries' ContextName differs. Drawn in muted teal so they don't
 		// compete with the curve.
 		for (int32 i = 1; i < N; ++i)
@@ -2586,7 +2587,7 @@ namespace
 				CPoseHistoryCursor);
 		}
 
-		// Right-column current numeric value — read from the newest
+		// Right-column current numeric value. Read from the newest
 		// entry (or the hovered one if scrubbing).
 		const FComposableCameraPoseHistoryEntry& DisplayEntry =
 			(HoverIdxOrNeg1 >= 0 && HoverIdxOrNeg1 < N)
@@ -2619,7 +2620,7 @@ namespace
 	 *   2. Scale the widget-local position by `Canvas->SizeX / WidgetSize`
 	 *      to get Canvas-pixel coords (Canvas pixel space and widget-
 	 *      local space differ by the DPI / rendering scale factor).
-	 *   3. Reject positions outside the widget bounds — a cursor that
+	 *   3. Reject positions outside the widget bounds. A cursor that
 	 *      left the viewport shouldn't show as "hovering frame N".
 	 */
 	static bool ResolveMouseCanvasPos(UCanvas* Canvas, float& OutX, float& OutY)
@@ -2706,7 +2707,7 @@ namespace
 		}
 		// Frozen title renders in the same accent the pose-history cursor
 		// uses (warm orange) so the frozen state visually matches the
-		// vertical cursor line the user gets while hovering — makes the
+		// vertical cursor line the user gets while hovering. Makes the
 		// "this panel is holding its contents" affordance obvious.
 		DrawTextLineClipped(Canvas, HeaderFont, TitleStr,
 			PanelX + KPadding + 4.f, PanelY + KPadding + 2.f,
@@ -2722,8 +2723,7 @@ namespace
 
 		// Resolve mouse-hover frame index. Uses a Slate-based fallback
 		// (see `ResolveMouseCanvasPos`) because the PlayerController
-		// passed to our DebugDrawService callback is always nullptr —
-		// engine broadcasts delegates with `PC=nullptr` — so we can't
+		// passed to our DebugDrawService callback is always nullptr -		// engine broadcasts delegates with `PC=nullptr`. So we can't
 		// rely on `PC->GetMousePosition`. The Slate path works in both
 		// possessed PIE (when mouse is released via Shift+F1 or UI input
 		// mode) and F8-ejected PIE (mouse naturally released).
@@ -2744,7 +2744,7 @@ namespace
 			}
 		}
 
-		// Six sparkline specs. Two formatter lambdas — position values
+		// Six sparkline specs. Two formatter lambdas. Position values
 		// up to ~99999.9 use `%8.1f`, rotations span -180..+180 so
 		// `%+7.1f` gives a signed 7-wide column. Both lambdas embed the
 		// format literal inline so UE 5.6's consteval format check
@@ -2770,7 +2770,7 @@ namespace
 		}
 
 		// Tooltip (hover only). Placed to the LEFT of the cursor if there's
-		// room, else to the right — keeps it from clipping outside the
+		// room, else to the right. Keeps it from clipping outside the
 		// panel at the right edge.
 		if (HoverIdx >= 0)
 		{
@@ -2822,18 +2822,18 @@ namespace
 		}
 	}
 
-	// ─────────────────────────────────────────────────────────────────
+	// -----------------------------------------------------------------
 	// Layout driver.
 	// Computes each region's content lines once, then runs two passes:
 	//   1. height pass: sum region heights, decide panel height.
 	//   2. draw pass:   paint panel BG, then per-region title bar + body.
-	// ─────────────────────────────────────────────────────────────────
+	// -----------------------------------------------------------------
 	static void DrawPanel(UCanvas* Canvas, APlayerController* PC)
 	{
 		if (CVarPanelEnabled.GetValueOnGameThread() == 0) { return; }
 		if (!Canvas || Canvas->SizeX <= 0 || Canvas->SizeY <= 0) { return; }
 
-		// One-time trace — if this line never fires in the log, the delegate
+		// One-time trace. If this line never fires in the log, the delegate
 		// is not being called at all (show-flag / registration / module-load
 		// timing problem). If it fires but no panel appears, the downstream
 		// PCM / rendering path is at fault.
@@ -2851,14 +2851,14 @@ namespace
 		if (!PCM)
 		{
 			// In editor-idle (no PIE/Game world) the `"Editor"` channel
-			// still fires our delegate each frame — that's expected, not
+			// still fires our delegate each frame. That's expected, not
 			// an error. Staying silent here keeps the editor viewport
 			// clean while still giving us a visible red banner when PIE
 			// IS running but the PCM genuinely isn't wired up (a real
 			// setup bug worth surfacing).
 			if (!HasPIEOrGameWorld()) { return; }
 
-			// PIE / Game world exists but no CCS PCM found — surface the
+			// PIE / Game world exists but no CCS PCM found. Surface the
 			// problem visibly. The banner disappears the moment a CCS PCM
 			// comes online.
 			UFont* BodyFont = GEngine ? GEngine->GetSmallFont() : nullptr;
@@ -2881,7 +2881,7 @@ namespace
 		if (!Ctx.HeaderFont || !Ctx.BodyFont) { return; }
 
 		// Build the structured Context-Stack snapshot once per frame. This is
-		// the data source for the Stack & Tree region — structured fields
+		// the data source for the Stack & Tree region. Structured fields
 		// enable progress bars, indent stems, and dominant-leaf highlighting
 		// that cannot be expressed through the line-based Lines path.
 		FComposableCameraContextStackSnapshot StackSnapshot;
@@ -2891,7 +2891,7 @@ namespace
 		}
 
 		// Build the legend rows once so we know whether to include the
-		// region at all — empty legend → no region, no wasted title bar.
+		// region at all. Empty legend ->no region, no wasted title bar.
 		// Gated by CCS.Debug.Panel.Legend (default on): zeroing it hides
 		// the legend unconditionally even when gizmos are active.
 		TArray<TPair<FString, FLinearColor>> LegendTransRows;
@@ -2917,7 +2917,7 @@ namespace
 		}
 
 		// Build all region descriptors up front.
-		// Region order (top → bottom): pose / stack / running camera /
+		// Region order (top->bottom): pose / stack / running camera /
 		// actions / modifiers / patches / warnings / legend. Patches sits next
 		// to its sibling "what's affecting the camera" data (Actions, Modifiers).
 		// Warnings sits above Legend so "something is wrong" gets more screen
@@ -2931,7 +2931,7 @@ namespace
 		Regions.SetNum(NumRegions);
 		BuildPoseGroups         (Ctx, Regions[0]);
 
-		// Region[1] — Context Stack & Evaluation Tree (structured, not text).
+		// Region[1] -Context Stack & Evaluation Tree (structured, not text).
 		Regions[1].Title            = TEXT("Context Stack & Evaluation Tree");
 		Regions[1].bIsStackAndTree  = true;
 		Regions[1].StackBodyHeight  = ComputeStackBodyHeight(StackSnapshot);
@@ -3003,14 +3003,14 @@ namespace
 			// Clip if we're out of vertical room.
 			if (CursorY + KTitleBarH > PanelY + PanelH - KPadding) { break; }
 
-			// Title bar only — the content area below reads straight through
+			// Title bar only. The content area below reads straight through
 			// the outer panel BG (single-layer translucency, game stays visible).
 			DrawFilledRect(Canvas, FVector2D(RegionX, CursorY), FVector2D(RegionW, KTitleBarH), CTitleBG);
 			DrawTextLineClipped(Canvas, Ctx.HeaderFont, R.Title,
 				RegionX + KPadding, CursorY + 2.f,
 				RegionX + RegionW - KPadding, CTitle);
 
-			// Region border (outline only — 1px, negligible coverage).
+			// Region border (outline only -1px, negligible coverage).
 			DrawBorder(Canvas, FVector2D(RegionX, CursorY), FVector2D(RegionW, RegionH), CBorder, 1.f);
 
 			// Body: structured tree, legend, or flat text lines.
@@ -3045,11 +3045,10 @@ namespace
 				// vars"), plus Parameters / Variables with arbitrarily long
 				// user-defined names. A single region-wide MaxLabelPx would
 				// push "Class"' value far to the right to make room for the
-				// longest Parameter name — visually ugly. So we break rows
-				// into GROUPS separated by full-line rows (empty Label —
-				// section headers / placeholders / list items), compute
+				// longest Parameter name. Visually ugly. So we break rows
+				// into GROUPS separated by full-line rows (empty Label -				// section headers / placeholders / list items), compute
 				// MaxLabelPx per group, and align only within each group.
-				// Proportional font ⇒ pixel-measure is the only way to get
+				// Proportional font means pixel-measure is the only way to get
 				// clean alignment; padding labels with spaces at build time
 				// aligns on monospace only.
 				//
@@ -3120,7 +3119,7 @@ namespace
 	}
 } // anonymous namespace
 
-// ─────────────────────────────────────────────────────────────────────
+// ---------------------------------------------------------------------
 // Dual-channel registration + per-(frame, FCanvas) dedup.
 //
 // Problem: `UDebugDrawService::Register(TEXT("Game"), ...)` only fires
@@ -3130,7 +3129,7 @@ namespace
 // whose ShowFlags have `Game = false` and `Editor = true`, so the
 // "Game"-channel delegate stops firing and our debug panels disappear.
 //
-// Solution: register each panel's draw delegate twice — once on
+// Solution: register each panel's draw delegate twice. Once on
 // `"Game"` and once on `"Editor"`.
 //
 // Why the dedup key must be `FCanvas*`, not `UCanvas*`:
@@ -3143,19 +3142,18 @@ namespace
 //   skip every call after the first one in a frame.
 //
 //   The underlying `FCanvas*` (stored in `UCanvas::Canvas`) does differ
-//   per viewport draw — each viewport renders with its own FCanvas on
+//   per viewport draw. Each viewport renders with its own FCanvas on
 //   the stack for that render pass. That's the right dedup axis.
 //
 // Flicker symptom this fixed: in F8-ejected PIE, the hidden game
 // viewport and the visible editor viewport each issue their own
 // `UDebugDrawService::Draw` call per frame. With a `UCanvas*`-keyed
 // dedup, the first call in a frame (whichever viewport happened to
-// draw first) "claimed" the frame and every subsequent call skipped —
-// so if the Game-channel call fired first (drawing on the invisible
+// draw first) "claimed" the frame and every subsequent call skipped -// so if the Game-channel call fired first (drawing on the invisible
 // canvas) the user saw nothing that frame. When the mouse moved, Slate
 // invalidated widgets at irregular intervals and re-ordered viewport
-// draws, flipping which viewport got the frame's one draw — visible /
-// invisible alternation → per-frame flicker tied to mouse motion.
+// draws, flipping which viewport got the frame's one draw. Visible /
+// invisible alternation->per-frame flicker tied to mouse motion.
 // Same-frame + same-FCanvas hits (both ShowFlags on for one viewport
 // in a transient state) are the legitimate dedup case.
 //
@@ -3163,9 +3161,9 @@ namespace
 // and pose-history panel can't mask each other's re-entry.
 //
 // Namespace-anonymous globals are fine here because the module
-// Initialize / Shutdown own their full lifecycle — no GC tracking,
+// Initialize / Shutdown own their full lifecycle. No GC tracking,
 // no serialization.
-// ─────────────────────────────────────────────────────────────────────
+// ---------------------------------------------------------------------
 namespace
 {
 	FDelegateHandle GMainPanelGameHandle;
@@ -3211,13 +3209,13 @@ namespace
 	}
 }
 
-// ─────────────────────────────────────────────────────────────────────
+// ---------------------------------------------------------------------
 // Public lifecycle.
 // Called from the runtime module's StartupModule / ShutdownModule.
-// ─────────────────────────────────────────────────────────────────────
+// ---------------------------------------------------------------------
 void FComposableCameraDebugPanel::Initialize()
 {
-	// Main context-stack + modifier + logs panel — dual-channel.
+	// Main context-stack + modifier + logs panel. Dual-channel.
 	if (!GMainPanelGameHandle.IsValid())
 	{
 		GMainPanelGameHandle = UDebugDrawService::Register(
@@ -3231,7 +3229,7 @@ void FComposableCameraDebugPanel::Initialize()
 			FDebugDrawDelegate::CreateStatic(&DrawPanel_Dedup));
 	}
 
-	// Pose History panel — also dual-channel. Registered separately so
+	// Pose History panel. Also dual-channel. Registered separately so
 	// `CCS.Debug.Panel` and `CCS.Debug.Panel.PoseHistory` CVars toggle
 	// independently: either panel can be on without the other.
 	if (!GPoseHistoryGameHandle.IsValid())

@@ -25,10 +25,9 @@
 
 #define LOCTEXT_NAMESPACE "ComposableCameraNodeGraphSchema"
 
-// ─── Connection Validation ─────────────────────────────────────────────────────
+// Connection Validation 
 
-const FPinConnectionResponse UComposableCameraNodeGraphSchema::CanCreateConnection(
-	const UEdGraphPin* A, const UEdGraphPin* B) const
+const FPinConnectionResponse UComposableCameraNodeGraphSchema::CanCreateConnection(const UEdGraphPin* A, const UEdGraphPin* B) const
 {
 	if (!A || !B)
 	{
@@ -61,7 +60,7 @@ const FPinConnectionResponse UComposableCameraNodeGraphSchema::CanCreateConnecti
 			LOCTEXT("SameDirection", "Cannot connect two pins of the same direction."));
 	}
 
-	// ── Execution pin handling ──────────────────────────────────────────
+	// Execution pin handling 
 	const bool bIsExecConnection =
 		OutputPin->PinType.PinCategory == UEdGraphSchema_K2::PC_Exec;
 	const bool bTargetIsExec =
@@ -79,25 +78,25 @@ const FPinConnectionResponse UComposableCameraNodeGraphSchema::CanCreateConnecti
 	// on the BeginPlay Start sentinel can only reach nodes classified as the
 	// compute chain. See ClassifyChainForNode for the classification rules.
 	//
-	// Data wires between camera nodes and compute nodes are still disallowed —
+	// Data wires between camera nodes and compute nodes are still disallowed - 
 	// a camera node and a compute node never connect directly. Cross-chain
 	// communication goes through internal variables.
 	//
 	// Exception: variable Get nodes are chain-agnostic pure data readers.
 	// A Get node's Value output may wire into any chain's node input pin,
 	// because it reads from the shared RuntimeDataBlock and doesn't
-	// participate in exec flow. The relaxation only applies to data wires —
+	// participate in exec flow. The relaxation only applies to data wires - 
 	// Get nodes have no exec pins so this branch is unreachable for exec
 	// connections.
 	const EComposableCameraGraphChain OutputChain = ClassifyChainForNode(OutputPin->GetOwningNode());
-	const EComposableCameraGraphChain InputChain  = ClassifyChainForNode(InputPin->GetOwningNode());
+	const EComposableCameraGraphChain InputChain = ClassifyChainForNode(InputPin->GetOwningNode());
 	if (OutputChain != InputChain)
 	{
 		// Unclassified nodes (unwired Set variable nodes) are compatible with
-		// either chain — the first exec wire determines their chain identity.
+		// either chain - the first exec wire determines their chain identity.
 		const bool bEitherIsUnclassified =
 			OutputChain == EComposableCameraGraphChain::Unclassified ||
-			InputChain  == EComposableCameraGraphChain::Unclassified;
+			InputChain == EComposableCameraGraphChain::Unclassified;
 
 		// Allow cross-chain data wires for Get variable nodes. A Get variable
 		// node is identified as a non-setter UComposableCameraVariableGraphNode.
@@ -125,14 +124,14 @@ const FPinConnectionResponse UComposableCameraNodeGraphSchema::CanCreateConnecti
 			LOCTEXT("ExecConnectionAllowed", ""));
 	}
 
-	// ── Data pin handling ───────────────────────────────────────────────
+	// Data pin handling 
 	//
 	// Data flow is no longer constrained by node order. Execution order is
-	// expressed purely through the exec pin chain (Start → ... → Output).
+	// expressed purely through the exec pin chain (Start -> ... ->Output).
 	// Data pins may connect in any direction as long as types are compatible
-	// — the same model used by MetaSound / Niagara / Blueprint function graphs.
+	// - the same model used by MetaSound / Niagara / Blueprint function graphs.
 
-	// Disallow variable-node ↔ variable-node wires. Variable nodes must wire
+	// Disallow variable-node variable-node wires. Variable nodes must wire
 	// into camera node pins to have any effect on the data flow.
 	const bool bSourceIsVariableNode =
 		OutputPin->GetOwningNode()->IsA<UComposableCameraVariableGraphNode>();
@@ -182,8 +181,8 @@ bool UComposableCameraNodeGraphSchema::TryCreateConnection(UEdGraphPin* A, UEdGr
 	}
 
 	// Determine input and output.
-	UEdGraphPin* OutputPin = (A->Direction == EGPD_Output) ? A : B;
-	UEdGraphPin* InputPin = (A->Direction == EGPD_Input) ? A : B;
+	UEdGraphPin* OutputPin = (A->Direction == EGPD_Output) ? A: B;
+	UEdGraphPin* InputPin = (A->Direction == EGPD_Input) ? A: B;
 
 	// Break existing connections based on the response type.
 	if (Response.Response == CONNECT_RESPONSE_BREAK_OTHERS_AB)
@@ -229,9 +228,9 @@ void UComposableCameraNodeGraphSchema::BreakSinglePinLink(UEdGraphPin* SourcePin
 
 	// Then sync + notify so both TypeAsset::PinConnections and Slate's
 	// error / validation widgets catch up. Either endpoint's graph is fine
-	// to resolve from — we prefer SourcePin for symmetry with
+	// to resolve from - we prefer SourcePin for symmetry with
 	// TryCreateConnection's OutputPin path.
-	UEdGraphPin* AnyPin = SourcePin ? SourcePin : TargetPin;
+	UEdGraphPin* AnyPin = SourcePin ? SourcePin: TargetPin;
 	if (AnyPin && AnyPin->GetOwningNode())
 	{
 		if (UComposableCameraNodeGraph* NodeGraph = Cast<UComposableCameraNodeGraph>(AnyPin->GetOwningNode()->GetGraph()))
@@ -267,19 +266,18 @@ void UComposableCameraNodeGraphSchema::BreakNodeLinks(UEdGraphNode& TargetNode) 
 	}
 }
 
-// ─── Context Menu ──────────────────────────────────────────────────────────────
+// Context Menu 
 
 /**
  * Graph action for spawning a new camera node.
  */
-struct FComposableCameraNodeGraphSchemaAction_NewNode : public FEdGraphSchemaAction
+struct FComposableCameraNodeGraphSchemaAction_NewNode: public FEdGraphSchemaAction
 {
 	TSubclassOf<UComposableCameraCameraNodeBase> NodeClass;
 
 	FComposableCameraNodeGraphSchemaAction_NewNode() {}
 
-	FComposableCameraNodeGraphSchemaAction_NewNode(
-		FText InNodeCategory, FText InMenuDesc, FText InToolTip, int32 InGrouping,
+	FComposableCameraNodeGraphSchemaAction_NewNode(FText InNodeCategory, FText InMenuDesc, FText InToolTip, int32 InGrouping,
 		TSubclassOf<UComposableCameraCameraNodeBase> InNodeClass)
 		: FEdGraphSchemaAction(MoveTemp(InNodeCategory), MoveTemp(InMenuDesc), MoveTemp(InToolTip), InGrouping)
 		, NodeClass(InNodeClass)
@@ -301,18 +299,17 @@ struct FComposableCameraNodeGraphSchemaAction_NewNode : public FEdGraphSchemaAct
 /**
  * Graph action for spawning a Get/Set variable graph node.
  */
-struct FComposableCameraNodeGraphSchemaAction_NewVariableNode : public FEdGraphSchemaAction
+struct FComposableCameraNodeGraphSchemaAction_NewVariableNode: public FEdGraphSchemaAction
 {
 	/** Stable identity of the target internal variable. Preferred over VariableName
-	 *  because it survives renames. */
+	 * because it survives renames. */
 	FGuid VariableGuid;
 	FName VariableName;
 	bool bIsSetter = false;
 
 	FComposableCameraNodeGraphSchemaAction_NewVariableNode() {}
 
-	FComposableCameraNodeGraphSchemaAction_NewVariableNode(
-		FText InNodeCategory, FText InMenuDesc, FText InToolTip, int32 InGrouping,
+	FComposableCameraNodeGraphSchemaAction_NewVariableNode(FText InNodeCategory, FText InMenuDesc, FText InToolTip, int32 InGrouping,
 		FGuid InVariableGuid, FName InVariableName, bool bInIsSetter)
 		: FEdGraphSchemaAction(MoveTemp(InNodeCategory), MoveTemp(InMenuDesc), MoveTemp(InToolTip), InGrouping)
 		, VariableGuid(InVariableGuid)
@@ -335,14 +332,12 @@ struct FComposableCameraNodeGraphSchemaAction_NewVariableNode : public FEdGraphS
 		// transaction; without this wrapping, the add-variable-node action
 		// produces zero undo records. See the matching comment in
 		// UComposableCameraNodeGraphSchema::AddNodeToGraph.
-		const FScopedTransaction Transaction(
-			bIsSetter
+		const FScopedTransaction Transaction(bIsSetter
 				? LOCTEXT("AddSetVariableNode", "Add Set Variable Node")
 				: LOCTEXT("AddGetVariableNode", "Add Get Variable Node"));
 		ParentGraph->Modify();
 
-		UComposableCameraVariableGraphNode* NewVarNode = NewObject<UComposableCameraVariableGraphNode>(
-			ParentGraph, NAME_None, RF_Transactional);
+		UComposableCameraVariableGraphNode* NewVarNode = NewObject<UComposableCameraVariableGraphNode>(ParentGraph, NAME_None, RF_Transactional);
 		NewVarNode->VariableGuid = VariableGuid;
 		NewVarNode->VariableName = VariableName;
 		NewVarNode->bIsSetter = bIsSetter;
@@ -390,13 +385,12 @@ struct FComposableCameraNodeGraphSchemaAction_NewVariableNode : public FEdGraphS
 	}
 };
 
-void UComposableCameraNodeGraphSchema::GetGraphContextActions(
-	FGraphContextMenuBuilder& ContextMenuBuilder) const
+void UComposableCameraNodeGraphSchema::GetGraphContextActions(FGraphContextMenuBuilder& ContextMenuBuilder) const
 {
 	// Thin dispatcher: emit camera-node palette actions, then compute-node
 	// palette actions, then variable palette actions if we can resolve the
 	// owning type asset. Each sub-palette is implemented as an independent
-	// static helper — adding a new palette category means adding a new
+	// static helper - adding a new palette category means adding a new
 	// Build*PaletteActions call here, nothing else.
 
 	BuildCameraNodePaletteActions(ContextMenuBuilder);
@@ -422,10 +416,9 @@ void UComposableCameraNodeGraphSchema::GetGraphContextActions(
 	}
 }
 
-// ─── Graph Palette Builders ──────────────────────────────────────────────────
+// Graph Palette Builders 
 
-void UComposableCameraNodeGraphSchema::BuildCameraNodePaletteActions(
-	FGraphContextMenuBuilder& ContextMenuBuilder)
+void UComposableCameraNodeGraphSchema::BuildCameraNodePaletteActions(FGraphContextMenuBuilder& ContextMenuBuilder)
 {
 	// Gather all non-abstract subclasses of UComposableCameraCameraNodeBase,
 	// *excluding* compute node subclasses. The compute chain palette lives
@@ -452,7 +445,7 @@ void UComposableCameraNodeGraphSchema::BuildCameraNodePaletteActions(
 	// declares `meta=(DisplayName="Aim Lock")` lands in 'A' rather than wherever
 	// its raw `UComposableCameraXyzNode` identifier would have sorted to. For
 	// classes with no DisplayName metadata, the helper just returns the legacy
-	// munged name, which is monotonic in the class name — so this is a no-op
+	// munged name, which is monotonic in the class name - so this is a no-op
 	// for every node class that exists today.
 	NodeClasses.Sort([](const UClass& A, const UClass& B)
 	{
@@ -461,7 +454,7 @@ void UComposableCameraNodeGraphSchema::BuildCameraNodePaletteActions(
 		return DisplayA.CompareTo(DisplayB) < 0;
 	});
 
-	for (UClass* Class : NodeClasses)
+	for (UClass* Class: NodeClasses)
 	{
 		// Display name resolution lives on the shared graph-node base so the
 		// palette entry here matches the title that
@@ -480,23 +473,19 @@ void UComposableCameraNodeGraphSchema::BuildCameraNodePaletteActions(
 		const UComposableCameraCameraNodeBase* NodeCDO =
 			Class->GetDefaultObject<UComposableCameraCameraNodeBase>();
 		const FName SubCategoryName = (NodeCDO && !NodeCDO->PaletteCategory.IsNone())
-			? NodeCDO->PaletteCategory
-			: FName(TEXT("Misc"));
-		const FText Category = FText::Format(
-			LOCTEXT("CameraNodesCategoryFmt", "Camera Nodes|{0}"),
+			? NodeCDO->PaletteCategory: FName(TEXT("Misc"));
+		const FText Category = FText::Format(LOCTEXT("CameraNodesCategoryFmt", "Camera Nodes|{0}"),
 			FText::FromName(SubCategoryName));
 
 		TSharedPtr<FComposableCameraNodeGraphSchemaAction_NewNode> Action =
-			MakeShared<FComposableCameraNodeGraphSchemaAction_NewNode>(
-				Category, MenuDesc, Tooltip, 0,
+			MakeShared<FComposableCameraNodeGraphSchemaAction_NewNode>(Category, MenuDesc, Tooltip, 0,
 				TSubclassOf<UComposableCameraCameraNodeBase>(Class));
 
 		ContextMenuBuilder.AddAction(Action);
 	}
 }
 
-void UComposableCameraNodeGraphSchema::BuildComputeNodePaletteActions(
-	FGraphContextMenuBuilder& ContextMenuBuilder)
+void UComposableCameraNodeGraphSchema::BuildComputeNodePaletteActions(FGraphContextMenuBuilder& ContextMenuBuilder)
 {
 	// Gather all non-abstract subclasses of UComposableCameraComputeNodeBase.
 	// Compute nodes inherit from UComposableCameraCameraNodeBase (they reuse
@@ -518,7 +507,7 @@ void UComposableCameraNodeGraphSchema::BuildComputeNodePaletteActions(
 		}
 	}
 
-	// Same display-name resolution as the camera palette — honors
+	// Same display-name resolution as the camera palette - honors
 	// meta=(DisplayName="...") first, falls back to legacy munging.
 	ComputeClasses.Sort([](const UClass& A, const UClass& B)
 	{
@@ -527,11 +516,10 @@ void UComposableCameraNodeGraphSchema::BuildComputeNodePaletteActions(
 		return DisplayA.CompareTo(DisplayB) < 0;
 	});
 
-	for (UClass* Class : ComputeClasses)
+	for (UClass* Class: ComputeClasses)
 	{
 		const FText MenuDesc = UComposableCameraGraphNodeBase::GetCameraNodeDisplayNameForClass(Class);
-		const FText Tooltip = FText::Format(
-			LOCTEXT("AddComputeNodeTooltip",
+		const FText Tooltip = FText::Format(LOCTEXT("AddComputeNodeTooltip",
 				"Add a {0} compute node (runs once on BeginPlay before the first tick)."),
 			MenuDesc);
 
@@ -542,28 +530,24 @@ void UComposableCameraNodeGraphSchema::BuildComputeNodePaletteActions(
 		const UComposableCameraCameraNodeBase* NodeCDO =
 			Class->GetDefaultObject<UComposableCameraCameraNodeBase>();
 		const FName SubCategoryName = (NodeCDO && !NodeCDO->PaletteCategory.IsNone())
-			? NodeCDO->PaletteCategory
-			: FName(TEXT("Misc"));
-		const FText Category = FText::Format(
-			LOCTEXT("ComputeNodesCategoryFmt", "Compute Nodes|{0}"),
+			? NodeCDO->PaletteCategory: FName(TEXT("Misc"));
+		const FText Category = FText::Format(LOCTEXT("ComputeNodesCategoryFmt", "Compute Nodes|{0}"),
 			FText::FromName(SubCategoryName));
 
 		TSharedPtr<FComposableCameraNodeGraphSchemaAction_NewNode> Action =
-			MakeShared<FComposableCameraNodeGraphSchemaAction_NewNode>(
-				Category, MenuDesc, Tooltip, 0,
+			MakeShared<FComposableCameraNodeGraphSchemaAction_NewNode>(Category, MenuDesc, Tooltip, 0,
 				TSubclassOf<UComposableCameraCameraNodeBase>(Class));
 
 		ContextMenuBuilder.AddAction(Action);
 	}
 }
 
-void UComposableCameraNodeGraphSchema::BuildVariablePaletteActions(
-	FGraphContextMenuBuilder& ContextMenuBuilder,
+void UComposableCameraNodeGraphSchema::BuildVariablePaletteActions(FGraphContextMenuBuilder& ContextMenuBuilder,
 	const UComposableCameraTypeAsset* TypeAsset)
 {
 	// Add one Get and one Set action per variable declared on the type asset.
 	// Variables live in two author-facing arrays: InternalVariables (fully
-	// internal — the caller can't touch them at activation time) and
+	// internal - the caller can't touch them at activation time) and
 	// ExposedVariables (caller may override the initial value through the
 	// ParameterBlock at activation, but after that they behave identically to
 	// internal variables). From the graph's point of view both kinds are
@@ -572,42 +556,38 @@ void UComposableCameraNodeGraphSchema::BuildVariablePaletteActions(
 	// They're routed into separate palette sub-categories ("Variables|Get|
 	// Internal" / "|Exposed") so the author can see at a glance which ones
 	// accept caller overrides. Both kinds produce the same purple variable
-	// graph node type — the runtime distinction lives purely on the type
+	// graph node type - the runtime distinction lives purely on the type
 	// asset, not on the node.
 	//
 	// Caller contract: TypeAsset must be non-null. The dispatcher above does
 	// the null check once; we don't repeat it here.
 	check(TypeAsset);
 
-	auto EmitVariableActions = [&ContextMenuBuilder](
-		const TArray<FComposableCameraInternalVariable>& Variables,
+	auto EmitVariableActions = [&ContextMenuBuilder](const TArray<FComposableCameraInternalVariable>& Variables,
 		const FText& GetCategory,
 		const FText& SetCategory)
 	{
-		for (const FComposableCameraInternalVariable& Variable : Variables)
+		for (const FComposableCameraInternalVariable& Variable: Variables)
 		{
 			if (Variable.VariableName.IsNone())
 			{
 				continue;
 			}
 
-			// VariableName is both the runtime key AND the display label —
+			// VariableName is both the runtime key AND the display label - 
 			// there is no separate DisplayName field on
 			// FComposableCameraInternalVariable.
 			const FText DisplayName = FText::FromName(Variable.VariableName);
 
 			// Get action.
 			{
-				const FText MenuDesc = FText::Format(
-					LOCTEXT("GetVarActionFmt", "Get {0}"), DisplayName);
-				const FText Tooltip = FText::Format(
-					LOCTEXT("GetVarActionTooltipFmt",
+				const FText MenuDesc = FText::Format(LOCTEXT("GetVarActionFmt", "Get {0}"), DisplayName);
+				const FText Tooltip = FText::Format(LOCTEXT("GetVarActionTooltipFmt",
 						"Add a Get node that reads the current value of '{0}'."),
 					DisplayName);
 
 				TSharedPtr<FComposableCameraNodeGraphSchemaAction_NewVariableNode> Action =
-					MakeShared<FComposableCameraNodeGraphSchemaAction_NewVariableNode>(
-						GetCategory, MenuDesc, Tooltip, 0,
+					MakeShared<FComposableCameraNodeGraphSchemaAction_NewVariableNode>(GetCategory, MenuDesc, Tooltip, 0,
 						Variable.VariableGuid, Variable.VariableName, /*bInIsSetter=*/false);
 
 				ContextMenuBuilder.AddAction(Action);
@@ -615,16 +595,13 @@ void UComposableCameraNodeGraphSchema::BuildVariablePaletteActions(
 
 			// Set action.
 			{
-				const FText MenuDesc = FText::Format(
-					LOCTEXT("SetVarActionFmt", "Set {0}"), DisplayName);
-				const FText Tooltip = FText::Format(
-					LOCTEXT("SetVarActionTooltipFmt",
+				const FText MenuDesc = FText::Format(LOCTEXT("SetVarActionFmt", "Set {0}"), DisplayName);
+				const FText Tooltip = FText::Format(LOCTEXT("SetVarActionTooltipFmt",
 						"Add a Set node that writes the connected value to '{0}'."),
 					DisplayName);
 
 				TSharedPtr<FComposableCameraNodeGraphSchemaAction_NewVariableNode> Action =
-					MakeShared<FComposableCameraNodeGraphSchemaAction_NewVariableNode>(
-						SetCategory, MenuDesc, Tooltip, 0,
+					MakeShared<FComposableCameraNodeGraphSchemaAction_NewVariableNode>(SetCategory, MenuDesc, Tooltip, 0,
 						Variable.VariableGuid, Variable.VariableName, /*bInIsSetter=*/true);
 
 				ContextMenuBuilder.AddAction(Action);
@@ -632,21 +609,18 @@ void UComposableCameraNodeGraphSchema::BuildVariablePaletteActions(
 		}
 	};
 
-	EmitVariableActions(
-		TypeAsset->InternalVariables,
+	EmitVariableActions(TypeAsset->InternalVariables,
 		LOCTEXT("InternalVariableGetCategory", "Variables|Get|Internal"),
 		LOCTEXT("InternalVariableSetCategory", "Variables|Set|Internal"));
 
-	EmitVariableActions(
-		TypeAsset->ExposedVariables,
+	EmitVariableActions(TypeAsset->ExposedVariables,
 		LOCTEXT("ExposedVariableGetCategory", "Variables|Get|Exposed"),
 		LOCTEXT("ExposedVariableSetCategory", "Variables|Set|Exposed"));
 }
 
-// ─── Per-Node / Per-Pin Context Menu ──────────────────────────────────────────
+// Per-Node / Per-Pin Context Menu 
 
-void UComposableCameraNodeGraphSchema::GetContextMenuActions(
-	class UToolMenu* Menu, class UGraphNodeContextMenuContext* Context) const
+void UComposableCameraNodeGraphSchema::GetContextMenuActions(class UToolMenu* Menu, class UGraphNodeContextMenuContext* Context) const
 {
 	Super::GetContextMenuActions(Menu, Context);
 
@@ -660,15 +634,15 @@ void UComposableCameraNodeGraphSchema::GetContextMenuActions(
 
 	// Classify the right-click. Three mutually-exclusive branches:
 	//
-	//   pin-on-node → signal the graph so the toolkit's deferred selection
-	//                 handler can suppress its details-panel repoint, then
-	//                 add the pin quick-actions if the pin is an exposable
-	//                 camera-node data input.
+	// pin-on-node -> signal the graph so the toolkit's deferred selection
+	// handler can suppress its details-panel repoint, then
+	// add the pin quick-actions if the pin is an exposable
+	// camera-node data input.
 	//
-	//   node-only  → add the node-body actions (Delete).
+	// node-only -> add the node-body actions (Delete).
 	//
-	//   neither    → nothing (the graph-level palette is built elsewhere, in
-	//                GetGraphContextActions).
+	// neither->nothing (the graph-level palette is built elsewhere, in
+	// GetGraphContextActions).
 	//
 	// The flag is set via MarkPinContextMenuRequested rather than a direct
 	// field poke so the entire pin-context signal lifecycle lives in two
@@ -699,10 +673,9 @@ void UComposableCameraNodeGraphSchema::GetContextMenuActions(
 	}
 }
 
-// ─── Context Menu Builders ───────────────────────────────────────────────────
+// Context Menu Builders 
 
-void UComposableCameraNodeGraphSchema::BuildPinContextMenuActions(
-	UToolMenu* Menu,
+void UComposableCameraNodeGraphSchema::BuildPinContextMenuActions(UToolMenu* Menu,
 	UComposableCameraNodeGraphNode* CameraGraphNode,
 	const UEdGraphPin* ClickedPin)
 {
@@ -728,8 +701,7 @@ void UComposableCameraNodeGraphSchema::BuildPinContextMenuActions(
 				// entry, the pin connections, and the [Exposed] chip as a
 				// single atomic unit. UnexposePinParameter's internal Modify()
 				// call is a no-op without an active transaction on the stack.
-				const FScopedTransaction Transaction(
-					LOCTEXT("UnexposeParameterAction", "Unexpose Camera Parameter"));
+				const FScopedTransaction Transaction(LOCTEXT("UnexposeParameterAction", "Unexpose Camera Parameter"));
 				CameraGraphNode->UnexposePinParameter(PinName);
 			}))
 		);
@@ -748,16 +720,14 @@ void UComposableCameraNodeGraphSchema::BuildPinContextMenuActions(
 				// ExposePinAsParameter only captures state if a transaction is
 				// already active, and the tool-menu execution path does not
 				// open one for us.
-				const FScopedTransaction Transaction(
-					LOCTEXT("ExposeParameterAction", "Expose Camera Parameter"));
+				const FScopedTransaction Transaction(LOCTEXT("ExposeParameterAction", "Expose Camera Parameter"));
 				CameraGraphNode->ExposePinAsParameter(PinName);
 			}))
 		);
 	}
 }
 
-void UComposableCameraNodeGraphSchema::BuildNodeContextMenuActions(
-	UToolMenu* Menu,
+void UComposableCameraNodeGraphSchema::BuildNodeContextMenuActions(UToolMenu* Menu,
 	const UEdGraphNode* ClickedNode)
 {
 	// Callers already verified: non-null ClickedNode, no ClickedPin,
@@ -779,8 +749,7 @@ void UComposableCameraNodeGraphSchema::BuildNodeContextMenuActions(
 		LOCTEXT("DeleteNode", "Delete"),
 		LOCTEXT("DeleteNodeTooltip", "Delete this node from the graph."),
 		FSlateIcon(FAppStyle::GetAppStyleSetName(), "GenericCommands.Delete"),
-		FUIAction(
-			FExecuteAction::CreateLambda([ClickedNode]()
+		FUIAction(FExecuteAction::CreateLambda([ClickedNode]()
 			{
 				if (ClickedNode && ClickedNode->CanUserDeleteNode())
 				{
@@ -803,12 +772,11 @@ void UComposableCameraNodeGraphSchema::BuildNodeContextMenuActions(
 	);
 }
 
-// ─── Pin Colors ────────────────────────────────────────────────────────────────
+// Pin Colors 
 
-FLinearColor UComposableCameraNodeGraphSchema::GetPinTypeColor(
-	const FEdGraphPinType& PinType) const
+FLinearColor UComposableCameraNodeGraphSchema::GetPinTypeColor(const FEdGraphPinType& PinType) const
 {
-	// The palette itself lives in `FComposableCameraEditorColors` — see
+	// The palette itself lives in `FComposableCameraEditorColors` - see
 	// ComposableCameraEditorStyle.h for the full table and the rationale
 	// for keeping pin colors centralised.
 
@@ -858,7 +826,7 @@ FLinearColor UComposableCameraNodeGraphSchema::GetPinTypeColor(
 	{
 		// Enums are PC_Byte with a UEnum sub-category object (see
 		// ComposableCameraEdGraphPinTypeUtils::MakeEdGraphPinTypeFromCameraPinType).
-		// Plain (non-enum) byte pins also land here — visually distinct from
+		// Plain (non-enum) byte pins also land here - visually distinct from
 		// every other category in the schema, so the shared color is fine.
 		return FComposableCameraEditorColors::PinByteEnum;
 	}
@@ -870,21 +838,19 @@ FLinearColor UComposableCameraNodeGraphSchema::GetPinTypeColor(
 	return FComposableCameraEditorColors::PinDefault;
 }
 
-// ─── Connection Drawing ───────────────────────────────────────────────────────
+// Connection Drawing 
 
-FConnectionDrawingPolicy* UComposableCameraNodeGraphSchema::CreateConnectionDrawingPolicy(
-	int32 InBackLayerID,
+FConnectionDrawingPolicy* UComposableCameraNodeGraphSchema::CreateConnectionDrawingPolicy(int32 InBackLayerID,
 	int32 InFrontLayerID,
 	float InZoomFactor,
 	const FSlateRect& InClippingRect,
 	FSlateWindowElementList& InDrawElements,
 	UEdGraph* InGraphObj) const
 {
-	return new FComposableCameraConnectionDrawingPolicy(
-		InBackLayerID, InFrontLayerID, InZoomFactor, InClippingRect, InDrawElements);
+	return new FComposableCameraConnectionDrawingPolicy(InBackLayerID, InFrontLayerID, InZoomFactor, InClippingRect, InDrawElements);
 }
 
-// ─── Default Nodes ─────────────────────────────────────────────────────────────
+// Default Nodes 
 
 void UComposableCameraNodeGraphSchema::CreateDefaultNodesForGraph(UEdGraph& Graph) const
 {
@@ -892,13 +858,13 @@ void UComposableCameraNodeGraphSchema::CreateDefaultNodesForGraph(UEdGraph& Grap
 	// a type asset (i.e. right after asset creation, before the toolkit's
 	// first RebuildFromTypeAsset). For any subsequent open, EditorGraph is
 	// Transient so the graph starts empty and RebuildFromTypeAsset creates
-	// all sentinels via its own phase functions — the defaults here are only
+	// all sentinels via its own phase functions - the defaults here are only
 	// seen during initial asset authoring.
 	//
 	// Three sentinels are created unconditionally: the per-frame Start (top
 	// left), the BeginPlay compute-chain Start (below the per-frame Start),
 	// and the Output terminator (far right). The compute-chain sentinel has
-	// no terminator — compute nodes chain off it freely and the runtime
+	// no terminator - compute nodes chain off it freely and the runtime
 	// executes whatever walk-order falls out at BeginPlay.
 
 	// Create the Start node (far left).
@@ -943,10 +909,9 @@ void UComposableCameraNodeGraphSchema::CreateDefaultNodesForGraph(UEdGraph& Grap
 	Graph.AddNode(OutputNode, /*bFromUI=*/false, /*bSelectNewNode=*/false);
 }
 
-// ─── Static Helpers ────────────────────────────────────────────────────────────
+// Static Helpers 
 
-UEdGraphNode* UComposableCameraNodeGraphSchema::AddNodeToGraph(
-	UEdGraph* Graph, TSubclassOf<UComposableCameraCameraNodeBase> NodeClass, const FVector2D& Location)
+UEdGraphNode* UComposableCameraNodeGraphSchema::AddNodeToGraph(UEdGraph* Graph, TSubclassOf<UComposableCameraCameraNodeBase> NodeClass, const FVector2D& Location)
 {
 	if (!Graph || !NodeClass)
 	{
@@ -980,7 +945,7 @@ UEdGraphNode* UComposableCameraNodeGraphSchema::AddNodeToGraph(
 	const bool bIsComputeClass = NodeClass->IsChildOf(UComposableCameraComputeNodeBase::StaticClass());
 
 	// Open our own transaction so Ctrl+Z cleanly removes the new NodeTemplate,
-	// the new UEdGraphNode, and any pin defaults it inherited — as a single
+	// the new UEdGraphNode, and any pin defaults it inherited - as a single
 	// atomic unit. UEdGraphSchema does NOT auto-wrap PerformAction in a
 	// transaction the way K2's FEdGraphSchemaAction_K2NewNode does, and
 	// UEdGraph::AddNode / UObject::Modify are no-ops without an active
@@ -988,19 +953,17 @@ UEdGraphNode* UComposableCameraNodeGraphSchema::AddNodeToGraph(
 	// produces zero undo records, and a subsequent Expose/Unexpose transaction
 	// can appear to "swallow" the node-create on Ctrl+Z because it's the only
 	// nearby transaction the user sees in the buffer.
-	const FScopedTransaction Transaction(
-		bIsComputeClass
+	const FScopedTransaction Transaction(bIsComputeClass
 			? LOCTEXT("AddComputeNode", "Add Compute Node")
 			: LOCTEXT("AddCameraNode", "Add Camera Node"));
 	Graph->Modify();
 	TypeAsset->Modify();
 
 	// Create the node template on the type asset. Compute and camera node
-	// classes share the same base type so NewObject is identical — the only
+	// classes share the same base type so NewObject is identical - the only
 	// thing that differs is which array we stash the resulting template in
 	// and which NodeIndex space it lives in.
-	UComposableCameraCameraNodeBase* NewNodeTemplate = NewObject<UComposableCameraCameraNodeBase>(
-		TypeAsset, NodeClass, NAME_None, RF_Transactional);
+	UComposableCameraCameraNodeBase* NewNodeTemplate = NewObject<UComposableCameraCameraNodeBase>(TypeAsset, NodeClass, NAME_None, RF_Transactional);
 
 	int32 NewNodeIndex = INDEX_NONE;
 	if (bIsComputeClass)
@@ -1009,7 +972,7 @@ UEdGraphNode* UComposableCameraNodeGraphSchema::AddNodeToGraph(
 			Cast<UComposableCameraComputeNodeBase>(NewNodeTemplate);
 		// NewObject<UComposableCameraCameraNodeBase>(..., NodeClass, ...)
 		// succeeded above with a compute class, so this cast must succeed
-		// too — but assert via check() to surface a typo (e.g. filtering the
+		// too - but assert via check() to surface a typo (e.g. filtering the
 		// palette against the wrong base) as a hard failure rather than a
 		// silent index mismatch.
 		check(NewComputeTemplate);
@@ -1021,11 +984,10 @@ UEdGraphNode* UComposableCameraNodeGraphSchema::AddNodeToGraph(
 	}
 
 	// Create the graph node. The same UComposableCameraNodeGraphNode class
-	// is reused for both camera and compute graph nodes — the distinction
+	// is reused for both camera and compute graph nodes - the distinction
 	// is entirely in the underlying template class, which the sync/rebuild
 	// phases classify at round-trip time.
-	UComposableCameraNodeGraphNode* GraphNode = NewObject<UComposableCameraNodeGraphNode>(
-		Graph, NAME_None, RF_Transactional);
+	UComposableCameraNodeGraphNode* GraphNode = NewObject<UComposableCameraNodeGraphNode>(Graph, NAME_None, RF_Transactional);
 	GraphNode->NodeTemplate = NewNodeTemplate;
 	GraphNode->NodeIndex = NewNodeIndex;
 	GraphNode->CreateNewGuid();
@@ -1040,8 +1002,7 @@ UEdGraphNode* UComposableCameraNodeGraphSchema::AddNodeToGraph(
 	return GraphNode;
 }
 
-EComposableCameraGraphChain UComposableCameraNodeGraphSchema::ClassifyChainForNode(
-	const UEdGraphNode* Node)
+EComposableCameraGraphChain UComposableCameraNodeGraphSchema::ClassifyChainForNode(const UEdGraphNode* Node)
 {
 	// Compute-side identities: the BeginPlay Start sentinel and any graph
 	// node whose underlying NodeTemplate is a compute node class.
@@ -1049,15 +1010,15 @@ EComposableCameraGraphChain UComposableCameraNodeGraphSchema::ClassifyChainForNo
 	// Variable Set nodes are dynamically classified by following their ExecIn
 	// wire backward to the nearest node with a definitive classification
 	// (sentinel or camera/compute graph node). This supports variable nodes
-	// living on either chain — the first exec wire determines the chain.
+	// living on either chain - the first exec wire determines the chain.
 	//
 	// Variable Get nodes (no exec pins) are chain-agnostic pure data readers.
 	// They default to Camera for classification purposes, but
 	// CanCreateConnection relaxes the cross-chain check for Get node data
 	// wires so they can feed into either chain's node pins.
 	//
-	// Everything else — main Start sentinel, Output sentinel, regular camera
-	// graph nodes — falls into the camera chain.
+	// Everything else - main Start sentinel, Output sentinel, regular camera
+	// graph nodes - falls into the camera chain.
 
 	if (!Node)
 	{
@@ -1095,12 +1056,10 @@ EComposableCameraGraphChain UComposableCameraNodeGraphSchema::ClassifyChainForNo
 				// Find the ExecIn pin on the current node. Set variable nodes
 				// use their own pin name; pipeline graph nodes use the shared
 				// base class pin name. Try both.
-				const UEdGraphPin* ExecIn = Current->FindPin(
-					UComposableCameraVariableGraphNode::PN_ExecIn, EGPD_Input);
+				const UEdGraphPin* ExecIn = Current->FindPin(UComposableCameraVariableGraphNode::PN_ExecIn, EGPD_Input);
 				if (!ExecIn)
 				{
-					ExecIn = Current->FindPin(
-						UComposableCameraGraphNodeBase::PN_ExecIn, EGPD_Input);
+					ExecIn = Current->FindPin(UComposableCameraGraphNodeBase::PN_ExecIn, EGPD_Input);
 				}
 				if (!ExecIn || ExecIn->LinkedTo.Num() == 0 || !ExecIn->LinkedTo[0])
 				{
@@ -1134,12 +1093,12 @@ EComposableCameraGraphChain UComposableCameraNodeGraphSchema::ClassifyChainForNo
 					return EComposableCameraGraphChain::Camera;
 				}
 
-				// Predecessor is another variable Set node — keep walking.
+				// Predecessor is another variable Set node - keep walking.
 				Current = Predecessor;
 			}
 
 			// The backward walk exhausted without hitting a definitively-
-			// classified node — the Set node has no exec wires (or its
+			// classified node - the Set node has no exec wires (or its
 			// predecessors are all other unwired Set nodes). Return
 			// Unclassified so CanCreateConnection allows the first exec
 			// wire from either chain sentinel.
@@ -1155,8 +1114,7 @@ EComposableCameraGraphChain UComposableCameraNodeGraphSchema::ClassifyChainForNo
 	return EComposableCameraGraphChain::Camera;
 }
 
-bool UComposableCameraNodeGraphSchema::ArePinTypesCompatible(
-	const FEdGraphPinType& SourceType, const FEdGraphPinType& TargetType)
+bool UComposableCameraNodeGraphSchema::ArePinTypesCompatible(const FEdGraphPinType& SourceType, const FEdGraphPinType& TargetType)
 {
 	// Exact category match required.
 	if (SourceType.PinCategory != TargetType.PinCategory)
@@ -1188,7 +1146,7 @@ bool UComposableCameraNodeGraphSchema::ArePinTypesCompatible(
 		return true; // If either is null (generic UObject), allow it.
 	}
 
-	// Bool, Int32 — exact match (already matched by category).
+	// Bool, Int32 - exact match (already matched by category).
 	return true;
 }
 

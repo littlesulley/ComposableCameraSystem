@@ -15,7 +15,7 @@ FText UAssetDefinition_ComposableCameraShotAsset::GetAssetDisplayName() const
 
 FLinearColor UAssetDefinition_ComposableCameraShotAsset::GetAssetColor() const
 {
-	// Cool teal-green — distinct from the orange Patch and the warmer teal of
+	// Cool teal-green - distinct from the orange Patch and the warmer teal of
 	// the Camera Type asset. Reads as "framing data, not a runnable camera".
 	return FLinearColor(FColor(64, 192, 160));
 }
@@ -35,9 +35,9 @@ EAssetCommandResult UAssetDefinition_ComposableCameraShotAsset::OpenAssets(const
 {
 	// Route every loaded ShotAsset into the single-instance Shot Editor.
 	// HostObject = the asset itself, so the editor's FNotifyHook bridges
-	// Shot edits through the asset's Modify() + PostEditChangeProperty —
+	// Shot edits through the asset's Modify() + PostEditChangeProperty - 
 	// the asset's own undo stack and dirty flag stay in sync.
-	for (UComposableCameraShotAsset* ShotAsset : OpenArgs.LoadObjects<UComposableCameraShotAsset>())
+	for (UComposableCameraShotAsset* ShotAsset: OpenArgs.LoadObjects<UComposableCameraShotAsset>())
 	{
 		if (ShotAsset)
 		{

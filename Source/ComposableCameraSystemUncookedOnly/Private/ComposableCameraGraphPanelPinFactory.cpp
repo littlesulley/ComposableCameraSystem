@@ -22,7 +22,7 @@ TSharedPtr<class SGraphPin> FComposableCameraGraphPanelPinFactory::CreatePin(cla
 
 	UObject* Outer = InPin->GetOuter();
 
-	// ── UK2Node_ActivateComposableCameraFromDataTable pins ──────────────
+	// UK2Node_ActivateComposableCameraFromDataTable pins 
 	// Two custom widgets on this node: a filtered DataTable asset picker,
 	// and a live-refreshing row-name combo driven by the node's
 	// OnDataTablePinChanged delegate.
@@ -31,7 +31,7 @@ TSharedPtr<class SGraphPin> FComposableCameraGraphPanelPinFactory::CreatePin(cla
 	{
 		if (InPin->Direction == EGPD_Input)
 		{
-			// DataTable asset pin — filter to our required row struct.
+			// DataTable asset pin - filter to our required row struct.
 			if (InPin->PinName == UK2Node_ActivateComposableCameraFromDataTable::DataTablePinName
 				&& InPin->PinType.PinCategory == UEdGraphSchema_K2::PC_Object)
 			{
@@ -42,7 +42,7 @@ TSharedPtr<class SGraphPin> FComposableCameraGraphPanelPinFactory::CreatePin(cla
 				}
 			}
 
-			// RowName pin — searchable combo populated from the literal DT.
+			// RowName pin - searchable combo populated from the literal DT.
 			if (InPin->PinName == UK2Node_ActivateComposableCameraFromDataTable::RowNamePinName
 				&& InPin->PinType.PinCategory == UEdGraphSchema_K2::PC_Name)
 			{
@@ -51,7 +51,7 @@ TSharedPtr<class SGraphPin> FComposableCameraGraphPanelPinFactory::CreatePin(cla
 		}
 	}
 
-	// ── UK2Node_ActivateComposableCamera — ContextName pin ─────────────
+	// UK2Node_ActivateComposableCamera - ContextName pin 
 	// Static combo populated from UComposableCameraProjectSettings.
 	if (UK2Node_ActivateComposableCamera* ActivateNode =
 			Cast<UK2Node_ActivateComposableCamera>(Outer))
@@ -64,7 +64,7 @@ TSharedPtr<class SGraphPin> FComposableCameraGraphPanelPinFactory::CreatePin(cla
 		}
 	}
 
-	// ── UK2Node_PlayCutsceneSequence — ContextName pin ─────────────────
+	// UK2Node_PlayCutsceneSequence - ContextName pin 
 	if (UK2Node_PlayCutsceneSequence* CutsceneNode =
 			Cast<UK2Node_PlayCutsceneSequence>(Outer))
 	{
@@ -76,7 +76,7 @@ TSharedPtr<class SGraphPin> FComposableCameraGraphPanelPinFactory::CreatePin(cla
 		}
 	}
 
-	// ── UK2Node_AddCameraPatch — ContextName pin ───────────────────────
+	// UK2Node_AddCameraPatch - ContextName pin 
 	if (UK2Node_AddCameraPatch* AddPatchNode =
 			Cast<UK2Node_AddCameraPatch>(Outer))
 	{

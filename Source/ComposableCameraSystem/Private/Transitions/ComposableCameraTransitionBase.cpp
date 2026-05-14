@@ -85,9 +85,9 @@ void UComposableCameraTransitionBase::DrawStandardTransitionDebug(
 	if (!World) { return; }
 
 	// Color legend (fixed across every transition type):
-	//   Source  → green  — where the blend is coming FROM this frame
-	//   Target  → blue   — where the blend is going TO this frame
-	//   Progress→ accent — the actual blended camera position this frame
+	//   Source->green . Where the blend is coming FROM this frame
+	//   Target->blue  . Where the blend is going TO this frame
+	//   Progress->accent. The actual blended camera position this frame
 	//                      (the per-transition AccentColor also identifies
 	//                       which transition type is contributing when
 	//                       multiple are active simultaneously)
@@ -97,7 +97,7 @@ void UComposableCameraTransitionBase::DrawStandardTransitionDebug(
 	// Linear/Smooth/Ease/Cubic, arc for Cylindrical, polynomial for
 	// Inertialized, authored curve for Spline, rail for PathGuided). Each
 	// concrete override draws its own path polyline in the same AccentColor
-	// on top of this helper's markers — see §3.20.4 in TechDoc.
+	// on top of this helper's markers. See Section 3.20.4 in TechDoc.
 	static const FColor SourceColor { 80, 220, 120 };
 	static const FColor TargetColor { 80, 170, 255 };
 

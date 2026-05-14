@@ -25,7 +25,7 @@
 
 #define LOCTEXT_NAMESPACE "ComposableCameraInternalVariableCustomization"
 
-// ─── Static Registration ────────────────────────────────────────────────
+// Static Registration 
 
 TSharedRef<IPropertyTypeCustomization> FComposableCameraInternalVariableCustomization::MakeInstance()
 {
@@ -34,8 +34,7 @@ TSharedRef<IPropertyTypeCustomization> FComposableCameraInternalVariableCustomiz
 
 void FComposableCameraInternalVariableCustomization::Register(FPropertyEditorModule& PropertyEditorModule)
 {
-	PropertyEditorModule.RegisterCustomPropertyTypeLayout(
-		FComposableCameraInternalVariable::StaticStruct()->GetFName(),
+	PropertyEditorModule.RegisterCustomPropertyTypeLayout(FComposableCameraInternalVariable::StaticStruct()->GetFName(),
 		FOnGetPropertyTypeCustomizationInstance::CreateStatic(
 			&FComposableCameraInternalVariableCustomization::MakeInstance));
 }
@@ -44,15 +43,13 @@ void FComposableCameraInternalVariableCustomization::Unregister(FPropertyEditorM
 {
 	if (UObjectInitialized())
 	{
-		PropertyEditorModule.UnregisterCustomPropertyTypeLayout(
-			FComposableCameraInternalVariable::StaticStruct()->GetFName());
+		PropertyEditorModule.UnregisterCustomPropertyTypeLayout(FComposableCameraInternalVariable::StaticStruct()->GetFName());
 	}
 }
 
-// ─── Header ──────────────────────────────────────────────────────────────
+// Header 
 
-void FComposableCameraInternalVariableCustomization::CustomizeHeader(
-	TSharedRef<IPropertyHandle> PropertyHandle,
+void FComposableCameraInternalVariableCustomization::CustomizeHeader(TSharedRef<IPropertyHandle> PropertyHandle,
 	FDetailWidgetRow& HeaderRow,
 	IPropertyTypeCustomizationUtils& Utils)
 {
@@ -64,24 +61,18 @@ void FComposableCameraInternalVariableCustomization::CustomizeHeader(
 	TSharedPtr<IPropertyHandle> NameHandle =
 		PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FComposableCameraInternalVariable, VariableName));
 
-	HeaderRow
-	.NameContent()
-	[
-		PropertyHandle->CreatePropertyNameWidget()
-	]
+	HeaderRow.NameContent()
+	[PropertyHandle->CreatePropertyNameWidget()]
 	.ValueContent()
 	.MinDesiredWidth(120.f)
-	[
-		NameHandle.IsValid()
+	[NameHandle.IsValid()
 			? NameHandle->CreatePropertyValueWidget()
-			: SNullWidget::NullWidget
-	];
+			: SNullWidget::NullWidget];
 }
 
-// ─── Children ────────────────────────────────────────────────────────────
+// Children 
 
-void FComposableCameraInternalVariableCustomization::CustomizeChildren(
-	TSharedRef<IPropertyHandle> PropertyHandle,
+void FComposableCameraInternalVariableCustomization::CustomizeChildren(TSharedRef<IPropertyHandle> PropertyHandle,
 	IDetailChildrenBuilder& ChildBuilder,
 	IPropertyTypeCustomizationUtils& Utils)
 {
@@ -99,8 +90,7 @@ void FComposableCameraInternalVariableCustomization::CustomizeChildren(
 	// InitialValueString widget adapts to the new type.
 	if (TypeHandle.IsValid())
 	{
-		TypeHandle->SetOnPropertyValueChanged(
-			FSimpleDelegate::CreateLambda([Utils = PropertyUtilities]()
+		TypeHandle->SetOnPropertyValueChanged(FSimpleDelegate::CreateLambda([Utils = PropertyUtilities]()
 			{
 				if (Utils.IsValid())
 				{
@@ -112,8 +102,7 @@ void FComposableCameraInternalVariableCustomization::CustomizeChildren(
 	// Also rebuild when StructType changes (for Struct pin type).
 	if (StructTypeHandle.IsValid())
 	{
-		StructTypeHandle->SetOnPropertyValueChanged(
-			FSimpleDelegate::CreateLambda([Utils = PropertyUtilities]()
+		StructTypeHandle->SetOnPropertyValueChanged(FSimpleDelegate::CreateLambda([Utils = PropertyUtilities]()
 			{
 				if (Utils.IsValid())
 				{
@@ -126,8 +115,7 @@ void FComposableCameraInternalVariableCustomization::CustomizeChildren(
 	// SEnumComboBox rebuilds against the new UEnum.
 	if (EnumTypeHandle.IsValid())
 	{
-		EnumTypeHandle->SetOnPropertyValueChanged(
-			FSimpleDelegate::CreateLambda([Utils = PropertyUtilities]()
+		EnumTypeHandle->SetOnPropertyValueChanged(FSimpleDelegate::CreateLambda([Utils = PropertyUtilities]()
 			{
 				if (Utils.IsValid())
 				{
@@ -149,14 +137,14 @@ void FComposableCameraInternalVariableCustomization::CustomizeChildren(
 			continue;
 		}
 
-		// Skip VariableGuid — it's an internal editor identity field, not user-facing.
+		// Skip VariableGuid - it's an internal editor identity field, not user-facing.
 		if (ChildHandle->GetProperty()->GetFName() ==
 			GET_MEMBER_NAME_CHECKED(FComposableCameraInternalVariable, VariableGuid))
 		{
 			continue;
 		}
 
-		// Skip VariableName — already shown in the header.
+		// Skip VariableName - already shown in the header.
 		if (ChildHandle->GetProperty()->GetFName() ==
 			GET_MEMBER_NAME_CHECKED(FComposableCameraInternalVariable, VariableName))
 		{
@@ -172,15 +160,11 @@ void FComposableCameraInternalVariableCustomization::CustomizeChildren(
 		{
 			ChildBuilder.AddCustomRow(LOCTEXT("EnumTypeSearchText", "Enum Type"))
 			.NameContent()
-			[
-				ChildHandle->CreatePropertyNameWidget()
-			]
+			[ChildHandle->CreatePropertyNameWidget()]
 			.ValueContent()
 			.MinDesiredWidth(200.f)
 			.MaxDesiredWidth(600.f)
-			[
-				BuildEnumTypePicker(EnumTypeHandle)
-			];
+			[BuildEnumTypePicker(EnumTypeHandle)];
 			continue;
 		}
 
@@ -224,17 +208,13 @@ void FComposableCameraInternalVariableCustomization::CustomizeChildren(
 			{
 				ChildBuilder.AddCustomRow(LOCTEXT("InitialValueSearchText", "Initial Value"))
 				.NameContent()
-				[
-					SNew(STextBlock)
+				[SNew(STextBlock)
 					.Text(LOCTEXT("InitialValueLabel", "Initial Value"))
-					.Font(IDetailLayoutBuilder::GetDetailFont())
-				]
+					.Font(IDetailLayoutBuilder::GetDetailFont())]
 				.ValueContent()
 				.MinDesiredWidth(200.f)
 				.MaxDesiredWidth(600.f)
-				[
-					BuildTypedDefaultValueWidget(InitialValueHandle, PinType, CurrentStructType, CurrentEnumType)
-				];
+				[BuildTypedDefaultValueWidget(InitialValueHandle, PinType, CurrentStructType, CurrentEnumType)];
 			}
 
 			continue;
@@ -245,10 +225,9 @@ void FComposableCameraInternalVariableCustomization::CustomizeChildren(
 	}
 }
 
-// ─── Typed Widget Builder ────────────────────────────────────────────────
+// Typed Widget Builder 
 
-TSharedRef<SWidget> FComposableCameraInternalVariableCustomization::BuildTypedDefaultValueWidget(
-	TSharedPtr<IPropertyHandle> InitialValueHandle,
+TSharedRef<SWidget> FComposableCameraInternalVariableCustomization::BuildTypedDefaultValueWidget(TSharedPtr<IPropertyHandle> InitialValueHandle,
 	EComposableCameraPinType PinType,
 	UScriptStruct* StructType,
 	UEnum* EnumType)
@@ -260,7 +239,7 @@ TSharedRef<SWidget> FComposableCameraInternalVariableCustomization::BuildTypedDe
 
 	switch (PinType)
 	{
-	// ── Bool ─────────────────────────────────────────────────────────
+	// Bool 
 	case EComposableCameraPinType::Bool:
 	{
 		return SNew(SCheckBox)
@@ -269,76 +248,109 @@ TSharedRef<SWidget> FComposableCameraInternalVariableCustomization::BuildTypedDe
 				FString Value;
 				InitialValueHandle->GetValue(Value);
 				return Value.Equals(TEXT("true"), ESearchCase::IgnoreCase)
-					? ECheckBoxState::Checked
-					: ECheckBoxState::Unchecked;
+					? ECheckBoxState::Checked: ECheckBoxState::Unchecked;
 			})
 			.OnCheckStateChanged_Lambda([InitialValueHandle](ECheckBoxState NewState)
 			{
-				InitialValueHandle->SetValue(
-					NewState == ECheckBoxState::Checked
+				InitialValueHandle->SetValue(NewState == ECheckBoxState::Checked
 						? FString(TEXT("true"))
 						: FString(TEXT("false")));
 			});
 	}
 
-	// ── Int32 ────────────────────────────────────────────────────────
+	// Int32
 	case EComposableCameraPinType::Int32:
 	{
+		// Per-widget drag cache. SSpinBox displays its text by reading
+		// ValueAttribute.Get() every paint; ValueAttribute is bound to the
+		// Value_Lambda below, which normally reads the persisted FString
+		// through the IPropertyHandle. Per-tick SetValue writes during drag
+		// fire PostEditChangeProperty broadcasts that other subscribers
+		// (engine internals + our K2 nodes' OnObjectPropertyChanged listeners)
+		// react to, and the resulting refresh cascade can invalidate the
+		// drag mid-gesture - users see one tick of motion then a freeze.
+		// Routing live drag through a TSharedRef<TOptional<T>> cache keeps
+		// the per-tick updates entirely local: Value_Lambda returns the
+		// cache when set, OnValueChanged updates it, and the final
+		// OnValueCommitted call writes once to the handle and clears the
+		// cache so subsequent reads go back through the handle. See
+		// TechDoc 7.2 for the FString-handle round-trip gotcha.
+		TSharedRef<TOptional<int32>> DragCache = MakeShared<TOptional<int32>>();
 		return SNew(SNumericEntryBox<int32>)
 			.AllowSpin(true)
-			.Value_Lambda([InitialValueHandle]() -> TOptional<int32>
+			.Value_Lambda([InitialValueHandle, DragCache]() -> TOptional<int32>
 			{
+				if (DragCache->IsSet()) return DragCache->GetValue();
 				FString Value;
 				InitialValueHandle->GetValue(Value);
 				if (Value.IsEmpty()) return 0;
 				return FCString::Atoi(*Value);
 			})
-			.OnValueCommitted_Lambda([InitialValueHandle](int32 NewValue, ETextCommit::Type)
+			.OnValueChanged_Lambda([DragCache](int32 NewValue)
 			{
+				*DragCache = NewValue;
+			})
+			.OnValueCommitted_Lambda([InitialValueHandle, DragCache](int32 NewValue, ETextCommit::Type)
+			{
+				DragCache->Reset();
 				InitialValueHandle->SetValue(FString::FromInt(NewValue));
 			})
 			.MinDesiredValueWidth(60.f);
 	}
 
-	// ── Float ────────────────────────────────────────────────────────
+	// Float
 	case EComposableCameraPinType::Float:
 	{
+		TSharedRef<TOptional<float>> DragCache = MakeShared<TOptional<float>>();
 		return SNew(SNumericEntryBox<float>)
 			.AllowSpin(true)
-			.Value_Lambda([InitialValueHandle]() -> TOptional<float>
+			.Value_Lambda([InitialValueHandle, DragCache]() -> TOptional<float>
 			{
+				if (DragCache->IsSet()) return DragCache->GetValue();
 				FString Value;
 				InitialValueHandle->GetValue(Value);
 				if (Value.IsEmpty()) return 0.f;
 				return FCString::Atof(*Value);
 			})
-			.OnValueCommitted_Lambda([InitialValueHandle](float NewValue, ETextCommit::Type)
+			.OnValueChanged_Lambda([DragCache](float NewValue)
 			{
+				*DragCache = NewValue;
+			})
+			.OnValueCommitted_Lambda([InitialValueHandle, DragCache](float NewValue, ETextCommit::Type)
+			{
+				DragCache->Reset();
 				InitialValueHandle->SetValue(FString::SanitizeFloat(NewValue));
 			})
 			.MinDesiredValueWidth(60.f);
 	}
 
-	// ── Double ───────────────────────────────────────────────────────
+	// Double
 	case EComposableCameraPinType::Double:
 	{
+		TSharedRef<TOptional<double>> DragCache = MakeShared<TOptional<double>>();
 		return SNew(SNumericEntryBox<double>)
 			.AllowSpin(true)
-			.Value_Lambda([InitialValueHandle]() -> TOptional<double>
+			.Value_Lambda([InitialValueHandle, DragCache]() -> TOptional<double>
 			{
+				if (DragCache->IsSet()) return DragCache->GetValue();
 				FString Value;
 				InitialValueHandle->GetValue(Value);
 				if (Value.IsEmpty()) return 0.0;
 				return FCString::Atod(*Value);
 			})
-			.OnValueCommitted_Lambda([InitialValueHandle](double NewValue, ETextCommit::Type)
+			.OnValueChanged_Lambda([DragCache](double NewValue)
 			{
+				*DragCache = NewValue;
+			})
+			.OnValueCommitted_Lambda([InitialValueHandle, DragCache](double NewValue, ETextCommit::Type)
+			{
+				DragCache->Reset();
 				InitialValueHandle->SetValue(FString::Printf(TEXT("%.6f"), NewValue));
 			})
 			.MinDesiredValueWidth(60.f);
 	}
 
-	// ── Vector2D ─────────────────────────────────────────────────────
+	// Vector2D 
 	case EComposableCameraPinType::Vector2D:
 	{
 		static const TCHAR* Labels[] = { TEXT("X"), TEXT("Y") };
@@ -350,19 +362,15 @@ TSharedRef<SWidget> FComposableCameraInternalVariableCustomization::BuildTypedDe
 			if (C > 0)
 			{
 				Box->AddSlot().AutoWidth().Padding(4.f, 0.f, 0.f, 0.f)
-				[
-					SNullWidget::NullWidget
-				];
+				[SNullWidget::NullWidget];
 			}
 			Box->AddSlot().FillWidth(1.f)
-			[
-				BuildNumericComponentWidget(InitialValueHandle, C, 2, Labels, Prefix)
-			];
+			[BuildNumericComponentWidget(InitialValueHandle, C, 2, Labels, Prefix)];
 		}
 		return Box;
 	}
 
-	// ── Vector3D ─────────────────────────────────────────────────────
+	// Vector3D 
 	case EComposableCameraPinType::Vector3D:
 	{
 		static const TCHAR* Labels[] = { TEXT("X"), TEXT("Y"), TEXT("Z") };
@@ -374,19 +382,15 @@ TSharedRef<SWidget> FComposableCameraInternalVariableCustomization::BuildTypedDe
 			if (C > 0)
 			{
 				Box->AddSlot().AutoWidth().Padding(4.f, 0.f, 0.f, 0.f)
-				[
-					SNullWidget::NullWidget
-				];
+				[SNullWidget::NullWidget];
 			}
 			Box->AddSlot().FillWidth(1.f)
-			[
-				BuildNumericComponentWidget(InitialValueHandle, C, 3, Labels, Prefix)
-			];
+			[BuildNumericComponentWidget(InitialValueHandle, C, 3, Labels, Prefix)];
 		}
 		return Box;
 	}
 
-	// ── Vector4 ──────────────────────────────────────────────────────
+	// Vector4 
 	case EComposableCameraPinType::Vector4:
 	{
 		static const TCHAR* Labels[] = { TEXT("X"), TEXT("Y"), TEXT("Z"), TEXT("W") };
@@ -398,19 +402,15 @@ TSharedRef<SWidget> FComposableCameraInternalVariableCustomization::BuildTypedDe
 			if (C > 0)
 			{
 				Box->AddSlot().AutoWidth().Padding(4.f, 0.f, 0.f, 0.f)
-				[
-					SNullWidget::NullWidget
-				];
+				[SNullWidget::NullWidget];
 			}
 			Box->AddSlot().FillWidth(1.f)
-			[
-				BuildNumericComponentWidget(InitialValueHandle, C, 4, Labels, Prefix)
-			];
+			[BuildNumericComponentWidget(InitialValueHandle, C, 4, Labels, Prefix)];
 		}
 		return Box;
 	}
 
-	// ── Rotator ──────────────────────────────────────────────────────
+	// Rotator 
 	case EComposableCameraPinType::Rotator:
 	{
 		static const TCHAR* Labels[] = { TEXT("P"), TEXT("Y"), TEXT("R") };
@@ -422,19 +422,15 @@ TSharedRef<SWidget> FComposableCameraInternalVariableCustomization::BuildTypedDe
 			if (C > 0)
 			{
 				Box->AddSlot().AutoWidth().Padding(4.f, 0.f, 0.f, 0.f)
-				[
-					SNullWidget::NullWidget
-				];
+				[SNullWidget::NullWidget];
 			}
 			Box->AddSlot().FillWidth(1.f)
-			[
-				BuildNumericComponentWidget(InitialValueHandle, C, 3, Labels, Prefix)
-			];
+			[BuildNumericComponentWidget(InitialValueHandle, C, 3, Labels, Prefix)];
 		}
 		return Box;
 	}
 
-	// ── Name ─────────────────────────────────────────────────────────
+	// Name 
 	case EComposableCameraPinType::Name:
 	{
 		return SNew(SEditableTextBox)
@@ -453,7 +449,7 @@ TSharedRef<SWidget> FComposableCameraInternalVariableCustomization::BuildTypedDe
 			.ClearKeyboardFocusOnCommit(false);
 	}
 
-	// ── Enum ─────────────────────────────────────────────────────────
+	// Enum 
 	// Persists the entry's authored name (e.g. "EMyEnum::Alpha") rather
 	// than its int value. Names are SCM-friendly and survive enum
 	// renumbering. The runtime side parses via UEnum::GetValueByNameString.
@@ -487,7 +483,7 @@ TSharedRef<SWidget> FComposableCameraInternalVariableCustomization::BuildTypedDe
 			});
 	}
 
-	// ── Actor / Object — not supported ──────────────────────────────
+	// Actor / Object - not supported 
 	case EComposableCameraPinType::Actor:
 	case EComposableCameraPinType::Object:
 	{
@@ -498,13 +494,13 @@ TSharedRef<SWidget> FComposableCameraInternalVariableCustomization::BuildTypedDe
 			.ColorAndOpacity(FSlateColor::UseSubduedForeground());
 	}
 
-	// ── Transform — Location / Rotation / Scale rows ────────────────
+	// Transform - Location / Rotation / Scale rows 
 	case EComposableCameraPinType::Transform:
 	{
 		return BuildTransformWidget(InitialValueHandle);
 	}
 
-	// ── Delegate — not applicable as a variable default ─────────────
+	// Delegate - not applicable as a variable default 
 	case EComposableCameraPinType::Delegate:
 	{
 		return SNew(STextBlock)
@@ -513,15 +509,14 @@ TSharedRef<SWidget> FComposableCameraInternalVariableCustomization::BuildTypedDe
 			.ColorAndOpacity(FSlateColor::UseSubduedForeground());
 	}
 
-	// ── Struct — text fallback ──────────────────────────────────────
+	// Struct - text fallback 
 	case EComposableCameraPinType::Struct:
 	default:
 	{
 		FText Hint;
 		if (StructType)
 		{
-			Hint = FText::Format(
-				LOCTEXT("StructHint", "ImportText format for {0}"),
+			Hint = FText::Format(LOCTEXT("StructHint", "ImportText format for {0}"),
 				FText::FromString(StructType->GetName()));
 		}
 		else
@@ -547,10 +542,9 @@ TSharedRef<SWidget> FComposableCameraInternalVariableCustomization::BuildTypedDe
 	}
 }
 
-// ─── Transform Widget ───────────────────────────────────────────────────
+// Transform Widget 
 
-TSharedRef<SWidget> FComposableCameraInternalVariableCustomization::BuildTransformWidget(
-	TSharedPtr<IPropertyHandle> InitialValueHandle)
+TSharedRef<SWidget> FComposableCameraInternalVariableCustomization::BuildTransformWidget(TSharedPtr<IPropertyHandle> InitialValueHandle)
 {
 	if (!InitialValueHandle.IsValid())
 	{
@@ -558,7 +552,7 @@ TSharedRef<SWidget> FComposableCameraInternalVariableCustomization::BuildTransfo
 	}
 
 	// Parse FTransform from the stored string. FTransform::ToString() produces:
-	//   (Rotation=(X=0,Y=0,Z=0,W=1),Translation=(X=0,Y=0,Z=0),Scale3D=(X=1,Y=1,Z=1))
+	// (Rotation=(X=0,Y=0,Z=0,W=1),Translation=(X=0,Y=0,Z=0),Scale3D=(X=1,Y=1,Z=1))
 	// and InitFromString round-trips it.
 	auto ParseTransform = [](const FString& Str) -> FTransform
 	{
@@ -581,8 +575,7 @@ TSharedRef<SWidget> FComposableCameraInternalVariableCustomization::BuildTransfo
 		TFunction<void(FTransform&, const FVector&)> Set;
 	};
 
-	auto BuildRow = [InitialValueHandle, ParseTransform](
-		const FText& RowLabel,
+	auto BuildRow = [InitialValueHandle, ParseTransform](const FText& RowLabel,
 		const TFunction<FVector(const FTransform&)>& Getter,
 		const TFunction<void(FTransform&, const FVector&)>& Setter) -> TSharedRef<SWidget>
 	{
@@ -595,67 +588,72 @@ TSharedRef<SWidget> FComposableCameraInternalVariableCustomization::BuildTransfo
 		.AutoWidth()
 		.VAlign(VAlign_Center)
 		.Padding(0.f, 0.f, 6.f, 0.f)
-		[
-			SNew(STextBlock)
+		[SNew(STextBlock)
 			.Text(RowLabel)
 			.Font(IDetailLayoutBuilder::GetDetailFont())
 			.ColorAndOpacity(FSlateColor::UseSubduedForeground())
-			.MinDesiredWidth(52.f)
-		];
+			.MinDesiredWidth(52.f)];
 
 		for (int32 C = 0; C < 3; ++C)
 		{
 			if (C > 0)
 			{
 				Row->AddSlot().AutoWidth().Padding(4.f, 0.f, 0.f, 0.f)
-				[
-					SNullWidget::NullWidget
-				];
+				[SNullWidget::NullWidget];
 			}
 
 			Row->AddSlot()
 			.FillWidth(1.f)
-			[
-				SNew(SHorizontalBox)
+			[SNew(SHorizontalBox)
 
 				+ SHorizontalBox::Slot()
 				.AutoWidth()
 				.VAlign(VAlign_Center)
 				.Padding(0.f, 0.f, 2.f, 0.f)
-				[
-					SNew(STextBlock)
+				[SNew(STextBlock)
 					.Text(FText::FromString(XYZ[C]))
 					.Font(IDetailLayoutBuilder::GetDetailFont())
-					.ColorAndOpacity(FSlateColor::UseSubduedForeground())
-				]
+					.ColorAndOpacity(FSlateColor::UseSubduedForeground())]
 
 				+ SHorizontalBox::Slot()
 				.FillWidth(1.f)
 				[
-					SNew(SNumericEntryBox<double>)
-					.AllowSpin(true)
-					.Value_Lambda([InitialValueHandle, ParseTransform, Getter, C]() -> TOptional<double>
+					[&]() -> TSharedRef<SWidget>
 					{
-						FString Str;
-						InitialValueHandle->GetValue(Str);
-						FVector V = Getter(ParseTransform(Str));
-						return V[C];
-					})
-					.OnValueCommitted_Lambda(
-						[InitialValueHandle, ParseTransform, Getter, Setter, C]
-						(double NewValue, ETextCommit::Type)
-					{
-						FString Str;
-						InitialValueHandle->GetValue(Str);
-						FTransform T = ParseTransform(Str);
-						FVector V = Getter(T);
-						V[C] = NewValue;
-						Setter(T, V);
-						InitialValueHandle->SetValue(T.ToString());
-					})
-					.MinDesiredValueWidth(40.f)
-				]
-			];
+						// Per-component drag cache. See TechDoc 7.2 - live drag
+						// must not write the handle each tick or the resulting
+						// PostEditChangeProperty cascade aborts the gesture.
+						TSharedRef<TOptional<double>> DragCache = MakeShared<TOptional<double>>();
+						return SNew(SNumericEntryBox<double>)
+							.AllowSpin(true)
+							.Value_Lambda([InitialValueHandle, ParseTransform, Getter, C, DragCache]() -> TOptional<double>
+							{
+								if (DragCache->IsSet()) return DragCache->GetValue();
+								FString Str;
+								InitialValueHandle->GetValue(Str);
+								FVector V = Getter(ParseTransform(Str));
+								return V[C];
+							})
+							.OnValueChanged_Lambda([DragCache](double NewValue)
+							{
+								*DragCache = NewValue;
+							})
+							.OnValueCommitted_Lambda(
+								[InitialValueHandle, ParseTransform, Getter, Setter, C, DragCache]
+								(double NewValue, ETextCommit::Type)
+							{
+								DragCache->Reset();
+								FString Str;
+								InitialValueHandle->GetValue(Str);
+								FTransform T = ParseTransform(Str);
+								FVector V = Getter(T);
+								V[C] = NewValue;
+								Setter(T, V);
+								InitialValueHandle->SetValue(T.ToString());
+							})
+							.MinDesiredValueWidth(40.f);
+					}()
+				]];
 		}
 
 		return Row;
@@ -666,19 +664,14 @@ TSharedRef<SWidget> FComposableCameraInternalVariableCustomization::BuildTransfo
 		+ SVerticalBox::Slot()
 		.AutoHeight()
 		.Padding(0.f, 1.f)
-		[
-			BuildRow(
-				LOCTEXT("TransformLocation", "Location"),
+		[BuildRow(LOCTEXT("TransformLocation", "Location"),
 				[](const FTransform& T) -> FVector { return T.GetTranslation(); },
-				[](FTransform& T, const FVector& V) { T.SetTranslation(V); })
-		]
+				[](FTransform& T, const FVector& V) { T.SetTranslation(V); })]
 
 		+ SVerticalBox::Slot()
 		.AutoHeight()
 		.Padding(0.f, 1.f)
-		[
-			BuildRow(
-				LOCTEXT("TransformRotation", "Rotation"),
+		[BuildRow(LOCTEXT("TransformRotation", "Rotation"),
 				[](const FTransform& T) -> FVector
 				{
 					FRotator R = T.Rotator();
@@ -687,24 +680,19 @@ TSharedRef<SWidget> FComposableCameraInternalVariableCustomization::BuildTransfo
 				[](FTransform& T, const FVector& V)
 				{
 					T.SetRotation(FRotator(V.X, V.Y, V.Z).Quaternion());
-				})
-		]
+				})]
 
 		+ SVerticalBox::Slot()
 		.AutoHeight()
 		.Padding(0.f, 1.f)
-		[
-			BuildRow(
-				LOCTEXT("TransformScale", "Scale"),
+		[BuildRow(LOCTEXT("TransformScale", "Scale"),
 				[](const FTransform& T) -> FVector { return T.GetScale3D(); },
-				[](FTransform& T, const FVector& V) { T.SetScale3D(V); })
-		];
+				[](FTransform& T, const FVector& V) { T.SetScale3D(V); })];
 }
 
-// ─── Struct Default Value (inline IStructureDetailsView) ─────────────────
+// Struct Default Value (inline IStructureDetailsView) 
 
-void FComposableCameraInternalVariableCustomization::BuildStructDefaultValueRows(
-	IDetailChildrenBuilder& ChildBuilder,
+void FComposableCameraInternalVariableCustomization::BuildStructDefaultValueRows(IDetailChildrenBuilder& ChildBuilder,
 	TSharedPtr<IPropertyHandle> InitialValueHandle,
 	UScriptStruct* InStructType)
 {
@@ -731,8 +719,8 @@ void FComposableCameraInternalVariableCustomization::BuildStructDefaultValueRows
 			/*bAllowNativeOverride=*/ true);
 	}
 
-	// Create a minimal IStructureDetailsView — no search, no options, no
-	// scrollbar — so it embeds cleanly inside the parent details panel.
+	// Create a minimal IStructureDetailsView - no search, no options, no
+	// scrollbar - so it embeds cleanly inside the parent details panel.
 	FPropertyEditorModule& PropertyModule =
 		FModuleManager::GetModuleChecked<FPropertyEditorModule>("PropertyEditor");
 
@@ -747,20 +735,19 @@ void FComposableCameraInternalVariableCustomization::BuildStructDefaultValueRows
 
 	FStructureDetailsViewArgs StructViewArgs;
 
-	StructDefaultValueView = PropertyModule.CreateStructureDetailView(
-		ViewArgs, StructViewArgs, StructDefaultValueScope);
+	StructDefaultValueView = PropertyModule.CreateStructureDetailView(ViewArgs, StructViewArgs, StructDefaultValueScope);
 
 	// Serialize the struct memory back to InitialValueString whenever the
 	// user finishes editing a property in the struct view.
 	//
-	// Capture only weak refs to objects we don't own — the embedded struct
+	// Capture only weak refs to objects we don't own - the embedded struct
 	// view widget can outlive `this` (the customization is rebuilt whenever
 	// the variable type changes; the struct view widget can survive into the
 	// next tick on Slate's deferred-deletion path), and an event firing on
 	// the dead customization's `this` would crash. `WeakScope` covers the
 	// struct memory, and `InitialValueHandle` is intentionally captured by
 	// TSharedPtr (NOT TWeakPtr) per the IPropertyHandle lifetime gotcha
-	// (TechDoc §7.2): `GetChildHandle()` returns a fresh TSharedPtr each
+	// (TechDoc Section 7.2): GetChildHandle() returns a fresh TSharedPtr each
 	// call and the property tree does not retain a parallel strong ref, so
 	// a weak capture would Pin() to null on every fire.
 	TWeakPtr<FStructOnScope> WeakScope = StructDefaultValueScope;
@@ -775,8 +762,7 @@ void FComposableCameraInternalVariableCustomization::BuildStructDefaultValueRows
 				return;
 			}
 			FString NewValue;
-			InStructType->ExportText(
-				NewValue,
+			InStructType->ExportText(NewValue,
 				ScopePinned->GetStructMemory(),
 				/*Defaults=*/ nullptr,
 				/*OwnerObject=*/ nullptr,
@@ -792,30 +778,23 @@ void FComposableCameraInternalVariableCustomization::BuildStructDefaultValueRows
 	ChildBuilder.AddCustomRow(LOCTEXT("StructInitialValueSearch", "Initial Value"))
 	.WholeRowContent()
 	.MinDesiredWidth(300.f)
-	[
-		SNew(SVerticalBox)
+	[SNew(SVerticalBox)
 
 		+ SVerticalBox::Slot()
 		.AutoHeight()
 		.Padding(0.f, 2.f, 0.f, 4.f)
-		[
-			SNew(STextBlock)
+		[SNew(STextBlock)
 			.Text(LOCTEXT("StructInitialValueLabel", "Initial Value"))
-			.Font(IDetailLayoutBuilder::GetDetailFont())
-		]
+			.Font(IDetailLayoutBuilder::GetDetailFont())]
 
 		+ SVerticalBox::Slot()
 		.AutoHeight()
-		[
-			ViewWidget.IsValid() ? ViewWidget.ToSharedRef() : SNullWidget::NullWidget
-		]
-	];
+		[ViewWidget.IsValid() ? ViewWidget.ToSharedRef() : SNullWidget::NullWidget]];
 }
 
-// ─── Multi-Component Numeric Widget ──────────────────────────────────────
+// Multi-Component Numeric Widget 
 
-TSharedRef<SWidget> FComposableCameraInternalVariableCustomization::BuildNumericComponentWidget(
-	TSharedPtr<IPropertyHandle> InitialValueHandle,
+TSharedRef<SWidget> FComposableCameraInternalVariableCustomization::BuildNumericComponentWidget(TSharedPtr<IPropertyHandle> InitialValueHandle,
 	int32 ComponentIndex,
 	int32 NumComponents,
 	const TCHAR* const* ComponentLabels,
@@ -825,8 +804,8 @@ TSharedRef<SWidget> FComposableCameraInternalVariableCustomization::BuildNumeric
 	// use the UE standard "Name=Value" format. We parse via the specific
 	// struct's InitFromString to stay in sync with the runtime parser.
 	//
-	// Read: parse full string → extract component
-	// Write: parse full string → replace component → write back
+	// Read: parse full string -> extract component
+	// Write: parse full string -> replace component -> write back
 
 	auto ParseComponents = [NumComponents, Prefix](const FString& Str, TArray<double>& Out)
 	{
@@ -882,27 +861,71 @@ TSharedRef<SWidget> FComposableCameraInternalVariableCustomization::BuildNumeric
 		}
 	};
 
+	// Per-widget drag cache. See TechDoc 7.2 - live drag must not write the
+	// IPropertyHandle each tick or PostEditChangeProperty broadcasts will
+	// trigger a refresh cascade that abort the gesture after the first move.
+	// Cache holds the in-flight component value; Value_Lambda returns it
+	// during drag; OnValueCommitted writes the full reassembled struct
+	// string once at gesture end.
+	TSharedRef<TOptional<double>> DragCache = MakeShared<TOptional<double>>();
+
+	auto CommitFromCache = [InitialValueHandle, ComponentIndex, NumComponents, Prefix, ParseComponents]
+		(double NewValue)
+	{
+		FString Value;
+		InitialValueHandle->GetValue(Value);
+		TArray<double> Components;
+		ParseComponents(Value, Components);
+		if (Components.IsValidIndex(ComponentIndex))
+		{
+			Components[ComponentIndex] = NewValue;
+		}
+
+		// Rebuild the string in the canonical format for this type.
+		FString Result;
+		if (NumComponents == 2)
+		{
+			Result = FVector2D(Components[0], Components[1]).ToString();
+		}
+		else if (NumComponents == 3)
+		{
+			// Detect Rotator vs Vector by prefix hint.
+			if (FCString::Strcmp(Prefix, TEXT("Rotator")) == 0)
+			{
+				Result = FRotator(Components[0], Components[1], Components[2]).ToString();
+			}
+			else
+			{
+				Result = FVector(Components[0], Components[1], Components[2]).ToString();
+			}
+		}
+		else if (NumComponents == 4)
+		{
+			Result = FVector4(Components[0], Components[1], Components[2], Components[3]).ToString();
+		}
+
+		InitialValueHandle->SetValue(Result);
+	};
+
 	return SNew(SHorizontalBox)
 
 		+ SHorizontalBox::Slot()
 		.AutoWidth()
 		.VAlign(VAlign_Center)
 		.Padding(0.f, 0.f, 2.f, 0.f)
-		[
-			SNew(STextBlock)
+		[SNew(STextBlock)
 			.Text(FText::FromString(ComponentLabels[ComponentIndex]))
 			.Font(IDetailLayoutBuilder::GetDetailFont())
-			.ColorAndOpacity(FSlateColor::UseSubduedForeground())
-		]
+			.ColorAndOpacity(FSlateColor::UseSubduedForeground())]
 
 		+ SHorizontalBox::Slot()
 		.FillWidth(1.f)
-		[
-			SNew(SNumericEntryBox<double>)
+		[SNew(SNumericEntryBox<double>)
 			.AllowSpin(true)
-			.Value_Lambda([InitialValueHandle, ComponentIndex, NumComponents, ParseComponents]()
+			.Value_Lambda([InitialValueHandle, ComponentIndex, NumComponents, ParseComponents, DragCache]()
 				-> TOptional<double>
 			{
+				if (DragCache->IsSet()) return DragCache->GetValue();
 				FString Value;
 				InitialValueHandle->GetValue(Value);
 				TArray<double> Components;
@@ -911,52 +934,21 @@ TSharedRef<SWidget> FComposableCameraInternalVariableCustomization::BuildNumeric
 					? Components[ComponentIndex]
 					: 0.0;
 			})
-			.OnValueCommitted_Lambda(
-				[InitialValueHandle, ComponentIndex, NumComponents, Prefix, ParseComponents, ComponentLabels]
-				(double NewValue, ETextCommit::Type)
+			.OnValueChanged_Lambda([DragCache](double NewValue)
 			{
-				FString Value;
-				InitialValueHandle->GetValue(Value);
-				TArray<double> Components;
-				ParseComponents(Value, Components);
-				if (Components.IsValidIndex(ComponentIndex))
-				{
-					Components[ComponentIndex] = NewValue;
-				}
-
-				// Rebuild the string in the canonical format for this type.
-				FString Result;
-				if (NumComponents == 2)
-				{
-					Result = FVector2D(Components[0], Components[1]).ToString();
-				}
-				else if (NumComponents == 3)
-				{
-					// Detect Rotator vs Vector by prefix hint.
-					if (FCString::Strcmp(Prefix, TEXT("Rotator")) == 0)
-					{
-						Result = FRotator(Components[0], Components[1], Components[2]).ToString();
-					}
-					else
-					{
-						Result = FVector(Components[0], Components[1], Components[2]).ToString();
-					}
-				}
-				else if (NumComponents == 4)
-				{
-					Result = FVector4(Components[0], Components[1], Components[2], Components[3]).ToString();
-				}
-
-				InitialValueHandle->SetValue(Result);
+				*DragCache = NewValue;
 			})
-			.MinDesiredValueWidth(40.f)
-		];
+			.OnValueCommitted_Lambda([DragCache, CommitFromCache](double NewValue, ETextCommit::Type)
+			{
+				DragCache->Reset();
+				CommitFromCache(NewValue);
+			})
+			.MinDesiredValueWidth(40.f)];
 }
 
-// ─── Enum Type Picker ────────────────────────────────────────────────────
+// Enum Type Picker 
 
-TSharedRef<SWidget> FComposableCameraInternalVariableCustomization::BuildEnumTypePicker(
-	TSharedPtr<IPropertyHandle> EnumTypeHandle)
+TSharedRef<SWidget> FComposableCameraInternalVariableCustomization::BuildEnumTypePicker(TSharedPtr<IPropertyHandle> EnumTypeHandle)
 {
 	if (!EnumTypeHandle.IsValid())
 	{
@@ -970,24 +962,20 @@ TSharedRef<SWidget> FComposableCameraInternalVariableCustomization::BuildEnumTyp
 			return BuildEnumTypeMenu(EnumTypeHandle);
 		})
 		.ButtonContent()
-		[
-			SNew(STextBlock)
+		[SNew(STextBlock)
 			.Font(IDetailLayoutBuilder::GetDetailFont())
 			.Text_Lambda([this, EnumTypeHandle]()
 			{
 				return GetEnumTypeButtonText(EnumTypeHandle);
-			})
-		];
+			})];
 }
 
-TSharedRef<SWidget> FComposableCameraInternalVariableCustomization::BuildEnumTypeMenu(
-	TSharedPtr<IPropertyHandle> EnumTypeHandle)
+TSharedRef<SWidget> FComposableCameraInternalVariableCustomization::BuildEnumTypeMenu(TSharedPtr<IPropertyHandle> EnumTypeHandle)
 {
 	FMenuBuilder MenuBuilder(/*bShouldCloseWindowAfterMenuSelection=*/true, nullptr);
 
 	// "None" entry first -- clears the selection.
-	MenuBuilder.AddMenuEntry(
-		LOCTEXT("EnumTypeNone", "None"),
+	MenuBuilder.AddMenuEntry(LOCTEXT("EnumTypeNone", "None"),
 		LOCTEXT("EnumTypeNoneTooltip", "Clear the selected enum type."),
 		FSlateIcon(),
 		FUIAction(FExecuteAction::CreateLambda([EnumTypeHandle]()
@@ -1028,13 +1016,12 @@ TSharedRef<SWidget> FComposableCameraInternalVariableCustomization::BuildEnumTyp
 		return A.GetName().Compare(B.GetName(), ESearchCase::IgnoreCase) < 0;
 	});
 
-	for (UEnum* EnumValue : SortedEnums)
+	for (UEnum* EnumValue: SortedEnums)
 	{
 		// Capture by value -- ownership stays with the engine; weak-ref
 		// not needed because UEnum lifetime tracks the engine, not the
 		// menu widget.
-		MenuBuilder.AddMenuEntry(
-			FText::FromString(EnumValue->GetName()),
+		MenuBuilder.AddMenuEntry(FText::FromString(EnumValue->GetName()),
 			FText::FromString(EnumValue->GetPathName()),
 			FSlateIcon(),
 			FUIAction(FExecuteAction::CreateLambda([EnumTypeHandle, EnumValue]()
@@ -1049,8 +1036,7 @@ TSharedRef<SWidget> FComposableCameraInternalVariableCustomization::BuildEnumTyp
 	return MenuBuilder.MakeWidget();
 }
 
-FText FComposableCameraInternalVariableCustomization::GetEnumTypeButtonText(
-	TSharedPtr<IPropertyHandle> EnumTypeHandle) const
+FText FComposableCameraInternalVariableCustomization::GetEnumTypeButtonText(TSharedPtr<IPropertyHandle> EnumTypeHandle) const
 {
 	if (!EnumTypeHandle.IsValid())
 	{

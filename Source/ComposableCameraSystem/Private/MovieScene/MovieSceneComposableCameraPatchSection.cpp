@@ -18,7 +18,7 @@
 UMovieSceneComposableCameraPatchSection::UMovieSceneComposableCameraPatchSection(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
 {
-	// Patches are an additive overlay — finishing the section means the patch
+	// Patches are an additive overlay. Finishing the section means the patch
 	// stops contributing. RestoreState would re-set whatever the patch was
 	// modifying; ProjectDefault is the right baseline since the patch's exit
 	// envelope already smoothly transitions out.
@@ -34,7 +34,7 @@ UMovieSceneComposableCameraPatchSection::UMovieSceneComposableCameraPatchSection
 	// engine's "Infinite Key Areas" path so any pipeline that respects the
 	// flag (the menu-driven CreateNewSection overload, splitter UX, etc)
 	// refuses to set an infinite range. The simpler FSequencerUtilities::
-	// CreateNewSection overload doesn't check this flag in 5.6 — that's
+	// CreateNewSection overload doesn't check this flag in 5.6. That's
 	// routed around via FComposableCameraPatchTrackEditor's own helper.
 	bSupportsInfiniteRange = false;
 }
@@ -42,7 +42,7 @@ UMovieSceneComposableCameraPatchSection::UMovieSceneComposableCameraPatchSection
 void UMovieSceneComposableCameraPatchSection::PostLoad()
 {
 	Super::PostLoad();
-	// Catch up the bag layouts to the asset's current exposed surface — handles
+	// Catch up the bag layouts to the asset's current exposed surface. Handles
 	// loading a section that was saved before the asset's exposed parameters
 	// changed. MigrateToNewBagStruct preserves survivor values.
 	RebuildBagsFromPatchAsset();
@@ -66,7 +66,7 @@ void UMovieSceneComposableCameraPatchSection::PostEditChangeProperty(FPropertyCh
 	{
 		RebuildBagsFromPatchAsset();
 		// Note: existing keyed channels for parameters that survive the asset
-		// swap are deliberately left in place — UMovieSceneParameterSection's
+		// swap are deliberately left in place -UMovieSceneParameterSection's
 		// Scalar/Bool/Vector/etc. arrays are keyed by FName, so a renamed-or-removed
 		// parameter's channel becomes orphaned. Designer can clean those up via
 		// the channel row's right-click "Delete" (handled by FParameterSection
@@ -89,7 +89,7 @@ void UMovieSceneComposableCameraPatchSection::ImportEntityImpl(
 		*GetName(),
 		PatchAsset ? *PatchAsset->GetName() : TEXT("<null>"));
 
-	// Skip empty sections — without a PatchAsset there's nothing to add at
+	// Skip empty sections. Without a PatchAsset there's nothing to add at
 	// section enter, and producing an entity would cost an unnecessary
 	// per-frame TrackInstance::OnAnimate visit.
 	if (!PatchAsset)
@@ -99,7 +99,7 @@ void UMovieSceneComposableCameraPatchSection::ImportEntityImpl(
 
 	// Per-section TrackInstance dispatch. This intentionally REPLACES the
 	// parent UMovieSceneParameterSection's ImportEntityImpl (which would emit
-	// a parameter-extender entity) — patches don't go through the parameter-
+	// a parameter-extender entity). Patches don't go through the parameter-
 	// extender pipeline; the TrackInstance owns the per-frame evaluation by
 	// sampling channels directly via BuildParameterBlock.
 	FMovieSceneTrackInstanceComponent TrackInstance{
@@ -124,7 +124,7 @@ void UMovieSceneComposableCameraPatchSection::RebuildBagsFromPatchAsset()
 	}
 
 	// Same shape as FComposableCameraTypeAssetReference::RebuildBagsFromTypeAsset
-	// — Parameters bag mirrors ExposedParameters, Variables bag mirrors
+	// -Parameters bag mirrors ExposedParameters, Variables bag mirrors
 	// ExposedVariables (NOT InternalVariables, which are node-private).
 	TArray<FPropertyBagPropertyDesc> ParameterDescs;
 	ParameterDescs.Reserve(PatchAsset->ExposedParameters.Num());
@@ -166,7 +166,7 @@ namespace
 	 * Sample a scalar channel at the given frame and write the result into the
 	 * parameter block under the matching pin type (Float vs Double). Returns
 	 * true if the channel produced a value (had keys OR a default), false if
-	 * the channel is "empty" (no keys, no default — caller falls back to bag).
+	 * the channel is "empty" (no keys, no default. Caller falls back to bag).
 	 *
 	 * `Evaluate` returns false only when the channel has zero keys AND no
 	 * default value set; in that case we don't want to overwrite the bag value
@@ -243,7 +243,7 @@ namespace
 				OutBlock.SetVector(Name, FVector(X, Y, Z));
 				return true;
 			case EComposableCameraPinType::Rotator:
-				// Convention: X→Pitch, Y→Yaw, Z→Roll matches UE's standard
+				// Convention: Xitch, Yaw, Zoll matches UE's standard
 				// FRotator member order in the Details panel (Roll/Pitch/Yaw
 				// is the exposed order but storage is Pitch/Yaw/Roll). We
 				// store curve channel X/Y/Z directly as Pitch/Yaw/Roll so
@@ -281,7 +281,7 @@ namespace
 	 *
 	 * Walks each curve list (Scalar / Bool / Vector2D / Vector / Color) in
 	 * lookup order; first match wins. Param-curve arrays are typically very
-	 * short (≤ N exposed parameters, each in at most one list), so the linear
+	 * short (<=N exposed parameters, each in at most one list), so the linear
 	 * scan is acceptable.
 	 */
 	bool TrySampleChannelForName(

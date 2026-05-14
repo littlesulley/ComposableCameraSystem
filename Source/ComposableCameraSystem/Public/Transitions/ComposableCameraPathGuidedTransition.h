@@ -1,4 +1,4 @@
-// Copyright Sulley. All rights reserved.
+﻿// Copyright Sulley. All rights reserved.
 
 #pragma once
 
@@ -23,7 +23,7 @@ enum class EComposableCameraPathGuidedTransitionType : uint8
 };
 
 /**
- * A transition which utilizes a path　(spline) to guide its position during transition.
+ * A transition which utilizes a path-(spline) to guide its position during transition.
  * This transition leverages two InertializedTransitions to achieve smoothness.
  * An intermediate camera will be spawned as a wrapper for the spline.
  * So this transition will be more expensive than other transitions.
@@ -37,7 +37,7 @@ public:
 	virtual void OnBeginPlay_Implementation(float DeltaTime, const FComposableCameraPose& CurrentSourcePose, const FComposableCameraPose& CurrentTargetPose) override;
 	virtual FComposableCameraPose OnEvaluate_Implementation(float DeltaTime, const FComposableCameraPose& CurrentSourcePose, const FComposableCameraPose& CurrentTargetPose) override;
 
-	// Delegates to the inner DrivingTransition's curve — PathGuided just
+	// Delegates to the inner DrivingTransition's curve -PathGuided just
 	// bends the spatial path, the timing is whatever the driving transition
 	// authored. Falls back to linear if DrivingTransition is unset.
 	virtual float GetBlendWeightAt(float NormalizedTime) const override;
@@ -46,7 +46,7 @@ public:
 	// DebugSplineActor). Normal completion goes through OnTransitionFinishesDelegate
 	// registered in OnBeginPlay; BeginDestroy catches the case where this
 	// transition UObject is collected before the transition finishes (camera
-	// destroyed mid-blend, eval tree pruned, etc.) — without this, the spawned
+	// destroyed mid-blend, eval tree pruned, etc.). Without this, the spawned
 	// actors leak into the level.
 	virtual void BeginDestroy() override;
 
@@ -108,7 +108,7 @@ private:
 	bool ResolveAndValidateRail();
 
 	// Destroy the actors we spawned in OnBeginPlay. Safe to call multiple times
-	// — `IsValid` guards against re-destroy. Used both by the
+	// -`IsValid` guards against re-destroy. Used both by the
 	// OnTransitionFinishesDelegate cleanup lambda and by BeginDestroy.
 	void DestroySpawnedActors();
 

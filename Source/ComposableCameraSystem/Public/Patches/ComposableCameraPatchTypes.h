@@ -1,4 +1,4 @@
-// Copyright Sulley. All rights reserved.
+﻿// Copyright Sulley. All rights reserved.
 
 #pragma once
 
@@ -9,12 +9,12 @@
  * Bitmask of expiration channels that may individually fire to retire a Patch.
  *
  * Mirrors the spirit of EComposableCameraActionExpirationType but is tailored to
- * Patch's "always has an enter/exit envelope" model — there is no Instant variant
+ * Patch's "always has an enter/exit envelope" model. There is no Instant variant
  * because every Patch ramps in and out via its envelope.
  *
  * A Patch's effective expiration is the OR of its enabled channels: the first
  * channel to fire flips Phase to Exiting. Bits are independent and stack
- * additively — e.g. (Duration | Manual) means "expires after Duration seconds
+ * additively. E.g. (Duration | Manual) means "expires after Duration seconds
  * OR when ExpirePatch is called, whichever comes first".
  */
 UENUM(BlueprintType, meta = (Bitflags, UseEnumValuesAsMaskValuesInEditor = "true"))
@@ -37,10 +37,10 @@ ENUM_CLASS_FLAGS(EComposableCameraPatchExpirationType)
 /**
  * Easing curve applied symmetrically to the enter and exit alpha ramps.
  *
- * Asset-only in V1 — there is no per-AddPatch override (an enum has no natural
+ * Asset-only in V1. There is no per-AddPatch override (an enum has no natural
  * sentinel value, and adding a parallel bool is worse than asset-only). If a
  * future case requires a runtime override, add a sixth `Custom` member with a
- * companion `FRuntimeFloatCurve` pin (see PatchSystemProposal §8.1).
+ * companion `FRuntimeFloatCurve` pin (see PatchSystemProposal Section 8.1).
  */
 UENUM(BlueprintType)
 enum class EComposableCameraPatchEase : uint8
@@ -56,9 +56,9 @@ enum class EComposableCameraPatchEase : uint8
 /**
  * Lifecycle phase of a Patch instance.
  *
- *   Entering : alpha ramping 0 → 1 over EnterDuration. Patch evaluator already ticks at full fidelity.
+ *   Entering : alpha ramping 0 ->1 over EnterDuration. Patch evaluator already ticks at full fidelity.
  *   Active   : alpha == 1, expiration channels are evaluated each frame.
- *   Exiting  : alpha ramping 1 → 0 over ExitDuration.
+ *   Exiting  : alpha ramping 1 ->0 over ExitDuration.
  *   Expired  : terminal; instance is removed at the end of PatchManager::Apply.
  */
 UENUM(BlueprintType)
@@ -76,21 +76,21 @@ enum class EComposableCameraPatchPhase : uint8
  *
  * Each "overridable" field is paired with a `bOverride*` bool tagged
  * `InlineEditConditionToggle` and gated by `EditCondition` on the value
- * field — the same idiom as `FPostProcessSettings::bOverride_*`.
+ * field. The same idiom as `FPostProcessSettings::bOverride_*`.
  *
  * Two surfaces, two distinct workflows:
  *
- *   • Details panel (asset details, struct customization): the bool collapses
- *     into an inline checkbox next to the value field. Unchecked → use asset
- *     default; checked → caller value wins. Standard.
+ *   -Details panel (asset details, struct customization): the bool collapses
+ *     into an inline checkbox next to the value field. Unchecked ->use asset
+ *     default; checked ->caller value wins. Standard.
  *
- *   • BP `Make FComposableCameraPatchActivateParams` node: UE's
+ *   -BP `Make FComposableCameraPatchActivateParams` node: UE's
  *     MakeStructHandler treats `InlineEditConditionToggle` bools as *implicit*
  *     override flags. The bool's runtime value is forced TRUE for every value
  *     pin whose `bShowPin` flag is true on the MakeStruct node, and FALSE for
  *     pins whose `bShowPin` is false. **Important UI subtlety**: `bShowPin`
- *     is controlled ONLY by the node's details-panel "Show Pin For …"
- *     checkboxes — NOT by the per-pin eye icon visible on the node body. The
+ *     is controlled ONLY by the node's details-panel "Show Pin For -
+ *     checkboxes -NOT by the per-pin eye icon visible on the node body. The
  *     eye icon toggles a different state (advanced/visual collapse) and does
  *     NOT propagate to `bShowPin`, so clicking it leaves `bOverride*=true`
  *     even though the pin appears collapsed. Authoring rule: **to use asset
@@ -102,14 +102,14 @@ enum class EComposableCameraPatchPhase : uint8
  *     whose `PropertyEntry.bShowPin` is true.)
  *
  * The paired-bool design (over float-zero sentinels) is what lets a caller
- * legitimately request a literal `0` — e.g. `EnterDuration = 0` for "no
- * fade-in" — without having that confused with "fall back to asset".
+ * legitimately request a literal `0`. E.g. `EnterDuration = 0` for "no
+ * fade-in". Without having that confused with "fall back to asset".
  *
- * Fields without an asset-side default — `bExpireOnCameraChange` is the only
- * one — have no override toggle; the per-call value is always used.
+ * Fields without an asset-side default -`bExpireOnCameraChange` is the only
+ * one. Have no override toggle; the per-call value is always used.
  *
  * Exposed parameter / exposed variable values are passed separately as a
- * FComposableCameraParameterBlock argument to AddPatch — mirroring the shape of
+ * FComposableCameraParameterBlock argument to AddPatch. Mirroring the shape of
  * FComposableCameraActivateParams + ActivateComposableCameraFromTypeAsset, and
  * letting UK2Node_AddCameraPatch generate typed pins for each exposed name
  * without having to set-fields-in-struct on this struct.
@@ -155,7 +155,7 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraPatchActivateParams
 
 	/** If true, the Patch flips to Exiting when the owning Director's RunningCamera
 	 *  changes. Stacks additively with the ExpirationType channels. No asset-side
-	 *  default — always uses this per-call value. */
+	 *  default. Always uses this per-call value. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Patch")
 	bool bExpireOnCameraChange = false;
 

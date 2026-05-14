@@ -1,4 +1,4 @@
-﻿// Copyright Sulley. All rights reserved.
+// Copyright Sulley. All rights reserved.
 
 #pragma once
 
@@ -41,7 +41,7 @@ public:
 	 * The type asset defines the node composition, exposed parameters, internal variables, and default transition. \n
 	 *
 	 * This function is hidden from the Blueprint palette because designers should author
-	 * activation calls through UK2Node_ActivateComposableCamera instead — that K2 node
+	 * activation calls through UK2Node_ActivateComposableCamera instead - that K2 node
 	 * generates a typed pin per exposed parameter and expands into this call at compile
 	 * time. Exposing the raw FComposableCameraParameterBlock form in the BP menu would
 	 * create a second, untyped, strictly worse workflow alongside the K2 node.
@@ -76,14 +76,14 @@ public:
 	 * at all end up at the runtime data block's zero-initialized default.
 	 *
 	 * If OverrideParameters is non-empty, its entries take precedence over the
-	 * row-parsed values — an override entry for a given name replaces the row
+	 * row-parsed values - an override entry for a given name replaces the row
 	 * value entirely. This is how the K2 node's "Add Override Pin" feature works:
 	 * the row provides the base configuration, and the override block carries
 	 * per-call-site adjustments authored on the K2 node's dynamic pins.
 	 *
 	 * This function is hidden from the Blueprint palette because designers should
 	 * author DataTable-driven activation calls through UK2Node_ActivateComposableCameraFromDataTable
-	 * instead — that K2 node provides a row-struct-filtered DataTable asset picker
+	 * instead - that K2 node provides a row-struct-filtered DataTable asset picker
 	 * and a live row-name dropdown, and expands into this call at compile time.
 	 *
 	 * @param WorldContextObject   World context object.
@@ -124,7 +124,7 @@ public:
 		UComposableCameraTransitionDataAsset* EnterTransition = nullptr,
 		FMovieSceneSequencePlaybackSettings PlaybackSettings = FMovieSceneSequencePlaybackSettings());
 
-	/** Terminate the current camera — pops the active (top) context off the stack.
+	/** Terminate the current camera - pops the active (top) context off the stack.
 	 * The previous context resumes with an optional transition. Cannot pop the base context.
 	 * @param WorldContextObject World context object. \n
 	 * @param PlayerCameraManager The player camera manager, must be a ComposableCameraPlayerCameraManager. \n
@@ -214,7 +214,7 @@ public:
 	UFUNCTION(BlueprintPure, Category = "ComposableCameraSystem|Camera", meta = (WorldContext = "WorldContextObject"))
 	static AComposableCameraPlayerCameraManager* GetComposableCameraPlayerCameraManager(const UObject* WorldContextObject, int Index);
 
-	// ─── Camera Patch ─────────────────────────────────────────────────────
+	//  Camera Patch 
 	//
 	// BP authors interact with AddCameraPatch through UK2Node_AddCameraPatch,
 	// which generates a typed pin per exposed parameter / exposed variable on
@@ -227,29 +227,29 @@ public:
 	 * Add a Camera Patch on the active context's Director, or on a named
 	 * context if ContextName is non-None.
 	 *
-	 * Hidden from the Blueprint palette — designers should author this through
+	 * Hidden from the Blueprint palette - designers should author this through
 	 * UK2Node_AddCameraPatch, which generates a typed pin per exposed parameter
 	 * / exposed variable on the chosen Patch asset and expands into this call
 	 * at compile time.
 	 *
 	 * @param PlayerIndex   Player index (0 for single player). Resolved to a
 	 *                      UComposableCameraPlayerCameraManager via
-	 *                      GetComposableCameraPlayerCameraManager — matches
+	 *                      GetComposableCameraPlayerCameraManager - matches
 	 *                      ActivateComposableCameraFromTypeAsset's PlayerIndex
 	 *                      surface so the two K2 nodes feel like siblings.
 	 * @param PatchAsset    The Patch type asset (a subclass of CameraTypeAsset).
-	 * @param ContextName   NAME_None → target the current active context (the
+	 * @param ContextName   NAME_None -> target the current active context (the
 	 *                      common case). Otherwise the context with that name
-	 *                      must already be on the stack — the patch attaches to
+	 *                      must already be on the stack - the patch attaches to
 	 *                      THAT context's Director, even if it is currently
 	 *                      buried below the active context. Patches on a buried
 	 *                      context tick (their Director's Evaluate still runs)
 	 *                      but are not user-visible until the context returns
-	 *                      to the top — useful for staging gameplay overlays
+	 *                      to the top - useful for staging gameplay overlays
 	 *                      while a cutscene is playing.
 	 * @param Params        Envelope / lifetime / composition activation parameters; see FComposableCameraPatchActivateParams docs for sentinels.
 	 * @param Parameters    Exposed-parameter / exposed-variable values for the Patch evaluator. Same keyspace as the block accepted by ActivateComposableCameraFromTypeAsset.
-	 * @return              A handle to the added Patch (nullptr on rejection — see log warning for the reason).
+	 * @return              A handle to the added Patch (nullptr on rejection - see log warning for the reason).
 	 */
 	UFUNCTION(BlueprintCallable, BlueprintInternalUseOnly, Category = "ComposableCameraSystem|Patch", meta = (WorldContext = "WorldContextObject"))
 	static UComposableCameraPatchHandle* AddCameraPatch(
@@ -266,19 +266,19 @@ public:
 	 * next Apply pass.
 	 *
 	 * @param Handle               Handle returned from AddCameraPatch.
-	 * @param ExitDurationOverride < 0 → use the Patch's authored ExitDuration. >= 0 replaces the per-Patch ExitDuration (pass 0 for an instant cut-off).
+	 * @param ExitDurationOverride < 0 -> use the Patch's authored ExitDuration. >= 0 replaces the per-Patch ExitDuration (pass 0 for an instant cut-off).
 	 */
 	UFUNCTION(BlueprintCallable, Category = "ComposableCameraSystem|Patch")
 	static void ExpireCameraPatch(UComposableCameraPatchHandle* Handle, float ExitDurationOverride = -1.f);
 
 	/**
 	 * Soft-expire every active Patch on the named context's Director. Each
-	 * Patch flips to Exiting via its normal envelope ramp — mid-Entering
+	 * Patch flips to Exiting via its normal envelope ramp - mid-Entering
 	 * patches fade out from their current alpha rather than popping to 1
 	 * first. Already-Exiting / Expired patches are left alone (idempotent).
 	 *
-	 * @param ContextName          The context whose Director's PatchManager to sweep. NAME_None → active context.
-	 * @param ExitDurationOverride < 0 → each patch keeps its own ExitDuration. >= 0 replaces every patch's ExitDuration uniformly.
+	 * @param ContextName          The context whose Director's PatchManager to sweep. NAME_None -> active context.
+	 * @param ExitDurationOverride < 0 -> each patch keeps its own ExitDuration. >= 0 replaces every patch's ExitDuration uniformly.
 	 */
 	UFUNCTION(BlueprintCallable, Category = "ComposableCameraSystem|Patch", meta = (WorldContext = "WorldContextObject"))
 	static void ExpireAllPatchesOnContext(
@@ -287,12 +287,12 @@ public:
 		UPARAM(meta = (GetOptions = "ComposableCameraSystem.ComposableCameraProjectSettings.GetContextNames")) FName ContextName,
 		float ExitDurationOverride = -1.f);
 
-	// ─── Camera Patch — handle introspection (BP-pure) ────────────────────
+	//  Camera Patch - handle introspection (BP-pure) 
 	//
 	// All four are weak-handle-safe: a stale handle (instance destroyed)
 	// returns false / Expired / 0 / 0 respectively. Callers do NOT need to
-	// null-check the handle on every call — a null handle is treated the same
-	// as a stale one. Match the §12.1 surface of PatchSystemProposal.
+	// null-check the handle on every call - a null handle is treated the same
+	// as a stale one. Match the 12.1 surface of PatchSystemProposal.
 
 	/** True iff the handle's instance is still alive AND in Entering / Active phase. */
 	UFUNCTION(BlueprintPure, Category = "ComposableCameraSystem|Patch")
@@ -331,7 +331,7 @@ public:
 		// CRITICAL: pass nullptr to StepCompiledIn so the bytecode interpreter
 		// only resolves property addresses (variable / temp / member refs) and
 		// is NEVER asked to materialise a literal into a fixed-size scratch.
-		// Earlier revisions used a stack buffer (64 B → 1024 B); both bumped
+		// Earlier revisions used a stack buffer (64 B -> 1024 B); both bumped
 		// the explosion point without fixing it, because `CustomStructureParam`
 		// will accept any user POD USTRUCT, `ValueProperty->GetSize()` is
 		// unbounded, and the literal write happens INSIDE StepCompiledIn before
@@ -353,7 +353,7 @@ public:
 
 		if (!ValuePtr)
 		{
-			// Literal wildcard rejected — no backing address means the bytecode
+			// Literal wildcard rejected - no backing address means the bytecode
 			// emitted a literal expression and there is no safe way to read it
 			// without a sized scratch. The caller's K2 ExpandNode must wire the
 			// pin (Make Struct, typed setter, temp variable) so the operand
@@ -379,7 +379,7 @@ public:
 		else
 		{
 			// Delegate properties are routed to the parallel DelegateValues
-			// map — they are not POD and cannot be memcpy'd into the byte
+			// map - they are not POD and cannot be memcpy'd into the byte
 			// array. ApplyDelegateBindings writes them to the node's
 			// UPROPERTY at activation time via reflection.
 			// Handled before P_NATIVE_BEGIN so the early return doesn't
@@ -389,7 +389,7 @@ public:
 			{
 				const FScriptDelegate& Delegate = *static_cast<const FScriptDelegate*>(ValuePtr);
 				ParameterBlock.SetDelegate(ParameterName, Delegate);
-				return; // early out — delegate stored, nothing else to do
+				return; // early out - delegate stored, nothing else to do
 			}
 
 			P_NATIVE_BEGIN
@@ -410,7 +410,7 @@ public:
 			FComposableCameraParameterValue Entry;
 			bool bHandled = false;
 
-			// ── Enum ────────────────────────────────────────────────
+			//  Enum 
 			// Normalize to int64 regardless of the backing property's
 			// native width (uint8 for FByteProperty, variable for
 			// FEnumProperty). The data block always stores enums as
@@ -434,7 +434,7 @@ public:
 				}
 			}
 
-			// ── Object / Actor ──────────────────────────────────────
+			//  Object / Actor 
 			// FObjectProperty / FClassProperty operate on TObjectPtr<T> whose
 			// memory layout may differ from a raw UObject* in some engine
 			// configurations. Extract the resolved pointer via the property
@@ -444,11 +444,11 @@ public:
 			// FWeakObjectProperty, FLazyObjectProperty, FSoftObjectProperty
 			// (and their *Class subclasses). Soft / weak / lazy variants store
 			// TSoftObjectPtr / TWeakObjectPtr / TLazyObjectPtr in the property
-			// memory — different layout from raw UObject*. Storing the
+			// memory - different layout from raw UObject*. Storing the
 			// resolved-now pointer in our raw-pointer slot would either strip
 			// the soft semantics (defeating soft) or, for unloaded weak/soft
 			// ptrs, write a dangling/null pointer. Reject explicitly so callers
-			// get a clear BP exception rather than silent corruption — mirrors
+			// get a clear BP exception rather than silent corruption - mirrors
 			// the same rejection in TryMapPropertyToPinType so authoring-time
 			// pin discovery and runtime CustomThunk dispatch agree.
 			if (!bHandled)
@@ -465,7 +465,7 @@ public:
 								FText::FromName(ParameterName)));
 						FBlueprintCoreDelegates::ThrowScriptException(P_THIS, Stack, SoftRefException);
 						// Skip the empty-Entry StoreValue at the bottom of this
-						// branch — committing a default-initialized FComposableCameraParameterValue
+						// branch - committing a default-initialized FComposableCameraParameterValue
 						// (PinType=Float, empty Data) under ParameterName would clobber
 						// any prior value with broken-shaped data and let downstream
 						// reads pull garbage from a Float-shaped slot with zero bytes.
@@ -484,7 +484,7 @@ public:
 				}
 			}
 
-			// ── Bool ────────────────────────────────────────────────
+			//  Bool 
 			// FBoolProperty may be a bitfield; GetPropertyValue
 			// handles the mask and returns a clean bool.
 			if (!bHandled)
@@ -497,9 +497,9 @@ public:
 				}
 			}
 
-			// ── Default (POD) and non-POD struct ───────────────────
+			//  Default (POD) and non-POD struct 
 			// Two paths converge here for the value pin's underlying property:
-			//   bMemcpySafe -> byte-array Entry.Data (via StoreValue below).
+			//   bMemcpySafe->byte-array Entry.Data (via StoreValue below).
 			//   non-POD struct -> typed FInstancedStruct via SetStruct.
 			//
 			// Non-POD struct must NOT route through StoreValue's byte path:
@@ -561,7 +561,7 @@ public:
 					// default). For POD structs we additionally pin
 					// down the exact UScriptStruct identity by routing
 					// through `Entry.Set<T>` for the engine math
-					// structs — same-size cross-USTRUCT literals are
+					// structs - same-size cross-USTRUCT literals are
 					// then refused symmetrically by the byte-storage
 					// shape gate in `RuntimeDataBlock`.
 					EComposableCameraPinType DerivedPinType = EComposableCameraPinType::Float;
@@ -639,7 +639,7 @@ public:
 	UFUNCTION(BlueprintPure, meta=(BlueprintThreadSafe, BlueprintInternalUseOnly="true"))
 	static uint8 MakeLiteralByte(uint8 Value);
 
-	// ─── Typed Parameter Block Setters ────────────────────────────────────
+	//  Typed Parameter Block Setters 
 	//
 	// These exist to bypass a UE 5.6 BP compiler bug where bytecode emitted
 	// for a CustomStructureParam wildcard arg routed through a MakeLiteralStruct

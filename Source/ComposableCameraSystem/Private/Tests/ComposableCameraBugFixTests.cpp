@@ -8,8 +8,15 @@
 #include "Core/ComposableCameraDirector.h"
 #include "Core/ComposableCameraEvaluationTree.h"
 #include "Cameras/ComposableCameraCameraBase.h"
+#include "Nodes/ComposableCameraCollisionPushNode.h"
+#include "Nodes/ComposableCameraLookAtNode.h"
+#include "Nodes/ComposableCameraScreenSpacePivotNode.h"
+#include "Nodes/ComposableCameraSpiralNode.h"
 #include "Misc/AutomationTest.h"
+#include "Curves/CurveFloat.h"
+#include "Engine/Engine.h"
 #include "Engine/World.h"
+#include "GameFramework/Actor.h"
 
 #define LOCTEXT_NAMESPACE "ComposableCameraBugFixTests"
 
@@ -37,7 +44,7 @@ bool FSmoothStepVsSmootherStepTest::RunTest(const FString& Parameters)
 	UTEST_TRUE("SmoothStep(1) == 1", FMath::IsNearlyEqual(ComposableCameraSystem::SmoothStep(1.f), 1.f, 1e-6f));
 	UTEST_TRUE("SmootherStep(1) == 1", FMath::IsNearlyEqual(ComposableCameraSystem::SmootherStep(1.f), 1.f, 1e-6f));
 
-	// T = 0.25 — they must produce different values.
+	// T = 0.25. They must produce different values.
 	{
 		float Smooth = ComposableCameraSystem::SmoothStep(0.25f);
 		float Smoother = ComposableCameraSystem::SmootherStep(0.25f);
@@ -52,7 +59,7 @@ bool FSmoothStepVsSmootherStepTest::RunTest(const FString& Parameters)
 		UTEST_TRUE("SmootherStep(0.25) = 0.103516", FMath::IsNearlyEqual(Smoother, 0.103515625f, 1e-5f));
 	}
 
-	// T = 0.5 — both are 0.5 at the midpoint (symmetric).
+	// T = 0.5. Both are 0.5 at the midpoint (symmetric).
 	{
 		float Smooth = ComposableCameraSystem::SmoothStep(0.5f);
 		float Smoother = ComposableCameraSystem::SmootherStep(0.5f);
@@ -60,7 +67,7 @@ bool FSmoothStepVsSmootherStepTest::RunTest(const FString& Parameters)
 		UTEST_TRUE("SmootherStep(0.5) = 0.5", FMath::IsNearlyEqual(Smoother, 0.5f, 1e-6f));
 	}
 
-	// T = 0.75 — they must differ.
+	// T = 0.75. They must differ.
 	{
 		float Smooth = ComposableCameraSystem::SmoothStep(0.75f);
 		float Smoother = ComposableCameraSystem::SmootherStep(0.75f);
@@ -110,6 +117,365 @@ bool FDirectorReactivateNoRunningCameraTest::RunTest(const FString& Parameters)
 
 	UTEST_EQUAL("Returns nullptr when no running camera",
 		Result, static_cast<AComposableCameraCameraBase*>(nullptr));
+
+	return true;
+}
+
+// ============================================================================
+// Test: LookAt preserves rotation when camera and target occupy the same point
+// BUG: Spiral can place the camera exactly on its pivot (null/zero radius curve,
+//      or a curve endpoint at radius 0). A downstream LookAt aimed at the same
+//      pivot then asked FindLookAtRotation to solve a zero-length direction,
+//      producing unstable/zero rotations instead of leaving the pose alone.
+// ============================================================================
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FLookAtDegenerateTargetPreservesRotationTest,
+	"System.Engine.ComposableCameraSystem.Nodes.LookAt.DegenerateTargetPreservesRotation",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FLookAtDegenerateTargetPreservesRotationTest::RunTest(const FString& Parameters)
+{
+	UComposableCameraLookAtNode* Node = NewObject<UComposableCameraLookAtNode>();
+	Node->LookAtType = EComposableCameraLookAtType::ByPosition;
+	Node->LookAtPosition = FVector::ZeroVector;
+	Node->LookAtConstraintType = EComposableCameraLookAtConstraintType::Hard;
+	Node->Initialize(nullptr, nullptr);
+
+	FComposableCameraPose InPose;
+	InPose.Position = FVector::ZeroVector;
+	InPose.Rotation = FRotator(12.f, 34.f, 5.f);
+
+	FComposableCameraPose OutPose = InPose;
+	Node->TickNode(0.016f, InPose, OutPose);
+
+	UTEST_TRUE("Degenerate look-at keeps upstream rotation",
+		OutPose.Rotation.Equals(InPose.Rotation, KINDA_SMALL_NUMBER));
+
+	return true;
+}
+
+// ============================================================================
+// Test: Spiral PivotActorInitialForward captures the pivot actor forward once
+// BUG: PivotActorForward is live every frame; when LookAt syncs camera rotation
+//      into ControlRotation and the pawn follows it, Spiral's basis changes
+//      every frame and feeds back into LookAt. PivotActorInitialForward should
+//      keep the actor-authored starting direction while ignoring later yaw.
+// ============================================================================
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FSpiralPivotActorInitialForwardCapturesOnceTest,
+	"System.Engine.ComposableCameraSystem.Nodes.Spiral.PivotActorInitialForwardCapturesOnce",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FSpiralPivotActorInitialForwardCapturesOnceTest::RunTest(const FString& Parameters)
+{
+	UWorld* World = UWorld::CreateWorld(EWorldType::Game, false);
+	FWorldContext& WorldContext = GEngine->CreateNewWorldContext(EWorldType::Game);
+	WorldContext.SetCurrentWorld(World);
+	World->InitializeActorsForPlay(FURL());
+	World->BeginPlay();
+
+	AActor* PivotActor = World->SpawnActor<AActor>(
+		AActor::StaticClass(),
+		FVector::ZeroVector,
+		FRotator::ZeroRotator);
+
+	UCurveFloat* RadiusCurve = NewObject<UCurveFloat>();
+	RadiusCurve->FloatCurve.AddKey(0.f, 100.f);
+	RadiusCurve->FloatCurve.AddKey(1.f, 100.f);
+
+	UComposableCameraSpiralNode* Node = NewObject<UComposableCameraSpiralNode>();
+	Node->PivotSourceType = EComposableCameraSpiralPivotSourceType::FromActor;
+	Node->PivotActorSource = EComposableCameraActorInputSource::ExplicitActor;
+	Node->PivotActor = PivotActor;
+	Node->RotationAxis = EComposableCameraSpiralRotationAxis::WorldUp;
+	Node->ReferenceDirection = EComposableCameraSpiralReferenceDirection::PivotActorInitialForward;
+	Node->RadiusCurve = RadiusCurve;
+	Node->Duration = 10.f;
+	Node->Initialize(nullptr, nullptr);
+
+	FComposableCameraPose InPose;
+	InPose.Position = FVector::ZeroVector;
+	InPose.Rotation = FRotator::ZeroRotator;
+
+	FComposableCameraPose FirstOutPose = InPose;
+	Node->TickNode(0.016f, InPose, FirstOutPose);
+
+	PivotActor->SetActorRotation(FRotator(0.f, 90.f, 0.f));
+
+	FComposableCameraPose SecondOutPose = InPose;
+	Node->TickNode(0.016f, InPose, SecondOutPose);
+
+	GEngine->DestroyWorldContext(World);
+	World->DestroyWorld(false);
+
+	UTEST_TRUE("Initial pivot actor forward stays captured",
+		FirstOutPose.Position.Equals(FVector(100.f, 0.f, 0.f), KINDA_SMALL_NUMBER));
+	UTEST_TRUE("Later pivot actor yaw does not rotate the spiral basis",
+		SecondOutPose.Position.Equals(FirstOutPose.Position, KINDA_SMALL_NUMBER));
+
+	return true;
+}
+
+// ============================================================================
+// Test: Lens-only physical settings do not write exposure settings
+// BUG: Lens/DoF application should not secretly enable physical exposure or
+// write ISO. UE owns the physical relationship between f-stop and exposure
+// when AutoExposureApplyPhysicalCameraExposure is enabled.
+// ============================================================================
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FLensOnlyDoesNotWriteExposureSettingsTest,
+	"System.Engine.ComposableCameraSystem.Pose.LensOnlyDoesNotWriteExposureSettings",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FLensOnlyDoesNotWriteExposureSettingsTest::RunTest(const FString& Parameters)
+{
+	FComposableCameraPose Pose;
+	Pose.PhysicalCameraBlendWeight = 1.f;
+	Pose.ExposureBlendWeight = 0.f;
+	Pose.ISO = 800.f;
+	Pose.ShutterSpeed = 24.f;
+	Pose.Aperture = 1.8f;
+	Pose.FocusDistance = 500.f;
+
+	FPostProcessSettings PostProcessSettings;
+	PostProcessSettings.bOverride_AutoExposureApplyPhysicalCameraExposure = true;
+	PostProcessSettings.AutoExposureApplyPhysicalCameraExposure = true;
+	PostProcessSettings.DepthOfFieldFstop = 4.f;
+	PostProcessSettings.CameraISO = 100.f;
+	Pose.ApplyPhysicalCameraSettings(PostProcessSettings);
+
+	UTEST_TRUE("DoF f-stop is written by PhysicalCameraBlendWeight",
+		PostProcessSettings.bOverride_DepthOfFieldFstop);
+	UTEST_TRUE("DoF focus is written by PhysicalCameraBlendWeight",
+		PostProcessSettings.bOverride_DepthOfFieldFocalDistance);
+	UTEST_FALSE("ISO is not written by lens-only physical settings",
+		PostProcessSettings.bOverride_CameraISO);
+	UTEST_TRUE("ISO value is preserved",
+		FMath::IsNearlyEqual(PostProcessSettings.CameraISO, 100.f, 1e-3f));
+	UTEST_FALSE("Shutter is not written without ExposureBlendWeight",
+		PostProcessSettings.bOverride_CameraShutterSpeed);
+	UTEST_TRUE("Lens-only physical settings preserves existing physical exposure enabled state",
+		PostProcessSettings.bOverride_AutoExposureApplyPhysicalCameraExposure
+		&& PostProcessSettings.AutoExposureApplyPhysicalCameraExposure);
+
+	return true;
+}
+
+// ============================================================================
+// Test: Lens-only physical settings do not enable physical exposure
+// ============================================================================
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FLensOnlyDoesNotEnablePhysicalExposureTest,
+	"System.Engine.ComposableCameraSystem.Pose.LensOnlyDoesNotEnablePhysicalExposure",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FLensOnlyDoesNotEnablePhysicalExposureTest::RunTest(const FString& Parameters)
+{
+	FComposableCameraPose Pose;
+	Pose.PhysicalCameraBlendWeight = 1.f;
+	Pose.ExposureBlendWeight = 0.f;
+	Pose.Aperture = 1.8f;
+	Pose.FocusDistance = 500.f;
+
+	FPostProcessSettings PostProcessSettings;
+	PostProcessSettings.AutoExposureApplyPhysicalCameraExposure = false;
+	Pose.ApplyPhysicalCameraSettings(PostProcessSettings);
+
+	UTEST_TRUE("DoF f-stop is written by PhysicalCameraBlendWeight",
+		PostProcessSettings.bOverride_DepthOfFieldFstop);
+	UTEST_FALSE("Lens-only physical settings does not enable physical exposure",
+		PostProcessSettings.bOverride_AutoExposureApplyPhysicalCameraExposure);
+	UTEST_FALSE("ISO is not written when physical exposure is disabled",
+		PostProcessSettings.bOverride_CameraISO);
+
+	return true;
+}
+
+// ============================================================================
+// Test: DoF focus distance does not lerp out of Unreal's disabled sentinel
+// BUG: DepthOfFieldFocalDistance default is 0, which UE treats as invalid /
+// disabled. Lerp(0, Target, small weight) makes the focal plane only a few cm
+// away during transitions, causing a full-screen blur spike.
+// ============================================================================
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FPhysicalBlendWeightDoesNotScaleFocusFromDisabledSentinelTest,
+	"System.Engine.ComposableCameraSystem.Pose.PhysicalBlendWeightDoesNotScaleFocusFromDisabledSentinel",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FPhysicalBlendWeightDoesNotScaleFocusFromDisabledSentinelTest::RunTest(const FString& Parameters)
+{
+	FComposableCameraPose Pose;
+	Pose.PhysicalCameraBlendWeight = 0.1f;
+	Pose.Aperture = 2.8f;
+	Pose.FocusDistance = 500.f;
+
+	FPostProcessSettings PostProcessSettings;
+	Pose.ApplyPhysicalCameraSettings(PostProcessSettings);
+
+	UTEST_TRUE("DoF focus is written by partial PhysicalCameraBlendWeight",
+		PostProcessSettings.bOverride_DepthOfFieldFocalDistance);
+	UTEST_TRUE("DoF focus snaps from disabled sentinel to target focus",
+		FMath::IsNearlyEqual(PostProcessSettings.DepthOfFieldFocalDistance, 500.f, 1e-3f));
+	UTEST_TRUE("DoF scale fades in from zero",
+		PostProcessSettings.bOverride_DepthOfFieldScale
+		&& FMath::IsNearlyEqual(PostProcessSettings.DepthOfFieldScale, 0.1f, 1e-3f));
+
+	return true;
+}
+
+// ============================================================================
+// Test: ExposureBlendWeight applies only exposure
+// ============================================================================
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FExposureBlendWeightAppliesExposureOnlyTest,
+	"System.Engine.ComposableCameraSystem.Pose.ExposureBlendWeightAppliesExposureOnly",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FExposureBlendWeightAppliesExposureOnlyTest::RunTest(const FString& Parameters)
+{
+	FComposableCameraPose Pose;
+	Pose.PhysicalCameraBlendWeight = 0.f;
+	Pose.ExposureBlendWeight = 1.f;
+	Pose.ISO = 800.f;
+	Pose.ShutterSpeed = 24.f;
+	Pose.Aperture = 1.8f;
+	Pose.FocusDistance = 500.f;
+
+	FPostProcessSettings PostProcessSettings;
+	Pose.ApplyPhysicalCameraSettings(PostProcessSettings);
+
+	UTEST_TRUE("ISO is written by ExposureBlendWeight",
+		PostProcessSettings.bOverride_CameraISO);
+	UTEST_TRUE("Shutter is written by ExposureBlendWeight",
+		PostProcessSettings.bOverride_CameraShutterSpeed);
+	UTEST_FALSE("ExposureBlendWeight does not toggle physical camera exposure",
+		PostProcessSettings.bOverride_AutoExposureApplyPhysicalCameraExposure);
+	UTEST_FALSE("DoF f-stop is not written without PhysicalCameraBlendWeight",
+		PostProcessSettings.bOverride_DepthOfFieldFstop);
+	UTEST_FALSE("DoF focus is not written without PhysicalCameraBlendWeight",
+		PostProcessSettings.bOverride_DepthOfFieldFocalDistance);
+
+	return true;
+}
+
+// ============================================================================
+// Test: ScreenSpacePivot ActorPosition uses the authored world-up offset
+// BUG: GetCurrentPivot bypassed the already-resolved UPROPERTY values and read
+//      the runtime data block directly, so Details-only values could resolve as
+//      zero / null.
+// ============================================================================
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FScreenSpacePivotActorPositionUpOffsetTest,
+	"System.Engine.ComposableCameraSystem.Nodes.ScreenSpacePivot.ActorPositionUsesUpOffset",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FScreenSpacePivotActorPositionUpOffsetTest::RunTest(const FString& Parameters)
+{
+	UWorld* World = UWorld::CreateWorld(EWorldType::Game, false);
+	FWorldContext& WorldContext = GEngine->CreateNewWorldContext(EWorldType::Game);
+	WorldContext.SetCurrentWorld(World);
+	World->InitializeActorsForPlay(FURL());
+	World->BeginPlay();
+
+	FTransform CameraTransform;
+	CameraTransform.SetLocation(FVector::ZeroVector);
+	AComposableCameraCameraBase* Camera = World->SpawnActorDeferred<AComposableCameraCameraBase>(
+		AComposableCameraCameraBase::StaticClass(), CameraTransform);
+	Camera->FinishSpawning(CameraTransform);
+
+	AActor* PivotActor = World->SpawnActor<AActor>(
+		AActor::StaticClass(),
+		FVector(1000.f, 0.f, 0.f),
+		FRotator::ZeroRotator);
+
+	UComposableCameraScreenSpacePivotNode* Node = NewObject<UComposableCameraScreenSpacePivotNode>();
+	Node->PivotSource = EComposableCameraScreenSpacePivotSource::ActorPosition;
+	Node->PivotActorSource = EComposableCameraActorInputSource::ExplicitActor;
+	Node->PivotActor = PivotActor;
+	Node->PivotWorldUpOffset = 100.f;
+	Node->PivotWorldPosition = FVector(1000.f, 0.f, 0.f);
+	Node->Method = EComposableCameraScreenSpaceMethod::Rotate;
+	Node->Initialize(Camera, nullptr);
+
+	FComposableCameraPose InPose;
+	InPose.Position = FVector::ZeroVector;
+	InPose.Rotation = FRotator::ZeroRotator;
+	InPose.SetFieldOfViewDegrees(90.f);
+
+	FComposableCameraPose OutPose = InPose;
+	Node->TickNode(0.016f, InPose, OutPose);
+
+	const bool bPitchStayedZero = FMath::IsNearlyZero(OutPose.Rotation.Pitch, 0.01f);
+
+	GEngine->DestroyWorldContext(World);
+	World->DestroyWorld(false);
+
+	UTEST_FALSE("ActorPosition up offset changes pitch", bPitchStayedZero);
+
+	return true;
+}
+
+// ============================================================================
+// Test: CollisionPush clears its previous position push before upstream nodes run
+// BUG: OnPreTick wrote the unpushed position back to CameraPose, but TickCamera
+//      had already copied CameraPose into the in-flight NewCameraPose, so upstream
+//      nodes still saw the previous collision-pushed camera position.
+// ============================================================================
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FCollisionPushPreTickRestoresInFlightPoseTest,
+	"System.Engine.ComposableCameraSystem.Nodes.CollisionPush.PreTickRestoresInFlightPose",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FCollisionPushPreTickRestoresInFlightPoseTest::RunTest(const FString& Parameters)
+{
+	UWorld* World = UWorld::CreateWorld(EWorldType::Game, false);
+	FWorldContext& WorldContext = GEngine->CreateNewWorldContext(EWorldType::Game);
+	WorldContext.SetCurrentWorld(World);
+	World->InitializeActorsForPlay(FURL());
+	World->BeginPlay();
+
+	FTransform CameraTransform;
+	CameraTransform.SetLocation(FVector::ZeroVector);
+	AComposableCameraCameraBase* Camera = World->SpawnActorDeferred<AComposableCameraCameraBase>(
+		AComposableCameraCameraBase::StaticClass(), CameraTransform);
+	Camera->FinishSpawning(CameraTransform);
+
+	AActor* PivotActor = World->SpawnActor<AActor>(
+		AActor::StaticClass(),
+		FVector::ZeroVector,
+		FRotator::ZeroRotator);
+
+	UComposableCameraCollisionPushNode* Node = NewObject<UComposableCameraCollisionPushNode>();
+	Node->PivotActorSource = EComposableCameraActorInputSource::ExplicitActor;
+	Node->PivotActor = PivotActor;
+	Node->Initialize(Camera, nullptr);
+
+	FComposableCameraPose PreCollisionPose;
+	PreCollisionPose.Position = FVector(100.f, 0.f, 50.f);
+	PreCollisionPose.Rotation = FRotator::ZeroRotator;
+
+	FComposableCameraPose TickOutPose = PreCollisionPose;
+	Node->TickNode(0.016f, PreCollisionPose, TickOutPose);
+
+	FComposableCameraPose NextFrameInFlightPose = PreCollisionPose;
+	NextFrameInFlightPose.Position = FVector(25.f, 0.f, 50.f);
+	Node->OnPreTick(0.016f, NextFrameInFlightPose, NextFrameInFlightPose);
+
+	const bool bRestoredInFlightPose =
+		NextFrameInFlightPose.Position.Equals(PreCollisionPose.Position, KINDA_SMALL_NUMBER);
+
+	GEngine->DestroyWorldContext(World);
+	World->DestroyWorld(false);
+
+	UTEST_TRUE("PreTick restores the in-flight pose, not only CameraPose", bRestoredInFlightPose);
 
 	return true;
 }

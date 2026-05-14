@@ -15,7 +15,7 @@ namespace
 {
 	// Per-node opt-in toggle. The master `CCS.Debug.Viewport` CVar gates whether
 	// any viewport debug draws at all; this CVar then controls whether this
-	// specific node contributes its gizmo. Default off — users opt in per node.
+	// specific node contributes its gizmo. Default off; users opt in per node.
 	static TAutoConsoleVariable<int32> CVarShowSpiralGizmo(
 		TEXT("CCS.Debug.Viewport.Spiral"),
 		0,
@@ -32,6 +32,8 @@ void UComposableCameraSpiralNode::OnInitialize_Implementation()
 	ElapsedTime = 0.f;
 	bHasCapturedInitialForward = false;
 	CapturedInitialForward = FVector::ForwardVector;
+	CapturedInitialPivotActorForward = FVector::ForwardVector;
+	bHasCapturedInitialPivotActorForward = false;
 }
 
 void UComposableCameraSpiralNode::OnTickNode_Implementation(
@@ -40,7 +42,7 @@ void UComposableCameraSpiralNode::OnTickNode_Implementation(
 	// Capture the camera's forward vector on the first tick so CameraInitialForward
 	// mode has a live, post-activation seed. Doing this here (rather than in
 	// OnInitialize) means we read the pose the camera actually starts evaluating
-	// from — which, for a freshly-pushed camera, already reflects any upstream
+	// from; for a freshly-pushed camera, this already reflects any upstream
 	// transition's current mid-blend pose.
 	if (!bHasCapturedInitialForward)
 	{
@@ -63,13 +65,13 @@ void UComposableCameraSpiralNode::OnTickNode_Implementation(
 		+ Right   * PivotOffset.Y
 		+ Axis    * PivotOffset.Z;
 
-	// ─── Normalized time (Progress: no integration, direct eval) ──────────
+	// Normalized time (Progress: no integration, direct eval)
 	//
-	// PlayMode defines how ElapsedTime maps to NormalizedTime ∈ [0,1]:
-	//   Once      — clamp at 1 after Duration; curves hold their Y(1) terminal value.
-	//   Loop      — NormalizedTime = Fmod(Elapsed, Duration) / Duration.
-	//   PingPong  — NormalizedTime oscillates 0 → 1 → 0 over a 2 * Duration cycle;
-	//               the X mirror alone gives the retrace — no Y sign flip needed
+	// PlayMode defines how ElapsedTime maps to NormalizedTime in [0, 1]:
+	//   Once      - clamp at 1 after Duration; curves hold their Y(1) terminal value.
+	//   Loop      - NormalizedTime = Fmod(Elapsed, Duration) / Duration.
+	//   PingPong  - NormalizedTime oscillates 0 -> 1 -> 0 over a 2 * Duration cycle;
+	//               the X mirror alone gives the retrace; no Y sign flip needed
 	//               because all three curves (including AngleCurve) are Progress.
 
 	ElapsedTime += DeltaTime;
@@ -134,7 +136,7 @@ bool UComposableCameraSpiralNode::ResolvePivot(FVector& OutPivot) const
 	case EComposableCameraSpiralPivotSourceType::FromActor:
 		{
 			AActor* EffectivePivotActor = ComposableCameraSystem::ResolveActorInput(
-				PivotActorSource, PivotActor.Get(), GetOwningPlayerCameraManager());
+				PivotActorSource, PivotActor.Get(), GetOwningPlayerCameraManager(), this);
 			if (!IsValid(EffectivePivotActor))
 			{
 				UE_LOG(LogComposableCameraSystem, Error,
@@ -155,13 +157,13 @@ bool UComposableCameraSpiralNode::ResolvePivot(FVector& OutPivot) const
 }
 
 void UComposableCameraSpiralNode::ResolveSpiralBasis(
-	FVector& OutAxis, FVector& OutForward, FVector& OutRight) const
+	FVector& OutAxis, FVector& OutForward, FVector& OutRight)
 {
 	AActor* EffectivePivotActor = (PivotSourceType == EComposableCameraSpiralPivotSourceType::FromActor)
-		? ComposableCameraSystem::ResolveActorInput(PivotActorSource, PivotActor.Get(), GetOwningPlayerCameraManager())
+		? ComposableCameraSystem::ResolveActorInput(PivotActorSource, PivotActor.Get(), GetOwningPlayerCameraManager(), this)
 		: nullptr;
 
-	// ── Axis ──
+	// Axis
 	FVector Axis;
 	switch (RotationAxis)
 	{
@@ -194,7 +196,7 @@ void UComposableCameraSpiralNode::ResolveSpiralBasis(
 		Axis = FVector::UpVector;
 	}
 
-	// ── Reference forward (pre-projection) ──
+	// Reference forward (pre-projection)
 	FVector ReferenceForward;
 	switch (ReferenceDirection)
 	{
@@ -215,6 +217,26 @@ void UComposableCameraSpiralNode::ResolveSpiralBasis(
 		ReferenceForward = CapturedInitialForward;
 		break;
 
+	case EComposableCameraSpiralReferenceDirection::PivotActorInitialForward:
+		if (!bHasCapturedInitialPivotActorForward)
+		{
+			if (IsValid(EffectivePivotActor))
+			{
+				const FVector Fwd = EffectivePivotActor->GetActorForwardVector();
+				CapturedInitialPivotActorForward = Fwd.IsNearlyZero() ? FVector::ForwardVector : Fwd.GetSafeNormal();
+				bHasCapturedInitialPivotActorForward = true;
+			}
+			else
+			{
+				UE_LOG(LogComposableCameraSystem, Warning,
+					TEXT("SpiralNode: ReferenceDirection=PivotActorInitialForward but no valid PivotActor; falling back to WorldX for this frame."));
+				ReferenceForward = FVector::ForwardVector;
+				break;
+			}
+		}
+		ReferenceForward = CapturedInitialPivotActorForward;
+		break;
+
 	case EComposableCameraSpiralReferenceDirection::Custom:
 		ReferenceForward = CustomDirection;
 		break;
@@ -225,8 +247,8 @@ void UComposableCameraSpiralNode::ResolveSpiralBasis(
 		break;
 	}
 
-	// ── Project onto perpendicular plane and renormalize. Fall back through
-	// World X then World Y when the chosen direction is parallel to the axis. ──
+	// Project onto the perpendicular plane and renormalize. Fall back through
+	// World X then World Y when the chosen direction is parallel to the axis.
 	FVector Forward = FVector::VectorPlaneProject(ReferenceForward, Axis).GetSafeNormal();
 	if (Forward.IsNearlyZero())
 	{
@@ -307,7 +329,7 @@ void UComposableCameraSpiralNode::GetPinDeclarations_Implementation(
 		OutPins.Add(Pin);
 	}
 
-	// Input: starting angular offset applied to θ.
+	// Input: starting angular offset applied to theta.
 	{
 		FComposableCameraNodePinDeclaration Pin;
 		Pin.PinName = "InitialAngleDegrees";
@@ -318,7 +340,7 @@ void UComposableCameraSpiralNode::GetPinDeclarations_Implementation(
 		Pin.bDefaultAsPin = false;
 		Pin.DefaultValueString = FString::SanitizeFloat(InitialAngleDegrees);
 		Pin.Tooltip = NSLOCTEXT("ComposableCameraSystem", "Spiral_InitialAngleDegrees_Tip",
-			"Starting angular offset added to the integrated angle, in degrees.");
+			"Starting angular offset added to the curve angle, in degrees.");
 		OutPins.Add(Pin);
 	}
 
@@ -360,7 +382,7 @@ void UComposableCameraSpiralNode::GetPinDeclarations_Implementation(
 		Pin.bRequired = false;
 		Pin.bDefaultAsPin = false;
 		Pin.Tooltip = NSLOCTEXT("ComposableCameraSystem", "Spiral_AngleCurve_Tip",
-			"Curve asset (X: normalized time [0,1], Y: angle in degrees, absolute) read directly as θ each tick.");
+			"Curve asset (X: normalized time [0,1], Y: angle in degrees, absolute) read directly as theta each tick.");
 		OutPins.Add(Pin);
 	}
 
@@ -389,13 +411,13 @@ void UComposableCameraSpiralNode::DrawNodeDebug(UWorld* World, bool /*bViewerIsO
 
 	// The spiral polyline is laid out in the world around the pivot and
 	// rarely coincides with the camera's own position, so no F8 gate is
-	// needed — same reasoning as SplineNode's polyline.
+	// needed; same reasoning as SplineNode's polyline.
 
 	const FColor SpiralColor(255, 150, 60);  // warm orange, distinct from SplineNode violet and PivotOffset yellow
 
 	// Sample the helical path across [0,1] normalized time. Each sample is an
-	// O(1) direct read of the three curves — no integration, no dependence on
-	// previous samples — so the polyline is the exact ground-truth shape the
+	// O(1) direct read of the three curves; no integration, no dependence on
+	// previous samples, so the polyline is the exact ground-truth shape the
 	// runtime will trace (modulo the PlayMode wrap / mirror applied to
 	// NormalizedTime, which we deliberately skip: the gizmo shows a single
 	// forward cycle, which stays readable across Once / Loop / PingPong).

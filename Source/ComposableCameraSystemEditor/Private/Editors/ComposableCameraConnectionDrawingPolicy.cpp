@@ -6,8 +6,7 @@
 
 #include "EdGraphSchema_K2.h"
 
-FComposableCameraConnectionDrawingPolicy::FComposableCameraConnectionDrawingPolicy(
-	int32 InBackLayerID,
+FComposableCameraConnectionDrawingPolicy::FComposableCameraConnectionDrawingPolicy(int32 InBackLayerID,
 	int32 InFrontLayerID,
 	float InZoomFactor,
 	const FSlateRect& InClippingRect,
@@ -16,15 +15,14 @@ FComposableCameraConnectionDrawingPolicy::FComposableCameraConnectionDrawingPoli
 {
 }
 
-void FComposableCameraConnectionDrawingPolicy::DetermineWiringStyle(
-	UEdGraphPin* OutputPin,
+void FComposableCameraConnectionDrawingPolicy::DetermineWiringStyle(UEdGraphPin* OutputPin,
 	UEdGraphPin* InputPin,
 	FConnectionParams& Params)
 {
 	// Let the base class set up defaults first.
 	FConnectionDrawingPolicy::DetermineWiringStyle(OutputPin, InputPin, Params);
 
-	// Only highlight exec wires — data wires keep their default appearance.
+	// Only highlight exec wires - data wires keep their default appearance.
 	if (!OutputPin || !InputPin || !IsExecPin(OutputPin))
 	{
 		return;
@@ -49,13 +47,13 @@ bool FComposableCameraConnectionDrawingPolicy::IsNodeDebugActive(const UEdGraphN
 		return false;
 	}
 
-	// Camera graph nodes — check DebugState.bIsActive.
+	// Camera graph nodes - check DebugState.bIsActive.
 	if (const UComposableCameraNodeGraphNode* CameraNode = Cast<UComposableCameraNodeGraphNode>(Node))
 	{
 		return CameraNode->DebugState.bIsActive;
 	}
 
-	// Variable graph nodes — check DebugState.bIsActive.
+	// Variable graph nodes - check DebugState.bIsActive.
 	if (const UComposableCameraVariableGraphNode* VarNode = Cast<UComposableCameraVariableGraphNode>(Node))
 	{
 		return VarNode->DebugState.bIsActive;
@@ -63,7 +61,7 @@ bool FComposableCameraConnectionDrawingPolicy::IsNodeDebugActive(const UEdGraphN
 
 	// Sentinel nodes (Start, Output, BeginPlay Start) don't carry debug state.
 	// Treat them as always-active so the highlight chain doesn't break at the
-	// Start → first-camera-node or last-camera-node → Output boundary.
+	// Start->first-camera-node or last-camera-node -> Output boundary.
 	return true;
 }
 

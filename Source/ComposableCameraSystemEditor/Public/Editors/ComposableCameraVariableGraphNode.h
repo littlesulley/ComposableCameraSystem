@@ -15,7 +15,7 @@ class UComposableCameraTypeAsset;
  * inside the visual camera type graph.
  *
  * Get nodes expose a single output pin whose type matches the variable's declared type.
- * They are pure data conduits — reads happen implicitly whenever the camera node
+ * They are pure data conduits - reads happen implicitly whenever the camera node
  * wired to a Get node executes, so Get nodes carry no exec pins.
  *
  * Set nodes expose an input pin for the value plus a pair of exec pins (ExecIn /
@@ -29,7 +29,7 @@ class UComposableCameraTypeAsset;
  * UComposableCameraNodeGraph::SyncToTypeAsset / RebuildFromTypeAsset.
  */
 UCLASS()
-class COMPOSABLECAMERASYSTEMEDITOR_API UComposableCameraVariableGraphNode : public UEdGraphNode
+class COMPOSABLECAMERASYSTEMEDITOR_API UComposableCameraVariableGraphNode: public UEdGraphNode
 {
 	GENERATED_BODY()
 
@@ -38,7 +38,7 @@ public:
 	 * Stable identity of the internal variable this node reads from / writes to.
 	 *
 	 * When the user renames a variable in the Details panel, VariableName on the
-	 * owning type asset changes but VariableGuid stays the same — so this node
+	 * owning type asset changes but VariableGuid stays the same - so this node
 	 * still resolves correctly via FindVariable() (which matches on GUID first).
 	 *
 	 * May be invalid on legacy data saved before GUID migration; in that case
@@ -60,7 +60,7 @@ public:
 	UPROPERTY(VisibleAnywhere, Category = "Variable")
 	bool bIsSetter = false;
 
-	// ─── Cached Variable Metadata (survives copy/paste) ────────────────
+	// Cached Variable Metadata (survives copy/paste) 
 	//
 	// Populated opportunistically whenever FindVariable() succeeds.
 	// When the node is pasted into a different graph where the original
@@ -94,7 +94,7 @@ public:
 	UPROPERTY()
 	bool bHasValidCachedType = false;
 
-	// ─── Well-Known Pin Names ──────────────────────────────────────────
+	// Well-Known Pin Names 
 
 	/** Output pin on Get nodes / input pin on Set nodes. */
 	static const FName PN_Value;
@@ -105,7 +105,7 @@ public:
 	/** Exec output pin on Set nodes (absent on Get nodes). */
 	static const FName PN_ExecOut;
 
-	// ─── UEdGraphNode Interface ────────────────────────────────────────
+	// UEdGraphNode Interface 
 
 	virtual void AllocateDefaultPins() override;
 	virtual FText GetNodeTitle(ENodeTitleType::Type TitleType) const override;
@@ -116,7 +116,7 @@ public:
 	virtual void PostPasteNode() override;
 	virtual void GetNodeContextMenuActions(class UToolMenu* Menu, class UGraphNodeContextMenuContext* Context) const override;
 
-	// ─── Helpers ───────────────────────────────────────────────────────
+	// Helpers 
 
 	/** Find the variable declaration on the owning type asset. Returns nullptr if missing. */
 	const FComposableCameraInternalVariable* FindVariable() const;
@@ -144,9 +144,9 @@ public:
 	 * Called from PostPasteNode when a name match with type mismatch is detected
 	 * (TryAutoAssociateWithExistingVariable already failed). Shows a modal dialog
 	 * offering three resolution strategies:
-	 *   (1) Adopt existing — rebind to the same-name variable, change pin type
-	 *   (2) Change existing — modify the existing variable's type to match the pasted node
-	 *   (3) Rename — create a new variable with a unique suffix (e.g. "Speed_1")
+	 * (1) Adopt existing - rebind to the same-name variable, change pin type
+	 * (2) Change existing - modify the existing variable's type to match the pasted node
+	 * (3) Rename - create a new variable with a unique suffix (e.g. "Speed_1")
 	 * Does nothing if no name conflict exists.
 	 */
 	void HandleVariableTypeConflictIfAny();
@@ -158,7 +158,7 @@ public:
 	 */
 	void RenameWithUniqueSuffix();
 
-	// ─── Runtime Debug State ──────────────────────────────────────────────
+	// Runtime Debug State 
 
 	/** Transient debug state pushed by the toolkit's debug ticker during PIE. */
 	struct FDebugState

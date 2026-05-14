@@ -28,7 +28,7 @@ namespace
 	 * path, Spawnable instances whose names don't match across worlds).
 	 *
 	 * Returns InActor unchanged when:
-	 *   - Not running in editor (cooked / packaged builds — only one world
+	 *   - Not running in editor (cooked / packaged builds. Only one world
 	 *     exists, so InActor is already the right one).
 	 *   - InActor's world is already PIE / Game / EditorPreview (not the
 	 *     persistent editor world that PIE was started from).
@@ -70,7 +70,7 @@ namespace
 				continue;
 			}
 
-			// Fast path — same-named actor outered to the PIE world's
+			// Fast path. Same-named actor outered to the PIE world's
 			// PersistentLevel. Covers "drop a level actor into Inline Shot
 			// target" + non-WP levels (UE preserves FName when duplicating
 			// the level into PIE).
@@ -80,7 +80,7 @@ namespace
 				return PIEActor;
 			}
 
-			// Slow path — sublevel / streamed-level / World Partition runtime
+			// Slow path. Sublevel / streamed-level / World Partition runtime
 			// cell actors aren't outered to the persistent level; iterate the
 			// PIE world to find them. Match on FName + class to keep the same
 			// identity contract the fast path uses. TActorIterator skips
@@ -106,26 +106,26 @@ namespace
 	 * the two paths share identical resolution semantics.
 	 *
 	 * Resolution order:
-	 *   1. **Path-rewrite (PIE only)** — when a PIE session is running, copy
+	 *   1. **Path-rewrite (PIE only)**. When a PIE session is running, copy
 	 *      the soft path and run UE's `FSoftObjectPath::FixupForPIE`. That
 	 *      function rewrites the package portion of the path with the PIE
 	 *      instance prefix (`/Game/Map.Map:PersistentLevel.Actor`
-	 *      → `/Game/UEDPIE_0_Map.UEDPIE_0_Map:PersistentLevel.Actor`)
+	 *      ->`/Game/UEDPIE_0_Map.UEDPIE_0_Map:PersistentLevel.Actor`)
 	 *      whenever the path looks like a level subobject reference, then
 	 *      `ResolveObject` lands directly on the PIE-duplicated actor. This
 	 *      is the standard UE idiom for level-actor soft-refs stored in
 	 *      UAssets and handles the PersistentLevel case without walking world
 	 *      contexts.
-	 *   2. **Direct soft-pointer Get** — covers cooked / non-PIE paths and
+	 *   2. **Direct soft-pointer Get**. Covers cooked / non-PIE paths and
 	 *      any path the rewrite couldn't fix (including raw `AActor*`
 	 *      assignments that already point at a PIE actor, e.g. the
 	 *      `BuildEffectiveShot` override path).
-	 *   3. **Walk-PIE-worlds fallback** — `RemapToPIECounterpartIfNeeded` on
+	 *   3. **Walk-PIE-worlds fallback** -`RemapToPIECounterpartIfNeeded` on
 	 *      the resolved actor. Catches editor-world actor that the path
 	 *      rewrite couldn't redirect (sublevels, WP cells, Spawnables whose
 	 *      names match across worlds even though the path doesn't).
 	 *
-	 * Returns null only when every path produces no live actor — caller
+	 * Returns null only when every path produces no live actor. Caller
 	 * treats that as "anchor unresolvable" (see `ShotSolver` warning).
 	 */
 	AActor* ResolvePIEAwareActor(const TSoftObjectPtr<AActor>& Soft)
@@ -142,7 +142,7 @@ namespace
 					return PIEActor;
 				}
 				// Path rewrite succeeded but the rewritten object isn't
-				// loaded — fall through to direct Get + walk fallback. Don't
+				// loaded. Fall through to direct Get + walk fallback. Don't
 				// LoadSynchronous: hot-path resolve, and a missing PIE-
 				// duplicated actor at this point is almost certainly a
 				// streaming-level / Spawnable timing issue that the walk
@@ -170,7 +170,7 @@ bool FComposableCameraTargetInfo::ResolveWorldPoint(FVector& OutPoint, bool* Out
 	// PersistentLevel actor refs stored in UAssets, (2) direct soft-ptr Get
 	// for cooked / already-correct paths, (3) walk-PIE-worlds fallback for
 	// sublevel / WP / Spawnable cases the path rewrite can't reach. Returns
-	// null only when no live actor can be resolved on any path — caller
+	// null only when no live actor can be resolved on any path. Caller
 	// treats that as "anchor unresolvable" so callers can pre-seed OutPoint.
 	AActor* ResolvedActor = ResolvePIEAwareActor(Actor);
 	if (!ResolvedActor)
@@ -213,7 +213,7 @@ bool FComposableCameraTargetInfo::ResolveWorldPoint(FVector& OutPoint, bool* Out
 				return true;
 			}
 		}
-		// Bone not resolvable — fall through to the actor path. OutUsedBone
+		// Bone not resolvable. Fall through to the actor path. OutUsedBone
 		// stays false so callers can apply legacy fallback offsets.
 	}
 
@@ -230,7 +230,7 @@ bool FComposableCameraTargetInfo::ResolveWorldPoint(FVector& OutPoint, bool* Out
 
 bool FComposableCameraTargetInfo::ResolveBasisQuat(FQuat& OutQuat) const
 {
-	// Same PIE-aware resolve as ResolveWorldPoint — without this, basis would
+	// Same PIE-aware resolve as ResolveWorldPoint. Without this, basis would
 	// come from the editor-world actor's authored quat instead of the live
 	// PIE instance, identical bug to the pre-remap pivot resolution path.
 	AActor* ResolvedActor = ResolvePIEAwareActor(Actor);
@@ -241,7 +241,7 @@ bool FComposableCameraTargetInfo::ResolveBasisQuat(FQuat& OutQuat) const
 
 	if (bUseSkeletalMeshForwardAsBasis)
 	{
-		// First SkelMeshComponent wins — same component-selection convention
+		// First SkelMeshComponent wins. Same component-selection convention
 		// as the bone path in ResolveWorldPoint. For ACharacter this is
 		// always the `Mesh` property (the conventional main mesh) because
 		// it's added first; multi-mesh actors with a non-default ordering
@@ -253,7 +253,7 @@ bool FComposableCameraTargetInfo::ResolveBasisQuat(FQuat& OutQuat) const
 			OutQuat = SkelMesh->GetComponentQuat();
 			return true;
 		}
-		// Silent fallback to actor quat — `bUseSkeletalMeshForwardAsBasis`
+		// Silent fallback to actor quat -`bUseSkeletalMeshForwardAsBasis`
 		// asks for the visual-mesh quat; when no SkelMesh exists, actor
 		// quat is the natural degraded answer (mathematically equivalent
 		// to authoring the flag off). This is intentional graceful
@@ -261,7 +261,7 @@ bool FComposableCameraTargetInfo::ResolveBasisQuat(FQuat& OutQuat) const
 		// without a SkelMesh trivially hits this path. Warning here would
 		// be noise. Designer-facing warning lives instead in
 		// `ResolvePlacementBasis` for the Actor-null case (the path that
-		// actually defeats the InheritFromActor intent — World identity
+		// actually defeats the InheritFromActor intent -World identity
 		// instead of any actor-derived quat).
 	}
 

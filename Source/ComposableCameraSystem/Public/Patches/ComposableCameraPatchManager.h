@@ -24,17 +24,17 @@ class UComposableCameraPatchInstance;
  * ExpirePatch construct and clean up UComposableCameraPatchInstance entries,
  * insert sorted into ActivePatches, and return a UComposableCameraPatchHandle.
  * Apply is callable but is a no-op (returns the input pose unchanged) and is NOT
- * yet wired into UComposableCameraDirector::Evaluate — no evaluator is spawned
+ * yet wired into UComposableCameraDirector::Evaluate. No evaluator is spawned
  * and no pose mutation happens. This lets the rest of the system observe
  * ActivePatches via debug surfaces / tests without any user-visible behavior
  * change.
  *
- * Subsequent stages (per PatchSystemProposal §19):
- *   Stage 2 — TickWithInputPose on CameraBase, evaluator spawned via
+ * Subsequent stages (per PatchSystemProposal Section 19):
+ *   Stage 2 -TickWithInputPose on CameraBase, evaluator spawned via
  *             ConstructCameraFromTypeAsset, real Apply at constant alpha = 1,
  *             Director::Evaluate wires the call.
- *   Stage 3 — Envelope phase machine driving CurrentAlpha.
- *   Stage 4 — Duration / Manual / Condition / OnCameraChange expiration.
+ *   Stage 3 -Envelope phase machine driving CurrentAlpha.
+ *   Stage 4 -Duration / Manual / Condition / OnCameraChange expiration.
  *   ...
  */
 UCLASS(ClassGroup = ComposableCameraSystem)
@@ -76,7 +76,7 @@ public:
 	 * Stage 3 will replace this with a phase flip to Exiting + envelope-driven
 	 * removal at end of Apply.
 	 *
-	 * @param ExitDurationOverride < 0 → use the Patch's own ExitDuration. (Unused in Stage 1.)
+	 * @param ExitDurationOverride < 0 ->use the Patch's own ExitDuration. (Unused in Stage 1.)
 	 */
 	void ExpirePatch(UComposableCameraPatchHandle* Handle, float ExitDurationOverride = -1.f);
 
@@ -93,27 +93,26 @@ public:
 	/**
 	 * Synchronous teardown of every active Patch. Called when the owning context
 	 * is popped immediately (non-top context) or the Director itself is being
-	 * destroyed. Patches in flight do NOT get an exit blend through this path —
-	 * matching how EvaluationTree is dropped synchronously in the same situations.
+	 * destroyed. Patches in flight do NOT get an exit blend through this path - matching how EvaluationTree is dropped synchronously in the same situations.
 	 */
 	void DestroyAll();
 
 	/**
-	 * Soft "expire every active Patch" — flips each one to Exiting via the
+	 * Soft "expire every active Patch". Flips each one to Exiting via the
 	 * normal envelope ramp (mirroring per-handle ExpirePatch). Patches mid-Entering
 	 * fade out from their current alpha; Active-phase patches fade from 1.
 	 * Already-Exiting / Expired entries are left alone (idempotent). Removal
 	 * happens in the next Apply pass's end-of-frame sweep, NOT inside this call.
 	 *
-	 * @param ExitDurationOverride < 0 → each patch keeps its own ExitDuration.
-	 *                             >= 0 → that value replaces every patch's ExitDuration.
+	 * @param ExitDurationOverride < 0 ->each patch keeps its own ExitDuration.
+	 *                             >= 0 ->that value replaces every patch's ExitDuration.
 	 */
 	void ExpireAll(float ExitDurationOverride = -1.f);
 
 	/**
 	 * Mid-life parameter mutation. Re-applies a parameter block onto the
 	 * Patch evaluator's runtime data block via the source asset's
-	 * ApplyParameterBlock — exactly the path the LS Component uses on its
+	 * ApplyParameterBlock. Exactly the path the LS Component uses on its
 	 * own per-tick re-sync (see UComposableCameraLevelSequenceComponent::TickComponent).
 	 *
 	 * Drives Sequencer integration's per-frame parameter keying: the patch
@@ -128,9 +127,9 @@ public:
 	 * has no runtime data block yet.
 	 *
 	 * NOTE: this is NOT the broader `SetPatchParameter(handle, name, value)`
-	 * runtime mutation API — it takes a complete parameter block (every
+	 * runtime mutation API. It takes a complete parameter block (every
 	 * exposed value at once), which is the natural shape Sequencer keys produce.
-	 * A single-key per-call API is still deferred (PatchSystemProposal §0
+	 * A single-key per-call API is still deferred (PatchSystemProposal Section 0
 	 * "Remaining deferred work") because there is no current driver for it.
 	 */
 	void ApplyParameterBlockToActivePatch(
@@ -146,7 +145,7 @@ public:
 
 	/** Capture the current ActivePatches array as a value-type snapshot consumed by
 	 *  the debug HUD / dump commands. Walks ActivePatches in iteration order
-	 *  (sorted by LayerIndex asc, PushSequence asc — same order Apply uses). */
+	 *  (sorted by LayerIndex asc, PushSequence asc. Same order Apply uses). */
 	void BuildDebugSnapshot(TArray<struct FComposableCameraPatchSnapshot>& OutPatches) const;
 
 private:
@@ -154,7 +153,7 @@ private:
 	UPROPERTY(Transient)
 	TArray<TObjectPtr<UComposableCameraPatchInstance>> ActivePatches;
 
-	/** Monotonic counter — assigned to each new instance's PushSequence on insert. */
+	/** Monotonic counter. Assigned to each new instance's PushSequence on insert. */
 	UPROPERTY(Transient)
 	int32 NextPushSequence = 0;
 };

@@ -7,7 +7,7 @@ void SComposableCameraExposedPin::Construct(const FArguments& InArgs, UEdGraphPi
 	SGraphPin::Construct(SGraphPin::FArguments(), InGraphPinObj);
 
 	// Install a fixed-false hover attribute so SWidget::IsHovered() always
-	// returns false for this widget — hiding it from SGraphPanel's wire-target
+	// returns false for this widget - hiding it from SGraphPanel's wire-target
 	// hover probe. When the user is dragging a live wire around the graph
 	// looking for a drop target, the panel asks each pin "are you hovered?"
 	// and picks the first that says yes; with a bound-false attribute we stay
@@ -19,7 +19,7 @@ void SComposableCameraExposedPin::Construct(const FArguments& InArgs, UEdGraphPi
 	// bIsHovered tracking that OnMouseEnter/OnMouseLeave would normally set.
 	//
 	// Visual hover styling (the "light up" effect when the cursor sits on top
-	// of the pin) is the incidental casualty — we would rather the exposed
+	// of the pin) is the incidental casualty - we would rather the exposed
 	// pin look inert than interactive-but-unusable.
 	SetHover(TAttribute<bool>(false));
 }
@@ -39,8 +39,7 @@ FSlateColor SComposableCameraExposedPin::GetPinColor() const
 	return FSlateColor(FLinearColor(0.4f, 0.4f, 0.4f, 1.0f));
 }
 
-FReply SComposableCameraExposedPin::OnMouseButtonDown(
-	const FGeometry& MyGeometry,
+FReply SComposableCameraExposedPin::OnMouseButtonDown(const FGeometry& MyGeometry,
 	const FPointerEvent& MouseEvent)
 {
 	// Consume left-click-down on the pin widget so the default SGraphPin

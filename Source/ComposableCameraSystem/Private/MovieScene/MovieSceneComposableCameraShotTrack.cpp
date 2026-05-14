@@ -1,4 +1,4 @@
-// Copyright Sulley. All rights reserved.
+﻿// Copyright Sulley. All rights reserved.
 
 #include "MovieScene/MovieSceneComposableCameraShotTrack.h"
 
@@ -22,7 +22,7 @@ UMovieSceneComposableCameraShotTrack::UMovieSceneComposableCameraShotTrack(const
 
 	// Phase F adds inter-Shot transitions; V1 sections are hard cuts. Pre/
 	// post-roll evaluation would push Shot overrides outside the authored
-	// window — undesirable for hard cuts. Disable both.
+	// window. Undesirable for hard cuts. Disable both.
 	EvalOptions.bEvaluateInPreroll  = false;
 	EvalOptions.bEvaluateInPostroll = false;
 }
@@ -47,7 +47,7 @@ UMovieSceneSection* UMovieSceneComposableCameraShotTrack::CreateNewSection()
 
 	UMovieScene* OwnerScene = GetTypedOuter<UMovieScene>();
 
-	// Default 5-second window — same convention as Patch / CameraShake. The
+	// Default 5-second window. Same convention as Patch / CameraShake. The
 	// track-editor side (Phase E.4) repositions the section to the playhead
 	// before adding it.
 	if (OwnerScene)
@@ -62,7 +62,7 @@ UMovieSceneSection* UMovieSceneComposableCameraShotTrack::CreateNewSection()
 
 EMovieSceneTrackEasingSupportFlags UMovieSceneComposableCameraShotTrack::SupportsEasing(FMovieSceneSupportsEasingParams& Params) const
 {
-	// Easing disabled in V1 — sections are hard cuts. Phase F repurposes the
+	// Easing disabled in V1. Sections are hard cuts. Phase F repurposes the
 	// easing handles to drive inter-Shot CCS Transition blend windows.
 	return EMovieSceneTrackEasingSupportFlags::None;
 }

@@ -15,7 +15,7 @@ namespace
 	static TAutoConsoleVariable<int32> CVarShowPivotDampingGizmo(
 		TEXT("CCS.Debug.Viewport.PivotDamping"),
 		0,
-		TEXT("Show PivotDampingNode gizmo (green sphere at the damped pivot — lags behind raw pivot under motion).\n")
+		TEXT("Show PivotDampingNode gizmo (green sphere at the damped pivot. Lags behind raw pivot under motion).\n")
 		TEXT("Requires `CCS.Debug.Viewport 1`. Works in both possessed play and F8 eject."),
 		ECVF_Default);
 }
@@ -44,8 +44,7 @@ void UComposableCameraPivotDampingNode::OnFirstTickNode_Implementation()
 void UComposableCameraPivotDampingNode::OnTickNode_Implementation(float DeltaTime,
 	const FComposableCameraPose& CurrentCameraPose, FComposableCameraPose& OutCameraPose)
 {
-	// PivotPosition and bMaintainCameraSpacePivotPosition are pin-matched UPROPERTYs —
-	// already resolved by the base TickNode prologue. Read PivotPosition directly.
+	// PivotPosition and bMaintainCameraSpacePivotPosition are pin-matched UPROPERTYs -	// already resolved by the base TickNode prologue. Read PivotPosition directly.
 	const FVector Pivot = PivotPosition;
 
 	// The rotation must be determined before this node. 
@@ -146,7 +145,7 @@ void UComposableCameraPivotDampingNode::DrawNodeDebug(UWorld* World, bool /*bVie
 	if (CVarShowPivotDampingGizmo.GetValueOnGameThread() == 0
 		&& !FComposableCameraViewportDebug::ShouldShowAllNodeGizmos()) { return; }
 	// Damped pivot sits at the same character / world target location as the
-	// raw pivot — not on the camera. Occlusion gate doesn't apply.
+	// raw pivot. Not on the camera. Occlusion gate doesn't apply.
 	// Magenta to stay distinct from the green CollisionPush trace (same hue
 	// family would blur together when both nodes are enabled at once).
 	FComposableCameraViewportDebug::DrawSolidDebugSphere(

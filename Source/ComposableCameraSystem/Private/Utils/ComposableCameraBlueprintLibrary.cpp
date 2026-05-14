@@ -1,4 +1,4 @@
-﻿// Copyright Sulley. All rights reserved.
+// Copyright Sulley. All rights reserved.
 
 #include "Utils/ComposableCameraBlueprintLibrary.h"
 
@@ -82,7 +82,7 @@ AComposableCameraCameraBase* UComposableCameraBlueprintLibrary::ActivateComposab
 	}
 
 	// Sync-load the camera type. DataTable paths are by definition synchronous
-	// (we're inside a BP call) — callers that want async loading should use the
+	// (we're inside a BP call) - callers that want async loading should use the
 	// streamable manager directly and then call ActivateComposableCameraFromTypeAsset.
 	UComposableCameraTypeAsset* TypeAsset = Row->CameraType.LoadSynchronous();
 	if (!TypeAsset)
@@ -116,7 +116,7 @@ AComposableCameraCameraBase* UComposableCameraBlueprintLibrary::ActivateComposab
 
 		if (ValueString.IsEmpty())
 		{
-			// Nothing to write — the runtime data block will be zero-initialized
+			// Nothing to write - the runtime data block will be zero-initialized
 			// for this slot and ApplyParameterBlock will log a warning if the
 			// parameter was bRequired.
 			continue;
@@ -151,7 +151,7 @@ AComposableCameraCameraBase* UComposableCameraBlueprintLibrary::ActivateComposab
 	// type-side default comes from InitialValueString (the variable's
 	// author-time initial value).
 	// If the row omits this variable entirely AND InitialValueString is
-	// empty, we intentionally leave it out of the ParameterBlock — the
+	// empty, we intentionally leave it out of the ParameterBlock - the
 	// runtime will zero-initialize the slot and log nothing (exposed
 	// variables have no "required" flag).
 	for (const FComposableCameraInternalVariable& Var : ExposedVars)
@@ -207,7 +207,7 @@ AComposableCameraCameraBase* UComposableCameraBlueprintLibrary::ActivateComposab
 	}
 
 	// Merge per-call-site overrides on top of the row-parsed values. An override
-	// entry for a given name replaces the row value entirely — this is how the
+	// entry for a given name replaces the row value entirely - this is how the
 	// K2 node's "Add Override Pin" feature works: the row provides the base
 	// configuration, and the override block carries per-call-site adjustments.
 	for (TPair<FName, FComposableCameraParameterValue>& Entry : OverrideParameters.Values)
@@ -394,12 +394,12 @@ uint8 UComposableCameraBlueprintLibrary::MakeLiteralByte(uint8 Value)
 	return Value;
 }
 
-// ─── Typed Parameter Block Setters ──────────────────────────────────────────
+//  Typed Parameter Block Setters 
 //
 // Thin wrappers over the FComposableCameraParameterBlock typed setters.
 // K2 ExpandNode dispatches to these per pin type instead of routing every
 // pin through the wildcard SetParameterBlockValue, sidestepping the UE 5.6
-// BP wildcard bug for pin-default struct literals (see TechDoc.md §7.2).
+// BP wildcard bug for pin-default struct literals (see TechDoc.md 7.2).
 
 void UComposableCameraBlueprintLibrary::SetParameterBlockBool(
 	FComposableCameraParameterBlock& ParameterBlock, FName ParameterName, bool Value)
@@ -485,14 +485,14 @@ void UComposableCameraBlueprintLibrary::SetParameterBlockObject(
 	ParameterBlock.SetObject(ParameterName, Value);
 }
 
-// ─── Camera Patch (Stage 2 minimal surface) ─────────────────────────────────
+//  Camera Patch (Stage 2 minimal surface) 
 
 namespace
 {
-	// Shared drill helper: PCM → ContextStack → (ActiveDirector | named-context Director)
-	// → PatchManager. NAME_None on ContextName means "active context", matching
+	// Shared drill helper: PCM->ContextStack -> (ActiveDirector | named-context Director)
+	// ->PatchManager. NAME_None on ContextName means "active context", matching
 	// AddModifier / AddCameraAction's implicit targeting. A non-None name that
-	// isn't currently on the stack returns nullptr — the BP entry points log
+	// isn't currently on the stack returns nullptr - the BP entry points log
 	// and fail the activation.
 	UComposableCameraPatchManager* ResolvePatchManager(
 		AComposableCameraPlayerCameraManager* PCM, FName ContextName)
@@ -573,7 +573,7 @@ void UComposableCameraBlueprintLibrary::ExpireAllPatchesOnContext(
 	if (!Manager)
 	{
 		// Quiet on the "no patches anywhere yet" path (Manager not yet built),
-		// but log when the context name was an explicit miss — that's likely
+		// but log when the context name was an explicit miss - that's likely
 		// a typo or a stale context reference.
 		if (!ContextName.IsNone())
 		{

@@ -90,7 +90,7 @@ void AComposableCameraPlayerCameraManager::InitializeFor(APlayerController* Play
 {
 	Super::InitializeFor(PlayerController);
 
-	// Push the base context — the first entry in project settings.
+	// Push the base context. The first entry in project settings.
 	// Done here (not BeginPlay) because InitializeFor runs during PostInitializeComponents,
 	// which is before any actor's BeginPlay. This ensures the base context exists when
 	// gameplay code calls ActivateCamera in their BeginPlay.
@@ -122,18 +122,18 @@ void AComposableCameraPlayerCameraManager::SetViewTarget(AActor* NewViewTarget,
 		return;
 	}
 
-	// Always pass through to Super with EMPTY transition params — we never
+	// Always pass through to Super with EMPTY transition params. We never
 	// want the PCM's built-in PendingViewTarget blend. CCS handles all
 	// blending through its own evaluation tree and transition system.
 	// This keeps the PCM's ViewTarget in sync for external queries.
 	Super::SetViewTarget(NewViewTarget, FViewTargetTransitionParams());
 
-	// Only create a proxy for actors that have a top-level UCameraComponent —
+	// Only create a proxy for actors that have a top-level UCameraComponent -
 	// one that IS the root component or is a direct child of root. This filters
 	// out internal camera components buried inside other components (e.g.,
 	// GameplayCameraComponent's OutputCameraComponent, which is a grandchild).
 	// Actors without a qualifying camera (e.g. the player pawn) fall through
-	// — CCS continues evaluating whatever cameras are already active.
+	// -CCS continues evaluating whatever cameras are already active.
 	if (!NewViewTarget)
 	{
 		return;
@@ -173,7 +173,7 @@ void AComposableCameraPlayerCameraManager::SetViewTarget(AActor* NewViewTarget,
 	TGuardValue<bool> ReentrancyGuard(bIsImplicitlyActivating, true);
 
 	// Create a proxy camera with a ViewTargetProxyNode that reads from the
-	// new view target's UCameraComponent each tick. NOT transient — the
+	// new view target's UCameraComponent each tick. NOT transient. The
 	// context lifecycle is managed by whoever pushed it (PlayCutsceneSequence
 	// pops explicitly; for arbitrary SetViewTarget, the user returns manually).
 	FComposableCameraActivateParams ActivationParams;
@@ -185,7 +185,7 @@ void AComposableCameraPlayerCameraManager::SetViewTarget(AActor* NewViewTarget,
 	TWeakObjectPtr<AActor> WeakTarget = NewViewTarget;
 	FOnCameraFinishConstructed OnPreBeginplay;
 
-	// FOnCameraFinishConstructed is a dynamic delegate — cannot use BindLambda.
+	// FOnCameraFinishConstructed is a dynamic delegate. Cannot use BindLambda.
 	// Instead, store the target and use a UFUNCTION-style callback. But we
 	// don't want to add a UFUNCTION for this on the PCM (it's a hot path and
 	// the target varies per call). Instead, we create the proxy node inline
@@ -396,7 +396,7 @@ void AComposableCameraPlayerCameraManager::DisplayDebug(class UCanvas* Canvas,
 		{
 			const FComposableCameraRuntimeDataBlock& DataBlock = *RunningCamera->OwnedRuntimeDataBlock;
 
-			// Build name→(type, enum) map. EnumType is meaningful only for the
+			// Build name->type, enum) map. EnumType is meaningful only for the
 			// Enum pin type but keeping it in the same lookup avoids a second
 			// pass over the variable arrays per debug frame.
 			struct FVarTypeInfo { EComposableCameraPinType PinType; const UEnum* EnumType; };
@@ -455,7 +455,7 @@ void AComposableCameraPlayerCameraManager::DisplayDebug(class UCanvas* Canvas,
 			Snapshot.LiveStackDepth, Snapshot.PendingDestroyCount);
 		DisplayDebugManager.DrawString(FString(Line));
 
-		// Walk live contexts first (emitted top → base by BuildDebugSnapshot),
+		// Walk live contexts first (emitted top ->base by BuildDebugSnapshot),
 		// then pending-destroy ones. The `bIsPendingDestroy` flag distinguishes
 		// them so we can render the "Pending Destroy:" sub-header once.
 		bool bPendingHeaderEmitted = false;
@@ -478,7 +478,7 @@ void AComposableCameraPlayerCameraManager::DisplayDebug(class UCanvas* Canvas,
 				continue;
 			}
 
-			// Live context header line. LiveIdx decrements as we walk top → base,
+			// Live context header line. LiveIdx decrements as we walk top->base,
 			// so it matches the old `[N]` index labels.
 			Line.Reset();
 			Line.Append(Context.bIsActive ? TEXT("    -> [") : TEXT("       ["));
@@ -487,7 +487,7 @@ void AComposableCameraPlayerCameraManager::DisplayDebug(class UCanvas* Canvas,
 			if (Context.bIsBase) { Line.Append(TEXT(" [base]")); }
 			DisplayDebugManager.DrawString(FString(Line));
 
-			// Director body — running camera + last pose + tree.
+			// Director body. Running camera + last pose + tree.
 			Line.Reset();
 			Line.Append(TEXT("        Running Camera: "));
 			Line.Append(Context.RunningCameraDisplay);
@@ -679,7 +679,7 @@ AComposableCameraCameraBase* AComposableCameraPlayerCameraManager::ActivateNewCa
 	if (bContextSwitched && PreviousActiveDirector)
 	{
 		// Inter-context activation: route through ActivateNewCameraWithReferenceSource.
-		// Whether there's a transition or a camera cut is handled internally —
+		// Whether there's a transition or a camera cut is handled internally -
 		// the key distinction is that we're switching contexts and need the reference leaf path.
 		UComposableCameraTransitionBase* ActivatingTransition = nullptr;
 		NewCamera = TargetDirector->ActivateNewCameraWithReferenceSource(
@@ -688,13 +688,13 @@ AComposableCameraCameraBase* AComposableCameraPlayerCameraManager::ActivateNewCa
 
 		// Any transient context that got demoted from the top by EnsureContext
 		// (e.g. we're switching back to an existing context below a transient
-		// one) needs an implicit pop — its auto-pop loop is top-only, so
+		// one) needs an implicit pop. Its auto-pop loop is top-only, so
 		// without this step it would be stranded on the stack.
 		ContextStack->DemoteNonTopTransientContextsToPending(ActivatingTransition);
 	}
 	else
 	{
-		// Same-context activation — normal path.
+		// Same-context activation. Normal path.
 		NewCamera = TargetDirector->ActivateNewCamera(
 			this, CameraClass, Transition, ActivationParams, OnPreBeginplayEvent);
 	}
@@ -725,7 +725,7 @@ AComposableCameraCameraBase* AComposableCameraPlayerCameraManager::ReactivateCur
 	UComposableCameraDirector* ActiveDirector = GetActiveDirectorSafe();
 	if (!ActiveDirector)
 	{
-		// RunningCamera exists but stack has no active director — likely teardown,
+		// RunningCamera exists but stack has no active director. Likely teardown,
 		// context-init failure, or external clear. Don't try to fabricate a context
 		// here (unlike CreateNewCamera, EnsureContext during teardown can re-spawn
 		// state we're trying to drop). Leave RunningCamera as-is.
@@ -740,7 +740,7 @@ AComposableCameraCameraBase* AComposableCameraPlayerCameraManager::ReactivateCur
 	// (fired via CurrentOnPreBeginplayEvent inside Director::ReactivateCurrentCamera)
 	// can fully reconstruct the new camera from the same source asset and parameters.
 	// Without this, PendingTypeAsset is null (cleared after the original activation),
-	// and OnTypeAssetCameraConstructed early-returns — producing an empty camera with
+	// and OnTypeAssetCameraConstructed early-returns. Producing an empty camera with
 	// no nodes, no data block, and no exec chains.
 	if (UComposableCameraTypeAsset* TypeAsset = RunningCamera->SourceTypeAsset.Get())
 	{
@@ -821,7 +821,7 @@ AComposableCameraCameraBase* AComposableCameraPlayerCameraManager::ActivateNewCa
 			this, CameraClass, TransitionInstance, ActivationParams, OnPreBeginplayEvent, PreviousActiveDirector,
 			&ActivatingTransition);
 
-		// See DesignDoc §17 invariant #27 — transient contexts demoted from
+		// See DesignDoc Section 17 invariant #27. Transient contexts demoted from
 		// the top by this activation are implicitly popped, cleanup bound to
 		// the activating transition. No-op if no transient context was
 		// demoted or if no blend (cut path destroys immediately).
@@ -871,7 +871,7 @@ AComposableCameraCameraBase* AComposableCameraPlayerCameraManager::ActivateNewCa
 
 	// Store the type asset and parameters for the dynamic delegate callback.
 	// FOnCameraFinishConstructed is a dynamic delegate (DECLARE_DYNAMIC_DELEGATE_OneParam)
-	// which doesn't support BindLambda — we use BindDynamic to a UFUNCTION instead.
+	// which doesn't support BindLambda. We use BindDynamic to a UFUNCTION instead.
 	PendingTypeAsset = CameraTypeAsset;
 	PendingParameterBlock = Parameters;
 
@@ -879,8 +879,8 @@ AComposableCameraCameraBase* AComposableCameraPlayerCameraManager::ActivateNewCa
 	OnPreBeginplay.BindDynamic(this, &AComposableCameraPlayerCameraManager::OnTypeAssetCameraConstructed);
 
 	// Resolve the transition through the five-tier chain:
-	//   1. Caller override → 2. Table lookup → 3. Source ExitTransition
-	//   → 4. Target EnterTransition → 5. Hard cut
+	//   1. Caller override ->2. Table lookup ->3. Source ExitTransition
+	//   ->4. Target EnterTransition ->5. Hard cut
 	const UComposableCameraTypeAsset* SourceTypeAsset =
 		RunningCamera ? RunningCamera->SourceTypeAsset.Get() : nullptr;
 	UComposableCameraTransitionBase* ResolvedTransition =
@@ -922,7 +922,7 @@ void AComposableCameraPlayerCameraManager::OnTypeAssetCameraConstructed_OLD(ACom
 {
 	Camera->CameraNodes.Empty();
 	Camera->ComputeNodes.Empty();
-	// ... (old body elided — see ConstructCameraFromTypeAsset)
+	// ... (old body elided. See ConstructCameraFromTypeAsset)
 }
 #endif
 
@@ -1082,10 +1082,10 @@ UComposableCameraActionBase* AComposableCameraPlayerCameraManager::AddCameraActi
 		// Re-entrant call from inside `UpdateActions`'s range-for over
 		// `CameraActions` (an Action's `OnCanExecute` callback added a new
 		// action). Mutating the TSet now would invalidate the iterator.
-		// Defer to the post-loop pending-add sweep — Add to TSet + Bind
+		// Defer to the post-loop pending-add sweep -Add to TSet + Bind
 		// happen there, so the new Action takes effect on the NEXT frame
 		// (it does not retroactively join the iteration that spawned it,
-		// which is the correct semantic — `OnCanExecute` would have to
+		// which is the correct semantic -`OnCanExecute` would have to
 		// re-run on the same frame to honour the spawn, which we'd never
 		// promise).
 		CameraActionsPendingAddScratch.AddUnique(Action);
@@ -1127,7 +1127,7 @@ void AComposableCameraPlayerCameraManager::RemoveCameraAction(UComposableCameraA
 	{
 		return;
 	}
-	// Always do the unbind — that side is safe regardless of context.
+	// Always do the unbind. That side is safe regardless of context.
 	UnbindCameraActionFromCamera(Action);
 
 	if (bIsUpdatingActions)
@@ -1140,7 +1140,7 @@ void AComposableCameraPlayerCameraManager::RemoveCameraAction(UComposableCameraA
 		// Same-frame add-then-remove ordering: if `Action` was just queued
 		// by a re-entrant `AddCameraAction` and hasn't reached the
 		// `CameraActions` TSet yet, it lives only in
-		// `CameraActionsPendingAddScratch`. Drop it from there and bail —
+		// `CameraActionsPendingAddScratch`. Drop it from there and bail -
 		// the post-loop pending-add sweep would otherwise still bind it
 		// (the removal sweep can't catch it because it isn't in
 		// `CameraActions` yet), defying the user's "remove" semantic.
@@ -1153,7 +1153,7 @@ void AComposableCameraPlayerCameraManager::RemoveCameraAction(UComposableCameraA
 		}
 
 		// Mutating the TSet now would invalidate the iterator and crash on
-		// the next advance — defer to the post-loop scratch sweep.
+		// the next advance. Defer to the post-loop scratch sweep.
 		// AddUnique because the canonical !OnCanExecute branch in
 		// UpdateActions may have already added this same Action to the
 		// scratch.
@@ -1301,7 +1301,7 @@ FMinimalViewInfo AComposableCameraPlayerCameraManager::GetCameraViewFromCameraPo
 	FPostProcessUtils::OverridePostProcessSettings(DesiredView.PostProcessSettings, OutPose.PostProcessSettings);
 
 	// Layer 2: Apply physical camera settings (DoF, exposure) on top.
-	// No-op when PhysicalCameraBlendWeight <= 0, so non-physical cameras pay no cost.
+	// No-op when both physical DoF and exposure blend weights are <= 0.
 	OutPose.ApplyPhysicalCameraSettings(DesiredView.PostProcessSettings, /*bOverwriteSettings=*/false);
 
 	return DesiredView;
@@ -1321,10 +1321,10 @@ void AComposableCameraPlayerCameraManager::DoUpdateCamera(float DeltaTime)
 	// ContextStack->Evaluate output is authoritative.
 	//
 	// The cache is double-filled per frame on purpose:
-	//   (1) FillCameraCache(LastDesiredView) here — restores last frame's pose, because
+	//   (1) FillCameraCache(LastDesiredView) here. Restores last frame's pose, because
 	//       UpdateActions / ContextStack->Evaluate may call GetCameraCacheView() and must
 	//       see the prior-frame camera view, not whatever Super just wrote.
-	//   (2) FillCameraCache(DesiredView) at the bottom — publishes this frame's evaluated
+	//   (2) FillCameraCache(DesiredView) at the bottom. Publishes this frame's evaluated
 	//       pose so the engine renders from it.
 	// Do not collapse one of these fills away; the intermediate stale-restore is load-bearing.
 	{
@@ -1339,7 +1339,7 @@ void AComposableCameraPlayerCameraManager::DoUpdateCamera(float DeltaTime)
 	// Update camera actions.
 	UpdateActions(DeltaTime);
 
-	// Per-frame guard for ContextStack. Tick is the hot path — if the stack
+	// Per-frame guard for ContextStack. Tick is the hot path. If the stack
 	// subobject is missing (post-teardown reentry, exotic spawn order, GC race
 	// before the next frame), bail out cleanly. Super::DoUpdateCamera already
 	// ran above and the prior-frame cache is already restored, so the engine
@@ -1357,13 +1357,13 @@ void AComposableCameraPlayerCameraManager::DoUpdateCamera(float DeltaTime)
 	{
 		TRACE_CPUPROFILER_EVENT_SCOPE(CCS_PCM_PostEvaluate);
 
-		// Update RunningCamera and debug state — may change due to context auto-pop.
+		// Update RunningCamera and debug state. May change due to context auto-pop.
 		RunningCamera = ContextStack->GetRunningCamera();
 		CurrentContext = ContextStack->GetActiveContextName();
 		FMinimalViewInfo DesiredView = GetCameraViewFromCameraPose(OutPose);
 		CurrentCameraPose = OutPose;
 
-		// Actor writeback is intentionally limited to Location / Rotation / FOV — i.e. things an
+		// Actor writeback is intentionally limited to Location / Rotation / FOV. I.e. things an
 		// external observer would reasonably query on the camera actor. ProjectionMode, ortho
 		// params, and PostProcessSettings are NOT pushed back onto the component: the component
 		// holds the designer-authored post-process settings that GetCameraViewFromCameraPose reads
@@ -1391,7 +1391,7 @@ void AComposableCameraPlayerCameraManager::DoUpdateCamera(float DeltaTime)
 #if !UE_BUILD_SHIPPING
 	// Pose history capture happens AFTER the frame's pose is finalized so
 	// the ring buffer holds the exact value the engine renders from, not
-	// an intermediate. Gated at compile time — shipping builds strip the
+	// an intermediate. Gated at compile time. Shipping builds strip the
 	// ring entirely (see header guard on the members).
 	CaptureCurrentFrameToPoseHistory();
 #endif
@@ -1410,27 +1410,27 @@ void AComposableCameraPlayerCameraManager::UpdateActions(float DeltaTime)
 	// Reuse the member scratch buffer instead of allocating a fresh TSet
 	// every frame. `Reset()` preserves the underlying TArray capacity so
 	// steady-state operation is allocation-free. We don't need set
-	// semantics — actions can't appear twice in the source TSet, and the
+	// semantics. Actions can't appear twice in the source TSet, and the
 	// later `CameraActions.Remove(Action)` is a single hash lookup either
 	// way.
 	//
 	// CameraActionsRemovalScratch is intentionally NOT UPROPERTY and NOT
-	// TWeakObjectPtr — it holds raw `UComposableCameraActionBase*` for
+	// TWeakObjectPtr. It holds raw `UComposableCameraActionBase*` for
 	// the duration of this function only. Across-frame holds would be
 	// unsafe (GC can't see raw UObject* in a non-UPROPERTY field, so an
 	// entry pointing at a since-collected action would dangle). Both the
 	// `Reset()` at function entry AND the explicit `Reset()` at function
 	// exit below guarantee the scratch is empty whenever execution is
-	// outside this function — GC walks therefore never see a stale raw
+	// outside this function -GC walks therefore never see a stale raw
 	// pointer in this slot. Removal-scratch entries are ALSO members of
 	// the GC-visible `CameraActions` TSet for the duration of the
 	// function (the post-loop `CameraActions.Remove` is what drops them),
 	// so even within the function the entries stay root-reachable
-	// independently of the scratch — the raw form is doubly safe here.
+	// independently of the scratch. The raw form is doubly safe here.
 	//
 	// CameraActionsPendingAddScratch IS `UPROPERTY(Transient)` with
 	// `TObjectPtr<>` element type because its entries have NOT yet been
-	// registered in any reflected container — `NewObject`-fresh actions
+	// registered in any reflected container -`NewObject`-fresh actions
 	// the re-entrant `AddCameraAction` produced. A GC pass triggered
 	// re-entrantly from inside an Action's `OnCanExecute` (sync
 	// `LoadObject`, BP exception during eval, slow Blueprint that yields)
@@ -1464,11 +1464,11 @@ void AComposableCameraPlayerCameraManager::UpdateActions(float DeltaTime)
 
 		if (!Action->OnCanExecute(DeltaTime, CurrentCameraPose))
 		{
-			// Unbind only — the TSet removal happens in the post-loop
+			// Unbind only. The TSet removal happens in the post-loop
 			// scratch sweep. Calling the public `RemoveCameraAction` here
 			// would normally do both the unbind AND a
 			// `CameraActions.Remove(Action)` while we're iterating
-			// `CameraActions`, which is unsafe — but the
+			// `CameraActions`, which is unsafe. But the
 			// `bIsUpdatingActions` guard above re-routes the public path
 			// to defer-via-scratch, so even an indirect callback into
 			// RemoveCameraAction is safe here.
@@ -1483,7 +1483,7 @@ void AComposableCameraPlayerCameraManager::UpdateActions(float DeltaTime)
 	}
 
 	// Post-removal sweep for re-entrant-add. Order matters: do removals
-	// first, THEN adds — a re-entrant flow that removed an Action and then
+	// first, THEN adds. A re-entrant flow that removed an Action and then
 	// added one of the same class within the same `OnCanExecute` callback
 	// would otherwise see the Add silently no-op against the still-present
 	// pre-remove entry. Same-frame Add+Remove of the SAME action is
@@ -1501,7 +1501,7 @@ void AComposableCameraPlayerCameraManager::UpdateActions(float DeltaTime)
 		BindCameraActionToRunningCamera(Action);
 	}
 
-	// Drop raw pointers before returning — see top-of-function rationale
+	// Drop raw pointers before returning. See top-of-function rationale
 	// for why these scratches must never carry references outside the
 	// function's stack frame. Both removal AND pending-add scratches must
 	// be empty at exit so a GC sweep between frames cannot encounter a
@@ -1645,7 +1645,7 @@ void AComposableCameraPlayerCameraManager::GetPoseHistory(TArray<FComposableCame
 /**
  * Freeze switch for the pose-history ring buffer.
  *
- * When set to 1, `CaptureCurrentFrameToPoseHistory` becomes a no-op —
+ * When set to 1, `CaptureCurrentFrameToPoseHistory` becomes a no-op -
  * the ring buffer stops receiving new entries, so the Pose History
  * debug panel's sparklines freeze in place. Intended for inspecting
  * the exact shape of a transition after the fact without the curves
@@ -1654,7 +1654,7 @@ void AComposableCameraPlayerCameraManager::GetPoseHistory(TArray<FComposableCame
  * The ring buffer is NOT cleared when freeze toggles back off. Capture
  * just resumes writing at the current head, which means the first frames
  * after unfreezing are mixed with up-to-2s-old pre-freeze content until
- * the ring rolls over. Acceptable trade-off for a debug tool — clearing
+ * the ring rolls over. Acceptable trade-off for a debug tool. Clearing
  * would lose any "what led up to this" context the user might want.
  *
  * Lives here (not in the debug-panel cpp) because the gate is applied
@@ -1676,7 +1676,7 @@ bool AComposableCameraPlayerCameraManager::IsPoseHistoryFrozen()
 
 void AComposableCameraPlayerCameraManager::CaptureCurrentFrameToPoseHistory()
 {
-	// Freeze gate: when on, do nothing — the sparkline panel keeps
+	// Freeze gate: when on, do nothing. The sparkline panel keeps
 	// rendering whatever was in the ring at the moment the freeze
 	// engaged. See the CVar comment for the resume-from-head rationale.
 	if (CVarPoseHistoryFreeze.GetValueOnGameThread() != 0)
@@ -1687,7 +1687,7 @@ void AComposableCameraPlayerCameraManager::CaptureCurrentFrameToPoseHistory()
 	// Lazy allocation: reserve the full capacity on first call so the
 	// steady-state ring never reallocates. We don't pre-reserve in the
 	// constructor because that'd pay 6 KB of memory in non-shipping even
-	// when the Pose History panel is never shown — pushing it to the
+	// when the Pose History panel is never shown. Pushing it to the
 	// first real tick delays it until the camera is actually running.
 	if (PoseHistoryRing.Num() == 0)
 	{

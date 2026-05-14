@@ -45,11 +45,11 @@
  * One row's payload in the Shot outliner (Polish E.4).
  *
  * Pre-formatted display strings rather than re-running ResolveShotSectionTitle
- * / BuildSectionTimeRowSuffix every paint — Slate ticks rows on every frame
+ * / BuildSectionTimeRowSuffix every paint - Slate ticks rows on every frame
  * regardless of changes, and section title resolution does scope walks.
  *
  * Defined here (rather than in the header) because it's a private detail of
- * the Shot Editor's left pane — no other widget in the editor module needs
+ * the Shot Editor's left pane - no other widget in the editor module needs
  * to construct or read these.
  */
 struct FShotEditorListEntry
@@ -62,7 +62,7 @@ struct FShotEditorListEntry
 
 void SShotEditorRoot::Construct(const FArguments& /*InArgs*/)
 {
-	// Build the structure details view BEFORE the Slate tree — its widget
+	// Build the structure details view BEFORE the Slate tree - its widget
 	// becomes the right-pane content. NotifyHook = this widget so each
 	// property edit on the Shot routes through our NotifyPreChange /
 	// NotifyPostChange to the host UObject (Modify + PostEditChangeProperty).
@@ -71,105 +71,88 @@ void SShotEditorRoot::Construct(const FArguments& /*InArgs*/)
 			FModuleManager::LoadModuleChecked<FPropertyEditorModule>("PropertyEditor");
 
 		FDetailsViewArgs DetailsArgs;
-		DetailsArgs.bAllowSearch       = true;
-		DetailsArgs.bShowOptions       = false;   // hide "Filter" / "Diff" UI clutter — single-Shot context
-		DetailsArgs.bShowScrollBar     = true;
+		DetailsArgs.bAllowSearch = true;
+		DetailsArgs.bShowOptions = false; // hide "Filter" / "Diff" UI clutter - single-Shot context
+		DetailsArgs.bShowScrollBar = true;
 		DetailsArgs.bUpdatesFromSelection = false;
-		DetailsArgs.NotifyHook         = this;
-		DetailsArgs.NameAreaSettings   = FDetailsViewArgs::HideNameArea;
+		DetailsArgs.NotifyHook = this;
+		DetailsArgs.NameAreaSettings = FDetailsViewArgs::HideNameArea;
 		DetailsArgs.bAllowFavoriteSystem = false;
 
 		FStructureDetailsViewArgs StructArgs;
-		StructArgs.bShowAssets   = true;
-		StructArgs.bShowClasses  = true;
+		StructArgs.bShowAssets = true;
+		StructArgs.bShowClasses = true;
 		StructArgs.bShowInterfaces = true;
-		StructArgs.bShowObjects  = true;
+		StructArgs.bShowObjects = true;
 
-		StructureDetailsView = PropertyModule.CreateStructureDetailView(
-			DetailsArgs, StructArgs, /*StructData=*/nullptr);
+		StructureDetailsView = PropertyModule.CreateStructureDetailView(DetailsArgs, StructArgs, /*StructData=*/nullptr);
 	}
 
 	ChildSlot
-	[
-		SNew(SVerticalBox)
+	[SNew(SVerticalBox)
 
-		// Asset toolbar — Save / Browse to Asset / Refresh. Modeled on the
+		// Asset toolbar - Save / Browse to Asset / Refresh. Modeled on the
 		// FAssetEditorToolkit standard chrome so the Shot Editor reads as
 		// a regular UE asset editor despite living inside a nomad tab.
 		+ SVerticalBox::Slot()
 		.AutoHeight()
-		[
-			BuildAssetToolbar()
-		]
+		[BuildAssetToolbar()]
 
-		// Header bar: host context chain ("LS → Track → Section" or
-		// "Asset → Node") on the left, "Shots in Sequence" + "Recent"
+		// Header bar: host context chain ("LS->Track -> Section" or
+		// "Asset -> Node") on the left, "Shots in Sequence" + "Recent"
 		// dropdowns next to it, 3-state mode segmented control on the right.
 		// See EShotEditorMode in SShotEditorViewport.h for per-mode semantics
-		// and §23.12 of EditorDesignDoc for the dropdown breakdown.
+		// and Section 23.12 of EditorDesignDoc for the dropdown breakdown.
 		+ SVerticalBox::Slot()
 		.AutoHeight()
 		.Padding(6.f, 4.f)
-		[
-			SNew(SBorder)
+		[SNew(SBorder)
 			.BorderBackgroundColor(FLinearColor(0.10f, 0.10f, 0.12f, 1.f))
 			.Padding(8.f, 4.f)
-			[
-				SNew(SHorizontalBox)
+			[SNew(SHorizontalBox)
 				+ SHorizontalBox::Slot()
 				.FillWidth(1.f)
 				.VAlign(VAlign_Center)
-				[
-					SAssignNew(HostNameLabel, STextBlock)
+				[SAssignNew(HostNameLabel, STextBlock)
 					.Text(BuildHostContextChain())
-					.ColorAndOpacity(FLinearColor(0.9f, 0.9f, 0.95f, 1.f))
-				]
+					.ColorAndOpacity(FLinearColor(0.9f, 0.9f, 0.95f, 1.f))]
 
-				// "Shots" — dropdown of all Shot sections in the active
+				// "Shots" - dropdown of all Shot sections in the active
 				// host's parent LevelSequence. Hidden in non-LS contexts.
 				+ SHorizontalBox::Slot()
 				.AutoWidth()
 				.VAlign(VAlign_Center)
 				.Padding(8.f, 0.f, 0.f, 0.f)
-				[
-					SAssignNew(LSShotsCombo, SComboButton)
+				[SAssignNew(LSShotsCombo, SComboButton)
 					.Visibility(this, &SShotEditorRoot::GetLSShotsComboVisibility)
 					.ToolTipText(LOCTEXT("LSShotsTooltip",
 						"Jump to another Shot section in this LevelSequence. "
 						"Only shown when the active Shot's host is a "
-						"Sequencer Section — for CameraTypeAsset / "
+						"Sequencer Section - for CameraTypeAsset / "
 						"standalone ShotAsset hosts there's no sibling list."))
 					.OnGetMenuContent(this, &SShotEditorRoot::BuildLSShotsMenu)
 					.ButtonContent()
-					[
-						SNew(STextBlock).Text(LOCTEXT("LSShotsLabel", "Shots"))
-					]
-				]
+					[SNew(STextBlock).Text(LOCTEXT("LSShotsLabel", "Shots"))]]
 
-				// "Recent" — last 20 hosts the editor was bound to (most
+				// "Recent" - last 20 hosts the editor was bound to (most
 				// recent first). Backed by FShotEditorHistory.
 				+ SHorizontalBox::Slot()
 				.AutoWidth()
 				.VAlign(VAlign_Center)
 				.Padding(4.f, 0.f, 0.f, 0.f)
-				[
-					SAssignNew(HistoryCombo, SComboButton)
+				[SAssignNew(HistoryCombo, SComboButton)
 					.ToolTipText(LOCTEXT("HistoryTooltip",
 						"Reopen a recently edited Shot. History is in-memory "
 						"for the current editor session (last 20 entries)."))
 					.OnGetMenuContent(this, &SShotEditorRoot::BuildHistoryMenu)
 					.ButtonContent()
-					[
-						SNew(STextBlock).Text(LOCTEXT("HistoryLabel", "Recent"))
-					]
-				]
+					[SNew(STextBlock).Text(LOCTEXT("HistoryLabel", "Recent"))]]
 
 				+ SHorizontalBox::Slot()
 				.AutoWidth()
 				.VAlign(VAlign_Center)
 				.Padding(8.f, 0.f, 0.f, 0.f)
-				[
-					SNew(SSegmentedControl<EShotEditorMode>)
+				[SNew(SSegmentedControl<EShotEditorMode>)
 					.Value_Lambda([this]() -> EShotEditorMode
 					{
 						return Viewport.IsValid()
@@ -203,47 +186,35 @@ void SShotEditorRoot::Construct(const FArguments& /*InArgs*/)
 						.Text(LOCTEXT("ModeLock", "Lock"))
 						.ToolTip(LOCTEXT("ModeLockTip",
 							"Lock mode: solver drives the camera (same as "
-							"Drag) but ALL viewport input is consumed — no "
+							"Drag) but ALL viewport input is consumed - no "
 							"handle drag, no camera control, no scroll-zoom. "
 							"Read-only preview state, useful for "
 							"screenshots / demos / preventing accidental "
-							"edits."))
-				]
-			]
-		]
+							"edits."))]]]
 
 		// Body: 3-region horizontal splitter (Shot outliner / Viewport / Details).
 		// SSplitter so the user can drag region widths. Polish E.4 wires
 		// up the left outliner with an SListView of Shot sections in the
-		// active LevelSequence — single-click swaps context.
+		// active LevelSequence - single-click swaps context.
 		+ SVerticalBox::Slot()
 		.FillHeight(1.f)
 		.Padding(2.f)
-		[
-			SNew(SSplitter)
+		[SNew(SSplitter)
 			.Orientation(Orient_Horizontal)
 
 			+ SSplitter::Slot()
-			.Value(0.18f)   // Shot outliner — narrow nav strip
-			[
-				BuildShotOutliner()
-			]
+			.Value(0.18f) // Shot outliner - narrow nav strip
+			[BuildShotOutliner()]
 
 			+ SSplitter::Slot()
-			.Value(0.55f)   // Viewport — biggest region
-			[
-				SAssignNew(Viewport, SShotEditorViewport)
-			]
+			.Value(0.55f) // Viewport - biggest region
+			[SAssignNew(Viewport, SShotEditorViewport)]
 
 			+ SSplitter::Slot()
-			.Value(0.27f)   // Details — moderate width for property editor
-			[
-				StructureDetailsView->GetWidget().ToSharedRef()
-			]
-		]
-	];
+			.Value(0.27f) // Details - moderate width for property editor
+			[StructureDetailsView->GetWidget().ToSharedRef()]]];
 
-	// Initial outliner population — covers the case where Construct runs
+	// Initial outliner population - covers the case where Construct runs
 	// before the first SetActiveShot call (host might be already-bound at
 	// open-time via FComposableCameraShotEditor::OpenForShotSection's
 	// pre-construction context-set).
@@ -279,7 +250,7 @@ void SShotEditorRoot::Tick(const FGeometry& AllottedGeometry, const double InCur
 		OnActiveShotChanged();
 	}
 
-	// Shot outliner (E.4) refresh throttle — picks up external LS edits
+	// Shot outliner (E.4) refresh throttle - picks up external LS edits
 	// (sections added / removed / reordered via Sequencer) on a 0.5s cadence
 	// without polling every frame. Per-frame poll would be cheap (few
 	// sections) but burns Slate Tick time the editor doesn't need to spend.
@@ -319,14 +290,13 @@ void SShotEditorRoot::RefreshDetailsView()
 
 	if (ActiveShot && ActiveHost.IsValid())
 	{
-		// FStructOnScope wrapping a raw struct pointer inside a UObject —
+		// FStructOnScope wrapping a raw struct pointer inside a UObject - 
 		// the constructor `(UScriptStruct*, uint8*)` sets `OwnsMemory=false`
 		// so the wrapper does NOT free the memory in its destructor (the
 		// host UObject owns it). Liveness is guarded by ActiveHost weak
-		// ref + Tick() — if the host is GC'd, Tick() clears ActiveShot
+		// ref + Tick() - if the host is GC'd, Tick() clears ActiveShot
 		// and re-triggers RefreshDetailsView with nullptr.
-		TSharedPtr<FStructOnScope> StructData = MakeShared<FStructOnScope>(
-			FComposableCameraShot::StaticStruct(),
+		TSharedPtr<FStructOnScope> StructData = MakeShared<FStructOnScope>(FComposableCameraShot::StaticStruct(),
 			reinterpret_cast<uint8*>(ActiveShot));
 		StructureDetailsView->SetStructureData(StructData);
 	}
@@ -338,7 +308,7 @@ void SShotEditorRoot::RefreshDetailsView()
 
 void SShotEditorRoot::NotifyPreChange(FProperty* /*PropertyAboutToChange*/)
 {
-	// Snapshot pre-edit state for undo via the bare-bones path —
+	// Snapshot pre-edit state for undo via the bare-bones path - 
 	// SaveToTransactionBuffer records the snapshot without firing
 	// FCoreUObjectDelegates::OnObjectModified or
 	// UMovieSceneSignedObject::MarkAsChanged. Both of those are listened
@@ -354,12 +324,11 @@ void SShotEditorRoot::NotifyPreChange(FProperty* /*PropertyAboutToChange*/)
 	}
 }
 
-void SShotEditorRoot::NotifyPostChange(
-	const FPropertyChangedEvent& PropertyChangedEvent, FProperty* /*PropertyThatChanged*/)
+void SShotEditorRoot::NotifyPostChange(const FPropertyChangedEvent& PropertyChangedEvent, FProperty* /*PropertyThatChanged*/)
 {
 	// Skip Interactive (per-frame slider drag) so Sequencer's eval cache
 	// isn't invalidated mid-drag. The host's downstream listeners fire on
-	// commit (ValueSet) — sufficient for graph-node refresh / Build /
+	// commit (ValueSet) - sufficient for graph-node refresh / Build /
 	// runtime debug. Solver in the viewport reads ActiveShot directly each
 	// tick so live drag visual feedback is unaffected.
 	if (PropertyChangedEvent.ChangeType == EPropertyChangeType::Interactive)
@@ -378,13 +347,11 @@ void SShotEditorRoot::NotifyPostChange(
 	{
 		if (ActiveShot == &Section->InlineShot)
 		{
-			ShotProp = Section->GetClass()->FindPropertyByName(
-				GET_MEMBER_NAME_CHECKED(UMovieSceneComposableCameraShotSection, InlineShot));
+			ShotProp = Section->GetClass()->FindPropertyByName(GET_MEMBER_NAME_CHECKED(UMovieSceneComposableCameraShotSection, InlineShot));
 		}
 		else if (ActiveShot == &Section->ShotOverrides)
 		{
-			ShotProp = Section->GetClass()->FindPropertyByName(
-				GET_MEMBER_NAME_CHECKED(UMovieSceneComposableCameraShotSection, ShotOverrides));
+			ShotProp = Section->GetClass()->FindPropertyByName(GET_MEMBER_NAME_CHECKED(UMovieSceneComposableCameraShotSection, ShotOverrides));
 		}
 	}
 	if (ShotProp)
@@ -396,12 +363,12 @@ void SShotEditorRoot::NotifyPostChange(
 
 namespace
 {
-	/** Section title resolver — mirrors `FComposableCameraShotSectionInterface::GetSectionTitle`'s
-	 *  format ("Inline (N)" / asset name / "(no asset)") so the header label
-	 *  reads identically to what Sequencer renders on the section. Replicated
-	 *  here rather than going through the SectionInterface because (a) we
-	 *  don't have a Painter context to construct one and (b) the label needs
-	 *  to be cheap (called every context swap + every menu rebuild). */
+	/** Section title resolver - mirrors `FComposableCameraShotSectionInterface::GetSectionTitle`'s
+	 * format ("Inline (N)" / asset name / "(no asset)") so the header label
+	 * reads identically to what Sequencer renders on the section. Replicated
+	 * here rather than going through the SectionInterface because (a) we
+	 * don't have a Painter context to construct one and (b) the label needs
+	 * to be cheap (called every context swap + every menu rebuild). */
 	FString ResolveShotSectionTitle(const UMovieSceneComposableCameraShotSection& Section)
 	{
 		if (Section.Source == EComposableCameraShotSource::Inline)
@@ -414,7 +381,7 @@ namespace
 	}
 
 	/** Walk a Section's outer chain to its parent LevelSequence. Returns
-	 *  null when the chain is broken (Section orphaned mid-edit). */
+	 * null when the chain is broken (Section orphaned mid-edit). */
 	ULevelSequence* ResolveLevelSequenceForSection(const UMovieSceneSection* Section)
 	{
 		if (!Section)
@@ -426,12 +393,12 @@ namespace
 	}
 
 	/** Build the "(StartSec - EndSec, Row N)" disambiguation suffix used by
-	 *  both the header context label and the LS-shots dropdown entries. The
-	 *  suffix lets multiple same-titled sections (e.g. several Inline shots
-	 *  on different rows / time windows in one LevelSequence) read
-	 *  unambiguously in either surface. Falls back to "(Unbounded, Row N)"
-	 *  for sections without closed bounds, or an empty string when the
-	 *  parent MovieScene is unresolvable. */
+	 * both the header context label and the LS-shots dropdown entries. The
+	 * suffix lets multiple same-titled sections (e.g. several Inline shots
+	 * on different rows / time windows in one LevelSequence) read
+	 * unambiguously in either surface. Falls back to "(Unbounded, Row N)"
+	 * for sections without closed bounds, or an empty string when the
+	 * parent MovieScene is unresolvable. */
 	FString BuildSectionTimeRowSuffix(const UMovieSceneComposableCameraShotSection& Section)
 	{
 		const UMovieScene* MovieScene = Section.GetTypedOuter<UMovieScene>();
@@ -443,16 +410,12 @@ namespace
 		const TRange<FFrameNumber> Range = Section.GetRange();
 		if (Range.HasLowerBound() && Range.HasUpperBound())
 		{
-			const double StartSec = TickResolution.AsSeconds(
-				FFrameTime(Range.GetLowerBoundValue()));
-			const double EndSec   = TickResolution.AsSeconds(
-				FFrameTime(Range.GetUpperBoundValue()));
-			return FString::Printf(
-				TEXT("(%.2fs - %.2fs, Row %d)"),
+			const double StartSec = TickResolution.AsSeconds(FFrameTime(Range.GetLowerBoundValue()));
+			const double EndSec = TickResolution.AsSeconds(FFrameTime(Range.GetUpperBoundValue()));
+			return FString::Printf(TEXT("(%.2fs - %.2fs, Row %d)"),
 				StartSec, EndSec, Section.GetRowIndex());
 		}
-		return FString::Printf(
-			TEXT("(Unbounded, Row %d)"), Section.GetRowIndex());
+		return FString::Printf(TEXT("(Unbounded, Row %d)"), Section.GetRowIndex());
 	}
 }
 
@@ -461,17 +424,17 @@ FText SShotEditorRoot::BuildHostContextChain() const
 	if (!ActiveShot)
 	{
 		return LOCTEXT("NoShotLoaded",
-			"No Shot loaded — open a Camera Type Asset, select a CompositionFramingNode, and click the toolbar's 'Shot Editor' button.");
+			"No Shot loaded - open a Camera Type Asset, select a CompositionFramingNode, and click the toolbar's 'Shot Editor' button.");
 	}
 
 	UObject* Host = ActiveHost.Get();
 	if (!Host)
 	{
 		return LOCTEXT("ActiveHostStale",
-			"Host destroyed — Shot context cleared. Reopen from a CompositionFramingNode.");
+			"Host destroyed - Shot context cleared. Reopen from a CompositionFramingNode.");
 	}
 
-	// Section host → "{LS} → {Track} → {Section}   (start - end, Row N)".
+	// Section host -> "{LS} -> {Track} -> {Section} (start - end, Row N)".
 	// The trailing time/row suffix matches the LS-shots dropdown so the
 	// header reads unambiguously when the LevelSequence holds multiple
 	// same-titled sections, AND so the snapshot pushed to FShotEditorHistory
@@ -481,25 +444,24 @@ FText SShotEditorRoot::BuildHostContextChain() const
 			Cast<UMovieSceneComposableCameraShotSection>(Host))
 	{
 		const UMovieSceneTrack* Track = Section->GetTypedOuter<UMovieSceneTrack>();
-		const ULevelSequence*   LS    = ResolveLevelSequenceForSection(Section);
-		const FString LSName    = LS    ? LS->GetName()                          : FString(TEXT("?"));
-		const FString TrackName = Track ? Track->GetDisplayName().ToString()    : FString(TEXT("?"));
+		const ULevelSequence* LS = ResolveLevelSequenceForSection(Section);
+		const FString LSName = LS ? LS->GetName() : FString(TEXT("?"));
+		const FString TrackName = Track ? Track->GetDisplayName().ToString() : FString(TEXT("?"));
 		const FString SectionTitle = ResolveShotSectionTitle(*Section);
-		const FString Suffix       = BuildSectionTimeRowSuffix(*Section);
-		return FText::FromString(FString::Printf(
-			TEXT("%s  →  %s  →  %s   %s"),
+		const FString Suffix = BuildSectionTimeRowSuffix(*Section);
+		return FText::FromString(FString::Printf(TEXT("%s -> %s -> %s %s"),
 			*LSName, *TrackName, *SectionTitle, *Suffix));
 	}
 
-	// Standalone ShotAsset host → just the asset name (no parent chain
-	// makes sense — the asset is the endpoint).
+	// Standalone ShotAsset host -> just the asset name (no parent chain
+	// makes sense - the asset is the endpoint).
 	if (const UComposableCameraShotAsset* ShotAsset = Cast<UComposableCameraShotAsset>(Host))
 	{
 		return FText::FromString(ShotAsset->GetName());
 	}
 
 	// Camera-graph node host (CompositionFramingNode in V1, possibly other
-	// solver-aware nodes in the future) → "{TypeAsset} → {Node}".
+	// solver-aware nodes in the future) -> "{TypeAsset} -> {Node}".
 	if (const UComposableCameraCameraNodeBase* Node =
 			Cast<UComposableCameraCameraNodeBase>(Host))
 	{
@@ -508,26 +470,23 @@ FText SShotEditorRoot::BuildHostContextChain() const
 		const FString AssetName = TypeAsset
 			? TypeAsset->GetName()
 			: Node->GetOutermost()->GetName();
-		return FText::FromString(FString::Printf(
-			TEXT("%s  →  %s"), *AssetName, *Node->GetName()));
+		return FText::FromString(FString::Printf(TEXT("%s -> %s"), *AssetName, *Node->GetName()));
 	}
 
-	// Unknown host shape — fall back to the V1.x identity format so the
+	// Unknown host shape - fall back to the V1.x identity format so the
 	// designer at least sees what's bound rather than a blank label.
-	return FText::Format(
-		LOCTEXT("ActiveHostFmt", "{0}  ({1})"),
+	return FText::Format(LOCTEXT("ActiveHostFmt", "{0} ({1})"),
 		FText::FromString(Host->GetName()),
 		FText::FromString(Host->GetClass()->GetName()));
 }
 
 EVisibility SShotEditorRoot::GetLSShotsComboVisibility() const
 {
-	// Only meaningful when the host is a Sequencer Shot Section — for
+	// Only meaningful when the host is a Sequencer Shot Section - for
 	// CameraTypeAsset / standalone-ShotAsset hosts there's no sibling list
 	// to enumerate. Collapsed (not Hidden) so the layout reclaims the space.
 	return Cast<UMovieSceneComposableCameraShotSection>(ActiveHost.Get())
-		? EVisibility::Visible
-		: EVisibility::Collapsed;
+		? EVisibility::Visible: EVisibility::Collapsed;
 }
 
 TSharedRef<SWidget> SShotEditorRoot::BuildLSShotsMenu()
@@ -537,11 +496,10 @@ TSharedRef<SWidget> SShotEditorRoot::BuildLSShotsMenu()
 	UMovieSceneComposableCameraShotSection* CurrentSection =
 		Cast<UMovieSceneComposableCameraShotSection>(ActiveHost.Get());
 	const ULevelSequence* LS = ResolveLevelSequenceForSection(CurrentSection);
-	const UMovieScene*    MovieScene = LS ? LS->GetMovieScene() : nullptr;
+	const UMovieScene* MovieScene = LS ? LS->GetMovieScene() : nullptr;
 	if (!MovieScene)
 	{
-		MenuBuilder.AddMenuEntry(
-			LOCTEXT("LSShotsNoLS", "No LevelSequence resolved."),
+		MenuBuilder.AddMenuEntry(LOCTEXT("LSShotsNoLS", "No LevelSequence resolved."),
 			FText::GetEmpty(), FSlateIcon(), FUIAction(),
 			NAME_None, EUserInterfaceActionType::None);
 		return MenuBuilder.MakeWidget();
@@ -553,28 +511,25 @@ TSharedRef<SWidget> SShotEditorRoot::BuildLSShotsMenu()
 	// defensively so future-routing changes don't silently empty the menu.
 	int32 EntryCount = 0;
 	auto AddShotEntry =
-		[this, &MenuBuilder, &EntryCount, CurrentSection](
-			UMovieSceneComposableCameraShotSection* Section,
+		[this, &MenuBuilder, &EntryCount, CurrentSection](UMovieSceneComposableCameraShotSection* Section,
 			const FString& TrackLabel)
 	{
 		if (!Section)
 		{
 			return;
 		}
-		const FString Title       = ResolveShotSectionTitle(*Section);
+		const FString Title = ResolveShotSectionTitle(*Section);
 		const FString RangeSuffix = BuildSectionTimeRowSuffix(*Section);
-		const bool    bIsCurrent  = (Section == CurrentSection);
+		const bool bIsCurrent = (Section == CurrentSection);
 
 		// "Current - " prefix marks the section currently bound to the Shot
 		// Editor. Plain ASCII so it renders consistently across menu themes.
-		const FText EntryText = FText::FromString(FString::Printf(
-			TEXT("%s%s / %s   %s"),
+		const FText EntryText = FText::FromString(FString::Printf(TEXT("%s%s / %s %s"),
 			bIsCurrent ? TEXT("Current - ") : TEXT(""),
 			*TrackLabel, *Title, *RangeSuffix));
 
 		const TWeakObjectPtr<UMovieSceneComposableCameraShotSection> WeakSection(Section);
-		MenuBuilder.AddMenuEntry(
-			EntryText,
+		MenuBuilder.AddMenuEntry(EntryText,
 			FText::GetEmpty(),
 			FSlateIcon(),
 			FUIAction(FExecuteAction::CreateLambda([WeakSection]()
@@ -587,19 +542,18 @@ TSharedRef<SWidget> SShotEditorRoot::BuildLSShotsMenu()
 		++EntryCount;
 	};
 
-	for (const FMovieSceneBinding& Binding : MovieScene->GetBindings())
+	for (const FMovieSceneBinding& Binding: MovieScene->GetBindings())
 	{
-		for (UMovieSceneTrack* Track : Binding.GetTracks())
+		for (UMovieSceneTrack* Track: Binding.GetTracks())
 		{
 			if (!Track)
 			{
 				continue;
 			}
 			const FString TrackLabel = Track->GetDisplayName().ToString();
-			for (UMovieSceneSection* Sec : Track->GetAllSections())
+			for (UMovieSceneSection* Sec: Track->GetAllSections())
 			{
-				AddShotEntry(
-					Cast<UMovieSceneComposableCameraShotSection>(Sec),
+				AddShotEntry(Cast<UMovieSceneComposableCameraShotSection>(Sec),
 					TrackLabel);
 			}
 		}
@@ -608,25 +562,23 @@ TSharedRef<SWidget> SShotEditorRoot::BuildLSShotsMenu()
 	// Defensive scan of root-level tracks. Currently no Shot tracks live
 	// here, but covering this branch keeps the menu honest if track routing
 	// ever changes.
-	for (UMovieSceneTrack* Track : MovieScene->GetTracks())
+	for (UMovieSceneTrack* Track: MovieScene->GetTracks())
 	{
 		if (!Track)
 		{
 			continue;
 		}
 		const FString TrackLabel = Track->GetDisplayName().ToString();
-		for (UMovieSceneSection* Sec : Track->GetAllSections())
+		for (UMovieSceneSection* Sec: Track->GetAllSections())
 		{
-			AddShotEntry(
-				Cast<UMovieSceneComposableCameraShotSection>(Sec),
+			AddShotEntry(Cast<UMovieSceneComposableCameraShotSection>(Sec),
 				TrackLabel);
 		}
 	}
 
 	if (EntryCount == 0)
 	{
-		MenuBuilder.AddMenuEntry(
-			LOCTEXT("LSShotsEmpty", "No Shot sections in this LevelSequence."),
+		MenuBuilder.AddMenuEntry(LOCTEXT("LSShotsEmpty", "No Shot sections in this LevelSequence."),
 			FText::GetEmpty(), FSlateIcon(), FUIAction(),
 			NAME_None, EUserInterfaceActionType::None);
 	}
@@ -642,22 +594,21 @@ TSharedRef<SWidget> SShotEditorRoot::BuildHistoryMenu()
 		FShotEditorHistory::Get().GetEntries();
 	if (Entries.IsEmpty())
 	{
-		MenuBuilder.AddMenuEntry(
-			LOCTEXT("HistoryEmpty", "History is empty."),
+		MenuBuilder.AddMenuEntry(LOCTEXT("HistoryEmpty", "History is empty."),
 			FText::GetEmpty(), FSlateIcon(), FUIAction(),
 			NAME_None, EUserInterfaceActionType::None);
 		return MenuBuilder.MakeWidget();
 	}
 
-	for (const FShotEditorHistoryEntry& Entry : Entries)
+	for (const FShotEditorHistoryEntry& Entry: Entries)
 	{
 		const TWeakObjectPtr<UObject> WeakHost = Entry.Host;
-		const FSoftObjectPath         HostPath = Entry.HostPath;
-		const bool bAlive       = WeakHost.IsValid();
-		const bool bResolvable  = bAlive || HostPath.IsValid();
+		const FSoftObjectPath HostPath = Entry.HostPath;
+		const bool bAlive = WeakHost.IsValid();
+		const bool bResolvable = bAlive || HostPath.IsValid();
 
 		// Tooltip distinguishes three states: live (in-session), persisted
-		// (live ref cold but soft path on disk — clicking will load the
+		// (live ref cold but soft path on disk - clicking will load the
 		// asset), and unrecoverable (no path captured, e.g. a host whose
 		// soft path failed to round-trip through the ini).
 		const FText Tooltip = bAlive
@@ -669,17 +620,15 @@ TSharedRef<SWidget> SShotEditorRoot::BuildHistoryMenu()
 				: LOCTEXT("HistoryUnrecoverableTip",
 					"This entry is unrecoverable; the captured object path is empty."));
 
-		MenuBuilder.AddMenuEntry(
-			Entry.DisplayLabel,
+		MenuBuilder.AddMenuEntry(Entry.DisplayLabel,
 			Tooltip,
 			FSlateIcon(),
-			FUIAction(
-				FExecuteAction::CreateLambda([WeakHost, HostPath]()
+			FUIAction(FExecuteAction::CreateLambda([WeakHost, HostPath]()
 				{
 					// Re-resolve through the singleton so the live-then-
 					// path fallback stays single-source.
 					FShotEditorHistoryEntry Snapshot;
-					Snapshot.Host     = WeakHost;
+					Snapshot.Host = WeakHost;
 					Snapshot.HostPath = HostPath;
 					UObject* Host = FShotEditorHistory::ResolveHost(Snapshot);
 					if (!Host)
@@ -731,7 +680,7 @@ void SShotEditorRoot::TrySetMode(EShotEditorMode NewMode)
 	}
 
 	// Leaving Free mode (to Drag OR Lock) pops a "save current camera
-	// framing?" dialog — Free is the only mode where the user has authored a
+	// framing?" dialog - Free is the only mode where the user has authored a
 	// camera pose that diverges from the solver's output, so both other
 	// modes need to ask before discarding the user's work.
 	if (OldMode == EShotEditorMode::Free
@@ -764,7 +713,7 @@ void SShotEditorRoot::TrySetMode(EShotEditorMode NewMode)
 
 		if (Choice == EAppReturnType::Cancel)
 		{
-			return;   // stay in Free
+			return; // stay in Free
 		}
 		if (Choice == EAppReturnType::Yes && bCanSolve)
 		{
@@ -799,7 +748,7 @@ FReply SShotEditorRoot::OnKeyDown(const FGeometry& MyGeometry, const FKeyEvent& 
 		return FReply::Handled();
 	}
 
-	// Only fire on plain key presses (no modifiers) — leaves Ctrl+1 / Alt+2
+	// Only fire on plain key presses (no modifiers) - leaves Ctrl+1 / Alt+2
 	// etc. free for stock editor shortcuts.
 	if (InKeyEvent.IsControlDown() || InKeyEvent.IsShiftDown()
 		|| InKeyEvent.IsAltDown() || InKeyEvent.IsCommandDown())
@@ -809,14 +758,14 @@ FReply SShotEditorRoot::OnKeyDown(const FGeometry& MyGeometry, const FKeyEvent& 
 
 	const FKey Key = InKeyEvent.GetKey();
 	const bool bHandled =
-		(Key == EKeys::One   && (TrySetMode(EShotEditorMode::Drag),  true)) ||
-		(Key == EKeys::Two   && (TrySetMode(EShotEditorMode::Free),  true)) ||
-		(Key == EKeys::Three && (TrySetMode(EShotEditorMode::Lock),  true));
+		(Key == EKeys::One && (TrySetMode(EShotEditorMode::Drag), true)) ||
+		(Key == EKeys::Two && (TrySetMode(EShotEditorMode::Free), true)) ||
+		(Key == EKeys::Three && (TrySetMode(EShotEditorMode::Lock), true));
 
 	if (bHandled)
 	{
 		// Restore keyboard focus to this root widget. TrySetMode may pop a
-		// modal FMessageDialog (Free→Drag/Lock reverse-solve prompt); when
+		// modal FMessageDialog (Free->Drag/Lock reverse-solve prompt); when
 		// the dialog closes Slate doesn't auto-restore focus, so subsequent
 		// hotkeys would fall on deaf ears until the user clicks back into
 		// the editor. Force-routing focus back here makes hotkeys feel
@@ -828,14 +777,14 @@ FReply SShotEditorRoot::OnKeyDown(const FGeometry& MyGeometry, const FKeyEvent& 
 	return SCompoundWidget::OnKeyDown(MyGeometry, InKeyEvent);
 }
 
-// ─── Asset toolbar ───────────────────────────────────────────────────────
+// Asset toolbar 
 
 namespace
 {
 	/** Walk the host's outer chain to find the asset (the UObject whose
-	 *  outer is the package). Returns null when the host is null or
-	 *  somehow lacks a package — neither path should happen in practice
-	 *  but the null-guard keeps the toolbar safe under teardown races. */
+	 * outer is the package). Returns null when the host is null or
+	 * somehow lacks a package - neither path should happen in practice
+	 * but the null-guard keeps the toolbar safe under teardown races. */
 	UObject* ResolveOutermostAsset(UObject* Host)
 	{
 		if (!Host)
@@ -855,7 +804,7 @@ namespace
 		// asset"). For a CompositionFramingNode host, that's the parent
 		// CameraTypeAsset; for a Section host, that's the LevelSequence;
 		// for a ShotAsset host, that's the ShotAsset itself.
-		return (Asset && Asset->GetOutermost() != Asset) ? Asset : nullptr;
+		return (Asset && Asset->GetOutermost() != Asset) ? Asset: nullptr;
 	}
 }
 
@@ -867,15 +816,13 @@ TSharedRef<SWidget> SShotEditorRoot::BuildAssetToolbar()
 
 	ToolbarBuilder.BeginSection("Asset");
 	{
-		// Use the modern `Icons.*` style names — they're registered as
+		// Use the modern `Icons.*` style names - they're registered as
 		// 20x20 SVG brushes engine-wide, so Save / Browse / Refresh end up
 		// the same size. The legacy `AssetEditor.SaveAsset` brush is a
 		// 40x40 PNG meant for the big asset-editor toolbar, while
-		// `SystemWideCommands.FindInContentBrowser` is a 20x20 — mixing
+		// `SystemWideCommands.FindInContentBrowser` is a 20x20 - mixing
 		// them gave inconsistent button sizes.
-		ToolbarBuilder.AddToolBarButton(
-			FUIAction(
-				FExecuteAction::CreateSP(this, &SShotEditorRoot::OnSaveClicked),
+		ToolbarBuilder.AddToolBarButton(FUIAction(FExecuteAction::CreateSP(this, &SShotEditorRoot::OnSaveClicked),
 				FCanExecuteAction::CreateSP(this, &SShotEditorRoot::CanSave)),
 			NAME_None,
 			LOCTEXT("ToolbarSave", "Save"),
@@ -886,9 +833,7 @@ TSharedRef<SWidget> SShotEditorRoot::BuildAssetToolbar()
 				"ShotAsset host it's the asset itself."),
 			FSlateIcon(FAppStyle::GetAppStyleSetName(), "Icons.Save"));
 
-		ToolbarBuilder.AddToolBarButton(
-			FUIAction(
-				FExecuteAction::CreateSP(this, &SShotEditorRoot::OnBrowseClicked),
+		ToolbarBuilder.AddToolBarButton(FUIAction(FExecuteAction::CreateSP(this, &SShotEditorRoot::OnBrowseClicked),
 				FCanExecuteAction::CreateSP(this, &SShotEditorRoot::CanBrowse)),
 			NAME_None,
 			LOCTEXT("ToolbarBrowse", "Browse"),
@@ -900,9 +845,7 @@ TSharedRef<SWidget> SShotEditorRoot::BuildAssetToolbar()
 
 	ToolbarBuilder.BeginSection("View");
 	{
-		ToolbarBuilder.AddToolBarButton(
-			FUIAction(
-				FExecuteAction::CreateSP(this, &SShotEditorRoot::OnCopyViewportCameraTransformClicked),
+		ToolbarBuilder.AddToolBarButton(FUIAction(FExecuteAction::CreateSP(this, &SShotEditorRoot::OnCopyViewportCameraTransformClicked),
 				FCanExecuteAction::CreateSP(this, &SShotEditorRoot::CanCopyViewportCameraTransform)),
 			NAME_None,
 			LOCTEXT("ToolbarCopyViewportCameraTransform", "Copy Camera"),
@@ -910,9 +853,7 @@ TSharedRef<SWidget> SShotEditorRoot::BuildAssetToolbar()
 				"Copy the Shot Editor viewport camera transform as pasteable FTransform text."),
 			FSlateIcon(FAppStyle::GetAppStyleSetName(), "Icons.Copy"));
 
-		ToolbarBuilder.AddToolBarButton(
-			FUIAction(
-				FExecuteAction::CreateSP(this, &SShotEditorRoot::OnRefreshClicked)),
+		ToolbarBuilder.AddToolBarButton(FUIAction(FExecuteAction::CreateSP(this, &SShotEditorRoot::OnRefreshClicked)),
 			NAME_None,
 			LOCTEXT("ToolbarRefresh", "Refresh"),
 			LOCTEXT("ToolbarRefreshTooltip",
@@ -937,12 +878,11 @@ void SShotEditorRoot::OnSaveClicked()
 	{
 		return;
 	}
-	// Standard editor save path — runs source-control checkout / dirty
+	// Standard editor save path - runs source-control checkout / dirty
 	// dialog as needed. `bCheckDirty=false` so we save unconditionally
 	// (designer hit Save explicitly).
 	TArray<UPackage*> Packages = { Pkg };
-	FEditorFileUtils::PromptForCheckoutAndSave(
-		Packages, /*bCheckDirty=*/false, /*bPromptToSave=*/false);
+	FEditorFileUtils::PromptForCheckoutAndSave(Packages, /*bCheckDirty=*/false, /*bPromptToSave=*/false);
 }
 
 bool SShotEditorRoot::CanSave() const
@@ -983,42 +923,36 @@ bool SShotEditorRoot::CanCopyViewportCameraTransform() const
 	return Viewport.IsValid();
 }
 
-// ─── Shot outliner (Polish E.4) ──────────────────────────────────────────
+// Shot outliner (Polish E.4) 
 
 TSharedRef<SWidget> SShotEditorRoot::BuildShotOutliner()
 {
 	return SNew(SBorder)
 		.BorderBackgroundColor(FLinearColor(0.10f, 0.10f, 0.12f, 1.f))
 		.Padding(4.f)
-		[
-			SNew(SVerticalBox)
+		[SNew(SVerticalBox)
 
 			// Section heading.
 			+ SVerticalBox::Slot()
 			.AutoHeight()
 			.Padding(4.f, 4.f, 4.f, 6.f)
-			[
-				SNew(STextBlock)
+			[SNew(STextBlock)
 				.Text(LOCTEXT("ShotOutlinerHeader", "Shots in Sequence"))
-				.ColorAndOpacity(FLinearColor(0.85f, 0.85f, 0.9f, 1.f))
-			]
+				.ColorAndOpacity(FLinearColor(0.85f, 0.85f, 0.9f, 1.f))]
 
 			// Scrollable list of Shot sections in the active LS.
 			+ SVerticalBox::Slot()
 			.FillHeight(1.f)
-			[
-				SAssignNew(ShotListView, SListView<TSharedPtr<FShotEditorListEntry>>)
+			[SAssignNew(ShotListView, SListView<TSharedPtr<FShotEditorListEntry>>)
 					.ListItemsSource(&ShotListItems)
 					.OnGenerateRow(this, &SShotEditorRoot::MakeShotListRow)
 					.OnMouseButtonClick(this, &SShotEditorRoot::OnShotListMouseButtonClick)
-					.SelectionMode(ESelectionMode::Single)
-			]
-		];
+					.SelectionMode(ESelectionMode::Single)]];
 }
 
 void SShotEditorRoot::RefreshShotListItems()
 {
-	// Walk the active LS for Shot sections — same enumeration as
+	// Walk the active LS for Shot sections - same enumeration as
 	// `BuildLSShotsMenu`. Inlining the walk (rather than extracting a
 	// shared helper) keeps the menu independent of the list's pre-cached
 	// strings; if either grows divergent display rules later, neither
@@ -1026,15 +960,14 @@ void SShotEditorRoot::RefreshShotListItems()
 	UMovieSceneComposableCameraShotSection* CurrentSection =
 		Cast<UMovieSceneComposableCameraShotSection>(ActiveHost.Get());
 	const ULevelSequence* LS = ResolveLevelSequenceForSection(CurrentSection);
-	const UMovieScene*    MS = LS ? LS->GetMovieScene() : nullptr;
+	const UMovieScene* MS = LS ? LS->GetMovieScene() : nullptr;
 
 	TArray<TSharedPtr<FShotEditorListEntry>> NewItems;
 
 	if (MS)
 	{
 		auto AddEntry =
-			[&NewItems](
-				UMovieSceneComposableCameraShotSection* Section,
+			[&NewItems](UMovieSceneComposableCameraShotSection* Section,
 				const FString& TrackLabel)
 		{
 			if (!Section)
@@ -1043,41 +976,39 @@ void SShotEditorRoot::RefreshShotListItems()
 			}
 			TSharedPtr<FShotEditorListEntry> Entry =
 				MakeShared<FShotEditorListEntry>();
-			Entry->Section       = Section;
-			Entry->TrackLabel    = TrackLabel;
-			Entry->TitleLabel    = ResolveShotSectionTitle(*Section);
+			Entry->Section = Section;
+			Entry->TrackLabel = TrackLabel;
+			Entry->TitleLabel = ResolveShotSectionTitle(*Section);
 			Entry->TimeRowSuffix = BuildSectionTimeRowSuffix(*Section);
 			NewItems.Add(Entry);
 		};
 
-		for (const FMovieSceneBinding& Binding : MS->GetBindings())
+		for (const FMovieSceneBinding& Binding: MS->GetBindings())
 		{
-			for (UMovieSceneTrack* Track : Binding.GetTracks())
+			for (UMovieSceneTrack* Track: Binding.GetTracks())
 			{
 				if (!Track)
 				{
 					continue;
 				}
 				const FString TrackLabel = Track->GetDisplayName().ToString();
-				for (UMovieSceneSection* Sec : Track->GetAllSections())
+				for (UMovieSceneSection* Sec: Track->GetAllSections())
 				{
-					AddEntry(
-						Cast<UMovieSceneComposableCameraShotSection>(Sec),
+					AddEntry(Cast<UMovieSceneComposableCameraShotSection>(Sec),
 						TrackLabel);
 				}
 			}
 		}
-		for (UMovieSceneTrack* Track : MS->GetTracks())
+		for (UMovieSceneTrack* Track: MS->GetTracks())
 		{
 			if (!Track)
 			{
 				continue;
 			}
 			const FString TrackLabel = Track->GetDisplayName().ToString();
-			for (UMovieSceneSection* Sec : Track->GetAllSections())
+			for (UMovieSceneSection* Sec: Track->GetAllSections())
 			{
-				AddEntry(
-					Cast<UMovieSceneComposableCameraShotSection>(Sec),
+				AddEntry(Cast<UMovieSceneComposableCameraShotSection>(Sec),
 					TrackLabel);
 			}
 		}
@@ -1088,7 +1019,7 @@ void SShotEditorRoot::RefreshShotListItems()
 	// position resets, and re-paints during otherwise-idle editor frames).
 	auto SameEntry =
 		[](const TSharedPtr<FShotEditorListEntry>& A,
-		   const TSharedPtr<FShotEditorListEntry>& B) -> bool
+		 const TSharedPtr<FShotEditorListEntry>& B) -> bool
 	{
 		return A.IsValid() && B.IsValid()
 			&& A->Section == B->Section
@@ -1118,11 +1049,11 @@ void SShotEditorRoot::RefreshShotListItems()
 	}
 
 	// NOTE: this method intentionally DOES NOT manage SListView's selection
-	// state. The visual "current Shot" indicator is the row's `▶ ` prefix +
+	// state. The visual "current Shot" indicator is the row's ` ` prefix +
 	// gold tint (rendered via reactive `TAttribute` lambdas in
 	// `MakeShotListRow`), which re-evaluate `Entry->Section == ActiveHost`
 	// on every paint. SListView's user-click selection (the blue row
-	// background) is left under Slate's natural control — clicking a row
+	// background) is left under Slate's natural control - clicking a row
 	// selects it visually, no programmatic write fights the click commit.
 	//
 	// Earlier attempts to mirror "selected" to "current" via
@@ -1131,19 +1062,18 @@ void SShotEditorRoot::RefreshShotListItems()
 	// our subsequent programmatic Direct set, Slate could schedule an
 	// intermediate paint that briefly showed the wrong combination.
 	// Decoupling the two means selection (user intent indicator) and
-	// `▶`/gold (current state indicator) are drawn from independent
-	// sources — slight cosmetic drift is possible if the user clicks a
-	// row but the swap fails (selection on B, `▶` on A), but the more
+	// ``/gold (current state indicator) are drawn from independent
+	// sources - slight cosmetic drift is possible if the user clicks a
+	// row but the swap fails (selection on B, `` on A), but the more
 	// common cases (click succeeds, external swap) read cleanly.
 }
 
-TSharedRef<ITableRow> SShotEditorRoot::MakeShotListRow(
-	TSharedPtr<FShotEditorListEntry> Entry,
+TSharedRef<ITableRow> SShotEditorRoot::MakeShotListRow(TSharedPtr<FShotEditorListEntry> Entry,
 	const TSharedRef<STableViewBase>& OwnerTable)
 {
 	// Title + color are TAttribute lambdas that re-evaluate every paint
-	// — `bIsCurrent` flips when the editor's `ActiveHost` swaps to/from
-	// this row's Section, and we want the `▶` prefix + gold tint to track
+	// - `bIsCurrent` flips when the editor's `ActiveHost` swaps to/from
+	// this row's Section, and we want the `` prefix + gold tint to track
 	// that without forcing a full SListView rebuild. Reading from the
 	// captured weak entry pointer (rather than the row index) keeps the
 	// lambda valid across diff-skipped refreshes that preserve the same
@@ -1160,7 +1090,7 @@ TSharedRef<ITableRow> SShotEditorRoot::MakeShotListRow(
 		TSharedPtr<FShotEditorListEntry> Pin = WeakEntry.Pin();
 		if (!Pin.IsValid()) { return FText::GetEmpty(); }
 		return IsCurrentLambda()
-			? FText::FromString(FString::Printf(TEXT("▶ %s"), *Pin->TitleLabel))
+			? FText::FromString(FString::Printf(TEXT(" %s"), *Pin->TitleLabel))
 			: FText::FromString(Pin->TitleLabel);
 	});
 
@@ -1168,7 +1098,7 @@ TSharedRef<ITableRow> SShotEditorRoot::MakeShotListRow(
 		TAttribute<FSlateColor>::CreateLambda([IsCurrentLambda]() -> FSlateColor
 	{
 		return IsCurrentLambda()
-			? FSlateColor(FLinearColor(1.f, 0.95f, 0.55f, 1.f))   // gold for current
+			? FSlateColor(FLinearColor(1.f, 0.95f, 0.55f, 1.f)) // gold for current
 			: FSlateColor(FLinearColor(0.92f, 0.92f, 0.95f, 1.f));
 	});
 
@@ -1176,36 +1106,28 @@ TSharedRef<ITableRow> SShotEditorRoot::MakeShotListRow(
 	{
 		TSharedPtr<FShotEditorListEntry> Pin = WeakEntry.Pin();
 		if (!Pin.IsValid()) { return FText::GetEmpty(); }
-		return FText::FromString(FString::Printf(
-			TEXT("%s   %s"), *Pin->TrackLabel, *Pin->TimeRowSuffix));
+		return FText::FromString(FString::Printf(TEXT("%s %s"), *Pin->TrackLabel, *Pin->TimeRowSuffix));
 	});
 
 	return SNew(STableRow<TSharedPtr<FShotEditorListEntry>>, OwnerTable)
 		.Padding(FMargin(4.f, 3.f))
-		[
-			SNew(SVerticalBox)
+		[SNew(SVerticalBox)
 			+ SVerticalBox::Slot()
 			.AutoHeight()
-			[
-				SNew(STextBlock)
+			[SNew(STextBlock)
 				.Text(TitleAttr)
-				.ColorAndOpacity(TitleColorAttr)
-			]
+				.ColorAndOpacity(TitleColorAttr)]
 			+ SVerticalBox::Slot()
 			.AutoHeight()
 			.Padding(0.f, 1.f, 0.f, 0.f)
-			[
-				SNew(STextBlock)
+			[SNew(STextBlock)
 				.Text(MetaAttr)
-				.ColorAndOpacity(FSlateColor(FLinearColor(0.55f, 0.55f, 0.6f, 1.f)))
-			]
-		];
+				.ColorAndOpacity(FSlateColor(FLinearColor(0.55f, 0.55f, 0.6f, 1.f)))]];
 }
 
-void SShotEditorRoot::OnShotListMouseButtonClick(
-	TSharedPtr<FShotEditorListEntry> ClickedEntry)
+void SShotEditorRoot::OnShotListMouseButtonClick(TSharedPtr<FShotEditorListEntry> ClickedEntry)
 {
-	// Direct mouse-click handler — `SListView::OnMouseButtonClick` fires
+	// Direct mouse-click handler - `SListView::OnMouseButtonClick` fires
 	// on every item click independently of `OnSelectionChanged`, so the
 	// swap routing never fights Slate's selection state machine. Earlier
 	// approaches went through `OnSelectionChanged` and raced with

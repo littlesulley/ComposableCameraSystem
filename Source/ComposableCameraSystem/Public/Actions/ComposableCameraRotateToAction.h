@@ -1,4 +1,4 @@
-// Copyright Sulley. All rights reserved.
+﻿// Copyright Sulley. All rights reserved.
 
 #pragma once
 
@@ -43,15 +43,15 @@ public:
 	
 private:
 	/** Resolve (or re-resolve) the cached subsystem. Same shape as
-	 *  `UComposableCameraResetPitchAction::ResolveInputSubsystem` — see
+	 *  `UComposableCameraResetPitchAction::ResolveInputSubsystem`. See
 	 *  that header for the LocalPlayer-teardown / chain-null /
 	 *  controller-swap-without-destruction rationale. */
 	class UEnhancedInputLocalPlayerSubsystem* ResolveInputSubsystem();
 
-	/** Weak subsystem cache — see ResetPitchAction. */
+	/** Weak subsystem cache. See ResetPitchAction. */
 	TWeakObjectPtr<class UEnhancedInputLocalPlayerSubsystem> CachedSubsystem;
 
-	/** LocalPlayer identity guard — see ResetPitchAction. */
+	/** LocalPlayer identity guard. See ResetPitchAction. */
 	TWeakObjectPtr<class ULocalPlayer> CachedLocalPlayer;
 
 	TUniquePtr<TCameraInterpolator<TValueTypeWrapper<FRotator>>> Interp_T;

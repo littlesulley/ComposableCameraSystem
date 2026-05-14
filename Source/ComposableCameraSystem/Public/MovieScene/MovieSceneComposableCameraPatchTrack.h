@@ -15,7 +15,7 @@ class UMovieSceneSection;
  * params + parameter bag); when a section enters its TrueRange the runtime
  * fires AddCameraPatch, when it exits ExpireCameraPatch fires.
  *
- * Root track (no object binding) by design — Patches live on the Director
+ * Root track (no object binding) by design -Patches live on the Director
  * resolved through PlayerIndex + ContextName on the section, mirroring the
  * BP `AddCameraPatch` library entry. This avoids forcing designers to bind
  * the track to the PCM (which is itself transient and hard to bind cleanly
@@ -23,15 +23,14 @@ class UMovieSceneSection;
  *
  * Multi-row support is on so designers can stack overlapping patches in the
  * same track (different LayerIndex per section, sorted by PatchManager). Each
- * section is independent — sections do not blend with each other; the patch
+ * section is independent. Sections do not blend with each other; the patch
  * compositor's LayerIndex order does. Easing on each section is enabled and
  * fed into the patch's envelope (EnterDuration / ExitDuration overrides) by
  * the TrackInstance.
  *
  * Modeled on UMovieSceneCVarTrack: same ImportEntityImpl-via-section pattern,
  * same per-section TrackInstance dispatch through the engine's
- * UMovieSceneTrackInstanceSystem. Track itself stores no animation data —
- * sections own everything.
+ * UMovieSceneTrackInstanceSystem. Track itself stores no animation data - sections own everything.
  */
 UCLASS(MinimalAPI)
 class UMovieSceneComposableCameraPatchTrack : public UMovieSceneNameableTrack

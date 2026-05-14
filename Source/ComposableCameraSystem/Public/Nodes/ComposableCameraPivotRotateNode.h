@@ -1,4 +1,4 @@
-// Copyright Sulley. All rights reserved.
+ï»¿// Copyright Sulley. All rights reserved.
 
 #pragma once
 
@@ -20,7 +20,7 @@ class UComposableCameraInterpolatorBase;
  * than a hard lock.
  *
  * Compose semantics: target rotation is `PivotActor.Quat * RotationOffset.Quat`,
- * i.e. the offset is applied in the pivot's LOCAL space â€?equivalent to
+ * i.e. the offset is applied in the pivot's LOCAL space. Equivalent to
  * authoring a child component attached to PivotActor with that relative
  * rotation. This avoids the gimbal artifacts a raw FRotator add produces when
  * the pivot has non-trivial pitch / roll.
@@ -30,7 +30,7 @@ class UComposableCameraInterpolatorBase;
  * @InputParameter RotationOffset  Local-space offset added on top of the pivot
  *                                 rotation.
  *
- * `Interpolator` is an Instanced subobject â€?its inner properties surface as
+ * `Interpolator` is an Instanced subobject. Its inner properties surface as
  * pins automatically via the base class's subobject-pin pipeline; no manual
  * pin declaration needed.
  */
@@ -63,7 +63,7 @@ public:
 	TObjectPtr<AActor> PivotActor;
 
 	// Rotation offset added on top of the pivot actor's rotation. Composed in
-	// the pivot's LOCAL space (quaternion multiply) â€?same convention as a
+	// the pivot's LOCAL space (quaternion multiply). Same convention as a
 	// child USceneComponent's RelativeRotation. Set to zero to copy the pivot
 	// rotation exactly.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters)
@@ -78,7 +78,7 @@ public:
 
 private:
 	// Built once in OnInitialize from the authored Interpolator instance; null
-	// when no interpolator is wired (snap mode). Reused every tick â€?no
+	// when no interpolator is wired (snap mode). Reused every tick. No
 	// per-frame allocation on the hot path.
 	TUniquePtr<TCameraInterpolator<TValueTypeWrapper<FRotator>>> Interpolator_T;
 };

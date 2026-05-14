@@ -38,7 +38,7 @@ bool UComposableCameraPathGuidedTransition::ResolveAndValidateRail()
 {
 	// Sync-load the soft pointer; the user authored this slot so we want the
 	// actor available now, not "eventually". Null/unloaded soft pointer is a
-	// data error (transition wired with no rail) — log and bail so OnEvaluate's
+	// data error (transition wired with no rail). Log and bail so OnEvaluate's
 	// nullcheck hard-cuts to the target pose.
 	if (RailActor.IsNull())
 	{
@@ -120,7 +120,7 @@ void UComposableCameraPathGuidedTransition::OnBeginPlay_Implementation(float Del
 
 	// Hard precondition for both branches: a usable rail spline. Spawning
 	// actors before this check (the previous behavior) leaks them on bad data
-	// — every failed validation earlier left a half-initialized IntermediateCamera
+	//. Every failed validation earlier left a half-initialized IntermediateCamera
 	// or DebugSplineActor in the level. Resolving up-front keeps the failure
 	// path actor-free; OnEvaluate's `if (!Rail) return CurrentTargetPose;`
 	// then provides the visible behavior (hard-cut).
@@ -136,7 +136,7 @@ void UComposableCameraPathGuidedTransition::OnBeginPlay_Implementation(float Del
 	}
 
 	// Single cleanup hook covering both spawned actors. Captures `this` weakly
-	// — if the transition UObject is gone by the time the delegate fires
+	//. If the transition UObject is gone by the time the delegate fires
 	// (shouldn't happen on the normal path but keeps us safe), BeginDestroy
 	// already handled cleanup.
 	TWeakObjectPtr<UComposableCameraPathGuidedTransition> WeakSelf(this);
@@ -157,7 +157,7 @@ void UComposableCameraPathGuidedTransition::OnBeginPlay_Implementation(float Del
 			// conditions (class load failure, GC pressure, blocked spawn) and
 			// the previous code dereferenced the result immediately. On failure
 			// we DestroySpawnedActors() to clean up any half-built state and
-			// fall through — the transition becomes a hard cut on the next
+			// fall through. The transition becomes a hard cut on the next
 			// Evaluate (the missing IntermediateCamera / DrivingTransition
 			// guards there return CurrentTargetPose).
 			IntermediateCamera = World->SpawnActorDeferred<AComposableCameraCameraBase>(
@@ -302,7 +302,7 @@ FComposableCameraPose UComposableCameraPathGuidedTransition::OnEvaluate_Implemen
 				{
 					// Lazy-create the exit transition the first time we
 					// cross GuideRange.Y. Same null-check discipline as
-					// OnBeginPlay's earlier spawns — NewObject can return
+					// OnBeginPlay's earlier spawns -NewObject can return
 					// null on teardown / GC pressure / abnormal source-
 					// object state, and the immediate `TransitionEnabled`
 					// deref would crash. On failure, tear down the
@@ -361,10 +361,10 @@ FComposableCameraPose UComposableCameraPathGuidedTransition::OnEvaluate_Implemen
 
 bool UComposableCameraPathGuidedTransition::BuildInternalSpline(const FComposableCameraPose& CurrentTargetPose, float DeltaTime)
 {
-	// Precondition: ResolveAndValidateRail succeeded → Rail, RailSplineComponent,
+	// Precondition: ResolveAndValidateRail succeeded->Rail, RailSplineComponent,
 	// and >= 1 spline point are all guaranteed. Caller (OnBeginPlay Auto branch)
 	// also ensures DebugSplineActor was spawned. Defensive null-check on the
-	// DuplicateObject return — the engine can return null on archetype lookup
+	// DuplicateObject return. The engine can return null on archetype lookup
 	// failure or GC interference, and the immediate RegisterComponent deref
 	// would crash.
 	InternalSpline = DuplicateObject(Rail->GetRailSplineComponent(), DebugSplineActor, TEXT("InternalSplineForPathGuidedTransition"));
@@ -446,7 +446,7 @@ float UComposableCameraPathGuidedTransition::GetBlendWeightAt(float NormalizedTi
 {
 	// Timing curve delegates to the inner driving transition since
 	// PathGuided only substitutes the spatial path. No driving transition
-	// set (authoring incomplete) → fall back to linear so the panel still
+	// set (authoring incomplete) ->fall back to linear so the panel still
 	// renders something rather than a flat zero.
 	if (DrivingTransition)
 	{
@@ -462,16 +462,16 @@ void UComposableCameraPathGuidedTransition::DrawTransitionDebug(UWorld* World, b
 	if (CVarShowPathGuidedTransitionGizmo.GetValueOnGameThread() == 0
 		&& !FComposableCameraViewportDebug::ShouldShowAllTransitionGizmos()) { return; }
 
-	// Coral accent — warm but clearly distinct from Ease orange and
+	// Coral accent. Warm but clearly distinct from Ease orange and
 	// DynamicDeocclusion red.
 	static const FColor AccentColor { 255, 130, 130 };
 
 	DrawStandardTransitionDebug(World, bViewerIsOutsideCamera, AccentColor);
 
 	// Pick whichever spline is actually driving motion this frame.
-	// Inertialized → IntermediateCamera's spline node owns the rail; we
+	// Inertialized ->IntermediateCamera's spline node owns the rail; we
 	// simply walk the RailActor's spline here, same effect.
-	// Auto        → InternalSpline, built at OnBeginPlay in world space.
+	// Auto->InternalSpline, built at OnBeginPlay in world space.
 	const USplineComponent* SplineToDraw = nullptr;
 	if (Type == EComposableCameraPathGuidedTransitionType::Auto)
 	{

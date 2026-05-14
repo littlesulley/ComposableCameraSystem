@@ -32,14 +32,14 @@
 
 #define LOCTEXT_NAMESPACE "K2Node_ActivateComposableCameraFromDataTable"
 
-// ─── Well-Known Pin Names ──────────────────────────────────────────────────────
+// Well-Known Pin Names 
 
 const FName UK2Node_ActivateComposableCameraFromDataTable::DataTablePinName(TEXT("DataTable"));
 const FName UK2Node_ActivateComposableCameraFromDataTable::RowNamePinName(TEXT("RowName"));
 const FName UK2Node_ActivateComposableCameraFromDataTable::PN_PlayerIndex(TEXT("PlayerIndex"));
 const FName UK2Node_ActivateComposableCameraFromDataTable::PN_ReturnValue(TEXT("ReturnValue"));
 
-// ─── Pin Allocation ────────────────────────────────────────────────────────────
+// Pin Allocation 
 
 void UK2Node_ActivateComposableCameraFromDataTable::AllocateDefaultPins()
 {
@@ -51,7 +51,7 @@ void UK2Node_ActivateComposableCameraFromDataTable::AllocateDefaultPins()
 	UEdGraphPin* PlayerIndexPin = CreatePin(EGPD_Input, UEdGraphSchema_K2::PC_Int, PN_PlayerIndex);
 	PlayerIndexPin->DefaultValue = TEXT("0");
 
-	// DataTable (object reference to UDataTable — filtered by pin widget).
+	// DataTable (object reference to UDataTable - filtered by pin widget).
 	{
 		FEdGraphPinType PinType;
 		PinType.PinCategory = UEdGraphSchema_K2::PC_Object;
@@ -77,14 +77,13 @@ void UK2Node_ActivateComposableCameraFromDataTable::AllocateDefaultPins()
 	Super::AllocateDefaultPins();
 }
 
-// ─── Node Display ──────────────────────────────────────────────────────────────
+// Node Display 
 
 FText UK2Node_ActivateComposableCameraFromDataTable::GetTooltipText() const
 {
 	if (CachedTypeAsset)
 	{
-		return FText::Format(
-			LOCTEXT("TooltipWithAsset",
+		return FText::Format(LOCTEXT("TooltipWithAsset",
 				"Activate camera from DataTable row (type '{0}') with optional parameter overrides."),
 			FText::FromString(CachedTypeAsset->GetName()));
 	}
@@ -96,8 +95,7 @@ FText UK2Node_ActivateComposableCameraFromDataTable::GetNodeTitle(ENodeTitleType
 {
 	if (CachedTypeAsset && (TitleType == ENodeTitleType::FullTitle || TitleType == ENodeTitleType::EditableTitle))
 	{
-		return FText::Format(
-			LOCTEXT("NodeTitleWithAsset", "Activate Camera (DataTable)\n{0}"),
+		return FText::Format(LOCTEXT("NodeTitleWithAsset", "Activate Camera (DataTable)\n{0}"),
 			FText::FromString(CachedTypeAsset->GetName()));
 	}
 	return LOCTEXT("NodeTitleGeneric", "Activate Camera (DataTable)");
@@ -114,10 +112,9 @@ FSlateIcon UK2Node_ActivateComposableCameraFromDataTable::GetIconAndTint(FLinear
 	return FSlateIcon(FAppStyle::GetAppStyleSetName(), "ClassIcon.CameraComponent");
 }
 
-// ─── Menu Actions ──────────────────────────────────────────────────────────────
+// Menu Actions 
 
-void UK2Node_ActivateComposableCameraFromDataTable::GetMenuActions(
-	FBlueprintActionDatabaseRegistrar& ActionRegistrar) const
+void UK2Node_ActivateComposableCameraFromDataTable::GetMenuActions(FBlueprintActionDatabaseRegistrar& ActionRegistrar) const
 {
 	UClass* ActionKey = GetClass();
 	if (ActionRegistrar.IsOpenForRegistration(ActionKey))
@@ -135,7 +132,7 @@ FText UK2Node_ActivateComposableCameraFromDataTable::GetMenuCategory() const
 	return LOCTEXT("MenuCategory", "ComposableCameraSystem|Camera");
 }
 
-// ─── Pin Change Handlers ───────────────────────────────────────────────────────
+// Pin Change Handlers 
 
 void UK2Node_ActivateComposableCameraFromDataTable::PinDefaultValueChanged(UEdGraphPin* Pin)
 {
@@ -150,7 +147,7 @@ void UK2Node_ActivateComposableCameraFromDataTable::PinDefaultValueChanged(UEdGr
 	// this notification on the freshly-created DataTable / RowName pins BEFORE
 	// the saved DefaultObject / DefaultValue have been transferred from OldPins.
 	// Acting on it would tear UserOverrideNames mid-pass via a nested
-	// ReconstructNode. See TechDoc.md §7.2.
+	// ReconstructNode. See TechDoc.md Section 7.2.
 	if (bIsReconstructing)
 	{
 		return;
@@ -164,7 +161,7 @@ void UK2Node_ActivateComposableCameraFromDataTable::PinDefaultValueChanged(UEdGr
 	}
 	else if (Pin->PinName == RowNamePinName)
 	{
-		// RowName changed — the CameraType may differ per row.
+		// RowName changed - the CameraType may differ per row.
 		ResolveCameraTypeFromDataTable();
 	}
 }
@@ -203,7 +200,7 @@ UComposableCameraTypeAsset* UK2Node_ActivateComposableCameraFromDataTable::GetCa
 	return CachedTypeAsset;
 }
 
-// ─── DataTable / CameraType Resolution ───────────────────────────────────────
+// DataTable / CameraType Resolution 
 
 void UK2Node_ActivateComposableCameraFromDataTable::ResolveCameraTypeFromDataTable()
 {
@@ -220,8 +217,7 @@ void UK2Node_ActivateComposableCameraFromDataTable::ResolveCameraTypeFromDataTab
 			if (!RowName.IsNone())
 			{
 				const FComposableCameraParameterTableRow* Row =
-					DataTable->FindRow<FComposableCameraParameterTableRow>(
-						RowName, TEXT("K2Node ResolveCameraType"));
+					DataTable->FindRow<FComposableCameraParameterTableRow>(RowName, TEXT("K2Node ResolveCameraType"));
 				if (Row && !Row->CameraType.IsNull())
 				{
 					NewAsset = Row->CameraType.LoadSynchronous();
@@ -239,11 +235,11 @@ void UK2Node_ActivateComposableCameraFromDataTable::ResolveCameraTypeFromDataTab
 		{
 			TSet<FName> AssetNames;
 			AssetNames.Reserve(CachedTypeAsset->ExposedParameters.Num() + CachedTypeAsset->ExposedVariables.Num());
-			for (const FComposableCameraExposedParameter& Param : CachedTypeAsset->ExposedParameters)
+			for (const FComposableCameraExposedParameter& Param: CachedTypeAsset->ExposedParameters)
 			{
 				AssetNames.Add(Param.ParameterName);
 			}
-			for (const FComposableCameraInternalVariable& Var : CachedTypeAsset->ExposedVariables)
+			for (const FComposableCameraInternalVariable& Var: CachedTypeAsset->ExposedVariables)
 			{
 				AssetNames.Add(Var.VariableName);
 			}
@@ -345,7 +341,7 @@ UDataTable* UK2Node_ActivateComposableCameraFromDataTable::ResolveLiteralDataTab
 	return DataTable;
 }
 
-// ─── Lifetime ──────────────────────────────────────────────────────────────────
+// Lifetime 
 
 void UK2Node_ActivateComposableCameraFromDataTable::PostLoad()
 {
@@ -353,7 +349,7 @@ void UK2Node_ActivateComposableCameraFromDataTable::PostLoad()
 
 	// Resolve the CameraType on load so dynamic pins are correct.
 	// We don't call ResolveCameraTypeFromDataTable here because that would
-	// ReconstructNode during PostLoad — instead, just populate CachedTypeAsset
+	// ReconstructNode during PostLoad - instead, just populate CachedTypeAsset
 	// silently. AllocateDefaultPins will use it on the next reconstruction.
 	const UDataTable* DataTable = ResolveLiteralDataTable();
 	if (DataTable)
@@ -366,8 +362,7 @@ void UK2Node_ActivateComposableCameraFromDataTable::PostLoad()
 			if (!RowName.IsNone())
 			{
 				const FComposableCameraParameterTableRow* Row =
-					DataTable->FindRow<FComposableCameraParameterTableRow>(
-						RowName, TEXT("K2Node PostLoad"));
+					DataTable->FindRow<FComposableCameraParameterTableRow>(RowName, TEXT("K2Node PostLoad"));
 				if (Row && !Row->CameraType.IsNull())
 				{
 					CachedTypeAsset = Row->CameraType.LoadSynchronous();
@@ -379,7 +374,7 @@ void UK2Node_ActivateComposableCameraFromDataTable::PostLoad()
 	SubscribeToAssetChangeDelegate();
 
 	// Auto-recover from baked-in orphan pin state. See the matching block in
-	// UK2Node_ActivateComposableCamera and TechDoc.md §7.2 for full background:
+	// UK2Node_ActivateComposableCamera and TechDoc.md Section 7.2 for full background:
 	// once a previous reconstruction with CachedTypeAsset == nullptr left an
 	// orphan pin in Pins[] and the user saved the blueprint, plain load just
 	// deserializes the orphan and no reconstruction runs, so the per-Reallocate
@@ -391,7 +386,7 @@ void UK2Node_ActivateComposableCameraFromDataTable::PostLoad()
 	// cleared RF_NeedLoad. By the time the ticker fires, the load batch is
 	// complete.
 	bool bHasOrphanPin = false;
-	for (const UEdGraphPin* Pin : Pins)
+	for (const UEdGraphPin* Pin: Pins)
 	{
 		if (Pin && Pin->bOrphanedPin)
 		{
@@ -402,8 +397,7 @@ void UK2Node_ActivateComposableCameraFromDataTable::PostLoad()
 	if (bHasOrphanPin)
 	{
 		TWeakObjectPtr<UK2Node_ActivateComposableCameraFromDataTable> WeakThis(this);
-		FTSTicker::GetCoreTicker().AddTicker(
-			FTickerDelegate::CreateLambda([WeakThis](float) -> bool
+		FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateLambda([WeakThis](float) -> bool
 			{
 				if (UK2Node_ActivateComposableCameraFromDataTable* StrongThis = WeakThis.Get())
 				{
@@ -436,8 +430,7 @@ void UK2Node_ActivateComposableCameraFromDataTable::PostPlacedNewNode()
 	SubscribeToAssetChangeDelegate();
 }
 
-void UK2Node_ActivateComposableCameraFromDataTable::ReallocatePinsDuringReconstruction(
-	TArray<UEdGraphPin*>& OldPins)
+void UK2Node_ActivateComposableCameraFromDataTable::ReallocatePinsDuringReconstruction(TArray<UEdGraphPin*>& OldPins)
 {
 	// Re-entrancy guard. RewireOldPinsToNewPins can fire pin notifications
 	// (PinDefaultValueChanged on the freshly-created DataTable / RowName pins
@@ -445,23 +438,23 @@ void UK2Node_ActivateComposableCameraFromDataTable::ReallocatePinsDuringReconstr
 	// subscribers (our OnObjectPropertyChanged handler) can fire during load.
 	// Both would call through to a nested ReconstructNode that observes a torn
 	// UserOverrideNames state and silently drops user-authored override pins.
-	// See TechDoc.md §7.2 for the full failure-mode taxonomy.
+	// See TechDoc.md Section 7.2 for the full failure-mode taxonomy.
 	TGuardValue<bool> ReconstructionGuard(bIsReconstructing, true);
 
 	// Stale-state self-heal for CachedTypeAsset. Two failure modes converge
 	// here (mirrors the matching block in UK2Node_ActivateComposableCamera):
 	//
-	//   1. Legacy on-disk corruption -- a blueprint saved before the
-	//      re-entrancy guard landed can have CachedTypeAsset == nullptr while
-	//      the saved DataTable + RowName pins still resolve to the right row.
-	//   2. EDL load-order race -- on cold load the DataTable / referenced
-	//      CameraType asset's PostLoad may not have completed by reconstruction
-	//      time. CachedTypeAsset (TObjectPtr) reads as nullptr AND
-	//      OldPin->DefaultObject for the DataTable pin can read as nullptr
-	//      while OldPin->DefaultValue still carries the path string.
+	// 1. Legacy on-disk corruption -- a blueprint saved before the
+	// re-entrancy guard landed can have CachedTypeAsset == nullptr while
+	// the saved DataTable + RowName pins still resolve to the right row.
+	// 2. EDL load-order race -- on cold load the DataTable / referenced
+	// CameraType asset's PostLoad may not have completed by reconstruction
+	// time. CachedTypeAsset (TObjectPtr) reads as nullptr AND
+	// OldPin->DefaultObject for the DataTable pin can read as nullptr
+	// while OldPin->DefaultValue still carries the path string.
 	//
 	// Recovery is two-step here (DataTable variant): rebuild DataTable from
-	// the OldPin's DefaultObject -> DefaultValue (FSoftObjectPath::TryLoad),
+	// the OldPin's DefaultObject->DefaultValue (FSoftObjectPath::TryLoad),
 	// then look up the row by name and chase Row->CameraType.LoadSynchronous().
 	// ConditionalPostLoad on both the DataTable and the recovered CameraType
 	// so their PostLoad migrations finish before downstream code reads their
@@ -471,7 +464,7 @@ void UK2Node_ActivateComposableCameraFromDataTable::ReallocatePinsDuringReconstr
 		UDataTable* RecoveredDataTable = nullptr;
 		FName RecoveredRowName = NAME_None;
 
-		for (const UEdGraphPin* OldPin : OldPins)
+		for (const UEdGraphPin* OldPin: OldPins)
 		{
 			if (!OldPin)
 			{
@@ -531,8 +524,7 @@ void UK2Node_ActivateComposableCameraFromDataTable::ReallocatePinsDuringReconstr
 			if (RowStruct && RowStruct->IsChildOf(GetRequiredRowStruct()))
 			{
 				const FComposableCameraParameterTableRow* Row =
-					RecoveredDataTable->FindRow<FComposableCameraParameterTableRow>(
-						RecoveredRowName, TEXT("K2Node Reallocate self-heal"));
+					RecoveredDataTable->FindRow<FComposableCameraParameterTableRow>(RecoveredRowName, TEXT("K2Node Reallocate self-heal"));
 				if (Row && !Row->CameraType.IsNull())
 				{
 					if (UComposableCameraTypeAsset* Recovered = Row->CameraType.LoadSynchronous())
@@ -552,16 +544,16 @@ void UK2Node_ActivateComposableCameraFromDataTable::ReallocatePinsDuringReconstr
 	{
 		TSet<FName> AssetNames;
 		AssetNames.Reserve(CachedTypeAsset->ExposedParameters.Num() + CachedTypeAsset->ExposedVariables.Num());
-		for (const FComposableCameraExposedParameter& Param : CachedTypeAsset->ExposedParameters)
+		for (const FComposableCameraExposedParameter& Param: CachedTypeAsset->ExposedParameters)
 		{
 			AssetNames.Add(Param.ParameterName);
 		}
-		for (const FComposableCameraInternalVariable& Var : CachedTypeAsset->ExposedVariables)
+		for (const FComposableCameraInternalVariable& Var: CachedTypeAsset->ExposedVariables)
 		{
 			AssetNames.Add(Var.VariableName);
 		}
 
-		for (UEdGraphPin* OldPin : OldPins)
+		for (UEdGraphPin* OldPin: OldPins)
 		{
 			if (!OldPin || OldPin->Direction != EGPD_Input)
 			{
@@ -586,7 +578,7 @@ void UK2Node_ActivateComposableCameraFromDataTable::ReallocatePinsDuringReconstr
 	Super::ReallocatePinsDuringReconstruction(OldPins);
 }
 
-// ─── Override Set Management ──────────────────────────────────────────────────
+// Override Set Management 
 
 bool UK2Node_ActivateComposableCameraFromDataTable::IsNameRequiredParameter(FName Name) const
 {
@@ -594,7 +586,7 @@ bool UK2Node_ActivateComposableCameraFromDataTable::IsNameRequiredParameter(FNam
 	{
 		return false;
 	}
-	for (const FComposableCameraExposedParameter& Param : CachedTypeAsset->ExposedParameters)
+	for (const FComposableCameraExposedParameter& Param: CachedTypeAsset->ExposedParameters)
 	{
 		if (Param.ParameterName == Name)
 		{
@@ -610,14 +602,14 @@ bool UK2Node_ActivateComposableCameraFromDataTable::IsNameInCachedAsset(FName Na
 	{
 		return false;
 	}
-	for (const FComposableCameraExposedParameter& Param : CachedTypeAsset->ExposedParameters)
+	for (const FComposableCameraExposedParameter& Param: CachedTypeAsset->ExposedParameters)
 	{
 		if (Param.ParameterName == Name)
 		{
 			return true;
 		}
 	}
-	for (const FComposableCameraInternalVariable& Var : CachedTypeAsset->ExposedVariables)
+	for (const FComposableCameraInternalVariable& Var: CachedTypeAsset->ExposedVariables)
 	{
 		if (Var.VariableName == Name)
 		{
@@ -686,17 +678,17 @@ void UK2Node_ActivateComposableCameraFromDataTable::CleanUpOrphanOverrides()
 
 	TSet<FName> AssetNames;
 	AssetNames.Reserve(CachedTypeAsset->ExposedParameters.Num() + CachedTypeAsset->ExposedVariables.Num());
-	for (const FComposableCameraExposedParameter& Param : CachedTypeAsset->ExposedParameters)
+	for (const FComposableCameraExposedParameter& Param: CachedTypeAsset->ExposedParameters)
 	{
 		AssetNames.Add(Param.ParameterName);
 	}
-	for (const FComposableCameraInternalVariable& Var : CachedTypeAsset->ExposedVariables)
+	for (const FComposableCameraInternalVariable& Var: CachedTypeAsset->ExposedVariables)
 	{
 		AssetNames.Add(Var.VariableName);
 	}
 
 	bool bHasOrphans = false;
-	for (const FName& Name : UserOverrideNames)
+	for (const FName& Name: UserOverrideNames)
 	{
 		if (!AssetNames.Contains(Name))
 		{
@@ -724,7 +716,7 @@ void UK2Node_ActivateComposableCameraFromDataTable::CleanUpOrphanOverrides()
 	}
 }
 
-// ─── Asset Change Notification ────────────────────────────────────────────────
+// Asset Change Notification 
 
 void UK2Node_ActivateComposableCameraFromDataTable::SubscribeToAssetChangeDelegate()
 {
@@ -732,8 +724,7 @@ void UK2Node_ActivateComposableCameraFromDataTable::SubscribeToAssetChangeDelega
 	{
 		return;
 	}
-	ObjectPropertyChangedHandle = FCoreUObjectDelegates::OnObjectPropertyChanged.AddUObject(
-		this, &UK2Node_ActivateComposableCameraFromDataTable::HandleObjectPropertyChanged);
+	ObjectPropertyChangedHandle = FCoreUObjectDelegates::OnObjectPropertyChanged.AddUObject(this, &UK2Node_ActivateComposableCameraFromDataTable::HandleObjectPropertyChanged);
 }
 
 void UK2Node_ActivateComposableCameraFromDataTable::UnsubscribeFromAssetChangeDelegate()
@@ -745,8 +736,7 @@ void UK2Node_ActivateComposableCameraFromDataTable::UnsubscribeFromAssetChangeDe
 	}
 }
 
-void UK2Node_ActivateComposableCameraFromDataTable::HandleObjectPropertyChanged(
-	UObject* Object, FPropertyChangedEvent& /*Event*/)
+void UK2Node_ActivateComposableCameraFromDataTable::HandleObjectPropertyChanged(UObject* Object, FPropertyChangedEvent& /*Event*/)
 {
 	if (Object == nullptr || Object != CachedTypeAsset)
 	{
@@ -771,11 +761,11 @@ void UK2Node_ActivateComposableCameraFromDataTable::HandleObjectPropertyChanged(
 	{
 		TSet<FName> AssetNames;
 		AssetNames.Reserve(CachedTypeAsset->ExposedParameters.Num() + CachedTypeAsset->ExposedVariables.Num());
-		for (const FComposableCameraExposedParameter& Param : CachedTypeAsset->ExposedParameters)
+		for (const FComposableCameraExposedParameter& Param: CachedTypeAsset->ExposedParameters)
 		{
 			AssetNames.Add(Param.ParameterName);
 		}
-		for (const FComposableCameraInternalVariable& Var : CachedTypeAsset->ExposedVariables)
+		for (const FComposableCameraInternalVariable& Var: CachedTypeAsset->ExposedVariables)
 		{
 			AssetNames.Add(Var.VariableName);
 		}
@@ -788,10 +778,9 @@ void UK2Node_ActivateComposableCameraFromDataTable::HandleObjectPropertyChanged(
 	ReconstructNode();
 }
 
-// ─── Context Menu ─────────────────────────────────────────────────────────────
+// Context Menu 
 
-void UK2Node_ActivateComposableCameraFromDataTable::GetNodeContextMenuActions(
-	UToolMenu* Menu, UGraphNodeContextMenuContext* Context) const
+void UK2Node_ActivateComposableCameraFromDataTable::GetNodeContextMenuActions(UToolMenu* Menu, UGraphNodeContextMenuContext* Context) const
 {
 	Super::GetNodeContextMenuActions(Menu, Context);
 
@@ -803,7 +792,7 @@ void UK2Node_ActivateComposableCameraFromDataTable::GetNodeContextMenuActions(
 	UK2Node_ActivateComposableCameraFromDataTable* MutableThis =
 		const_cast<UK2Node_ActivateComposableCameraFromDataTable*>(this);
 
-	// ── Pin context: Remove Override Pin ──────────────────────────────
+	// Pin context: Remove Override Pin 
 	if (Context->Pin != nullptr)
 	{
 		const FName PinName = Context->Pin->PinName;
@@ -816,31 +805,27 @@ void UK2Node_ActivateComposableCameraFromDataTable::GetNodeContextMenuActions(
 			return;
 		}
 
-		FToolMenuSection& PinSection = Menu->FindOrAddSection(
-			TEXT("ComposableCameraOverridePin"),
+		FToolMenuSection& PinSection = Menu->FindOrAddSection(TEXT("ComposableCameraOverridePin"),
 			LOCTEXT("OverridePinSectionLabel", "Composable Camera"));
 
-		PinSection.AddMenuEntry(
-			TEXT("RemoveOverridePin"),
+		PinSection.AddMenuEntry(TEXT("RemoveOverridePin"),
 			LOCTEXT("RemoveOverridePinLabel", "Remove Override Pin"),
 			LOCTEXT("RemoveOverridePinTooltip",
 				"Remove this override pin. The camera will use the DataTable row value (or the asset default) at activation time."),
 			FSlateIcon(),
-			FUIAction(FExecuteAction::CreateUObject(
-				MutableThis,
+			FUIAction(FExecuteAction::CreateUObject(MutableThis,
 				&UK2Node_ActivateComposableCameraFromDataTable::RemoveOverridePin,
 				PinName)));
 		return;
 	}
 
-	// ── Node context: Add Override Pin ────────────────────────────────
+	// Node context: Add Override Pin 
 	if (Context->Node != this)
 	{
 		return;
 	}
 
-	FToolMenuSection& NodeSection = Menu->FindOrAddSection(
-		TEXT("ComposableCameraOverrides"),
+	FToolMenuSection& NodeSection = Menu->FindOrAddSection(TEXT("ComposableCameraOverrides"),
 		LOCTEXT("OverridesSectionLabel", "Composable Camera"));
 
 	const TSet<FName> OverrideSet(UserOverrideNames);
@@ -851,7 +836,7 @@ void UK2Node_ActivateComposableCameraFromDataTable::GetNodeContextMenuActions(
 	TSet<FName> SeenMenuNames;
 	SeenMenuNames.Reserve(CachedTypeAsset->ExposedParameters.Num() + CachedTypeAsset->ExposedVariables.Num());
 
-	for (const FComposableCameraExposedParameter& Param : CachedTypeAsset->ExposedParameters)
+	for (const FComposableCameraExposedParameter& Param: CachedTypeAsset->ExposedParameters)
 	{
 		if (Param.ParameterName.IsNone() || Param.bRequired)
 		{
@@ -868,7 +853,7 @@ void UK2Node_ActivateComposableCameraFromDataTable::GetNodeContextMenuActions(
 		AddableOptionalParams.Add(Param.ParameterName);
 		SeenMenuNames.Add(Param.ParameterName);
 	}
-	for (const FComposableCameraInternalVariable& Var : CachedTypeAsset->ExposedVariables)
+	for (const FComposableCameraInternalVariable& Var: CachedTypeAsset->ExposedVariables)
 	{
 		if (Var.VariableName.IsNone())
 		{
@@ -891,8 +876,7 @@ void UK2Node_ActivateComposableCameraFromDataTable::GetNodeContextMenuActions(
 
 	if (bHasAddables)
 	{
-		NodeSection.AddSubMenu(
-			TEXT("AddOverridePin"),
+		NodeSection.AddSubMenu(TEXT("AddOverridePin"),
 			LOCTEXT("AddOverridePinLabel", "Add Override Pin"),
 			LOCTEXT("AddOverridePinTooltip",
 				"Add a pin that overrides a parameter from the DataTable row. The override value takes precedence over the row value at activation time."),
@@ -907,19 +891,16 @@ void UK2Node_ActivateComposableCameraFromDataTable::GetNodeContextMenuActions(
 
 					if (AddableOptionalParams.Num() > 0)
 					{
-						FToolMenuSection& ParamSection = SubMenu->AddSection(
-							TEXT("AddableExposedParameters"),
+						FToolMenuSection& ParamSection = SubMenu->AddSection(TEXT("AddableExposedParameters"),
 							LOCTEXT("AddableExposedParametersLabel", "Exposed Parameters"));
-						for (const FName& Name : AddableOptionalParams)
+						for (const FName& Name: AddableOptionalParams)
 						{
-							ParamSection.AddMenuEntry(
-								Name,
+							ParamSection.AddMenuEntry(Name,
 								FText::FromName(Name),
 								LOCTEXT("AddOverrideParamEntryTooltip",
 									"Add an override pin for this exposed parameter."),
 								FSlateIcon(),
-								FUIAction(FExecuteAction::CreateUObject(
-									MutableThis,
+								FUIAction(FExecuteAction::CreateUObject(MutableThis,
 									&UK2Node_ActivateComposableCameraFromDataTable::AddOverridePin,
 									Name)));
 						}
@@ -927,19 +908,16 @@ void UK2Node_ActivateComposableCameraFromDataTable::GetNodeContextMenuActions(
 
 					if (AddableExposedVariables.Num() > 0)
 					{
-						FToolMenuSection& VarSection = SubMenu->AddSection(
-							TEXT("AddableExposedVariables"),
+						FToolMenuSection& VarSection = SubMenu->AddSection(TEXT("AddableExposedVariables"),
 							LOCTEXT("AddableExposedVariablesLabel", "Exposed Variables"));
-						for (const FName& Name : AddableExposedVariables)
+						for (const FName& Name: AddableExposedVariables)
 						{
-							VarSection.AddMenuEntry(
-								Name,
+							VarSection.AddMenuEntry(Name,
 								FText::FromName(Name),
 								LOCTEXT("AddOverrideVarEntryTooltip",
 									"Add an override pin for this exposed variable."),
 								FSlateIcon(),
-								FUIAction(FExecuteAction::CreateUObject(
-									MutableThis,
+								FUIAction(FExecuteAction::CreateUObject(MutableThis,
 									&UK2Node_ActivateComposableCameraFromDataTable::AddOverridePin,
 									Name)));
 						}
@@ -947,9 +925,9 @@ void UK2Node_ActivateComposableCameraFromDataTable::GetNodeContextMenuActions(
 				}));
 	}
 
-	// "Clean Up Orphan Overrides" — only when there's something to clean.
+	// "Clean Up Orphan Overrides" - only when there's something to clean.
 	bool bHasOrphans = false;
-	for (const FName& Name : UserOverrideNames)
+	for (const FName& Name: UserOverrideNames)
 	{
 		if (!IsNameInCachedAsset(Name))
 		{
@@ -959,22 +937,19 @@ void UK2Node_ActivateComposableCameraFromDataTable::GetNodeContextMenuActions(
 	}
 	if (bHasOrphans)
 	{
-		NodeSection.AddMenuEntry(
-			TEXT("CleanUpOrphanOverrides"),
+		NodeSection.AddMenuEntry(TEXT("CleanUpOrphanOverrides"),
 			LOCTEXT("CleanUpOrphanOverridesLabel", "Clean Up Orphan Overrides"),
 			LOCTEXT("CleanUpOrphanOverridesTooltip",
 				"Remove override entries that reference parameters no longer present on the row's Camera Type Asset."),
 			FSlateIcon(),
-			FUIAction(FExecuteAction::CreateUObject(
-				MutableThis,
+			FUIAction(FExecuteAction::CreateUObject(MutableThis,
 				&UK2Node_ActivateComposableCameraFromDataTable::CleanUpOrphanOverrides)));
 	}
 }
 
-// ─── Compile-Time Validation ──────────────────────────────────────────────────
+// Compile-Time Validation 
 
-void UK2Node_ActivateComposableCameraFromDataTable::ValidateNodeDuringCompilation(
-	FCompilerResultsLog& MessageLog) const
+void UK2Node_ActivateComposableCameraFromDataTable::ValidateNodeDuringCompilation(FCompilerResultsLog& MessageLog) const
 {
 	Super::ValidateNodeDuringCompilation(MessageLog);
 
@@ -986,22 +961,21 @@ void UK2Node_ActivateComposableCameraFromDataTable::ValidateNodeDuringCompilatio
 
 	TSet<FName> AssetNames;
 	AssetNames.Reserve(CachedTypeAsset->ExposedParameters.Num() + CachedTypeAsset->ExposedVariables.Num());
-	for (const FComposableCameraExposedParameter& Param : CachedTypeAsset->ExposedParameters)
+	for (const FComposableCameraExposedParameter& Param: CachedTypeAsset->ExposedParameters)
 	{
 		AssetNames.Add(Param.ParameterName);
 	}
-	for (const FComposableCameraInternalVariable& Var : CachedTypeAsset->ExposedVariables)
+	for (const FComposableCameraInternalVariable& Var: CachedTypeAsset->ExposedVariables)
 	{
 		AssetNames.Add(Var.VariableName);
 	}
 
-	for (const FName& Name : UserOverrideNames)
+	for (const FName& Name: UserOverrideNames)
 	{
 		if (!AssetNames.Contains(Name))
 		{
 			MessageLog.Warning(
-				*FText::Format(
-					LOCTEXT("OrphanOverrideWarning",
+				*FText::Format(LOCTEXT("OrphanOverrideWarning",
 						"@@ has an override for '{0}', which no longer exists on Camera Type Asset '{1}'. The override will be ignored and removed on the next node refresh."),
 					FText::FromName(Name),
 					FText::FromString(CachedTypeAsset->GetName())
@@ -1011,11 +985,11 @@ void UK2Node_ActivateComposableCameraFromDataTable::ValidateNodeDuringCompilatio
 	}
 }
 
-// ─── Dynamic Pin Management ────────────────────────────────────────────────────
+// Dynamic Pin Management 
 
 void UK2Node_ActivateComposableCameraFromDataTable::RemoveDynamicParameterPins()
 {
-	for (const FName& PinName : DynamicParameterPinNames)
+	for (const FName& PinName: DynamicParameterPinNames)
 	{
 		if (UEdGraphPin* Pin = FindPin(PinName))
 		{
@@ -1041,8 +1015,8 @@ void UK2Node_ActivateComposableCameraFromDataTable::CreateDynamicParameterPins()
 	TSet<FName> CreatedPinNames;
 	CreatedPinNames.Reserve(CachedTypeAsset->ExposedParameters.Num() + CachedTypeAsset->ExposedVariables.Num());
 
-	// ── Exposed parameters ──────────────────────────────────────────────
-	for (const FComposableCameraExposedParameter& Param : CachedTypeAsset->ExposedParameters)
+	// Exposed parameters 
+	for (const FComposableCameraExposedParameter& Param: CachedTypeAsset->ExposedParameters)
 	{
 		if (Param.ParameterName.IsNone())
 		{
@@ -1063,11 +1037,10 @@ void UK2Node_ActivateComposableCameraFromDataTable::CreateDynamicParameterPins()
 			continue;
 		}
 
-		FEdGraphPinType PinType = ComposableCameraEdGraphPinTypeUtils::MakeEdGraphPinTypeFromCameraPinType(
-			Param.PinType, Param.StructType, Param.EnumType, Param.SignatureFunction);
+		FEdGraphPinType PinType = ComposableCameraEdGraphPinTypeUtils::MakeEdGraphPinTypeFromCameraPinType(Param.PinType, Param.StructType, Param.EnumType, Param.SignatureFunction);
 		UEdGraphPin* NewPin = CreatePin(EGPD_Input, PinType, Param.ParameterName);
 
-		// PinFriendlyName precedence — same logic as sibling node.
+		// PinFriendlyName precedence - same logic as sibling node.
 		if (Param.ParameterName != Param.TargetPinName)
 		{
 			const FString ParamNameStr = Param.ParameterName.ToString();
@@ -1080,8 +1053,7 @@ void UK2Node_ActivateComposableCameraFromDataTable::CreateDynamicParameterPins()
 
 			if (!Param.DisplayName.IsEmpty() && !SuffixStr.IsEmpty())
 			{
-				NewPin->PinFriendlyName = FText::Format(
-					NSLOCTEXT("K2Node_ActivateComposableCameraFromDataTable",
+				NewPin->PinFriendlyName = FText::Format(NSLOCTEXT("K2Node_ActivateComposableCameraFromDataTable",
 						"ExposedParamFriendlyNameWithSuffix", "{0}{1}"),
 					Param.DisplayName,
 					FText::FromString(SuffixStr));
@@ -1118,8 +1090,8 @@ void UK2Node_ActivateComposableCameraFromDataTable::CreateDynamicParameterPins()
 		CreatedPinNames.Add(Param.ParameterName);
 	}
 
-	// ── Exposed variables ────────────────────────────────────────────────
-	for (const FComposableCameraInternalVariable& Var : CachedTypeAsset->ExposedVariables)
+	// Exposed variables 
+	for (const FComposableCameraInternalVariable& Var: CachedTypeAsset->ExposedVariables)
 	{
 		if (Var.VariableName.IsNone())
 		{
@@ -1139,8 +1111,7 @@ void UK2Node_ActivateComposableCameraFromDataTable::CreateDynamicParameterPins()
 			continue;
 		}
 
-		FEdGraphPinType PinType = ComposableCameraEdGraphPinTypeUtils::MakeEdGraphPinTypeFromCameraPinType(
-			Var.VariableType, Var.StructType, Var.EnumType);
+		FEdGraphPinType PinType = ComposableCameraEdGraphPinTypeUtils::MakeEdGraphPinTypeFromCameraPinType(Var.VariableType, Var.StructType, Var.EnumType);
 		UEdGraphPin* NewPin = CreatePin(EGPD_Input, PinType, Var.VariableName);
 
 		if (!Var.Tooltip.IsEmpty())
@@ -1159,9 +1130,9 @@ void UK2Node_ActivateComposableCameraFromDataTable::CreateDynamicParameterPins()
 		CreatedPinNames.Add(Var.VariableName);
 	}
 
-	// Advanced pin display state — same logic as sibling node.
+	// Advanced pin display state - same logic as sibling node.
 	int32 NumAdvancedPins = 0;
-	for (const FName& PinName : DynamicParameterPinNames)
+	for (const FName& PinName: DynamicParameterPinNames)
 	{
 		if (const UEdGraphPin* Pin = FindPin(PinName))
 		{
@@ -1182,10 +1153,9 @@ void UK2Node_ActivateComposableCameraFromDataTable::CreateDynamicParameterPins()
 	}
 }
 
-// ─── ExpandNode ────────────────────────────────────────────────────────────────
+// ExpandNode 
 
-void UK2Node_ActivateComposableCameraFromDataTable::ExpandNode(
-	FKismetCompilerContext& CompilerContext, UEdGraph* SourceGraph)
+void UK2Node_ActivateComposableCameraFromDataTable::ExpandNode(FKismetCompilerContext& CompilerContext, UEdGraph* SourceGraph)
 {
 	Super::ExpandNode(CompilerContext, SourceGraph);
 
@@ -1194,7 +1164,7 @@ void UK2Node_ActivateComposableCameraFromDataTable::ExpandNode(
 
 	const UEdGraphSchema_K2* Schema = CompilerContext.GetSchema();
 
-	// ── Step 1: Create a temporary variable for the override FComposableCameraParameterBlock ──
+	// Step 1: Create a temporary variable for the override FComposableCameraParameterBlock 
 
 	UK2Node_TemporaryVariable* TempBlockNode =
 		CompilerContext.SpawnIntermediateNode<UK2Node_TemporaryVariable>(this, SourceGraph);
@@ -1204,12 +1174,12 @@ void UK2Node_ActivateComposableCameraFromDataTable::ExpandNode(
 
 	UEdGraphPin* TempBlockVarPin = TempBlockNode->GetVariablePin();
 
-	// ── Step 2: For each dynamic parameter pin, chain a SetParameterBlockValue call ──
+	// Step 2: For each dynamic parameter pin, chain a SetParameterBlockValue call 
 
 	UEdGraphPin* CurrentExecChainThen = nullptr;
 	UEdGraphPin* FirstSetterExec = nullptr;
 
-	for (const FName& ParamPinName : DynamicParameterPinNames)
+	for (const FName& ParamPinName: DynamicParameterPinNames)
 	{
 		UEdGraphPin* DynamicPin = FindPin(ParamPinName);
 		if (!DynamicPin)
@@ -1225,14 +1195,13 @@ void UK2Node_ActivateComposableCameraFromDataTable::ExpandNode(
 		}
 
 		// Dispatch per pin type to a typed BP setter; wildcard fallback for
-		// Enum / arbitrary Struct / Delegate. See TechDoc.md §7.2 for the
+		// Enum / arbitrary Struct / Delegate. See TechDoc.md Section 7.2 for the
 		// BP CustomStructureParam wildcard bug this avoids.
 		const FName SetterFunctionName =
 			ComposableCameraEdGraphPinTypeUtils::ResolveTypedSetterFunctionName(DynamicPin->PinType);
 		UK2Node_CallFunction* SetterNode =
 			CompilerContext.SpawnIntermediateNode<UK2Node_CallFunction>(this, SourceGraph);
-		SetterNode->SetFromFunction(
-			UComposableCameraBlueprintLibrary::StaticClass()->FindFunctionByName(SetterFunctionName));
+		SetterNode->SetFromFunction(UComposableCameraBlueprintLibrary::StaticClass()->FindFunctionByName(SetterFunctionName));
 		SetterNode->AllocateDefaultPins();
 
 		UEdGraphPin* SetterExecPin = SetterNode->GetExecPin();
@@ -1271,13 +1240,11 @@ void UK2Node_ActivateComposableCameraFromDataTable::ExpandNode(
 		CurrentExecChainThen = SetterThenPin;
 	}
 
-	// ── Step 3: Spawn the final ActivateComposableCameraFromDataTable call ──
+	// Step 3: Spawn the final ActivateComposableCameraFromDataTable call 
 
 	UK2Node_CallFunction* ActivateNode =
 		CompilerContext.SpawnIntermediateNode<UK2Node_CallFunction>(this, SourceGraph);
-	ActivateNode->SetFromFunction(
-		UComposableCameraBlueprintLibrary::StaticClass()->FindFunctionByName(
-			GET_FUNCTION_NAME_CHECKED(UComposableCameraBlueprintLibrary, ActivateComposableCameraFromDataTable)));
+	ActivateNode->SetFromFunction(UComposableCameraBlueprintLibrary::StaticClass()->FindFunctionByName(GET_FUNCTION_NAME_CHECKED(UComposableCameraBlueprintLibrary, ActivateComposableCameraFromDataTable)));
 	ActivateNode->AllocateDefaultPins();
 
 	UEdGraphPin* ActivateExecPin = ActivateNode->GetExecPin();
@@ -1300,7 +1267,7 @@ void UK2Node_ActivateComposableCameraFromDataTable::ExpandNode(
 	// Wire the return value.
 	CompilerContext.MovePinLinksToIntermediate(*FindPinChecked(PN_ReturnValue), *ActivateReturnPin);
 
-	// ── Step 4: Wire execution chain ──
+	// Step 4: Wire execution chain 
 
 	if (FirstSetterExec)
 	{
@@ -1317,10 +1284,9 @@ void UK2Node_ActivateComposableCameraFromDataTable::ExpandNode(
 	BreakAllNodeLinks();
 }
 
-// ─── Literal Helpers ───────────────────────────────────────────────────────────
+// Literal Helpers 
 
-UK2Node_CallFunction* UK2Node_ActivateComposableCameraFromDataTable::MakeLiteralValueForPin(
-	FKismetCompilerContext& CompilerContext, UEdGraph* SourceGraph,
+UK2Node_CallFunction* UK2Node_ActivateComposableCameraFromDataTable::MakeLiteralValueForPin(FKismetCompilerContext& CompilerContext, UEdGraph* SourceGraph,
 	UEdGraphPin* SourceValuePin)
 {
 #define CCS_MAKE_LITERAL(FuncLib, FuncName) \
@@ -1376,8 +1342,7 @@ UK2Node_CallFunction* UK2Node_ActivateComposableCameraFromDataTable::MakeLiteral
 #undef CCS_LITERAL_BY_STRUCT
 }
 
-UK2Node_CallFunction* UK2Node_ActivateComposableCameraFromDataTable::CreateMakeLiteralNode(
-	FKismetCompilerContext& CompilerContext, UEdGraph* SourceGraph,
+UK2Node_CallFunction* UK2Node_ActivateComposableCameraFromDataTable::CreateMakeLiteralNode(FKismetCompilerContext& CompilerContext, UEdGraph* SourceGraph,
 	UK2Node* SourceNode, UClass* FunctionLibraryClass,
 	const TCHAR* FunctionName, UEdGraphPin* SourceValuePin)
 {

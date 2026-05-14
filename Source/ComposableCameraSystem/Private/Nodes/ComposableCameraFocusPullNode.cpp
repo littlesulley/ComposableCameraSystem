@@ -4,8 +4,11 @@
 
 #include "Components/SkeletalMeshComponent.h"
 #include "ComposableCameraSystemModule.h"
+#include "Core/ComposableCameraPlayerCameraManager.h"
 #include "DataAssets/ComposableCameraTargetInfo.h"
+#include "Engine/World.h"
 #include "GameFramework/Actor.h"
+#include "GameFramework/PlayerController.h"
 #include "Interpolator/ComposableCameraInterpolatorBase.h"
 
 #if !UE_BUILD_SHIPPING
@@ -18,7 +21,7 @@ namespace
 	static TAutoConsoleVariable<int32> CVarShowFocusPullGizmo(
 		TEXT("CCS.Debug.Viewport.FocusPull"),
 		0,
-		TEXT("Show FocusPullNode gizmo (amber sphere at target point + translucent plane at FocusDistance; line camera→target on F8 only).\n")
+		TEXT("Show FocusPullNode gizmo (amber sphere at target point + translucent plane at FocusDistance; line camera-to-target on F8 only).\n")
 		TEXT("Requires `CCS.Debug.Viewport 1`."),
 		ECVF_Default);
 }
@@ -31,6 +34,7 @@ void UComposableCameraFocusPullNode::OnInitialize_Implementation()
 	FocusInterpolator_T = IsValid(FocusInterpolator) ? FocusInterpolator->BuildDoubleInterpolator() : nullptr;
 
 	bHasSeededSmoothing = false;
+	bHasWarnedMissingTarget = false;
 	LastSmoothedFocusDistance = 0.0;
 }
 
@@ -57,27 +61,62 @@ void UComposableCameraFocusPullNode::OnTickNode_Implementation(
 	FVector TargetPoint;
 	if (!ResolveTargetPoint(TargetPoint))
 	{
-		// A resolved target actor is required; log once per frame (matches SplineNode /
-		// CollisionPush precedent — error paths are cheap enough and the
-		// log surface it so authors catch misconfiguration fast).
-		UE_LOG(LogComposableCameraSystem, Warning,
-			TEXT("FocusPullNode: resolved PivotActor is null on '%s'; focus pass-through this tick."),
-			*GetNameSafe(this));
+		if (!bHasWarnedMissingTarget)
+		{
+			const TCHAR* MissingReason = TEXT("explicit PivotActor is null");
+			if (PivotActorSource == EComposableCameraActorInputSource::ControllerControlledPawn)
+			{
+				const AComposableCameraPlayerCameraManager* PCM = GetOwningPlayerCameraManager();
+				const APlayerController* PC = PCM ? PCM->GetOwningPlayerController() : nullptr;
+				UWorld* World = GetWorld();
+				if (!World)
+				{
+					if (const AActor* OuterActor = GetTypedOuter<AActor>())
+					{
+						World = OuterActor->GetWorld();
+					}
+				}
+				const APlayerController* WorldPC = (!PC && World) ? World->GetFirstPlayerController() : nullptr;
+
+				if (!PCM && !World)
+				{
+					MissingReason = TEXT("ControllerControlledPawn selected, but this node has no PlayerCameraManager and no reachable World");
+				}
+				else if (!PC && !WorldPC)
+				{
+					MissingReason = TEXT("ControllerControlledPawn selected, but no PlayerController resolves from PCM or World");
+				}
+				else if (PC && !PC->GetPawn())
+				{
+					MissingReason = TEXT("ControllerControlledPawn selected, but PCM owning PlayerController has no Pawn");
+				}
+				else if (WorldPC && !WorldPC->GetPawn())
+				{
+					MissingReason = TEXT("ControllerControlledPawn selected, but World first PlayerController has no Pawn");
+				}
+			}
+
+			UE_LOG(LogComposableCameraSystem, Warning,
+				TEXT("FocusPullNode: no focus target on '%s' (%s); focus pass-through until a target resolves."),
+				*GetNameSafe(this),
+				MissingReason);
+			bHasWarnedMissingTarget = true;
+		}
 		return;
 	}
+	bHasWarnedMissingTarget = false;
 
 	const FVector CameraPos = OutCameraPose.Position;
 
 	// Project (Target - Camera) onto the camera's forward axis.
-	// `FocusDistance` is consumed by the renderer as camera-space depth —
-	// how far along the view axis the focus plane sits — NOT as Euclidean
-	// distance. An off-axis target (e.g. 10 m away, 45° to the side) has
+	// `FocusDistance` is consumed by the renderer as camera-space depth -	// how far along the view axis the focus plane sits -NOT as Euclidean
+	// distance. An off-axis target (e.g. 10 m away, 45 deg to the side) has
 	// Euclidean distance 10 m but on-axis depth ~7 m; using Euclidean
 	// would rack focus too far for off-axis subjects.
 	const FVector CameraForward = OutCameraPose.Rotation.Vector();
 	const double RawDepth = FVector::DotProduct(TargetPoint - CameraPos, CameraForward);
 
-	// Target behind the camera (or exactly on the view plane) — there is
+	// Target behind the camera (or exactly on the view plane). There is
 	// no meaningful "depth" to focus on. Pass through this tick, preserving
 	// whatever FocusDistance the upstream wrote, so transient look-away
 	// moments don't rack focus to zero.
@@ -90,8 +129,8 @@ void UComposableCameraFocusPullNode::OnTickNode_Implementation(
 
 	// The offset can push distance non-positive on pathological inputs
 	// (offset more negative than the on-axis depth). Clamp to a tiny
-	// positive floor before the user-clamp — a negative FocusDistance
-	// would reach ApplyPhysicalCameraSettings as a sentinel (≤ 0 means
+	// positive floor before the user clamp. A negative FocusDistance
+	// would reach ApplyPhysicalCameraSettings as a sentinel (<= 0 means
 	// "no override"), silently disabling DoF for the frame.
 	double ClampedDistance = FMath::Max(RawDistance, UE_KINDA_SMALL_NUMBER);
 
@@ -106,7 +145,7 @@ void UComposableCameraFocusPullNode::OnTickNode_Implementation(
 	double FinalDistance = ClampedDistance;
 
 	// First tick bypasses the interpolator so the initial focus snaps to the
-	// real distance — without this we'd lerp from 0 (or whatever the
+	// real distance. Without this we'd lerp from 0 (or whatever the
 	// interpolator's seed is) up to the real distance over the first few
 	// frames, producing a visible focus ramp. From the second tick onward,
 	// the interpolator (if any) steers the focus.
@@ -131,20 +170,19 @@ bool UComposableCameraFocusPullNode::ResolveTargetPoint(FVector& OutTargetPoint)
 {
 	// Phase A migration (V1.x): delegates to the consolidated helper in
 	// DataAssets/ComposableCameraTargetInfo.h. Bit-exact behavior parity
-	// with the prior inline implementation — three cases:
-	//   1. Bone mode + valid bone   → socket location only, no Z offset.
-	//   2. Bone mode + invalid bone → fall back to ActorLocation + Z offset.
-	//   3. Actor mode               → ActorLocation + Z offset.
+	// with the prior inline implementation. Three cases:
+	//   1. Bone mode + valid bone   -> socket location only, no Z offset.
+	//   2. Bone mode + invalid bone ->fall back to ActorLocation + Z offset.
+	//   3. Actor mode->ActorLocation + Z offset.
 	// The struct's Offset is set to ZeroVector and the legacy Z offset is
 	// added by THIS call site only when ResolveWorldPoint reports it did
 	// NOT use the bone path (OutUsedBone == false). This preserves the
 	// original "Z offset applies only on the actor branch" semantic exactly.
 	FComposableCameraTargetInfo Info;
-	// Explicit `.Get()` to convert TObjectPtr → AActor* → TSoftObjectPtr —
-	// the unambiguous chain. The TargetInfo struct now uses TSoftObjectPtr
+	// Explicit `.Get()` to convert TObjectPtr->AActor* ->TSoftObjectPtr -	// the unambiguous chain. The TargetInfo struct now uses TSoftObjectPtr
 	// (V1.x) so its Details-panel picker can span level actors.
 	Info.Actor               = ComposableCameraSystem::ResolveActorInput(
-		PivotActorSource, PivotActor.Get(), GetOwningPlayerCameraManager());
+		PivotActorSource, PivotActor.Get(), GetOwningPlayerCameraManager(), this);
 	Info.bUseBoneAsPivot     = bUseBoneForDetection;
 	Info.BoneName            = BoneName;
 	Info.Offset              = FVector::ZeroVector;
@@ -166,7 +204,7 @@ bool UComposableCameraFocusPullNode::ResolveTargetPoint(FVector& OutTargetPoint)
 void UComposableCameraFocusPullNode::GetPinDeclarations_Implementation(
 	TArray<FComposableCameraNodePinDeclaration>& OutPins) const
 {
-	// Input: PivotActor — the only Required pin, and the only pin that is
+	// Input: PivotActor. The only Required pin, and the only pin that is
 	// exposed on the graph node by default. Everything else is pin-capable
 	// but Details-only out of the box (per-instance flip via RuntimePinOverrides).
 	{
@@ -267,7 +305,7 @@ void UComposableCameraFocusPullNode::GetPinDeclarations_Implementation(
 		Pin.bDefaultAsPin = false;
 		Pin.DefaultValueString = FString::SanitizeFloat(FocusDistanceOffset);
 		Pin.Tooltip = NSLOCTEXT("ComposableCameraSystem", "FocusPull_Offset_Tip",
-			"Constant offset added to the camera→target distance before clamp and damping.");
+			"Constant offset added to the camera-to-target distance before clamp and damping.");
 		OutPins.Add(Pin);
 	}
 
@@ -320,7 +358,7 @@ void UComposableCameraFocusPullNode::DrawNodeDebug(UWorld* World, bool bViewerIs
 		/*Alpha=*/160, /*Segments=*/12, /*DepthPriority=*/0);
 
 	// Translucent plane at the current focus distance, perpendicular to
-	// the camera's forward vector — answers "where on the view axis is DoF
+	// the camera's forward vector. Answers "where on the view axis is DoF
 	// currently racked". Drawn in both modes: from inside the camera the
 	// plane is near-invisible edge-on, but that's OK, the author gets the
 	// info from F8 / SIE.
@@ -340,7 +378,7 @@ void UComposableCameraFocusPullNode::DrawNodeDebug(UWorld* World, bool bViewerIs
 	}
 
 	// F8 / SIE only: line from camera to target. View-aligned in possessed
-	// play, invisible anyway — same reasoning as LookAt / CollisionPush.
+	// play, invisible anyway. Same reasoning as LookAt / CollisionPush.
 	if (bViewerIsOutsideCamera)
 	{
 		DrawDebugLine(World, DebugCameraPosition, DebugTargetPoint, FocusColor,

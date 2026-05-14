@@ -1,4 +1,4 @@
-// Copyright Sulley. All rights reserved.
+﻿// Copyright Sulley. All rights reserved.
 
 #pragma once
 
@@ -45,14 +45,14 @@ private:
 	UPROPERTY()
 	TObjectPtr<USphereComponent> Sphere;
 
-	// Weak refs by design — the previous strong `TScriptInterface` array kept
+	// Weak refs by design. The previous strong `TScriptInterface` array kept
 	// destroyed actors alive whenever the corresponding `EndOverlap` event was
 	// missed (actor PendingKill, level-streamed-out, or the overlap component
 	// was destroyed before broadcasting). The weak form lets each entry self-
 	// invalidate on actor destruction; OnTickNode resolves + prunes stale
 	// entries before calling the interface, and AddImpulseShape validates
 	// that the actor implements `IComposableCameraImpulseShapeInterface`
-	// before storing — a non-implementing actor passed in by mistake is
+	// before storing. A non-implementing actor passed in by mistake is
 	// rejected at Add-time rather than dispatched against a null interface
 	// vtable at Tick-time.
 	TArray<TWeakObjectPtr<AActor>> ImpulseShapeActors;

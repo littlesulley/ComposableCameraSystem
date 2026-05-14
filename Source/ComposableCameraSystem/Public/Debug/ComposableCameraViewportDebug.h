@@ -13,23 +13,22 @@
  *    each node is given a chance to paint its own per-node gizmo.
  *  - Per-node gizmos are controlled by PER-NODE CVars of the form
  *    `CCS.Debug.Viewport.<NodeName>` (e.g. `.PivotOffset`, `.LookAt`,
- *    `.CollisionPush`, `.Spline`, `.PivotDamping`). Each defaults to 0 —
- *    users opt in per node. These gizmos are visible in BOTH possessed
+ *    `.CollisionPush`, `.Spline`, `.PivotDamping`). Each defaults to 0 - users opt in per node. These gizmos are visible in BOTH possessed
  *    play and F8 eject, because they rarely occlude the viewpoint.
  *
- * Frustum auto-hide. The frustum is the one exception — drawing it at the
+ * Frustum auto-hide. The frustum is the one exception. Drawing it at the
  * near plane while the player is viewing through the camera just occludes
  * the scene. The frustum therefore only fires while
  * `GEditor->bIsSimulatingInEditor` is true (F8 eject / Simulate mode).
  * Non-editor builds always show it when the master CVar is on.
  * `CCS.Debug.Viewport.AlwaysShow 1` forces frustum rendering even while
- * possessing — useful for multi-viewport setups.
+ * possessing. Useful for multi-viewport setups.
  *
  * Rendering pathway: the draw runs from an `FTSTicker::GetCoreTicker()`
  * delegate, not from `UDebugDrawService`. The ticker fires every frame
  * regardless of which viewport is active, and `DrawDebugCamera` routes
  * through the world's LineBatcher, which is rendered by every viewport
- * that draws that world — so the draw is visible both in the game
+ * that draws that world. So the draw is visible both in the game
  * viewport (standalone / possessed play) and in the editor viewport
  * (during F8 eject). An earlier attempt used
  * `UDebugDrawService::Register("Game", ...)` but that hook does NOT fire
@@ -39,7 +38,7 @@
  * Adding a new per-node gizmo is a localised ~15-line job:
  *  1. Override `UComposableCameraCameraNodeBase::DrawNodeDebug(UWorld*, bool)`
  *     in the concrete node, guarded `#if !UE_BUILD_SHIPPING`. The second
- *     parameter is `bViewerIsOutsideCamera` — use it to gate any gizmo that
+ *     parameter is `bViewerIsOutsideCamera`. Use it to gate any gizmo that
  *     sits AT the camera's own position (see `CollisionPushNode`'s self-
  *     collision sphere); most nodes ignore it.
  *  2. Declare a static `TAutoConsoleVariable<int32>` in the node's .cpp
@@ -49,10 +48,10 @@
  *     runtime state.
  *
  * This is distinct from `FComposableCameraDebugPanel` (2D HUD overlay,
- * `CCS.Debug.Panel` CVar) — they are independent and can be enabled in
+ * `CCS.Debug.Panel` CVar). They are independent and can be enabled in
  * any combination.
  *
- * All cost is guarded `#if !UE_BUILD_SHIPPING` — the ticker's body compiles
+ * All cost is guarded `#if !UE_BUILD_SHIPPING`. The ticker's body compiles
  * to nothing in shipping builds.
  *
  * Lifecycle is module-owned: FComposableCameraSystemModule::StartupModule
@@ -68,7 +67,7 @@ public:
 	static void Shutdown();
 
 	/**
-	 * True when `CCS.Debug.Viewport.Nodes.All` is non-zero — every
+	 * True when `CCS.Debug.Viewport.Nodes.All` is non-zero. Every
 	 * per-node gizmo (both 3D `DrawNodeDebug` and 2D `DrawNodeDebug2D`
 	 * paths) should show regardless of its own per-node CVar. The two
 	 * paths share this switch intentionally: each node's 2D / 3D pieces
@@ -90,7 +89,7 @@ public:
 	static bool ShouldShowAllNodeGizmos();
 
 	/**
-	 * True when `CCS.Debug.Viewport.Transitions.All` is non-zero — every
+	 * True when `CCS.Debug.Viewport.Transitions.All` is non-zero. Every
 	 * per-transition gizmo draws regardless of its own CVar. Same OR
 	 * semantics as ShouldShowAllNodeGizmos.
 	 */
@@ -98,23 +97,23 @@ public:
 
 #if !UE_BUILD_SHIPPING
 	/**
-	 * Draw a translucent-wireframe debug sphere — the canonical sphere
+	 * Draw a translucent-wireframe debug sphere. The canonical sphere
 	 * gizmo used by every CCS node / transition debug override.
 	 *
-	 * NOTE on the name: "Solid" is a historical artifact — an earlier
+	 * NOTE on the name: "Solid" is a historical artifact. An earlier
 	 * iteration rendered a filled UV-mesh via `DrawDebugMesh`, but the
 	 * engine's hardcoded `DebugMeshMaterial` depth-tests regardless of
 	 * `DepthPriority` (a character mesh in front would clip the sphere).
 	 * `SDPG_Foreground` only bypasses depth for LINE primitives, not
 	 * for the mesh path, so the helper now draws only the wireframe
-	 * layer — but with low segment count (8–12), Thickness=0, and an
+	 * layer. But with low segment count (8-2), Thickness=0, and an
 	 * alpha-blended color to avoid the "busy wireframe" look that
 	 * motivated the mesh experiment in the first place. Kept the
 	 * `Solid` name for API stability.
 	 *
 	 * The `Alpha` parameter is applied OVER the passed `Color.A` (i.e.
 	 * overrides it) so callsites can keep using `FColor::Yellow` etc.
-	 * without manually baking alpha — the default 100/255 ≈ 39 %
+	 * without manually baking alpha. The default 100/255 <=39 %
 	 * reads as "present but not blocking the view", which is what every
 	 * CCS gizmo wants. Pass higher for emphasis (progress markers)
 	 * and lower for large "volume" spheres (CollisionPush self-sphere)
@@ -124,7 +123,7 @@ public:
 	 * @param Center         Sphere center in world space.
 	 * @param Radius         Sphere radius in world units.
 	 * @param Color          RGB from this; A is overridden by the Alpha param.
-	 * @param Alpha          Final alpha in [0, 255]. Default 100 (≈ 39 %).
+	 * @param Alpha          Final alpha in [0, 255]. Default 100 (<=39 %).
 	 * @param Segments       Ring segment count per hemisphere. Clamped
 	 *                       to [4, 32]. 12 = smooth silhouette; 8 reads
 	 *                       a touch sparser and is used as the default

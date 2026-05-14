@@ -21,7 +21,7 @@ namespace ComposableCameraTypeAssetPrivate
 	 * or an InitialValueString is interpreted identically.
 	 *
 	 * No-ops on empty InitialValueString, unsupported types, or destination
-	 * size mismatch. Never partially writes — either the whole typed value
+	 * size mismatch. Never partially writes. Either the whole typed value
 	 * lands in Dest or nothing does.
 	 */
 	static void ApplyInitialValueToSlot(
@@ -151,13 +151,13 @@ FComposableCameraRuntimeDataBlock UComposableCameraTypeAsset::BuildRuntimeDataLa
 			// Record the struct slot's shape too. Templated `ReadValue<T>` /
 			// `WriteValue<T>` short-circuit struct-slot offsets via the
 			// `IsStructSlotOffset` early-return when T itself is a USTRUCT;
-			// this entry catches the OPPOSITE mistake — a non-struct T
+			// this entry catches the OPPOSITE mistake. A non-struct T
 			// (`float` / `bool` / etc.) accessing a struct-slot offset.
-			// The recorded size is 0 (sentinel — typed struct slots don't
+			// The recorded size is 0 (sentinel. Typed struct slots don't
 			// have a meaningful byte size in the Storage sense) which
 			// makes `Shape->Size != sizeof(T)` reliably trip on any T
 			// other than... well, no T has sizeof 0. Always rejects.
-			// Record StructType too — the templated read/write path's
+			// Record StructType too. The templated read/write path's
 			// struct-slot branch verifies T::StaticStruct() == StructType
 			// before CopyScriptStruct so a stale offset table cannot drive
 			// a wrong-shape T into the slot's typed memory.
@@ -176,7 +176,7 @@ FComposableCameraRuntimeDataBlock UComposableCameraTypeAsset::BuildRuntimeDataLa
 		const int32 Offset = CurrentOffset;
 		DataBlock.RegisterReferenceSlot(PinType, Offset);
 		// Record shape for the templated read/write path's strict
-		// validation. Stored as PinType+Size — readers compare against
+		// validation. Stored as PinType+Size. Readers compare against
 		// `ExpectedPinTypeFor<T>()` and `sizeof(T)`. For POD struct slots
 		// (FVector / FRotator / user POD USTRUCTs that pass
 		// IsBytewiseSafeStruct) we additionally record StructType so a
@@ -292,9 +292,9 @@ FComposableCameraRuntimeDataBlock UComposableCameraTypeAsset::BuildRuntimeDataLa
 	// This is the 3rd priority in TryResolveInputPin, ranking below wired
 	// connections and exposed parameters but above the node's class-level
 	// fallback. The override data lives on the parallel NodePinOverrides array
-	// (see EditorDesignDoc §4 "Per-Instance Pin Overrides"). Legacy assets saved
+	// (see EditorDesignDoc Section 4 "Per-Instance Pin Overrides"). Legacy assets saved
 	// before NodePinOverrides existed have an empty array and are silently
-	// skipped — existing nodes keep working via their UPROPERTY fallback path
+	// skipped. Existing nodes keep working via their UPROPERTY fallback path
 	// (e.g. UComposableCameraFieldOfViewNode reads FieldOfView directly when
 	// GetInputPinValue returns zero).
 	//
@@ -341,7 +341,7 @@ FComposableCameraRuntimeDataBlock UComposableCameraTypeAsset::BuildRuntimeDataLa
 				{
 					// Override references a pin that no longer exists on the node
 					// class (e.g. a C++ pin was renamed or removed). Skip silently
-					// — the stale entry is harmless, and the next sync will drop it
+					//. The stale entry is harmless, and the next sync will drop it
 					// via the normal round-trip path.
 					continue;
 				}
@@ -434,7 +434,7 @@ FComposableCameraRuntimeDataBlock UComposableCameraTypeAsset::BuildRuntimeDataLa
 	// ExposedVariables share the InternalVariableOffsets map. From the runtime's
 	// point of view (Get/Set variable graph nodes, parameter block application,
 	// per-frame reads) there is no difference between "internal" and "exposed"
-	// — the only distinction is that ApplyParameterBlock consults the caller's
+	//. The only distinction is that ApplyParameterBlock consults the caller's
 	// block for exposed variables while internal variables get their initial
 	// value purely from InitialValueString. Unifying the offset map keeps node
 	// read/write code oblivious to the split.
@@ -448,7 +448,7 @@ FComposableCameraRuntimeDataBlock UComposableCameraTypeAsset::BuildRuntimeDataLa
 		if (DataBlock.InternalVariableOffsets.Contains(Var.VariableName))
 		{
 			UE_LOG(LogComposableCameraSystem, Warning,
-				TEXT("BuildRuntimeDataLayout: [%s] exposed variable '%s' collides with an existing internal variable of the same name. Skipping — fix the duplicate in the type asset."),
+				TEXT("BuildRuntimeDataLayout: [%s] exposed variable '%s' collides with an existing internal variable of the same name. Skipping. Fix the duplicate in the type asset."),
 				*GetName(), *Var.VariableName.ToString());
 			continue;
 		}
@@ -653,8 +653,7 @@ FComposableCameraRuntimeDataBlock UComposableCameraTypeAsset::BuildRuntimeDataLa
 	// validated against BOTH source and target pin declarations. The previous
 	// behavior validated only that the source offset existed, so a stale asset
 	// (saved before a pin was renamed / retyped), a hand-edited asset, or a
-	// schema-bypass code path could wire a Float source into an Actor target —
-	// the runtime would then read sizeof(AActor*) bytes from a 4-byte float
+	// schema-bypass code path could wire a Float source into an Actor target -	// the runtime would then read sizeof(AActor*) bytes from a 4-byte float
 	// slot and dereference garbage as a UObject pointer, crashing inside
 	// CopySlot's struct/POD discrimination check or at the first AActor::*
 	// call.
@@ -663,10 +662,10 @@ FComposableCameraRuntimeDataBlock UComposableCameraTypeAsset::BuildRuntimeDataLa
 	// target node typically receives several wired/exposed/variable inputs;
 	// repeating GatherAllPinDeclarations once per Add would scale poorly on
 	// graphs with high pin density. Cache key is the runtime NodeIndex space
-	// (NodeTemplates < ComputeNodeIndexBase ≤ ComputeNodeTemplates).
+	// (NodeTemplates < ComputeNodeIndexBase <=ComputeNodeTemplates).
 	//
 	// Storage uses TUniquePtr<TArray<...>> so the inner TArray's address stays
-	// stable across cache growth — TMap::Add can rehash and move its values,
+	// stable across cache growth -TMap::Add can rehash and move its values,
 	// but the heap-allocated TArray that TUniquePtr owns does not. Without
 	// this indirection, holding a pointer into one cached node's pin array
 	// across a FindPinDecl call for a second node could deref reallocated
@@ -720,7 +719,7 @@ FComposableCameraRuntimeDataBlock UComposableCameraTypeAsset::BuildRuntimeDataLa
 	// Type-compatibility predicate. PinType must match exactly; for Struct
 	// pins the StructType must match; for Enum pins the EnumType must match.
 	// Other carrier metadata (DisplayName, Required, DefaultValue, Tooltip,
-	// SignatureFunction) is irrelevant — only what determines storage layout
+	// SignatureFunction) is irrelevant. Only what determines storage layout
 	// and runtime read/write width matters here.
 	auto ArePinTypesCompatible = [](
 		EComposableCameraPinType TypeA, const UScriptStruct* StructA, const UEnum* EnumA,
@@ -741,7 +740,7 @@ FComposableCameraRuntimeDataBlock UComposableCameraTypeAsset::BuildRuntimeDataLa
 		return true;
 	};
 
-	// Wired connections: input pin → source output pin offset.
+	// Wired connections: input pin ->source output pin offset.
 	for (const FComposableCameraPinConnection& Conn : PinConnections)
 	{
 		FComposableCameraPinKey SourceKey;
@@ -774,7 +773,7 @@ FComposableCameraRuntimeDataBlock UComposableCameraTypeAsset::BuildRuntimeDataLa
 			TargetDecl->PinType, TargetDecl->StructType, TargetDecl->EnumType))
 		{
 			UE_LOG(LogComposableCameraSystem, Warning,
-				TEXT("BuildRuntimeDataLayout: [%s] Connection pin-type mismatch: source '%s' on node %d (PinType=%d) → target '%s' on node %d (PinType=%d). Skipping wire to prevent runtime read of incompatible-shape bytes."),
+				TEXT("BuildRuntimeDataLayout: [%s] Connection pin-type mismatch: source '%s' on node %d (PinType=%d) ->target '%s' on node %d (PinType=%d). Skipping wire to prevent runtime read of incompatible-shape bytes."),
 				*GetName(),
 				*Conn.SourcePinName.ToString(), Conn.SourceNodeIndex, static_cast<int32>(SourceDecl->PinType),
 				*Conn.TargetPinName.ToString(), Conn.TargetNodeIndex, static_cast<int32>(TargetDecl->PinType));
@@ -828,7 +827,7 @@ FComposableCameraRuntimeDataBlock UComposableCameraTypeAsset::BuildRuntimeDataLa
 			TargetDecl->PinType, TargetDecl->StructType, TargetDecl->EnumType))
 		{
 			UE_LOG(LogComposableCameraSystem, Warning,
-				TEXT("BuildRuntimeDataLayout: [%s] Compute connection pin-type mismatch: source '%s' on compute node %d (PinType=%d) → target '%s' on compute node %d (PinType=%d). Skipping wire."),
+				TEXT("BuildRuntimeDataLayout: [%s] Compute connection pin-type mismatch: source '%s' on compute node %d (PinType=%d) ->target '%s' on compute node %d (PinType=%d). Skipping wire."),
 				*GetName(),
 				*Conn.SourcePinName.ToString(), Conn.SourceNodeIndex, static_cast<int32>(SourceDecl->PinType),
 				*Conn.TargetPinName.ToString(), Conn.TargetNodeIndex, static_cast<int32>(TargetDecl->PinType));
@@ -841,10 +840,10 @@ FComposableCameraRuntimeDataBlock UComposableCameraTypeAsset::BuildRuntimeDataLa
 		DataBlock.InputPinSourceOffsets.Add(TargetKey, *SourceOffset);
 	}
 
-	// Exposed parameters: input pin → parameter slot offset.
+	// Exposed parameters: input pin ->parameter slot offset.
 	//
 	// Source side here is the FComposableCameraExposedParameter record itself
-	// — it carries its own (PinType, StructType, EnumType) mirrored from the
+	//. It carries its own (PinType, StructType, EnumType) mirrored from the
 	// pin it was originally exposed from. Validate the mirror still matches
 	// the target node's current pin declaration so a parameter that was
 	// exposed before its underlying pin's type was changed in C++ doesn't
@@ -872,7 +871,7 @@ FComposableCameraRuntimeDataBlock UComposableCameraTypeAsset::BuildRuntimeDataLa
 			TargetDecl->PinType, TargetDecl->StructType, TargetDecl->EnumType))
 		{
 			UE_LOG(LogComposableCameraSystem, Warning,
-				TEXT("BuildRuntimeDataLayout: [%s] Exposed parameter '%s' (PinType=%d) shape no longer matches target pin '%s' on node %d (PinType=%d). Skipping exposure — re-expose the pin to refresh."),
+				TEXT("BuildRuntimeDataLayout: [%s] Exposed parameter '%s' (PinType=%d) shape no longer matches target pin '%s' on node %d (PinType=%d). Skipping exposure. Re-expose the pin to refresh."),
 				*GetName(), *Param.ParameterName.ToString(), static_cast<int32>(Param.PinType),
 				*Param.TargetPinName.ToString(), Param.TargetNodeIndex, static_cast<int32>(TargetDecl->PinType));
 			continue;
@@ -884,10 +883,10 @@ FComposableCameraRuntimeDataBlock UComposableCameraTypeAsset::BuildRuntimeDataLa
 		DataBlock.ExposedInputPinOffsets.Add(TargetKey, *ParamOffset);
 	}
 
-	// Variable getter (Get) nodes: consumer input pin → variable storage offset.
+	// Variable getter (Get) nodes: consumer input pin ->variable storage offset.
 	//
 	// Get variable graph nodes are pure editor constructs with no runtime
-	// identity — they don't appear in NodeTemplates or ComputeNodeTemplates
+	// identity. They don't appear in NodeTemplates or ComputeNodeTemplates
 	// and never execute.  When a consumer node's input pin is wired to a Get
 	// node's output in the graph editor, the consumer should read directly
 	// from the variable's InternalVariableOffsets slot (the same slot that
@@ -947,7 +946,7 @@ FComposableCameraRuntimeDataBlock UComposableCameraTypeAsset::BuildRuntimeDataLa
 				ResolvedName = ResolvedVar->VariableName;
 			}
 		}
-		// GUID resolution failed (legacy record / GUID lost) — fall back to
+		// GUID resolution failed (legacy record / GUID lost). Fall back to
 		// name lookup so we still get the type metadata for validation.
 		if (!ResolvedVar)
 		{
@@ -962,7 +961,7 @@ FComposableCameraRuntimeDataBlock UComposableCameraTypeAsset::BuildRuntimeDataLa
 		if (!VarOffset)
 		{
 			UE_LOG(LogComposableCameraSystem, Warning,
-				TEXT("BuildRuntimeDataLayout: [%s] Get variable node for '%s' — no InternalVariableOffset found. Connections from this getter will not resolve."),
+				TEXT("BuildRuntimeDataLayout: [%s] Get variable node for '%s'. No InternalVariableOffset found. Connections from this getter will not resolve."),
 				*GetName(), *ResolvedName.ToString());
 			continue;
 		}
@@ -971,7 +970,7 @@ FComposableCameraRuntimeDataBlock UComposableCameraTypeAsset::BuildRuntimeDataLa
 		// to the variable's storage slot, but only if the consumer pin's type
 		// matches the variable's type. A type mismatch (variable was retyped
 		// after the Get node was wired) would route variable bytes of one
-		// shape into a consumer slot of another shape — same crash class as
+		// shape into a consumer slot of another shape. Same crash class as
 		// the wired-connection mismatch above.
 		for (const FComposableCameraVariablePinConnection& Conn : Record.Connections)
 		{
@@ -990,9 +989,9 @@ FComposableCameraRuntimeDataBlock UComposableCameraTypeAsset::BuildRuntimeDataLa
 
 			// If this consumer pin is also covered by an ExposedParameter,
 			// the exposed parameter's slot takes semantic priority. This
-			// prevents stale VariableNodes records — left behind when the
+			// prevents stale VariableNodes records. Left behind when the
 			// user exposes a pin (which breaks the wire but doesn't rebuild
-			// VariableNodes until the next SyncToTypeAsset) — from
+			// VariableNodes until the next SyncToTypeAsset). From
 			// shadowing the exposed parameter via the InputPinSourceOffsets
 			// priority-1 check in TryResolveInputPin.
 			if (DataBlock.ExposedInputPinOffsets.Contains(TargetKey))
@@ -1015,7 +1014,7 @@ FComposableCameraRuntimeDataBlock UComposableCameraTypeAsset::BuildRuntimeDataLa
 				TargetDecl->PinType, TargetDecl->StructType, TargetDecl->EnumType))
 			{
 				UE_LOG(LogComposableCameraSystem, Warning,
-					TEXT("BuildRuntimeDataLayout: [%s] Get variable '%s' (VariableType=%d) shape mismatches consumer pin '%s' on node %d (PinType=%d). Skipping wire — fix the variable type or rewire the consumer."),
+					TEXT("BuildRuntimeDataLayout: [%s] Get variable '%s' (VariableType=%d) shape mismatches consumer pin '%s' on node %d (PinType=%d). Skipping wire. Fix the variable type or rewire the consumer."),
 					*GetName(), *ResolvedName.ToString(), static_cast<int32>(ResolvedVar->VariableType),
 					*Conn.CameraPinName.ToString(), Conn.CameraNodeIndex, static_cast<int32>(TargetDecl->PinType));
 				continue;
@@ -1030,9 +1029,9 @@ FComposableCameraRuntimeDataBlock UComposableCameraTypeAsset::BuildRuntimeDataLa
 	// type no longer matches the variable's type reaches CopySlot at
 	// runtime; the POD memcpy branch reads VariableSlotSize bytes from the
 	// source offset regardless of how many bytes actually live there. Float
-	// source → Actor variable (8B target size) reads 4 bytes past the float
+	// source -> Actor variable (8B target size) reads 4 bytes past the float
 	// slot, then RefreshReferenceSlot reinterprets the resulting 8 bytes as
-	// AActor* and registers the garbage pointer with the GC mirror — next
+	// AActor* and registers the garbage pointer with the GC mirror. Next
 	// GC sweep can crash. Validate once at activation; the runtime check is
 	// a single TSet::Contains per entry per tick.
 	auto ValidateSetVariableEntries = [&](
@@ -1049,8 +1048,7 @@ FComposableCameraRuntimeDataBlock UComposableCameraTypeAsset::BuildRuntimeDataLa
 				continue;
 			}
 			// Entries that the runtime already short-circuits on (no source
-			// node wired, no variable name, zero size) need no validation —
-			// the existing `<= 0` early-out covers them. Note: the
+			// node wired, no variable name, zero size) need no validation -			// the existing `<= 0` early-out covers them. Note: the
 			// StructSlotSentinel value (TNumericLimits<int32>::Max()) is
 			// positive, so non-POD struct variables still get validated here.
 			if (Entry.CameraNodeIndex == INDEX_NONE
@@ -1068,7 +1066,7 @@ FComposableCameraRuntimeDataBlock UComposableCameraTypeAsset::BuildRuntimeDataLa
 
 			// Variable lookup by name (matches the runtime
 			// InternalVariableOffsets keying). Walk InternalVariables first,
-			// then ExposedVariables — same order BuildVariableLookup uses.
+			// then ExposedVariables. Same order BuildVariableLookup uses.
 			const FComposableCameraInternalVariable* Var = nullptr;
 			for (const FComposableCameraInternalVariable& V : InternalVariables)
 			{
@@ -1112,7 +1110,7 @@ FComposableCameraRuntimeDataBlock UComposableCameraTypeAsset::BuildRuntimeDataLa
 				Var->VariableType, Var->StructType, Var->EnumType))
 			{
 				UE_LOG(LogComposableCameraSystem, Warning,
-					TEXT("BuildRuntimeDataLayout: [%s] %s SetVariable entry %d: source pin '%s' on node %d (PinType=%d) → variable '%s' (VariableType=%d) — type mismatch. Disabling entry to prevent runtime cross-slot read of %d bytes from a %d-byte source."),
+					TEXT("BuildRuntimeDataLayout: [%s] %s SetVariable entry %d: source pin '%s' on node %d (PinType=%d) ->variable '%s' (VariableType=%d). Type mismatch. Disabling entry to prevent runtime cross-slot read of %d bytes from a %d-byte source."),
 					*GetName(), ChainKind, EntryIdx,
 					*Entry.SourcePinName.ToString(), Entry.CameraNodeIndex, static_cast<int32>(SourceDecl->PinType),
 					*Entry.VariableName.ToString(), static_cast<int32>(Var->VariableType),
@@ -1128,7 +1126,7 @@ FComposableCameraRuntimeDataBlock UComposableCameraTypeAsset::BuildRuntimeDataLa
 			// editor sync MAY persist the entry with stale SlotSize=48 if the
 			// SyncToTypeAsset path didn't re-walk this entry. CopySlot's POD
 			// branch then reads 48 bytes from a 4-byte Float source slot,
-			// overflowing into adjacent storage — corrupts the next slot
+			// overflowing into adjacent storage. Corrupts the next slot
 			// (which might be an Actor/Object reference whose mirror gets
 			// updated by RefreshReferenceSlot on a subsequent tick). The
 			// `<= 0` early-out doesn't help because the stale size is
@@ -1139,7 +1137,7 @@ FComposableCameraRuntimeDataBlock UComposableCameraTypeAsset::BuildRuntimeDataLa
 			if (Entry.VariableSlotSize != ExpectedSlotSize)
 			{
 				UE_LOG(LogComposableCameraSystem, Warning,
-					TEXT("BuildRuntimeDataLayout: [%s] %s SetVariable entry %d: variable '%s' currently expects SlotSize=%d but exec entry serialized SlotSize=%d (stale — variable was retyped without re-syncing the asset). Disabling entry to prevent runtime cross-slot memcpy. Re-save the asset to refresh."),
+					TEXT("BuildRuntimeDataLayout: [%s] %s SetVariable entry %d: variable '%s' currently expects SlotSize=%d but exec entry serialized SlotSize=%d (stale. Variable was retyped without re-syncing the asset). Disabling entry to prevent runtime cross-slot memcpy. Re-save the asset to refresh."),
 					*GetName(), ChainKind, EntryIdx,
 					*Entry.VariableName.ToString(), ExpectedSlotSize, Entry.VariableSlotSize);
 				OutInvalidIndices.Add(EntryIdx);
@@ -1199,7 +1197,7 @@ void UComposableCameraTypeAsset::ApplyParameterBlock(
 		// Strict CopyRawTo: only succeeds when caller's parameter PinType
 		// matches the slot's PinType AND Data.Num() == Size exactly. Stale
 		// caller values that have the right name but the wrong shape are
-		// rejected — runtime falls back to whatever the slot already holds
+		// rejected. Runtime falls back to whatever the slot already holds
 		// (zero-init or initial-value seed).
 		const int32 Copied = Parameters.CopyRawTo(Name, DataBlock.Storage.GetData() + Offset, Size, PinType);
 		if (Copied > 0)
@@ -1251,7 +1249,7 @@ void UComposableCameraTypeAsset::ApplyParameterBlock(
 
 	// --- Exposed parameters ---
 	// Caller value only: the default lives on the node's pin (resolved by
-	// GetExposedParameterDefaultValue at the caller site — K2 node, DataTable
+	// GetExposedParameterDefaultValue at the caller site -K2 node, DataTable
 	// row). By the time we get here, either the ParameterBlock has an entry
 	// or the slot stays zero / default-initialized.
 	for (const FComposableCameraExposedParameter& Param : ExposedParameters)
@@ -1372,7 +1370,7 @@ void UComposableCameraTypeAsset::ApplyDelegateBindings(
 		// Verify the source delegate's bound function signature matches the
 		// target FDelegateProperty's expected signature before assigning.
 		// FScriptDelegate carries (UObject* Object, FName FunctionName) only
-		// — no signature record — so a stale BP / mistyped C++ caller can
+		//. No signature record. So a stale BP / mistyped C++ caller can
 		// install a delegate whose UFunction has a different parameter
 		// layout than the target. If left unchecked, the eventual `Execute`
 		// call walks the wrong parameter frame: ProcessEvent reads garbage
@@ -1391,7 +1389,7 @@ void UComposableCameraTypeAsset::ApplyDelegateBindings(
 			const UObject* BoundObj = SourceDelegate->GetUObject();
 			if (!BoundObj)
 			{
-				// Empty/cleared delegate is fine — assigning a default-
+				// Empty/cleared delegate is fine. Assigning a default-
 				// constructed FScriptDelegate is the documented way to
 				// "unbind" the target.
 				return true;
@@ -1400,7 +1398,7 @@ void UComposableCameraTypeAsset::ApplyDelegateBindings(
 			if (!SourceFunc)
 			{
 				UE_LOG(LogComposableCameraSystem, Warning,
-					TEXT("ApplyDelegateBindings: Source delegate '%s' bound to '%s::%s' but the function does not exist on the bound object — leaving target unbound."),
+					TEXT("ApplyDelegateBindings: Source delegate '%s' bound to '%s::%s' but the function does not exist on the bound object. Leaving target unbound."),
 					*Param.ParameterName.ToString(),
 					*BoundObj->GetClass()->GetName(),
 					*SourceDelegate->GetFunctionName().ToString());
@@ -1408,10 +1406,10 @@ void UComposableCameraTypeAsset::ApplyDelegateBindings(
 			}
 			if (!DelegateProp->SignatureFunction)
 			{
-				// Unusual — target FDelegateProperty has no signature
+				// Unusual. Target FDelegateProperty has no signature
 				// recorded. Refuse rather than guess.
 				UE_LOG(LogComposableCameraSystem, Warning,
-					TEXT("ApplyDelegateBindings: Target FDelegateProperty '%s' on node class '%s' has no SignatureFunction — leaving target unbound."),
+					TEXT("ApplyDelegateBindings: Target FDelegateProperty '%s' on node class '%s' has no SignatureFunction. Leaving target unbound."),
 					*Param.TargetPinName.ToString(),
 					*Node->GetClass()->GetName());
 				return false;
@@ -1537,7 +1535,7 @@ void UComposableCameraTypeAsset::Build(bool bLogResult)
 	// / ExposedVariables.
 	//
 	// All three collections share the runtime's FName keyspace inside the data
-	// block — ExposedParameters land in ExposedParameterOffsets, both variable
+	// block -ExposedParameters land in ExposedParameterOffsets, both variable
 	// kinds land in InternalVariableOffsets, and the caller's ParameterBlock is
 	// indexed by name only. A collision between any two of these would either
 	// overwrite a slot (ExposedVariable vs InternalVariable, caught defensively
@@ -1546,7 +1544,7 @@ void UComposableCameraTypeAsset::Build(bool bLogResult)
 	// the caller's block under identical keys). Flag it here at author time so
 	// the user catches it in the editor rather than at runtime.
 	{
-		TMap<FName, const TCHAR*> NameSources; // FName → "source category label"
+		TMap<FName, const TCHAR*> NameSources; // FName ->"source category label"
 		auto ClaimName = [&](FName Name, const TCHAR* Category)
 		{
 			if (Name.IsNone())
@@ -1588,7 +1586,7 @@ void UComposableCameraTypeAsset::Build(bool bLogResult)
 	// Check: Struct pin entries must have a non-null StructType. Both POD and
 	// non-POD struct pin types are now supported by the runtime -- POD goes
 	// through the byte-array Storage path, non-POD through the typed
-	// FInstancedStruct slot pool (see TechDoc.md §7.2 "ParameterBlock /
+	// FInstancedStruct slot pool (see TechDoc.md Section 7.2 "ParameterBlock /
 	// RuntimeDataBlock POD-vs-typed dispatch"). What still fails is a Struct
 	// pin type with no StructType set: the layout pass cannot register a
 	// slot, the parser cannot parse a value, and the runtime would silently
@@ -1707,7 +1705,7 @@ void UComposableCameraTypeAsset::Build(bool bLogResult)
 			ResolvedInputs.Add(Key);
 		}
 
-		// 3. Variable Get node connections — a Get node's output wired to a
+		// 3. Variable Get node connections. A Get node's output wired to a
 		//    camera node's input pin feeds data from the variable.
 		for (const FComposableCameraVariableNodeRecord& VarRec : VariableNodes)
 		{
@@ -1767,7 +1765,7 @@ void UComposableCameraTypeAsset::Build(bool bLogResult)
 					// check whether the node class has an EditAnywhere UPROPERTY
 					// with the same name. If so, the UPROPERTY's C++ initializer
 					// serves as the implicit default and the node reads directly
-					// from its member variable — no warning needed.
+					// from its member variable. No warning needed.
 					const bool bHasDefaultValue = !Pin.DefaultValueString.IsEmpty();
 					bool bHasPropertyDefault = false;
 					if (!bHasDefaultValue)
@@ -1796,8 +1794,8 @@ void UComposableCameraTypeAsset::Build(bool bLogResult)
 						// DefaultValueString or same-named EditAnywhere
 						// UPROPERTY), but no wire / exposure / variable-get /
 						// per-instance default override. The asset still runs
-						// — the runtime resolves the pin from whichever
-						// fallback is present — but the author declared
+						//. The runtime resolves the pin from whichever
+						// fallback is present. But the author declared
 						// `bRequired = true` to signal "this value matters",
 						// and relying on an implicit fallback usually means
 						// the author *intended* to supply a value and just
@@ -1841,7 +1839,113 @@ void UComposableCameraTypeAsset::Build(bool bLogResult)
 		}
 	}
 
-	// Subclass extension point — append any validation from the concrete asset
+	// Check: camera node templates not reachable from the Start sentinel via
+	// exec wires. The runtime's per-frame TickCamera walks FullExecChain when
+	// it's non-empty (the design's authoritative tick-order surface) and any
+	// node template whose index never appears in that array is silently dropped
+	// to nullptr during ConstructCameraFromTypeAsset, so the node never ticks
+	// at runtime even though it shows up in the graph.
+	//
+	// Surface that explicitly here. Designers visually rearranging two nodes
+	// without wiring Start -> A -> B -> Output got a Patch / Camera asset that
+	// silently fell back to the empty-chain linear walk and ticked in
+	// NodeTemplates author order; the workaround was the hostile "delete and
+	// re-add in the desired order" dance. A warning on each unwired camera
+	// node makes the missing exec wires visible in the editor banner and the
+	// per-node inline badge, so the canvas layout vs runtime tick order
+	// mismatch isn't a silent footgun anymore.
+	//
+	// Only emitted when FullExecChain is non-empty (i.e. SOME exec wiring
+	// exists) -- a Patch or asset with zero exec wires is handled by the
+	// "Camera type has no nodes." / "no exec chain reachable" message above
+	// and at the runtime fallback, both of which already cover the edge case.
+	if (FullExecChain.Num() > 0)
+	{
+		TSet<int32> ReachableCameraNodeIndices;
+		for (const FComposableCameraExecEntry& Entry : FullExecChain)
+		{
+			if (Entry.EntryType == EComposableCameraExecEntryType::CameraNode
+				&& Entry.CameraNodeIndex != INDEX_NONE)
+			{
+				ReachableCameraNodeIndices.Add(Entry.CameraNodeIndex);
+			}
+		}
+		for (int32 NodeIdx = 0; NodeIdx < NodeTemplates.Num(); ++NodeIdx)
+		{
+			if (!NodeTemplates[NodeIdx])
+			{
+				continue;
+			}
+			if (!ReachableCameraNodeIndices.Contains(NodeIdx))
+			{
+				FComposableCameraBuildMessage Msg;
+				Msg.Severity = 1; // Warning
+				Msg.Message = FText::Format(
+					FText::FromString(TEXT("Camera node {0} ({1}) is not wired into the execution chain (no path from Start through this node to Output). It will not tick at runtime.")),
+					FText::AsNumber(NodeIdx),
+					FText::FromString(NodeTemplates[NodeIdx]->GetClass()->GetName()));
+				Msg.NodeIndex = NodeIdx;
+				BuildMessages.Add(Msg);
+				if (BuildStatus == EComposableCameraBuildStatus::Success)
+				{
+					BuildStatus = EComposableCameraBuildStatus::SuccessWithWarnings;
+				}
+			}
+		}
+	}
+
+	// Same check for the BeginPlay compute chain. ComputeFullExecChain plays
+	// the same role for one-shot compute nodes that FullExecChain plays for
+	// per-frame camera nodes (TechDoc Section 6 / Section 4 lifecycle). A compute
+	// node template not reachable from BeginPlay Start gets the same silent
+	// nullptr-and-skip treatment in ConstructCameraFromTypeAsset's compute
+	// duplication loop, so authoring an orphan compute node should produce the
+	// same actionable warning rather than a quiet "ExecuteBeginPlay never ran".
+	if (ComputeFullExecChain.Num() > 0)
+	{
+		TSet<int32> ReachableComputeNodeIndices;
+		for (const FComposableCameraExecEntry& Entry : ComputeFullExecChain)
+		{
+			if (Entry.EntryType == EComposableCameraExecEntryType::CameraNode
+				&& Entry.CameraNodeIndex != INDEX_NONE)
+			{
+				ReachableComputeNodeIndices.Add(Entry.CameraNodeIndex);
+			}
+		}
+		for (int32 NodeIdx = 0; NodeIdx < ComputeNodeTemplates.Num(); ++NodeIdx)
+		{
+			if (!ComputeNodeTemplates[NodeIdx])
+			{
+				continue;
+			}
+			if (!ReachableComputeNodeIndices.Contains(NodeIdx))
+			{
+				FComposableCameraBuildMessage Msg;
+				Msg.Severity = 1; // Warning
+				Msg.Message = FText::Format(
+					FText::FromString(TEXT("Compute node {0} ({1}) is not wired into the BeginPlay execution chain (no path from BeginPlay Start through this node). ExecuteBeginPlay will not run.")),
+					FText::AsNumber(NodeIdx),
+					FText::FromString(ComputeNodeTemplates[NodeIdx]->GetClass()->GetName()));
+				// Compute node indices share the per-node-badge namespace with
+				// camera nodes via a (NodeTemplates.Num() + ComputeIdx) offset
+				// the runtime applies to the RuntimeDataBlock; the editor's
+				// per-node-badge pipeline (which keys on
+				// FComposableCameraBuildMessage::NodeIndex against graph nodes'
+				// own NodeIndex) treats the compute chain's NodeIndex space
+				// separately, so write the raw compute-space index without the
+				// offset here -- matches how every other compute-side validation
+				// in this file emits NodeIndex.
+				Msg.NodeIndex = NodeIdx;
+				BuildMessages.Add(Msg);
+				if (BuildStatus == EComposableCameraBuildStatus::Success)
+				{
+					BuildStatus = EComposableCameraBuildStatus::SuccessWithWarnings;
+				}
+			}
+		}
+	}
+
+	// Subclass extension point. Append any validation from the concrete asset
 	// class (e.g. UComposableCameraPatchTypeAsset checks node Patch compatibility).
 	// Each appended message's severity rolls BuildStatus up toward the more
 	// severe category so the editor banner / per-node badges reflect it.
@@ -1885,14 +1989,14 @@ void UComposableCameraTypeAsset::EnsureInternalVariableGuids()
 	}
 	if (bDirtied)
 	{
-		// Legacy migration — don't dirty the package on load; the save will
+		// Legacy migration. Don't dirty the package on load; the save will
 		// pick up the new GUIDs the next time the user edits the asset.
 	}
 }
 
 void UComposableCameraTypeAsset::EnsureExposedVariableGuids()
 {
-	// Mirror of EnsureInternalVariableGuids() — ExposedVariables share the
+	// Mirror of EnsureInternalVariableGuids() -ExposedVariables share the
 	// same struct type and the same GUID-based identity rules (editor graph
 	// nodes resolve them by VariableGuid primary, VariableName fallback), so
 	// they need the exact same migration pass.
@@ -1907,7 +2011,7 @@ void UComposableCameraTypeAsset::EnsureExposedVariableGuids()
 	}
 	if (bDirtied)
 	{
-		// Same rationale as the internal variant — PostLoad migration should
+		// Same rationale as the internal variant -PostLoad migration should
 		// not mark the package dirty; the next user edit will persist the new
 		// GUIDs naturally.
 	}
@@ -1915,7 +2019,7 @@ void UComposableCameraTypeAsset::EnsureExposedVariableGuids()
 
 FName UComposableCameraTypeAsset::MakeUniqueExposedName(FName BaseName, FName NameAlreadyOwned) const
 {
-	// Empty / None names cannot be made unique — bail out and let the caller
+	// Empty / None names cannot be made unique. Bail out and let the caller
 	// decide what to do (typically they shouldn't be calling us with NAME_None
 	// in the first place, but defending against it keeps the helper safe).
 	if (BaseName.IsNone())
@@ -1926,7 +2030,7 @@ FName UComposableCameraTypeAsset::MakeUniqueExposedName(FName BaseName, FName Na
 	// Build the set of currently-used names across all three collections.
 	// The cross-set uniqueness invariant is enforced at Build() time, but
 	// PostLoad migration may be running on legacy assets where it has not
-	// yet been satisfied — that's exactly why this helper exists.
+	// yet been satisfied. That's exactly why this helper exists.
 	TSet<FName> UsedNames;
 	UsedNames.Reserve(ExposedParameters.Num() + ExposedVariables.Num() + InternalVariables.Num());
 
@@ -1972,7 +2076,7 @@ FName UComposableCameraTypeAsset::MakeUniqueExposedName(FName BaseName, FName Na
 		}
 	}
 
-	// Pathological — couldn't find a free name in 2 billion tries. Return the
+	// Pathological. Couldn't find a free name in 2 billion tries. Return the
 	// base and let downstream validation flag it. This branch is unreachable
 	// in any sane authoring scenario.
 	return BaseName;
@@ -1984,9 +2088,9 @@ bool UComposableCameraTypeAsset::DeduplicateExposedNames()
 	// we've already seen. The first occurrence of any name is preserved
 	// untouched; subsequent occurrences get suffixed.
 	//
-	// Order matters: ExposedParameters → ExposedVariables → InternalVariables.
+	// Order matters: ExposedParameters->ExposedVariables ->InternalVariables.
 	// ExposedParameters come first because they're directly user-facing on K2
-	// nodes — preserving their authored names preserves any existing K2 node
+	// nodes. Preserving their authored names preserves any existing K2 node
 	// override-pin selections (UK2Node_ActivateComposableCamera::UserOverrideNames
 	// keys on these names).
 	TSet<FName> SeenNames;
@@ -2104,14 +2208,14 @@ void UComposableCameraTypeAsset::PostLoad()
 	// MakeUniqueExposedName) but pre-guard assets may still contain
 	// collisions, which would otherwise produce phantom duplicate pins on
 	// any K2 ActivateComposableCamera node referencing this asset.
-	// Don't dirty the package — same rationale as the EnsureGuids passes.
+	// Don't dirty the package. Same rationale as the EnsureGuids passes.
 	DeduplicateExposedNames();
 }
 
 void UComposableCameraTypeAsset::PostEditChangeChainProperty(FPropertyChangedChainEvent& PropertyChangedEvent)
 {
-	// Whenever the user touches InternalVariables / ExposedVariables — add,
-	// duplicate, paste — make sure every entry has a valid GUID. Without
+	// Whenever the user touches InternalVariables / ExposedVariables. Add,
+	// duplicate, paste. Make sure every entry has a valid GUID. Without
 	// this, newly-added variables would share an invalid GUID and the
 	// editor's variable graph nodes would all look identical under
 	// GUID-based identity.

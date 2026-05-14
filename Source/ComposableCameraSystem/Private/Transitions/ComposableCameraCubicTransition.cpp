@@ -1,4 +1,4 @@
-// Copyright Sulley. All rights reserved.
+﻿// Copyright Sulley. All rights reserved.
 
 #include "Transitions/ComposableCameraCubicTransition.h"
 
@@ -46,13 +46,13 @@ void UComposableCameraCubicTransition::DrawTransitionDebug(UWorld* World, bool b
 	if (CVarShowCubicTransitionGizmo.GetValueOnGameThread() == 0
 		&& !FComposableCameraViewportDebug::ShouldShowAllTransitionGizmos()) { return; }
 
-	// Lavender — still in the cool family but well clear of LookAt cyan
+	// Lavender. Still in the cool family but well clear of LookAt cyan
 	// and SplineNode violet.
 	static const FColor AccentColor { 180, 130, 255 };
 
 	DrawStandardTransitionDebug(World, bViewerIsOutsideCamera, AccentColor);
 
-	// Path is a straight line — position lerps linearly in space. Only
+	// Path is a straight line. Position lerps linearly in space. Only
 	// the cubic timing curve differs from Linear.
 	DrawDebugLine(World, LastDebugSource.Position, LastDebugTarget.Position, AccentColor,
 		false, -1.f, SDPG_Foreground, /*Thickness=*/0.f);

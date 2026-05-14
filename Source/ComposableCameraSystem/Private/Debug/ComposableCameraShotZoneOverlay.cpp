@@ -22,7 +22,7 @@
 
 namespace
 {
-	// ─── CVar ─────────────────────────────────────────────────────────────
+	// --- CVar -------------------------------------------------------------
 	static TAutoConsoleVariable<int32> CVarShowShotZones(
 		TEXT("CCS.Debug.Viewport.ShotZones"),
 		0,
@@ -33,7 +33,7 @@ namespace
 		TEXT("0 = off (default), 1 = on."),
 		ECVF_Default);
 
-	// ─── Visual constants — kept consistent with the Shot Editor overlay ──
+	// --- Visual constants. Kept consistent with the Shot Editor overlay --
 	constexpr float kEdgeHighlightThickness = 2.5f;
 
 	const FLinearColor kAnchorColorPlacement(1.f, 0.85f, 0.2f, 1.f);
@@ -46,7 +46,7 @@ namespace
 
 	constexpr float kAnchorDiscRadius = 6.f;
 
-	// ─── Dedup state — see ComposableCameraDebugPanel.cpp big comment ────
+	// --- Dedup state. See ComposableCameraDebugPanel.cpp big comment ----
 	FDelegateHandle GZoneOverlayGameHandle;
 	FDelegateHandle GZoneOverlayEditorHandle;
 
@@ -72,11 +72,11 @@ namespace
 		return World && World->IsGameWorld();
 	}
 
-	// ─────────────────────────────────────────────────────────────────────
+	// ---------------------------------------------------------------------
 	// Drawing helpers
-	// ─────────────────────────────────────────────────────────────────────
+	// ---------------------------------------------------------------------
 
-	/** Convert normalized screen `[-0.5, 0.5]²` (solver convention, +Y up)
+	/** Convert normalized screen `[-0.5, 0.5]` (solver convention, +Y up)
 	 *  to viewport pixel coords (top-left origin, +Y down). */
 	FORCEINLINE FVector2D NormalizedScreenToPixel(const FVector2D& Norm, float SizeX, float SizeY)
 	{
@@ -86,7 +86,7 @@ namespace
 	}
 
 	/** Translucent rect tile. No-op when size is non-positive (degenerate
-	 *  zone with matching dead/soft sides — e.g. SoftLeft == DeadLeft on
+	 *  zone with matching dead/soft sides. E.g. SoftLeft == DeadLeft on
 	 *  X axis collapses the left strip of the soft "ring"). */
 	void DrawFilledTile(FCanvas& Canvas, const FBox2D& Box, const FLinearColor& Color)
 	{
@@ -142,14 +142,14 @@ namespace
 		// (the designer's "I want the anchor here" target). The anchor's
 		// LIVE projected position is shown as a smaller, read-only
 		// marker, only when zones are enabled (zones-off keeps projection
-		// ≈ SP and the marker would just double-stamp the disc).
+		// <=SP and the marker would just double-stamp the disc).
 		FVector2D AnchorNorm;
 		const float Aspect = (SizeY > 0.f) ? (SizeX / SizeY) : (16.f / 9.f);
 		const bool bAnchorInFront = ComposableCameraSystem::ProjectWorldPointToScreen(
 			AnchorWorldPos, CamPos, CamRot, TanHalfHOR, Aspect, AnchorNorm);
 
 		// Zones (when enabled) center on the AUTHORED ScreenPosition (the
-		// solver's invariant — anchor floats inside the zone, zone tracks
+		// solver's invariant. Anchor floats inside the zone, zone tracks
 		// SP). Solver conventions match the Shot Editor preview, so the
 		// pixel-space rect math is identical.
 		if (Zones && Zones->bEnabled)
@@ -172,7 +172,7 @@ namespace
 				FVector2D(ZoneCenterPx.X - SoftL, ZoneCenterPx.Y - SoftT),
 				FVector2D(ZoneCenterPx.X + SoftR, ZoneCenterPx.Y + SoftB));
 
-			// Soft "ring" — four tiles around the dead rect.
+			// Soft "ring". Four tiles around the dead rect.
 			DrawFilledTile(Canvas, FBox2D(
 				FVector2D(SoftRect.Min.X, SoftRect.Min.Y),
 				FVector2D(SoftRect.Max.X, DeadRect.Min.Y)), SoftFill);
@@ -186,7 +186,7 @@ namespace
 				FVector2D(DeadRect.Max.X, DeadRect.Min.Y),
 				FVector2D(SoftRect.Max.X, DeadRect.Max.Y)), SoftFill);
 
-			// Dead inner — intentionally NOT filled (matches the Shot
+			// Dead inner. Intentionally NOT filled (matches the Shot
 			// Editor preview behavior). The soft ring frames the area
 			// without obscuring the subject; designers see "the hold zone
 			// is empty" as the visual signal that the camera ignores the
@@ -195,19 +195,19 @@ namespace
 
 			// Faint outline. The LS viewport is busy compared to the Shot
 			// Editor's empty preview, so a 1px outline (alpha-matched to
-			// the fill hue at 35%) is added for legibility — without it,
+			// the fill hue at 35%) is added for legibility. Without it,
 			// the soft ring's 8% alpha can blend into varied scenery and
 			// the zone boundary becomes hard to read.
 			const FLinearColor Outline(AnchorColor.R, AnchorColor.G, AnchorColor.B, 0.35f);
 			DrawRectBorder(Canvas, SoftRect, Outline);
 			DrawRectBorder(Canvas, DeadRect, Outline);
 
-			// Live-position marker — anchor's projected pixel. Read-only
+			// Live-position marker. Anchor's projected pixel. Read-only
 			// indicator showing where the anchor IS this frame, distinct
 			// from the SP disc (drawn below) which shows where the solver
 			// is trying to put it. Inside the dead zone the two drift
 			// apart; outside they converge. Skip when projection is
-			// behind the camera — the disc at SP is enough on its own.
+			// behind the camera. The disc at SP is enough on its own.
 			if (bAnchorInFront)
 			{
 				const FVector2D ProjPx = NormalizedScreenToPixel(AnchorNorm, SizeX, SizeY);
@@ -242,7 +242,7 @@ namespace
 			}
 		}
 
-		// Main anchor disc — drawn at the AUTHORED ScreenPosition. This
+		// Main anchor disc. Drawn at the AUTHORED ScreenPosition. This
 		// is the "ideal" target the solver is converging the anchor
 		// toward. With zones disabled the anchor projection is on top of
 		// this point too; with zones on, the live-position marker above
@@ -264,8 +264,8 @@ namespace
 		return Anchor.ResolveWorldPosition(Targets, OutWorld);
 	}
 
-	/** Per-FramingNode draw entry. Emits at most two overlays — Placement
-	 *  (yellow) and Aim (cyan) — but only the ones whose mode actually
+	/** Per-FramingNode draw entry. Emits at most two overlays -Placement
+	 *  (yellow) and Aim (cyan). But only the ones whose mode actually
 	 *  reads the corresponding screen position. */
 	void DrawShotOverlay(
 		FCanvas& Canvas,
@@ -275,7 +275,7 @@ namespace
 	{
 		// Placement anchor: only meaningful in `AnchorAtScreen` (the only
 		// mode that authors `Placement.ScreenPosition`). Other modes get
-		// no overlay even if PlacementZones.bEnabled is true — drawing it
+		// no overlay even if PlacementZones.bEnabled is true. Drawing it
 		// would imply an effect the solver won't honor.
 		if (Shot.Placement.Mode == EShotPlacementMode::AnchorAtScreen)
 		{
@@ -314,9 +314,9 @@ namespace
 		}
 	}
 
-	// ─────────────────────────────────────────────────────────────────────
+	// ---------------------------------------------------------------------
 	// UDebugDrawService callback
-	// ─────────────────────────────────────────────────────────────────────
+	// ---------------------------------------------------------------------
 
 	void DrawZoneOverlay_Inner(UCanvas* UCanvasObj, APlayerController* PC)
 	{
@@ -334,15 +334,15 @@ namespace
 		}
 		FCanvas& Canvas = *UCanvasObj->Canvas;
 
-		// On-screen diagnostic readout — top-right corner. Confirms the
+		// On-screen diagnostic readout. Top-right corner. Confirms the
 		// overlay callback is firing AND surfaces the active-instance
 		// count. Resolves the four likely "I see nothing" causes at a
 		// glance:
-		//   - No readout at all  ⇒ overlay not registered / CVar misread.
-		//   - "Active=0"         ⇒ FramingNode never registered (no LS
+		//   - No readout at all  means overlay not registered / CVar misread.
+		//   - "Active=0"         means FramingNode never registered (no LS
 		//                          shot active, or InitializeNodes path
 		//                          didn't fire).
-		//   - "Active=N, PC=..." ⇒ overlay path works; problem is in the
+		//   - "Active=N, PC=..." means overlay path works; problem is in the
 		//                          per-anchor draw (mode gating, anchor
 		//                          unresolvable, or off-screen).
 		// Also draws a small red crosshair at canvas center as a "render
@@ -363,7 +363,7 @@ namespace
 			DiagItem.EnableShadow(FLinearColor::Black);
 			Canvas.DrawItem(DiagItem);
 		}
-		// Center crosshair — pure-render heartbeat, independent of Shot
+		// Center crosshair. Pure-render heartbeat, independent of Shot
 		// data. If the user sees the crosshair but no zone fills, the
 		// Canvas path works and the bug is in the FramingNode iteration
 		// or the per-anchor draw.
@@ -378,7 +378,7 @@ namespace
 			Canvas.DrawItem(V);
 		}
 
-		// Resolve the current viewport's view info — preferred source is
+		// Resolve the current viewport's view info. Preferred source is
 		// the supplied PlayerController's PCM (PIE / Game / Standalone).
 		// In editor channels without a PC bound, fall back to whatever
 		// the canvas is rendering for (e.g. Sequencer preview viewport).
@@ -392,7 +392,7 @@ namespace
 		{
 			// Editor-channel without PC: use the canvas's scene view if
 			// available. `UCanvas::SceneView` is set by UDebugDrawService
-			// per draw call. Skip when the scene view isn't there — the
+			// per draw call. Skip when the scene view isn't there. The
 			// "no game world" case (unrelated editor viewport firing the
 			// channel) can't possibly need this overlay.
 			const FSceneView* SceneView = UCanvasObj->SceneView;
@@ -402,7 +402,7 @@ namespace
 			}
 			VI.Location = SceneView->ViewMatrices.GetViewOrigin();
 			VI.Rotation = SceneView->ViewMatrices.GetViewMatrix().InverseFast().Rotator();
-			// FOV from the view's projection matrix — half-angle stored
+			// FOV from the view's projection matrix. Half-angle stored
 			// at index [0][0] = 1 / tan(HFOV/2). Cheap reverse.
 			const float Proj00 = static_cast<float>(SceneView->ViewMatrices.GetProjectionMatrix().M[0][0]);
 			const float TanHalfH = (FMath::Abs(Proj00) > UE_KINDA_SMALL_NUMBER) ? (1.f / Proj00) : 1.f;
@@ -480,7 +480,7 @@ void FComposableCameraShotZoneOverlay::Shutdown()
 	}
 }
 
-#else  // UE_BUILD_SHIPPING — overlay is debug-only
+#else  // UE_BUILD_SHIPPING. Overlay is debug-only
 
 void FComposableCameraShotZoneOverlay::Initialize() {}
 void FComposableCameraShotZoneOverlay::Shutdown()   {}

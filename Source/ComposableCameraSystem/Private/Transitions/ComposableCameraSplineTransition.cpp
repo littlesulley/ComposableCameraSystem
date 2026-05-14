@@ -120,7 +120,7 @@ FComposableCameraPose UComposableCameraSplineTransition::OnEvaluate_Implementati
 	case EComposableCameraSplineTransitionType::CatmullRom:
 		{
 			// Virtual control-point array: {ZeroVector, ControlPoints[0..N-1], EndVec}
-			// Accessed via index arithmetic — no copy, no insert, zero allocation.
+			// Accessed via index arithmetic - no copy, no insert, zero allocation.
 			FVector StartPoint = CurrentSourcePose.Position;
 			FVector EndPoint = CurrentTargetPose.Position;
 			FVector EndVec = FVector{ (EndPoint - StartPoint).Length(), 0., 0. };
@@ -181,7 +181,7 @@ FComposableCameraPose UComposableCameraSplineTransition::OnEvaluate_Implementati
 	}
 
 	// Debug draw for the spline lives on the `CCS.Debug.Viewport.Transitions.Spline`
-	// path now — see DrawTransitionDebug below, which samples the curve at
+	// path now - see DrawTransitionDebug below, which samples the curve at
 	// many t values using EvaluatePositionOnCurve (the same math used above).
 
 	return ResultPose;
@@ -217,7 +217,7 @@ FVector UComposableCameraSplineTransition::EvaluatePositionOnCurve(
 	// debug path wants to sample many t values per frame without going
 	// through the full OnEvaluate pipeline (which mutates Percentage, walks
 	// BlendBy on pose fields we don't care about here, etc.). If you change
-	// one of the formulas, change both — or, better, route OnEvaluate
+	// one of the formulas, change both - or, better, route OnEvaluate
 	// through this helper too.
 	switch (SplineType)
 	{
@@ -288,8 +288,8 @@ FVector UComposableCameraSplineTransition::EvaluatePositionOnCurve(
 			const float   D  = FVector::Dist(P0, P1);
 			const float   CosHalf = UKismetMathLibrary::DegCos(ArcAngle / 2.f);
 			const float   SinHalf = UKismetMathLibrary::DegSin(ArcAngle / 2.f);
-			// Protect against the near-colinear case — OnBeginPlay already
-			// nudges ArcAngle away from exactly 180° to avoid this, but the
+			// Protect against the near-colinear case - OnBeginPlay already
+			// nudges ArcAngle away from exactly 180 deg to avoid this, but the
 			// debug path could be called between OnBeginPlay runs.
 			if (FMath::IsNearlyZero(SinHalf))
 			{
@@ -304,7 +304,7 @@ FVector UComposableCameraSplineTransition::EvaluatePositionOnCurve(
 			return P0 + R.RotateVector(L);
 		}
 	}
-	// Fallback — shouldn't hit unless a new SplineType was added without
+	// Fallback - shouldn't hit unless a new SplineType was added without
 	// updating this switch. Draw a straight line so debug still shows something.
 	return FMath::Lerp(StartPos, EndPos, t);
 }
@@ -323,7 +323,7 @@ void UComposableCameraSplineTransition::DrawTransitionDebug(UWorld* World, bool 
 	// Standard source/target/progress draw first.
 	DrawStandardTransitionDebug(World, bViewerIsOutsideCamera, AccentColor);
 
-	// Then the full authored curve — this is why SplineTransition warrants
+	// Then the full authored curve - this is why SplineTransition warrants
 	// its own gizmo. Sampled 32 times; cheap (pure math, no allocation).
 	constexpr int32 NumSamples = 32;
 	const FVector StartPos = LastDebugSource.Position;

@@ -1,4 +1,4 @@
-// Copyright Sulley. All rights reserved.
+﻿// Copyright Sulley. All rights reserved.
 
 #include "Transitions/ComposableCameraViewTargetTransition.h"
 
@@ -14,7 +14,7 @@ FComposableCameraPose UComposableCameraViewTargetTransition::OnEvaluate_Implemen
 	const FComposableCameraPose& CurrentSourcePose,
 	const FComposableCameraPose& CurrentTargetPose)
 {
-	// Compute the time-based factor (0 → 1 over BlendTime).
+	// Compute the time-based factor (0 ->1 over BlendTime).
 	const float Elapsed = GetTransitionTime() - GetRemainingTime();
 	const float TimeFactor = (GetTransitionTime() > 0.f)
 		? FMath::Clamp(Elapsed / GetTransitionTime(), 0.f, 1.f)

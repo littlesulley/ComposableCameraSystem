@@ -13,8 +13,7 @@ class FBaseAssetToolkit;
  * Created by the editor module and manages the lifecycle of the toolkit.
  */
 UCLASS(Transient, Experimental)
-class UComposableCameraTypeAssetEditor
-	: public UAssetEditor
+class UComposableCameraTypeAssetEditor: public UAssetEditor
 {
 	GENERATED_BODY()
 

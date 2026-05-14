@@ -11,8 +11,7 @@ UComposableCameraTransitionTableFactory::UComposableCameraTransitionTableFactory
 	SupportedClass = UComposableCameraTransitionTableDataAsset::StaticClass();
 }
 
-UObject* UComposableCameraTransitionTableFactory::FactoryCreateNew(
-	UClass* Class, UObject* Parent, FName Name, EObjectFlags Flags, UObject* Context, FFeedbackContext* Warn)
+UObject* UComposableCameraTransitionTableFactory::FactoryCreateNew(UClass* Class, UObject* Parent, FName Name, EObjectFlags Flags, UObject* Context, FFeedbackContext* Warn)
 {
 	return NewObject<UComposableCameraTransitionTableDataAsset>(Parent, Class, Name, Flags | RF_Transactional);
 }

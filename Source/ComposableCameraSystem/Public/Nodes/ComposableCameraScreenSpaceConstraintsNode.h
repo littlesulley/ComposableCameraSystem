@@ -29,14 +29,14 @@ public:
 	virtual void DrawNodeDebug(UWorld* World, bool bViewerIsOutsideCamera) const override;
 
 	// 2D: safe-zone rectangle + center marker + projected pivot marker on
-	// the HUD ¡ª same two-branch math as ScreenSpacePivotNode (handles both
+	// the HUD - same two-branch math as ScreenSpacePivotNode (handles both
 	// bConstrainAspectRatio modes). Fires during PIE possessed play only.
 	virtual void DrawNodeDebug2D(UCanvas* Canvas, APlayerController* PC) const override;
 #endif
 
 	// Compatible with the Level Sequence path. Viewport size for screen-space
 	// math is resolved through UE::ComposableCameras::TryGetEffectiveViewportSize
-	// (PCM ¡ú GameViewport ¡ú 16:9 fallback), so the node no longer requires a
+	// (PCM->GameViewport -> 16:9 fallback), so the node no longer requires a
 	// PlayerCameraManager.
 
 protected:

@@ -1,4 +1,4 @@
-// Copyright Sulley. All rights reserved.
+﻿// Copyright Sulley. All rights reserved.
 
 #pragma once
 
@@ -116,7 +116,7 @@ public:
 	}
 
 	// Same PCM dependency as the LS case, plus semantically this node produces
-	// a mixed pose from child cameras — it ignores the upstream InPose, which
+	// a mixed pose from child cameras. It ignores the upstream InPose, which
 	// is the opposite of a Patch's read-modify-write contract.
 	virtual EComposableCameraNodePatchCompatibility GetPatchCompatibility_Implementation() const override
 	{

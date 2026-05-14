@@ -5,7 +5,7 @@
 #include "Animation/SkeletalMeshActor.h"
 #include "CanvasItem.h"
 #include "CanvasTypes.h"
-#include "ComposableCameraSystemEditorModule.h"   // LogComposableCameraSystemEditor
+#include "ComposableCameraSystemEditorModule.h" // LogComposableCameraSystemEditor
 #include "Components/SkeletalMeshComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "DataAssets/ComposableCameraShot.h"
@@ -31,32 +31,32 @@
 #include "Math/ComposableCameraMath.h"
 #include "Math/ComposableCameraShotSolver.h"
 #include "PreviewScene.h"
-#include "SceneManagement.h"   // DrawWireBox, FPrimitiveDrawInterface
+#include "SceneManagement.h" // DrawWireBox, FPrimitiveDrawInterface
 #include "SEditorViewport.h"
 
 namespace
 {
-	/** UE's "BasicShapes" cylinder is 100uu × 100uu (XY × Z). To approximate
-	 *  a 1.7m × 0.34m character capsule, scale (0.7, 0.7, 1.8) → 70uu wide,
-	 *  180uu tall. Close enough as a stand-in for Targets that aren't backed
-	 *  by a SkeletalMesh / StaticMesh source. */
+	/** UE's "BasicShapes" cylinder is 100uu x 100uu (XY x Z). To approximate
+	 * a 1.7m x 0.34m character capsule, scale (0.7, 0.7, 1.8) -> 70uu wide,
+	 * 180uu tall. Close enough as a stand-in for Targets that aren't backed
+	 * by a SkeletalMesh / StaticMesh source. */
 	const FVector kCapsuleFallbackScale(0.7f, 0.7f, 1.8f);
 	const TCHAR* const kCapsuleFallbackMeshPath = TEXT("/Engine/BasicShapes/Cylinder.Cylinder");
 
-	// ─── Handle visuals (V2: dual-anchor) ────────────────────────────────
-	constexpr float kHandleAnchorRadius      = 10.f;
-	constexpr float kHandleHoverRadiusBoost  = 1.3f;
-	constexpr float kHandleHitRadius         = 14.f;
-	const FLinearColor kHandlePlacementColor (1.f,   0.85f, 0.2f,  1.f);   // yellow — Placement
-	const FLinearColor kHandleAimColor       (0.4f,  0.8f,  1.f,   1.f);   // cyan — Aim
-	const FLinearColor kHandleDisabledColor  (0.45f, 0.45f, 0.5f,  0.6f);  // greyed out
-	const FLinearColor kHandleCrossColor     (0.05f, 0.05f, 0.05f, 1.f);   // dark cross overlay
+	// Handle visuals (V2: dual-anchor) 
+	constexpr float kHandleAnchorRadius = 10.f;
+	constexpr float kHandleHoverRadiusBoost = 1.3f;
+	constexpr float kHandleHitRadius = 14.f;
+	const FLinearColor kHandlePlacementColor (1.f, 0.85f, 0.2f, 1.f); // yellow - Placement
+	const FLinearColor kHandleAimColor (0.4f, 0.8f, 1.f, 1.f); // cyan - Aim
+	const FLinearColor kHandleDisabledColor (0.45f, 0.45f, 0.5f, 0.6f); // greyed out
+	const FLinearColor kHandleCrossColor (0.05f, 0.05f, 0.05f, 1.f); // dark cross overlay
 
-	// ─── Zone overlay visuals (V2.2: Cinemachine-style framing zones) ────
+	// Zone overlay visuals (V2.2: Cinemachine-style framing zones) 
 	//
 	// Each enabled `FShotScreenZones` paints two nested rectangles
 	// centered on the anchor's authored `ScreenPosition` (NOT on the
-	// anchor's projected pixel — the anchor floats inside the zone and
+	// anchor's projected pixel - the anchor floats inside the zone and
 	// its drift relative to ScreenPosition is exactly the visual diagnosis
 	// the zone overlay is meant to surface). Rendering uses translucent
 	// fills (no border lines): a solid-fill inner rect for the dead zone,
@@ -64,18 +64,18 @@ namespace
 	//
 	// Edges of both rects are LMB drag targets for single-side padding
 	// edits. `kZoneEdgeHitThickness` is the hit-grab region perpendicular
-	// to the edge — generous so designers can grab a thin edge without
+	// to the edge - generous so designers can grab a thin edge without
 	// pixel-precision aim. Hovered / actively-dragged edges get a thin
 	// highlight line as visual feedback (the only line drawn in the zone
 	// overlay; the resting state is fills only).
-	constexpr float kZoneEdgeHitThickness    = 8.f;
+	constexpr float kZoneEdgeHitThickness = 8.f;
 	constexpr float kZoneEdgeHighlightThickness = 2.5f;
 
-	const FLinearColor kZoneDeadFillPlacement (1.f,  0.85f, 0.2f, 0.18f);  // yellow ~18% — Placement
-	const FLinearColor kZoneSoftFillPlacement (1.f,  0.85f, 0.2f, 0.08f);  // yellow ~8%
-	const FLinearColor kZoneDeadFillAim       (0.4f, 0.8f,  1.f,  0.18f);  // cyan   ~18% — Aim
-	const FLinearColor kZoneSoftFillAim       (0.4f, 0.8f,  1.f,  0.08f);  // cyan   ~8%
-	const FLinearColor kZoneEdgeHighlightColor(1.f,  1.f,   1.f,  0.85f);  // white-ish on hover/drag
+	const FLinearColor kZoneDeadFillPlacement (1.f, 0.85f, 0.2f, 0.18f); // yellow ~18% - Placement
+	const FLinearColor kZoneSoftFillPlacement (1.f, 0.85f, 0.2f, 0.08f); // yellow ~8%
+	const FLinearColor kZoneDeadFillAim (0.4f, 0.8f, 1.f, 0.18f); // cyan ~18% - Aim
+	const FLinearColor kZoneSoftFillAim (0.4f, 0.8f, 1.f, 0.08f); // cyan ~8%
+	const FLinearColor kZoneEdgeHighlightColor(1.f, 1.f, 1.f, 0.85f); // white-ish on hover/drag
 
 	FProperty* ResolveShotEditorProperty(UObject* Host, FComposableCameraShot* Shot)
 	{
@@ -88,21 +88,18 @@ namespace
 		{
 			if (Shot == &Section->InlineShot)
 			{
-				return Section->GetClass()->FindPropertyByName(
-					GET_MEMBER_NAME_CHECKED(UMovieSceneComposableCameraShotSection, InlineShot));
+				return Section->GetClass()->FindPropertyByName(GET_MEMBER_NAME_CHECKED(UMovieSceneComposableCameraShotSection, InlineShot));
 			}
 			if (Shot == &Section->ShotOverrides)
 			{
-				return Section->GetClass()->FindPropertyByName(
-					GET_MEMBER_NAME_CHECKED(UMovieSceneComposableCameraShotSection, ShotOverrides));
+				return Section->GetClass()->FindPropertyByName(GET_MEMBER_NAME_CHECKED(UMovieSceneComposableCameraShotSection, ShotOverrides));
 			}
 		}
 		return Host->GetClass()->FindPropertyByName(TEXT("Shot"));
 	}
 }
 
-FComposableCameraShotEditorViewportClient::FComposableCameraShotEditorViewportClient(
-	FPreviewScene* InPreviewScene,
+FComposableCameraShotEditorViewportClient::FComposableCameraShotEditorViewportClient(FPreviewScene* InPreviewScene,
 	const TSharedRef<SEditorViewport>& InEditorViewportWidget)
 	: FEditorViewportClient(/*InModeTools=*/nullptr, InPreviewScene, InEditorViewportWidget)
 	, PreviewScene(InPreviewScene)
@@ -119,8 +116,8 @@ FComposableCameraShotEditorViewportClient::FComposableCameraShotEditorViewportCl
 	// reads `ULevelEditorViewportSettings::AspectRatioAxisConstraint` (a global
 	// editor preference, often `AspectRatio_MajorAxisFOV` by default) which
 	// FLIPS the interpretation of `ViewFOV` between H-FOV and V-FOV when the
-	// viewport's aspect crosses 1.0 (taller than wide → treats ViewFOV as
-	// V-FOV; wider than tall → H-FOV). Our solver always treats `ViewFOV` as
+	// viewport's aspect crosses 1.0 (taller than wide -> treats ViewFOV as
+	// V-FOV; wider than tall->H-FOV). Our solver always treats `ViewFOV` as
 	// H-FOV, so the flip causes pivot drift on viewport resize.
 	//
 	// The override is only honored when `bUseControllingActorViewInfo == true`
@@ -137,7 +134,7 @@ FComposableCameraShotEditorViewportClient::FComposableCameraShotEditorViewportCl
 	// Post-process injection path. With bUseControllingActorViewInfo=true,
 	// the engine routes post-process through
 	// `ControllingActorViewInfo.PostProcessSettings` at weight
-	// `ControllingActorViewInfo.PostProcessBlendWeight` (default 0 — i.e.,
+	// `ControllingActorViewInfo.PostProcessBlendWeight` (default 0 - i.e.,
 	// no contribution unless we opt in). The virtual `OverridePostProcessSettings`
 	// hook is the OTHER branch (only fires when bUseControllingActorViewInfo
 	// is false), so we can't rely on it here. Set blend weight to 1 so our
@@ -149,7 +146,7 @@ FComposableCameraShotEditorViewportClient::FComposableCameraShotEditorViewportCl
 	SetViewLocation(FVector(-400.f, -400.f, 200.f));
 	SetViewRotation(FRotator(-15.f, 45.f, 0.f));
 
-	// Default FOV — overridden by solver once a Shot is bound. Set both
+	// Default FOV - overridden by solver once a Shot is bound. Set both
 	// `ViewFOV` (used by stat widgets / culling) and `ControllingActorViewInfo.FOV`
 	// (used by the projection matrix because of `bUseControllingActorViewInfo`).
 	ViewFOV = 79.f;
@@ -161,15 +158,15 @@ FComposableCameraShotEditorViewportClient::FComposableCameraShotEditorViewportCl
 
 FComposableCameraShotEditorViewportClient::~FComposableCameraShotEditorViewportClient()
 {
-	// Note: NOT clearing `Viewport` here — the SShotEditorViewport widget does
+	// Note: NOT clearing `Viewport` here - the SShotEditorViewport widget does
 	// it in its own destructor BEFORE this destructor fires (see research Q7).
 	//
-	// Note: NOT calling DestroyProxies() here either — by the time this
+	// Note: NOT calling DestroyProxies() here either - by the time this
 	// destructor runs, the owning widget's PreviewScene member may already
 	// be dead. The widget's destructor calls ReleaseSceneResources() while
 	// the scene is still alive. Reaching this destructor with proxies still
 	// in ProxyActors would mean someone built a client without the standard
-	// widget host — defensive no-op rather than risk Proxy->Destroy() on a
+	// widget host - defensive no-op rather than risk Proxy->Destroy() on a
 	// dead world.
 	ProxyActors.Reset();
 }
@@ -185,16 +182,16 @@ void FComposableCameraShotEditorViewportClient::ReleaseSceneResources()
 	LastRebuiltHost = nullptr;
 	bCachedDoFValid = false;
 
-	// D.4: close any in-flight drag transaction. Idempotent — the destructor
+	// D.4: close any in-flight drag transaction. Idempotent - the destructor
 	// handles cleanup if the editor was torn down mid-drag.
 	DragTransaction.Reset();
-	ActiveDragHandleType    = EHandleType::None;
-	bActiveDragIsZoneEdge   = false;
-	ActiveDragZoneIsSoft    = false;
+	ActiveDragHandleType = EHandleType::None;
+	bActiveDragIsZoneEdge = false;
+	ActiveDragZoneIsSoft = false;
 	ActiveDragZoneEdgeIndex = -1;
-	bHoveredIsZoneEdge      = false;
-	HoveredZoneIsSoft       = false;
-	HoveredZoneEdgeIndex    = -1;
+	bHoveredIsZoneEdge = false;
+	HoveredZoneIsSoft = false;
+	HoveredZoneEdgeIndex = -1;
 	CachedHandles.Reset();
 
 	// V2.1 A.2: same cleanup for any in-flight Alt+RMB Roll drag.
@@ -207,24 +204,23 @@ void FComposableCameraShotEditorViewportClient::SetMode(EShotEditorMode InMode)
 	CurrentMode = InMode;
 }
 
-void FComposableCameraShotEditorViewportClient::SetActiveShot(
-	FComposableCameraShot* InShot, UObject* InHost)
+void FComposableCameraShotEditorViewportClient::SetActiveShot(FComposableCameraShot* InShot, UObject* InHost)
 {
 	ActiveShot = InShot;
 	ActiveHost = InHost;
 
-	// Drop the framing-zone prior-pose cache when the bound Shot changes —
+	// Drop the framing-zone prior-pose cache when the bound Shot changes - 
 	// projecting the new shot's anchors through the previous shot's pose
 	// would either NaN the zone math (anchor behind camera) or produce a
 	// visible one-frame glitch. The next valid solve hard-seeds a fresh
 	// prior. Cleared unconditionally because we have no cheap way to tell
 	// "is this the same Shot pointer pointing at semantically-identical
-	// data" — a swap-host call with the same backing pointer is the
+	// data" - a swap-host call with the same backing pointer is the
 	// degenerate case where the clear is harmless (next solve re-seeds
 	// to the same value).
 	bHasCachedPriorPose = false;
 
-	// Don't rebuild here synchronously — Tick() will detect the host change
+	// Don't rebuild here synchronously - Tick() will detect the host change
 	// and rebuild on next frame. Avoids reentrancy if SetActiveShot is called
 	// from a Slate paint pass.
 }
@@ -233,14 +229,14 @@ void FComposableCameraShotEditorViewportClient::Tick(float DeltaSeconds)
 {
 	FEditorViewportClient::Tick(DeltaSeconds);
 
-	// Polish P.2 — invalidate the per-frame `BuildEffectiveShotForPreview`
+	// Polish P.2 - invalidate the per-frame `BuildEffectiveShotForPreview`
 	// cache at the start of each tick. Subsequent paint-time callers (HUD,
 	// 3D wire BBs, handles, hover tooltip, etc.) within this frame share
 	// a single override-resolution pass through the cache.
-	bEffectiveShotCacheValid    = false;
-	bEffectiveShotCacheBuiltOk  = false;
+	bEffectiveShotCacheValid = false;
+	bEffectiveShotCacheBuiltOk = false;
 
-	// First-frame guard (research Q7) — Viewport is null until after the
+	// First-frame guard (research Q7) - Viewport is null until after the
 	// SEditorViewport::Construct returns and the FSceneViewport is created.
 	if (Viewport == nullptr)
 	{
@@ -260,7 +256,7 @@ void FComposableCameraShotEditorViewportClient::Tick(float DeltaSeconds)
 
 	if (!ActiveShot)
 	{
-		// No Shot to drive camera with — leave camera where the user (or
+		// No Shot to drive camera with - leave camera where the user (or
 		// the default ctor pose) put it. Proxies were cleared on detach.
 		bCachedDoFValid = false;
 		return;
@@ -268,11 +264,11 @@ void FComposableCameraShotEditorViewportClient::Tick(float DeltaSeconds)
 
 	// Rebuild proxies on host change OR Targets count drift OR per-target
 	// source actor / preview mesh identity change. The third check catches the
-	// "designer just picked an Actor for an existing Target" path — count
+	// "designer just picked an Actor for an existing Target" path - count
 	// is unchanged and host is unchanged, but the cylinder fallback proxy
 	// from the null-actor moment needs to upgrade to SkelMesh / StaticMesh.
 	const bool bHostChanged = (LastRebuiltHost != ActiveHost);
-	const bool bCountDrift  = (ProxyActors.Num() != ActiveShot->Targets.Num());
+	const bool bCountDrift = (ProxyActors.Num() != ActiveShot->Targets.Num());
 	bool bSourceDrift = false;
 	if (!bHostChanged && !bCountDrift)
 	{
@@ -285,7 +281,7 @@ void FComposableCameraShotEditorViewportClient::Tick(float DeltaSeconds)
 		{
 			for (int32 i = 0; i < N; ++i)
 			{
-				const AActor* Now  = ResolveSourceActorForTargetIndex(i);
+				const AActor* Now = ResolveSourceActorForTargetIndex(i);
 				const AActor* Then = LastResolvedSources[i].Get();
 				const USkeletalMesh* PreviewNow = ResolvePreviewMeshForTargetIndex(i);
 				const USkeletalMesh* PreviewThen = LastResolvedPreviewMeshes[i].Get();
@@ -304,7 +300,7 @@ void FComposableCameraShotEditorViewportClient::Tick(float DeltaSeconds)
 
 	SyncProxyTransforms();
 
-	// Solver runs in ALL modes — lens parameters (FOV / Aperture /
+	// Solver runs in ALL modes - lens parameters (FOV / Aperture /
 	// FocusDistance) are always Shot-data-driven so designer's lens edits in
 	// the Details panel take effect regardless of mode. Camera POSE is mode-
 	// specific: Drag/Lock honor solver pose; Free preserves user mouse-driven
@@ -312,12 +308,11 @@ void FComposableCameraShotEditorViewportClient::Tick(float DeltaSeconds)
 	RunSolverAndDriveCamera(DeltaSeconds);
 }
 
-void FComposableCameraShotEditorViewportClient::DrawCanvas(
-	FViewport& InViewport, FSceneView& View, FCanvas& Canvas)
+void FComposableCameraShotEditorViewportClient::DrawCanvas(FViewport& InViewport, FSceneView& View, FCanvas& Canvas)
 {
 	FEditorViewportClient::DrawCanvas(InViewport, View, Canvas);
 
-	// Diagnostic HUD — only renders when a Shot is bound. Lets the user
+	// Diagnostic HUD - only renders when a Shot is bound. Lets the user
 	// watch aspect / viewport / camera state live while resizing the splitter
 	// or window. Catches "solver and renderer disagree on aspect" regressions
 	// at a glance: if `aspect (live)` and `aspect (solver)` ever diverge,
@@ -339,39 +334,37 @@ void FComposableCameraShotEditorViewportClient::DrawCanvas(
 		? static_cast<float>(VPSize.X) / static_cast<float>(VPSize.Y)
 		: 0.f;
 
-	const FVector  CamPos = GetViewLocation();
+	const FVector CamPos = GetViewLocation();
 	const FRotator CamRot = GetViewRotation();
-	const float    FOV    = ViewFOV;
+	const float FOV = ViewFOV;
 
-	// Resolve anchor world position via the same path the solver uses —
+	// Resolve anchor world position via the same path the solver uses - 
 	// goes through the override-resolved EffectiveShot so HUD diagnostic
 	// matches what RunSolverAndDriveCamera actually sees (otherwise an
 	// override-driven section reads ActiveShot.Targets[*].Actor=None and
 	// the HUD shows UNRESOLVED even though the camera is moving correctly).
 	FVector AnchorWorldPos = FVector::ZeroVector;
 	FComposableCameraShot HUDEffectiveShot;
-	// HUD shows the AIM anchor (where the camera is looking) — that's the
+	// HUD shows the AIM anchor (where the camera is looking) - that's the
 	// hard rotation constraint and the most useful diagnostic. The
 	// PlacementAnchor is also rendered as a 3D gizmo via DrawNodeDebug.
 	const bool bAnchorOK =
 		BuildEffectiveShotForPreview(HUDEffectiveShot)
-		&& HUDEffectiveShot.Aim.AimAnchor.ResolveWorldPosition(
-			HUDEffectiveShot.Targets, AnchorWorldPos);
+		&& HUDEffectiveShot.Aim.AimAnchor.ResolveWorldPosition(HUDEffectiveShot.Targets, AnchorWorldPos);
 
-	// Project AimAnchor through current camera state — should land at
-	// (Aim.ScreenPosition.X, Aim.ScreenPosition.Y) in [-0.5, 0.5]² if
+	// Project AimAnchor through current camera state - should land at
+	// (Aim.ScreenPosition.X, Aim.ScreenPosition.Y) in [-0.5, 0.5] if
 	// solver and renderer agree (within 1-2 frame solver-converge lag in
 	// SolvedFromBoundsFit FOV mode).
 	FVector2D AnchorProjScreen(NAN, NAN);
-	bool      bAnchorInFront = false;
+	bool bAnchorInFront = false;
 	if (bAnchorOK)
 	{
 		const float TanHalfHOR = FMath::Tan(FMath::DegreesToRadians(FOV * 0.5f));
-		bAnchorInFront = ComposableCameraSystem::ProjectWorldPointToScreen(
-			AnchorWorldPos, CamPos, CamRot, TanHalfHOR, LiveAspect, AnchorProjScreen);
+		bAnchorInFront = ComposableCameraSystem::ProjectWorldPointToScreen(AnchorWorldPos, CamPos, CamRot, TanHalfHOR, LiveAspect, AnchorProjScreen);
 	}
 
-	// Layout — top-left, padding 8px. Line height ~14 for SmallFont.
+	// Layout - top-left, padding 8px. Line height ~14 for SmallFont.
 	auto DrawLine = [&Canvas, Font](int32 LineIdx, const FString& Text, const FLinearColor& Color = FLinearColor(0.95f, 0.95f, 1.f, 1.f))
 	{
 		FCanvasTextItem Item(FVector2D(8.f, 8.f + LineIdx * 14.f),
@@ -384,64 +377,56 @@ void FComposableCameraShotEditorViewportClient::DrawCanvas(
 	const FLinearColor Yellow(1.f, 0.95f, 0.55f, 1.f);
 
 	int32 L = 0;
-	DrawLine(L++, FString::Printf(
-		TEXT("Aspect Ratio (Live): %.4f        Viewport: %d x %d"),
+	DrawLine(L++, FString::Printf(TEXT("Aspect Ratio (Live): %.4f Viewport: %d x %d"),
 		LiveAspect, VPSize.X, VPSize.Y), Yellow);
-	DrawLine(L++, FString::Printf(
-		TEXT("Camera Position:     (%.1f, %.1f, %.1f)"),
+	DrawLine(L++, FString::Printf(TEXT("Camera Position: (%.1f, %.1f, %.1f)"),
 		CamPos.X, CamPos.Y, CamPos.Z), Gray);
-	DrawLine(L++, FString::Printf(
-		TEXT("Camera Rotation:     Pitch = %.2f, Yaw = %.2f, Roll = %.2f"),
+	DrawLine(L++, FString::Printf(TEXT("Camera Rotation: Pitch = %.2f, Yaw = %.2f, Roll = %.2f"),
 		CamRot.Pitch, CamRot.Yaw, CamRot.Roll), Gray);
-	DrawLine(L++, FString::Printf(
-		TEXT("Field of View:       %.3f deg"), FOV), Gray);
+	DrawLine(L++, FString::Printf(TEXT("Field of View: %.3f deg"), FOV), Gray);
 
 	if (bCachedDoFValid)
 	{
-		DrawLine(L++, FString::Printf(
-			TEXT("Focus / Aperture:    %.1f cm  /  f/%.2f  (36mm sensor)"),
+		DrawLine(L++, FString::Printf(TEXT("Focus / Aperture: %.1f cm / f/%.2f (36mm sensor)"),
 			CachedFocusDistance, CachedAperture), Gray);
 	}
 	else
 	{
 		DrawLine(L++,
-			TEXT("Focus / Aperture:    No valid solve (depth-of-field not driven)."),
+			TEXT("Focus / Aperture: No valid solve (depth-of-field not driven)."),
 			Gray);
 	}
 
 	if (bAnchorOK)
 	{
-		DrawLine(L++, FString::Printf(
-			TEXT("Aim Anchor (World):  (%.1f, %.1f, %.1f)"),
+		DrawLine(L++, FString::Printf(TEXT("Aim Anchor (World): (%.1f, %.1f, %.1f)"),
 			AnchorWorldPos.X, AnchorWorldPos.Y, AnchorWorldPos.Z), Gray);
 
 		const FVector2D AuthoredScreenPos = ActiveShot->Aim.ScreenPosition;
-		const FLinearColor ScreenColor = bAnchorInFront ? Yellow : FLinearColor(1.f, 0.4f, 0.4f, 1.f);
+		const FLinearColor ScreenColor = bAnchorInFront ? Yellow: FLinearColor(1.f, 0.4f, 0.4f, 1.f);
 
 		if (bAnchorInFront)
 		{
 			const FVector2D Drift = AnchorProjScreen - AuthoredScreenPos;
-			DrawLine(L++, FString::Printf(
-				TEXT("Aim Anchor (Screen): Projected = (%.4f, %.4f)   Authored = (%.4f, %.4f)   Drift = (%.4f, %.4f)"),
+			DrawLine(L++, FString::Printf(TEXT("Aim Anchor (Screen): Projected = (%.4f, %.4f) Authored = (%.4f, %.4f) Drift = (%.4f, %.4f)"),
 				AnchorProjScreen.X, AnchorProjScreen.Y,
 				AuthoredScreenPos.X, AuthoredScreenPos.Y,
 				Drift.X, Drift.Y), ScreenColor);
 		}
 		else
 		{
-			DrawLine(L++, FString::Printf(
-				TEXT("Aim Anchor (Screen): Behind camera   Authored = (%.4f, %.4f)"),
+			DrawLine(L++, FString::Printf(TEXT("Aim Anchor (Screen): Behind camera Authored = (%.4f, %.4f)"),
 				AuthoredScreenPos.X, AuthoredScreenPos.Y), ScreenColor);
 		}
 	}
 	else
 	{
 		DrawLine(L++,
-			TEXT("Aim Anchor:          Unresolved."),
+			TEXT("Aim Anchor: Unresolved."),
 			FLinearColor(1.f, 0.4f, 0.4f, 1.f));
 	}
 
-	// E.2: bottom-left "current Shot" summary strip — single line of the
+	// E.2: bottom-left "current Shot" summary strip - single line of the
 	// values designers iterate on most often (Mode + Distance + FOV + Roll),
 	// so the Details panel doesn't need to be open during rapid Drag-mode
 	// authoring. Distinguished from the top-left diagnostic HUD by position
@@ -454,13 +439,13 @@ void FComposableCameraShotEditorViewportClient::DrawCanvas(
 
 		// Distance is mode-relevant only in modes that read it; FixedWorldPosition
 		// ignores the field, so showing a number there would be misleading. The
-		// wheel handler (§23.13) and reverse-solve already gate on the same
+		// wheel handler (Section 23.13) and reverse-solve already gate on the same
 		// condition.
 		const bool bDistanceUsed =
 			ActiveShot->Placement.Mode != EShotPlacementMode::FixedWorldPosition;
 
-		// V2.2 damping readout — when an axis has DampingSpeed > 0 AND a
-		// valid prior cache, the strip shows `authored → effective` so
+		// V2.2 damping readout - when an axis has DampingSpeed > 0 AND a
+		// valid prior cache, the strip shows `authored -> effective` so
 		// designers can watch the IIR converge on screen. When the values
 		// match (or no prior yet), only the authored value is shown to
 		// keep the strip terse. Roll comparison uses NormalizeAxis on the
@@ -473,7 +458,7 @@ void FComposableCameraShotEditorViewportClient::DrawCanvas(
 			{
 				return FString::Printf(TEXT("%.1f%s"), Authored, Unit);
 			}
-			return FString::Printf(TEXT("%.1f → %.1f%s"), Authored, Effective, Unit);
+			return FString::Printf(TEXT("%.1f -> %.1f%s"), Authored, Effective, Unit);
 		};
 		auto FormatDampedRoll = [this](float Authored) -> FString
 		{
@@ -486,7 +471,7 @@ void FComposableCameraShotEditorViewportClient::DrawCanvas(
 			{
 				return FString::Printf(TEXT("%.1f deg"), Authored);
 			}
-			return FString::Printf(TEXT("%.1f → %.1f deg"), Authored, CachedPriorRoll);
+			return FString::Printf(TEXT("%.1f -> %.1f deg"), Authored, CachedPriorRoll);
 		};
 
 		const FString DistanceField = bDistanceUsed
@@ -508,13 +493,11 @@ void FComposableCameraShotEditorViewportClient::DrawCanvas(
 		const FString RollField = FString::Printf(TEXT("Roll: %s"),
 			*FormatDampedRoll(ActiveShot->Roll));
 
-		const FString StripText = FString::Printf(
-			TEXT("Mode: %s   |   %s   |   %s   |   %s"),
+		const FString StripText = FString::Printf(TEXT("Mode: %s | %s | %s | %s"),
 			ModeLabel, *DistanceField, *FOVField, *RollField);
 
 		const float StripY = static_cast<float>(VPSize.Y) - 14.f - 8.f;
-		FCanvasTextItem Strip(
-			FVector2D(8.f, StripY),
+		FCanvasTextItem Strip(FVector2D(8.f, StripY),
 			FText::FromString(StripText),
 			Font, FLinearColor(0.55f, 0.95f, 1.f, 1.f));
 		Strip.EnableShadow(FLinearColor::Black);
@@ -525,8 +508,7 @@ void FComposableCameraShotEditorViewportClient::DrawCanvas(
 	DrawHandles(InViewport, Canvas);
 }
 
-void FComposableCameraShotEditorViewportClient::Draw(
-	const FSceneView* View, FPrimitiveDrawInterface* PDI)
+void FComposableCameraShotEditorViewportClient::Draw(const FSceneView* View, FPrimitiveDrawInterface* PDI)
 {
 	FEditorViewportClient::Draw(View, PDI);
 
@@ -538,7 +520,7 @@ void FComposableCameraShotEditorViewportClient::Draw(
 	// Bounds visualization is only meaningful when the solver actually
 	// consumes bounds. Manual FOV mode reads `Lens.ManualFOV` directly and
 	// ignores per-target bounds entirely, so drawing wireframes there is
-	// pure visual noise — skip the whole pass.
+	// pure visual noise - skip the whole pass.
 	if (ActiveShot->Lens.FOVMode != EShotFOVMode::SolvedFromBoundsFit)
 	{
 		return;
@@ -552,10 +534,10 @@ void FComposableCameraShotEditorViewportClient::Draw(
 		return;
 	}
 
-	// Refresh AutoFromComponentBounds caches on the local copy — same idiom
-	// `RunSolverAndDriveCamera` uses (see §23.11 of EditorDesignDoc), so the
+	// Refresh AutoFromComponentBounds caches on the local copy - same idiom
+	// `RunSolverAndDriveCamera` uses (see Section 23.11 of EditorDesignDoc), so the
 	// debug viz reflects the *exact* extents the solver will read this frame.
-	for (FComposableCameraShotTarget& T : EffectiveShot.Targets)
+	for (FComposableCameraShotTarget& T: EffectiveShot.Targets)
 	{
 		if (T.BoundsShape == EShotTargetBoundsShape::AutoFromComponentBounds)
 		{
@@ -566,30 +548,30 @@ void FComposableCameraShotEditorViewportClient::Draw(
 	// Replicate `SolvePerceptualUnionBoxFOV`'s 8-vertex `bAllOnScreen` filter
 	// so the wire color tells the designer "is this box actually feeding the
 	// FOV solve, or being silently dropped?".
-	const FVector  CamPos = GetViewLocation();
+	const FVector CamPos = GetViewLocation();
 	const FRotator CamRot = GetViewRotation();
-	const FIntPoint VP    = Viewport->GetSizeXY();
-	const float    Aspect = (VP.Y > 0)
+	const FIntPoint VP = Viewport->GetSizeXY();
+	const float Aspect = (VP.Y > 0)
 		? static_cast<float>(VP.X) / static_cast<float>(VP.Y)
 		: 16.f / 9.f;
-	const float    TanH   = FMath::Tan(FMath::DegreesToRadians(ViewFOV * 0.5f));
+	const float TanH = FMath::Tan(FMath::DegreesToRadians(ViewFOV * 0.5f));
 
-	const FLinearColor ColorContributing(0.2f, 0.9f,  0.3f, 1.f);   // green
+	const FLinearColor ColorContributing(0.2f, 0.9f, 0.3f, 1.f); // green
 	const FLinearColor ColorDroppedOffscreen(1.f, 0.85f, 0.2f, 1.f); // yellow
-	constexpr float    Thickness = 1.5f;
+	constexpr float Thickness = 1.5f;
 
 	// Per-target selection for the bounds-fit solve uses the existing
 	// `BoundsShape` + `BoundsContributionWeight` per-target authoring:
-	//   - `BoundsShape == None`         → extent is zero, skip
-	//   - `BoundsContributionWeight ≤ 0`→ explicitly opted out, skip
-	//   - both pass                     → drawn (green if all 8 vertices in
-	//                                     front of camera, yellow if any
-	//                                     behind — solver's strict
-	//                                     `bAllOnScreen` check would drop
-	//                                     the target in the yellow case).
+	// - `BoundsShape == None` -> extent is zero, skip
+	// - `BoundsContributionWeight <= 0` -> explicitly opted out, skip
+	// - both pass->drawn (green if all 8 vertices in
+	// front of camera, yellow if any
+	// behind - solver's strict
+	// `bAllOnScreen` check would drop
+	// the target in the yellow case).
 	// Designer "selects which actors contribute" by toggling those two
 	// per-target fields; only the selected set draws here.
-	for (const FComposableCameraShotTarget& T : EffectiveShot.Targets)
+	for (const FComposableCameraShotTarget& T: EffectiveShot.Targets)
 	{
 		const FVector Extent = T.GetEffectiveBoundsExtent();
 		if (Extent.IsZero())
@@ -617,43 +599,38 @@ void FComposableCameraShotEditorViewportClient::Draw(
 		for (int32 v = 0; v < 8; ++v)
 		{
 			FVector2D Screen;
-			if (!ComposableCameraSystem::ProjectWorldPointToScreen(
-				Vertices[v], CamPos, CamRot, TanH, Aspect, Screen))
+			if (!ComposableCameraSystem::ProjectWorldPointToScreen(Vertices[v], CamPos, CamRot, TanH, Aspect, Screen))
 			{
 				bAllOnScreen = false;
 				break;
 			}
 		}
-		const FLinearColor& Color = bAllOnScreen ? ColorContributing : ColorDroppedOffscreen;
+		const FLinearColor& Color = bAllOnScreen ? ColorContributing: ColorDroppedOffscreen;
 
 		DrawWireBox(PDI, WorldBox, Color, SDPG_World, Thickness);
 	}
 }
 
-// ─── D.4 implementation ──────────────────────────────────────────────────
+// D.4 implementation 
 
-FVector2D FComposableCameraShotEditorViewportClient::NormalizedScreenToPixel(
-	const FVector2D& ScreenPos, const FIntPoint& VPSize) const
+FVector2D FComposableCameraShotEditorViewportClient::NormalizedScreenToPixel(const FVector2D& ScreenPos, const FIntPoint& VPSize) const
 {
-	// Solver convention: ScreenPos in [-0.5, 0.5]², +Y up.
-	// Pixel convention:  origin top-left, +Y down.
+	// Solver convention: ScreenPos in [-0.5, 0.5], +Y up.
+	// Pixel convention: origin top-left, +Y down.
 	return FVector2D(
 		(ScreenPos.X + 0.5f) * static_cast<float>(VPSize.X),
 		(0.5f - ScreenPos.Y) * static_cast<float>(VPSize.Y));
 }
 
-FVector2D FComposableCameraShotEditorViewportClient::PixelToNormalizedScreen(
-	int32 PixelX, int32 PixelY, const FIntPoint& VPSize) const
+FVector2D FComposableCameraShotEditorViewportClient::PixelToNormalizedScreen(int32 PixelX, int32 PixelY, const FIntPoint& VPSize) const
 {
 	const float W = static_cast<float>(FMath::Max(VPSize.X, 1));
 	const float H = static_cast<float>(FMath::Max(VPSize.Y, 1));
-	return FVector2D(
-		static_cast<float>(PixelX) / W - 0.5f,
+	return FVector2D(static_cast<float>(PixelX) / W - 0.5f,
 		0.5f - static_cast<float>(PixelY) / H);
 }
 
-void FComposableCameraShotEditorViewportClient::DrawHandles(
-	FViewport& InViewport, FCanvas& Canvas)
+void FComposableCameraShotEditorViewportClient::DrawHandles(FViewport& InViewport, FCanvas& Canvas)
 {
 	CachedHandles.Reset();
 	if (!ActiveShot)
@@ -664,22 +641,22 @@ void FComposableCameraShotEditorViewportClient::DrawHandles(
 	const FIntPoint VPSize = InViewport.GetSizeXY();
 
 	// Per-mode drawing rules:
-	//   - All modes draw handles at the LIVE PROJECTION of each anchor's
-	//     resolved world point through the current camera. This makes the
-	//     handle "follow the anchor's actor" — changing
-	//     `Placement.PlacementAnchor.TargetIndex` visibly moves the yellow
-	//     handle to wherever the new target projects, even before the
-	//     designer drags it.
-	//   - Exception: while a handle is *actively being dragged*, it
-	//     follows the cursor (which equals the just-written
-	//     `Placement.ScreenPosition` / `Aim.ScreenPosition`) so the drag
-	//     UX is responsive without a one-frame lag.
-	//   - Drag mode: full color, hit-tested. Free / Lock: greyed out,
-	//     non-interactive.
+	// - All modes draw handles at the LIVE PROJECTION of each anchor's
+	// resolved world point through the current camera. This makes the
+	// handle "follow the anchor's actor" - changing
+	// `Placement.PlacementAnchor.TargetIndex` visibly moves the yellow
+	// handle to wherever the new target projects, even before the
+	// designer drags it.
+	// - Exception: while a handle is *actively being dragged*, it
+	// follows the cursor (which equals the just-written
+	// `Placement.ScreenPosition` / `Aim.ScreenPosition`) so the drag
+	// UX is responsive without a one-frame lag.
+	// - Drag mode: full color, hit-tested. Free / Lock: greyed out,
+	// non-interactive.
 	const bool bInteractive = (CurrentMode == EShotEditorMode::Drag);
-	const bool bDisabled    = !bInteractive;
+	const bool bDisabled = !bInteractive;
 
-	// Aim handle is non-effective when AimMode == NoOp — render greyed +
+	// Aim handle is non-effective when AimMode == NoOp - render greyed +
 	// strip from the hit-test cache so dragging it can't write a value
 	// the solver will then ignore. The handle stays *visible* so the
 	// authored ScreenPosition is still readable; flipping AimMode back
@@ -695,22 +672,21 @@ void FComposableCameraShotEditorViewportClient::DrawHandles(
 	// hit-test so dragging can't write a silently-ignored value.
 	const bool bPlacementUsesScreenPos =
 		ActiveShot->Placement.Mode == EShotPlacementMode::AnchorAtScreen;
-	const bool bPlacementDisabled    = bDisabled || !bPlacementUsesScreenPos;
+	const bool bPlacementDisabled = bDisabled || !bPlacementUsesScreenPos;
 	const bool bPlacementInteractive = bInteractive && bPlacementUsesScreenPos;
 
 	UFont* HandleLabelFont = GEngine ? GEngine->GetSmallFont() : nullptr;
 
 	// Pre-compute camera state for live projection.
-	const FVector  CamPos = GetViewLocation();
+	const FVector CamPos = GetViewLocation();
 	const FRotator CamRot = GetViewRotation();
-	const float    LiveAspect = (VPSize.Y > 0)
+	const float LiveAspect = (VPSize.Y > 0)
 		? static_cast<float>(VPSize.X) / static_cast<float>(VPSize.Y)
 		: 16.f / 9.f;
-	const float    TanHalfHOR = FMath::Tan(FMath::DegreesToRadians(ViewFOV * 0.5f));
+	const float TanHalfHOR = FMath::Tan(FMath::DegreesToRadians(ViewFOV * 0.5f));
 
 	// Helper: draw filled circle + cross overlay at a given pixel pos.
-	auto DrawHandleAt = [&Canvas](
-		const FVector2D& PixelPos, float Radius, const FLinearColor& Fill, bool bWithCross)
+	auto DrawHandleAt = [&Canvas](const FVector2D& PixelPos, float Radius, const FLinearColor& Fill, bool bWithCross)
 	{
 		FCanvasNGonItem Disc(PixelPos, FVector2D(Radius, Radius), 24, Fill);
 		Canvas.DrawItem(Disc);
@@ -718,15 +694,13 @@ void FComposableCameraShotEditorViewportClient::DrawHandles(
 		if (bWithCross)
 		{
 			const float CrossArm = Radius * 0.55f;
-			FCanvasLineItem H(
-				FVector2D(PixelPos.X - CrossArm, PixelPos.Y),
+			FCanvasLineItem H(FVector2D(PixelPos.X - CrossArm, PixelPos.Y),
 				FVector2D(PixelPos.X + CrossArm, PixelPos.Y));
 			H.SetColor(kHandleCrossColor);
 			H.LineThickness = 1.5f;
 			Canvas.DrawItem(H);
 
-			FCanvasLineItem V(
-				FVector2D(PixelPos.X, PixelPos.Y - CrossArm),
+			FCanvasLineItem V(FVector2D(PixelPos.X, PixelPos.Y - CrossArm),
 				FVector2D(PixelPos.X, PixelPos.Y + CrossArm));
 			V.SetColor(kHandleCrossColor);
 			V.LineThickness = 1.5f;
@@ -737,11 +711,10 @@ void FComposableCameraShotEditorViewportClient::DrawHandles(
 	// Project the resolved anchor world point through the current camera.
 	// `AnchorAccessor` extracts the relevant anchor from the override-
 	// resolved EffectiveShot. Returns false (OutNorm untouched) when the
-	// anchor can't resolve or the world point is behind camera — caller
+	// anchor can't resolve or the world point is behind camera - caller
 	// falls back to the authored ScreenPosition in that case so the
 	// handle stays visible during transient unresolvable states.
-	auto ProjectAnchorWorld = [&](
-		auto AnchorAccessor, FVector2D& OutNorm) -> bool
+	auto ProjectAnchorWorld = [&](auto AnchorAccessor, FVector2D& OutNorm) -> bool
 	{
 		FComposableCameraShot EffectiveShot;
 		FVector AnchorWorld;
@@ -755,8 +728,7 @@ void FComposableCameraShotEditorViewportClient::DrawHandles(
 			return false;
 		}
 		FVector2D Projected;
-		if (!ComposableCameraSystem::ProjectWorldPointToScreen(
-			AnchorWorld, CamPos, CamRot, TanHalfHOR, LiveAspect, Projected))
+		if (!ComposableCameraSystem::ProjectWorldPointToScreen(AnchorWorld, CamPos, CamRot, TanHalfHOR, LiveAspect, Projected))
 		{
 			return false;
 		}
@@ -764,8 +736,7 @@ void FComposableCameraShotEditorViewportClient::DrawHandles(
 		return true;
 	};
 
-	auto DrawAnchorHandle = [&](
-		EHandleType HandleType,
+	auto DrawAnchorHandle = [&](EHandleType HandleType,
 		const FVector2D& AuthoredScreenPos,
 		auto AnchorAccessor,
 		const FLinearColor& AnchorColor,
@@ -773,20 +744,20 @@ void FComposableCameraShotEditorViewportClient::DrawHandles(
 		bool bHandleDisabled,
 		bool bHandleInteractive)
 	{
-		// V2.2: the disc represents the AUTHORED ScreenPosition — the
-		// designer's "I want the anchor here" target — so it always
+		// V2.2: the disc represents the AUTHORED ScreenPosition - the
+		// designer's "I want the anchor here" target - so it always
 		// renders at `AuthoredScreenPos`, regardless of whether zones
 		// are on or where the anchor currently projects. Drag mutates
 		// this same field, so the disc naturally tracks the cursor 1:1.
 		// The anchor's actual projected position (which can drift away
 		// from SP inside the dead zone) is shown as a separate read-only
-		// marker further down — only when zones are enabled, because
-		// zones-off keeps projection ≈ SP and the marker would just
+		// marker further down - only when zones are enabled, because
+		// zones-off keeps projection SP and the marker would just
 		// double-stamp the disc.
 		const FVector2D NormPos = AuthoredScreenPos;
 		const FVector2D PixelPos = NormalizedScreenToPixel(NormPos, VPSize);
 		// Anchor hover should only fire when the cursor is on the anchor's
-		// own disc — NOT when it's on one of the anchor's zone edges (which
+		// own disc - NOT when it's on one of the anchor's zone edges (which
 		// also share `HoveredHandleType == HandleType`). The `!bHoveredIsZoneEdge`
 		// guard separates the two so zone-edge hover doesn't visually inflate
 		// the anchor disc.
@@ -798,36 +769,33 @@ void FComposableCameraShotEditorViewportClient::DrawHandles(
 		// is the anchor disc itself, not a zone edge attached to this anchor.
 		const bool bDragging = ActiveDragHandleType == HandleType
 			&& !bActiveDragIsZoneEdge;
-		const FLinearColor Fill = bHandleDisabled ? kHandleDisabledColor : AnchorColor;
+		const FLinearColor Fill = bHandleDisabled ? kHandleDisabledColor: AnchorColor;
 		const float Radius = (bHovered || bDragging)
-			? kHandleAnchorRadius * kHandleHoverRadiusBoost
-			: kHandleAnchorRadius;
+			? kHandleAnchorRadius * kHandleHoverRadiusBoost: kHandleAnchorRadius;
 		DrawHandleAt(PixelPos, Radius, Fill, /*bWithCross=*/!bHandleDisabled);
 
-		// Centered label above the disc — same hue family as the handle but
+		// Centered label above the disc - same hue family as the handle but
 		// drops to the disabled grey when the handle is non-interactive so
 		// the visual coupling between text + disc is preserved.
 		if (HandleLabelFont && LabelText)
 		{
-			const FVector2D LabelPos(
-				PixelPos.X,
+			const FVector2D LabelPos(PixelPos.X,
 				PixelPos.Y - Radius - 14.f);
-			FCanvasTextItem Label(
-				LabelPos, FText::FromString(LabelText),
+			FCanvasTextItem Label(LabelPos, FText::FromString(LabelText),
 				HandleLabelFont, Fill);
 			Label.bCentreX = true;
 			Label.EnableShadow(FLinearColor::Black);
 			Canvas.DrawItem(Label);
 		}
 
-		// E.1: hover tooltip — when the cursor is over an interactive handle
+		// E.1: hover tooltip - when the cursor is over an interactive handle
 		// (Drag mode + mode-config that consumes ScreenPosition), show
 		// authored ScreenPosition + projected world position + Distance
 		// (Placement only) below-right of the disc. Designer doesn't need
 		// the Details panel open just to inspect anchor values during
 		// rapid composition iteration. Resolves the anchor world position
 		// inline because it's only computed on hover (rare, no hot-path
-		// concern) — keeps the lambda free of extra threaded outputs.
+		// concern) - keeps the lambda free of extra threaded outputs.
 		if (bHovered && HandleLabelFont)
 		{
 			FVector AnchorWorld = FVector::ZeroVector;
@@ -838,8 +806,7 @@ void FComposableCameraShotEditorViewportClient::DrawHandles(
 				{
 					const FComposableCameraAnchorSpec& Anchor =
 						AnchorAccessor(EffectiveShot);
-					bHaveWorld = Anchor.ResolveWorldPosition(
-						EffectiveShot.Targets, AnchorWorld);
+					bHaveWorld = Anchor.ResolveWorldPosition(EffectiveShot.Targets, AnchorWorld);
 				}
 			}
 
@@ -847,12 +814,10 @@ void FComposableCameraShotEditorViewportClient::DrawHandles(
 			Lines.Add(FString::Printf(TEXT("%s anchor"), LabelText));
 			if (HandleType == EHandleType::PlacementAnchor)
 			{
-				Lines.Add(FString::Printf(
-					TEXT("Distance: %.1f cm"),
+				Lines.Add(FString::Printf(TEXT("Distance: %.1f cm"),
 					ActiveShot->Placement.Distance));
 			}
-			Lines.Add(FString::Printf(
-				TEXT("Screen: (%.3f, %.3f)"),
+			Lines.Add(FString::Printf(TEXT("Screen: (%.3f, %.3f)"),
 				AuthoredScreenPos.X, AuthoredScreenPos.Y));
 			Lines.Add(bHaveWorld
 				? FString::Printf(TEXT("World: (%.0f, %.0f, %.0f)"),
@@ -861,10 +826,9 @@ void FComposableCameraShotEditorViewportClient::DrawHandles(
 
 			float TipY = PixelPos.Y + Radius + 6.f;
 			const float TipX = PixelPos.X + Radius + 6.f;
-			for (const FString& Line : Lines)
+			for (const FString& Line: Lines)
 			{
-				FCanvasTextItem Item(
-					FVector2D(TipX, TipY),
+				FCanvasTextItem Item(FVector2D(TipX, TipY),
 					FText::FromString(Line),
 					HandleLabelFont, Fill);
 				Item.EnableShadow(FLinearColor::Black);
@@ -876,23 +840,22 @@ void FComposableCameraShotEditorViewportClient::DrawHandles(
 		if (bHandleInteractive)
 		{
 			FHandleScreenPosCache AnchorCache;
-			AnchorCache.PixelPos    = PixelPos;
-			AnchorCache.Type        = HandleType;
+			AnchorCache.PixelPos = PixelPos;
+			AnchorCache.Type = HandleType;
 			AnchorCache.bIsZoneEdge = false;
 			// Anchor hit area = square inscribing the hit-test radius. Square
 			// (vs. true circle) keeps hit math uniform with edge entries while
 			// only marginally over-claiming the corner pixels.
-			AnchorCache.HitArea = FBox2D(
-				PixelPos - FVector2D(kHandleHitRadius, kHandleHitRadius),
+			AnchorCache.HitArea = FBox2D(PixelPos - FVector2D(kHandleHitRadius, kHandleHitRadius),
 				PixelPos + FVector2D(kHandleHitRadius, kHandleHitRadius));
 			CachedHandles.Add(AnchorCache);
 		}
 
-		// ─── Zone overlay (V2.2) ─────────────────────────────────────────
+		// Zone overlay (V2.2) 
 		//
 		// Centered on the anchor's current displayed pixel position. Drawing
 		// here (not in a separate pass) means the rects auto-track the anchor
-		// — both during projection-driven motion ("the actor moved") and
+		// - both during projection-driven motion ("the actor moved") and
 		// during an active anchor drag (PixelPos = cursor pos in that case).
 		// Resolves the zones data via accessor lambdas so we don't have to
 		// branch on HandleType inside the draw block.
@@ -913,7 +876,7 @@ void FComposableCameraShotEditorViewportClient::DrawHandles(
 			else if (HandleType == EHandleType::AimAnchor)
 			{
 				// AimZones is meaningless under `NoOp` (Aim layer doesn't
-				// read `ScreenPosition` at all) — same-rationale skip.
+				// read `ScreenPosition` at all) - same-rationale skip.
 				if (ActiveShot->Aim.Mode == EShotAimMode::NoOp)
 				{
 					return nullptr;
@@ -928,30 +891,28 @@ void FComposableCameraShotEditorViewportClient::DrawHandles(
 		{
 			// Zone center = ScreenPosition (the AUTHORED screen target,
 			// not the anchor's currently-projected position). Anchor
-			// floats inside the zone — its disc may sit anywhere within
+			// floats inside the zone - its disc may sit anywhere within
 			// the rect during a hold; the rect itself stays anchored to
-			// SP. Convert SP from normalized `[-0.5, 0.5]²` to pixel.
+			// SP. Convert SP from normalized `[-0.5, 0.5]` to pixel.
 			const FVector2D ZoneCenterPx = NormalizedScreenToPixel(AuthoredScreenPos, VPSize);
 
 			// Per-side pixel paddings. Normalized full-viewport span = 1.0
-			// (X) / 1.0 (Y), so pixel padding = padding_normalized × VPSize.
-			const float DeadLpx = Zones->DeadZone.Left   * VPSize.X;
-			const float DeadRpx = Zones->DeadZone.Right  * VPSize.X;
-			const float DeadTpx = Zones->DeadZone.Top    * VPSize.Y;   // top = +Y normalized = -Y pixel
+			// (X) / 1.0 (Y), so pixel padding = padding_normalized x VPSize.
+			const float DeadLpx = Zones->DeadZone.Left * VPSize.X;
+			const float DeadRpx = Zones->DeadZone.Right * VPSize.X;
+			const float DeadTpx = Zones->DeadZone.Top * VPSize.Y; // top = +Y normalized = -Y pixel
 			const float DeadBpx = Zones->DeadZone.Bottom * VPSize.Y;
-			const float SoftLpx = FMath::Max(Zones->SoftZone.Left,   Zones->DeadZone.Left)   * VPSize.X;
-			const float SoftRpx = FMath::Max(Zones->SoftZone.Right,  Zones->DeadZone.Right)  * VPSize.X;
-			const float SoftTpx = FMath::Max(Zones->SoftZone.Top,    Zones->DeadZone.Top)    * VPSize.Y;
+			const float SoftLpx = FMath::Max(Zones->SoftZone.Left, Zones->DeadZone.Left) * VPSize.X;
+			const float SoftRpx = FMath::Max(Zones->SoftZone.Right, Zones->DeadZone.Right) * VPSize.X;
+			const float SoftTpx = FMath::Max(Zones->SoftZone.Top, Zones->DeadZone.Top) * VPSize.Y;
 			const float SoftBpx = FMath::Max(Zones->SoftZone.Bottom, Zones->DeadZone.Bottom) * VPSize.Y;
 
 			// Pixel-space rectangles (top-left to bottom-right corners).
 			// "Top" in our normalized convention = +Y (upward) = numerically
 			// smaller pixel Y, so Dead's top-left pixel uses (-Left, -Top).
-			const FBox2D DeadRectPx(
-				FVector2D(ZoneCenterPx.X - DeadLpx, ZoneCenterPx.Y - DeadTpx),
+			const FBox2D DeadRectPx(FVector2D(ZoneCenterPx.X - DeadLpx, ZoneCenterPx.Y - DeadTpx),
 				FVector2D(ZoneCenterPx.X + DeadRpx, ZoneCenterPx.Y + DeadBpx));
-			const FBox2D SoftRectPx(
-				FVector2D(ZoneCenterPx.X - SoftLpx, ZoneCenterPx.Y - SoftTpx),
+			const FBox2D SoftRectPx(FVector2D(ZoneCenterPx.X - SoftLpx, ZoneCenterPx.Y - SoftTpx),
 				FVector2D(ZoneCenterPx.X + SoftRpx, ZoneCenterPx.Y + SoftBpx));
 
 			// Dead zone is intentionally unfilled now (see below). The
@@ -959,7 +920,7 @@ void FComposableCameraShotEditorViewportClient::DrawHandles(
 			// the LS overlay, which still references them through the
 			// shared draw helper signature; not used here.
 			const FLinearColor SoftFill = (HandleType == EHandleType::PlacementAnchor)
-				? kZoneSoftFillPlacement : kZoneSoftFillAim;
+				? kZoneSoftFillPlacement: kZoneSoftFillAim;
 
 			// Translucent rect tile helper. SE_BLEND_Translucent so multiple
 			// stacked panels (e.g. when both anchors' zones overlap) blend
@@ -970,45 +931,40 @@ void FComposableCameraShotEditorViewportClient::DrawHandles(
 				{
 					return;
 				}
-				FCanvasTileItem Tile(
-					Box.Min,
+				FCanvasTileItem Tile(Box.Min,
 					FVector2D(Box.GetSize().X, Box.GetSize().Y),
 					Color);
 				Tile.BlendMode = SE_BLEND_Translucent;
 				Canvas.DrawItem(Tile);
 			};
 
-			// ─── Soft "ring" — Soft − Dead area, four tiles ──────────────
+			// Soft "ring" - Soft Dead area, four tiles 
 			// Layout:
-			//   ┌──────────────────────────┐
-			//   │           TOP            │
-			//   ├──────┬────────────┬──────┤
-			//   │ LEFT │  (DEAD)    │ RIGHT│
-			//   ├──────┴────────────┴──────┤
-			//   │          BOTTOM          │
-			//   └──────────────────────────┘
-			// Top  spans full Soft width × (DeadTop − SoftTop) height.
-			// Bot  spans full Soft width × (SoftBottom − DeadBottom) height.
-			// Left spans (SoftLeft − DeadLeft) wide × Dead height.
-			// Right spans (SoftRight − DeadRight) wide × Dead height.
+			// 
+			// TOP 
+			// 
+			// LEFT (DEAD) RIGHT
+			// 
+			// BOTTOM 
+			// 
+			// Top spans full Soft width x (DeadTop SoftTop) height.
+			// Bot spans full Soft width x (SoftBottom DeadBottom) height.
+			// Left spans (SoftLeft DeadLeft) wide x Dead height.
+			// Right spans (SoftRight DeadRight) wide x Dead height.
 			// Each tile is no-op when the corresponding side has Dead == Soft
-			// (degenerate / authored matching values) — DrawFilledTile early
+			// (degenerate / authored matching values) - DrawFilledTile early
 			// outs on zero size.
-			DrawFilledTile(FBox2D(
-				FVector2D(SoftRectPx.Min.X, SoftRectPx.Min.Y),
+			DrawFilledTile(FBox2D(FVector2D(SoftRectPx.Min.X, SoftRectPx.Min.Y),
 				FVector2D(SoftRectPx.Max.X, DeadRectPx.Min.Y)), SoftFill);
-			DrawFilledTile(FBox2D(
-				FVector2D(SoftRectPx.Min.X, DeadRectPx.Max.Y),
+			DrawFilledTile(FBox2D(FVector2D(SoftRectPx.Min.X, DeadRectPx.Max.Y),
 				FVector2D(SoftRectPx.Max.X, SoftRectPx.Max.Y)), SoftFill);
-			DrawFilledTile(FBox2D(
-				FVector2D(SoftRectPx.Min.X, DeadRectPx.Min.Y),
+			DrawFilledTile(FBox2D(FVector2D(SoftRectPx.Min.X, DeadRectPx.Min.Y),
 				FVector2D(DeadRectPx.Min.X, DeadRectPx.Max.Y)), SoftFill);
-			DrawFilledTile(FBox2D(
-				FVector2D(DeadRectPx.Max.X, DeadRectPx.Min.Y),
+			DrawFilledTile(FBox2D(FVector2D(DeadRectPx.Max.X, DeadRectPx.Min.Y),
 				FVector2D(SoftRectPx.Max.X, DeadRectPx.Max.Y)), SoftFill);
 
-			// ─── Dead inner — intentionally NOT filled ─────────────────
-			// Visually "empty" inside the dead zone — the soft ring frames
+			// Dead inner - intentionally NOT filled 
+			// Visually "empty" inside the dead zone - the soft ring frames
 			// the area without obscuring whatever the camera is currently
 			// holding on. Edges remain interactive: `CacheZoneEdges` below
 			// still pushes hit areas for L/R/T/B of the dead rect, so
@@ -1018,7 +974,7 @@ void FComposableCameraShotEditorViewportClient::DrawHandles(
 			// touch" without competing with the framed subject for
 			// attention.
 
-			// ─── Edge hit-cache + hover/drag highlight lines ───────────
+			// Edge hit-cache + hover/drag highlight lines 
 			// Each enabled zone contributes 4 edge entries (L/R/T/B).
 			// `EdgeRect(rect, edge)` is a thin rect along the matching
 			// side of `rect`, `kZoneEdgeHitThickness` perpendicular.
@@ -1027,16 +983,16 @@ void FComposableCameraShotEditorViewportClient::DrawHandles(
 				const float HitHalf = kZoneEdgeHitThickness * 0.5f;
 				switch (EdgeIndex)
 				{
-				case 0: return FBox2D(   // Left edge — vertical at Rect.Min.X
+				case 0: return FBox2D( // Left edge - vertical at Rect.Min.X
 					FVector2D(Rect.Min.X - HitHalf, Rect.Min.Y),
 					FVector2D(Rect.Min.X + HitHalf, Rect.Max.Y));
-				case 1: return FBox2D(   // Right edge — vertical at Rect.Max.X
+				case 1: return FBox2D( // Right edge - vertical at Rect.Max.X
 					FVector2D(Rect.Max.X - HitHalf, Rect.Min.Y),
 					FVector2D(Rect.Max.X + HitHalf, Rect.Max.Y));
-				case 2: return FBox2D(   // Top edge — horizontal at Rect.Min.Y
+				case 2: return FBox2D( // Top edge - horizontal at Rect.Min.Y
 					FVector2D(Rect.Min.X, Rect.Min.Y - HitHalf),
 					FVector2D(Rect.Max.X, Rect.Min.Y + HitHalf));
-				case 3: return FBox2D(   // Bottom edge — horizontal at Rect.Max.Y
+				case 3: return FBox2D( // Bottom edge - horizontal at Rect.Max.Y
 					FVector2D(Rect.Min.X, Rect.Max.Y - HitHalf),
 					FVector2D(Rect.Max.X, Rect.Max.Y + HitHalf));
 				}
@@ -1048,7 +1004,7 @@ void FComposableCameraShotEditorViewportClient::DrawHandles(
 				for (int32 Edge = 0; Edge < 4; ++Edge)
 				{
 					FHandleScreenPosCache EdgeCache;
-					// Center of the edge — used as anchor for tooltips /
+					// Center of the edge - used as anchor for tooltips /
 					// the highlight line midpoint.
 					switch (Edge)
 					{
@@ -1057,14 +1013,14 @@ void FComposableCameraShotEditorViewportClient::DrawHandles(
 					case 2: EdgeCache.PixelPos = FVector2D((Rect.Min.X + Rect.Max.X) * 0.5f, Rect.Min.Y); break;
 					case 3: EdgeCache.PixelPos = FVector2D((Rect.Min.X + Rect.Max.X) * 0.5f, Rect.Max.Y); break;
 					}
-					EdgeCache.Type        = HandleType;
+					EdgeCache.Type = HandleType;
 					EdgeCache.bIsZoneEdge = true;
 					EdgeCache.bIsSoftZone = bSoft;
-					EdgeCache.EdgeIndex   = Edge;
-					EdgeCache.HitArea     = EdgeRect(Rect, Edge);
+					EdgeCache.EdgeIndex = Edge;
+					EdgeCache.HitArea = EdgeRect(Rect, Edge);
 					CachedHandles.Add(EdgeCache);
 
-					// Hover / drag highlight — single thin line along the
+					// Hover / drag highlight - single thin line along the
 					// edge so the designer sees which edge they're about
 					// to grab. Resting state has no border (just the
 					// translucent fills above).
@@ -1093,7 +1049,7 @@ void FComposableCameraShotEditorViewportClient::DrawHandles(
 						Highlight.LineThickness = kZoneEdgeHighlightThickness;
 						Canvas.DrawItem(Highlight);
 
-						// Numeric label — show the active padding value
+						// Numeric label - show the active padding value
 						// for the hovered/dragged edge so designers can
 						// dial precise sizes without opening the Details
 						// panel. Resolved inline from the (Zones, bSoft,
@@ -1101,18 +1057,17 @@ void FComposableCameraShotEditorViewportClient::DrawHandles(
 						if (HandleLabelFont)
 						{
 							const FShotScreenZonePadding& Pad =
-								bSoft ? Zones->SoftZone : Zones->DeadZone;
+								bSoft ? Zones->SoftZone: Zones->DeadZone;
 							float PadValue = 0.f;
 							const TCHAR* SideLabel = TEXT("");
 							switch (Edge)
 							{
-							case 0: PadValue = Pad.Left;   SideLabel = TEXT("L"); break;
-							case 1: PadValue = Pad.Right;  SideLabel = TEXT("R"); break;
-							case 2: PadValue = Pad.Top;    SideLabel = TEXT("T"); break;
+							case 0: PadValue = Pad.Left; SideLabel = TEXT("L"); break;
+							case 1: PadValue = Pad.Right; SideLabel = TEXT("R"); break;
+							case 2: PadValue = Pad.Top; SideLabel = TEXT("T"); break;
 							case 3: PadValue = Pad.Bottom; SideLabel = TEXT("B"); break;
 							}
-							const FString LabelText = FString::Printf(
-								TEXT("%s %s: %.3f"),
+							const FString LabelText = FString::Printf(TEXT("%s %s: %.3f"),
 								bSoft ? TEXT("Soft") : TEXT("Dead"),
 								SideLabel, PadValue);
 
@@ -1124,12 +1079,11 @@ void FComposableCameraShotEditorViewportClient::DrawHandles(
 							switch (Edge)
 							{
 							case 0: LabelOffset = FVector2D(-72.f, -7.f); break;
-							case 1: LabelOffset = FVector2D(  6.f, -7.f); break;
-							case 2: LabelOffset = FVector2D(  6.f, -18.f); break;
-							case 3: LabelOffset = FVector2D(  6.f,   4.f); break;
+							case 1: LabelOffset = FVector2D(6.f, -7.f); break;
+							case 2: LabelOffset = FVector2D(6.f, -18.f); break;
+							case 3: LabelOffset = FVector2D(6.f, 4.f); break;
 							}
-							FCanvasTextItem Label(
-								EdgeMid + LabelOffset,
+							FCanvasTextItem Label(EdgeMid + LabelOffset,
 								FText::FromString(LabelText),
 								HandleLabelFont, kZoneEdgeHighlightColor);
 							Label.EnableShadow(FLinearColor::Black);
@@ -1141,18 +1095,18 @@ void FComposableCameraShotEditorViewportClient::DrawHandles(
 
 			// Cache push order matters: HitTestHandles iterates in reverse
 			// so the LAST-pushed entry wins on overlap. Push soft first
-			// (outer edges), then dead (inner edges) — when a click could
-			// hit either (Soft-side ≈ Dead-side, e.g. authored matching),
+			// (outer edges), then dead (inner edges) - when a click could
+			// hit either (Soft-side Dead-side, e.g. authored matching),
 			// the dead edge wins, matching the visual "smaller rect on top".
 			CacheZoneEdges(SoftRectPx, /*bSoft=*/true);
 			CacheZoneEdges(DeadRectPx, /*bSoft=*/false);
 
-			// ─── Live-position marker — anchor's projected pixel ──────
+			// Live-position marker - anchor's projected pixel 
 			// The main disc (filled, drawn earlier) sits at the AUTHORED
 			// ScreenPosition (drag target). This second marker shows
-			// where the anchor IS this frame — its world point projected
+			// where the anchor IS this frame - its world point projected
 			// through the live camera. Inside the dead zone the two
-			// drift apart; outside they converge. Read-only — no hit
+			// drift apart; outside they converge. Read-only - no hit
 			// area, no drag, smaller than the main disc, half-alpha.
 			{
 				FVector2D ProjNorm;
@@ -1160,30 +1114,26 @@ void FComposableCameraShotEditorViewportClient::DrawHandles(
 				{
 					const FVector2D ProjPx = NormalizedScreenToPixel(ProjNorm, VPSize);
 					constexpr float kProjRingRadius = 5.f;
-					constexpr float kProjCrossArm   = 4.f;
-					const FLinearColor ProjColor(
-						AnchorColor.R, AnchorColor.G, AnchorColor.B, 0.55f);
+					constexpr float kProjCrossArm = 4.f;
+					const FLinearColor ProjColor(AnchorColor.R, AnchorColor.G, AnchorColor.B, 0.55f);
 
 					constexpr int32 kProjRingSegs = 16;
 					FVector2D PrevPt(ProjPx.X + kProjRingRadius, ProjPx.Y);
 					for (int32 s = 1; s <= kProjRingSegs; ++s)
 					{
 						const float T = (s / static_cast<float>(kProjRingSegs)) * 2.f * PI;
-						const FVector2D Pt(
-							ProjPx.X + FMath::Cos(T) * kProjRingRadius,
+						const FVector2D Pt(ProjPx.X + FMath::Cos(T) * kProjRingRadius,
 							ProjPx.Y + FMath::Sin(T) * kProjRingRadius);
 						FCanvasLineItem Seg(PrevPt, Pt);
 						Seg.SetColor(ProjColor); Seg.LineThickness = 1.f;
 						Canvas.DrawItem(Seg);
 						PrevPt = Pt;
 					}
-					FCanvasLineItem H(
-						FVector2D(ProjPx.X - kProjCrossArm, ProjPx.Y),
+					FCanvasLineItem H(FVector2D(ProjPx.X - kProjCrossArm, ProjPx.Y),
 						FVector2D(ProjPx.X + kProjCrossArm, ProjPx.Y));
 					H.SetColor(ProjColor); H.LineThickness = 1.f;
 					Canvas.DrawItem(H);
-					FCanvasLineItem V(
-						FVector2D(ProjPx.X, ProjPx.Y - kProjCrossArm),
+					FCanvasLineItem V(FVector2D(ProjPx.X, ProjPx.Y - kProjCrossArm),
 						FVector2D(ProjPx.X, ProjPx.Y + kProjCrossArm));
 					V.SetColor(ProjColor); V.LineThickness = 1.f;
 					Canvas.DrawItem(V);
@@ -1197,8 +1147,7 @@ void FComposableCameraShotEditorViewportClient::DrawHandles(
 
 	// Placement anchor handle (yellow). Greyed out + non-interactive when
 	// OrbitMode == ByDirection (ScreenPosition unused).
-	DrawAnchorHandle(
-		EHandleType::PlacementAnchor,
+	DrawAnchorHandle(EHandleType::PlacementAnchor,
 		ActiveShot->Placement.ScreenPosition,
 		[](const FComposableCameraShot& S) -> const FComposableCameraAnchorSpec&
 		{ return S.Placement.PlacementAnchor; },
@@ -1208,8 +1157,7 @@ void FComposableCameraShotEditorViewportClient::DrawHandles(
 		bPlacementInteractive);
 
 	// Aim anchor handle (cyan). Greyed out + non-interactive when AimMode == NoOp.
-	DrawAnchorHandle(
-		EHandleType::AimAnchor,
+	DrawAnchorHandle(EHandleType::AimAnchor,
 		ActiveShot->Aim.ScreenPosition,
 		[](const FComposableCameraShot& S) -> const FComposableCameraAnchorSpec&
 		{ return S.Aim.AimAnchor; },
@@ -1219,8 +1167,7 @@ void FComposableCameraShotEditorViewportClient::DrawHandles(
 		bAimInteractive);
 }
 
-bool FComposableCameraShotEditorViewportClient::HitTestHandles(
-	int32 PixelX, int32 PixelY,
+bool FComposableCameraShotEditorViewportClient::HitTestHandles(int32 PixelX, int32 PixelY,
 	FHandleScreenPosCache& OutHit) const
 {
 	// Iterate in reverse so handles drawn last (z-top in our DrawHandles
@@ -1253,18 +1200,18 @@ void FComposableCameraShotEditorViewportClient::ApplyDragToShot(int32 PixelX, in
 
 	const FIntPoint VPSize = Viewport->GetSizeXY();
 
-	// ─── Zone-edge drag: cursor distance from SP center → new padding ───
+	// Zone-edge drag: cursor distance from SP center -> new padding 
 	//
 	// Single-side semantics: each edge mutates exactly one of the four
 	// padding scalars (Left / Right / Top / Bottom) on either dead or
 	// soft zone. Zones are centered on `ScreenPosition` (NOT on anchor's
-	// projected pixel), so the drag math anchors to SP's pixel — same
+	// projected pixel), so the drag math anchors to SP's pixel - same
 	// reference the renderer uses, so the dragged edge lands exactly
 	// under the cursor.
 	if (bActiveDragIsZoneEdge)
 	{
 		// Resolve which zones struct to mutate (matches DrawAnchorHandle's
-		// ResolveZones logic — zones-edge drags can only fire when zones
+		// ResolveZones logic - zones-edge drags can only fire when zones
 		// are interactive, but keep the null check for defense).
 		FShotScreenZones* Zones = nullptr;
 		FVector2D AuthoredSP(0.f, 0.f);
@@ -1288,40 +1235,40 @@ void FComposableCameraShotEditorViewportClient::ApplyDragToShot(int32 PixelX, in
 		const FVector2D ZoneCenterPx = NormalizedScreenToPixel(AuthoredSP, VPSize);
 		const float DXpx = static_cast<float>(PixelX) - ZoneCenterPx.X;
 		const float DYpx = static_cast<float>(PixelY) - ZoneCenterPx.Y;
-		const float VPWidth  = FMath::Max(static_cast<float>(VPSize.X), 1.f);
+		const float VPWidth = FMath::Max(static_cast<float>(VPSize.X), 1.f);
 		const float VPHeight = FMath::Max(static_cast<float>(VPSize.Y), 1.f);
 
 		// Convert per-side cursor offset to a single normalized padding.
 		// Padding is always non-negative; the matching axis sign on the
 		// cursor offset determines whether the cursor is on the correct
-		// side of SP at all (negative ⇒ collapse padding to 0). Clamp to
+		// side of SP at all (negative collapse padding to 0). Clamp to
 		// [0, 0.5] = at most half a viewport per side.
-		FShotScreenZonePadding& Active = ActiveDragZoneIsSoft ? Zones->SoftZone : Zones->DeadZone;
-		FShotScreenZonePadding& Other  = ActiveDragZoneIsSoft ? Zones->DeadZone : Zones->SoftZone;
+		FShotScreenZonePadding& Active = ActiveDragZoneIsSoft ? Zones->SoftZone: Zones->DeadZone;
+		FShotScreenZonePadding& Other = ActiveDragZoneIsSoft ? Zones->DeadZone: Zones->SoftZone;
 		float NewPad = 0.f;
 		float* ActivePadPtr = nullptr;
-		float* OtherPadPtr  = nullptr;
+		float* OtherPadPtr = nullptr;
 		switch (ActiveDragZoneEdgeIndex)
 		{
-		case 0: // Left  — cursor must be to the LEFT of SP (DXpx < 0)
+		case 0: // Left - cursor must be to the LEFT of SP (DXpx < 0)
 			NewPad = FMath::Clamp(-DXpx / VPWidth, 0.f, 0.5f);
 			ActivePadPtr = &Active.Left;
-			OtherPadPtr  = &Other.Left;
+			OtherPadPtr = &Other.Left;
 			break;
-		case 1: // Right — cursor must be to the RIGHT of SP (DXpx > 0)
+		case 1: // Right - cursor must be to the RIGHT of SP (DXpx > 0)
 			NewPad = FMath::Clamp(DXpx / VPWidth, 0.f, 0.5f);
 			ActivePadPtr = &Active.Right;
-			OtherPadPtr  = &Other.Right;
+			OtherPadPtr = &Other.Right;
 			break;
-		case 2: // Top   — cursor must be ABOVE SP (DYpx < 0, +Y normalized = top)
+		case 2: // Top - cursor must be ABOVE SP (DYpx < 0, +Y normalized = top)
 			NewPad = FMath::Clamp(-DYpx / VPHeight, 0.f, 0.5f);
 			ActivePadPtr = &Active.Top;
-			OtherPadPtr  = &Other.Top;
+			OtherPadPtr = &Other.Top;
 			break;
 		case 3: // Bottom
 			NewPad = FMath::Clamp(DYpx / VPHeight, 0.f, 0.5f);
 			ActivePadPtr = &Active.Bottom;
-			OtherPadPtr  = &Other.Bottom;
+			OtherPadPtr = &Other.Bottom;
 			break;
 		default:
 			return;
@@ -1329,14 +1276,14 @@ void FComposableCameraShotEditorViewportClient::ApplyDragToShot(int32 PixelX, in
 		check(ActivePadPtr && OtherPadPtr);
 		*ActivePadPtr = NewPad;
 
-		// Enforce the dead ≤ soft invariant on the same side only. Dragging
+		// Enforce the dead <= soft invariant on the same side only. Dragging
 		// soft below dead pulls dead inward; dragging dead past soft pushes
-		// soft outward. Other three sides are untouched — that's the whole
+		// soft outward. Other three sides are untouched - that's the whole
 		// point of the asymmetric padding model.
 		if (ActiveDragZoneIsSoft)
 		{
 			// Active = Soft side; Other = Dead side. Soft >= Dead invariant
-			// ⇒ pull Dead down to NewPad if Dead was larger.
+			// pull Dead down to NewPad if Dead was larger.
 			*OtherPadPtr = FMath::Min(*OtherPadPtr, NewPad);
 		}
 		else
@@ -1345,12 +1292,12 @@ void FComposableCameraShotEditorViewportClient::ApplyDragToShot(int32 PixelX, in
 			*OtherPadPtr = FMath::Max(*OtherPadPtr, NewPad);
 		}
 
-		// Shift-symmetric drag — when the user holds Shift, mirror the
-		// edited padding onto the opposite side of the same axis (Left ↔
-		// Right or Top ↔ Bottom). Cinemachine has the same modifier; the
+		// Shift-symmetric drag - when the user holds Shift, mirror the
+		// edited padding onto the opposite side of the same axis (Left 
+		// Right or Top Bottom). Cinemachine has the same modifier; the
 		// expected designer flow is "default to single-side, hold Shift
 		// when I want a centered zone". Modifier read is one Slate query
-		// per frame during a drag — cheap. The opposite-side update goes
+		// per frame during a drag - cheap. The opposite-side update goes
 		// through the same dead/soft invariant clamp, with the *opposite*
 		// pad as the active side now (so the invariant is enforced on
 		// both sides of the axis).
@@ -1359,13 +1306,13 @@ void FComposableCameraShotEditorViewportClient::ApplyDragToShot(int32 PixelX, in
 		if (bShiftHeld)
 		{
 			float* MirrorActivePtr = nullptr;
-			float* MirrorOtherPtr  = nullptr;
+			float* MirrorOtherPtr = nullptr;
 			switch (ActiveDragZoneEdgeIndex)
 			{
-			case 0: MirrorActivePtr = &Active.Right;  MirrorOtherPtr = &Other.Right;  break;  // Left  ↔ Right
-			case 1: MirrorActivePtr = &Active.Left;   MirrorOtherPtr = &Other.Left;   break;
-			case 2: MirrorActivePtr = &Active.Bottom; MirrorOtherPtr = &Other.Bottom; break;  // Top   ↔ Bottom
-			case 3: MirrorActivePtr = &Active.Top;    MirrorOtherPtr = &Other.Top;    break;
+			case 0: MirrorActivePtr = &Active.Right; MirrorOtherPtr = &Other.Right; break; // Left Right
+			case 1: MirrorActivePtr = &Active.Left; MirrorOtherPtr = &Other.Left; break;
+			case 2: MirrorActivePtr = &Active.Bottom; MirrorOtherPtr = &Other.Bottom; break; // Top Bottom
+			case 3: MirrorActivePtr = &Active.Top; MirrorOtherPtr = &Other.Top; break;
 			}
 			if (MirrorActivePtr && MirrorOtherPtr)
 			{
@@ -1380,7 +1327,7 @@ void FComposableCameraShotEditorViewportClient::ApplyDragToShot(int32 PixelX, in
 				}
 			}
 		}
-		// Same Sequencer-respawn rationale as the anchor drag below — skip
+		// Same Sequencer-respawn rationale as the anchor drag below - skip
 		// per-frame PostEditChangeProperty.
 		return;
 	}
@@ -1400,7 +1347,7 @@ void FComposableCameraShotEditorViewportClient::ApplyDragToShot(int32 PixelX, in
 
 	// Skip per-frame PostEditChangeProperty(Interactive). For a section host,
 	// firing this every mouse move triggers Sequencer's section-edit listener
-	// chain, which transiently resets the source SK's bone array — that
+	// chain, which transiently resets the source SK's bone array - that
 	// surfaces as a one-frame A-pose flash on the preview proxy each frame
 	// of the drag. The solver reads `ActiveShot` directly each tick, so the
 	// live drag visualization is unaffected. The final ValueSet notification
@@ -1415,7 +1362,7 @@ void FComposableCameraShotEditorViewportClient::EndDrag()
 		return;
 	}
 
-	// Final commit — ValueSet change type so host listeners that distinguish
+	// Final commit - ValueSet change type so host listeners that distinguish
 	// "live drag" from "settled value" (e.g. expensive caches) update only
 	// at the end.
 	if (UObject* Host = ActiveHost.Get())
@@ -1427,13 +1374,13 @@ void FComposableCameraShotEditorViewportClient::EndDrag()
 		}
 	}
 
-	// Drop the transaction — destructor closes it; undo system records the
+	// Drop the transaction - destructor closes it; undo system records the
 	// whole drag as a single step from start (Modify call) to here.
 	DragTransaction.Reset();
 
-	ActiveDragHandleType    = EHandleType::None;
-	bActiveDragIsZoneEdge   = false;
-	ActiveDragZoneIsSoft    = false;
+	ActiveDragHandleType = EHandleType::None;
+	bActiveDragIsZoneEdge = false;
+	ActiveDragZoneIsSoft = false;
 	ActiveDragZoneEdgeIndex = -1;
 }
 
@@ -1442,23 +1389,22 @@ void FComposableCameraShotEditorViewportClient::StartRollDrag()
 	if (!ActiveShot || !Viewport || bRollDragActive
 		|| ActiveDragHandleType != EHandleType::None)
 	{
-		return;   // can't start — no Shot, or already mid-gesture
+		return; // can't start - no Shot, or already mid-gesture
 	}
 
-	RollTransaction = MakeUnique<FScopedTransaction>(
-		LOCTEXT("DragShotRoll", "Drag Shot Roll"));
+	RollTransaction = MakeUnique<FScopedTransaction>(LOCTEXT("DragShotRoll", "Drag Shot Roll"));
 	if (UObject* Host = ActiveHost.Get())
 	{
 		// Same SaveToTransactionBuffer-bypass-Modify pattern as the LMB
-		// handle drag (see InputKey LMB branch + TechDoc §7.2). For a
+		// handle drag (see InputKey LMB branch + TechDoc Section 7.2). For a
 		// Sequencer Section host, `Modify()` broadcasts OnObjectModified
-		// → Sequencer invalidates eval cache → Spawnable re-spawn →
+		// -> Sequencer invalidates eval cache -> Spawnable re-spawn -> 
 		// one-frame A-pose flash on every mid-drag write. The bypass
 		// records the undo snapshot only; EndRollDrag's
 		// PostEditChangeProperty(ValueSet) is the single broadcast.
 		SaveToTransactionBuffer(Host, /*bMarkDirty=*/false);
 	}
-	bRollDragActive    = true;
+	bRollDragActive = true;
 	RollDragLastMouseX = Viewport->GetMouseX();
 }
 
@@ -1469,18 +1415,17 @@ void FComposableCameraShotEditorViewportClient::ApplyRollDrag(int32 PixelX)
 		return;
 	}
 
-	// 0.5°/pixel matches the perceived "feel" of base RMB-look's yaw
-	// rate on a default 1920-wide viewport — quarter-width drag (~480 px)
-	// gives ~240° of Roll, full-width drag wraps. Per-pixel rate feels
+	// 0.5 deg/pixel matches the perceived "feel" of base RMB-look's yaw
+	// rate on a default 1920-wide viewport - quarter-width drag (~480 px)
+	// gives ~240 deg of Roll, full-width drag wraps. Per-pixel rate feels
 	// right for both fine adjustments and large rolls.
 	constexpr float RollDegPerPixel = 0.5f;
 
 	const int32 DeltaX = PixelX - RollDragLastMouseX;
 	if (DeltaX != 0)
 	{
-		ActiveShot->Roll = FMath::UnwindDegrees(
-			ActiveShot->Roll + DeltaX * RollDegPerPixel);
-		// No PostEditChangeProperty(Interactive) per frame — same
+		ActiveShot->Roll = FMath::UnwindDegrees(ActiveShot->Roll + DeltaX * RollDegPerPixel);
+		// No PostEditChangeProperty(Interactive) per frame - same
 		// rationale as ApplyDragToShot. Drag mode picks up Shot.Roll
 		// via the per-tick solver; Free mode picks it up via the
 		// view.Roll = Shot.Roll sync at the end of
@@ -1519,7 +1464,7 @@ bool FComposableCameraShotEditorViewportClient::TryAdjustDistanceFromMouseWheel(
 
 	// Only AnchorOrbit / AnchorAtScreen consume Distance in the forward
 	// solver. FixedWorldPosition reads `Placement.FixedWorldPosition`
-	// directly and ignores Distance entirely — bumping it would silently
+	// directly and ignores Distance entirely - bumping it would silently
 	// edit a hidden field with no visible effect, so refuse the wheel
 	// instead.
 	const EShotPlacementMode Mode = ActiveShot->Placement.Mode;
@@ -1529,17 +1474,17 @@ bool FComposableCameraShotEditorViewportClient::TryAdjustDistanceFromMouseWheel(
 		return false;
 	}
 
-	// Multiplicative zoom — feels uniform across distance ranges (a
+	// Multiplicative zoom - feels uniform across distance ranges (a
 	// click at 10 m moves by ~1 m; a click at 1 m moves by ~10 cm).
 	// Scroll up = zoom in (distance shrinks); scroll down = zoom out.
-	// Default 1.1× per click matches PIE / Persona / standard editor
+	// Default 1.1x per click matches PIE / Persona / standard editor
 	// viewport wheel dolly. Modifier keys scale the per-click *step*
-	// (≡ factor − 1) to match DCC convention so a single rate doesn't
-	// feel coarse-or-tedious depending on geometry scale: Shift = 5×
-	// step (factor 1.5, ~50% per click) for fast traversal; Ctrl = 0.2×
+	// (factor 1) to match DCC convention so a single rate doesn't
+	// feel coarse-or-tedious depending on geometry scale: Shift = 5x
+	// step (factor 1.5, ~50% per click) for fast traversal; Ctrl = 0.2x
 	// step (factor 1.02, ~2% per click) for fine framing. Holding both
-	// (or neither) falls back to the default — composing the two is
-	// ambiguous (1× of default ≡ default), and refusing to disambiguate
+	// (or neither) falls back to the default - composing the two is
+	// ambiguous (1x of default default), and refusing to disambiguate
 	// is safer than picking arbitrarily.
 	const bool bShiftHeld = Viewport
 		&& (Viewport->KeyState(EKeys::LeftShift) || Viewport->KeyState(EKeys::RightShift));
@@ -1550,20 +1495,18 @@ bool FComposableCameraShotEditorViewportClient::TryAdjustDistanceFromMouseWheel(
 
 	const float OldDistance = ActiveShot->Placement.Distance;
 	const float NewDistance = bScrollUp
-		? OldDistance / ZoomFactor
-		: OldDistance * ZoomFactor;
+		? OldDistance / ZoomFactor: OldDistance * ZoomFactor;
 	// Clamp to the canonical authoring range. Lower bound matches the
 	// solver's pre-flight floor (1cm); upper bound is the 100m soft cap
 	// against scroll-spam (Shift+wheel reaches 1e9 in ~10 clicks
 	// otherwise). UPROPERTY meta clamps the Details-panel slider to the
-	// same range, but meta doesn't enforce on direct field writes —
+	// same range, but meta doesn't enforce on direct field writes - 
 	// gesture writers must opt in explicitly.
-	const float ClampedDistance = FMath::Clamp(
-		NewDistance, FShotPlacement::MinDistance, FShotPlacement::MaxDistance);
+	const float ClampedDistance = FMath::Clamp(NewDistance, FShotPlacement::MinDistance, FShotPlacement::MaxDistance);
 
 	if (FMath::IsNearlyEqual(ClampedDistance, OldDistance))
 	{
-		// Already at the floor and trying to shrink further — no-op,
+		// Already at the floor and trying to shrink further - no-op,
 		// don't bother with the transaction or notification.
 		return false;
 	}
@@ -1573,7 +1516,7 @@ bool FComposableCameraShotEditorViewportClient::TryAdjustDistanceFromMouseWheel(
 		// Per-click atomic transaction. Unlike the handle drag (which
 		// uses `SaveToTransactionBuffer` + deferred `PostEditChangeProperty`
 		// to avoid Sequencer's mid-gesture re-spawn flash), wheel events
-		// are atomic — one click = one commit — so the standard
+		// are atomic - one click = one commit - so the standard
 		// Modify + ValueSet pattern is appropriate; the flash, if any,
 		// happens once per click and immediately settles, matching what
 		// dragging the Distance slider in the Details panel produces.
@@ -1625,13 +1568,13 @@ bool FComposableCameraShotEditorViewportClient::InputKey(const FInputKeyEventArg
 				|| Viewport->KeyState(EKeys::RightAlt));
 	};
 
-	// Alt+RMB Roll drag — supported in BOTH Drag and Free modes (Lock
+	// Alt+RMB Roll drag - supported in BOTH Drag and Free modes (Lock
 	// eats all mouse input below). Detected at the top so it preempts
 	// the mode-specific mouse-handling branches below: in Drag mode it
 	// runs before the catch-all "eat all mouse buttons" guard; in Free
 	// mode it runs before the fall-through to base-class RMB-look. The
 	// gesture writes `Shot.Roll` (NOT view-rotation Roll) inside a
-	// transaction so Ctrl+Z restores the prior value — Drag mode picks
+	// transaction so Ctrl+Z restores the prior value - Drag mode picks
 	// up the change via the next-tick solver, Free mode via the
 	// view.Roll = Shot.Roll sync at the bottom of
 	// RunSolverAndDriveCamera. Returning `true` on the press makes
@@ -1658,7 +1601,7 @@ bool FComposableCameraShotEditorViewportClient::InputKey(const FInputKeyEventArg
 	// the on-screen anchor handles. LMB-on-handle starts a drag; every
 	// other mouse input is **eaten** so the base class can't engage its
 	// orbit / pan / dolly camera-track behavior. Free camera movement
-	// is the Free mode's job — Drag stays solver-authoritative.
+	// is the Free mode's job - Drag stays solver-authoritative.
 	if (CurrentMode == EShotEditorMode::Drag)
 	{
 		if (EventArgs.Key == EKeys::LeftMouseButton && Viewport)
@@ -1668,7 +1611,7 @@ bool FComposableCameraShotEditorViewportClient::InputKey(const FInputKeyEventArg
 				FHandleScreenPosCache Hit;
 				if (HitTestHandles(Viewport->GetMouseX(), Viewport->GetMouseY(), Hit))
 				{
-					// Start handle drag — begin a transaction so the whole
+					// Start handle drag - begin a transaction so the whole
 					// gesture undoes as one entry, snapshot host state for undo.
 					// Title differs slightly between anchor / zone-edge so the
 					// undo history is informative ("Drag Shot Screen Position"
@@ -1680,27 +1623,27 @@ bool FComposableCameraShotEditorViewportClient::InputKey(const FInputKeyEventArg
 					{
 						// CRITICAL: bypass UObject::Modify and call
 						// SaveToTransactionBuffer directly. Modify(true) calls
-						// UMovieSceneSignedObject::MarkAsChanged →
-						// OnSignatureChangedEvent broadcast → Sequencer
-						// invalidates evaluation cache → Spawnable re-spawn →
-						// fresh actor at ref pose for one tick → SyncProxyTransforms
-						// reads that ref pose → preview A-pose flash. Even
+						// UMovieSceneSignedObject::MarkAsChanged -> 
+						// OnSignatureChangedEvent broadcast->Sequencer
+						// invalidates evaluation cache -> Spawnable re-spawn -> 
+						// fresh actor at ref pose for one tick->SyncProxyTransforms
+						// reads that ref pose -> preview A-pose flash. Even
 						// Modify(false) broadcasts FCoreUObjectDelegates::OnObjectModified
 						// (Obj.cpp line 1544, unconditional regardless of
 						// bAlwaysMarkDirty), and Sequencer also reacts to that.
-						// SaveToTransactionBuffer is the bare-bones path —
+						// SaveToTransactionBuffer is the bare-bones path - 
 						// records undo snapshot only, no broadcasts. EndDrag's
 						// PostEditChangeProperty(ValueSet) signals everything
 						// in one shot at commit, which is the right time.
 						SaveToTransactionBuffer(Host, /*bMarkDirty=*/false);
 					}
-					ActiveDragHandleType    = Hit.Type;
-					bActiveDragIsZoneEdge   = Hit.bIsZoneEdge;
-					ActiveDragZoneIsSoft    = Hit.bIsSoftZone;
+					ActiveDragHandleType = Hit.Type;
+					bActiveDragIsZoneEdge = Hit.bIsZoneEdge;
+					ActiveDragZoneIsSoft = Hit.bIsSoftZone;
 					ActiveDragZoneEdgeIndex = Hit.EdgeIndex;
 					return true;
 				}
-				// LMB pressed off-handle in Drag mode → eat so base class
+				// LMB pressed off-handle in Drag mode -> eat so base class
 				// doesn't start a camera-track gesture.
 				return true;
 			}
@@ -1710,20 +1653,20 @@ bool FComposableCameraShotEditorViewportClient::InputKey(const FInputKeyEventArg
 				{
 					EndDrag();
 				}
-				return true;   // eat release regardless of whether a drag was active
+				return true; // eat release regardless of whether a drag was active
 			}
 		}
 
-		// Mouse wheel → modify `Shot.Placement.Distance` for the modes
+		// Mouse wheel -> modify `Shot.Placement.Distance` for the modes
 		// that read it (AnchorOrbit / AnchorAtScreen). FixedWorldPosition
 		// ignores the wheel (helper returns false) and the event drops
-		// through to the general mouse-button eater below — so the wheel
+		// through to the general mouse-button eater below - so the wheel
 		// is silent in that mode rather than being a base-class dolly
 		// (which would be confusing in Drag mode where the camera is
 		// solver-driven). Note: `MouseScrollUp` / `MouseScrollDown` come
 		// in as IE_Pressed events (no IE_Released for wheel ticks);
 		// they're FKey instances that report `IsMouseButton() == true`,
-		// so the catch-all below would eat them otherwise — handle here
+		// so the catch-all below would eat them otherwise - handle here
 		// first.
 		if ((EventArgs.Key == EKeys::MouseScrollUp || EventArgs.Key == EKeys::MouseScrollDown)
 			&& EventArgs.Event == IE_Pressed)
@@ -1732,13 +1675,13 @@ bool FComposableCameraShotEditorViewportClient::InputKey(const FInputKeyEventArg
 			{
 				return true;
 			}
-			// Fall through — FixedWorldPosition mode returns false; the
+			// Fall through - FixedWorldPosition mode returns false; the
 			// catch-all below still consumes the wheel so base class
 			// doesn't dolly the camera (preserving the "Drag mode is
-			// solver-authoritative" invariant from §23.x).
+			// solver-authoritative" invariant from Section 23.x).
 		}
 
-		// Any other mouse button (RMB / MMB / unhandled wheel) → eat so
+		// Any other mouse button (RMB / MMB / unhandled wheel) -> eat so
 		// base class can't engage RMB-look / MMB-pan / wheel-zoom.
 		// Keyboard falls through so editor-wide shortcuts (Ctrl+Z etc.)
 		// still work.
@@ -1752,58 +1695,56 @@ bool FComposableCameraShotEditorViewportClient::InputKey(const FInputKeyEventArg
 	return FEditorViewportClient::InputKey(EventArgs);
 }
 
-void FComposableCameraShotEditorViewportClient::CapturedMouseMove(
-	FViewport* InViewport, int32 InMouseX, int32 InMouseY)
+void FComposableCameraShotEditorViewportClient::CapturedMouseMove(FViewport* InViewport, int32 InMouseX, int32 InMouseY)
 {
 	if (ActiveDragHandleType != EHandleType::None)
 	{
 		ApplyDragToShot(InMouseX, InMouseY);
-		return;   // don't forward — base would interpret as camera-track drag
+		return; // don't forward - base would interpret as camera-track drag
 	}
 	if (bRollDragActive)
 	{
 		ApplyRollDrag(InMouseX);
-		return;   // don't forward — base would yaw the camera
+		return; // don't forward - base would yaw the camera
 	}
 	FEditorViewportClient::CapturedMouseMove(InViewport, InMouseX, InMouseY);
 }
 
-void FComposableCameraShotEditorViewportClient::MouseMove(
-	FViewport* InViewport, int32 X, int32 Y)
+void FComposableCameraShotEditorViewportClient::MouseMove(FViewport* InViewport, int32 X, int32 Y)
 {
 	FEditorViewportClient::MouseMove(InViewport, X, Y);
 
-	// Hover detection — only meaningful in Drag mode (handles are
+	// Hover detection - only meaningful in Drag mode (handles are
 	// non-interactive in Free / Lock).
 	if (CurrentMode != EShotEditorMode::Drag
 		|| ActiveDragHandleType != EHandleType::None)
 	{
-		HoveredHandleType    = EHandleType::None;
-		bHoveredIsZoneEdge   = false;
-		HoveredZoneIsSoft    = false;
+		HoveredHandleType = EHandleType::None;
+		bHoveredIsZoneEdge = false;
+		HoveredZoneIsSoft = false;
 		HoveredZoneEdgeIndex = -1;
 		return;
 	}
 	FHandleScreenPosCache Hit;
 	if (HitTestHandles(X, Y, Hit))
 	{
-		HoveredHandleType    = Hit.Type;
-		bHoveredIsZoneEdge   = Hit.bIsZoneEdge;
-		HoveredZoneIsSoft    = Hit.bIsSoftZone;
+		HoveredHandleType = Hit.Type;
+		bHoveredIsZoneEdge = Hit.bIsZoneEdge;
+		HoveredZoneIsSoft = Hit.bIsSoftZone;
 		HoveredZoneEdgeIndex = Hit.EdgeIndex;
 	}
 	else
 	{
-		HoveredHandleType    = EHandleType::None;
-		bHoveredIsZoneEdge   = false;
-		HoveredZoneIsSoft    = false;
+		HoveredHandleType = EHandleType::None;
+		bHoveredIsZoneEdge = false;
+		HoveredZoneIsSoft = false;
 		HoveredZoneEdgeIndex = -1;
 	}
 }
 
 // (Alt+RMB Roll handling lives in InputKey + CapturedMouseMove, NOT
 // InputAxis. Earlier prototype routed through InputAxis to preempt base
-// RMB-look's yaw/pitch — but that approach only worked in Free mode
+// RMB-look's yaw/pitch - but that approach only worked in Free mode
 // (where base RMB-look engages capture); Drag mode eats RMB at InputKey
 // before base ever sees it, so capture never starts and InputAxis never
 // fires. Switching to InputKey-consumes-RMB-press lets Slate capture for
@@ -1811,7 +1752,7 @@ void FComposableCameraShotEditorViewportClient::MouseMove(
 // which works uniformly across Drag and Free.)
 
 
-// ─── 4.3 Reverse solve (Free → Drag dialog) ──────────────────────────────
+// 4.3 Reverse solve (Free -> Drag dialog) 
 
 EShotEditorReverseSolveStatus FComposableCameraShotEditorViewportClient::DiagnoseReverseSolveCurrentCamera() const
 {
@@ -1829,30 +1770,28 @@ EShotEditorReverseSolveStatus FComposableCameraShotEditorViewportClient::Diagnos
 		return EShotEditorReverseSolveStatus::EffectiveShotInvalid;
 	}
 	FVector PlacementAnchorWorld;
-	if (!EffectiveShot.Placement.PlacementAnchor.ResolveWorldPosition(
-			EffectiveShot.Targets, PlacementAnchorWorld))
+	if (!EffectiveShot.Placement.PlacementAnchor.ResolveWorldPosition(EffectiveShot.Targets, PlacementAnchorWorld))
 	{
 		return EShotEditorReverseSolveStatus::PlacementAnchorUnresolvable;
 	}
 	FVector AimAnchorWorld;
-	if (!EffectiveShot.Aim.AimAnchor.ResolveWorldPosition(
-			EffectiveShot.Targets, AimAnchorWorld))
+	if (!EffectiveShot.Aim.AimAnchor.ResolveWorldPosition(EffectiveShot.Targets, AimAnchorWorld))
 	{
 		return EShotEditorReverseSolveStatus::AimAnchorUnresolvable;
 	}
 
 	// AnchorAtScreen-only: the joint solve writes Distance as cam-frame
 	// depth (X coord of PlacementAnchor under user's free-flown rotation).
-	// When PlacementAnchor is at or behind the camera, that depth is ≤ 0
-	// and the reverse path can't recover a valid Distance — the actual
+	// When PlacementAnchor is at or behind the camera, that depth is <= 0
+	// and the reverse path can't recover a valid Distance - the actual
 	// runtime check lives in ReverseSolveCurrentCameraToShot but mirroring
 	// it here surfaces the failure in the dialog body before the user
 	// clicks Save (rather than silently no-oping after the click).
 	if (EffectiveShot.Placement.Mode == EShotPlacementMode::AnchorAtScreen)
 	{
-		const FVector  CamPos = GetViewLocation();
+		const FVector CamPos = GetViewLocation();
 		const FRotator CamRot = GetViewRotation();
-		const FVector  PCam   = CamRot.UnrotateVector(PlacementAnchorWorld - CamPos);
+		const FVector PCam = CamRot.UnrotateVector(PlacementAnchorWorld - CamPos);
 		if (PCam.X <= UE_KINDA_SMALL_NUMBER)
 		{
 			return EShotEditorReverseSolveStatus::PlacementAnchorBehindCamera;
@@ -1881,13 +1820,13 @@ FText ShotEditorReverseSolveStatusToText(EShotEditorReverseSolveStatus Status)
 			"Shot data could not be resolved (binding overrides may be incomplete).");
 	case EShotEditorReverseSolveStatus::PlacementAnchorUnresolvable:
 		return LOCTEXT("ReverseSolveStatus_PlacementAnchorUnresolvable",
-			"Placement anchor is unresolvable — assign a valid Target to the Placement layer.");
+			"Placement anchor is unresolvable - assign a valid Target to the Placement layer.");
 	case EShotEditorReverseSolveStatus::AimAnchorUnresolvable:
 		return LOCTEXT("ReverseSolveStatus_AimAnchorUnresolvable",
-			"Aim anchor is unresolvable — assign a valid Target to the Aim layer.");
+			"Aim anchor is unresolvable - assign a valid Target to the Aim layer.");
 	case EShotEditorReverseSolveStatus::PlacementAnchorBehindCamera:
 		return LOCTEXT("ReverseSolveStatus_PlacementAnchorBehindCamera",
-			"Placement anchor is at or behind the camera — move the camera so the anchor is in front of it.");
+			"Placement anchor is at or behind the camera - move the camera so the anchor is in front of it.");
 	}
 	return FText::GetEmpty();
 }
@@ -1903,40 +1842,38 @@ bool FComposableCameraShotEditorViewportClient::ReverseSolveCurrentCameraToShot(
 
 	// Single pre-flight via Diagnose so the failure log line names the
 	// specific reason instead of the generic "returned false". Mirrors what
-	// the dialog body shows the designer — useful in cases where the user
+	// the dialog body shows the designer - useful in cases where the user
 	// bypasses the dialog (future Save-current-Shot toolbar action) and
 	// relies on the log to understand why nothing happened.
 	const EShotEditorReverseSolveStatus Status = DiagnoseReverseSolveCurrentCamera();
 	if (Status != EShotEditorReverseSolveStatus::Ok)
 	{
 		UE_LOG(LogComposableCameraSystemEditor, Warning,
-			TEXT("ShotEditor: reverse-solve aborted — %s"),
+			TEXT("ShotEditor: reverse-solve aborted - %s"),
 			*ShotEditorReverseSolveStatusToText(Status).ToString());
 		return false;
 	}
 
 	// Diagnose already validated these; re-resolve for the write path.
 	// (Keeping the recompute here rather than threading state out of
-	// Diagnose — the cost is one extra ResolveWorldPosition per commit,
+	// Diagnose - the cost is one extra ResolveWorldPosition per commit,
 	// which is dwarfed by the FScopedTransaction below.)
 	FComposableCameraShot EffectiveShot;
 	BuildEffectiveShotForPreview(EffectiveShot);
 	FVector PlacementAnchorWorld;
 	FVector AimAnchorWorld;
-	EffectiveShot.Placement.PlacementAnchor.ResolveWorldPosition(
-		EffectiveShot.Targets, PlacementAnchorWorld);
-	EffectiveShot.Aim.AimAnchor.ResolveWorldPosition(
-		EffectiveShot.Targets, AimAnchorWorld);
+	EffectiveShot.Placement.PlacementAnchor.ResolveWorldPosition(EffectiveShot.Targets, PlacementAnchorWorld);
+	EffectiveShot.Aim.AimAnchor.ResolveWorldPosition(EffectiveShot.Targets, AimAnchorWorld);
 
-	const FVector  CamPos = GetViewLocation();
+	const FVector CamPos = GetViewLocation();
 	const FRotator CamRot = GetViewRotation();
-	const float    FOV    = ViewFOV;
+	const float FOV = ViewFOV;
 	const FIntPoint VPSize = Viewport->GetSizeXY();
-	const float    Aspect = (VPSize.Y > 0)
+	const float Aspect = (VPSize.Y > 0)
 		? static_cast<float>(VPSize.X) / static_cast<float>(VPSize.Y)
 		: 16.f / 9.f;
-	const float    TanHalfHOR = FMath::Tan(FMath::DegreesToRadians(FOV * 0.5f));
-	const float    TanHalfVOR = TanHalfHOR / Aspect;
+	const float TanHalfHOR = FMath::Tan(FMath::DegreesToRadians(FOV * 0.5f));
+	const float TanHalfVOR = TanHalfHOR / Aspect;
 
 	// Per-mode reverse-solve. Each Placement mode reads a disjoint subset of
 	// fields in the forward solver (see DataAssets/ComposableCameraShot.h
@@ -1945,10 +1882,10 @@ bool FComposableCameraShotEditorViewportClient::ReverseSolveCurrentCameraToShot(
 	// when forward-solved with the committed values.
 	const EShotPlacementMode PlacementMode = EffectiveShot.Placement.Mode;
 
-	float     NewDistance         = ActiveShot->Placement.Distance;
-	FVector2D NewLocalCameraDir   = ActiveShot->Placement.LocalCameraDirection;
-	FVector2D NewPlacementScreen  = ActiveShot->Placement.ScreenPosition;
-	FVector   NewFixedWorldPos    = ActiveShot->Placement.FixedWorldPosition;
+	float NewDistance = ActiveShot->Placement.Distance;
+	FVector2D NewLocalCameraDir = ActiveShot->Placement.LocalCameraDirection;
+	FVector2D NewPlacementScreen = ActiveShot->Placement.ScreenPosition;
+	FVector NewFixedWorldPos = ActiveShot->Placement.FixedWorldPosition;
 
 	switch (PlacementMode)
 	{
@@ -1958,27 +1895,23 @@ bool FComposableCameraShotEditorViewportClient::ReverseSolveCurrentCameraToShot(
 			// LocalCameraDirection is the (Yaw, Pitch) of the cam-from-anchor
 			// unit vector in basis-frame coords. Placement.ScreenPosition is
 			// unread by the forward solver in this mode (see
-			// SolvePlacement → SolveAnchorOrbitPosition with ScreenPos forced
+			// SolvePlacement -> SolveAnchorOrbitPosition with ScreenPos forced
 			// to ZeroVector), so leave it untouched.
 			const FVector AnchorToCam = CamPos - PlacementAnchorWorld;
-			NewDistance = FMath::Clamp(
-				static_cast<float>(AnchorToCam.Length()),
+			NewDistance = FMath::Clamp(static_cast<float>(AnchorToCam.Length()),
 				FShotPlacement::MinDistance, FShotPlacement::MaxDistance);
 			const FVector DirWorld = (NewDistance > UE_KINDA_SMALL_NUMBER)
-				? AnchorToCam / NewDistance
-				: FVector(1.f, 0.f, 0.f);
+				? AnchorToCam / NewDistance: FVector(1.f, 0.f, 0.f);
 
 			// Resolve basis from EffectiveShot so a Sequencer-bound override
 			// actor's quat is honored (matches the basis the solver would use
 			// in RunSolverAndDriveCamera, which also goes through the
 			// effective shot).
-			const FQuat   Basis    = ResolvePlacementBasis(EffectiveShot);
+			const FQuat Basis = ResolvePlacementBasis(EffectiveShot);
 			const FVector DirLocal = Basis.Inverse().RotateVector(DirWorld);
 
-			NewLocalCameraDir.X = FMath::RadiansToDegrees(
-				FMath::Atan2(DirLocal.Y, DirLocal.X));
-			NewLocalCameraDir.Y = FMath::RadiansToDegrees(
-				FMath::Asin(FMath::Clamp(DirLocal.Z, -1.f, 1.f)));
+			NewLocalCameraDir.X = FMath::RadiansToDegrees(FMath::Atan2(DirLocal.Y, DirLocal.X));
+			NewLocalCameraDir.Y = FMath::RadiansToDegrees(FMath::Asin(FMath::Clamp(DirLocal.Z, -1.f, 1.f)));
 			break;
 		}
 
@@ -1999,24 +1932,21 @@ bool FComposableCameraShotEditorViewportClient::ReverseSolveCurrentCameraToShot(
 			// AnchorOrbit later doesn't lose the prior orbital authoring.
 			// Pre-flight already gated PCam.X > 0 via
 			// DiagnoseReverseSolveCurrentCamera (PlacementAnchorBehindCamera
-			// status). No defensive recheck here — divergence between
+			// status). No defensive recheck here - divergence between
 			// Diagnose and this branch would only happen across an inter-
-			// frame view-rotation change, which the Free→Drag dialog
+			// frame view-rotation change, which the Free -> Drag dialog
 			// doesn't permit (modal blocks input).
 			const FVector PCam = CamRot.UnrotateVector(PlacementAnchorWorld - CamPos);
-			NewDistance = FMath::Clamp(
-				static_cast<float>(PCam.X),
+			NewDistance = FMath::Clamp(static_cast<float>(PCam.X),
 				FShotPlacement::MinDistance, FShotPlacement::MaxDistance);
-			NewPlacementScreen.X = FMath::Clamp(
-				static_cast<float>(PCam.Y / (2.f * TanHalfHOR * PCam.X)), -0.5f, 0.5f);
-			NewPlacementScreen.Y = FMath::Clamp(
-				static_cast<float>(PCam.Z / (2.f * TanHalfVOR * PCam.X)), -0.5f, 0.5f);
+			NewPlacementScreen.X = FMath::Clamp(static_cast<float>(PCam.Y / (2.f * TanHalfHOR * PCam.X)), -0.5f, 0.5f);
+			NewPlacementScreen.Y = FMath::Clamp(static_cast<float>(PCam.Z / (2.f * TanHalfVOR * PCam.X)), -0.5f, 0.5f);
 			break;
 		}
 
 	case EShotPlacementMode::FixedWorldPosition:
 		{
-			// Camera lives at an explicit world point — Distance / direction
+			// Camera lives at an explicit world point - Distance / direction
 			// / screen-pos are all unread in forward solve. Capture the user's
 			// freely-flown world position; rotation comes from the Aim layer
 			// path below.
@@ -2025,26 +1955,24 @@ bool FComposableCameraShotEditorViewportClient::ReverseSolveCurrentCameraToShot(
 		}
 	}
 
-	// Aim → Aim.ScreenPosition. Only LookAtAnchor reads this field; NoOp
+	// Aim->Aim.ScreenPosition. Only LookAtAnchor reads this field; NoOp
 	// short-circuits before AimAnchor resolution and ignores ScreenPosition,
 	// so don't overwrite the authored value when the mode isn't using it.
 	FVector2D NewAimScreen = ActiveShot->Aim.ScreenPosition;
 	if (EffectiveShot.Aim.Mode == EShotAimMode::LookAtAnchor)
 	{
 		FVector2D Projected;
-		if (ComposableCameraSystem::ProjectWorldPointToScreen(
-			AimAnchorWorld, CamPos, CamRot, TanHalfHOR, Aspect, Projected))
+		if (ComposableCameraSystem::ProjectWorldPointToScreen(AimAnchorWorld, CamPos, CamRot, TanHalfHOR, Aspect, Projected))
 		{
 			NewAimScreen.X = FMath::Clamp(Projected.X, -0.5f, 0.5f);
 			NewAimScreen.Y = FMath::Clamp(Projected.Y, -0.5f, 0.5f);
 		}
 	}
 
-	// Commit — wrapped in a transaction so undo reverts the whole
+	// Commit - wrapped in a transaction so undo reverts the whole
 	// reverse-solve as one entry.
 	{
-		FScopedTransaction ReverseSolveTransaction(
-			LOCTEXT("ReverseSolveCamera", "Save Camera Framing as Shot Params"));
+		FScopedTransaction ReverseSolveTransaction(LOCTEXT("ReverseSolveCamera", "Save Camera Framing as Shot Params"));
 
 		UObject* Host = ActiveHost.Get();
 		if (Host)
@@ -2052,19 +1980,19 @@ bool FComposableCameraShotEditorViewportClient::ReverseSolveCurrentCameraToShot(
 			Host->Modify();
 		}
 
-		// Mode-scoped writes — only fields the forward solver reads in this
+		// Mode-scoped writes - only fields the forward solver reads in this
 		// Placement mode are committed. Other Placement fields keep their
 		// prior authored values so mode-toggling preserves the alternate
-		// authoring (e.g. designer flipping AnchorOrbit ↔ AnchorAtScreen
+		// authoring (e.g. designer flipping AnchorOrbit AnchorAtScreen
 		// retains the orbital direction across the round-trip).
 		switch (PlacementMode)
 		{
 		case EShotPlacementMode::AnchorOrbit:
-			ActiveShot->Placement.Distance             = NewDistance;
+			ActiveShot->Placement.Distance = NewDistance;
 			ActiveShot->Placement.LocalCameraDirection = NewLocalCameraDir;
 			break;
 		case EShotPlacementMode::AnchorAtScreen:
-			ActiveShot->Placement.Distance       = NewDistance;
+			ActiveShot->Placement.Distance = NewDistance;
 			ActiveShot->Placement.ScreenPosition = NewPlacementScreen;
 			break;
 		case EShotPlacementMode::FixedWorldPosition:
@@ -2076,7 +2004,7 @@ bool FComposableCameraShotEditorViewportClient::ReverseSolveCurrentCameraToShot(
 		// Capture user-authored Roll from the freely-flown camera so the
 		// forward solver re-applies it on next tick. Roll is consumed by
 		// every (Placement, Aim) mode pair, so always commit it.
-		// `FMath::UnwindDegrees` normalizes to [-180, 180] — matches the
+		// `FMath::UnwindDegrees` normalizes to [-180, 180] - matches the
 		// `Shot.Roll` UPROPERTY clamp meta, so reverse-solve doesn't
 		// commit a value the Details panel would later truncate (FRotator
 		// stores raw values; arbitrary view-roll on entry to Free mode
@@ -2131,7 +2059,7 @@ void FComposableCameraShotEditorViewportClient::RebuildProxies()
 
 void FComposableCameraShotEditorViewportClient::DestroyProxies()
 {
-	for (TWeakObjectPtr<AActor>& WeakProxy : ProxyActors)
+	for (TWeakObjectPtr<AActor>& WeakProxy: ProxyActors)
 	{
 		if (AActor* Proxy = WeakProxy.Get())
 		{
@@ -2177,14 +2105,13 @@ void FComposableCameraShotEditorViewportClient::SyncProxyTransforms()
 			}
 			else
 			{
-				Proxy->SetActorLocationAndRotation(
-					PreviewTransform.GetLocation(),
+				Proxy->SetActorLocationAndRotation(PreviewTransform.GetLocation(),
 					PreviewTransform.GetRotation());
 			}
 			continue;
 		}
 
-		// Source-mesh-component-aware transform sync — same rationale as in
+		// Source-mesh-component-aware transform sync - same rationale as in
 		// SpawnProxyForTarget: ACharacter offsets its Mesh component by
 		// (0, 0, -88) within the actor, so source mesh world transform !=
 		// source actor world transform. ASkeletalMeshActor / AStaticMeshActor
@@ -2202,7 +2129,7 @@ void FComposableCameraShotEditorViewportClient::SyncProxyTransforms()
 			// onto proxy's editable CST, flip the double buffer. Skips
 			// both LeaderPose and AnimBP entirely on the proxy side, so
 			// Sequencer's transient bone-array resets on the source can't
-			// surface as A-pose flashes on the proxy — the next frame's
+			// surface as A-pose flashes on the proxy - the next frame's
 			// SyncProxyTransforms reads whatever the source has settled
 			// to AFTER Sequencer finishes its evaluation pass. Requires
 			// matching skeleton (same SkeletalMeshAsset on both sides);
@@ -2225,7 +2152,7 @@ void FComposableCameraShotEditorViewportClient::SyncProxyTransforms()
 		}
 		else
 		{
-			// No mesh component (cylinder fallback case) — use actor transform
+			// No mesh component (cylinder fallback case) - use actor transform
 			// directly since the proxy was authored against actor location.
 			SrcTransform = Source->GetActorTransform();
 		}
@@ -2233,8 +2160,7 @@ void FComposableCameraShotEditorViewportClient::SyncProxyTransforms()
 		// Proxy's scale is preserved on a per-proxy basis (the capsule
 		// fallback sets a non-unit scale; SK / SM proxies stay at unit).
 		// So we copy location + rotation only.
-		Proxy->SetActorLocationAndRotation(
-			SrcTransform.GetLocation(), SrcTransform.GetRotation());
+		Proxy->SetActorLocationAndRotation(SrcTransform.GetLocation(), SrcTransform.GetRotation());
 	}
 }
 
@@ -2252,7 +2178,7 @@ void FComposableCameraShotEditorViewportClient::RunSolverAndDriveCamera(float De
 	Context.ViewportAspectRatio = (VPSize.Y > 0)
 		? static_cast<float>(VPSize.X) / static_cast<float>(VPSize.Y)
 		: 16.f / 9.f;
-	// Use the current ViewFOV as the previous-frame FOV — the solver's
+	// Use the current ViewFOV as the previous-frame FOV - the solver's
 	// SolvedFromBoundsFit mode converges in 1-2 frames; Manual mode ignores it.
 	Context.PreviousFrameFOV = ViewFOV;
 
@@ -2274,14 +2200,14 @@ void FComposableCameraShotEditorViewportClient::RunSolverAndDriveCamera(float De
 	// instance, but here EffectiveShot is rebuilt every tick from ActiveShot,
 	// AND Sequencer binding overrides may resolve to a different Actor than
 	// ActiveShot.Target.Actor (which is often None for binding-driven Shot
-	// Sections) — so a seed-once-on-host-change pass against ActiveShot would
+	// Sections) - so a seed-once-on-host-change pass against ActiveShot would
 	// silently no-op for the override case. Refreshing per-tick on the
 	// EffectiveShot copy mirrors `EBoundsCachePolicy::Live` semantics and
 	// trades a `GetComponentsBoundingBox` call per AutoFromComponentBounds
 	// target per tick (O(actor component count), single-actor scope) for
 	// "bounds-fit FOV actually works in the editor preview". The cache write
 	// lives on the discarded local; ActiveShot is not touched.
-	for (FComposableCameraShotTarget& T : EffectiveShot.Targets)
+	for (FComposableCameraShotTarget& T: EffectiveShot.Targets)
 	{
 		if (T.BoundsShape == EShotTargetBoundsShape::AutoFromComponentBounds)
 		{
@@ -2290,30 +2216,30 @@ void FComposableCameraShotEditorViewportClient::RunSolverAndDriveCamera(float De
 	}
 
 	// Hand the solver a prior-pose snapshot when zones may need it. Null
-	// on the first solve after Shot bind / cache invalidation — the solver
+	// on the first solve after Shot bind / cache invalidation - the solver
 	// then takes the V1 hard-constraint path to seed an initial pose.
 	FShotPriorPose PriorPose;
 	const FShotPriorPose* PriorPosePtr = nullptr;
 	if (bHasCachedPriorPose)
 	{
-		PriorPose.Position     = CachedPriorPos;
-		PriorPose.Rotation     = CachedPriorRot;
+		PriorPose.Position = CachedPriorPos;
+		PriorPose.Rotation = CachedPriorRot;
 		PriorPose.LastDistance = CachedPriorDistance;
-		PriorPose.LastFOV      = CachedPriorFOV;
-		PriorPose.LastRoll     = CachedPriorRoll;
-		PriorPosePtr       = &PriorPose;
+		PriorPose.LastFOV = CachedPriorFOV;
+		PriorPose.LastRoll = CachedPriorRoll;
+		PriorPosePtr = &PriorPose;
 	}
 
 	const FShotSolveResult Result = SolveShot(EffectiveShot, Context, PriorPosePtr, DeltaSeconds);
 
-	// LENS (FOV) — always applied, regardless of `Result.bValid` AND
+	// LENS (FOV) - always applied, regardless of `Result.bValid` AND
 	// regardless of editor mode. The solver pre-fills `R.FieldOfView`
-	// before the pose-failure exits (Manual mode → ManualFOV exactly;
-	// SolvedFromBoundsFit on pose-fail → PreviousFrameFOV best-effort),
+	// before the pose-failure exits (Manual mode -> ManualFOV exactly;
+	// SolvedFromBoundsFit on pose-fail -> PreviousFrameFOV best-effort),
 	// so this assignment is meaningful even when the joint Picard fails
 	// to converge or an anchor can't resolve. Without this, dragging the
 	// Manual FOV slider (or any Details-panel value) is invisible to the
-	// designer whenever the Shot is in an unsolvable state — they have
+	// designer whenever the Shot is in an unsolvable state - they have
 	// no way to escape because the slider that would fix it appears
 	// frozen.
 	ViewFOV = Result.FieldOfView;
@@ -2321,14 +2247,14 @@ void FComposableCameraShotEditorViewportClient::RunSolverAndDriveCamera(float De
 
 	if (!Result.bValid)
 	{
-		// Pose unresolvable — leave camera where it was so the designer
+		// Pose unresolvable - leave camera where it was so the designer
 		// can still see whatever proxies are spawned. Lens (above) was
 		// already applied so Details-panel slider drags stay live and
 		// the designer can drag toward a solvable configuration. Skip
 		// the DoF push (focus distance from a stale pose would be wrong)
 		// and the pose write.
 		//
-		// Prior-pose cache is not cleared here — when the shot becomes
+		// Prior-pose cache is not cleared here - when the shot becomes
 		// resolvable again, projecting through the last known good pose
 		// is a better starting point for the zone math than a hard-seed,
 		// because the visible camera pose is still that pose. (Mirrors
@@ -2338,19 +2264,19 @@ void FComposableCameraShotEditorViewportClient::RunSolverAndDriveCamera(float De
 	}
 
 	// Cache the solved pose for next-frame zone preprocessing. Done
-	// regardless of mode so that switching from Free → Drag still has
+	// regardless of mode so that switching from Free -> Drag still has
 	// a usable prior. (Free mode's user-driven pose isn't what the
-	// solver produced — but the solver-side cache should track *the
+	// solver produced - but the solver-side cache should track *the
 	// solver's* output, not the user's live drag, so the zone math
 	// stays self-consistent across mode swaps.)
-	CachedPriorPos      = Result.CameraPosition;
-	CachedPriorRot      = Result.CameraRotation;
+	CachedPriorPos = Result.CameraPosition;
+	CachedPriorRot = Result.CameraRotation;
 	CachedPriorDistance = Result.EffectiveDistance;
-	CachedPriorFOV      = Result.FieldOfView;
-	CachedPriorRoll     = Result.CameraRotation.Roll;
+	CachedPriorFOV = Result.FieldOfView;
+	CachedPriorRoll = Result.CameraRotation.Roll;
 	bHasCachedPriorPose = true;
 
-	// POSE (location / rotation) — only in Drag and Lock. In Free, the
+	// POSE (location / rotation) - only in Drag and Lock. In Free, the
 	// camera location/rotation come from the user's mouse drags through
 	// the base FEditorViewportClient input handling; we don't overwrite.
 	if (CurrentMode != EShotEditorMode::Free)
@@ -2363,22 +2289,22 @@ void FComposableCameraShotEditorViewportClient::RunSolverAndDriveCamera(float De
 		// Free mode Roll is owned by `Shot.Roll` (authored via
 		// Alt+RMB-drag inside a transaction so Ctrl+Z restores it).
 		// Base `FEditorViewportClient` only writes Yaw/Pitch during
-		// RMB-look — view-rotation Roll is unmanaged by base, so
+		// RMB-look - view-rotation Roll is unmanaged by base, so
 		// re-asserting it from `Shot.Roll` each tick gives:
 		//
-		//   - Immediate visual feedback during the drag (Roll cursor
-		//     samples write `Shot.Roll`; this sync mirrors them onto
-		//     view rotation on the next tick).
-		//   - Undo recovery: on Ctrl+Z, `Shot.Roll` reverts via the
-		//     transaction; the next tick syncs view-rotation Roll to
-		//     match. Without this, view-rotation would stay at the
-		//     post-drag value and Ctrl+Z would silently disagree with
-		//     the data.
-		//   - Mode-entry consistency: switching into Free mode while
-		//     `Shot.Roll != 0` shows the authored Roll immediately
-		//     instead of resetting to 0.
+		// - Immediate visual feedback during the drag (Roll cursor
+		// samples write `Shot.Roll`; this sync mirrors them onto
+		// view rotation on the next tick).
+		// - Undo recovery: on Ctrl+Z, `Shot.Roll` reverts via the
+		// transaction; the next tick syncs view-rotation Roll to
+		// match. Without this, view-rotation would stay at the
+		// post-drag value and Ctrl+Z would silently disagree with
+		// the data.
+		// - Mode-entry consistency: switching into Free mode while
+		// `Shot.Roll != 0` shows the authored Roll immediately
+		// instead of resetting to 0.
 		FRotator FreeRot = GetViewRotation();
-		const float TargetRoll = ActiveShot ? ActiveShot->Roll : 0.f;
+		const float TargetRoll = ActiveShot ? ActiveShot->Roll: 0.f;
 		if (!FMath::IsNearlyEqual(FreeRot.Roll, TargetRoll, 1e-3f))
 		{
 			FreeRot.Roll = TargetRoll;
@@ -2393,7 +2319,7 @@ void FComposableCameraShotEditorViewportClient::RunSolverAndDriveCamera(float De
 	float EffectiveFocusDistance = Result.FocusDistance;
 	if (CurrentMode == EShotEditorMode::Free)
 	{
-		// SolveFocus is independent of placement / aim — feed it the user's
+		// SolveFocus is independent of placement / aim - feed it the user's
 		// live camera pose and the existing Shot data so any FollowAnchor
 		// mode (Placement / Aim / Custom) re-evaluates correctly.
 		EffectiveFocusDistance = SolveFocus(
@@ -2402,8 +2328,8 @@ void FComposableCameraShotEditorViewportClient::RunSolverAndDriveCamera(float De
 
 	// Cache for HUD readout.
 	CachedFocusDistance = EffectiveFocusDistance;
-	CachedAperture      = Result.Aperture;
-	bCachedDoFValid     = true;
+	CachedAperture = Result.Aperture;
+	bCachedDoFValid = true;
 
 	// CineCamera-style DoF injection. Writes directly into
 	// `ControllingActorViewInfo.PostProcessSettings` because that's the
@@ -2417,7 +2343,7 @@ void FComposableCameraShotEditorViewportClient::RunSolverAndDriveCamera(float De
 	// populates: FocalDistance + Fstop drive the bokeh circle radius (the
 	// visible "out-of-focus" amount), SensorWidth scales the relationship
 	// between f-stop and bokeh size (smaller sensor = less bokeh per f-stop).
-	// We don't expose sensor width as a Shot parameter in V1 — defaulting
+	// We don't expose sensor width as a Shot parameter in V1 - defaulting
 	// to 35mm full-frame (36mm horizontal) matches CineCamera's default
 	// `Filmback.SensorWidth` so the preview matches a stock CineCamera
 	// playback. Phase E may surface sensor width as a Shot UPROPERTY if
@@ -2425,13 +2351,13 @@ void FComposableCameraShotEditorViewportClient::RunSolverAndDriveCamera(float De
 	FPostProcessSettings& PP = ControllingActorViewInfo.PostProcessSettings;
 
 	PP.bOverride_DepthOfFieldFocalDistance = true;
-	PP.DepthOfFieldFocalDistance           = FMath::Max(EffectiveFocusDistance, 1.f);
+	PP.DepthOfFieldFocalDistance = FMath::Max(EffectiveFocusDistance, 1.f);
 
 	PP.bOverride_DepthOfFieldFstop = true;
-	PP.DepthOfFieldFstop           = FMath::Max(Result.Aperture, 0.5f);
+	PP.DepthOfFieldFstop = FMath::Max(Result.Aperture, 0.5f);
 
 	PP.bOverride_DepthOfFieldSensorWidth = true;
-	PP.DepthOfFieldSensorWidth           = 36.f;   // 35mm full-frame
+	PP.DepthOfFieldSensorWidth = 36.f; // 35mm full-frame
 }
 
 AActor* FComposableCameraShotEditorViewportClient::ResolveSourceActorForTargetIndex(int32 TargetIndex) const
@@ -2443,13 +2369,13 @@ AActor* FComposableCameraShotEditorViewportClient::ResolveSourceActorForTargetIn
 
 	// Per-section TargetActorOverrides take precedence over the Shot's
 	// authored TSoftObjectPtr<AActor>. Only meaningful when the host is a
-	// UMovieSceneComposableCameraShotSection — for ShotAsset / direct
+	// UMovieSceneComposableCameraShotSection - for ShotAsset / direct
 	// CompositionFramingNode hosts, no override mechanism applies.
 	if (UObject* Host = ActiveHost.Get())
 	{
 		if (UMovieSceneComposableCameraShotSection* Section = Cast<UMovieSceneComposableCameraShotSection>(Host))
 		{
-			for (const FComposableCameraShotTargetActorOverride& Override : Section->TargetActorOverrides)
+			for (const FComposableCameraShotTargetActorOverride& Override: Section->TargetActorOverrides)
 			{
 				if (Override.TargetIndex != TargetIndex || !Override.Binding.IsValid())
 				{
@@ -2458,7 +2384,7 @@ AActor* FComposableCameraShotEditorViewportClient::ResolveSourceActorForTargetIn
 
 				// Locate the open Sequencer for this section's owning
 				// sequence. Without an open Sequencer there's no playback
-				// context to resolve binding GUIDs against — fall through
+				// context to resolve binding GUIDs against - fall through
 				// to the Shot's authored placeholder. Same edge case as
 				// "user closed the Sequencer window before opening the
 				// Shot Editor".
@@ -2485,7 +2411,7 @@ AActor* FComposableCameraShotEditorViewportClient::ResolveSourceActorForTargetIn
 				// GUIDs are namespaced per-sub-sequence).
 				const TArrayView<TWeakObjectPtr<>> Bound =
 					OpenSequencer->FindBoundObjects(Override.Binding.GetGuid(), OpenSequencer->GetFocusedTemplateID());
-				for (TWeakObjectPtr<UObject> Weak : Bound)
+				for (TWeakObjectPtr<UObject> Weak: Bound)
 				{
 					if (AActor* Actor = Cast<AActor>(Weak.Get()))
 					{
@@ -2493,7 +2419,7 @@ AActor* FComposableCameraShotEditorViewportClient::ResolveSourceActorForTargetIn
 					}
 				}
 				// Override entry exists but binding doesn't resolve this
-				// frame — fall back to placeholder so the proxy doesn't
+				// frame - fall back to placeholder so the proxy doesn't
 				// flicker between live actor and cylinder.
 				break;
 			}
@@ -2518,7 +2444,7 @@ USkeletalMesh* FComposableCameraShotEditorViewportClient::ResolvePreviewMeshForT
 	}
 	const TSoftObjectPtr<USkeletalMesh>& PreviewMesh =
 		ActiveShot->Targets[TargetIndex].Target.EditorPreviewMesh;
-	return PreviewMesh.IsNull() ? nullptr : PreviewMesh.LoadSynchronous();
+	return PreviewMesh.IsNull() ? nullptr: PreviewMesh.LoadSynchronous();
 #else
 	return nullptr;
 #endif
@@ -2541,7 +2467,7 @@ bool FComposableCameraShotEditorViewportClient::BuildEffectiveShotForPreview(FCo
 {
 	// Per-frame cache fast path (Polish P.2). When the cache is valid for
 	// this tick, copy out from cache and skip the per-target Sequencer-
-	// override resolution — the dominant cost on the prior path. The
+	// override resolution - the dominant cost on the prior path. The
 	// struct copy itself still runs (caller owns OutShot and may mutate
 	// it), but it's a memcpy-shape transfer plus one TArray heap alloc
 	// for the Targets array, which is unavoidable given the existing
@@ -2558,14 +2484,14 @@ bool FComposableCameraShotEditorViewportClient::BuildEffectiveShotForPreview(FCo
 
 	if (!ActiveShot)
 	{
-		bEffectiveShotCacheValid    = true;
-		bEffectiveShotCacheBuiltOk  = false;
+		bEffectiveShotCacheValid = true;
+		bEffectiveShotCacheBuiltOk = false;
 		return false;
 	}
 
 	// Build directly into the cache, then copy to OutShot. Two struct
 	// copies on the cache-miss path (one into cache, one out to caller)
-	// vs. one on the warm path — the miss happens at most once per tick
+	// vs. one on the warm path - the miss happens at most once per tick
 	// while the hit happens 5+ times, net win. Building straight into
 	// cache (vs. caller-buffer-then-cache) is simpler and lets later
 	// hits reuse without re-running ResolveSourceActorForTargetIndex.
@@ -2574,8 +2500,8 @@ bool FComposableCameraShotEditorViewportClient::BuildEffectiveShotForPreview(FCo
 	{
 		if (!Section->BuildEffectiveShotWithoutBindings(CachedEffectiveShot))
 		{
-			bEffectiveShotCacheValid    = true;
-			bEffectiveShotCacheBuiltOk  = false;
+			bEffectiveShotCacheValid = true;
+			bEffectiveShotCacheBuiltOk = false;
 			return false;
 		}
 	}
@@ -2586,11 +2512,11 @@ bool FComposableCameraShotEditorViewportClient::BuildEffectiveShotForPreview(FCo
 	for (int32 i = 0; i < CachedEffectiveShot.Targets.Num(); ++i)
 	{
 		// `ResolveSourceActorForTargetIndex` already encapsulates the
-		// override → placeholder → null fallback chain. Assigning a raw
+		// override->placeholder -> null fallback chain. Assigning a raw
 		// AActor* into the soft-pointer captures the actor's path so the
 		// solver's downstream `.Get()` resolves to the same instance.
 		// When the resolver returns nullptr we leave the field as-is from
-		// the placeholder copy (which may also be null — solver will
+		// the placeholder copy (which may also be null - solver will
 		// UNRESOLVED gracefully in that case).
 		if (AActor* Resolved = ResolveSourceActorForTargetIndex(i))
 		{
@@ -2607,14 +2533,13 @@ bool FComposableCameraShotEditorViewportClient::BuildEffectiveShotForPreview(FCo
 #endif
 	}
 
-	bEffectiveShotCacheValid    = true;
-	bEffectiveShotCacheBuiltOk  = true;
+	bEffectiveShotCacheValid = true;
+	bEffectiveShotCacheBuiltOk = true;
 	OutShot = CachedEffectiveShot;
 	return true;
 }
 
-AActor* FComposableCameraShotEditorViewportClient::SpawnProxyForTarget(
-	AActor* SourceActor,
+AActor* FComposableCameraShotEditorViewportClient::SpawnProxyForTarget(AActor* SourceActor,
 	USkeletalMesh* PreviewMesh,
 	const FTransform& PreviewTransform)
 {
@@ -2632,20 +2557,20 @@ AActor* FComposableCameraShotEditorViewportClient::SpawnProxyForTarget(
 	Params.ObjectFlags = RF_Transient;
 	Params.bNoFail = true;
 
-	// 1. Skeletal mesh? Highest fidelity stand-in — copy the SK mesh asset
-	//    PLUS the AnimBP class so the proxy plays whatever idle / locomotion
-	//    animation the source actor has (e.g. ABP_Manny in the UE5 third-
-	//    person template gives a clean default Idle pose instead of the
-	//    SkeletalMesh's raw A-pose). `SetUpdateAnimationInEditor(true)` is
-	//    REQUIRED — without it AnimBP doesn't tick in editor preview worlds.
+	// 1. Skeletal mesh? Highest fidelity stand-in - copy the SK mesh asset
+	// PLUS the AnimBP class so the proxy plays whatever idle / locomotion
+	// animation the source actor has (e.g. ABP_Manny in the UE5 third-
+	// person template gives a clean default Idle pose instead of the
+	// SkeletalMesh's raw A-pose). `SetUpdateAnimationInEditor(true)` is
+	// REQUIRED - without it AnimBP doesn't tick in editor preview worlds.
 	//
-	//    Note: `SetLeaderPoseComponent` was tried as a way to mirror the
-	//    SOURCE actor's live Sequencer-driven pose into the preview, but
-	//    cross-world leader-follower (source in level / PIE world, follower
-	//    in our AdvancedPreviewScene's world) doesn't propagate into the
-	//    follower's render-scene registration — the follower stays
-	//    invisible. Fall back to the proxy's own AnimBP tick (independent
-	//    Idle / locomotion) until a per-bone copy alternative is wired up.
+	// Note: `SetLeaderPoseComponent` was tried as a way to mirror the
+	// SOURCE actor's live Sequencer-driven pose into the preview, but
+	// cross-world leader-follower (source in level / PIE world, follower
+	// in our AdvancedPreviewScene's world) doesn't propagate into the
+	// follower's render-scene registration - the follower stays
+	// invisible. Fall back to the proxy's own AnimBP tick (independent
+	// Idle / locomotion) until a per-bone copy alternative is wired up.
 	if (SourceActor)
 	{
 		if (USkeletalMeshComponent* SourceSK = SourceActor->FindComponentByClass<USkeletalMeshComponent>())
@@ -2664,7 +2589,7 @@ AActor* FComposableCameraShotEditorViewportClient::SpawnProxyForTarget(
 					// the subsequent transform change marks bounds dirty but
 					// the cached SceneProxy in the FScene's static array is
 					// already established and frustum culling against camera
-					// (155, 619, 164) misses the world-origin sphere → mesh
+					// (155, 619, 164) misses the world-origin sphere->mesh
 					// is silently culled and never drawn. Transform-first
 					// keeps bounds and SceneProxy aligned from the start.
 					//
@@ -2683,20 +2608,20 @@ AActor* FComposableCameraShotEditorViewportClient::SpawnProxyForTarget(
 
 					// Disable BOTH the anim graph AND the component tick.
 					// Notes after reading SkeletalMeshComponent.cpp ShouldTickPose:
-					//   - SetUpdateAnimationInEditor(false) only short-
-					//     circuits when WorldType==Editor. AdvancedPreviewScene
-					//     uses WorldType::EditorPreview, so that flag is
-					//     IGNORED and the AnimSingleNode AnimInstance ticks
-					//     every frame, outputting ref pose which overwrites
-					//     the CST we manually copy in SyncProxyTransforms.
-					//   - SetComponentTickEnabled(false) is the unconditional
-					//     gate — no component tick → no TickPose → no anim
-					//     graph eval → no CST overwrite. The component still
-					//     renders, transform changes propagate via
-					//     SetActorTransform, and we drive the bones via
-					//     ApplyEditedComponentSpaceTransforms each frame from
-					//     our viewport's own Tick. No need for the proxy's
-					//     own tick at all.
+					// - SetUpdateAnimationInEditor(false) only short-
+					// circuits when WorldType==Editor. AdvancedPreviewScene
+					// uses WorldType::EditorPreview, so that flag is
+					// IGNORED and the AnimSingleNode AnimInstance ticks
+					// every frame, outputting ref pose which overwrites
+					// the CST we manually copy in SyncProxyTransforms.
+					// - SetComponentTickEnabled(false) is the unconditional
+					// gate - no component tick -> no TickPose -> no anim
+					// graph eval -> no CST overwrite. The component still
+					// renders, transform changes propagate via
+					// SetActorTransform, and we drive the bones via
+					// ApplyEditedComponentSpaceTransforms each frame from
+					// our viewport's own Tick. No need for the proxy's
+					// own tick at all.
 					ProxySK->SetAnimationMode(EAnimationMode::AnimationSingleNode);
 					ProxySK->SetComponentTickEnabled(false);
 					Proxy->SetActorTickEnabled(false);
@@ -2709,7 +2634,7 @@ AActor* FComposableCameraShotEditorViewportClient::SpawnProxyForTarget(
 			}
 		}
 
-		// 2. Static mesh? Mid fidelity — copy the SM asset.
+		// 2. Static mesh? Mid fidelity - copy the SM asset.
 		if (UStaticMeshComponent* SourceSM = SourceActor->FindComponentByClass<UStaticMeshComponent>())
 		{
 			if (UStaticMesh* Mesh = SourceSM->GetStaticMesh())
@@ -2749,8 +2674,7 @@ AActor* FComposableCameraShotEditorViewportClient::SpawnProxyForTarget(
 	}
 
 	// 4. Fallback: capsule-ish cylinder at the source's transform (or origin).
-	UStaticMesh* CapsuleMesh = LoadObject<UStaticMesh>(
-		nullptr, kCapsuleFallbackMeshPath);
+	UStaticMesh* CapsuleMesh = LoadObject<UStaticMesh>(nullptr, kCapsuleFallbackMeshPath);
 	AStaticMeshActor* Proxy = PreviewWorld->SpawnActor<AStaticMeshActor>(Params);
 	if (Proxy && Proxy->GetStaticMeshComponent())
 	{
@@ -2761,13 +2685,11 @@ AActor* FComposableCameraShotEditorViewportClient::SpawnProxyForTarget(
 		Proxy->SetActorScale3D(kCapsuleFallbackScale);
 		if (SourceActor)
 		{
-			Proxy->SetActorLocationAndRotation(
-				SourceActor->GetActorLocation(), SourceActor->GetActorRotation());
+			Proxy->SetActorLocationAndRotation(SourceActor->GetActorLocation(), SourceActor->GetActorRotation());
 		}
 		else
 		{
-			Proxy->SetActorLocationAndRotation(
-				PreviewTransform.GetLocation(),
+			Proxy->SetActorLocationAndRotation(PreviewTransform.GetLocation(),
 				PreviewTransform.GetRotation());
 		}
 	}

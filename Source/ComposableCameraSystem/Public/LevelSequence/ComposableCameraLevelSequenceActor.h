@@ -13,9 +13,9 @@ class UCineCameraComponent;
  * Actor dedicated to binding composable cameras into a Level Sequence.
  *
  * Structure
- * ─────────
- *   RootComponent = UCineCameraComponent (OutputCineCameraComponent)   ← viewport terminal
- *   Sibling        = UComposableCameraLevelSequenceComponent             ← logic/data driver
+ * ---------
+ *   RootComponent = UCineCameraComponent (OutputCineCameraComponent)   ->viewport terminal
+ *   Sibling        = UComposableCameraLevelSequenceComponent->logic/data driver
  *
  * Mirrors ACineCameraActor's shape: the CineCamera is the Actor's root
  * component, so every native UE path ("find a UCameraComponent on this
@@ -24,15 +24,13 @@ class UCineCameraComponent;
  * activation filter hits its root-is-camera fast path identical to how it
  * handles CineCameraActor.
  *
- * The LevelSequenceComponent is a plain UActorComponent (no transform) —
- * it holds the TypeAssetReference bag and drives the internal CCS camera,
+ * The LevelSequenceComponent is a plain UActorComponent (no transform) - it holds the TypeAssetReference bag and drives the internal CCS camera,
  * projecting each tick's pose onto the CineCamera.
  *
  * Placement
- * ─────────
+ * ---------
  * Placeable in the level (Place Actors panel) AND usable as a Sequencer
- * Spawnable / Possessable. The latter two paths remain the most common —
- * the Sequencer Spawnable binding spawns the actor on section entry and
+ * Spawnable / Possessable. The latter two paths remain the most common - the Sequencer Spawnable binding spawns the actor on section entry and
  * destroys it on exit; a Possessable binds an existing in-level instance.
  * Direct level placement is supported for designers who want to author a
  * camera against a Sequencer that always exists in the level (e.g. an
@@ -40,14 +38,14 @@ class UCineCameraComponent;
  *
  * Without an active Sequencer driving the LevelSequenceComponent, a
  * free-standing instance is a no-op (see
- * UComposableCameraLevelSequenceComponent::SetEvaluationEnabled — the
+ * UComposableCameraLevelSequenceComponent::SetEvaluationEnabled. The
  * component still ticks, but with no Shot / Patch overrides to apply it
  * just projects the InternalCamera's default pose). This is by design;
  * the actor doesn't error on a "lonely" instance.
  *
  * Runtime driver
- * ──────────────
- * All real work lives on the LevelSequenceComponent — the actor has no
+ * --------------
+ * All real work lives on the LevelSequenceComponent. The actor has no
  * per-frame responsibilities of its own.
  */
 UCLASS(BlueprintType, ClassGroup = ComposableCameraSystem,
@@ -65,7 +63,7 @@ protected:
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
 	/** Output viewport-terminal CineCamera. Same component the actor's
-	 *  inherited `RootComponent` field points at — the dedicated
+	 *  inherited `RootComponent` field points at. The dedicated
 	 *  `UPROPERTY` here surfaces it in the Details panel's Components tree
 	 *  so designers can author per-instance lens / filmback / aperture
 	 *  / post-process / focus settings (all the standard
@@ -74,8 +72,7 @@ protected:
 	 *  picked up by the Details panel's component-tree walk, so its
 	 *  internals would render uneditable.
 	 *
-	 *  `VisibleAnywhere` on the pointer (component identity is fixed —
-	 *  can't reassign to a different component) plus the standard
+	 *  `VisibleAnywhere` on the pointer (component identity is fixed - can't reassign to a different component) plus the standard
 	 *  `EditAnywhere` flags on `UCineCameraComponent`'s own UPROPERTYs
 	 *  give the desired surface: pointer is read-only (don't replace the
 	 *  component), but the component's properties are designer-editable. */
@@ -86,7 +83,7 @@ protected:
 	/** Logic-and-data driver ActorComponent. Holds the TypeAssetReference
 	 *  (TypeAsset + Parameters / Variables bags), spawns the transient
 	 *  internal CCS camera each tick, and projects the resulting pose onto
-	 *  the CineCamera root component. Not the Actor's root — the CineCamera
+	 *  the CineCamera root component. Not the Actor's root. The CineCamera
 	 *  is, so native UCameraComponent lookups resolve immediately. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Composable Camera",
 		meta = (AllowPrivateAccess = "true"))

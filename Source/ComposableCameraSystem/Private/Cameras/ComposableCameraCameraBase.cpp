@@ -51,7 +51,7 @@ double FComposableCameraPose::GetEffectiveFieldOfView() const
 	float EffectiveFocalLength = FocalLength;
 	if (!bValidFocalLength && !bValidFieldOfView)
 	{
-		// Neither specified — fall back to a reasonable default so we never return garbage.
+		// Neither specified. Fall back to a reasonable default so we never return garbage.
 		EffectiveFocalLength = ComposableCameraPosePrivate::DefaultFallbackFocalLengthMM;
 	}
 
@@ -86,36 +86,61 @@ void FComposableCameraPose::SetFieldOfViewDegrees(double InFieldOfViewDegrees)
 
 bool FComposableCameraPose::ApplyPhysicalCameraSettings(FPostProcessSettings& InOutPostProcessSettings, bool bOverwriteSettings) const
 {
-	if (PhysicalCameraBlendWeight <= 0.f)
+	const float DoFWeight = FMath::Clamp(PhysicalCameraBlendWeight, 0.f, 1.f);
+	const float ExposureWeight = FMath::Clamp(ExposureBlendWeight, 0.f, 1.f);
+
+	if (DoFWeight <= 0.f && ExposureWeight <= 0.f)
 	{
 		return false;
 	}
 
-#define CCS_LERP_PP(SettingName, Value) \
+#define CCS_LERP_PP(SettingName, Value, Weight) \
 	if (!InOutPostProcessSettings.bOverride_##SettingName || bOverwriteSettings) \
 	{ \
 		InOutPostProcessSettings.bOverride_##SettingName = true; \
-		InOutPostProcessSettings.SettingName = FMath::Lerp(InOutPostProcessSettings.SettingName, static_cast<decltype(InOutPostProcessSettings.SettingName)>(Value), PhysicalCameraBlendWeight); \
+		InOutPostProcessSettings.SettingName = FMath::Lerp(InOutPostProcessSettings.SettingName, static_cast<decltype(InOutPostProcessSettings.SettingName)>(Value), Weight); \
 	}
 
-	// Auto-exposure inputs.
-	CCS_LERP_PP(CameraISO, ISO);
-	CCS_LERP_PP(CameraShutterSpeed, ShutterSpeed);
+#define CCS_LERP_DOF_FOCAL_DISTANCE(Value, Weight) \
+	if (!InOutPostProcessSettings.bOverride_DepthOfFieldFocalDistance || bOverwriteSettings) \
+	{ \
+		InOutPostProcessSettings.bOverride_DepthOfFieldFocalDistance = true; \
+		if (InOutPostProcessSettings.DepthOfFieldFocalDistance == 0.f || (Value) == 0.f) \
+		{ \
+			InOutPostProcessSettings.DepthOfFieldFocalDistance = (Value); \
+		} \
+		else \
+		{ \
+			InOutPostProcessSettings.DepthOfFieldFocalDistance = FMath::Lerp(InOutPostProcessSettings.DepthOfFieldFocalDistance, (Value), (Weight)); \
+		} \
+	}
+
+	// Exposure inputs.
+	if (ExposureWeight > 0.f)
+	{
+		CCS_LERP_PP(CameraISO, ISO, ExposureWeight);
+		CCS_LERP_PP(CameraShutterSpeed, ShutterSpeed, ExposureWeight);
+	}
 
 	// DoF inputs.
-	CCS_LERP_PP(DepthOfFieldFstop, Aperture);
-	CCS_LERP_PP(DepthOfFieldBladeCount, DiaphragmBladeCount);
-
-	// Only apply focus distance if the pose has a valid one; otherwise leave whatever was already set.
-	if (FocusDistance > 0.f)
+	if (DoFWeight > 0.f)
 	{
-		CCS_LERP_PP(DepthOfFieldFocalDistance, FocusDistance);
+		CCS_LERP_PP(DepthOfFieldFstop, Aperture, DoFWeight);
+		CCS_LERP_PP(DepthOfFieldBladeCount, DiaphragmBladeCount, DoFWeight);
+
+		// Only apply focus distance if the pose has a valid one; otherwise leave whatever was already set.
+		if (FocusDistance > 0.f)
+		{
+			CCS_LERP_DOF_FOCAL_DISTANCE(FocusDistance, DoFWeight);
+		}
+
+		const float EffectiveOverscan = 1.f + Overscan;
+		CCS_LERP_PP(DepthOfFieldScale, 1.f, DoFWeight);
+		CCS_LERP_PP(DepthOfFieldSensorWidth, SensorWidth * EffectiveOverscan, DoFWeight);
+		CCS_LERP_PP(DepthOfFieldSqueezeFactor, SqueezeFactor, DoFWeight);
 	}
 
-	const float EffectiveOverscan = 1.f + Overscan;
-	CCS_LERP_PP(DepthOfFieldSensorWidth, SensorWidth * EffectiveOverscan);
-	CCS_LERP_PP(DepthOfFieldSqueezeFactor, SqueezeFactor);
-
+#undef CCS_LERP_DOF_FOCAL_DISTANCE
 #undef CCS_LERP_PP
 
 	return true;
@@ -138,7 +163,7 @@ void FComposableCameraPose::BlendBy(const FComposableCameraPose& Other, float Ot
 	//
 	// Each side's effective FOV is computed in its own mode (degrees or physical),
 	// then the two degree values are lerped and stored. FocalLength is cleared so
-	// the blended pose is unambiguously in degrees mode — nothing downstream should
+	// the blended pose is unambiguously in degrees mode. Nothing downstream should
 	// re-derive FOV from the (now-stale) FocalLength.
 
 	const double FromFOV = GetEffectiveFieldOfView();
@@ -146,7 +171,7 @@ void FComposableCameraPose::BlendBy(const FComposableCameraPose& Other, float Ot
 	FieldOfView = FMath::Lerp(FromFOV, ToFOV, static_cast<double>(OtherWeight));
 	FocalLength = -1.f;
 
-	// --- Physical camera numerics (always lerped; gated at apply-time by PhysicalCameraBlendWeight) ---
+	// --- Physical camera numerics (always lerped; gated at apply-time by blend weights) ---
 
 	SensorWidth   = FMath::Lerp(SensorWidth,  Other.SensorWidth,  OtherWeight);
 	SensorHeight  = FMath::Lerp(SensorHeight, Other.SensorHeight, OtherWeight);
@@ -157,6 +182,7 @@ void FComposableCameraPose::BlendBy(const FComposableCameraPose& Other, float Ot
 	Overscan      = FMath::Lerp(Overscan,     Other.Overscan,     OtherWeight);
 	DiaphragmBladeCount = FMath::RoundToInt(FMath::Lerp(static_cast<float>(DiaphragmBladeCount), static_cast<float>(Other.DiaphragmBladeCount), OtherWeight));
 	PhysicalCameraBlendWeight = FMath::Lerp(PhysicalCameraBlendWeight, Other.PhysicalCameraBlendWeight, OtherWeight);
+	ExposureBlendWeight = FMath::Lerp(ExposureBlendWeight, Other.ExposureBlendWeight, OtherWeight);
 
 	// Sentinel-aware: keep a valid focus distance alive across mixed blends.
 	FocusDistance = LerpOptional(FocusDistance, Other.FocusDistance, OtherWeight);
@@ -168,7 +194,7 @@ void FComposableCameraPose::BlendBy(const FComposableCameraPose& Other, float Ot
 	OrthoNearClipPlane = FMath::Lerp(OrthoNearClipPlane, Other.OrthoNearClipPlane, OtherWeight);
 	OrthoFarClipPlane  = FMath::Lerp(OrthoFarClipPlane,  Other.OrthoFarClipPlane,  OtherWeight);
 
-	// Booleans and enums can't be linearly interpolated — target wins immediately
+	// Booleans and enums can't be linearly interpolated. Target wins immediately
 	// once the blend starts (OtherWeight > 0). This ensures that projection mode,
 	// aspect ratio constraints, etc. take effect at the start of a transition into
 	// a camera that sets them, rather than snapping mid-blend.
@@ -184,7 +210,7 @@ void FComposableCameraPose::BlendBy(const FComposableCameraPose& Other, float Ot
 	//
 	// Blend all post-process properties via the engine helper. Most fields use
 	// `UE_LERP_PP` / `UE_SET_PP` macros that correctly flip `bOverride_X = true`
-	// on the result whenever either side had the override — so a field that is
+	// on the result whenever either side had the override. So a field that is
 	// overridden only on one side fades in/out smoothly with its flag honoured.
 	FPostProcessUtils::BlendPostProcessSettings(PostProcessSettings, Other.PostProcessSettings, OtherWeight);
 
@@ -193,16 +219,16 @@ void FComposableCameraPose::BlendBy(const FComposableCameraPose& Other, float Ot
 	// `UE_LERP_PP` / `UE_SET_PP` macro path and *read* `OtherTo.bOverride_X`
 	// without ever writing `ThisFrom.bOverride_X = true`. Consequences:
 	//
-	//   - `DepthOfFieldFocalDistance` — most critical. When blending from a
+	//   - `DepthOfFieldFocalDistance`. Most critical. When blending from a
 	//     pose with no DoF override (e.g. a gameplay camera) to a pose that
 	//     has one (e.g. `ViewTargetProxyNode` forwarding a `UCineCameraComponent`
-	//     → Sequencer Camera Cut Track to an LS Actor), the value snaps to the
+	//     ->Sequencer Camera Cut Track to an LS Actor), the value snaps to the
 	//     new focal distance on frame 0 but `bOverride_DepthOfFieldFocalDistance`
 	//     stays at `false` for the whole blend. The renderer ignores the value,
 	//     DoF doesn't draw, and only when `CollapseFinishedTransitions` replaces
 	//     the blended pose with the proxy pose directly does `bOverride = true`
-	//     reappear — DoF "snaps on" at the very end of the transition.
-	//   - `DepthOfFieldMatteBoxFlags`, `LensFlareTints`, `MobileHQGaussian` —
+	//     reappear -DoF "snaps on" at the very end of the transition.
+	//   - `DepthOfFieldMatteBoxFlags`, `LensFlareTints`, `MobileHQGaussian` -
 	//     same pattern, less commonly hit but same bug.
 	//
 	// Fix: match the `UE_LERP_PP` "either-side-had-it" semantic by OR-ing the
@@ -210,7 +236,7 @@ void FComposableCameraPose::BlendBy(const FComposableCameraPose& Other, float Ot
 	// array / linear-color) fields the VALUE was already written by the engine
 	// helper and we only need to fix the flag.
 	//
-	// `MobileHQGaussian` is a bool — it follows the "target wins at OtherWeight
+	// `MobileHQGaussian` is a bool. It follows the "target wins at OtherWeight
 	// > 0" rule used above for `ProjectionMode` / `ConstrainAspectRatio` etc.
 	// (see the Projection & aspect block). The engine helper snaps its value at
 	// 50 %, which is exactly the mid-blend snap our convention rejects: a bool
@@ -292,8 +318,8 @@ void AComposableCameraCameraBase::Initialize(AComposableCameraPlayerCameraManage
 
 	// PCM is optional: the Level Sequence component path drives cameras without
 	// a PCM (evaluation happens inside UComposableCameraLevelSequenceComponent,
-	// which owns the camera directly). Action binding is PCM-only — it hooks
-	// the camera into the action system living on the PCM — so skip it when
+	// which owns the camera directly). Action binding is PCM-only. It hooks
+	// the camera into the action system living on the PCM. So skip it when
 	// there is no PCM to hook into.
 	if (Manager)
 	{
@@ -319,7 +345,7 @@ void AComposableCameraCameraBase::InitializeNodes()
 	// so they reuse the same Initialize() path (which wires OwningCamera /
 	// OwningPlayerCameraManager / RuntimeDataBlock and fires OnInitialize).
 	// Unlike camera nodes, they are deliberately NOT registered for OnPreTick /
-	// OnPostTick — compute nodes run exactly once, from BeginPlayCamera, and
+	// OnPostTick. Compute nodes run exactly once, from BeginPlayCamera, and
 	// must not consume hot-path time every frame.
 	for (UComposableCameraComputeNodeBase* ComputeNode : ComputeNodes)
 	{
@@ -439,7 +465,7 @@ void AComposableCameraCameraBase::BeginPlayCamera()
 namespace
 {
 	// Fire every node-scoped action whose TargetNodeClass matches Node's class.
-	// Pose is passed as the same in/out slot (matching TickNode's convention —
+	// Pose is passed as the same in/out slot (matching TickNode's convention -
 	// actions mutate the pose in place and the next node/action sees the update).
 	//
 	// `Action->OnExecute` is allowed to call `PCM->AddCameraAction(...)` /
@@ -448,7 +474,7 @@ namespace
 	// `UnregisterNodeAction` and mutates the very `PreNodeTickActions` /
 	// `PostNodeTickActions` array we'd be iterating. The PCM-level
 	// `bIsUpdatingActions` reentrancy gate covers the PCM `CameraActions`
-	// TSet but does NOT cover the camera-side TArrays — Register/Unregister
+	// TSet but does NOT cover the camera-side TArrays -Register/Unregister
 	// happen unconditionally inside the public Add/Remove paths. Iterating
 	// a stable snapshot decouples "what fires this broadcast" from "what
 	// gets registered for next broadcast"; AddUnique-induced reallocation
@@ -457,20 +483,20 @@ namespace
 	// OnExecute take effect on the NEXT broadcast (matches the PCM
 	// pending-add semantics for symmetry).
 	//
-	// Snapshot stores `TWeakObjectPtr<UComposableCameraActionBase>` — NOT
+	// Snapshot stores `TWeakObjectPtr<UComposableCameraActionBase>` -NOT
 	// raw pointers. `Action->OnExecute` is a `BlueprintNativeEvent`, so
 	// the body can run arbitrary BP that triggers GC mid-loop (sync
 	// `LoadObject`, async-load completion, BP exception unwind, slow BP
 	// that yields to the engine for a tick). A re-entrant
 	// `RemoveCameraAction(SiblingAction)` from inside one OnExecute drops
 	// the sibling from `CameraActions` TSet AND from this NodeActions
-	// array — so the next GC pass legitimately reclaims the sibling and
+	// array. So the next GC pass legitimately reclaims the sibling and
 	// any later `Action->TargetNodeClass` deref against our raw snapshot
 	// reads freed memory. Weak ptr survives the reclaim cleanly; the
 	// per-iteration `Pin() + IsValid` check skips reclaimed entries.
 	//
 	// `TInlineAllocator<8>` keeps the snapshot on the stack for the
-	// typical "0–3 actions targeting this node class" case; oversized
+	// typical "0- actions targeting this node class" case; oversized
 	// cases spill once.
 	FORCEINLINE void BroadcastNodeActions(
 		const TArray<UComposableCameraActionBase*>& NodeActions,
@@ -485,7 +511,7 @@ namespace
 
 		UClass* NodeClass = Node->GetClass();
 
-		// Build a weak-ptr snapshot — convert from the live raw-pointer
+		// Build a weak-ptr snapshot. Convert from the live raw-pointer
 		// array up-front so the loop body can iterate without touching
 		// `NodeActions` (which `OnExecute` may mutate).
 		TArray<TWeakObjectPtr<UComposableCameraActionBase>, TInlineAllocator<8>> Snapshot;
@@ -519,7 +545,7 @@ void AComposableCameraCameraBase::RegisterNodeAction(UComposableCameraActionBase
 		return;
 	}
 
-	// Ignore actions without a target class — matches the "ignored" ergonomic
+	// Ignore actions without a target class. Matches the "ignored" ergonomic
 	// documented on EComposableCameraActionExecutionType::PreNodeTick/PostNodeTick.
 	if (!Action->TargetNodeClass)
 	{
@@ -554,11 +580,11 @@ FComposableCameraPose AComposableCameraCameraBase::TickWithInputPose(
 	// Patch evaluators are driven by their PatchManager via this entry point;
 	// the PCM-driven main camera path uses TickCamera directly. Seeding
 	// CameraPose with the upstream pose makes the first node in the chain read
-	// it as the starting state — TickCamera's existing per-node loop then
+	// it as the starting state -TickCamera's existing per-node loop then
 	// mutates it the same way it does for non-Patch cameras. TickCamera's
 	// end-of-tick `LastFrameCameraPose = CameraPose` snapshot then captures
 	// THIS frame's upstream pose for the next frame's delta-style nodes
-	// (PivotDamping etc.) to consume — see PatchSystemProposal §6.2 / §16.7.
+	// (PivotDamping etc.) to consume. See PatchSystemProposal Section 6.2 / Section 16.7.
 	CameraPose = InputPose;
 	return TickCamera(DeltaTime);
 }
@@ -567,7 +593,7 @@ FComposableCameraPose AComposableCameraCameraBase::TickCamera(float DeltaTime)
 {
 	SCOPE_CYCLE_COUNTER(STAT_CCS_Camera_TickCamera);
 	TRACE_CPUPROFILER_EVENT_SCOPE(CCS_Camera_TickCamera);
-	// Read the cached trace name from Initialize — never allocate a fresh
+	// Read the cached trace name from Initialize. Never allocate a fresh
 	// FString here on the per-tick hot path.
 	TRACE_CPUPROFILER_EVENT_SCOPE_STR(*CameraTagTraceName);
 
@@ -576,7 +602,7 @@ FComposableCameraPose AComposableCameraCameraBase::TickCamera(float DeltaTime)
 	// (two RefLeaves in different branches both ultimately reach the
 	// same underlying leaf). Ticking twice would double-advance per-node
 	// state (damping, interpolator `bStartFrame`, spline progress, etc.)
-	// AND double-decrement RemainingLifeTime for transient cameras — both
+	// AND double-decrement RemainingLifeTime for transient cameras. Both
 	// observable bugs. The first call in a given frame does the real
 	// tick and stores the result; any subsequent same-frame call returns
 	// the cached CameraPose verbatim. GFrameCounter monotonically
@@ -636,9 +662,9 @@ FComposableCameraPose AComposableCameraCameraBase::TickCamera(float DeltaTime)
 				// directly indexes NodeTemplates / CameraNodes (no offset).
 				//
 				// Skip entries whose source-pin / variable type pair was
-				// flagged as incompatible at activation time — without this
+				// flagged as incompatible at activation time. Without this
 				// gate, a stale entry would cross-read bytes between
-				// mismatched-shape slots (Float source → Actor variable would
+				// mismatched-shape slots (Float source -> Actor variable would
 				// memcpy 4 bytes past the float slot then have RefreshReferenceSlot
 				// hand a garbage pointer to the GC mirror).
 				if (Entry.CameraNodeIndex == INDEX_NONE
@@ -692,7 +718,7 @@ FComposableCameraPose AComposableCameraCameraBase::TickCamera(float DeltaTime)
 		RemainingLifeTime = FMath::Max(0.f, RemainingLifeTime - DeltaTime);
 	}
 
-	// Memoization stamp — see note at top of function.
+	// Memoization stamp. See note at top of function.
 	LastTickedFrameCounter = CurrentFrame;
 
 	return CameraPose;
@@ -715,7 +741,7 @@ UComposableCameraCameraNodeBase* AComposableCameraCameraBase::GetNodeByClass(
 	return Node;
 }
 
-// ─── Editor Debug Snapshot ────────────────────────────────────────────────────
+// --- Editor Debug Snapshot ----------------------------------------------------
 
 #if WITH_EDITOR
 
@@ -735,7 +761,7 @@ FComposableCameraDebugSnapshot AComposableCameraCameraBase::SnapshotDebugState()
 	FComposableCameraDebugSnapshot Snapshot;
 	Snapshot.FinalPose = CameraPose;
 
-	// ── Per-node entries ──────────────────────────────────────────────────
+	// -- Per-node entries --------------------------------------------------
 
 	Snapshot.NodeEntries.Reserve(CameraNodes.Num());
 
@@ -773,7 +799,7 @@ FComposableCameraDebugSnapshot AComposableCameraCameraBase::SnapshotDebugState()
 		Snapshot.NodeEntries.Add(MoveTemp(Entry));
 	}
 
-	// ── Exposed parameter values ──────────────────────────────────────────
+	// -- Exposed parameter values ------------------------------------------
 	//
 	// Cross-reference the type asset's ExposedParameters for pin-type info so
 	// we can format the actual values instead of a generic "(set)".
@@ -801,7 +827,7 @@ FComposableCameraDebugSnapshot AComposableCameraCameraBase::SnapshotDebugState()
 		}
 	}
 
-	// ── Internal + Exposed variable values ────────────────────────────────
+	// -- Internal + Exposed variable values --------------------------------
 	//
 	// InternalVariableOffsets holds both InternalVariables and ExposedVariables
 	// (they share the same runtime map). Cross-reference both arrays on the
@@ -809,7 +835,7 @@ FComposableCameraDebugSnapshot AComposableCameraCameraBase::SnapshotDebugState()
 
 	if (OwnedRuntimeDataBlock && OwnedRuntimeDataBlock->IsValid() && TypeAsset)
 	{
-		// Build a quick name→(type, enum) lookup across both variable arrays.
+		// Build a quick name->type, enum) lookup across both variable arrays.
 		// EnumType is meaningful only for the Enum pin type but keeping it in
 		// the same map avoids a second walk over the variable arrays.
 		struct FVarTypeInfo { EComposableCameraPinType PinType; const UEnum* EnumType; };
@@ -855,7 +881,7 @@ void AComposableCameraCameraBase::DrawCameraDebug(UWorld* World, bool bDrawFrust
 	if (bDrawFrustum)
 	{
 		// Camera frustum at the pose this camera evaluated to this frame.
-		// `CameraPose` is the leaf-local pose — during a transition it may
+		// `CameraPose` is the leaf-local pose. During a transition it may
 		// differ from the PCM's blended output pose, which is what the user
 		// wants to see (source vs target contributions). Only invoked when
 		// the caller determined the player isn't looking through this camera.
@@ -872,7 +898,7 @@ void AComposableCameraCameraBase::DrawCameraDebug(UWorld* World, bool bDrawFrust
 			/*DepthPriority=*/0);
 	}
 
-	// Per-node gizmos are always walked — each override consults its own
+	// Per-node gizmos are always walked. Each override consults its own
 	// `CCS.Debug.Viewport.<NodeName>` CVar and early-outs when zero, so
 	// node-level gizmos show in both possessed play and F8 eject.
 	// `bDrawFrustum` doubles as "viewer is outside the camera": nodes that

@@ -3,30 +3,30 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "DataAssets/ComposableCameraShot.h"   // FComposableCameraShot — value member CachedEffectiveShot needs full type
+#include "DataAssets/ComposableCameraShot.h" // FComposableCameraShot - value member CachedEffectiveShot needs full type
 #include "DataAssets/ComposableCameraShotTarget.h"
 #include "EditorViewportClient.h"
 #include "UObject/WeakObjectPtr.h"
-#include "Widgets/SShotEditorViewport.h"   // EShotEditorMode
+#include "Widgets/SShotEditorViewport.h" // EShotEditorMode
 
 namespace ComposableCameraSystem::ShotEditorWheelMath
 {
 	/**
 	 * Wheel-Distance per-click zoom factor (multiplicative).
 	 *
-	 * Default step is 10% (factor 1.1) — same rate PIE / Persona / stock
+	 * Default step is 10% (factor 1.1) - same rate PIE / Persona / stock
 	 * editor viewport wheel dolly use. Modifier keys scale the *step*
-	 * (≡ `factor − 1`) to match DCC convention, so a single rate doesn't
+	 * ( `factor 1`) to match DCC convention, so a single rate doesn't
 	 * feel coarse-or-tedious depending on geometry scale:
 	 *
-	 *   - default: 10% step → factor 1.10
-	 *   - Shift:   50% step → factor 1.50  (5× default — fast traversal)
-	 *   - Ctrl:    2%  step → factor 1.02  (0.2× default — fine framing)
-	 *   - Shift+Ctrl: default — composing 5× and 0.2× gives 1× (≡ default),
-	 *                 refusing to disambiguate is safer than picking
-	 *                 arbitrarily.
+	 * - default: 10% step -> factor 1.10
+	 * - Shift: 50% step -> factor 1.50 (5x default - fast traversal)
+	 * - Ctrl: 2% step -> factor 1.02 (0.2x default - fine framing)
+	 * - Shift+Ctrl: default - composing 5x and 0.2x gives 1x (default),
+	 * refusing to disambiguate is safer than picking
+	 * arbitrarily.
 	 *
-	 * Pure function — extracted from `TryAdjustDistanceFromMouseWheel` so
+	 * Pure function - extracted from `TryAdjustDistanceFromMouseWheel` so
 	 * the modifier-key step logic has unit-test coverage independent of
 	 * Slate viewport state.
 	 */
@@ -35,7 +35,7 @@ namespace ComposableCameraSystem::ShotEditorWheelMath
 		float Step = DefaultStep;
 		if (bShiftHeld != bCtrlHeld)
 		{
-			Step = bShiftHeld ? DefaultStep * 5.f : DefaultStep * 0.2f;
+			Step = bShiftHeld ? DefaultStep * 5.f: DefaultStep * 0.2f;
 		}
 		return 1.f + Step;
 	}
@@ -56,150 +56,148 @@ class USkeletalMesh;
  * camera every tick from the Composition Solver's output.
  *
  * Camera control split (Q-A in design discussion):
- *   - Default: solver fully drives camera (location, rotation, FOV).
- *   - User starts a mouse drag → `TrackingStarted` flips `bUserOverridingCamera`,
- *     solver writes are suspended until release.
- *   - User releases → `TrackingStopped` clears the flag, solver takes over again
- *     on the next tick. So the camera "snaps back" to the solved pose immediately
- *     after a free-look gesture, matching the "see what the solver decides" intent.
+ * - Default: solver fully drives camera (location, rotation, FOV).
+ * - User starts a mouse drag -> `TrackingStarted` flips `bUserOverridingCamera`,
+ * solver writes are suspended until release.
+ * - User releases -> `TrackingStopped` clears the flag, solver takes over again
+ * on the next tick. So the camera "snaps back" to the solved pose immediately
+ * after a free-look gesture, matching the "see what the solver decides" intent.
  *
  * Proxy lifecycle:
- *   - Proxies are spawned in the editor's `FPreviewScene`'s world (NOT the user's
- *     level). They are GC-rooted via the world (`FPreviewScene::PreviewWorld` is
- *     itself rooted by the scene's `AddReferencedObjects`). FEditorViewportClient
- *     base already implements `FGCObject` — if we ever cache extra `UObject*`s
- *     outside the scene, override its `AddReferencedObjects` rather than
- *     re-inheriting FGCObject (which would be ambiguous).
- *   - The cached `TWeakObjectPtr` array tracks them; `IsValid` guard is the
- *     liveness check.
- *   - Per-frame `Tick` syncs proxy transforms from their source actors. If
- *     `Shot.Targets.Num()` changes between ticks (designer added / removed a target
- *     in the Details panel) we rebuild the proxy set — this is cheap (handful of
- *     actors max) and avoids needing a property-change delegate.
+ * - Proxies are spawned in the editor's `FPreviewScene`'s world (NOT the user's
+ * level). They are GC-rooted via the world (`FPreviewScene::PreviewWorld` is
+ * itself rooted by the scene's `AddReferencedObjects`). FEditorViewportClient
+ * base already implements `FGCObject` - if we ever cache extra `UObject*`s
+ * outside the scene, override its `AddReferencedObjects` rather than
+ * re-inheriting FGCObject (which would be ambiguous).
+ * - The cached `TWeakObjectPtr` array tracks them; `IsValid` guard is the
+ * liveness check.
+ * - Per-frame `Tick` syncs proxy transforms from their source actors. If
+ * `Shot.Targets.Num()` changes between ticks (designer added / removed a target
+ * in the Details panel) we rebuild the proxy set - this is cheap (handful of
+ * actors max) and avoids needing a property-change delegate.
  *
  * Lifetime gotchas (per research Q7):
- *   - Destructor must clear `Viewport` to nullptr BEFORE the SWidget tears down,
- *     or `FEditorViewportClient` outlives `FSceneViewport` and the next Draw
- *     dereferences a freed pointer. The owning `SShotEditorViewport` does this in
- *     its own destructor.
- *   - First-frame guard: `Viewport` is null until after `SEditorViewport::Construct`
- *     returns. `Tick` checks for this and bails out.
+ * - Destructor must clear `Viewport` to nullptr BEFORE the SWidget tears down,
+ * or `FEditorViewportClient` outlives `FSceneViewport` and the next Draw
+ * dereferences a freed pointer. The owning `SShotEditorViewport` does this in
+ * its own destructor.
+ * - First-frame guard: `Viewport` is null until after `SEditorViewport::Construct`
+ * returns. `Tick` checks for this and bails out.
  */
-class FComposableCameraShotEditorViewportClient
-	: public FEditorViewportClient
+class FComposableCameraShotEditorViewportClient: public FEditorViewportClient
 {
 public:
-	FComposableCameraShotEditorViewportClient(
-		FPreviewScene* InPreviewScene,
+	FComposableCameraShotEditorViewportClient(FPreviewScene* InPreviewScene,
 		const TSharedRef<class SEditorViewport>& InEditorViewportWidget);
 
 	virtual ~FComposableCameraShotEditorViewportClient();
 
-	// ─── External API used by SShotEditorViewport ─────────────────────────
+	// External API used by SShotEditorViewport 
 
 	/** Bind a new active Shot. Triggers a proxy rebuild on the next tick.
-	 *  Both args may be null — clears proxies + leaves the camera at last
-	 *  user-driven pose. */
+	 * Both args may be null - clears proxies + leaves the camera at last
+	 * user-driven pose. */
 	void SetActiveShot(FComposableCameraShot* InShot, UObject* InHost);
 
 	/** Diagnostic accessor. Returns nullptr while no Shot is bound. */
 	FComposableCameraShot* GetActiveShot() const { return ActiveShot; }
 
-	/** Tri-state mode (Drag / Free / Lock — see EShotEditorMode in
-	 *  SShotEditorViewport.h for semantics). Replaces V1.x bool Manual
-	 *  Mode toggle. Cancels any in-flight bone-picking sub-mode (Phase G+)
-	 *  when the user leaves Drag. */
+	/** Tri-state mode (Drag / Free / Lock - see EShotEditorMode in
+	 * SShotEditorViewport.h for semantics). Replaces V1.x bool Manual
+	 * Mode toggle. Cancels any in-flight bone-picking sub-mode (Phase G+)
+	 * when the user leaves Drag. */
 	void SetMode(EShotEditorMode InMode);
 	EShotEditorMode GetMode() const { return CurrentMode; }
 
 	/** Diagnose-with-reason precheck. Runs the same pre-flight checks as
-	 *  `ReverseSolveCurrentCameraToShot` and returns the first failing
-	 *  status (or `Ok` when all checks pass). The Free→Drag dialog calls
-	 *  this to render an actionable reason ("Placement anchor is
-	 *  unresolvable") instead of a silent grey button when Save is
-	 *  unavailable. Includes the AnchorAtScreen-only "PlacementAnchor at
-	 *  or behind camera" check so the failure surfaces in the dialog body
-	 *  rather than after the user clicks Save. */
+	 * `ReverseSolveCurrentCameraToShot` and returns the first failing
+	 * status (or `Ok` when all checks pass). The Free -> Drag dialog calls
+	 * this to render an actionable reason ("Placement anchor is
+	 * unresolvable") instead of a silent grey button when Save is
+	 * unavailable. Includes the AnchorAtScreen-only "PlacementAnchor at
+	 * or behind camera" check so the failure surfaces in the dialog body
+	 * rather than after the user clicks Save. */
 	EShotEditorReverseSolveStatus DiagnoseReverseSolveCurrentCamera() const;
 
-	/** Boolean shortcut — `DiagnoseReverseSolveCurrentCamera() == Ok`. Kept
-	 *  for call sites that just need the gate without a reason. */
+	/** Boolean shortcut - `DiagnoseReverseSolveCurrentCamera() == Ok`. Kept
+	 * for call sites that just need the gate without a reason. */
 	bool CanReverseSolveCurrentCamera() const;
 
 	/** Reverse-solve: take the current camera pose (location, rotation,
-	 *  ViewFOV) and write Shot params that would produce it. V2 (3-layer
-	 *  Placement / Aim model) writes:
+	 * ViewFOV) and write Shot params that would produce it. V2 (3-layer
+	 * Placement / Aim model) writes:
 	 *
-	 *    Placement.Distance              = |CameraPos - PlacementAnchorPos|
-	 *    Placement.LocalCameraDirection  = inverse spherical of
-	 *                                      (CameraPos - PlacementAnchorPos)
-	 *                                      through Placement basis
-	 *    Placement.ScreenPosition        = projected PlacementAnchor
-	 *    Aim.ScreenPosition              = projected AimAnchor
-	 *    Lens.ManualFOV                  = ViewFOV (only when FOVMode == Manual)
-	 *    Roll                            = CamRot.Roll
+	 * Placement.Distance = |CameraPos - PlacementAnchorPos|
+	 * Placement.LocalCameraDirection = inverse spherical of
+	 * (CameraPos - PlacementAnchorPos)
+	 * through Placement basis
+	 * Placement.ScreenPosition = projected PlacementAnchor
+	 * Aim.ScreenPosition = projected AimAnchor
+	 * Lens.ManualFOV = ViewFOV (only when FOVMode == Manual)
+	 * Roll = CamRot.Roll
 	 *
-	 *  Per-target screen positions no longer exist (V2 dropped them — Targets
-	 *  are pure world-space). Wraps the writes in a host transaction
-	 *  (Modify + PostEditChangeProperty ValueSet) so the whole reverse-solve
-	 *  is one undo entry. Returns true iff PlacementAnchor + AimAnchor both
-	 *  resolved AND Distance > 1cm; false (no-op) otherwise. */
+	 * Per-target screen positions no longer exist (V2 dropped them - Targets
+	 * are pure world-space). Wraps the writes in a host transaction
+	 * (Modify + PostEditChangeProperty ValueSet) so the whole reverse-solve
+	 * is one undo entry. Returns true iff PlacementAnchor + AimAnchor both
+	 * resolved AND Distance > 1cm; false (no-op) otherwise. */
 	bool ReverseSolveCurrentCameraToShot();
 
 	/** Drain all scene-bound resources (currently: proxy actors) immediately.
-	 *  Called by the owning `SShotEditorViewport` from its destructor BEFORE
-	 *  the `FPreviewScene` member is destroyed.
+	 * Called by the owning `SShotEditorViewport` from its destructor BEFORE
+	 * the `FPreviewScene` member is destroyed.
 	 *
-	 *  Why this matters: the base `SEditorViewport` also holds a TSharedPtr
-	 *  to this client, so our destructor doesn't fire when our owning widget
-	 *  releases its ref — the base's ref survives into `~SEditorViewport`,
-	 *  which runs AFTER `SShotEditorViewport`'s member destruction has already
-	 *  torn down `PreviewScene`. By that time `Proxy->Destroy()` would touch
-	 *  a dead world. Calling this method explicitly drains proxies while the
-	 *  scene is still alive. Idempotent. */
+	 * Why this matters: the base `SEditorViewport` also holds a TSharedPtr
+	 * to this client, so our destructor doesn't fire when our owning widget
+	 * releases its ref - the base's ref survives into `~SEditorViewport`,
+	 * which runs AFTER `SShotEditorViewport`'s member destruction has already
+	 * torn down `PreviewScene`. By that time `Proxy->Destroy()` would touch
+	 * a dead world. Calling this method explicitly drains proxies while the
+	 * scene is still alive. Idempotent. */
 	void ReleaseSceneResources();
 
-	// ─── FEditorViewportClient overrides ──────────────────────────────────
+	// FEditorViewportClient overrides 
 
 	virtual void Tick(float DeltaSeconds) override;
 
-	/** Per-frame HUD overlay — draws aspect ratio, viewport size, camera pose,
-	 *  FOV, and resolved anchor's projected screen coords in the upper-left
-	 *  corner of the viewport. Diagnostic aid for verifying that the solver's
-	 *  output matches the renderer's projection across viewport resizes —
-	 *  watching the overlay live while dragging the splitter / window border
-	 *  is the fastest way to catch any aspect-mismatch regression. */
+	/** Per-frame HUD overlay - draws aspect ratio, viewport size, camera pose,
+	 * FOV, and resolved anchor's projected screen coords in the upper-left
+	 * corner of the viewport. Diagnostic aid for verifying that the solver's
+	 * output matches the renderer's projection across viewport resizes - 
+	 * watching the overlay live while dragging the splitter / window border
+	 * is the fastest way to catch any aspect-mismatch regression. */
 	virtual void DrawCanvas(FViewport& InViewport, FSceneView& View, FCanvas& Canvas) override;
 
-	/** 3D primitive overlay — wireframe boxes around each Target's effective
-	 *  bounds, color-coded by whether the box would actually contribute to
-	 *  the `SolvedFromBoundsFit` FOV solve. Selection is implicit via the
-	 *  per-target `BoundsShape` + `BoundsContributionWeight` fields:
+	/** 3D primitive overlay - wireframe boxes around each Target's effective
+	 * bounds, color-coded by whether the box would actually contribute to
+	 * the `SolvedFromBoundsFit` FOV solve. Selection is implicit via the
+	 * per-target `BoundsShape` + `BoundsContributionWeight` fields:
 	 *
-	 *    - Drawn (green):  all 8 BB vertices project in front of the camera
-	 *                      (target IS feeding the FOV solve).
-	 *    - Drawn (yellow): BB valid but at least one vertex projects behind
-	 *                      the camera plane → solver's strict `bAllOnScreen`
-	 *                      check drops the target. Common at close framings;
-	 *                      nudge the camera back or reduce the manual extent.
-	 *    - Not drawn:      `BoundsShape == None`, cold cache, OR
-	 *                      `BoundsContributionWeight <= 0`. The designer's
-	 *                      "select which actors contribute" mechanism — only
-	 *                      authored-in targets render a box.
+	 * - Drawn (green): all 8 BB vertices project in front of the camera
+	 * (target IS feeding the FOV solve).
+	 * - Drawn (yellow): BB valid but at least one vertex projects behind
+	 * the camera plane -> solver's strict `bAllOnScreen`
+	 * check drops the target. Common at close framings;
+	 * nudge the camera back or reduce the manual extent.
+	 * - Not drawn: `BoundsShape == None`, cold cache, OR
+	 * `BoundsContributionWeight <= 0`. The designer's
+	 * "select which actors contribute" mechanism - only
+	 * authored-in targets render a box.
 	 *
-	 *  Skipped entirely when `Lens.FOVMode != SolvedFromBoundsFit` — bounds
-	 *  are unread by Manual mode and the wireframes would be visual noise. */
+	 * Skipped entirely when `Lens.FOVMode != SolvedFromBoundsFit` - bounds
+	 * are unread by Manual mode and the wireframes would be visual noise. */
 	virtual void Draw(const FSceneView* View, FPrimitiveDrawInterface* PDI) override;
 
-	// ─── D.4 Handle drag input hooks ─────────────────────────────────────
+	// D.4 Handle drag input hooks 
 	//
-	// LMB down on a handle → start drag (FScopedTransaction + Host->Modify);
-	// LMB up while dragging → commit (PostEditChangeProperty ValueSet + end
+	// LMB down on a handle -> start drag (FScopedTransaction + Host->Modify);
+	// LMB up while dragging->commit (PostEditChangeProperty ValueSet + end
 	// transaction). Mouse moves during drag write into the active handle's
 	// screen-position field on the Shot (Interactive change type).
 	//
 	// In Free / Lock modes, handles are drawn but greyed out and hit-test
-	// is skipped — LMB falls through to base class (orbit / pan in Free,
+	// is skipped - LMB falls through to base class (orbit / pan in Free,
 	// consumed in Lock). Only Drag mode allows handle interaction.
 	virtual bool InputKey(const FInputKeyEventArgs& EventArgs) override;
 	virtual void CapturedMouseMove(FViewport* InViewport, int32 InMouseX, int32 InMouseY) override;
@@ -212,213 +210,212 @@ public:
 	// = true for the MaintainXFOV aspect override, so the virtual is dead
 	// code in our setup. Instead, DoF is written directly into
 	// `ControllingActorViewInfo.PostProcessSettings` inside
-	// `RunSolverAndDriveCamera` — the engine reads that when
+	// `RunSolverAndDriveCamera` - the engine reads that when
 	// bUseControllingActorViewInfo is true (line 1448 of the engine
 	// source above).
 
 private:
 	/** Re-spawn the proxy set for the current ActiveShot's Targets. Despawns
-	 *  any existing proxies first. Safe to call when ActiveShot is null. */
+	 * any existing proxies first. Safe to call when ActiveShot is null. */
 	void RebuildProxies();
 
 	/** Despawn every proxy actor and clear the array. */
 	void DestroyProxies();
 
-	/** Per-frame transform copy from source actor → proxy. Skips null entries. */
+	/** Per-frame transform copy from source actor->proxy. Skips null entries. */
 	void SyncProxyTransforms();
 
 	/** Run SolveShot and write the result onto the viewport's camera.
-	 *  `DeltaSeconds` flows into the framing-zone damping term; pass 0
-	 *  for instant-snap behavior (e.g. one-shot preview rebuilds). */
+	 * `DeltaSeconds` flows into the framing-zone damping term; pass 0
+	 * for instant-snap behavior (e.g. one-shot preview rebuilds). */
 	void RunSolverAndDriveCamera(float DeltaSeconds);
 
 	/** Spawn one proxy in the preview world for `SourceActor` or a template
-	 *  preview mesh. Picks live SK / live SM / preview SK / capsule fallback. */
-	AActor* SpawnProxyForTarget(
-		AActor* SourceActor,
+	 * preview mesh. Picks live SK / live SM / preview SK / capsule fallback. */
+	AActor* SpawnProxyForTarget(AActor* SourceActor,
 		USkeletalMesh* PreviewMesh,
 		const FTransform& PreviewTransform);
 
 	/** Resolve the source actor for `Targets[TargetIndex]`. When the active
-	 *  host is a `UMovieSceneComposableCameraShotSection`, per-section
-	 *  TargetActorOverrides are consulted first — the override's
-	 *  FMovieSceneObjectBindingID is resolved against the open Sequencer for
-	 *  the section's owning sequence. Falls back to the Shot's authored
-	 *  runtime actor. Asset-only preview meshes are resolved separately by
-	 *  `ResolvePreviewMeshForTargetIndex`. */
+	 * host is a `UMovieSceneComposableCameraShotSection`, per-section
+	 * TargetActorOverrides are consulted first - the override's
+	 * FMovieSceneObjectBindingID is resolved against the open Sequencer for
+	 * the section's owning sequence. Falls back to the Shot's authored
+	 * runtime actor. Asset-only preview meshes are resolved separately by
+	 * `ResolvePreviewMeshForTargetIndex`. */
 	AActor* ResolveSourceActorForTargetIndex(int32 TargetIndex) const;
 
 	/** Resolve editor-only SKM preview asset for a target. Used only when no
-	 *  live actor / LS binding resolves. */
+	 * live actor / LS binding resolves. */
 	USkeletalMesh* ResolvePreviewMeshForTargetIndex(int32 TargetIndex) const;
 
 	/** Resolve editor-only preview proxy transform for a target. */
 	FTransform ResolvePreviewTransformForTargetIndex(int32 TargetIndex) const;
 
 	/** Build a value-copy of `*ActiveShot` with each `Targets[i].Target.Actor`
-	 *  replaced by the override-resolved live actor (when an override exists
-	 *  and resolves) — see `ResolveSourceActorForTargetIndex`. The result is
-	 *  what the solver / read paths in this viewport consume so a Section's
-	 *  TargetActorOverrides actually drive the preview camera, not just the
-	 *  proxy spawn.
+	 * replaced by the override-resolved live actor (when an override exists
+	 * and resolves) - see `ResolveSourceActorForTargetIndex`. The result is
+	 * what the solver / read paths in this viewport consume so a Section's
+	 * TargetActorOverrides actually drive the preview camera, not just the
+	 * proxy spawn.
 	 *
-	 *  Returns false (OutShot left unchanged) when ActiveShot is null.
+	 * Returns false (OutShot left unchanged) when ActiveShot is null.
 	 *
-	 *  **Per-frame cache (Polish P.2)**: a single tick triggers 5+ calls
-	 *  (HUD draw, 3D wire BBs, handles, solver run, hover tooltip, etc.).
-	 *  Each call previously did a full `*ActiveShot` value copy AND ran
-	 *  per-target Sequencer-binding override resolution
-	 *  (`ResolveSourceActorForTargetIndex`, which queries open Sequencer
-	 *  instances). The override resolution dominates the cost. Cached on
-	 *  the viewport client and invalidated at the start of each `Tick`,
-	 *  so within one frame all callers share a single resolution pass.
-	 *  The struct copy still runs per-call (callers own `OutShot` and may
-	 *  mutate it — the bounds-cache refresh in `Draw()` does), but the
-	 *  TArray<FComposableCameraShotTarget> heap allocation is the only
-	 *  inherent per-call cost; the rest is memcpy-shape work. */
+	 * **Per-frame cache (Polish P.2)**: a single tick triggers 5+ calls
+	 * (HUD draw, 3D wire BBs, handles, solver run, hover tooltip, etc.).
+	 * Each call previously did a full `*ActiveShot` value copy AND ran
+	 * per-target Sequencer-binding override resolution
+	 * (`ResolveSourceActorForTargetIndex`, which queries open Sequencer
+	 * instances). The override resolution dominates the cost. Cached on
+	 * the viewport client and invalidated at the start of each `Tick`,
+	 * so within one frame all callers share a single resolution pass.
+	 * The struct copy still runs per-call (callers own `OutShot` and may
+	 * mutate it - the bounds-cache refresh in `Draw()` does), but the
+	 * TArray<FComposableCameraShotTarget> heap allocation is the only
+	 * inherent per-call cost; the rest is memcpy-shape work. */
 	bool BuildEffectiveShotForPreview(FComposableCameraShot& OutShot) const;
 
 private:
-	/** The PreviewScene the SEditorViewport gave us. NOT owned — owner is the
-	 *  SShotEditorViewport widget. */
+	/** The PreviewScene the SEditorViewport gave us. NOT owned - owner is the
+	 * SShotEditorViewport widget. */
 	FPreviewScene* PreviewScene = nullptr;
 
-	/** Active Shot pointer — raw, lives inside host UObject's UPROPERTY.
-	 *  Mirrors SShotEditorRoot's ActiveShot; null when no Shot bound. */
+	/** Active Shot pointer - raw, lives inside host UObject's UPROPERTY.
+	 * Mirrors SShotEditorRoot's ActiveShot; null when no Shot bound. */
 	FComposableCameraShot* ActiveShot = nullptr;
 
 	/** Liveness guard for ActiveShot. */
 	TWeakObjectPtr<UObject> ActiveHost;
 
 	/** Snapshot value of the host pointer at last RebuildProxies call.
-	 *  Used to detect "host changed" and trigger rebuild even if Targets count
-	 *  matches by accident. */
+	 * Used to detect "host changed" and trigger rebuild even if Targets count
+	 * matches by accident. */
 	TWeakObjectPtr<UObject> LastRebuiltHost;
 
 	/** One stand-in actor per Shot.Targets[i], in the same order. Weak refs
-	 *  let us detect proxies that were nulled out by the world (shouldn't
-	 *  happen in normal operation but cheap insurance). */
+	 * let us detect proxies that were nulled out by the world (shouldn't
+	 * happen in normal operation but cheap insurance). */
 	TArray<TWeakObjectPtr<AActor>> ProxyActors;
 
 	/** Per-target source actor at last RebuildProxies time. Used to detect
-	 *  when a designer assigns / changes / clears `Targets[i].Target.Actor`
-	 *  in the Details panel — the Targets array length doesn't change in
-	 *  that case, so the count-drift check alone misses it and the proxy
-	 *  stays stuck on its initial mesh choice (cylinder fallback for the
-	 *  null-actor case). Each Tick compares this snapshot against the
-	 *  current per-target resolved actors and forces a rebuild on mismatch. */
+	 * when a designer assigns / changes / clears `Targets[i].Target.Actor`
+	 * in the Details panel - the Targets array length doesn't change in
+	 * that case, so the count-drift check alone misses it and the proxy
+	 * stays stuck on its initial mesh choice (cylinder fallback for the
+	 * null-actor case). Each Tick compares this snapshot against the
+	 * current per-target resolved actors and forces a rebuild on mismatch. */
 	TArray<TWeakObjectPtr<AActor>> LastResolvedSources;
 
 	/** Per-target preview mesh at last RebuildProxies time. Tracked in
-	 *  parallel with LastResolvedSources so changing EditorPreviewMesh
-	 *  respawns the proxy even when no live Actor exists. */
+	 * parallel with LastResolvedSources so changing EditorPreviewMesh
+	 * respawns the proxy even when no live Actor exists. */
 	TArray<TWeakObjectPtr<USkeletalMesh>> LastResolvedPreviewMeshes;
 
 	/** Per-frame cache for `BuildEffectiveShotForPreview` (Polish P.2).
-	 *  Holds the most recent successful effective-shot computation; reused
-	 *  by every paint-time caller within one tick. Invalidated at the
-	 *  start of each `Tick(DeltaSeconds)`. `mutable` so the const-method
-	 *  `BuildEffectiveShotForPreview` can populate it lazily on first call
-	 *  per frame.
+	 * Holds the most recent successful effective-shot computation; reused
+	 * by every paint-time caller within one tick. Invalidated at the
+	 * start of each `Tick(DeltaSeconds)`. `mutable` so the const-method
+	 * `BuildEffectiveShotForPreview` can populate it lazily on first call
+	 * per frame.
 	 *
-	 *  `bEffectiveShotCacheValid` is the freshness bit. `bEffectiveShotCacheBuiltOk`
-	 *  records whether the last successful build returned true (cache holds
-	 *  a real shot) vs false (ActiveShot was null, cache contents undefined).
-	 *  Both default-cleared on Tick. */
+	 * `bEffectiveShotCacheValid` is the freshness bit. `bEffectiveShotCacheBuiltOk`
+	 * records whether the last successful build returned true (cache holds
+	 * a real shot) vs false (ActiveShot was null, cache contents undefined).
+	 * Both default-cleared on Tick. */
 	mutable FComposableCameraShot CachedEffectiveShot;
-	mutable bool bEffectiveShotCacheValid    = false;
-	mutable bool bEffectiveShotCacheBuiltOk  = false;
+	mutable bool bEffectiveShotCacheValid = false;
+	mutable bool bEffectiveShotCacheBuiltOk = false;
 
 	/** Tri-state mode set by the Shot Editor toolbar. Drag (default) =
-	 *  solver-driven + interactive handles; Free = user-camera + handles
-	 *  follow live world projection (non-interactive); Lock = solver-driven
-	 *  + all input consumed (read-only preview). */
+	 * solver-driven + interactive handles; Free = user-camera + handles
+	 * follow live world projection (non-interactive); Lock = solver-driven
+	 * + all input consumed (read-only preview). */
 	EShotEditorMode CurrentMode = EShotEditorMode::Drag;
 
-	// ─── D.4 Handle drag state ───────────────────────────────────────────
+	// D.4 Handle drag state 
 
 	/** Type of handle being drawn / hit-tested / dragged. V2 (3-layer
-	 *  Placement / Aim model): two handles — one per anchor screen
-	 *  position (Placement.ScreenPosition + Aim.ScreenPosition). Per-target
-	 *  handles dropped (no more per-target screen-position UPROPERTY). */
-	enum class EHandleType : uint8
+	 * Placement / Aim model): two handles - one per anchor screen
+	 * position (Placement.ScreenPosition + Aim.ScreenPosition). Per-target
+	 * handles dropped (no more per-target screen-position UPROPERTY). */
+	enum class EHandleType: uint8
 	{
 		None,
-		PlacementAnchor,   // Shot.Placement.ScreenPosition
-		AimAnchor          // Shot.Aim.ScreenPosition
+		PlacementAnchor, // Shot.Placement.ScreenPosition
+		AimAnchor // Shot.Aim.ScreenPosition
 	};
 
 	/** Cache populated each DrawCanvas frame for hit-testing in InputKey /
-	 *  MouseMove. Pixel coords are in viewport-local space (origin top-left,
-	 *  +Y down).
+	 * MouseMove. Pixel coords are in viewport-local space (origin top-left,
+	 * +Y down).
 	 *
-	 *  Two cached-entry kinds:
-	 *    - Anchor    — the LMB-grab disc for `Placement.ScreenPosition` /
-	 *                  `Aim.ScreenPosition`. `HitArea` is a small box around
-	 *                  `PixelPos`; `bIsZoneEdge` is false; zone-edge fields
-	 *                  are unused.
-	 *    - ZoneEdge  — one of the four edges of an enabled framing-zone
-	 *                  rectangle (dead OR soft × L/R/T/B). `HitArea` is a
-	 *                  thin rect aligned with the edge; `bIsZoneEdge` is
-	 *                  true; zone-edge fields identify which size to mutate.
+	 * Two cached-entry kinds:
+	 * - Anchor - the LMB-grab disc for `Placement.ScreenPosition` /
+	 * `Aim.ScreenPosition`. `HitArea` is a small box around
+	 * `PixelPos`; `bIsZoneEdge` is false; zone-edge fields
+	 * are unused.
+	 * - ZoneEdge - one of the four edges of an enabled framing-zone
+	 * rectangle (dead OR soft x L/R/T/B). `HitArea` is a
+	 * thin rect aligned with the edge; `bIsZoneEdge` is
+	 * true; zone-edge fields identify which size to mutate.
 	 */
 	struct FHandleScreenPosCache
 	{
 		/** Center point of the handle (anchor disc center, or midpoint of
-		 *  the edge). Used for "follow cursor" rendering during an active
-		 *  drag and for tooltip anchoring. */
-		FVector2D   PixelPos;
+		 * the edge). Used for "follow cursor" rendering during an active
+		 * drag and for tooltip anchoring. */
+		FVector2D PixelPos;
 
 		/** Hit-test rectangle. Anchor: small square around PixelPos. Zone
-		 *  edge: thin strip along the edge with `kZoneEdgeHitThickness`
-		 *  perpendicular thickness. Hit test reduces to point-in-box. */
-		FBox2D      HitArea { ForceInit };
+		 * edge: thin strip along the edge with `kZoneEdgeHitThickness`
+		 * perpendicular thickness. Hit test reduces to point-in-box. */
+		FBox2D HitArea { ForceInit };
 
 		/** Anchor this handle belongs to. For Anchor entries this is also
-		 *  the dragged target; for ZoneEdge entries the edge mutates the
-		 *  *zones* attached to this anchor (Placement → `PlacementZones`,
-		 *  Aim → `AimZones`). */
+		 * the dragged target; for ZoneEdge entries the edge mutates the
+		 * *zones* attached to this anchor (Placement -> `PlacementZones`,
+		 * Aim -> `AimZones`). */
 		EHandleType Type;
 
-		// ─── Zone-edge specifics — only valid when bIsZoneEdge ────────────
+		// Zone-edge specifics - only valid when bIsZoneEdge 
 
-		bool        bIsZoneEdge = false;
+		bool bIsZoneEdge = false;
 
 		/** false = `DeadZoneSize` edge, true = `SoftZoneSize` edge. */
-		bool        bIsSoftZone = false;
+		bool bIsSoftZone = false;
 
 		/** Which edge: 0=Left, 1=Right, 2=Top, 3=Bottom. Drives both the
-		 *  drag math (which axis of the zone size to mutate, and on which
-		 *  side of the anchor the cursor is expected) and the hit-area
-		 *  orientation (vertical vs horizontal strip). */
-		int32       EdgeIndex  = -1;
+		 * drag math (which axis of the zone size to mutate, and on which
+		 * side of the anchor the cursor is expected) and the hit-area
+		 * orientation (vertical vs horizontal strip). */
+		int32 EdgeIndex = -1;
 	};
 	TArray<FHandleScreenPosCache> CachedHandles;
 
 	/** Current drag state. ActiveDragHandleType == None when no drag in
-	 *  progress. When `bActiveDragIsZoneEdge` is true, the type identifies
-	 *  the *anchor whose zones are being edited*, and the edge / soft-vs-
-	 *  dead fields describe which size component the cursor mutates. */
-	EHandleType         ActiveDragHandleType  = EHandleType::None;
-	bool                bActiveDragIsZoneEdge = false;
-	bool                ActiveDragZoneIsSoft  = false;
-	int32               ActiveDragZoneEdgeIndex = -1;
+	 * progress. When `bActiveDragIsZoneEdge` is true, the type identifies
+	 * the *anchor whose zones are being edited*, and the edge / soft-vs-
+	 * dead fields describe which size component the cursor mutates. */
+	EHandleType ActiveDragHandleType = EHandleType::None;
+	bool bActiveDragIsZoneEdge = false;
+	bool ActiveDragZoneIsSoft = false;
+	int32 ActiveDragZoneEdgeIndex = -1;
 	TUniquePtr<FScopedTransaction> DragTransaction;
 
 	/** Hover state for visual feedback (unused while a drag is active). */
-	EHandleType HoveredHandleType  = EHandleType::None;
-	/** Mirror of `ActiveDragIsZoneEdge` / etc. for hover — drives whether
-	 *  hovering an edge highlights it (color + thickness) without firing a
-	 *  drag. */
-	bool        bHoveredIsZoneEdge = false;
-	bool        HoveredZoneIsSoft  = false;
-	int32       HoveredZoneEdgeIndex = -1;
+	EHandleType HoveredHandleType = EHandleType::None;
+	/** Mirror of `ActiveDragIsZoneEdge` / etc. for hover - drives whether
+	 * hovering an edge highlights it (color + thickness) without firing a
+	 * drag. */
+	bool bHoveredIsZoneEdge = false;
+	bool HoveredZoneIsSoft = false;
+	int32 HoveredZoneEdgeIndex = -1;
 
-	// ─── Alt+RMB Roll drag state (Drag + Free modes) ─────────────────────
+	// Alt+RMB Roll drag state (Drag + Free modes) 
 	//
 	// Alt+RMB-drag rotates `Shot.Roll` (NOT view-rotation Roll) so the
 	// gesture round-trips through Modify / PostEditChangeProperty (ValueSet)
-	// — Ctrl+Z restores the prior Roll. Drag mode picks up the change via
+	// - Ctrl+Z restores the prior Roll. Drag mode picks up the change via
 	// the per-tick solver (which composes `Shot.Roll` into the camera
 	// rotation); Free mode picks it up via the per-tick "view.Roll =
 	// Shot.Roll" sync at the bottom of `RunSolverAndDriveCamera`. Both
@@ -430,45 +427,45 @@ private:
 	bool bRollDragActive = false;
 
 	/** Mouse X at the previous CapturedMouseMove sample, used to compute
-	 *  per-frame Roll delta. Captured at gesture start in `StartRollDrag`. */
+	 * per-frame Roll delta. Captured at gesture start in `StartRollDrag`. */
 	int32 RollDragLastMouseX = 0;
 
 	/** Single-gesture transaction. Same SaveToTransactionBuffer-bypass-Modify
-	 *  pattern as the LMB handle drag (TechDoc §7.2 Sequencer-respawn flash):
-	 *  begin uses `SaveToTransactionBuffer(Host, false)` for the undo snapshot
-	 *  without firing OnObjectModified mid-gesture; commit fires
-	 *  `PostEditChangeProperty(ValueSet)`. */
+	 * pattern as the LMB handle drag (TechDoc Section 7.2 Sequencer-respawn flash):
+	 * begin uses `SaveToTransactionBuffer(Host, false)` for the undo snapshot
+	 * without firing OnObjectModified mid-gesture; commit fires
+	 * `PostEditChangeProperty(ValueSet)`. */
 	TUniquePtr<FScopedTransaction> RollTransaction;
 
 	/** Hit-test cached handles against pixel coords, returns first match
-	 *  (handles drawn last are tested first → top-most hit wins). Returns
-	 *  the full cache entry so callers can distinguish anchor-drag from
-	 *  zone-edge-drag and route accordingly. */
+	 * (handles drawn last are tested first->top-most hit wins). Returns
+	 * the full cache entry so callers can distinguish anchor-drag from
+	 * zone-edge-drag and route accordingly. */
 	bool HitTestHandles(int32 PixelX, int32 PixelY,
 		FHandleScreenPosCache& OutHit) const;
 
-	/** Convert normalized screen [-0.5, 0.5]² (our solver convention,
-	 *  +Y up) ↔ viewport pixel coords (top-left origin, +Y down). */
+	/** Convert normalized screen [-0.5, 0.5] (our solver convention,
+	 * +Y up) viewport pixel coords (top-left origin, +Y down). */
 	FVector2D NormalizedScreenToPixel(const FVector2D& ScreenPos, const FIntPoint& VPSize) const;
 	FVector2D PixelToNormalizedScreen(int32 PixelX, int32 PixelY, const FIntPoint& VPSize) const;
 
 	/** Draw all handles for the active Shot. Anchor + non-anchor target
-	 *  with weight > 0. Greyed out in Manual Mode. Populates CachedHandles
-	 *  for hit-testing. */
+	 * with weight > 0. Greyed out in Manual Mode. Populates CachedHandles
+	 * for hit-testing. */
 	void DrawHandles(FViewport& InViewport, FCanvas& Canvas);
 
 
-	/** Apply mouse motion to the active drag — writes Shot screen position
-	 *  + fires Host PostEditChangeProperty(Interactive). */
+	/** Apply mouse motion to the active drag - writes Shot screen position
+	 * + fires Host PostEditChangeProperty(Interactive). */
 	void ApplyDragToShot(int32 PixelX, int32 PixelY);
 
 	/** Commit drag: PostEditChangeProperty(ValueSet), drop transaction,
-	 *  clear drag state. */
+	 * clear drag state. */
 	void EndDrag();
 
 	/**
 	 * Begin an Alt+RMB Roll drag. Snapshots the host UObject for undo via
-	 * SaveToTransactionBuffer (no OnObjectModified broadcast — same flash
+	 * SaveToTransactionBuffer (no OnObjectModified broadcast - same flash
 	 * mitigation as the LMB handle drag), captures the current mouse X for
 	 * delta computation, and flips `bRollDragActive`. No-op when already
 	 * dragging or when there's no active Shot / viewport.
@@ -478,9 +475,9 @@ private:
 	/**
 	 * Apply a CapturedMouseMove sample to the in-flight Roll drag.
 	 * Computes `DeltaX = PixelX - RollDragLastMouseX`, accumulates
-	 * `0.5° * DeltaX` into `Shot.Roll`, wraps via `UnwindDegrees`, and
+	 * `0.5 deg * DeltaX` into `Shot.Roll`, wraps via `UnwindDegrees`, and
 	 * updates `RollDragLastMouseX`. No `PostEditChangeProperty(Interactive)`
-	 * mid-gesture — `EndRollDrag`'s ValueSet notification carries the
+	 * mid-gesture - `EndRollDrag`'s ValueSet notification carries the
 	 * commit, matching the LMB handle drag's deferred-notify pattern.
 	 */
 	void ApplyRollDrag(int32 PixelX);
@@ -495,9 +492,9 @@ private:
 
 	/**
 	 * Drag-mode mouse-wheel handler: each scroll click multiplies
-	 * `Shot.Placement.Distance` by `1 / ZoomFactor` (scroll up → closer)
-	 * or `ZoomFactor` (scroll down → further). Scoped to placement modes
-	 * that actually read `Distance` — `AnchorOrbit` and `AnchorAtScreen`.
+	 * `Shot.Placement.Distance` by `1 / ZoomFactor` (scroll up->closer)
+	 * or `ZoomFactor` (scroll down->further). Scoped to placement modes
+	 * that actually read `Distance` - `AnchorOrbit` and `AnchorAtScreen`.
 	 * `FixedWorldPosition` ignores the scroll (returns false) so the
 	 * caller can fall through to the general "eat all mouse buttons"
 	 * guard in Drag-mode `InputKey`.
@@ -512,27 +509,27 @@ private:
 	// V2 has no RMB context menu on the anchor handles. The previous Method
 	// submenu (V1.x Rotate/Translate) was removed when Method was made fixed
 	// per layer; the in-viewport bone picker entry was removed because
-	// anchors don't carry bones — bone authoring lives on the per-target
+	// anchors don't carry bones - bone authoring lives on the per-target
 	// Details combo (`FComposableCameraTargetInfoCustomization`). RMB on
 	// the viewport falls through to base class behavior (camera-look in
 	// Free mode, eaten in Drag/Lock).
 
 	/** Cached solver-output focus distance (cm). Pushed into the SceneView's
-	 *  `FinalPostProcessSettings.DepthOfFieldFocalDistance` each frame in
-	 *  `OverridePostProcessSettings`. */
+	 * `FinalPostProcessSettings.DepthOfFieldFocalDistance` each frame in
+	 * `OverridePostProcessSettings`. */
 	float CachedFocusDistance = 200.f;
 
 	/** Cached solver-output aperture (f-stop). Pushed into the SceneView's
-	 *  `FinalPostProcessSettings.DepthOfFieldFstop` each frame. */
+	 * `FinalPostProcessSettings.DepthOfFieldFstop` each frame. */
 	float CachedAperture = 2.8f;
 
 	/** True when CachedFocusDistance / CachedAperture were populated by a
-	 *  successful solve. Cleared while no Shot is bound or the solver
-	 *  returned `bValid == false`; OverridePostProcessSettings reads this
-	 *  to avoid pushing stale values during transient unresolvable shots. */
+	 * successful solve. Cleared while no Shot is bound or the solver
+	 * returned `bValid == false`; OverridePostProcessSettings reads this
+	 * to avoid pushing stale values during transient unresolvable shots. */
 	bool bCachedDoFValid = false;
 
-	// ─── Cinemachine-style framing-zone prior-pose cache ───────────────
+	// Cinemachine-style framing-zone prior-pose cache 
 	//
 	// Editor preview parallels the runtime FramingNode's prior-pose state
 	// (see `UComposableCameraCompositionFramingNode::LastPrimaryOutputPose`).
@@ -541,20 +538,20 @@ private:
 	// `SolveShot` so designers see the same Cinemachine-style damped
 	// framing in the Shot Editor as in PIE / runtime.
 	//
-	// Only Position + Rotation are needed — the zone preprocessor
+	// Only Position + Rotation are needed - the zone preprocessor
 	// re-projects anchors using the current frame's TanHalfHOR / aspect.
 
 	/** True iff `CachedPriorPos` / `CachedPriorRot` carry a usable prior
-	 *  solve. Cleared on Shot rebind / dissolution; first valid solve
-	 *  after the clear seeds them. */
+	 * solve. Cleared on Shot rebind / dissolution; first valid solve
+	 * after the clear seeds them. */
 	bool bHasCachedPriorPose = false;
-	FVector  CachedPriorPos = FVector::ZeroVector;
+	FVector CachedPriorPos = FVector::ZeroVector;
 	FRotator CachedPriorRot = FRotator::ZeroRotator;
 	/** Last frame's effective `Placement.Distance` (post-V2.2 damping +
-	 *  clamp). `< 0` ⇒ no prior; solver skips Distance damping. */
-	float    CachedPriorDistance = -1.f;
+	 * clamp). `< 0` no prior; solver skips Distance damping. */
+	float CachedPriorDistance = -1.f;
 	/** Last frame's effective FOV / Roll (post-V2.2 damping). Sentinels
-	 *  match `FShotPriorPose::LastFOV` (`< 0`) and `LastRoll` (`FLT_MAX`). */
-	float    CachedPriorFOV  = -1.f;
-	float    CachedPriorRoll = TNumericLimits<float>::Max();
+	 * match `FShotPriorPose::LastFOV` (`< 0`) and `LastRoll` (`FLT_MAX`). */
+	float CachedPriorFOV = -1.f;
+	float CachedPriorRoll = TNumericLimits<float>::Max();
 };

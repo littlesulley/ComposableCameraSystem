@@ -1,4 +1,4 @@
-// Copyright Sulley. All rights reserved.
+ï»¿// Copyright Sulley. All rights reserved.
 
 #pragma once
 
@@ -69,7 +69,7 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters)
 	bool bInterruptOnUserInput { true };
 
-	// Rotation input this frame (x=yaw, y=pitch) â€?used to detect user interrupt
+	// Rotation input this frame (x=yaw, y=pitch). Used to detect user interrupt
 	// when bInterruptOnUserInput is true. Almost always wired from
 	// ControlRotateNode's CameraRotationInput output.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters, meta = (EditCondition = "bInterruptOnUserInput", EditConditionHides))
@@ -99,7 +99,7 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters, meta = (EditCondition = "bInterruptOnUserInput", EditConditionHides))
 	int32 MaxCountAfterInputInterrupt { -1 };
 
-	// Rotator interpolator driving yaw+pitch as a single unified rotation â€?both
+	// Rotator interpolator driving yaw+pitch as a single unified rotation. Both
 	// axes progress on the same curve so they reach the target together rather
 	// than one axis finishing before the other. If null, the camera teleports to
 	// the target boundary rotation in one frame.

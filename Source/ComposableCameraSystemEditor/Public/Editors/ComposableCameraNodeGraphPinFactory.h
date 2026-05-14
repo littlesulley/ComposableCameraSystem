@@ -11,11 +11,11 @@
  * SGraphPin widget creation based on per-pin state that the default
  * SGraphPin cannot express:
  *
- *   - **Exposed-as-parameter input pins** receive SComposableCameraExposedPin,
- *     a grey, non-interactive subclass. Exposed state lives on the owning
- *     type asset's ExposedParameters array, not on the pin itself, so the
- *     factory looks up the owning UComposableCameraNodeGraphNode and asks
- *     IsInputPinExposed(PinName).
+ * - **Exposed-as-parameter input pins** receive SComposableCameraExposedPin,
+ * a grey, non-interactive subclass. Exposed state lives on the owning
+ * type asset's ExposedParameters array, not on the pin itself, so the
+ * factory looks up the owning UComposableCameraNodeGraphNode and asks
+ * IsInputPinExposed(PinName).
  *
  * Every other pin (exec pins, output data pins, non-exposed input data pins,
  * pins on variable graph nodes, pins on Start/Output sentinel nodes) falls
@@ -29,7 +29,7 @@
  * UK2Node pins), this factory lives in the Editor module because the graph
  * nodes it inspects (UComposableCameraNodeGraphNode) are editor-only types.
  */
-class FComposableCameraNodeGraphPinFactory : public FGraphPanelPinFactory
+class FComposableCameraNodeGraphPinFactory: public FGraphPanelPinFactory
 {
 public:
 	virtual TSharedPtr<class SGraphPin> CreatePin(class UEdGraphPin* InPin) const override;

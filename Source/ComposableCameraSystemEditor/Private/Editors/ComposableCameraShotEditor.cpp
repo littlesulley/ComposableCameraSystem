@@ -37,9 +37,7 @@ TSharedRef<SDockTab> FComposableCameraShotEditor::SpawnTab(const FSpawnTabArgs& 
 	return SNew(SDockTab)
 		.TabRole(ETabRole::NomadTab)
 		.Label(LOCTEXT("ShotEditorTabLabel", "Shot Editor"))
-		[
-			Root
-		];
+		[Root];
 }
 
 void FComposableCameraShotEditor::RegisterTabSpawner()
@@ -48,14 +46,14 @@ void FComposableCameraShotEditor::RegisterTabSpawner()
 		->RegisterNomadTabSpawner(TabId, FOnSpawnTab::CreateStatic(&FComposableCameraShotEditor::SpawnTab))
 		.SetDisplayName(LOCTEXT("ShotEditorMenuName", "Shot Editor"))
 		.SetTooltipText(LOCTEXT("ShotEditorMenuTooltip",
-			"Authoring tool for ComposableCameraSystem Shots — drag actors to compose framing, "
+			"Authoring tool for ComposableCameraSystem Shots - drag actors to compose framing, "
 			"set anchor + distance + lens. Open via the 'Open Shot Editor' button on a "
 			"CompositionFramingNode in the Camera Type Asset Editor."))
-		.SetMenuType(ETabSpawnerMenuType::Hidden);   // Hidden from "Window" menu —
+		.SetMenuType(ETabSpawnerMenuType::Hidden); // Hidden from "Window" menu - 
 		// the editor opens contextually from a node button. Phase D.x may flip
 		// this to ETabSpawnerMenuType::Enabled if a global menu entry is wanted.
 
-	// Bind the runtime → editor delegate hook so node CallInEditor buttons
+	// Bind the runtime -> editor delegate hook so node CallInEditor buttons
 	// route into OpenForShot.
 	FOpenShotEditor::OpenShotEditorDelegate.BindStatic(&FComposableCameraShotEditor::OpenForShot);
 }
@@ -88,7 +86,7 @@ void FComposableCameraShotEditor::OpenForShot(FComposableCameraShot* Shot, UObje
 	if (!Tab.IsValid())
 	{
 		// Nomad tab spawn can fail if the tab manager isn't in a state to
-		// accept docking (extremely rare in practice — startup race).
+		// accept docking (extremely rare in practice - startup race).
 		// Silently no-op; the next click will retry.
 		return;
 	}
@@ -106,7 +104,7 @@ void FComposableCameraShotEditor::OpenForShotSection(UMovieSceneComposableCamera
 {
 	if (!Section)
 	{
-		// Defensive — null section opens the placeholder "no shot loaded"
+		// Defensive - null section opens the placeholder "no shot loaded"
 		// rather than no-op'ing silently. Designer sees the editor "respond"
 		// to their click even if the underlying state is empty.
 		OpenForShot(nullptr, nullptr);
@@ -115,15 +113,15 @@ void FComposableCameraShotEditor::OpenForShotSection(UMovieSceneComposableCamera
 
 	// Swap the editor's active Shot FIRST, then open LS.
 	//
-	// The swap is fast (synchronous SetActiveShot → OnActiveShotChanged →
+	// The swap is fast (synchronous SetActiveShot->OnActiveShotChanged -> 
 	// RefreshShotListItems all in one stack frame). The LS auto-open is
-	// the slow path — `OpenEditorForAsset` runs Sequencer init, which can
+	// the slow path - `OpenEditorForAsset` runs Sequencer init, which can
 	// pump nested Slate ticks during layout / spawnable resolution. If
 	// any of those nested ticks land on our Shot Editor's tick boundary
 	// (every 0.5s, RefreshShotListItems runs) BEFORE the swap completes,
 	// the refresh sees `ActiveHost` still pointing at the OLD section
-	// while the user-click selection is on the NEW section — triggering
-	// the conditional "selection ≠ current → snap to current" path,
+	// while the user-click selection is on the NEW section - triggering
+	// the conditional "selection current -> snap to current" path,
 	// which visibly flickers the selection back to the old row before
 	// the swap finally commits and a final refresh restores it. Doing
 	// the swap first means the LS-open's nested ticks see the already-
@@ -135,7 +133,7 @@ void FComposableCameraShotEditor::OpenForShotSection(UMovieSceneComposableCamera
 	// Now auto-open LS. Without a live `FSequencer` instance, the editor
 	// module's `OnSequencerCreated` cache is empty, which means
 	// `FShotTargetActorOverride` bindings can't resolve to actors and the
-	// preview Viewport renders empty (no proxy actors spawn — the
+	// preview Viewport renders empty (no proxy actors spawn - the
 	// effective shot's `Targets[i].Actor` stays None). `bFocusIfOpen=false`
 	// avoids stealing focus when the LS is already open in some hidden
 	// tab. When it ISN'T open, `OpenEditorForAsset` creates + focuses it.

@@ -1,4 +1,4 @@
-// Copyright Sulley. All rights reserved.
+﻿// Copyright Sulley. All rights reserved.
 
 #pragma once
 
@@ -12,7 +12,7 @@
  *
  * Typical use case: at activation time, compute the distance between the
  * player and a target, then feed that into downstream camera nodes to scale
- * a boom arm length, set an initial FOV, or pick a blend weight — values
+ * a boom arm length, set an initial FOV, or pick a blend weight. Values
  * that are sampled once and held stable for the camera's lifetime.
  *
  * Inputs:

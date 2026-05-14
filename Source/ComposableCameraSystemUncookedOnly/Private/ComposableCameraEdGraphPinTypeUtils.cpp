@@ -10,8 +10,7 @@
 
 namespace ComposableCameraEdGraphPinTypeUtils
 {
-	FEdGraphPinType MakeEdGraphPinTypeFromCameraPinType(
-		EComposableCameraPinType PinType,
+	FEdGraphPinType MakeEdGraphPinTypeFromCameraPinType(EComposableCameraPinType PinType,
 		UScriptStruct* StructType,
 		UEnum* EnumType,
 		UFunction* SignatureFunction)
@@ -87,7 +86,7 @@ namespace ComposableCameraEdGraphPinTypeUtils
 			// sub-category object. The K2 schema lights up the enum dropdown
 			// based purely on PinSubCategoryObject being a UEnum, so we don't
 			// need to set PinSubCategory or anything else. nullptr produces an
-			// unbound byte pin — valid but visually wrong; the binding-table
+			// unbound byte pin - valid but visually wrong; the binding-table
 			// build path already rejects unbound enums upstream.
 			Result.PinCategory = UEdGraphSchema_K2::PC_Byte;
 			Result.PinSubCategoryObject = EnumType;
@@ -189,9 +188,9 @@ namespace ComposableCameraEdGraphPinTypeUtils
 		}
 
 		// Fallback to the wildcard CustomStructureParam setter for:
-		//   - Enum (width normalization needs runtime FProperty inspection)
-		//   - generic Struct (arbitrary user USTRUCT including non-POD)
-		//   - Delegate
+		// - Enum (width normalization needs runtime FProperty inspection)
+		// - generic Struct (arbitrary user USTRUCT including non-POD)
+		// - Delegate
 		// These don't trigger the MakeLiteralStruct + CustomStructureParam
 		// pin-default bug in practice (Enum uses MakeLiteralByte, generic
 		// Struct falls through to DefaultValue string, Delegate has no

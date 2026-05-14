@@ -18,9 +18,9 @@ UComposableCameraResetPitchAction::UComposableCameraResetPitchAction(const FObje
 
 UEnhancedInputLocalPlayerSubsystem* UComposableCameraResetPitchAction::ResolveInputSubsystem()
 {
-	// Per-link null-check on PCM → OwningPC → LocalPlayer. Any of these
+	// Per-link null-check on PCM -> OwningPC -> LocalPlayer. Any of these
 	// can be null after PIE stop / controller swap / kick / streaming
-	// teardown — reading through a single chained `->` is a crash risk.
+	// teardown. Reading through a single chained `->` is a crash risk.
 	if (!IsValid(PlayerCameraManager))
 	{
 		CachedSubsystem.Reset();
@@ -74,7 +74,7 @@ bool UComposableCameraResetPitchAction::CanExecute_Implementation(float DeltaTim
 	// Always re-resolve through the chain so a controller / LocalPlayer
 	// swap that the cache wouldn't notice is caught here. The chain
 	// walk is three null-checks + one map lookup (GetSubsystem) on the
-	// miss path — negligible vs the cost of reading a stale player's
+	// miss path. Negligible vs the cost of reading a stale player's
 	// input every tick. ResolveInputSubsystem returns the cached value
 	// when LP is unchanged, so steady-state cost stays at the chain.
 	UEnhancedInputLocalPlayerSubsystem* Subsystem = ResolveInputSubsystem();

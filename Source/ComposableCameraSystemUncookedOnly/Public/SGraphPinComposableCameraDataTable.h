@@ -19,7 +19,7 @@ struct FAssetData;
  *
  * Why override GenerateAssetPicker instead of OnShouldFilterAsset:
  * SGraphPinObject's OnShouldFilterAsset is non-virtual, so a subclass
- * override never actually intercepts the filter — the base binds its
+ * override never actually intercepts the filter - the base binds its
  * own method pointer into the FAssetPickerConfig. Replacing the whole
  * GenerateAssetPicker call and constructing our own picker config is
  * the only reliable way to install a custom filter. The asset-selected
@@ -31,8 +31,7 @@ struct FAssetData;
  * format comparisons), then a sync-load fallback via AssetData.GetAsset()
  * for the cases where the tag is missing or has an unexpected format.
  */
-class COMPOSABLECAMERASYSTEMUNCOOKEDONLY_API SGraphPinComposableCameraDataTable
-	: public SGraphPinObject
+class COMPOSABLECAMERASYSTEMUNCOOKEDONLY_API SGraphPinComposableCameraDataTable: public SGraphPinObject
 {
 public:
 	SLATE_BEGIN_ARGS(SGraphPinComposableCameraDataTable) {}
@@ -41,18 +40,18 @@ public:
 	void Construct(const FArguments& InArgs, UEdGraphPin* InGraphPinObj);
 
 protected:
-	// ─── SGraphPinObject ──────────────────────────────────────────────────
+	// SGraphPinObject 
 	virtual TSharedRef<SWidget> GenerateAssetPicker() override;
 
 private:
-	/** Our custom filter — returns true to REJECT an asset. Matches the
-	 *  FOnShouldFilterAsset contract expected by FAssetPickerConfig. */
+	/** Our custom filter - returns true to REJECT an asset. Matches the
+	 * FOnShouldFilterAsset contract expected by FAssetPickerConfig. */
 	bool ShouldFilterDataTable(const FAssetData& AssetData) const;
 
 	/** Forwarders to the base class's protected virtuals. We need these
-	 *  so that asset selection still writes the pin value through the
-	 *  canonical path (pin modify, schema TrySetDefaultObject, combo
-	 *  close) without us having to reimplement any of it ourselves. */
+	 * so that asset selection still writes the pin value through the
+	 * canonical path (pin modify, schema TrySetDefaultObject, combo
+	 * close) without us having to reimplement any of it ourselves. */
 	void HandleAssetSelected(const FAssetData& AssetData);
 	void HandleAssetEnterPressed(const TArray<FAssetData>& InSelectedAssets);
 };

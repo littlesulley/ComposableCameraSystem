@@ -16,7 +16,7 @@ namespace UE::ComposableCameras
 		const AComposableCameraPlayerCameraManager* OptionalPCM,
 		FIntPoint& OutSize)
 	{
-		// 1. PCM → PlayerController → viewport (runs when the camera is driven
+		// 1. PCM->PlayerController ->viewport (runs when the camera is driven
 		//    by a real PlayerCameraManager; handles split-screen per-player
 		//    viewports correctly because GetViewportSize on the PC goes
 		//    through ULocalPlayer's GetProjectionData).
@@ -36,7 +36,7 @@ namespace UE::ComposableCameras
 		}
 
 		// 2. GameViewport (game worlds without a PCM, or a PCM whose owning
-		//    controller isn't wired yet — PIE, standalone, packaged game).
+		//    controller isn't wired yet -PIE, standalone, packaged game).
 		if (GEngine && GEngine->GameViewport)
 		{
 			FVector2D Size = FVector2D::ZeroVector;
@@ -51,7 +51,7 @@ namespace UE::ComposableCameras
 		// 3. Editor-world active viewport (LS Spawnable preview, scrubbing
 		//    the Sequencer in editor without entering PIE). Routed through
 		//    the `FGetActiveEditorViewport` hook so the runtime module stays
-		//    editor-clean — the editor module binds the delegate at startup
+		//    editor-clean. The editor module binds the delegate at startup
 		//    to `GEditor->GetActiveViewport()->GetSizeXY()`.
 		{
 			FIntPoint EditorSize = FIntPoint::ZeroValue;
@@ -63,8 +63,8 @@ namespace UE::ComposableCameras
 			}
 		}
 
-		// 4. Last-resort fallback: 1920×1080. Keeps AspectRatio math benign
-		//    (16:9) when nothing is available — extremely-early-startup or
+		// 4. Last-resort fallback: 1920x1080. Keeps AspectRatio math benign
+		//    (16:9) when nothing is available. Extremely-early-startup or
 		//    headless commandlet paths where neither game nor editor
 		//    viewports exist.
 		OutSize = FIntPoint(1920, 1080);
@@ -75,7 +75,7 @@ namespace UE::ComposableCameras
 	{
 		FIntPoint Size;
 		TryGetEffectiveViewportSize(OptionalPCM, Size);
-		// Size is always valid (fallback path guarantees 1920×1080), so no
+		// Size is always valid (fallback path guarantees 1920x1080), so no
 		// divide-by-zero risk.
 		return static_cast<float>(Size.X) / static_cast<float>(Size.Y);
 	}
@@ -100,7 +100,7 @@ namespace UE::ComposableCameras
 			}
 		}
 		// Unconstrained: renderer adapts to viewport. Use the actual viewport
-		// aspect — same source as the non-CineCam path. When designers resize
+		// aspect. Same source as the non-CineCam path. When designers resize
 		// the level viewport, anchor screen positions track in real time.
 		return GetEffectiveViewportAspectRatio(OptionalPCM);
 	}

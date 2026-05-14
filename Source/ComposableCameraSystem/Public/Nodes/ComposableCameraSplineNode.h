@@ -1,4 +1,4 @@
-// Copyright Sulley. All rights reserved.
+﻿// Copyright Sulley. All rights reserved.
 
 #pragma once
 
@@ -16,10 +16,10 @@ class ACameraRig_Rail;
 UENUM()
 enum class EComposableCameraSplineNodeSplineType : uint8
 {
-	// Use UE's built-in spline (Bézier curve).
+	// Use UE's built-in spline (Bzier curve).
 	BuiltInSpline,
 
-	// Use custom Bézier curve.
+	// Use custom Bzier curve.
 	Bezier,
 
 	// Cubic Hermite curve.
@@ -65,7 +65,7 @@ public:
 protected:
 
 public:
-	// Spline type. The typical use is BuiltInSpline, i.e., the Unreal's built-in Bézier curve.
+	// Spline type. The typical use is BuiltInSpline, i.e., the Unreal's built-in Bzier curve.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters)
 	EComposableCameraSplineNodeSplineType SplineType { EComposableCameraSplineNodeSplineType::BuiltInSpline };
 

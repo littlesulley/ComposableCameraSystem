@@ -14,30 +14,30 @@ class UComposableCameraPatchTypeAsset;
 struct FComposableCameraParameterBlock;
 
 /**
- * One section on a UMovieSceneComposableCameraPatchTrack — represents a single
+ * One section on a UMovieSceneComposableCameraPatchTrack. Represents a single
  * Patch activation window in the timeline, **bound to a specific
  * AComposableCameraLevelSequenceActor** via TargetActorBinding.
  *
  * The section IS the addressing artifact:
- *   - WHEN the patch is active           → the section's TrueRange.
- *   - WHO it applies to                  → the LS Actor at TargetActorBinding.
- *   - WHAT enter/exit envelope it uses   → Params (asset defaults + per-section
+ *   - WHEN the patch is active           ->the section's TrueRange.
+ *   - WHO it applies to                  ->the LS Actor at TargetActorBinding.
+ *   - WHAT enter/exit envelope it uses->Params (asset defaults + per-section
  *                                          overrides; section easing folds in).
- *   - WHAT parameter values it carries   → Parameters / Variables bags
+ *   - WHAT parameter values it carries->Parameters / Variables bags
  *                                          (static defaults) + per-name
  *                                          UMovieSceneParameterSection channels
  *                                          (overridden when keyed).
  *
  * Per-frame the TrackInstance:
- *   1. Resolves TargetActorBinding → bound LS Actor → its
+ *   1. Resolves TargetActorBinding ->bound LS Actor->its
  *      UComposableCameraLevelSequenceComponent.
  *   2. Samples parameter block from channels (priority) + bag (fallback).
  *   3. Computes envelope alpha statelessly via
- *      `PatchEnvelope::ComputeStatelessAlpha(playhead, range, durations, …)`.
+ *      `PatchEnvelope::ComputeStatelessAlpha(playhead, range, durations, -`.
  *   4. Calls `LSComp->SetSequencerPatchOverlay(this, params, alpha)`.
  *
  * The LS Component then applies all registered overlays in its own TickComponent
- * (after InternalCamera tick, before projection) — sorted by `Params.LayerIndex`,
+ * (after InternalCamera tick, before projection). Sorted by `Params.LayerIndex`,
  * each overlay ticks its cached evaluator with the running pose as input and
  * blends by alpha. Final pose's Position + Rotation + FOV land on the CineCamera.
  *
@@ -49,22 +49,22 @@ struct FComposableCameraParameterBlock;
  * **Patches added via the BP library (`AddCameraPatch(PlayerIndex, ContextName, ...)`)
  * are a separate path** that lives on the gameplay PCM/Director, not here.
  * The two surfaces are intentionally orthogonal:
- *   - Sequencer Section → LS Actor's CineCamera (cinematic overlay).
- *   - BP `AddCameraPatch` → gameplay Director's RunningCamera (gameplay overlay).
+ *   - Sequencer Section ->LS Actor's CineCamera (cinematic overlay).
+ *   - BP `AddCameraPatch` ->gameplay Director's RunningCamera (gameplay overlay).
  *
  * Inherits from UMovieSceneParameterSection so each ExposedParameter can be
  * promoted to a keyable channel inside the section (Scalar / Bool / Vector2D
  * / Vector3D / Vector4-as-Color named curves with auto channel-proxy
- * reconstruction — same pattern UMaterialParameterCollection /
+ * reconstruction. Same pattern UMaterialParameterCollection /
  * UMovieSceneCustomPrimitiveDataSection use).
  *
  * Parameter resolution order (per ExposedParameter, every frame):
  *
- *   1. Channel exists (user promoted via right-click "Camera Parameters → X")
- *      → sample channel at the current frame.
- *   2. Else → bag default (Parameters / Variables FInstancedPropertyBag — set
+ *   1. Channel exists (user promoted via right-click "Camera Parameters ->X")
+ *      ->sample channel at the current frame.
+ *   2. Else ->bag default (Parameters / Variables FInstancedPropertyBag. Set
  *      in the section's Details panel by the designer).
- *   3. Else → asset's authored default (handled at Patch construction time
+ *   3. Else ->asset's authored default (handled at Patch construction time
  *      by ConstructCameraFromTypeAsset).
  */
 UCLASS(MinimalAPI)
@@ -81,7 +81,7 @@ public:
 	virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;
 #endif
 
-	// IMovieSceneEntityProvider — overridden to emit our own TrackInstance
+	// IMovieSceneEntityProvider. Overridden to emit our own TrackInstance
 	// dispatch entity instead of the parameter-section base's per-curve entities.
 	virtual void ImportEntityImpl(
 		UMovieSceneEntitySystemLinker* EntityLinker,
@@ -89,11 +89,11 @@ public:
 		UE::MovieScene::FImportedEntity* OutImportedEntity) override;
 
 	/**
-	 * Override the parameter-section base's PopulateEvaluationFieldImpl —
+	 * Override the parameter-section base's PopulateEvaluationFieldImpl -
 	 * which returns `true` (i.e. "I handle entity-field setup, skip the
 	 * standard ImportEntityImpl path"; the base expects its outer track to
 	 * call `ExternalPopulateEvaluationField` to inject per-curve entities
-	 * into a material/parameter blender). We don't use that pattern — we
+	 * into a material/parameter blender). We don't use that pattern. We
 	 * want our own per-section TrackInstance dispatch via ImportEntityImpl,
 	 * not parameter-blender entities. Returning `false` falls back to the
 	 * standard import path so ImportEntityImpl is actually called per
@@ -114,7 +114,7 @@ public:
 	 *  when PatchAsset is null.
 	 *
 	 *  Note: this only syncs the BAG (static defaults). Channel curves on the
-	 *  parent class are NOT auto-created — they're added on demand when the
+	 *  parent class are NOT auto-created. They're added on demand when the
 	 *  designer right-clicks a parameter in the section context menu and chooses
 	 *  "Add Keyable Channel" (which calls AddScalarParameterKey / etc. with the
 	 *  bag value as the seed key). */
@@ -131,20 +131,20 @@ public:
 	void BuildParameterBlock(FFrameNumber CurrentFrame, FComposableCameraParameterBlock& OutBlock) const;
 
 public:
-	/** The Patch asset to add when the section enters its range. Required —
-	 *  null asset → section is a no-op. */
+	/** The Patch asset to add when the section enters its range. Required -
+	 *  null asset ->section is a no-op. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Patch")
 	TObjectPtr<UComposableCameraPatchTypeAsset> PatchAsset;
 
 	/** Per-section envelope / lifetime / composition overrides. Each `bOverride*`
-	 *  defaults false → the asset's default field is used. Section easing folds
+	 *  defaults false ->the asset's default field is used. Section easing folds
 	 *  in too: if `bOverrideEnterDuration` is unset, `Easing.GetEaseInDuration()`
 	 *  is used (same for exit), so dragging the section's ease handles directly
 	 *  reshapes the patch envelope.
 	 *
 	 *  Note: `bExpireOnCameraChange` and the schedule channels (Duration /
 	 *  Manual / Condition) inside this struct are designed for the BP-driven
-	 *  PCM path — for Sequencer-driven patches the section's TrueRange is the
+	 *  PCM path. For Sequencer-driven patches the section's TrueRange is the
 	 *  authoritative lifetime, and these schedule fields are advisory at best.
 	 *  Leaving them at defaults is recommended. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Patch", meta = (ShowOnlyInnerProperties))
@@ -163,7 +163,7 @@ public:
 	FInstancedPropertyBag Variables;
 
 	/**
-	 * Editor-preview binding — when set, the patch's effect is applied onto
+	 * Editor-preview binding. When set, the patch's effect is applied onto
 	 * the bound `AComposableCameraLevelSequenceActor`'s CineCamera while the
 	 * Sequencer scrubber is in this section's range, so designers see the
 	 * patch live in the editor viewport without entering PIE. The runtime
@@ -176,7 +176,7 @@ public:
 	 * have a `UComposableCameraLevelSequenceComponent`, editor preview is a
 	 * silent no-op.
 	 *
-	 * Leave unset (NAME_None GUID) to disable editor preview entirely — the
+	 * Leave unset (NAME_None GUID) to disable editor preview entirely. The
 	 * patch will only show when running in PIE.
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Editor Preview")

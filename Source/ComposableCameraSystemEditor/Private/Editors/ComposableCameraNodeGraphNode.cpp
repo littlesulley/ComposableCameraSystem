@@ -26,7 +26,7 @@ void UComposableCameraNodeGraphNode::AllocateDefaultPins()
 		return;
 	}
 
-	// Execution pins — every camera node has exec in and exec out. The
+	// Execution pins - every camera node has exec in and exec out. The
 	// boilerplate (FEdGraphPinType + CreatePin + empty friendly name) lives
 	// on the shared base class so all three pipeline node types stay in sync.
 	CreateExecInPin();
@@ -35,17 +35,17 @@ void UComposableCameraNodeGraphNode::AllocateDefaultPins()
 	// Data pins from the node template's declarations. Per-instance pin
 	// overrides (stored on the type asset, cached in RuntimePinOverrides)
 	// can hide a declared pin entirely (bAsPin == false) or replace its
-	// default-value string. Hidden pins don't get a UEdGraphPin at all —
+	// default-value string. Hidden pins don't get a UEdGraphPin at all - 
 	// they become Details-only constants that the runtime reads from the
 	// override entry.
 	TArray<FComposableCameraNodePinDeclaration> Declarations;
 	NodeTemplate->GatherAllPinDeclarations(Declarations);
 
-	for (const FComposableCameraNodePinDeclaration& Decl : Declarations)
+	for (const FComposableCameraNodePinDeclaration& Decl: Declarations)
 	{
 		// Honor the per-instance "As Pin" toggle. A pin with bAsPin == false
 		// never materializes on the graph node, which is why exposure and
-		// wiring both become unreachable from the UI for it — the Details
+		// wiring both become unreachable from the UI for it - the Details
 		// panel is the only surface that still sees the value.
 		if (Decl.Direction == EComposableCameraPinDirection::Input
 			&& !GetEffectivePinAsPin(Decl.PinName))
@@ -76,13 +76,12 @@ void UComposableCameraNodeGraphNode::AllocateDefaultPins()
 		// Issue 1: Mark exposed input pins with a visual indicator. Use the
 		// label already on NewPin (set in CreatePinFromDeclaration) rather
 		// than Decl.DisplayName, so the `*` suffix for required pins is
-		// preserved — e.g. `ArmLength* (Exposed)` rather than dropping back
+		// preserved - e.g. `ArmLength* (Exposed)` rather than dropping back
 		// to `ArmLength (Exposed)`.
 		if (Decl.Direction == EComposableCameraPinDirection::Input
 			&& IsInputPinExposed(Decl.PinName))
 		{
-			NewPin->PinFriendlyName = FText::Format(
-				LOCTEXT("ExposedPinLabel", "{0} (Exposed)"), NewPin->PinFriendlyName);
+			NewPin->PinFriendlyName = FText::Format(LOCTEXT("ExposedPinLabel", "{0} (Exposed)"), NewPin->PinFriendlyName);
 		}
 	}
 
@@ -93,7 +92,7 @@ FText UComposableCameraNodeGraphNode::GetNodeTitle(ENodeTitleType::Type TitleTyp
 	if (NodeTemplate)
 	{
 		// Display-name resolution lives on the shared base so the title bar
-		// here and the schema's "Camera Nodes" palette stay in lockstep —
+		// here and the schema's "Camera Nodes" palette stay in lockstep - 
 		// see UComposableCameraGraphNodeBase::GetCameraNodeDisplayNameForClass.
 		return GetCameraNodeDisplayNameForClass(NodeTemplate->GetClass());
 	}
@@ -102,7 +101,7 @@ FText UComposableCameraNodeGraphNode::GetNodeTitle(ENodeTitleType::Type TitleTyp
 
 FLinearColor UComposableCameraNodeGraphNode::GetNodeTitleColor() const
 {
-	// Compute nodes use warm amber — same family as the BeginPlay Start
+	// Compute nodes use warm amber - same family as the BeginPlay Start
 	// sentinel but slightly lighter to distinguish the sentinel from its
 	// payload nodes while keeping visual grouping clear. Regular camera
 	// nodes use teal to match the type asset color. Palette lives in
@@ -126,8 +125,7 @@ FText UComposableCameraNodeGraphNode::GetTooltipText() const
 		// Falls back to the class DisplayName, then the raw class name.
 		const FString& ClassToolTip = NodeClass->GetMetaData(TEXT("ToolTip"));
 		Tooltip = !ClassToolTip.IsEmpty()
-			? ClassToolTip
-			: NodeClass->GetDisplayNameText().ToString();
+			? ClassToolTip: NodeClass->GetDisplayNameText().ToString();
 	}
 
 	// When the post-sync validation pass has flagged this node, surface the
@@ -153,8 +151,7 @@ void UComposableCameraNodeGraphNode::PrepareForCopying()
 	// header comment on CopyPasteNodeTemplate for why this is necessary.
 	if (NodeTemplate)
 	{
-		CopyPasteNodeTemplate = DuplicateObject<UComposableCameraCameraNodeBase>(
-			NodeTemplate, this);
+		CopyPasteNodeTemplate = DuplicateObject<UComposableCameraCameraNodeBase>(NodeTemplate, this);
 	}
 	else
 	{
@@ -178,7 +175,7 @@ void UComposableCameraNodeGraphNode::PostPasteNode()
 	{
 		// Find the TypeAsset we need to reparent the template under. The
 		// TypeAsset is the EdGraph's outer. If we can't resolve it, the
-		// paste is in an invalid context — abandon the template so
+		// paste is in an invalid context - abandon the template so
 		// SyncToTypeAsset skips this node (null templates are filtered out
 		// in SyncPhase_CollectGraphNodes).
 		UObject* TargetOuter = nullptr;
@@ -203,14 +200,14 @@ void UComposableCameraNodeGraphNode::PostPasteNode()
 		else
 		{
 			UE_LOG(LogComposableCameraSystemEditor, Warning,
-				TEXT("PostPasteNode: Could not resolve TypeAsset outer — "
+				TEXT("PostPasteNode: Could not resolve TypeAsset outer - "
 					 "pasted node template will be discarded."));
 			CopyPasteNodeTemplate = nullptr;
 		}
 		CopyPastePinOverrides.Empty();
 	}
 
-	// Pasted nodes are brand-new — they don't correspond to any existing
+	// Pasted nodes are brand-new - they don't correspond to any existing
 	// slot in NodeTemplates. SyncToTypeAsset will assign the real index.
 	NodeIndex = INDEX_NONE;
 }
@@ -256,9 +253,9 @@ void UComposableCameraNodeGraphNode::ReconstructPins()
 	// DefaultObject, DefaultTextValue) onto the new pin. MovePersistentDataFromOldPin
 	// takes care of updating the LinkedTo references on the other side of
 	// each wire to point at NewPin, so the graph stays consistent.
-	for (UEdGraphPin* NewPin : Pins)
+	for (UEdGraphPin* NewPin: Pins)
 	{
-		for (UEdGraphPin*& OldPin : OldPins)
+		for (UEdGraphPin*& OldPin: OldPins)
 		{
 			// Match on (PinName, Direction, PinType). If the type changed for a
 			// pin with the same name, the existing wire is almost certainly no
@@ -270,7 +267,7 @@ void UComposableCameraNodeGraphNode::ReconstructPins()
 				&& OldPin->PinType == NewPin->PinType)
 			{
 				NewPin->MovePersistentDataFromOldPin(*OldPin);
-				OldPin = nullptr; // consumed — don't match again
+				OldPin = nullptr; // consumed - don't match again
 				break;
 			}
 		}
@@ -279,7 +276,7 @@ void UComposableCameraNodeGraphNode::ReconstructPins()
 	// Destroy any old pins that did not have a matching new pin (i.e. a pin
 	// declaration was removed). BreakAllPinLinks clears stale LinkedTo entries
 	// on the other side before we mark the pin as garbage.
-	for (UEdGraphPin* OldPin : OldPins)
+	for (UEdGraphPin* OldPin: OldPins)
 	{
 		if (OldPin)
 		{
@@ -291,12 +288,12 @@ void UComposableCameraNodeGraphNode::ReconstructPins()
 
 bool UComposableCameraNodeGraphNode::IsInputPinExposed(FName PinName) const
 {
-	// Walk up to the owning graph → type asset and check ExposedParameters.
+	// Walk up to the owning graph -> type asset and check ExposedParameters.
 	if (UEdGraph* Graph = GetGraph())
 	{
 		if (UComposableCameraTypeAsset* TypeAsset = Cast<UComposableCameraTypeAsset>(Graph->GetOuter()))
 		{
-			for (const FComposableCameraExposedParameter& Param : TypeAsset->ExposedParameters)
+			for (const FComposableCameraExposedParameter& Param: TypeAsset->ExposedParameters)
 			{
 				if (Param.TargetNodeIndex == NodeIndex && Param.TargetPinName == PinName)
 				{
@@ -320,7 +317,7 @@ void UComposableCameraNodeGraphNode::ExposePinAsParameter(FName PinName)
 	NodeTemplate->GatherAllPinDeclarations(Declarations);
 
 	const FComposableCameraNodePinDeclaration* FoundDecl = nullptr;
-	for (const FComposableCameraNodePinDeclaration& Decl : Declarations)
+	for (const FComposableCameraNodePinDeclaration& Decl: Declarations)
 	{
 		if (Decl.PinName == PinName && Decl.Direction == EComposableCameraPinDirection::Input)
 		{
@@ -341,9 +338,9 @@ void UComposableCameraNodeGraphNode::ExposePinAsParameter(FName PinName)
 		{
 			// Capture pre-change snapshots of BOTH this GraphNode and the
 			// owning type asset so the surrounding transaction can roll back:
-			//  - ExposedParameters / PinConnections on TypeAsset
-			//  - the Pins array on this GraphNode (ReconstructPins below
-			//    replaces Pins wholesale with a new "(Exposed)"-labeled set)
+			// - ExposedParameters / PinConnections on TypeAsset
+			// - the Pins array on this GraphNode (ReconstructPins below
+			// replaces Pins wholesale with a new "(Exposed)"-labeled set)
 			//
 			// Without the self Modify(), the Pins array is never snapshotted
 			// and Ctrl+Z leaves the pin labels in their post-expose state
@@ -351,7 +348,7 @@ void UComposableCameraNodeGraphNode::ExposePinAsParameter(FName PinName)
 			// also won't fire unless the node participated in the transaction.
 			//
 			// Without a surrounding FScopedTransaction at all (caller side),
-			// both Modify() calls are no-ops — see the lambdas in
+			// both Modify() calls are no-ops - see the lambdas in
 			// ComposableCameraNodeGraphSchema::BuildPinContextMenuActions and
 			// OnAsPinCheckChanged in ComposableCameraNodeGraphNodeDetails.cpp.
 			Modify();
@@ -372,10 +369,10 @@ void UComposableCameraNodeGraphNode::ExposePinAsParameter(FName PinName)
 			// Also clear any VariableNodes connections that target this pin.
 			// VariableNodes records are normally rebuilt by SyncToTypeAsset,
 			// but the wire we just broke won't be reflected until the next
-			// sync.  Stale connections here would cause BuildRuntimeDataLayout
+			// sync. Stale connections here would cause BuildRuntimeDataLayout
 			// to create InputPinSourceOffsets entries that shadow the new
 			// ExposedParameter via TryResolveInputPin's priority ordering.
-			for (FComposableCameraVariableNodeRecord& VarRecord : TypeAsset->VariableNodes)
+			for (FComposableCameraVariableNodeRecord& VarRecord: TypeAsset->VariableNodes)
 			{
 				if (VarRecord.bIsSetter)
 				{
@@ -392,7 +389,7 @@ void UComposableCameraNodeGraphNode::ExposePinAsParameter(FName PinName)
 			// Resolve the final parameter name. If another exposed parameter
 			// (or any variable, since the cross-set name space is shared) is
 			// already using PinName, MakeUniqueExposedName returns a suffixed
-			// variant — e.g. "Strength" → "Strength_2". This is the only place
+			// variant - e.g. "Strength" -> "Strength_2". This is the only place
 			// new ExposedParameters are created from pin exposes, so the
 			// uniqueness invariant only needs to be enforced here at the
 			// authoring boundary; legacy assets get healed in PostLoad via
@@ -410,7 +407,7 @@ void UComposableCameraNodeGraphNode::ExposePinAsParameter(FName PinName)
 			NewParam.SignatureFunction = FoundDecl->SignatureFunction;
 			NewParam.TargetNodeIndex = NodeIndex;
 			// TargetNodeIndex / TargetPinName still point at the underlying
-			// camera node pin — only ParameterName is suffixed. The pin
+			// camera node pin - only ParameterName is suffixed. The pin
 			// declaration on the camera node itself is unchanged.
 			NewParam.TargetPinName = PinName;
 			NewParam.bRequired = FoundDecl->bRequired;
@@ -425,9 +422,8 @@ void UComposableCameraNodeGraphNode::ExposePinAsParameter(FName PinName)
 			// reads "Strength_2" instead of "Strength".
 			if (bWasRenamed)
 			{
-				FNotificationInfo Info(FText::Format(
-					LOCTEXT("ExposeParameterRenamed",
-						"'{0}' is already in use — exposed as '{1}' instead."),
+				FNotificationInfo Info(FText::Format(LOCTEXT("ExposeParameterRenamed",
+						"'{0}' is already in use - exposed as '{1}' instead."),
 					FText::FromName(PinName),
 					FText::FromName(UniqueParameterName)));
 				Info.ExpireDuration = 5.0f;
@@ -481,7 +477,7 @@ void UComposableCameraNodeGraphNode::UnexposePinParameter(FName PinName)
 
 const FComposableCameraPinOverride* UComposableCameraNodeGraphNode::FindPinOverride(FName PinName) const
 {
-	for (const FComposableCameraPinOverride& Override : RuntimePinOverrides)
+	for (const FComposableCameraPinOverride& Override: RuntimePinOverrides)
 	{
 		if (Override.PinName == PinName)
 		{
@@ -493,7 +489,7 @@ const FComposableCameraPinOverride* UComposableCameraNodeGraphNode::FindPinOverr
 
 FComposableCameraPinOverride* UComposableCameraNodeGraphNode::FindPinOverride(FName PinName)
 {
-	for (FComposableCameraPinOverride& Override : RuntimePinOverrides)
+	for (FComposableCameraPinOverride& Override: RuntimePinOverrides)
 	{
 		if (Override.PinName == PinName)
 		{
@@ -530,7 +526,7 @@ bool UComposableCameraNodeGraphNode::GetEffectivePinAsPin(FName PinName) const
 	{
 		TArray<FComposableCameraNodePinDeclaration> Declarations;
 		NodeTemplate->GatherAllPinDeclarations(Declarations);
-		for (const FComposableCameraNodePinDeclaration& Decl : Declarations)
+		for (const FComposableCameraNodePinDeclaration& Decl: Declarations)
 		{
 			if (Decl.PinName == PinName)
 			{
@@ -608,16 +604,16 @@ void UComposableCameraNodeGraphNode::SetPinAsPin(FName PinName, bool bNewAsPin)
 	// When flipping bAsPin OFF on a currently-live pin, two side effects need
 	// to happen atomically with the toggle:
 	//
-	//  1. If the pin is exposed as a camera parameter, auto-unexpose it —
-	//     there's no way to edit the exposure from the Details panel once the
-	//     pin has vanished from the graph, so leaving the exposure in place
-	//     would strand it.
+	// 1. If the pin is exposed as a camera parameter, auto-unexpose it - 
+	// there's no way to edit the exposure from the Details panel once the
+	// pin has vanished from the graph, so leaving the exposure in place
+	// would strand it.
 	//
-	//  2. If the pin carries any wires, break them. We run this under the
-	//     surrounding Transaction (ExposePinAsParameter / UnexposePinParameter
-	//     and the property-change handler wrap Modify calls around us), so
-	//     Ctrl+Z restores the wire cleanly. We don't warn the user here — the
-	//     toggle itself is the signal that the user accepted the consequence.
+	// 2. If the pin carries any wires, break them. We run this under the
+	// surrounding Transaction (ExposePinAsParameter / UnexposePinParameter
+	// and the property-change handler wrap Modify calls around us), so
+	// Ctrl+Z restores the wire cleanly. We don't warn the user here - the
+	// toggle itself is the signal that the user accepted the consequence.
 	if (!bNewAsPin)
 	{
 		if (IsInputPinExposed(PinName))
@@ -646,21 +642,20 @@ void UComposableCameraNodeGraphNode::SetPinAsPin(FName PinName, bool bNewAsPin)
 UEdGraphPin* UComposableCameraNodeGraphNode::CreatePinFromDeclaration(const FComposableCameraNodePinDeclaration& Declaration)
 {
 	const EEdGraphPinDirection Direction = (Declaration.Direction == EComposableCameraPinDirection::Input)
-		? EGPD_Input : EGPD_Output;
+		? EGPD_Input: EGPD_Output;
 
 	// The enum-to-FEdGraphPinType conversion is shared with
 	// UK2Node_ActivateComposableCamera so adding a new pin type only requires
 	// editing one switch. See ComposableCameraEdGraphPinTypeUtils.h for the
 	// rationale and the location of the single source of truth.
-	FEdGraphPinType PinType = ComposableCameraEdGraphPinTypeUtils::MakeEdGraphPinTypeFromCameraPinType(
-		Declaration.PinType, Declaration.StructType, Declaration.EnumType, Declaration.SignatureFunction);
+	FEdGraphPinType PinType = ComposableCameraEdGraphPinTypeUtils::MakeEdGraphPinTypeFromCameraPinType(Declaration.PinType, Declaration.StructType, Declaration.EnumType, Declaration.SignatureFunction);
 
 	UEdGraphPin* NewPin = CreatePin(Direction, PinType, Declaration.PinName);
 	if (NewPin)
 	{
 		// Required input pins get a trailing `*` on their display label and an
 		// explicit "(Required)" line appended to the tooltip so authors know
-		// — *before* they see a validation error — that the pin has to be
+		// before they see a validation error that the pin has to be
 		// satisfied somehow (wire, Expose-as-Parameter, or a default). Output
 		// and optional input pins render as-is. Exposed-pin decoration is
 		// applied on top of this in AllocateDefaultPins so the `*` survives

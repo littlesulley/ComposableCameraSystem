@@ -20,7 +20,7 @@
  *     renderer does not need recursion and can pick connector glyphs
  *     (vertical stem + elbow) from a single pass.
  *   - All pointer data is resolved eagerly into display strings at
- *     snapshot time — consumers never deref anything runtime-owned.
+ *     snapshot time. Consumers never deref anything runtime-owned.
  *     This makes the snapshot safe to cache and freeze.
  *   - Progress / lifetime fields are captured as floats, not pre-formatted
  *     strings, so the renderer can draw real progress bars instead of
@@ -51,20 +51,20 @@ struct FComposableCameraTreeNodeSnapshot
 	/** True if the underlying pointer was IsValid-false at snapshot time. */
 	bool bDestroyed = false;
 
-	/** True for the single "dominant" leaf in this tree — the one that would
+	/** True for the single "dominant" leaf in this tree. The one that would
 	 *  remain if every transition collapsed immediately. Computed by walking
-	 *  root → Right → Right → ... → leaf. Leaves that are part of an active
+	 *  root->Right ->Right ->... ->leaf. Leaves that are part of an active
 	 *  transition's source (Left) side will have this as false. */
 	bool bIsDominantLeaf = false;
 
 	/** True if this node is the last child of its parent. For an InnerTransition
 	 *  parent, the Left (source) child has this false and the Right (target)
 	 *  child has this true. Trivially true for tree roots. Drives whether the
-	 *  connector glyph is drawn as `└` (last) or `├` (middle). */
+	 *  connector glyph is drawn as ` (last) or ` (middle). */
 	bool bIsLastSibling = true;
 
 	/** Bitmask where bit L is set iff the ancestor at depth L was the last child
-	 *  of its parent. Drives whether a continuation stem `│` is drawn at column L
+	 *  of its parent. Drives whether a continuation stem ` is drawn at column L
 	 *  for this line: stem present iff bit (L+1) is 0 (i.e. the ancestor at
 	 *  depth L+1 was NOT last, so its parent's subtree is still incomplete).
 	 *
@@ -88,7 +88,7 @@ struct FComposableCameraTreeNodeSnapshot
 	/** Total transition time in seconds. */
 	float TransitionTotal = 0.f;
 
-	/** True if this node was flattened from a ReferenceLeaf's `SnapshotRoot` —
+	/** True if this node was flattened from a ReferenceLeaf's `SnapshotRoot`,
 	 *  i.e. it belongs to the referenced *source* director's tree that has
 	 *  been inlined under a ReferenceLeaf during the snapshot build.
 	 *  Panel renderer uses this to pick a dimmer color (the referenced tree
@@ -97,8 +97,8 @@ struct FComposableCameraTreeNodeSnapshot
 
 	/** True only on the single node that is the direct child of a
 	 *  ReferenceLeaf (the referenced subtree's root). Suppresses the
-	 *  `[from]/[to]` role prefix at that seam — the usual
-	 *  "Depth > 0 ⇒ transition parent" invariant does not hold across the
+	 *  `[from]/[to]` role prefix at that seam. The usual
+	 *  "Depth > 0 means transition parent" invariant does not hold across the
 	 *  RefLeaf boundary (a RefLeaf is a leaf in the outer tree with a
 	 *  synthetic 1-child visual expansion; it is not a transition). */
 	bool bIsReferencedRoot = false;
@@ -112,13 +112,13 @@ struct FComposableCameraTreeNodeSnapshot
 	 *
 	 *  Empty for non-transition nodes and for transitions whose pointer
 	 *  was null at snapshot time. 24 samples (25 values) is the
-	 *  convention used by `BuildNodeDebugSnapshot` — enough for Ease /
+	 *  convention used by `BuildNodeDebugSnapshot`. Enough for Ease /
 	 *  Cubic / Smoother shoulders to read distinctly at typical panel
 	 *  widths, while staying a trivial allocation cost. */
 	TArray<float> BlendCurveSamples;
 };
 
-/** Where a patch entry was sourced from — drives the row's prefix label so
+/** Where a patch entry was sourced from. Drives the row's prefix label so
  *  the designer can tell which path is producing each visible patch. */
 enum class EComposableCameraPatchSource : uint8
 {
@@ -151,7 +151,7 @@ struct FComposableCameraPatchSnapshot
 	 *  envelope is stateless and alpha alone carries phase semantics. */
 	int8 Phase = 0;
 
-	/** Current effect alpha — drives BlendBy(InputPose, Evaluated, alpha). */
+	/** Current effect alpha. Drives BlendBy(InputPose, Evaluated, alpha). */
 	float Alpha = 0.f;
 
 	/** Time spent in the current Phase (resets on every transition). 0 for
@@ -170,7 +170,7 @@ struct FComposableCameraPatchSnapshot
 	 *  Sequencer-source entries this is the section's range converted to seconds. */
 	float Duration = 0.f;
 
-	/** Bitmask of EComposableCameraPatchExpirationType — what channels can fire.
+	/** Bitmask of EComposableCameraPatchExpirationType. What channels can fire.
 	 *  For Sequencer-source entries this is always 0 (section's TrueRange is
 	 *  the lifetime; no per-channel expiration semantics). */
 	uint8 ExpirationType = 0;
@@ -184,8 +184,7 @@ struct FComposableCameraPatchSnapshot
 	 *  each visible patch. */
 	EComposableCameraPatchSource Source = EComposableCameraPatchSource::BlueprintLibrary;
 
-	/** For Sequencer-source entries, the bound LS Actor's display name —
-	 *  empty for BP-source entries. Lets the panel show "[Seq] Asset on Actor"
+	/** For Sequencer-source entries, the bound LS Actor's display name - empty for BP-source entries. Lets the panel show "[Seq] Asset on Actor"
 	 *  when there are multiple LS Actors with overlapping patches. */
 	FString HostActorName;
 };
@@ -224,7 +223,7 @@ struct FComposableCameraContextSnapshot
  *  Produced by UComposableCameraContextStack::BuildDebugSnapshot. */
 struct FComposableCameraContextStackSnapshot
 {
-	/** All contexts — live entries first (LIFO, index 0 = base), then
+	/** All contexts. Live entries first (LIFO, index 0 = base), then
 	 *  pending-destroy entries. The UI walks this as a single flat list. */
 	TArray<FComposableCameraContextSnapshot> Contexts;
 

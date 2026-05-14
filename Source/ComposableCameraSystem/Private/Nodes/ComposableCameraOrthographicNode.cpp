@@ -1,4 +1,4 @@
-// Copyright Sulley. All rights reserved.
+﻿// Copyright Sulley. All rights reserved.
 
 #include "Nodes/ComposableCameraOrthographicNode.h"
 
@@ -12,7 +12,7 @@ void UComposableCameraOrthographicNode::OnTickNode_Implementation(float DeltaTim
 
 	// ProjectionMode: Perspective = 0, Orthographic = 1, so a wired pin of 0
 	// is indistinguishable from "unresolved". Fall back to UPROPERTY when the
-	// pin reads 0 — authors who want to drive back to Perspective via wire
+	// pin reads 0. Authors who want to drive back to Perspective via wire
 	// should set the UPROPERTY to Perspective and leave the pin unwired.
 	if (PinProjectionMode > 0 && PinProjectionMode <= static_cast<int32>(ECameraProjectionMode::Orthographic))
 	{
@@ -30,14 +30,14 @@ void UComposableCameraOrthographicNode::OnTickNode_Implementation(float DeltaTim
 	// Near clip: 0 is a valid default value, so we cannot use the positive-sentinel
 	// trick. Use pin value if strictly positive; otherwise fall back to UPROPERTY
 	// (which itself may legitimately be 0). A wired-but-zero pin collapses to
-	// the UPROPERTY — this is an accepted ambiguity for "0 is meaningful" fields.
+	// the UPROPERTY. This is an accepted ambiguity for "0 is meaningful" fields.
 	OutCameraPose.OrthoNearClipPlane = (PinNearClip > 0.f) ? PinNearClip : OrthoNearClipPlane;
 }
 
 void UComposableCameraOrthographicNode::GetPinDeclarations_Implementation(
 	TArray<FComposableCameraNodePinDeclaration>& OutPins) const
 {
-	// Input: ProjectionMode (as int32 — enum index into ECameraProjectionMode)
+	// Input: ProjectionMode (as int32. Enum index into ECameraProjectionMode)
 	{
 		FComposableCameraNodePinDeclaration Pin;
 		Pin.PinName = "ProjectionMode";

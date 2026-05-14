@@ -28,11 +28,11 @@
 namespace
 {
 	/** Sentinel string for the "clear bone" entry. Treated as `NAME_None`
-	 *  on commit so the BoneName UPROPERTY ends up empty. */
+	 * on commit so the BoneName UPROPERTY ends up empty. */
 	static const FString GNoneOptionString = TEXT("(none)");
 
 	/** Hint shown inside the combo when no SkelMesh resolves. The combo is
-	 *  also disabled in that state, so this is informational only. */
+	 * also disabled in that state, so this is informational only. */
 	static const FString GNoSkelMeshOptionString = TEXT("(no skeletal mesh found)");
 
 	AActor* ResolveActorFromHandle(const TSharedPtr<IPropertyHandle>& Handle, const TCHAR* DebugLabel)
@@ -110,8 +110,7 @@ namespace
 		return SkelComp;
 	}
 
-	USkeletalMesh* ResolveSkeletalMeshFromHandle(
-		const TSharedPtr<IPropertyHandle>& Handle,
+	USkeletalMesh* ResolveSkeletalMeshFromHandle(const TSharedPtr<IPropertyHandle>& Handle,
 		const TCHAR* DebugLabel)
 	{
 		if (!Handle.IsValid() || !Handle->IsValidHandle())
@@ -151,8 +150,7 @@ TSharedRef<IPropertyTypeCustomization> FComposableCameraTargetInfoCustomization:
 
 void FComposableCameraTargetInfoCustomization::Register(FPropertyEditorModule& PropertyEditorModule)
 {
-	PropertyEditorModule.RegisterCustomPropertyTypeLayout(
-		FComposableCameraTargetInfo::StaticStruct()->GetFName(),
+	PropertyEditorModule.RegisterCustomPropertyTypeLayout(FComposableCameraTargetInfo::StaticStruct()->GetFName(),
 		FOnGetPropertyTypeCustomizationInstance::CreateStatic(
 			&FComposableCameraTargetInfoCustomization::MakeInstance));
 }
@@ -161,30 +159,24 @@ void FComposableCameraTargetInfoCustomization::Unregister(FPropertyEditorModule&
 {
 	if (UObjectInitialized())
 	{
-		PropertyEditorModule.UnregisterCustomPropertyTypeLayout(
-			FComposableCameraTargetInfo::StaticStruct()->GetFName());
+		PropertyEditorModule.UnregisterCustomPropertyTypeLayout(FComposableCameraTargetInfo::StaticStruct()->GetFName());
 	}
 }
 
-void FComposableCameraTargetInfoCustomization::CustomizeHeader(
-	TSharedRef<IPropertyHandle> StructPropertyHandle,
+void FComposableCameraTargetInfoCustomization::CustomizeHeader(TSharedRef<IPropertyHandle> StructPropertyHandle,
 	FDetailWidgetRow& HeaderRow,
 	IPropertyTypeCustomizationUtils& /*StructCustomizationUtils*/)
 {
 	StructHandle = StructPropertyHandle;
 
 	// Default-shape header: just the struct's name. ValueContent is left
-	// untouched so the engine's default expand caret renders normally —
+	// untouched so the engine's default expand caret renders normally - 
 	// this struct has too many fields to summarize inline anyway.
-	HeaderRow
-		.NameContent()
-		[
-			StructPropertyHandle->CreatePropertyNameWidget()
-		];
+	HeaderRow.NameContent()
+		[StructPropertyHandle->CreatePropertyNameWidget()];
 }
 
-void FComposableCameraTargetInfoCustomization::CustomizeChildren(
-	TSharedRef<IPropertyHandle> StructPropertyHandle,
+void FComposableCameraTargetInfoCustomization::CustomizeChildren(TSharedRef<IPropertyHandle> StructPropertyHandle,
 	IDetailChildrenBuilder& StructBuilder,
 	IPropertyTypeCustomizationUtils& /*StructCustomizationUtils*/)
 {
@@ -220,36 +212,31 @@ void FComposableCameraTargetInfoCustomization::CustomizeChildren(
 			// Re-fire the bone scan whenever the actor reference is
 			// reassigned in the Details panel. The combo widget refreshes
 			// its options list inline via `BoneCombo->RefreshOptions`.
-			Child->SetOnPropertyValueChanged(FSimpleDelegate::CreateSP(
-				this, &FComposableCameraTargetInfoCustomization::RefreshBoneOptions));
+			Child->SetOnPropertyValueChanged(FSimpleDelegate::CreateSP(this, &FComposableCameraTargetInfoCustomization::RefreshBoneOptions));
 
-			// Phase E LS Section override surface — read-only label that
+			// Phase E LS Section override surface - read-only label that
 			// shows the *effective* actor (bound via the Section's right-click
-			// "Bind Target Actors ▶" menu) when an override is active. Same
+			// "Bind Target Actors " menu) when an override is active. Same
 			// override the runtime + preview viewport already see; surfacing
 			// it in Details closes the loop so designers know which actor
 			// the bone picker is sourcing bones from.
 			StructBuilder.AddCustomRow(LOCTEXT("EffectiveActorRow", "Effective Actor"))
 				.NameContent()
-				[
-					SNew(STextBlock)
+				[SNew(STextBlock)
 					.Text(LOCTEXT("EffectiveActorLabel", "Effective Actor"))
 					.ToolTipText(LOCTEXT("EffectiveActorTooltip",
-						"Resolved target actor — the LS Section's TargetActorOverrides "
+						"Resolved target actor - the LS Section's TargetActorOverrides "
 						"binding when active (set via the section's right-click \"Bind "
 						"Target Actors\" menu), else the directly-authored Actor field. "
 						"This is what the runtime solver and the bone picker actually use. "
-						"Format when an override is active: \"<Actor>  (LS: "
-						"<SequenceName> → <BindingName>)\" — the LS asset and the "
+						"Format when an override is active: \"<Actor> (LS: "
+						"<SequenceName> -> <BindingName>)\" - the LS asset and the "
 						"binding's outliner name in the Sequencer it was authored in."))
-					.Font(IDetailLayoutBuilder::GetDetailFont())
-				]
+					.Font(IDetailLayoutBuilder::GetDetailFont())]
 				.ValueContent()
 				.MinDesiredWidth(180.f)
 				.MaxDesiredWidth(420.f)
-				[
-					BuildEffectiveActorLabel()
-				];
+				[BuildEffectiveActorLabel()];
 		}
 #if WITH_EDITORONLY_DATA
 		else if (ChildName == GET_MEMBER_NAME_CHECKED(FComposableCameraTargetInfo, EditorPreviewMesh))
@@ -258,20 +245,19 @@ void FComposableCameraTargetInfoCustomization::CustomizeChildren(
 
 			StructBuilder.AddProperty(Child.ToSharedRef());
 
-			Child->SetOnPropertyValueChanged(FSimpleDelegate::CreateSP(
-				this, &FComposableCameraTargetInfoCustomization::RefreshBoneOptions));
+			Child->SetOnPropertyValueChanged(FSimpleDelegate::CreateSP(this, &FComposableCameraTargetInfoCustomization::RefreshBoneOptions));
 		}
 #endif
 		else if (ChildName == GET_MEMBER_NAME_CHECKED(FComposableCameraTargetInfo, BoneName))
 		{
 			BoneNameHandle = Child;
 
-			// Initial population happens here — both Actor and BoneName
+			// Initial population happens here - both Actor and BoneName
 			// handles are now captured, so RefreshBoneOptions can resolve
 			// the SkelMesh and BuildBoneCombo can read the seed list.
 			RefreshBoneOptions();
 
-			// Hide the default BoneName row entirely — using
+			// Hide the default BoneName row entirely - using
 			// `AddProperty(...).CustomWidget(...)` triggered an
 			// `ensure(bTickable)` in `FDetailItemNode::Tick` under
 			// IStructureDetailsView (Shot Editor host). Replacing the row
@@ -285,18 +271,14 @@ void FComposableCameraTargetInfoCustomization::CustomizeChildren(
 
 			StructBuilder.AddCustomRow(Child->GetPropertyDisplayName())
 				.NameContent()
-				[
-					SNew(STextBlock)
+				[SNew(STextBlock)
 					.Text(Child->GetPropertyDisplayName())
 					.ToolTipText(Child->GetToolTipText())
-					.Font(IDetailLayoutBuilder::GetDetailFont())
-				]
+					.Font(IDetailLayoutBuilder::GetDetailFont())]
 				.ValueContent()
 				.MinDesiredWidth(180.f)
 				.MaxDesiredWidth(420.f)
-				[
-					BuildBoneCombo()
-				];
+				[BuildBoneCombo()];
 		}
 		else
 		{
@@ -327,7 +309,7 @@ void FComposableCameraTargetInfoCustomization::RefreshBoneOptions()
 		}
 
 		TArray<FName> Sockets;
-		for (const USkeletalMeshSocket* Socket : SkelMesh->GetActiveSocketList())
+		for (const USkeletalMeshSocket* Socket: SkelMesh->GetActiveSocketList())
 		{
 			if (Socket)
 			{
@@ -348,7 +330,7 @@ void FComposableCameraTargetInfoCustomization::RefreshBoneOptions()
 		});
 
 		Options.Reserve(Options.Num() + Sorted.Num());
-		for (const FName& N : Sorted)
+		for (const FName& N: Sorted)
 		{
 			if (!N.IsNone())
 			{
@@ -358,7 +340,7 @@ void FComposableCameraTargetInfoCustomization::RefreshBoneOptions()
 	}
 	else
 	{
-		// No SkelMesh resolvable — surface a hint entry. The combo itself is
+		// No SkelMesh resolvable - surface a hint entry. The combo itself is
 		// disabled in this state so the entry is informational only.
 		Options.Add(MakeShared<FString>(GNoSkelMeshOptionString));
 	}
@@ -369,7 +351,7 @@ void FComposableCameraTargetInfoCustomization::RefreshBoneOptions()
 	}
 
 	UE_LOG(LogComposableCameraSystemEditor, Verbose,
-		TEXT("[BonePicker] RefreshBoneOptions complete — %d entries"),
+		TEXT("[BonePicker] RefreshBoneOptions complete - %d entries"),
 		Options.Num());
 }
 
@@ -394,12 +376,11 @@ AActor* FComposableCameraTargetInfoCustomization::ResolveLSOverrideActor() const
 	return ResolveLSOverrideContext(UnusedSeq, UnusedBinding);
 }
 
-AActor* FComposableCameraTargetInfoCustomization::ResolveLSOverrideContext(
-	FText& OutSequenceDisplayName,
+AActor* FComposableCameraTargetInfoCustomization::ResolveLSOverrideContext(FText& OutSequenceDisplayName,
 	FText& OutBindingDisplayName) const
 {
 	OutSequenceDisplayName = FText::GetEmpty();
-	OutBindingDisplayName  = FText::GetEmpty();
+	OutBindingDisplayName = FText::GetEmpty();
 
 	const int32 TargetIndex = ResolveTargetIndex();
 	if (TargetIndex == INDEX_NONE)
@@ -408,20 +389,20 @@ AActor* FComposableCameraTargetInfoCustomization::ResolveLSOverrideContext(
 	}
 
 	// Two paths to find the host Section:
-	//   (1) Sequencer Section Details — `IPropertyHandle::GetOuterObjects`
-	//       returns the Section directly (the Section UObject owns the
-	//       `InlineShot` UPROPERTY this struct lives inside).
-	//   (2) Shot Editor `IStructureDetailsView` — the view wraps the Shot
-	//       in a raw `FStructOnScope(StaticStruct, uint8*)` which carries
-	//       no host UObject, so GetOuterObjects returns empty. Fall back
-	//       to the editor's static "currently live host" lookup.
+	// (1) Sequencer Section Details - `IPropertyHandle::GetOuterObjects`
+	// returns the Section directly (the Section UObject owns the
+	// `InlineShot` UPROPERTY this struct lives inside).
+	// (2) Shot Editor `IStructureDetailsView` - the view wraps the Shot
+	// in a raw `FStructOnScope(StaticStruct, uint8*)` which carries
+	// no host UObject, so GetOuterObjects returns empty. Fall back
+	// to the editor's static "currently live host" lookup.
 	UMovieSceneComposableCameraShotSection* Section = nullptr;
 
 	if (StructHandle.IsValid())
 	{
 		TArray<UObject*> OuterObjects;
 		StructHandle->GetOuterObjects(OuterObjects);
-		for (UObject* Outer : OuterObjects)
+		for (UObject* Outer: OuterObjects)
 		{
 			if (UMovieSceneComposableCameraShotSection* Found =
 				Cast<UMovieSceneComposableCameraShotSection>(Outer))
@@ -434,8 +415,7 @@ AActor* FComposableCameraTargetInfoCustomization::ResolveLSOverrideContext(
 
 	if (!Section)
 	{
-		Section = Cast<UMovieSceneComposableCameraShotSection>(
-			FComposableCameraShotEditor::GetCurrentLiveHost());
+		Section = Cast<UMovieSceneComposableCameraShotSection>(FComposableCameraShotEditor::GetCurrentLiveHost());
 	}
 
 	if (!Section)
@@ -443,10 +423,10 @@ AActor* FComposableCameraTargetInfoCustomization::ResolveLSOverrideContext(
 		return nullptr;
 	}
 
-	// Linear scan — TargetActorOverrides is small (one entry per overridden
+	// Linear scan - TargetActorOverrides is small (one entry per overridden
 	// target index, capped by Shot's target count which is typically 1-4).
 	const FComposableCameraShotTargetActorOverride* MatchingOverride = nullptr;
-	for (const FComposableCameraShotTargetActorOverride& O : Section->TargetActorOverrides)
+	for (const FComposableCameraShotTargetActorOverride& O: Section->TargetActorOverrides)
 	{
 		if (O.TargetIndex == TargetIndex && O.Binding.IsValid())
 		{
@@ -487,15 +467,14 @@ AActor* FComposableCameraTargetInfoCustomization::ResolveLSOverrideContext(
 	// `FindOpenSequencerForSequence` is the editor-only registry that maps
 	// running Sequencer instances to their MovieSceneSequence. Without an
 	// open Sequencer there's no playback context to resolve binding GUIDs
-	// against — we silently fall through to "no override" so the customization
+	// against - we silently fall through to "no override" so the customization
 	// picks up the directly-authored Actor field instead. Note: sequence /
 	// binding names ABOVE are still populated even when no Sequencer is open,
 	// so future code that wants to surface the override metadata in a
 	// disabled state can read them; current label hides everything when
 	// the actor doesn't resolve.
 	FComposableCameraSystemEditorModule& EditorModule =
-		FModuleManager::GetModuleChecked<FComposableCameraSystemEditorModule>(
-			TEXT("ComposableCameraSystemEditor"));
+		FModuleManager::GetModuleChecked<FComposableCameraSystemEditorModule>(TEXT("ComposableCameraSystemEditor"));
 	const TSharedPtr<ISequencer> OpenSequencer =
 		EditorModule.FindOpenSequencerForSequence(Sequence);
 	if (!OpenSequencer.IsValid())
@@ -507,10 +486,9 @@ AActor* FComposableCameraTargetInfoCustomization::ResolveLSOverrideContext(
 	// Spawnables only while their binding's section is active in the
 	// timeline (designer must scrub the playhead inside the spawnable's
 	// range to see it bound). FocusedTemplateID handles sub-sequences.
-	const TArrayView<TWeakObjectPtr<>> Bound = OpenSequencer->FindBoundObjects(
-		MatchingOverride->Binding.GetGuid(),
+	const TArrayView<TWeakObjectPtr<>> Bound = OpenSequencer->FindBoundObjects(MatchingOverride->Binding.GetGuid(),
 		OpenSequencer->GetFocusedTemplateID());
-	for (const TWeakObjectPtr<UObject>& Weak : Bound)
+	for (const TWeakObjectPtr<UObject>& Weak: Bound)
 	{
 		if (AActor* Actor = Cast<AActor>(Weak.Get()))
 		{
@@ -575,33 +553,30 @@ TSharedRef<SWidget> FComposableCameraTargetInfoCustomization::BuildEffectiveActo
 			// Prefer the four-part format when both names resolve so designers
 			// can tell apart overrides sourced from different open LSs at a
 			// glance. Falls back gracefully if MovieScene lookup couldn't
-			// find a binding name (extremely rare — guid mismatch from a
+			// find a binding name (extremely rare - guid mismatch from a
 			// stale override; we still show the actor + sequence).
 			if (!SequenceName.IsEmpty() && !BindingName.IsEmpty())
 			{
-				return FText::Format(
-					LOCTEXT("EffectiveActorLSBoundFullFmt",
-						"{0}  (LS: {1} → {2})"),
+				return FText::Format(LOCTEXT("EffectiveActorLSBoundFullFmt",
+						"{0} (LS: {1} -> {2})"),
 					FText::FromString(Effective->GetActorNameOrLabel()),
 					SequenceName,
 					BindingName);
 			}
 			if (!SequenceName.IsEmpty())
 			{
-				return FText::Format(
-					LOCTEXT("EffectiveActorLSBoundSeqFmt",
-						"{0}  (LS: {1})"),
+				return FText::Format(LOCTEXT("EffectiveActorLSBoundSeqFmt",
+						"{0} (LS: {1})"),
 					FText::FromString(Effective->GetActorNameOrLabel()),
 					SequenceName);
 			}
-			return FText::Format(
-				LOCTEXT("EffectiveActorLSBoundFmt", "{0}  (LS-bound)"),
+			return FText::Format(LOCTEXT("EffectiveActorLSBoundFmt", "{0} (LS-bound)"),
 				FText::FromString(Effective->GetActorNameOrLabel()));
 		})
 		.ColorAndOpacity_Lambda([WeakSelf]() -> FSlateColor
 		{
 			const TSharedPtr<FComposableCameraTargetInfoCustomization> Self = WeakSelf.Pin();
-			// Dim the label when no override is active — reads as a hint
+			// Dim the label when no override is active - reads as a hint
 			// rather than competing with the authored Actor field above it.
 			// Highlighted (warm cyan) when bound so the override is immediately
 			// scannable at a glance.
@@ -617,7 +592,7 @@ TSharedRef<SWidget> FComposableCameraTargetInfoCustomization::BuildEffectiveActo
 TSharedRef<SWidget> FComposableCameraTargetInfoCustomization::BuildBoneCombo()
 {
 	// Capture the BoneOptions SharedRef in every callback so the array
-	// outlives the customization — Slate may dispatch combo events / paint
+	// outlives the customization - Slate may dispatch combo events / paint
 	// frames after the customization has been released by a Details panel
 	// rebuild. The raw `&Options` pointer passed to OptionsSource resolves
 	// through the captured SharedRef each time, never dangling.
@@ -632,7 +607,7 @@ TSharedRef<SWidget> FComposableCameraTargetInfoCustomization::BuildBoneCombo()
 	// underlying FPropertyNode can still be torn down externally.
 	TSharedPtr<IPropertyHandle> CapturedBoneHandle = BoneNameHandle;
 
-	// Self-pointer for OnComboBoxOpening — refresh the bone list right
+	// Self-pointer for OnComboBoxOpening - refresh the bone list right
 	// before the dropdown opens so a late-resolved Actor (or one toggled
 	// into bone mode after construction) still surfaces its bones.
 	TWeakPtr<FComposableCameraTargetInfoCustomization> WeakSelf =
@@ -666,7 +641,7 @@ TSharedRef<SWidget> FComposableCameraTargetInfoCustomization::BuildBoneCombo()
 				const FString& Sel = *NewSelection;
 				if (Sel == GNoSkelMeshOptionString)
 				{
-					return;   // hint-only entry, ignore
+					return; // hint-only entry, ignore
 				}
 				if (!CapturedBoneHandle.IsValid() || !CapturedBoneHandle->IsValidHandle())
 				{
@@ -677,7 +652,7 @@ TSharedRef<SWidget> FComposableCameraTargetInfoCustomization::BuildBoneCombo()
 				// undo / redo + PostEditChangeProperty broadcast on the host
 				// UObject.
 				CapturedBoneHandle->SetValue(
-					(Sel == GNoneOptionString) ? NAME_None : FName(*Sel));
+					(Sel == GNoneOptionString) ? NAME_None: FName(*Sel));
 			})
 		.OnGenerateWidget_Lambda([](TSharedPtr<FString> Item) -> TSharedRef<SWidget>
 		{
@@ -686,8 +661,7 @@ TSharedRef<SWidget> FComposableCameraTargetInfoCustomization::BuildBoneCombo()
 				.Font(IDetailLayoutBuilder::GetDetailFont());
 		})
 		.Content()
-		[
-			SNew(STextBlock)
+		[SNew(STextBlock)
 			.Text_Lambda([CapturedBoneHandle]() -> FText
 			{
 				if (!CapturedBoneHandle.IsValid() || !CapturedBoneHandle->IsValidHandle())
@@ -704,8 +678,7 @@ TSharedRef<SWidget> FComposableCameraTargetInfoCustomization::BuildBoneCombo()
 					? FText::FromString(GNoneOptionString)
 					: FText::FromName(Current);
 			})
-			.Font(IDetailLayoutBuilder::GetDetailFont())
-		];
+			.Font(IDetailLayoutBuilder::GetDetailFont())];
 }
 
 #undef LOCTEXT_NAMESPACE

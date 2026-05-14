@@ -70,8 +70,7 @@ void FComposableCameraParameterBlock::AddReferencedObjects(FReferenceCollector& 
 	//
 	// In addition to the property-graph walk, mark the `UScriptStruct*` itself
 	// for each slot. `UserDefinedStruct` (Blueprint-authored struct asset) is
-	// a regular UObject that GC reclaims when no rooted reference exists —
-	// `SourceParameterBlock` / `PendingParameterBlock` are non-reflected
+	// a regular UObject that GC reclaims when no rooted reference exists -	// `SourceParameterBlock` / `PendingParameterBlock` are non-reflected
 	// owners that only call this manual walker, and `CachedParameters` is
 	// reached via the same path through ARO. Without an explicit mark on
 	// the type, a UserDefinedStruct value's type can be reclaimed mid-frame
@@ -91,7 +90,7 @@ void FComposableCameraParameterBlock::AddReferencedObjects(FReferenceCollector& 
 			}
 		}
 	}
-	// FScriptDelegate stores its bound target in a TWeakObjectPtr — GC does not
+	// FScriptDelegate stores its bound target in a TWeakObjectPtr -GC does not
 	// keep that object alive on its own. Without this walk, a delegate whose
 	// target is only kept alive transitively through ParameterBlock would see
 	// the target collected between SetDelegate(...) and ApplyDelegateBindings,
@@ -207,7 +206,7 @@ bool FComposableCameraParameterBlock::ApplyStringValue(
 
 	case EComposableCameraPinType::Actor:
 	{
-		// Actors live in worlds, not assets — a DataTable row cannot reference a
+		// Actors live in worlds, not assets. A DataTable row cannot reference a
 		// live actor. Refuse rather than silently loading a CDO.
 		WriteError(OutError, TEXT(
 			"Actor parameters cannot be set from a DataTable row. "
@@ -244,8 +243,7 @@ bool FComposableCameraParameterBlock::ApplyStringValue(
 	{
 		// FName construction from an arbitrary string is lossy for Unicode
 		// (FName tables are 8-bit + comparison-hash). Names authored through the
-		// editor should be ASCII. We accept any string here without rejection —
-		// if the user writes garbage we still produce a valid (garbage) FName.
+		// editor should be ASCII. We accept any string here without rejection -		// if the user writes garbage we still produce a valid (garbage) FName.
 		FComposableCameraParameterValue Entry;
 		Entry.Set<FName>(PinType, FName(*ValueString));
 		OutBlock.StoreValue(ParameterName, MoveTemp(Entry));
@@ -263,7 +261,7 @@ bool FComposableCameraParameterBlock::ApplyStringValue(
 		// The authored string is expected to match one of the enum's entry names
 		// (either the short name like "EFoo::Bar" or the qualified form). We also
 		// accept a numeric literal as a fallback so raw integer authoring still
-		// round-trips — this matches how the editor-side parameter table row
+		// round-trips. This matches how the editor-side parameter table row
 		// customization exports the selected enum value.
 		int64 ParsedValue = EnumType->GetValueByNameString(ValueString);
 		if (ParsedValue == INDEX_NONE)
@@ -373,7 +371,7 @@ bool FComposableCameraParameterBlock::ApplyStringValue(
 
 	case EComposableCameraPinType::Delegate:
 	{
-		// Delegates cannot be serialized from a string — they are bound at
+		// Delegates cannot be serialized from a string. They are bound at
 		// activation time through the K2 ActivateComposableCamera node, not
 		// through DataTable rows. Return false so the caller can fall back
 		// to the node pin's authored default (which for delegates is "unbound").

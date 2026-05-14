@@ -1,4 +1,4 @@
-﻿// Copyright Sulley. All rights reserved.
+// Copyright Sulley. All rights reserved.
 
 
 #include "ScriptedActions/ComposableCameraCreateAttachCamera.h"
@@ -31,8 +31,7 @@ void UComposableCameraCreateAttachCamera::CreateAndAttachCamera()
 		return;
 	}
 	
-	ACameraActor* Camera = World->SpawnActor<ACameraActor>(
-		ACameraActor::StaticClass(),
+	ACameraActor* Camera = World->SpawnActor<ACameraActor>(ACameraActor::StaticClass(),
 		FVector{100.f, 0.f, 50.f},
 		FRotator{0.f, 180.f, 0.f});
 	

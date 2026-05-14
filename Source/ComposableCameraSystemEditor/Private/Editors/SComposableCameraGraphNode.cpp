@@ -32,8 +32,7 @@ bool SComposableCameraGraphNode::IsDebugActive() const
 	return CameraGraphNode && CameraGraphNode->DebugState.bIsActive;
 }
 
-int32 SComposableCameraGraphNode::OnPaint(
-	const FPaintArgs& Args,
+int32 SComposableCameraGraphNode::OnPaint(const FPaintArgs& Args,
 	const FGeometry& AllottedGeometry,
 	const FSlateRect& MyCullingRect,
 	FSlateWindowElementList& OutDrawElements,
@@ -61,8 +60,7 @@ int32 SComposableCameraGraphNode::OnPaint(
 	return LayerId;
 }
 
-void SComposableCameraGraphNode::PaintDebugFooter(
-	const FGeometry& AllottedGeometry,
+void SComposableCameraGraphNode::PaintDebugFooter(const FGeometry& AllottedGeometry,
 	const FSlateRect& MyCullingRect,
 	FSlateWindowElementList& OutDrawElements,
 	int32 LayerId) const
@@ -83,9 +81,7 @@ void SComposableCameraGraphNode::PaintDebugFooter(
 	// Pose line.
 	{
 		const FComposableCameraPose& Pose = CameraGraphNode->DebugState.PoseAfterNode;
-		Lines.Emplace(
-			FString::Printf(
-				TEXT("Pos (%.0f, %.0f, %.0f)  Rot (P=%.1f, Y=%.1f)  FOV %.0f"),
+		Lines.Emplace(FString::Printf(TEXT("Pos (%.0f, %.0f, %.0f) Rot (P=%.1f, Y=%.1f) FOV %.0f"),
 				Pose.Position.X, Pose.Position.Y, Pose.Position.Z,
 				Pose.Rotation.Pitch, Pose.Rotation.Yaw,
 				Pose.GetEffectiveFieldOfView()),
@@ -93,10 +89,9 @@ void SComposableCameraGraphNode::PaintDebugFooter(
 	}
 
 	// One line per output pin value.
-	for (const TPair<FName, FString>& PinValue : CameraGraphNode->DebugState.OutputPinDisplayValues)
+	for (const TPair<FName, FString>& PinValue: CameraGraphNode->DebugState.OutputPinDisplayValues)
 	{
-		Lines.Emplace(
-			FString::Printf(TEXT("%s: %s"), *PinValue.Key.ToString(), *PinValue.Value),
+		Lines.Emplace(FString::Printf(TEXT("%s: %s"), *PinValue.Key.ToString(), *PinValue.Value),
 			FLinearColor(0.7f, 1.0f, 0.5f));
 	}
 
@@ -108,9 +103,9 @@ void SComposableCameraGraphNode::PaintDebugFooter(
 	// Measure the widest line to determine the box width. The graph editor
 	// applies a zoom transform that is baked into AllottedGeometry's
 	// accumulated render transform. FSlateFontMeasure::Measure defaults to
-	// scale 1.0, but the actual text rasterises at the accumulated scale —
+	// scale 1.0, but the actual text rasterises at the accumulated scale - 
 	// font hinting / kerning at larger raster sizes can make the rendered
-	// text wider than a naïve linear scale of the 1× measurement. Measure
+	// text wider than a nave linear scale of the 1x measurement. Measure
 	// at the real render scale and convert back to local space so the box
 	// is always wide enough.
 	const TSharedRef<FSlateFontMeasure> FontMeasure =
@@ -119,7 +114,7 @@ void SComposableCameraGraphNode::PaintDebugFooter(
 	const float RenderScale = FMath::Max(FMath::Max(FMath::Abs(ZoomScale.GetVector().X), FMath::Abs(ZoomScale.GetVector().Y)), 1.0f);
 
 	float MaxTextWidth = 0.0f;
-	for (const TPair<FString, FLinearColor>& Line : Lines)
+	for (const TPair<FString, FLinearColor>& Line: Lines)
 	{
 		const FVector2D TextSize = FontMeasure->Measure(Line.Key, MonoFont, RenderScale);
 		MaxTextWidth = FMath::Max(MaxTextWidth, static_cast<float>(TextSize.X) / RenderScale);
@@ -130,12 +125,10 @@ void SComposableCameraGraphNode::PaintDebugFooter(
 	const float BoxHeight = (Lines.Num() * LineHeight) + (Padding * 2.0f);
 	const float BoxY = static_cast<float>(NodeSize.Y) + 2.0f; // 2px gap below node.
 
-	const FPaintGeometry BackgroundGeometry = AllottedGeometry.ToPaintGeometry(
-		FVector2f(BoxWidth, BoxHeight),
+	const FPaintGeometry BackgroundGeometry = AllottedGeometry.ToPaintGeometry(FVector2f(BoxWidth, BoxHeight),
 		FSlateLayoutTransform(FVector2f(0.0f, BoxY)));
 
-	FSlateDrawElement::MakeBox(
-		OutDrawElements,
+	FSlateDrawElement::MakeBox(OutDrawElements,
 		LayerId,
 		BackgroundGeometry,
 		FAppStyle::GetBrush("Graph.Node.Body"),
@@ -147,12 +140,10 @@ void SComposableCameraGraphNode::PaintDebugFooter(
 	{
 		const float TextY = BoxY + Padding + (i * LineHeight);
 
-		const FPaintGeometry TextGeometry = AllottedGeometry.ToPaintGeometry(
-			FVector2f(MaxTextWidth + Padding, LineHeight),
+		const FPaintGeometry TextGeometry = AllottedGeometry.ToPaintGeometry(FVector2f(MaxTextWidth + Padding, LineHeight),
 			FSlateLayoutTransform(FVector2f(Padding, TextY)));
 
-		FSlateDrawElement::MakeText(
-			OutDrawElements,
+		FSlateDrawElement::MakeText(OutDrawElements,
 			LayerId + 1,
 			TextGeometry,
 			Lines[i].Key,
@@ -162,8 +153,7 @@ void SComposableCameraGraphNode::PaintDebugFooter(
 	}
 }
 
-void SComposableCameraGraphNode::PaintValidationBadge(
-	const FGeometry& AllottedGeometry,
+void SComposableCameraGraphNode::PaintValidationBadge(const FGeometry& AllottedGeometry,
 	FSlateWindowElementList& OutDrawElements,
 	int32 LayerId) const
 {
@@ -172,7 +162,7 @@ void SComposableCameraGraphNode::PaintValidationBadge(
 		return;
 	}
 
-	// Severity -> brush + tint. ErrorType stores a raw EMessageSeverity
+	// Severity->brush + tint. ErrorType stores a raw EMessageSeverity
 	// integer; any value at or below Error (CriticalError also maps here) is
 	// treated as an error, Warning is its own tier, and anything else (Info /
 	// PerformanceWarning) uses the neutral info icon so authors still see
@@ -214,16 +204,13 @@ void SComposableCameraGraphNode::PaintValidationBadge(
 	constexpr float BadgeSize = 16.0f;
 	constexpr float Inset = 2.0f;
 	const FVector2D NodeSize = AllottedGeometry.GetLocalSize();
-	const FVector2f BadgePos(
-		static_cast<float>(NodeSize.X) - BadgeSize - Inset,
+	const FVector2f BadgePos(static_cast<float>(NodeSize.X) - BadgeSize - Inset,
 		Inset);
 
-	const FPaintGeometry BadgeGeometry = AllottedGeometry.ToPaintGeometry(
-		FVector2f(BadgeSize, BadgeSize),
+	const FPaintGeometry BadgeGeometry = AllottedGeometry.ToPaintGeometry(FVector2f(BadgeSize, BadgeSize),
 		FSlateLayoutTransform(BadgePos));
 
-	FSlateDrawElement::MakeBox(
-		OutDrawElements,
+	FSlateDrawElement::MakeBox(OutDrawElements,
 		LayerId + 10, // above content, below any debug footer overlays
 		BadgeGeometry,
 		BadgeBrush,

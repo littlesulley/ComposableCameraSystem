@@ -80,13 +80,11 @@ namespace
 		}
 	}
 
-	class FComposableCameraLevelSequenceSpawnTrackCommands
-		: public TCommands<FComposableCameraLevelSequenceSpawnTrackCommands>
+	class FComposableCameraLevelSequenceSpawnTrackCommands: public TCommands<FComposableCameraLevelSequenceSpawnTrackCommands>
 	{
 	public:
 		FComposableCameraLevelSequenceSpawnTrackCommands()
-			: TCommands<FComposableCameraLevelSequenceSpawnTrackCommands>(
-				TEXT("ComposableCameraLevelSequenceSpawnTrack"),
+			: TCommands<FComposableCameraLevelSequenceSpawnTrackCommands>(TEXT("ComposableCameraLevelSequenceSpawnTrack"),
 				LOCTEXT("LevelSequenceSpawnTrackCommands", "Composable Camera Level Sequence Spawn Tracks"),
 				NAME_None,
 				FAppStyle::GetAppStyleSetName())
@@ -95,8 +93,7 @@ namespace
 
 		virtual void RegisterCommands() override
 		{
-			UI_COMMAND(
-				KeySpawnTracksFromCameraCuts,
+			UI_COMMAND(KeySpawnTracksFromCameraCuts,
 				"Key Spawn Tracks From Camera Cuts",
 				"Rebuild CCS Level Sequence Actor Spawn Tracks from the focused Level Sequence Camera Cut sections.",
 				EUserInterfaceActionType::Button,
@@ -111,8 +108,7 @@ namespace
 		(void)FComposableCameraLevelSequenceSpawnTrackTool::KeySpawnTracksFromCameraCuts();
 	}
 
-	FAutoConsoleCommand GKeySpawnTracksFromCameraCutsCommand(
-		TEXT("CCS.Editor.KeySpawnTracksFromCameraCuts"),
+	FAutoConsoleCommand GKeySpawnTracksFromCameraCutsCommand(TEXT("CCS.Editor.KeySpawnTracksFromCameraCuts"),
 		TEXT("Rebuild CCS Level Sequence Actor Spawn Tracks from the focused Level Sequence Camera Cut sections."),
 		FConsoleCommandDelegate::CreateStatic(&ExecuteKeySpawnTracksFromCameraCuts));
 
@@ -131,7 +127,7 @@ namespace
 	FResolvedSequencer ResolveFocusedSequencerWithMovieScene()
 	{
 		FResolvedSequencer FirstResolved;
-		for (const TSharedPtr<ISequencer>& Sequencer : ResolveLiveSequencers())
+		for (const TSharedPtr<ISequencer>& Sequencer: ResolveLiveSequencers())
 		{
 			UMovieSceneSequence* Sequence = Sequencer.IsValid()
 				? Sequencer->GetFocusedMovieSceneSequence()
@@ -156,8 +152,7 @@ namespace
 		return FirstResolved;
 	}
 
-	bool TryGetDiscreteRange(
-		const TRange<FFrameNumber>& Range,
+	bool TryGetDiscreteRange(const TRange<FFrameNumber>& Range,
 		FFrameNumber& OutStart,
 		FFrameNumber& OutEnd)
 	{
@@ -171,8 +166,7 @@ namespace
 		return OutEnd > OutStart;
 	}
 
-	TOptional<FGuid> ResolveComposableCameraActorBindingRecursive(
-		UMovieScene& MovieScene,
+	TOptional<FGuid> ResolveComposableCameraActorBindingRecursive(UMovieScene& MovieScene,
 		const FGuid& BindingGuid,
 		TSet<FGuid>& Visiting)
 	{
@@ -221,8 +215,7 @@ namespace
 		return ResolveComposableCameraActorBindingRecursive(MovieScene, BindingGuid, Visiting);
 	}
 
-	bool IsSpawnableBinding(
-		const UMovieSceneSequence& Sequence,
+	bool IsSpawnableBinding(const UMovieSceneSequence& Sequence,
 		UMovieScene& MovieScene,
 		const FGuid& BindingGuid)
 	{
@@ -233,8 +226,7 @@ namespace
 
 		const FMovieSceneBindingReferences* BindingReferences = Sequence.GetBindingReferences();
 		return BindingReferences
-			&& Algo::AnyOf(
-				BindingReferences->GetReferences(BindingGuid),
+			&& Algo::AnyOf(BindingReferences->GetReferences(BindingGuid),
 				[](const FMovieSceneBindingReference& BindingReference)
 				{
 					return BindingReference.CustomBinding
@@ -242,11 +234,10 @@ namespace
 				});
 	}
 
-	TOptional<FGuid> ResolveComposableCameraActorBindingFromRuntimeObjects(
-		ISequencer& Sequencer,
+	TOptional<FGuid> ResolveComposableCameraActorBindingFromRuntimeObjects(ISequencer& Sequencer,
 		const FMovieSceneObjectBindingID& CameraBindingID)
 	{
-		for (TWeakObjectPtr<> WeakObject : CameraBindingID.ResolveBoundObjects(Sequencer.GetFocusedTemplateID(), Sequencer))
+		for (TWeakObjectPtr<> WeakObject: CameraBindingID.ResolveBoundObjects(Sequencer.GetFocusedTemplateID(), Sequencer))
 		{
 			UObject* Object = WeakObject.Get();
 			AComposableCameraLevelSequenceActor* Actor = Cast<AComposableCameraLevelSequenceActor>(Object);
@@ -273,8 +264,7 @@ namespace
 		return {};
 	}
 
-	TOptional<FGuid> ResolveComposableCameraSpawnableBinding(
-		ISequencer& Sequencer,
+	TOptional<FGuid> ResolveComposableCameraSpawnableBinding(ISequencer& Sequencer,
 		const UMovieSceneSequence& Sequence,
 		UMovieScene& MovieScene,
 		const FMovieSceneObjectBindingID& CameraBindingID,
@@ -319,8 +309,7 @@ namespace
 		return {};
 	}
 
-	void AddInterval(
-		TMap<FGuid, TArray<FSpawnInterval>>& IntervalsByBinding,
+	void AddInterval(TMap<FGuid, TArray<FSpawnInterval>>& IntervalsByBinding,
 		const FGuid& BindingGuid,
 		const FFrameNumber Start,
 		const FFrameNumber End)
@@ -335,11 +324,11 @@ namespace
 	{
 		Intervals.Sort([](const FSpawnInterval& A, const FSpawnInterval& B)
 		{
-			return A.Start == B.Start ? A.End < B.End : A.Start < B.Start;
+			return A.Start == B.Start ? A.End < B.End: A.Start < B.Start;
 		});
 
 		TArray<FSpawnInterval> Merged;
-		for (const FSpawnInterval& Interval : Intervals)
+		for (const FSpawnInterval& Interval: Intervals)
 		{
 			if (Merged.IsEmpty() || Interval.Start > Merged.Last().End)
 			{
@@ -356,8 +345,7 @@ namespace
 		Intervals = MoveTemp(Merged);
 	}
 
-	bool GatherCameraCutIntervals(
-		ISequencer& Sequencer,
+	bool GatherCameraCutIntervals(ISequencer& Sequencer,
 		const UMovieSceneSequence& Sequence,
 		UMovieScene& MovieScene,
 		TMap<FGuid, TArray<FSpawnInterval>>& OutIntervalsByBinding,
@@ -377,7 +365,7 @@ namespace
 			return true;
 		}
 
-		for (UMovieSceneSection* RawSection : CameraCutTrack->GetAllSections())
+		for (UMovieSceneSection* RawSection: CameraCutTrack->GetAllSections())
 		{
 			UMovieSceneCameraCutSection* CameraCutSection = Cast<UMovieSceneCameraCutSection>(RawSection);
 			if (!CameraCutSection || !CameraCutSection->IsActive())
@@ -395,8 +383,7 @@ namespace
 			}
 
 			const TOptional<FGuid> ActorBindingGuid =
-				ResolveComposableCameraSpawnableBinding(
-					Sequencer,
+				ResolveComposableCameraSpawnableBinding(Sequencer,
 					Sequence,
 					MovieScene,
 					CameraBindingID,
@@ -419,7 +406,7 @@ namespace
 			AddInterval(OutIntervalsByBinding, ActorBindingGuid.GetValue(), CutStart, CutEnd);
 		}
 
-		for (TPair<FGuid, TArray<FSpawnInterval>>& Pair : OutIntervalsByBinding)
+		for (TPair<FGuid, TArray<FSpawnInterval>>& Pair: OutIntervalsByBinding)
 		{
 			MergeIntervals(Pair.Value);
 		}
@@ -442,8 +429,7 @@ namespace
 		return NewTrack;
 	}
 
-	bool WriteSpawnTrackForIntervals(
-		UMovieScene& MovieScene,
+	bool WriteSpawnTrackForIntervals(UMovieScene& MovieScene,
 		const FGuid& BindingGuid,
 		const TArray<FSpawnInterval>& Intervals,
 		const FFrameNumber PlaybackStart,
@@ -490,7 +476,7 @@ namespace
 			AddKey(PlaybackStart, false);
 		}
 
-		for (const FSpawnInterval& Interval : Intervals)
+		for (const FSpawnInterval& Interval: Intervals)
 		{
 			AddKey(Interval.Start, true);
 			AddKey(Interval.End, false);
@@ -505,8 +491,7 @@ namespace
 		return true;
 	}
 
-	bool KeySpawnTracksFromCameraCutsInternal(
-		ISequencer& Sequencer,
+	bool KeySpawnTracksFromCameraCutsInternal(ISequencer& Sequencer,
 		UMovieSceneSequence& Sequence,
 		UMovieScene& MovieScene)
 	{
@@ -514,8 +499,7 @@ namespace
 		{
 			UE_LOG(LogComposableCameraSystemEditor, Warning,
 				TEXT("Key Spawn Tracks From Camera Cuts failed: Sequencer does not allow edits."));
-			NotifySpawnTrackResult(
-				LOCTEXT("SpawnTrackReadOnly", "Sequencer does not allow edits."),
+			NotifySpawnTrackResult(LOCTEXT("SpawnTrackReadOnly", "Sequencer does not allow edits."),
 				SNotificationItem::CS_Fail);
 			return false;
 		}
@@ -528,8 +512,7 @@ namespace
 		{
 			UE_LOG(LogComposableCameraSystemEditor, Warning,
 				TEXT("Key Spawn Tracks From Camera Cuts failed: playback range is invalid."));
-			NotifySpawnTrackResult(
-				LOCTEXT("SpawnTrackInvalidPlaybackRange", "Focused sequence playback range is invalid."),
+			NotifySpawnTrackResult(LOCTEXT("SpawnTrackInvalidPlaybackRange", "Focused sequence playback range is invalid."),
 				SNotificationItem::CS_Fail);
 			return false;
 		}
@@ -545,23 +528,20 @@ namespace
 				Stats.SkippedNonSpawnable,
 				Stats.SkippedOutsideFocusedSequence,
 				Stats.SkippedInvalidRange);
-			NotifySpawnTrackResult(
-				LOCTEXT("SpawnTrackNoCuts", "No spawnable CCS CameraCut bindings found."),
+			NotifySpawnTrackResult(LOCTEXT("SpawnTrackNoCuts", "No spawnable CCS CameraCut bindings found."),
 				SNotificationItem::CS_Fail);
 			return false;
 		}
 
-		FScopedTransaction Transaction(
-			LOCTEXT("KeySpawnTracksFromCameraCutsTransaction", "Key Spawn Tracks From Camera Cuts"));
+		FScopedTransaction Transaction(LOCTEXT("KeySpawnTracksFromCameraCutsTransaction", "Key Spawn Tracks From Camera Cuts"));
 		Sequence.Modify();
 		MovieScene.Modify();
 
 		int32 KeyedTrackCount = 0;
 		int32 KeyCount = 0;
-		for (const TPair<FGuid, TArray<FSpawnInterval>>& Pair : IntervalsByBinding)
+		for (const TPair<FGuid, TArray<FSpawnInterval>>& Pair: IntervalsByBinding)
 		{
-			if (WriteSpawnTrackForIntervals(
-				MovieScene,
+			if (WriteSpawnTrackForIntervals(MovieScene,
 				Pair.Key,
 				Pair.Value,
 				PlaybackStart,
@@ -577,8 +557,7 @@ namespace
 			Transaction.Cancel();
 			UE_LOG(LogComposableCameraSystemEditor, Warning,
 				TEXT("Key Spawn Tracks From Camera Cuts failed: no Spawn Tracks were keyed."));
-			NotifySpawnTrackResult(
-				LOCTEXT("SpawnTrackNoTracksKeyed", "No Spawn Tracks were keyed."),
+			NotifySpawnTrackResult(LOCTEXT("SpawnTrackNoTracksKeyed", "No Spawn Tracks were keyed."),
 				SNotificationItem::CS_Fail);
 			return false;
 		}
@@ -596,9 +575,7 @@ namespace
 			Stats.SkippedNonSpawnable,
 			Stats.SkippedOutsideFocusedSequence,
 			Stats.SkippedInvalidRange);
-		NotifySpawnTrackResult(
-			FText::Format(
-				LOCTEXT("SpawnTrackKeySucceeded", "Keyed {0} CCS Spawn Track(s)."),
+		NotifySpawnTrackResult(FText::Format(LOCTEXT("SpawnTrackKeySucceeded", "Keyed {0} CCS Spawn Track(s)."),
 				FText::AsNumber(KeyedTrackCount)),
 			SNotificationItem::CS_Success);
 		return true;
@@ -610,15 +587,13 @@ void FComposableCameraLevelSequenceSpawnTrackTool::Register()
 	FComposableCameraLevelSequenceSpawnTrackCommands::Register();
 
 	FLevelEditorModule& LevelEditorModule = FModuleManager::LoadModuleChecked<FLevelEditorModule>("LevelEditor");
-	LevelEditorModule.GetGlobalLevelEditorActions()->MapAction(
-		FComposableCameraLevelSequenceSpawnTrackCommands::Get().KeySpawnTracksFromCameraCuts,
+	LevelEditorModule.GetGlobalLevelEditorActions()->MapAction(FComposableCameraLevelSequenceSpawnTrackCommands::Get().KeySpawnTracksFromCameraCuts,
 		FExecuteAction::CreateStatic(&ExecuteKeySpawnTracksFromCameraCuts),
 		FCanExecuteAction::CreateStatic(&FComposableCameraLevelSequenceSpawnTrackTool::CanKeySpawnTracksFromCameraCuts));
 
 	if (UToolMenus::IsToolMenuUIEnabled())
 	{
-		StartupCallbackHandle = UToolMenus::RegisterStartupCallback(
-			FSimpleMulticastDelegate::FDelegate::CreateStatic(&FComposableCameraLevelSequenceSpawnTrackTool::RegisterMenus));
+		StartupCallbackHandle = UToolMenus::RegisterStartupCallback(FSimpleMulticastDelegate::FDelegate::CreateStatic(&FComposableCameraLevelSequenceSpawnTrackTool::RegisterMenus));
 	}
 }
 
@@ -637,8 +612,7 @@ void FComposableCameraLevelSequenceSpawnTrackTool::Unregister()
 	if (FModuleManager::Get().IsModuleLoaded("LevelEditor"))
 	{
 		FLevelEditorModule& LevelEditorModule = FModuleManager::GetModuleChecked<FLevelEditorModule>("LevelEditor");
-		LevelEditorModule.GetGlobalLevelEditorActions()->UnmapAction(
-			FComposableCameraLevelSequenceSpawnTrackCommands::Get().KeySpawnTracksFromCameraCuts);
+		LevelEditorModule.GetGlobalLevelEditorActions()->UnmapAction(FComposableCameraLevelSequenceSpawnTrackCommands::Get().KeySpawnTracksFromCameraCuts);
 	}
 
 	FComposableCameraLevelSequenceSpawnTrackCommands::Unregister();
@@ -660,8 +634,7 @@ bool FComposableCameraLevelSequenceSpawnTrackTool::KeySpawnTracksFromCameraCuts(
 	{
 		UE_LOG(LogComposableCameraSystemEditor, Warning,
 			TEXT("Key Spawn Tracks From Camera Cuts failed: no open focused Sequencer."));
-		NotifySpawnTrackResult(
-			LOCTEXT("SpawnTrackNoSequencer", "Open a Level Sequence in Sequencer first."),
+		NotifySpawnTrackResult(LOCTEXT("SpawnTrackNoSequencer", "Open a Level Sequence in Sequencer first."),
 			SNotificationItem::CS_Fail);
 		return false;
 	}
@@ -681,8 +654,7 @@ void FComposableCameraLevelSequenceSpawnTrackTool::RegisterMenus()
 
 	FToolMenuSection& Section = Menu->FindOrAddSection("ComposableCameraSystem");
 	Section.Label = LOCTEXT("ComposableCameraSystemSection", "Composable Camera System");
-	Section.AddEntry(FToolMenuEntry::InitMenuEntryWithCommandList(
-		FComposableCameraLevelSequenceSpawnTrackCommands::Get().KeySpawnTracksFromCameraCuts,
+	Section.AddEntry(FToolMenuEntry::InitMenuEntryWithCommandList(FComposableCameraLevelSequenceSpawnTrackCommands::Get().KeySpawnTracksFromCameraCuts,
 		LevelEditorModule.GetGlobalLevelEditorActions(),
 		TAttribute<FText>(),
 		TAttribute<FText>(),

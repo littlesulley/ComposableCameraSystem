@@ -1,4 +1,4 @@
-// Copyright Sulley. All rights reserved.
+﻿// Copyright Sulley. All rights reserved.
 
 #pragma once
 
@@ -20,7 +20,7 @@ struct FComposableCameraLogEntry
 	FName CategoryName;
 
 	/** Verbosity level (Warning / Error / Fatal). Filtered at capture
-	 *  time — Log / Display / Verbose / VeryVerbose never enter the ring
+	 *  time -Log / Display / Verbose / VeryVerbose never enter the ring
 	 *  buffer so the panel doesn't drown in trivia. */
 	ELogVerbosity::Type Verbosity = ELogVerbosity::NoLogging;
 
@@ -60,14 +60,14 @@ struct FComposableCameraLogEntry
  * cleanly. Capacity is small (16) so the critical section is never
  * held long enough to matter.
  *
- * Compiled out in shipping builds — both Install/Uninstall and the
+ * Compiled out in shipping builds. Both Install/Uninstall and the
  * accessor are `#if !UE_BUILD_SHIPPING`, so shipping games pay zero
  * cost (no output device registered, no ring buffer memory, no lock).
  */
 class COMPOSABLECAMERASYSTEM_API FComposableCameraLogCapture : public FOutputDevice
 {
 public:
-	/** Register with `GLog`. Idempotent — calling twice is a no-op. */
+	/** Register with `GLog`. Idempotent. Calling twice is a no-op. */
 	static void Install();
 
 	/** Unregister from `GLog` and clear the ring buffer. Idempotent. */
@@ -75,7 +75,7 @@ public:
 
 	/** Copy the current ring-buffer contents into `OutEntries`, oldest
 	 *  first. Safe to call from any thread; blocks briefly on the
-	 *  ring-buffer critical section but never for more than a few μs. */
+	 *  ring-buffer critical section but never for more than a few s. */
 	static void GetRecentEntries(TArray<FComposableCameraLogEntry>& OutEntries);
 
 	/** Max entries the ring buffer keeps. Older entries overflow off the
@@ -89,7 +89,7 @@ public:
 
 private:
 #if !UE_BUILD_SHIPPING
-	/** Returns the shared singleton instance — keyed off static local so
+	/** Returns the shared singleton instance. Keyed off static local so
 	 *  the first call installs and lifetime ends with module shutdown.
 	 *  Not exposed publicly: everything users want goes through the
 	 *  static Install / Uninstall / GetRecentEntries surface above. */

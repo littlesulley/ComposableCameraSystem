@@ -1,4 +1,4 @@
-﻿// Copyright Sulley. All rights reserved.
+// Copyright Sulley. All rights reserved.
 
 #include "Nodes/ComposableCameraRotationConstraints.h"
 
@@ -24,7 +24,7 @@ void UComposableCameraRotationConstraints::OnTickNode_Implementation(float Delta
 			break;
 		case EComposableCameraRotationConstrainType::ActorSpace:
 			if (AActor* EffectiveYawActor = ComposableCameraSystem::ResolveActorInput(
-				ActorForYawConstrainSource, ActorForYawConstrain.Get(), GetOwningPlayerCameraManager());
+				ActorForYawConstrainSource, ActorForYawConstrain.Get(), GetOwningPlayerCameraManager(), this);
 				IsValid(EffectiveYawActor))
 			{
 				WorldPivotYaw = EffectiveYawActor->GetActorRotation().Yaw;
@@ -56,7 +56,7 @@ void UComposableCameraRotationConstraints::OnTickNode_Implementation(float Delta
 			break;
 		case EComposableCameraRotationConstrainType::ActorSpace:
 			if (AActor* EffectivePitchActor = ComposableCameraSystem::ResolveActorInput(
-				ActorForPitchConstrainSource, ActorForPitchConstrain.Get(), GetOwningPlayerCameraManager());
+				ActorForPitchConstrainSource, ActorForPitchConstrain.Get(), GetOwningPlayerCameraManager(), this);
 				IsValid(EffectivePitchActor))
 			{
 				WorldPivotPitch = EffectivePitchActor->GetActorRotation().Pitch;
@@ -113,7 +113,7 @@ void UComposableCameraRotationConstraints::GetPinDeclarations_Implementation(TAr
 	PinDecl.bDefaultAsPin = false;
 	PinDecl.DefaultValueString = PinDecl.EnumType ? PinDecl.EnumType->GetNameStringByValue(static_cast<int64>(ConstrainYawType)) : FString();
 	PinDecl.Tooltip = NSLOCTEXT("ComposableCameraRotationConstraints", "ConstrainYawTypeTip",
-		"Selects the reference frame for the yaw constraint — WorldSpace, ActorSpace, or VectorSpace.");
+		"Selects the reference frame for the yaw constraint - WorldSpace, ActorSpace, or VectorSpace.");
 	OutPins.Add(PinDecl);
 
 	// YawRange Input
@@ -188,7 +188,7 @@ void UComposableCameraRotationConstraints::GetPinDeclarations_Implementation(TAr
 	PinDecl.bDefaultAsPin = false;
 	PinDecl.DefaultValueString = PinDecl.EnumType ? PinDecl.EnumType->GetNameStringByValue(static_cast<int64>(ConstrainPitchType)) : FString();
 	PinDecl.Tooltip = NSLOCTEXT("ComposableCameraRotationConstraints", "ConstrainPitchTypeTip",
-		"Selects the reference frame for the pitch constraint — WorldSpace, ActorSpace, or VectorSpace.");
+		"Selects the reference frame for the pitch constraint - WorldSpace, ActorSpace, or VectorSpace.");
 	OutPins.Add(PinDecl);
 
 	// PitchRange Input

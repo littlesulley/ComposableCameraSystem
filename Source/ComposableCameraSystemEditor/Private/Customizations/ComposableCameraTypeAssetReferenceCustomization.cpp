@@ -71,11 +71,11 @@ namespace
 			}
 		};
 
-		for (const UComposableCameraCameraNodeBase* Node : TypeAsset->NodeTemplates)
+		for (const UComposableCameraCameraNodeBase* Node: TypeAsset->NodeTemplates)
 		{
 			Inspect(Node);
 		}
-		for (const UComposableCameraComputeNodeBase* Node : TypeAsset->ComputeNodeTemplates)
+		for (const UComposableCameraComputeNodeBase* Node: TypeAsset->ComputeNodeTemplates)
 		{
 			Inspect(Node);
 		}
@@ -87,15 +87,14 @@ namespace
 	 * multi-select (Details panel on N selected actors) cleanly by unioning
 	 * compute-only counts and PCM class lists across all instances.
 	 */
-	void GatherCompatibilityIssuesFromHandle(
-		TSharedRef<IPropertyHandle> PropertyHandle,
+	void GatherCompatibilityIssuesFromHandle(TSharedRef<IPropertyHandle> PropertyHandle,
 		FCompatibilityIssues& OutIssues)
 	{
 		TArray<void*> RawDataArray;
 		PropertyHandle->AccessRawData(RawDataArray);
 
 		TSet<FString> SeenPCMClasses;
-		for (void* RawPtr : RawDataArray)
+		for (void* RawPtr: RawDataArray)
 		{
 			if (!RawPtr)
 			{
@@ -108,7 +107,7 @@ namespace
 			GatherCompatibilityIssues(Ref.TypeAsset, PerInstance);
 
 			OutIssues.ComputeOnlyCount += PerInstance.ComputeOnlyCount;
-			for (const FString& ClassName : PerInstance.RequiresPCMClassNames)
+			for (const FString& ClassName: PerInstance.RequiresPCMClassNames)
 			{
 				bool bAlreadyIn = false;
 				SeenPCMClasses.Add(ClassName, &bAlreadyIn);
@@ -121,7 +120,7 @@ namespace
 	}
 }
 
-// ─── Static Registration ───────────────────────────────────────────────
+// Static Registration 
 
 TSharedRef<IPropertyTypeCustomization> FComposableCameraTypeAssetReferenceCustomization::MakeInstance()
 {
@@ -130,8 +129,7 @@ TSharedRef<IPropertyTypeCustomization> FComposableCameraTypeAssetReferenceCustom
 
 void FComposableCameraTypeAssetReferenceCustomization::Register(FPropertyEditorModule& PropertyEditorModule)
 {
-	PropertyEditorModule.RegisterCustomPropertyTypeLayout(
-		FComposableCameraTypeAssetReference::StaticStruct()->GetFName(),
+	PropertyEditorModule.RegisterCustomPropertyTypeLayout(FComposableCameraTypeAssetReference::StaticStruct()->GetFName(),
 		FOnGetPropertyTypeCustomizationInstance::CreateStatic(
 			&FComposableCameraTypeAssetReferenceCustomization::MakeInstance));
 }
@@ -140,32 +138,26 @@ void FComposableCameraTypeAssetReferenceCustomization::Unregister(FPropertyEdito
 {
 	if (UObjectInitialized())
 	{
-		PropertyEditorModule.UnregisterCustomPropertyTypeLayout(
-			FComposableCameraTypeAssetReference::StaticStruct()->GetFName());
+		PropertyEditorModule.UnregisterCustomPropertyTypeLayout(FComposableCameraTypeAssetReference::StaticStruct()->GetFName());
 	}
 }
 
-// ─── Header ────────────────────────────────────────────────────────────
+// Header 
 
-void FComposableCameraTypeAssetReferenceCustomization::CustomizeHeader(
-	TSharedRef<IPropertyHandle> PropertyHandle,
+void FComposableCameraTypeAssetReferenceCustomization::CustomizeHeader(TSharedRef<IPropertyHandle> PropertyHandle,
 	FDetailWidgetRow& HeaderRow,
 	IPropertyTypeCustomizationUtils& Utils)
 {
-	HeaderRow
-	.NameContent()
-	[
-		PropertyHandle->CreatePropertyNameWidget()
-	];
-	// No custom value widget — the struct opens into CustomizeChildren below
+	HeaderRow.NameContent()
+	[PropertyHandle->CreatePropertyNameWidget()];
+	// No custom value widget - the struct opens into CustomizeChildren below
 	// like any normal struct. The warning lives among the children, not in
 	// the collapsed header.
 }
 
-// ─── Children ──────────────────────────────────────────────────────────
+// Children 
 
-void FComposableCameraTypeAssetReferenceCustomization::CustomizeChildren(
-	TSharedRef<IPropertyHandle> PropertyHandle,
+void FComposableCameraTypeAssetReferenceCustomization::CustomizeChildren(TSharedRef<IPropertyHandle> PropertyHandle,
 	IDetailChildrenBuilder& ChildBuilder,
 	IPropertyTypeCustomizationUtils& Utils)
 {
@@ -177,9 +169,9 @@ void FComposableCameraTypeAssetReferenceCustomization::CustomizeChildren(
 	// Emit the warning banner as the first child row when anything flagged.
 	//
 	// We feed SWarningOrErrorBox's built-in Message slot rather than rolling
-	// a custom Content layout — the built-in path uses SRichTextBlock with
+	// a custom Content layout - the built-in path uses SRichTextBlock with
 	// AutoWrapText driven by the widget's own width, which is what actually
-	// wraps to the Details column. A hand-rolled SVerticalBox inside .Content()
+	// wraps to the Details column. A hand-rolled SVerticalBox inside.Content()
 	// bypasses that width constraint and lets text run off the edge.
 	if (Issues.HasAny())
 	{
@@ -187,9 +179,8 @@ void FComposableCameraTypeAssetReferenceCustomization::CustomizeChildren(
 
 		if (Issues.ComputeOnlyCount > 0)
 		{
-			Msg.Appendf(
-				TEXT("This TypeAsset contains %d Compute node(s). Compute nodes are not evaluated in ")
-				TEXT("Level Sequence playback — the component skips the BeginPlay compute chain entirely. ")
+			Msg.Appendf(TEXT("This TypeAsset contains %d Compute node(s). Compute nodes are not evaluated in ")
+				TEXT("Level Sequence playback - the component skips the BeginPlay compute chain entirely. ")
 				TEXT("Any value the compute chain would publish must instead be re-sourced as an exposed ")
 				TEXT("parameter for LS-driven cameras."),
 				Issues.ComputeOnlyCount);
@@ -202,24 +193,21 @@ void FComposableCameraTypeAssetReferenceCustomization::CustomizeChildren(
 				Msg.Append(TEXT("\n\n"));
 			}
 			Msg.Append(TEXT("This TypeAsset contains node(s) that require a PlayerCameraManager:"));
-			for (const FString& ClassName : Issues.RequiresPCMClassNames)
+			for (const FString& ClassName: Issues.RequiresPCMClassNames)
 			{
-				Msg.Appendf(TEXT("\n    • %s"), *ClassName);
+				Msg.Appendf(TEXT("\n %s"), *ClassName);
 			}
-			Msg.Append(
-				TEXT("\nThese nodes are no-ops in Level Sequence evaluation (the component drives the ")
+			Msg.Append(TEXT("\nThese nodes are no-ops in Level Sequence evaluation (the component drives the ")
 				TEXT("camera without a PlayerCameraManager). Consider using LS-compatible alternatives, ")
 				TEXT("or reserve this TypeAsset for the PCM activation path only."));
 		}
 
 		ChildBuilder.AddCustomRow(LOCTEXT("CompatibilityWarningsFilter", "Level Sequence Compatibility"))
 		.WholeRowContent()
-		[
-			SNew(SWarningOrErrorBox)
+		[SNew(SWarningOrErrorBox)
 			.MessageStyle(EMessageStyle::Warning)
 			.AutoWrapText(true)
-			.Message(FText::FromString(FString(Msg.ToView())))
-		];
+			.Message(FText::FromString(FString(Msg.ToView())))];
 	}
 
 	// Default child rows: TypeAsset, Parameters, Variables. Without this loop

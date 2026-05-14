@@ -8,7 +8,7 @@
 /**
  * Editor style.
  */
-struct FComposableCameraEditorStyle final : public FSlateStyleSet
+struct FComposableCameraEditorStyle final: public FSlateStyleSet
 {
 public:
 	FComposableCameraEditorStyle();
@@ -35,69 +35,69 @@ private:
  */
 struct FComposableCameraEditorColors
 {
-	// ─── Pin type colors (match schema `GetPinTypeColor`) ─────────────────
+	// Pin type colors (match schema `GetPinTypeColor`) 
 
-	/** Execution pins — same visual as Blueprint exec. */
+	/** Execution pins - same visual as Blueprint exec. */
 	static const FLinearColor PinExec;
 
-	/** Boolean pins — Blueprint red. */
+	/** Boolean pins - Blueprint red. */
 	static const FLinearColor PinBool;
 
-	/** Integer pins — teal. */
+	/** Integer pins - teal. */
 	static const FLinearColor PinInt;
 
-	/** Float / double pins — green. */
+	/** Float / double pins - green. */
 	static const FLinearColor PinFloat;
 
-	/** Vector-family pins (FVector / FVector2D / FVector4) — gold. */
+	/** Vector-family pins (FVector / FVector2D / FVector4) - gold. */
 	static const FLinearColor PinVector;
 
-	/** Rotator pins — blue-purple. */
+	/** Rotator pins - blue-purple. */
 	static const FLinearColor PinRotator;
 
-	/** Transform pins — orange. */
+	/** Transform pins - orange. */
 	static const FLinearColor PinTransform;
 
 	/** Generic struct pins (anything that is not one of the math types above)
-	 *  — saturated blue, distinct from the object pin's slightly darker blue. */
+	 * - saturated blue, distinct from the object pin's slightly darker blue. */
 	static const FLinearColor PinStructGeneric;
 
-	/** UObject / Actor pins — blue, slightly darker than `PinStructGeneric`. */
+	/** UObject / Actor pins - blue, slightly darker than `PinStructGeneric`. */
 	static const FLinearColor PinObject;
 
-	/** FName pins — pink (#FFC0CB), per EditorDesignDoc spec. */
+	/** FName pins - pink (#FFC0CB), per EditorDesignDoc spec. */
 	static const FLinearColor PinName;
 
-	/** Byte / enum pins — bright cyan (#00BFFF), per EditorDesignDoc spec. */
+	/** Byte / enum pins - bright cyan (#00BFFF), per EditorDesignDoc spec. */
 	static const FLinearColor PinByteEnum;
 
-	/** Delegate pins — saturated red (distinct from bool's darker 0.9 red). */
+	/** Delegate pins - saturated red (distinct from bool's darker 0.9 red). */
 	static const FLinearColor PinDelegate;
 
 	/** Fallback for any PinCategory the schema did not otherwise handle. */
 	static const FLinearColor PinDefault;
 
-	// ─── Node title colors (match per-node `GetNodeTitleColor` overrides) ──
+	// Node title colors (match per-node `GetNodeTitleColor` overrides) 
 
-	/** Regular camera nodes — teal, matching the Camera Type Asset color. */
+	/** Regular camera nodes - teal, matching the Camera Type Asset color. */
 	static const FLinearColor CameraNodeTitle;
 
-	/** Compute nodes — warm amber, visually grouped with the BeginPlay Start
-	 *  sentinel but slightly lighter. */
+	/** Compute nodes - warm amber, visually grouped with the BeginPlay Start
+	 * sentinel but slightly lighter. */
 	static const FLinearColor ComputeNodeTitle;
 
-	/** Variable Get / Set graph nodes — desaturated purple. */
+	/** Variable Get / Set graph nodes - desaturated purple. */
 	static const FLinearColor VariableNodeTitle;
 
-	/** Start sentinel — green. */
+	/** Start sentinel - green. */
 	static const FLinearColor StartNodeTitle;
 
-	/** Output sentinel — red. */
+	/** Output sentinel - red. */
 	static const FLinearColor OutputNodeTitle;
 
-	/** BeginPlay Start sentinel — amber, same family as `ComputeNodeTitle`
-	 *  but a shade darker so the sentinel reads as the "root" of the compute
-	 *  chain. */
+	/** BeginPlay Start sentinel - amber, same family as `ComputeNodeTitle`
+	 * but a shade darker so the sentinel reads as the "root" of the compute
+	 * chain. */
 	static const FLinearColor BeginPlayStartNodeTitle;
 };
 
@@ -121,11 +121,11 @@ struct FComposableCameraEditorPaddings
 	static constexpr float DialogTB = 16.f;
 
 	/** Tighter bottom inset for the first content block of a dialog (sits
-	 *  above a second block, so the gap between them reads as a single
-	 *  "between-rows" distance rather than a full dialog margin). */
+	 * above a second block, so the gap between them reads as a single
+	 * "between-rows" distance rather than a full dialog margin). */
 	static constexpr float DialogBetweenRowsTB = 12.f;
 
 	/** Horizontal inset between adjacent inline widgets (buttons in a row,
-	 *  labels beside a value editor, etc.). */
+	 * labels beside a value editor, etc.). */
 	static constexpr float InnerGap = 4.f;
 };

@@ -18,12 +18,12 @@ namespace UE::ComposableCameras
 	 * AComposableCameraPlayerCameraManager::OnTypeAssetCameraConstructed:
 	 *
 	 *   - Duplicates node templates into Camera->CameraNodes / Camera->ComputeNodes
-	 *     (nulling out orphans — nodes not referenced by any execution chain —
-	 *     to preserve index correspondence with TypeAsset->NodeTemplates while
+	 *     (nulling out orphans: nodes not referenced by any execution chain
+	 *     preserve index correspondence with TypeAsset->NodeTemplates while
 	 *     saving memory and init cost).
 	 *   - Allocates Camera->OwnedRuntimeDataBlock via TypeAsset->BuildRuntimeDataLayout.
 	 *   - Applies ParameterBlock via TypeAsset->ApplyParameterBlock (POD bytes)
-	 *     and TypeAsset->ApplyDelegateBindings (delegate UPROPERTYs — can't live
+	 *     and TypeAsset->ApplyDelegateBindings (delegate UPROPERTYs. Can't live
 	 *     in the POD data block).
 	 *   - Wires the data block to each node via SetRuntimeDataBlock(..., NodeIndex).
 	 *     Compute nodes use the offset index space
@@ -43,7 +43,7 @@ namespace UE::ComposableCameras
 	 * dynamic-delegate callback (a thin wrapper); the Level Sequence component
 	 * path will call this directly after spawning its internal camera with a null
 	 * PCM. Nodes on the camera see whatever CameraManager value was passed into
-	 * Camera->Initialize earlier (nullptr is valid — see
+	 * Camera->Initialize earlier (nullptr is valid. See
 	 * AComposableCameraCameraBase::Initialize and individual node
 	 * GetLevelSequenceCompatibility overrides).
 	 *

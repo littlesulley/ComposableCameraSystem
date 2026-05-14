@@ -85,7 +85,7 @@ void UAsyncPlayCutsceneSequence::Activate()
 	//    will fire SetViewTarget on the PCM, which creates a proxy camera and
 	//    activates it in this cutscene context via implicit activation.
 	//
-	//    For the inter-context transition (gameplay -> cutscene), we use
+	//    For the inter-context transition (gameplay->cutscene), we use
 	//    ActivateNewCamera with a dummy camera that will be immediately replaced
 	//    by the first LS camera's SetViewTarget call. The inter-context transition
 	//    is between the gameplay context and the cutscene context.
@@ -143,8 +143,8 @@ void UAsyncPlayCutsceneSequence::Activate()
 
 	// Bind the finish delegate for sequences that will end (non-infinite-loop).
 	// When the LS finishes:
-	//   - bPauseAtEnd=false → pop context, clean up, broadcast OnFinished.
-	//   - bPauseAtEnd=true  → broadcast OnFinished but keep the cutscene context
+	//   - bPauseAtEnd=false ->pop context, clean up, broadcast OnFinished.
+	//   - bPauseAtEnd=true  ->broadcast OnFinished but keep the cutscene context
 	//     alive so the camera holds the final pose. The caller must eventually
 	//     call StopCutsceneSequence() to tear down.
 	if (CachedPlaybackSettings.LoopCount.Value != -1)

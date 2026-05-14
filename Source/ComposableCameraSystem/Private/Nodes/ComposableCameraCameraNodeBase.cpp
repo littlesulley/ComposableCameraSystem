@@ -14,7 +14,7 @@ namespace
 	 * before writing it through `SetObjectPropertyValue`. The auto-resolve
 	 * pipeline collapses every object-class pin into the generic Object /
 	 * Actor `EComposableCameraPinType` for storage, so the runtime data
-	 * block has no record of the original PropertyClass — a stale asset,
+	 * block has no record of the original PropertyClass. A stale asset,
 	 * a hand-edited connection, or a BP wildcard mismatch could deliver,
 	 * say, a `UCurveVector` to a `TObjectPtr<UCurveFloat>` field. The raw
 	 * `SetObjectPropertyValue` writes any UObject*-shaped pointer into
@@ -62,7 +62,7 @@ namespace
 				// soft-object base). `IsA` walks the runtime class chain;
 				// fails for sibling types or unrelated UObjects. Writing
 				// the wrong-class instance through SetObjectPropertyValue
-				// would corrupt the field — its consumers cast back to
+				// would corrupt the field. Its consumers cast back to
 				// the typed pointer and dereference.
 				UE_LOG(LogComposableCameraSystem, Warning,
 					TEXT("ResolveAllInputPins: %s pin '%s' got a '%s' but field expects '%s'. Writing nullptr."),
@@ -85,7 +85,7 @@ namespace ComposableCameraSystem::Private
 	 * Module-local cache of per-UClass pin binding tables.
 	 *
 	 * Built lazily in UComposableCameraCameraNodeBase::GetOrBuildPinBindings and
-	 * reused by every instance of that class. Keyed by UClass* — entries become
+	 * reused by every instance of that class. Keyed by UClass*. Entries become
 	 * unreachable (but not crash-inducing) if a Blueprint class is recompiled;
 	 * TSharedRef keeps payloads alive even if the key is replaced by REINST_.
 	 *
@@ -103,7 +103,7 @@ namespace ComposableCameraSystem::Private
 	 *
 	 * Supports both `FEnumProperty` (C++ `enum class`, whose underlying numeric
 	 * property tells us the real width) and `FByteProperty` (legacy TEnumAsByte,
-	 * always uint8). Silently no-ops on unknown property kinds — the binding
+	 * always uint8). Silently no-ops on unknown property kinds. The binding
 	 * builder already rejects anything else.
 	 */
 	inline void WriteEnumInt64ToProperty(const FProperty* Property, void* ValuePtr, int64 Value)
@@ -144,7 +144,7 @@ void UComposableCameraCameraNodeBase::Initialize(AComposableCameraCameraBase* In
 	AutoApplySubobjectPinValues();
 
 	// Resolve exposed/wired/overridden pin values into matching UPROPERTYs so
-	// that OnInitialize implementations can read members directly — same as
+	// that OnInitialize implementations can read members directly. Same as
 	// the TickNode prologue does before OnTickNode.
 	ResolveAllInputPins();
 
@@ -174,7 +174,7 @@ void UComposableCameraCameraNodeBase::TickNode(float DeltaTime, const FComposabl
 	}
 
 	// OnFirstTickNode fires exactly once per activation, after pins are resolved
-	// but before the main tick — the correct place to seed state from live pin values.
+	// but before the main tick. The correct place to seed state from live pin values.
 	if (!bHasHadFirstTick)
 	{
 		bHasHadFirstTick = true;
@@ -204,7 +204,7 @@ void UComposableCameraCameraNodeBase::OnPostTick(float DeltaTime, const FComposa
 	// Intentionally empty. Override in C++ subclasses if post-tick behavior is needed.
 }
 
-// ─── Pin Gathering ─────────────────────────────────────────────────────
+// --- Pin Gathering -----------------------------------------------------
 
 void UComposableCameraCameraNodeBase::GatherAllPinDeclarations(
 	TArray<FComposableCameraNodePinDeclaration>& OutPins) const
@@ -276,7 +276,7 @@ void UComposableCameraCameraNodeBase::AutoApplySubobjectPinValues()
 	}
 }
 
-// ─── Top-level Pin Auto-Resolution ──────────────────────────────────────
+// --- Top-level Pin Auto-Resolution --------------------------------------
 
 const FComposableCameraNodePinBindingTable& UComposableCameraCameraNodeBase::GetOrBuildPinBindings() const
 {
@@ -294,11 +294,11 @@ const FComposableCameraNodePinBindingTable& UComposableCameraCameraNodeBase::Get
 
 	// Build outside the lock first (GetPinDeclarations can run arbitrary native/BP
 	// logic), then insert under the lock. If two threads race to build the same
-	// class, we just discard the later table — the cached one is equally valid.
+	// class, we just discard the later table. The cached one is equally valid.
 	TSharedRef<FComposableCameraNodePinBindingTable> NewTable = MakeShared<FComposableCameraNodePinBindingTable>();
 
 	// 1. Gather pin declarations from the CDO. GetPinDeclarations is `const` and,
-	//    by convention, should only read class-default state — this is the same
+	//    by convention, should only read class-default state. This is the same
 	//    assumption the editor relies on when building node asset palettes.
 	const UComposableCameraCameraNodeBase* CDO = GetDefault<UComposableCameraCameraNodeBase>(Class);
 	if (!CDO)
@@ -312,7 +312,7 @@ const FComposableCameraNodePinBindingTable& UComposableCameraCameraNodeBase::Get
 	CDO->GetPinDeclarations(Pins);
 
 	// 2. Index UPROPERTYs on the class by FName for O(1) lookup. Only top-level
-	//    edit-visible properties that are NOT Instanced subobjects qualify —
+	//    edit-visible properties that are NOT Instanced subobjects qualify -
 	//    Instanced refs are handled by AutoApplySubobjectPinValues.
 	TMap<FName, const FProperty*> PropertiesByName;
 	PropertiesByName.Reserve(32);
@@ -330,8 +330,8 @@ const FComposableCameraNodePinBindingTable& UComposableCameraCameraNodeBase::Get
 		PropertiesByName.Add(Property->GetFName(), Property);
 	}
 
-	// 3. For every declared Input pin, look up the matching UPROPERTY and — if
-	//    the types align — record a binding. Silently skip pins that have no
+	// 3. For every declared Input pin, look up the matching UPROPERTY and. If
+	//    the types align. Record a binding. Silently skip pins that have no
 	//    backing UPROPERTY (those nodes fall back to GetInputPinValue<T>()).
 	for (const FComposableCameraNodePinDeclaration& Pin : Pins)
 	{
@@ -385,7 +385,7 @@ const FComposableCameraNodePinBindingTable& UComposableCameraCameraNodeBase::Get
 		// correct write + GC-token bookkeeping; see the matching dispatch
 		// in ResolveAllInputPins). Other primitive types (Bool / Int32 /
 		// Float / Vector / etc.) resolve via the templated TryResolveInputPin<T>
-		// path and write directly through static_cast — no FProperty needed.
+		// path and write directly through static_cast, no FProperty needed.
 		Binding.BackingProperty =
 			(MappedType == EComposableCameraPinType::Enum
 				|| MappedType == EComposableCameraPinType::Struct
@@ -478,7 +478,7 @@ void UComposableCameraCameraNodeBase::ResolveAllInputPins()
 				//
 				// AssignObjectPropertyChecked also verifies V satisfies the
 				// FObjectProperty's PropertyClass constraint before writing
-				// — auto-resolve storage is class-erased to "Actor / Object",
+				//. Auto-resolve storage is class-erased to "Actor / Object",
 				// so wrong-class deliveries (stale asset, BP wildcard) would
 				// otherwise corrupt the typed field.
 				AActor* V = nullptr;
@@ -557,7 +557,7 @@ void UComposableCameraCameraNodeBase::ResolveAllInputPins()
 						// existing allocator if capacity already fits, so the
 						// per-frame steady state is no-alloc for stable values.
 						// First-tick or grow events allocate once; documented
-						// in TechDoc.md §7.2 alloc characteristic.
+						// in TechDoc.md Section 7.2 alloc characteristic.
 						StructProp->Struct->CopyScriptStruct(ValuePtr, Slot->GetMemory());
 					}
 				}
@@ -575,7 +575,7 @@ void UComposableCameraCameraNodeBase::ResolveAllInputPins()
 			}
 			break;
 		case EComposableCameraPinType::Delegate:
-			// Delegates are not POD — they bypass the data block entirely and are
+			// Delegates are not POD. They bypass the data block entirely and are
 			// written directly into the node's UPROPERTY at activation time via
 			// ApplyDelegateBindings. Nothing to resolve per-frame here.
 			break;
@@ -583,7 +583,7 @@ void UComposableCameraCameraNodeBase::ResolveAllInputPins()
 	}
 }
 
-// ─── Subobject Pin Helpers ──────────────────────────────────────────────
+// --- Subobject Pin Helpers ----------------------------------------------
 
 void UComposableCameraCameraNodeBase::DeclareSubobjectPins(
 	FName SubobjectPropertyName,
@@ -726,7 +726,7 @@ void UComposableCameraCameraNodeBase::ApplySubobjectPinValues(
 				{
 					// Route through AssignObjectPropertyChecked for
 					// TObjectPtr-storage / GC-token correctness AND class
-					// constraint verification — see the matching comment in
+					// constraint verification. See the matching comment in
 					// the top-level ResolveAllInputPins switch above.
 					// Property is the iterator's current FProperty (we're
 					// walking subobject members) so the typed accessor is
@@ -783,7 +783,7 @@ void UComposableCameraCameraNodeBase::ApplySubobjectPinValues(
 
 				if (RuntimeDataBlock->IsStructSlotOffset(Offset))
 				{
-					// Try-form fails-skip on stale layout — see the
+					// Try-form fails-skip on stale layout. See the
 					// matching call site above for rationale.
 					if (const FInstancedStruct* Slot =
 						RuntimeDataBlock->TryGetStructSlot(Offset, StructProp->Struct))
@@ -804,7 +804,7 @@ void UComposableCameraCameraNodeBase::ApplySubobjectPinValues(
 			}
 			break;
 		case EComposableCameraPinType::Delegate:
-			// Delegates are not POD — they bypass the data block entirely and are
+			// Delegates are not POD. They bypass the data block entirely and are
 			// written directly into the node's UPROPERTY at activation time via
 			// ApplyDelegateBindings. Nothing to resolve per-frame here.
 			break;
@@ -812,7 +812,7 @@ void UComposableCameraCameraNodeBase::ApplySubobjectPinValues(
 	}
 }
 
-// ─── Blueprint-callable Pin Value Accessors ─────────────────────────────
+// --- Blueprint-callable Pin Value Accessors -----------------------------
 
 bool UComposableCameraCameraNodeBase::GetInputPinValueBool(FName PinName) const
 {
@@ -904,7 +904,7 @@ void UComposableCameraCameraNodeBase::SetOutputPinValueName(FName PinName, FName
 	SetOutputPinValue<FName>(PinName, Value);
 }
 
-// ─── Blueprint-callable Internal Variable Accessors ─────────────────────
+// --- Blueprint-callable Internal Variable Accessors ---------------------
 
 float UComposableCameraCameraNodeBase::GetInternalVariableFloat(FName VariableName) const
 {
@@ -936,7 +936,7 @@ void UComposableCameraCameraNodeBase::SetInternalVariableName(FName VariableName
 	SetInternalVariable<FName>(VariableName, Value);
 }
 
-// ─── Enum CustomThunk Helpers ──────────────────────────────────────────
+// --- Enum CustomThunk Helpers ------------------------------------------
 //
 // Shared plumbing for the four inline DECLARE_FUNCTION thunks in the header
 // (GetInputPinValueEnum / SetOutputPinValueEnum / GetInternalVariableEnum /

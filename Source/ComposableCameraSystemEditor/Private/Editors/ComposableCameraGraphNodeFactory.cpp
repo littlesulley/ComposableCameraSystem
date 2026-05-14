@@ -18,6 +18,6 @@ TSharedPtr<SGraphNode> FComposableCameraGraphNodeFactory::CreateNode(UEdGraphNod
 		return SNew(SComposableCameraVariableGraphNode, VarNode);
 	}
 
-	// Not our node type — fall through to the next factory in the chain.
+	// Not our node type - fall through to the next factory in the chain.
 	return nullptr;
 }

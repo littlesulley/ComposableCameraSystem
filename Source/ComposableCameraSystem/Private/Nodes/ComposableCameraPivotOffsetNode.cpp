@@ -15,7 +15,7 @@ namespace
 {
 	// Per-node opt-in toggle. The master `CCS.Debug.Viewport` CVar gates whether
 	// *any* viewport debug draws at all; this CVar then controls whether this
-	// specific node contributes its gizmo. Default off — users opt in per node.
+	// specific node contributes its gizmo. Default off. Users opt in per node.
 	static TAutoConsoleVariable<int32> CVarShowPivotOffsetGizmo(
 		TEXT("CCS.Debug.Viewport.PivotOffset"),
 		0,
@@ -29,7 +29,7 @@ void UComposableCameraPivotOffsetNode::OnInitialize_Implementation()
 {
 	Super::OnInitialize_Implementation();
 
-	// CurrentCameraPose at Initialize time is the outgoing camera's pose — the same
+	// CurrentCameraPose at Initialize time is the outgoing camera's pose. The same
 	// value AActor::BeginPlay used to pass into BeginPlayCamera. Read it from the PCM
 	// so nodes that previously depended on the BeginPlayNode parameter still work.
 	const FComposableCameraPose CurrentCameraPose = OwningPlayerCameraManager
@@ -43,7 +43,7 @@ void UComposableCameraPivotOffsetNode::OnInitialize_Implementation()
 void UComposableCameraPivotOffsetNode::OnTickNode_Implementation(float DeltaTime,
                                                                  const FComposableCameraPose& CurrentCameraPose, FComposableCameraPose& OutCameraPose)
 {
-	// PivotPosition and PivotOffset are pin-matched UPROPERTYs — already resolved
+	// PivotPosition and PivotOffset are pin-matched UPROPERTYs. Already resolved
 	// by the base TickNode prologue. Read them directly.
 	UpdatePivotOffset(PivotPosition, CurrentCameraPose);
 }
@@ -57,7 +57,7 @@ void UComposableCameraPivotOffsetNode::UpdatePivotOffset(const FVector& InPivot,
 	{
 	case ECameraPivotOffset::ActorLocalSpace:
 		if (AActor* EffectiveActorForLocalSpace = ComposableCameraSystem::ResolveActorInput(
-			ActorForLocalSpaceSource, ActorForLocalSpace.Get(), GetOwningPlayerCameraManager());
+			ActorForLocalSpaceSource, ActorForLocalSpace.Get(), GetOwningPlayerCameraManager(), this);
 			IsValid(EffectiveActorForLocalSpace))
 		{
 			Pivot += EffectiveActorForLocalSpace->GetActorForwardVector() * PivotOffset[0];
@@ -95,7 +95,7 @@ void UComposableCameraPivotOffsetNode::DrawNodeDebug(UWorld* World, bool /*bView
 	if (!World) { return; }
 	if (CVarShowPivotOffsetGizmo.GetValueOnGameThread() == 0
 		&& !FComposableCameraViewportDebug::ShouldShowAllNodeGizmos()) { return; }
-	// Pivot is out at the character / world target — never sits on top of
+	// Pivot is out at the character / world target. Never sits on top of
 	// the camera, so the occlusion gate doesn't apply here.
 	FComposableCameraViewportDebug::DrawSolidDebugSphere(
 		World, LastComputedPivot, /*Radius=*/10.f, FColor::Yellow,

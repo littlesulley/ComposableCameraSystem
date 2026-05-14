@@ -63,7 +63,7 @@ void UComposableCameraLevelSequenceComponent::OnRegister()
 	// Fallback CineCamera lookup for arbitrary-Actor hosts (BlueprintSpawnableComponent).
 	// AComposableCameraLevelSequenceActor pre-assigns OutputCineCameraComponent
 	// in its constructor; for other hosts, find the first CineCamera on the
-	// owning Actor. If none is found, projection is a no-op — the component
+	// owning Actor. If none is found, projection is a no-op. The component
 	// still evaluates, it just has no viewport terminal.
 	if (!OutputCineCameraComponent)
 	{
@@ -73,7 +73,7 @@ void UComposableCameraLevelSequenceComponent::OnRegister()
 		}
 	}
 
-	// Keep the bags in sync with the TypeAsset on first registration — handles
+	// Keep the bags in sync with the TypeAsset on first registration. Handles
 	// loading a saved component whose TypeAsset interface has changed since the
 	// last save (e.g. someone added a new ExposedParameter). MigrateToNewBagStruct
 	// preserves existing values for surviving names + types.
@@ -93,8 +93,8 @@ void UComposableCameraLevelSequenceComponent::OnUnregister()
 {
 	// Editor-world counterpart to EndPlay. Sequencer Spawnable actors live in
 	// the editor preview world (and in various transient worlds during asset
-	// save / cook). Those worlds never invoke BeginPlay → the actor's EndPlay
-	// is never called → our EndPlay override never runs → InternalCamera
+	// save / cook). Those worlds never invoke BeginPlay ->the actor's EndPlay
+	// is never called ->our EndPlay override never runs->InternalCamera
 	// leaks every time the Spawnable is destroyed and re-created. OnRegister /
 	// OnUnregister fire reliably in both the editor and PIE, so cleaning up
 	// here guarantees pairing.
@@ -124,7 +124,7 @@ void UComposableCameraLevelSequenceComponent::TickComponent(
 		return;
 	}
 
-	// Per-frame diagnostic — enable with `Log LogComposableCameraSystem Verbose`
+	// Per-frame diagnostic. Enable with `Log LogComposableCameraSystem Verbose`
 	// to see exactly which Spawnables are ticking each frame. Noisy at Verbose;
 	// default Log level filters this out.
 	UE_LOG(LogComposableCameraSystem, Verbose,
@@ -240,8 +240,8 @@ void UComposableCameraLevelSequenceComponent::EvaluateOnce(float DeltaTime)
 	// directly into the bag's backing FProperty each frame; our job is to
 	// propagate those writes into the camera's data block so node tick
 	// reads see the animated value. ApplyParameterBlock handles enum
-	// narrow-cast / struct copy / every pin type correctly — same path
-	// that's used at activation — so re-calling it each frame is safe and
+	// narrow-cast / struct copy / every pin type correctly. Same path
+	// that's used at activation. So re-calling it each frame is safe and
 	// idempotent for values that didn't change.
 	//
 	// Cost is O(number of exposed parameters) per frame, bounded by the
@@ -261,7 +261,7 @@ void UComposableCameraLevelSequenceComponent::EvaluateOnce(float DeltaTime)
 
 	// Phase E: apply Sequencer Shot override BEFORE TickCamera so the
 	// CompositionFramingNode's solver sees the new Shot data on the same
-	// frame. No-op when the override map is empty — CompositionFramingNode
+	// frame. No-op when the override map is empty -CompositionFramingNode
 	// keeps its last-written Shot.
 	if (SequencerShotOverrides.Num() > 0)
 	{
@@ -269,12 +269,12 @@ void UComposableCameraLevelSequenceComponent::EvaluateOnce(float DeltaTime)
 	}
 
 	// Note: DeltaTime in editor-world scrubbing is synthetic (Sequencer drives
-	// it) — history-dependent nodes may look off during scrub. Phase B accepts
-	// this; see TechDoc §7 gotcha for history-dependent nodes. PIE DeltaTime is
+	// it). History-dependent nodes may look off during scrub. Phase B accepts
+	// this; see TechDoc Section 7 gotcha for history-dependent nodes. PIE DeltaTime is
 	// real frame-to-frame time and nodes behave normally.
 	FComposableCameraPose Pose = InternalCamera->TickCamera(DeltaTime);
 
-	// Sequencer patch overlay pass — runs in all worlds (Editor preview AND
+	// Sequencer patch overlay pass. Runs in all worlds (Editor preview AND
 	// PIE / Game / Standalone). Patches added through the BP library
 	// `AddCameraPatch` go through a separate gameplay PCM/Director path; this
 	// LS Component path handles ONLY Sequencer-driven patches whose section
@@ -282,7 +282,7 @@ void UComposableCameraLevelSequenceComponent::EvaluateOnce(float DeltaTime)
 	// tick + BEFORE projection so patches see the LS Component's clean base
 	// pose as upstream and the CineCamera receives the final patched pose.
 	// This intentionally also writes FOV (CineCamera's optics are touched
-	// here) so DollyZoom-style patches preview correctly — the projection
+	// here) so DollyZoom-style patches preview correctly. The projection
 	// path proper still leaves optics alone for the non-overlay case.
 	//
 	// Spawn Tracks own LS Actor lifetime, so Sequencer patches are visible
@@ -329,7 +329,7 @@ void UComposableCameraLevelSequenceComponent::PostEditChangeProperty(FPropertyCh
 	// ApplyParameterBlock, which is O(exposed-parameter count) and cheap
 	// enough to pay once per frame. This also matches the Sequencer-driven
 	// path: when a property track writes to the bag's backing field, the
-	// same per-tick re-apply picks it up automatically — no special hook.
+	// same per-tick re-apply picks it up automatically. No special hook.
 }
 #endif
 
@@ -340,7 +340,7 @@ void UComposableCameraLevelSequenceComponent::SetEvaluationEnabled(bool bEnabled
 	if (bWasEnabled != bEnabled)
 	{
 		// Diagnostic: log local evaluation switches with the owning actor's name.
-		// Enable with `Log LogComposableCameraSystem Log` (default) — these
+		// Enable with `Log LogComposableCameraSystem Log` (default). These
 		// fire only on change, so they're low-noise.
 		UE_LOG(LogComposableCameraSystem, Log,
 			TEXT("LS evaluation [%s]: %s -> %s"),
@@ -386,13 +386,13 @@ void UComposableCameraLevelSequenceComponent::EnsureInternalCamera()
 	SpawnParams.Owner = GetOwner();
 	SpawnParams.ObjectFlags |= RF_Transient;
 	SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-	// No replication / input — this actor is a pure local evaluator.
+	// No replication / input. This actor is a pure local evaluator.
 	SpawnParams.bNoFail = true;
 
 	// Spawn at the owning Actor's transform. We're a UActorComponent (no
 	// transform of our own); use the Actor as the anchor. The exact spawn
-	// transform doesn't matter much — nodes typically overwrite the pose
-	// every tick via TickCamera — but starting near the Actor avoids the
+	// transform doesn't matter much. Nodes typically overwrite the pose
+	// every tick via TickCamera. But starting near the Actor avoids the
 	// camera being briefly visible at the world origin on the first frame.
 	const FTransform SpawnTransform = GetOwner() ? GetOwner()->GetActorTransform() : FTransform::Identity;
 	InternalCamera = World->SpawnActor<AComposableCameraCameraBase>(
@@ -409,7 +409,7 @@ void UComposableCameraLevelSequenceComponent::EnsureInternalCamera()
 		return;
 	}
 
-	// Note: SpawnActor above has already run AActor::BeginPlay → BeginPlayCamera
+	// Note: SpawnActor above has already run AActor::BeginPlay->BeginPlayCamera
 	// with empty CameraNodes / ComputeNodes, so the compute-chain walk was a
 	// harmless no-op. That is intentional: we skip the compute chain entirely
 	// in the LS path (compute nodes return GetLevelSequenceCompatibility() ==
@@ -424,7 +424,7 @@ void UComposableCameraLevelSequenceComponent::EnsureInternalCamera()
 	// Initialize with PCM = nullptr. Phase A made this path valid: the camera
 	// base null-guards its BindCameraActionsForNewCamera call, and nodes that
 	// unconditionally require a PCM either (a) early-return in OnInitialize
-	// and OnTickNode or (b) are categorically ComputeOnly (skipped) — see
+	// and OnTickNode or (b) are categorically ComputeOnly (skipped). See
 	// GetLevelSequenceCompatibility overrides on ScreenSpace*, MixingCamera,
 	// and the compute-node base.
 	InternalCamera->Initialize(/*Manager=*/nullptr);
@@ -455,10 +455,10 @@ void UComposableCameraLevelSequenceComponent::DestroyInternalCamera()
 	}
 	InternalCamera = nullptr;
 
-	// Mirror evaluator cleanup for editor-preview patch overlays — the LS
+	// Mirror evaluator cleanup for editor-preview patch overlays. The LS
 	// Component spawned these as transient actors, so when the component
 	// itself is being torn down (typical caller paths: OnUnregister /
-	// EndPlay → DestroyInternalCamera) those evaluators must go too. Without
+	// EndPlay->DestroyInternalCamera) those evaluators must go too. Without
 	// this, Sequencer Save / spawnable re-spawn / hot-reload would leak one
 	// evaluator per registered patch section per teardown cycle.
 	for (TPair<TWeakObjectPtr<UMovieSceneComposableCameraPatchSection>, FComposableCameraSequencerPatchOverlay>& Pair : SequencerPatchOverlays)
@@ -470,7 +470,7 @@ void UComposableCameraLevelSequenceComponent::DestroyInternalCamera()
 	}
 	SequencerPatchOverlays.Reset();
 
-	// Shot overrides hold no spawned actors — they're pure data — so a plain
+	// Shot overrides hold no spawned actors. They're pure data. So a plain
 	// Reset is sufficient. The CompositionFramingNode that consumed the
 	// last-written Shot lives on the InternalCamera that we just destroyed
 	// above; on the next EnsureInternalCamera the framing node is fresh
@@ -485,7 +485,7 @@ void UComposableCameraLevelSequenceComponent::AddReferencedObjects(UObject* InTh
 	UComposableCameraLevelSequenceComponent* This = CastChecked<UComposableCameraLevelSequenceComponent>(InThis);
 
 	// `SequencerPatchOverlays` is intentionally NOT UPROPERTY-tagged (its
-	// keys are TWeakObjectPtr — see header). Without this manual walk, the
+	// keys are TWeakObjectPtr. See header). Without this manual walk, the
 	// inner `Evaluator` actor and the UObject contents of `LatestParameters`
 	// would be GC-blind, even though they have UPROPERTY tags inside the
 	// FComposableCameraSequencerPatchOverlay struct: reflection cannot reach
@@ -527,7 +527,7 @@ void UComposableCameraLevelSequenceComponent::ProjectPoseToCineCamera(const FCom
 		return;
 	}
 
-	// Framing solver failed this tick — hold the CineCamera's current
+	// Framing solver failed this tick. Hold the CineCamera's current
 	// transform instead of writing the upstream-default pose (which is
 	// `(0, 0, 0)` for a freshly-spawned InternalCamera and would render
 	// the camera at world origin). Hits the early-evaluation edge case:
@@ -538,25 +538,25 @@ void UComposableCameraLevelSequenceComponent::ProjectPoseToCineCamera(const FCom
 	// before the second `EvaluateOnce` (triggered by `SetSequencerShotOverride`'s
 	// first-entry re-eval) can write the correct one, and the PCM POV
 	// captured between the two writes (CameraCut TrackInstance fires in
-	// evaluation phase too — order vs. ours is undefined) would render
+	// evaluation phase too. Order vs. ours is undefined) would render
 	// the actor at world origin for a frame.
 	//
 	// Cameras without a `CompositionFramingNode` never set this flag
 	// (default `false`), so the projection runs unconditionally for them
-	// — preserves the original behavior for non-Shot-driven LS Actors.
+	//. Preserves the original behavior for non-Shot-driven LS Actors.
 	if (InternalCamera && InternalCamera->bLastTickFramingFailed)
 	{
 		return;
 	}
 
-	// Position + Rotation always — the unconditional baseline that the
+	// Position + Rotation always. The unconditional baseline that the
 	// camera-track / cut path relies on regardless of whether a Shot
 	// Section is driving the LS Component this frame.
 	OutputCineCameraComponent->SetWorldLocationAndRotation(Pose.Position, Pose.Rotation);
 
 	// Phase E + Polish: Lens fields (FOV / Aperture / FocusDistance)
 	// project onto the CineCamera ONLY when a Sequencer Shot Section is
-	// actively overriding the framing this frame — i.e.
+	// actively overriding the framing this frame. I.e.
 	// `SequencerShotOverrides.Num() > 0`. The pose then carries the
 	// solver's resolved Lens.* values from the active Shot's
 	// `FShotPlacement` / `FShotLens` / `FShotFocus` authoring (per
@@ -566,19 +566,19 @@ void UComposableCameraLevelSequenceComponent::ProjectPoseToCineCamera(const FCom
 	// Outside Section ranges the LS Component still ticks (per
 	// `SetEvaluationEnabled` semantics), and `CompositionFramingNode`
 	// still produces a pose with `PhysicalCameraBlendWeight = 1` from
-	// the node's default-authored Shot — but those Lens values are
+	// the node's default-authored Shot. But those Lens values are
 	// meaningless context (no Section asked for them) and writing them
 	// here would clobber the designer-authored CineCamera optics
 	// (recently made editable via the `OutputCineCameraComponent`
 	// UPROPERTY). The Section-active check keeps the original Phase B
-	// invariant — "free-standing LSActors don't steal CineCam optic
-	// authoring" — while the V2 Shot system gets its expected
+	// invariant -"free-standing LSActors don't steal CineCam optic
+	// authoring". While the V2 Shot system gets its expected
 	// "Shot.Lens flows to CineCam" behaviour.
 	//
 	// Patch overlay path (`ApplySequencerPatchOverlays` above) writes a
 	// FOV separately for DollyZoom etc.; that path still works because
 	// it runs BEFORE `ProjectPoseToCineCamera` and modifies `Pose` in
-	// place — the FOV we read here is already the patched one.
+	// place. The FOV we read here is already the patched one.
 	const bool bSectionDriven = (SequencerShotOverrides.Num() > 0);
 	if (bSectionDriven && Pose.PhysicalCameraBlendWeight > 0.f)
 	{
@@ -604,7 +604,7 @@ void UComposableCameraLevelSequenceComponent::ProjectPoseToCineCamera(const FCom
 
 		if (Pose.FocusDistance > 0.f)
 		{
-			// Update only the manual focus distance — leave `FocusMethod`
+			// Update only the manual focus distance. Leave `FocusMethod`
 			// alone so a CineCam authored in `Tracking` mode keeps its
 			// tracking-target authoring. When CineCam is in `Manual`
 			// mode the value flows through directly; in `Tracking` mode
@@ -631,7 +631,7 @@ void UComposableCameraLevelSequenceComponent::SetSequencerPatchOverlay(
 	FComposableCameraSequencerPatchOverlay& Overlay = SequencerPatchOverlays.FindOrAdd(Section);
 
 	// Lazy-spawn the evaluator on first use. PCM-independent construction
-	// (Initialize(nullptr)) — same path PatchManager uses for runtime patch
+	// (Initialize(nullptr)). Same path PatchManager uses for runtime patch
 	// evaluators, same path the LS Component uses for its own InternalCamera.
 	// Reuse across frames; destroyed on RemoveSequencerPatchOverlay.
 	if (!Overlay.Evaluator || !IsValid(Overlay.Evaluator))
@@ -660,7 +660,7 @@ void UComposableCameraLevelSequenceComponent::SetSequencerPatchOverlay(
 			return;
 		}
 
-		// Suppress actor tick — TickComponent drives ticks via TickWithInputPose.
+		// Suppress actor tick -TickComponent drives ticks via TickWithInputPose.
 		NewEvaluator->SetActorTickEnabled(false);
 		// PCM-independent init (skips BindCameraActionsForNewCamera).
 		NewEvaluator->Initialize(/*Manager=*/nullptr);
@@ -698,7 +698,7 @@ void UComposableCameraLevelSequenceComponent::RemoveSequencerPatchOverlay(
 void UComposableCameraLevelSequenceComponent::ApplySequencerPatchOverlays(
 	FComposableCameraPose& InOutPose, float DeltaTime)
 {
-	// Stable iteration order: snapshot the WEAK keys (NOT raw pointers — a
+	// Stable iteration order: snapshot the WEAK keys (NOT raw pointers. A
 	// stale weak key resolves to null but its TMap hash still matches the
 	// original-section hash, so Remove(WeakKey) hits the right slot. Pushing
 	// raw nullptr through Find/Remove would miss stale entries entirely
@@ -710,7 +710,7 @@ void UComposableCameraLevelSequenceComponent::ApplySequencerPatchOverlays(
 	// Per-frame snapshot+sort is the simple correct shape: TInlineAllocator
 	// keeps the typical small-N case stack-resident, sort is O(N log N) on
 	// a handful of overlays. A previous attempt at a dirty-sorted cache
-	// regressed correctness — designer-driven LayerIndex changes don't
+	// regressed correctness. Designer-driven LayerIndex changes don't
 	// flow through the per-frame Set path, so the cache stayed stale until
 	// the next add/remove. Reverted to the always-rebuild form; the saved
 	// cycles weren't worth the additional invariant.
@@ -740,7 +740,7 @@ void UComposableCameraLevelSequenceComponent::ApplySequencerPatchOverlays(
 
 	bool bAnyOverlayApplied = false;
 
-	// Stale-entry collection — sections that have been GC'd or whose evaluator
+	// Stale-entry collection. Sections that have been GC'd or whose evaluator
 	// is invalid. Cleaned up after the walk to avoid mid-iteration map mutation.
 	TArray<FOverlayKey, TInlineAllocator<4>> ToPrune;
 
@@ -772,7 +772,7 @@ void UComposableCameraLevelSequenceComponent::ApplySequencerPatchOverlays(
 		}
 
 		// Apply latest parameters to the evaluator's runtime data block before
-		// ticking — same path PatchManager::ApplyParameterBlockToActivePatch
+		// ticking. Same path PatchManager::ApplyParameterBlockToActivePatch
 		// uses, just inlined since we own the evaluator directly here.
 		if (UComposableCameraPatchTypeAsset* Asset = Key->PatchAsset)
 		{
@@ -782,7 +782,7 @@ void UComposableCameraLevelSequenceComponent::ApplySequencerPatchOverlays(
 			}
 		}
 
-		// Tick patch evaluator with the running pose as upstream → blended
+		// Tick patch evaluator with the running pose as upstream->blended
 		// pose lerps toward evaluator's output by alpha. Same shape as
 		// runtime PatchManager::Apply but stateless on the envelope side.
 		const FComposableCameraPose Evaluated = Overlay->Evaluator->TickWithInputPose(DeltaTime, InOutPose);
@@ -800,13 +800,13 @@ void UComposableCameraLevelSequenceComponent::ApplySequencerPatchOverlays(
 		SequencerPatchOverlays.Remove(WeakKey);
 	}
 
-	// Patch-driven FOV writes need to land on the CineCamera too — the normal
+	// Patch-driven FOV writes need to land on the CineCamera too. The normal
 	// ProjectPoseToCineCamera intentionally skips optics so designer / Sequencer
 	// keys own them, but for overlay scenarios (DollyZoom etc.) we DO want the
 	// patched FOV visible. Write FOV here (in addition to ProjectPoseToCineCamera's
 	// later position+rotation write) so the CineCamera shows the patched optic.
 	// `GetEffectiveFieldOfView` resolves dual-mode (FieldOfView vs FocalLength)
-	// per invariant #15 in DesignDoc — gives degrees regardless of which mode
+	// per invariant #15 in DesignDoc. Gives degrees regardless of which mode
 	// the pose is in.
 	if (bAnyOverlayApplied && OutputCineCameraComponent)
 	{
@@ -854,7 +854,7 @@ void UComposableCameraLevelSequenceComponent::SetSequencerShotOverride(
 		// camera this frame (cached pose may have been solved against an empty
 		// override map and is exactly the bad pose we're trying to
 		// replace). LSComp's InternalCamera lives outside the snapshot
-		// DAG, so bypassing the cache here is safe — see
+		// DAG, so bypassing the cache here is safe. See
 		// `AComposableCameraCameraBase::InvalidateTickCache` doc.
 		if (InternalCamera)
 		{
@@ -900,10 +900,10 @@ void UComposableCameraLevelSequenceComponent::ApplyActiveSequencerShotOverride()
 		return;
 	}
 
-	// ─── Phase F: collect valid entries sorted ascending by RowIndex.
+	// --- Phase F: collect valid entries sorted ascending by RowIndex.
 	// Lowest RowIndex (Sequencer's "top row") = primary / outgoing.
 	// Next-lowest RowIndex = secondary / incoming for the active overlap.
-	// Third+ entries are silently dropped per spec §7.6 decision Q3.
+	// Third+ entries are silently dropped per spec Section 7.6 decision Q3.
 	//
 	// Stale entries (section GC'd) are pruned in the same pass to keep
 	// the map tight.
@@ -930,7 +930,7 @@ void UComposableCameraLevelSequenceComponent::ApplyActiveSequencerShotOverride()
 
 	if (SortedEntries.Num() == 0)
 	{
-		// No active overrides — clear the primary-section tracker so the
+		// No active overrides. Clear the primary-section tracker so the
 		// next override that arrives is treated as a fresh cut. Without
 		// this, the gap-between-sections case would compare the new
 		// section against the last one before the gap and (if they match)
@@ -973,7 +973,7 @@ void UComposableCameraLevelSequenceComponent::ApplyActiveSequencerShotOverride()
 	if (!Framing)
 	{
 		UE_LOG(LogComposableCameraSystem, Verbose,
-			TEXT("LS '%s': active Shot override but InternalCamera has no UComposableCameraCompositionFramingNode — silent skip."),
+			TEXT("LS '%s': active Shot override but InternalCamera has no UComposableCameraCompositionFramingNode. Silent skip."),
 			GetOwner() ? *GetOwner()->GetName() : TEXT("<no owner>"));
 		return;
 	}
@@ -981,11 +981,11 @@ void UComposableCameraLevelSequenceComponent::ApplyActiveSequencerShotOverride()
 	// Push the effective render aspect to the framing node BEFORE pushing
 	// shot data, so the next OnTickNode's solver sees the up-to-date value.
 	// `GetEffectiveAspectRatioForCineCamera` resolves through:
-	//   - CineCam->bConstrainAspectRatio == true  → CineCam->AspectRatio
+	//   - CineCam->bConstrainAspectRatio == true->CineCam->AspectRatio
 	//     (filmback letterbox; renderer always crops to this regardless of
 	//     viewport shape, solver must match for anchor screen positions to
 	//     land where designers expect).
-	//   - CineCam->bConstrainAspectRatio == false → live viewport aspect,
+	//   - CineCam->bConstrainAspectRatio == false ->live viewport aspect,
 	//     resolved through `TryGetEffectiveViewportSize` (game viewport in
 	//     PIE, editor active viewport during scrub via the new
 	//     `FGetActiveEditorViewport` hook). Tracks the level viewport in
@@ -996,8 +996,8 @@ void UComposableCameraLevelSequenceComponent::ApplyActiveSequencerShotOverride()
 
 	// Detect primary/secondary Section identity changes. If current primary
 	// was last frame's secondary, this is the authored overlap handoff
-	// (A+B -> B) and the framing node should promote secondary prior state.
-	// A changed secondary reseeds its own prior cache (A+B -> A+C).
+	// (A+B->B) and the framing node should promote secondary prior state.
+	// A changed secondary reseeds its own prior cache (A+B->A+C).
 	// Otherwise a changed primary is a true hard cut and should reseed.
 	const bool bPrimaryChanged = (LastActivePrimarySection.Get() != PrimarySection);
 	UMovieSceneComposableCameraShotSection* LastSecondarySection = LastActiveSecondarySection.Get();
@@ -1011,7 +1011,7 @@ void UComposableCameraLevelSequenceComponent::ApplyActiveSequencerShotOverride()
 	// node. The node's `SetActiveShotsFromSequencer` decides whether to run
 	// the two-solver blend (F.4) based on whether secondary + transition
 	// are both non-null. When `Secondary->EnterTransition` is null, the
-	// node treats it as a hard cut — primary is the sole solver input,
+	// node treats it as a hard cut. Primary is the sole solver input,
 	// matching V1 top-row-winner behavior throughout the overlap.
 	if (Secondary)
 	{
@@ -1045,7 +1045,7 @@ void UComposableCameraLevelSequenceComponent::BuildSequencerPatchSnapshot(
 		return;
 	}
 
-	// Sort by section's effective LayerIndex — same order as ApplySequencerPatchOverlays
+	// Sort by section's effective LayerIndex. Same order as ApplySequencerPatchOverlays
 	// so panel rows reflect actual composition order. Matches PatchManager's
 	// (LayerIndex asc) sort convention so the merged BP+Sequencer list reads
 	// consistently regardless of which path produced each entry.
@@ -1055,7 +1055,7 @@ void UComposableCameraLevelSequenceComponent::BuildSequencerPatchSnapshot(
 	{
 		// Resolve weak key once; null = section GC'd, skip from the panel.
 		// Stale entries get cleaned up by the prune pass inside
-		// ApplySequencerPatchOverlays — the debug panel just doesn't show them.
+		// ApplySequencerPatchOverlays. The debug panel just doesn't show them.
 		if (UMovieSceneComposableCameraPatchSection* Key = Pair.Key.Get(); IsValid(Key))
 		{
 			SortedKeys.Add(Key);
@@ -1087,7 +1087,7 @@ void UComposableCameraLevelSequenceComponent::BuildSequencerPatchSnapshot(
 		Snap.LayerIndex = Section->PatchAsset
 			? (Section->Params.bOverrideLayerIndex ? Section->Params.LayerIndex : Section->PatchAsset->DefaultLayerIndex)
 			: 0;
-		// Sequencer envelope is stateless — alpha alone carries phase info.
+		// Sequencer envelope is stateless. Alpha alone carries phase info.
 		// Encode phase as Active (1) so the panel doesn't try to render
 		// "Entering" / "Exiting" timer rows that would always read zero.
 		Snap.Phase = 1;
@@ -1107,7 +1107,7 @@ void UComposableCameraLevelSequenceComponent::BuildSequencerPatchSnapshot(
 			}
 		}
 		Snap.Duration = SectionSeconds;
-		// Per-Params overrides win, else asset defaults — same precedence the
+		// Per-Params overrides win, else asset defaults. Same precedence the
 		// runtime overlay path uses; the values the user actually sees in the
 		// envelope ramp this frame.
 		Snap.EnterDuration = Section->Params.bOverrideEnterDuration

@@ -16,29 +16,27 @@
  * The policy reads debug-active state from UComposableCameraNodeGraphNode::DebugState
  * and UComposableCameraVariableGraphNode::DebugState. Nodes that don't carry debug
  * state (sentinels, begin-play start) are considered always-active so the highlight
- * chain doesn't break at the Start → first-camera-node boundary.
+ * chain doesn't break at the Start->first-camera-node boundary.
  */
-class FComposableCameraConnectionDrawingPolicy : public FConnectionDrawingPolicy
+class FComposableCameraConnectionDrawingPolicy: public FConnectionDrawingPolicy
 {
 public:
-	FComposableCameraConnectionDrawingPolicy(
-		int32 InBackLayerID,
+	FComposableCameraConnectionDrawingPolicy(int32 InBackLayerID,
 		int32 InFrontLayerID,
 		float InZoomFactor,
 		const FSlateRect& InClippingRect,
 		FSlateWindowElementList& InDrawElements);
 
-	// ─── FConnectionDrawingPolicy Interface ───────────────────────────────
+	// FConnectionDrawingPolicy Interface 
 
-	virtual void DetermineWiringStyle(
-		UEdGraphPin* OutputPin,
+	virtual void DetermineWiringStyle(UEdGraphPin* OutputPin,
 		UEdGraphPin* InputPin,
 		FConnectionParams& Params) override;
 
 private:
 	/** Check if a graph node is debug-active (its runtime counterpart was ticked).
-	 *  Nodes without debug state (sentinels) return true so the highlight chain
-	 *  doesn't break at entry/exit points. */
+	 * Nodes without debug state (sentinels) return true so the highlight chain
+	 * doesn't break at entry/exit points. */
 	static bool IsNodeDebugActive(const UEdGraphNode* Node);
 
 	/** Check if a pin is an exec pin (ExecIn / ExecOut category). */

@@ -59,8 +59,7 @@ namespace
 	FString ExportTransformForClipboard(const FTransform& Transform)
 	{
 		FString Text;
-		TBaseStructure<FTransform>::Get()->ExportText(
-			Text,
+		TBaseStructure<FTransform>::Get()->ExportText(Text,
 			&Transform,
 			/*Defaults=*/ nullptr,
 			/*OwnerObject=*/ nullptr,
@@ -88,13 +87,11 @@ namespace
 		}
 	}
 
-	class FComposableCameraViewportTransformCommands
-		: public TCommands<FComposableCameraViewportTransformCommands>
+	class FComposableCameraViewportTransformCommands: public TCommands<FComposableCameraViewportTransformCommands>
 	{
 	public:
 		FComposableCameraViewportTransformCommands()
-			: TCommands<FComposableCameraViewportTransformCommands>(
-				TEXT("ComposableCameraViewportTransform"),
+			: TCommands<FComposableCameraViewportTransformCommands>(TEXT("ComposableCameraViewportTransform"),
 				LOCTEXT("ViewportTransformCommands", "Composable Camera Viewport Transform"),
 				NAME_None,
 				FAppStyle::GetAppStyleSetName())
@@ -103,15 +100,13 @@ namespace
 
 		virtual void RegisterCommands() override
 		{
-			UI_COMMAND(
-				CopyActiveViewportCameraTransform,
+			UI_COMMAND(CopyActiveViewportCameraTransform,
 				"Copy Viewport Camera Transform",
 				"Copy the active Level Editor viewport camera transform as pasteable FTransform text.",
 				EUserInterfaceActionType::Button,
 				FInputChord(EModifierKey::Control | EModifierKey::Alt, EKeys::C));
 
-			UI_COMMAND(
-				KeyActiveViewportCameraTransform,
+			UI_COMMAND(KeyActiveViewportCameraTransform,
 				"Key Viewport Camera Transform",
 				"Key the active Level Editor viewport camera transform onto selected CCS Level Sequence Transform tracks.",
 				EUserInterfaceActionType::Button,
@@ -132,13 +127,11 @@ namespace
 		(void)FComposableCameraViewportTransformClipboard::KeyActiveLevelViewportCameraTransformToSequencer();
 	}
 
-	FAutoConsoleCommand GCopyActiveViewportCameraTransformCommand(
-		TEXT("CCS.Editor.CopyActiveViewportCameraTransform"),
+	FAutoConsoleCommand GCopyActiveViewportCameraTransformCommand(TEXT("CCS.Editor.CopyActiveViewportCameraTransform"),
 		TEXT("Copy the active Level Editor viewport camera transform to the system clipboard as pasteable FTransform text."),
 		FConsoleCommandDelegate::CreateStatic(&ExecuteCopyActiveViewportCameraTransform));
 
-	FAutoConsoleCommand GKeyActiveViewportCameraTransformCommand(
-		TEXT("CCS.Editor.KeyActiveViewportCameraTransformToSequencer"),
+	FAutoConsoleCommand GKeyActiveViewportCameraTransformCommand(TEXT("CCS.Editor.KeyActiveViewportCameraTransformToSequencer"),
 		TEXT("Key the active Level Editor viewport camera transform onto selected CCS Level Sequence Transform tracks."),
 		FConsoleCommandDelegate::CreateStatic(&ExecuteKeyActiveViewportCameraTransform));
 
@@ -203,8 +196,7 @@ namespace
 			&& IsComposableCameraLevelSequenceBindingOrDescendant(MovieScene, BindingGuid);
 	}
 
-	void AddTransformTrackIfValid(
-		UMovieScene& MovieScene,
+	void AddTransformTrackIfValid(UMovieScene& MovieScene,
 		UMovieSceneTrack* Track,
 		TArray<UMovieSceneTrack*>& OutTracks)
 	{
@@ -214,8 +206,7 @@ namespace
 		}
 	}
 
-	void AppendOutlinerSelectedTransformTracks(
-		ISequencer& Sequencer,
+	void AppendOutlinerSelectedTransformTracks(ISequencer& Sequencer,
 		UMovieScene& MovieScene,
 		TArray<UMovieSceneTrack*>& OutTracks)
 	{
@@ -228,7 +219,7 @@ namespace
 			return;
 		}
 
-		for (TWeakViewModelPtr<IOutlinerExtension> WeakSelectedOutliner : Selection->Outliner.GetSelected())
+		for (TWeakViewModelPtr<IOutlinerExtension> WeakSelectedOutliner: Selection->Outliner.GetSelected())
 		{
 			TViewModelPtr<IOutlinerExtension> SelectedOutliner = WeakSelectedOutliner.Pin();
 			if (!SelectedOutliner)
@@ -247,66 +238,62 @@ namespace
 		}
 	}
 
-	void AppendSelectedTransformTracks(
-		ISequencer& Sequencer,
+	void AppendSelectedTransformTracks(ISequencer& Sequencer,
 		UMovieScene& MovieScene,
 		TArray<UMovieSceneTrack*>& OutTracks)
 	{
 		TArray<UMovieSceneTrack*> SelectedTracks;
 		Sequencer.GetSelectedTracks(SelectedTracks);
-		for (UMovieSceneTrack* SelectedTrack : SelectedTracks)
+		for (UMovieSceneTrack* SelectedTrack: SelectedTracks)
 		{
 			AddTransformTrackIfValid(MovieScene, SelectedTrack, OutTracks);
 		}
 
 		TArray<TPair<UMovieSceneTrack*, int32>> SelectedTrackRows;
 		Sequencer.GetSelectedTrackRows(SelectedTrackRows);
-		for (const TPair<UMovieSceneTrack*, int32>& SelectedTrackRow : SelectedTrackRows)
+		for (const TPair<UMovieSceneTrack*, int32>& SelectedTrackRow: SelectedTrackRows)
 		{
 			AddTransformTrackIfValid(MovieScene, SelectedTrackRow.Key, OutTracks);
 		}
 
 		TArray<UMovieSceneSection*> SelectedSections;
 		Sequencer.GetSelectedSections(SelectedSections);
-		for (UMovieSceneSection* SelectedSection : SelectedSections)
+		for (UMovieSceneSection* SelectedSection: SelectedSections)
 		{
-			AddTransformTrackIfValid(
-				MovieScene,
+			AddTransformTrackIfValid(MovieScene,
 				SelectedSection ? SelectedSection->GetTypedOuter<UMovieSceneTrack>() : nullptr,
 				OutTracks);
 		}
 
 		TArray<const IKeyArea*> SelectedKeyAreas;
 		Sequencer.GetSelectedKeyAreas(SelectedKeyAreas);
-		for (const IKeyArea* SelectedKeyArea : SelectedKeyAreas)
+		for (const IKeyArea* SelectedKeyArea: SelectedKeyAreas)
 		{
 			UMovieSceneSection* OwningSection = SelectedKeyArea ? SelectedKeyArea->GetOwningSection() : nullptr;
-			AddTransformTrackIfValid(
-				MovieScene,
+			AddTransformTrackIfValid(MovieScene,
 				OwningSection ? OwningSection->GetTypedOuter<UMovieSceneTrack>() : nullptr,
 				OutTracks);
 		}
 	}
 
-	void AppendTransformTracksForSelectedBindings(
-		ISequencer& Sequencer,
+	void AppendTransformTracksForSelectedBindings(ISequencer& Sequencer,
 		UMovieScene& MovieScene,
 		TArray<UMovieSceneTrack*>& OutTracks)
 	{
 		TArray<FGuid> Bindings;
 		Sequencer.GetSelectedObjects(Bindings);
-		for (const FGuid& Binding : Bindings)
+		for (const FGuid& Binding: Bindings)
 		{
 			if (!Binding.IsValid())
 			{
 				continue;
 			}
 
-			for (UMovieSceneTrack* Track : MovieScene.FindTracks(UMovieScene3DTransformTrack::StaticClass(), Binding))
+			for (UMovieSceneTrack* Track: MovieScene.FindTracks(UMovieScene3DTransformTrack::StaticClass(), Binding))
 			{
 				AddTransformTrackIfValid(MovieScene, Track, OutTracks);
 			}
-			for (UMovieSceneTrack* Track : MovieScene.FindTracks(UMovieSceneTransformTrack::StaticClass(), Binding))
+			for (UMovieSceneTrack* Track: MovieScene.FindTracks(UMovieSceneTransformTrack::StaticClass(), Binding))
 			{
 				AddTransformTrackIfValid(MovieScene, Track, OutTracks);
 			}
@@ -335,7 +322,7 @@ namespace
 
 	FResolvedTransformTrackSelection ResolveSequencerAndTransformTracksToKey()
 	{
-		for (const TSharedPtr<ISequencer>& Sequencer : ResolveLiveSequencers())
+		for (const TSharedPtr<ISequencer>& Sequencer: ResolveLiveSequencers())
 		{
 			UMovieSceneSequence* Sequence = Sequencer.IsValid() ? Sequencer->GetFocusedMovieSceneSequence() : nullptr;
 			UMovieScene* MovieScene = Sequence ? Sequence->GetMovieScene() : nullptr;
@@ -354,8 +341,7 @@ namespace
 		return {};
 	}
 
-	UMovieScene3DTransformSection* FindOrCreateTransformSectionForTrack(
-		UMovieSceneTrack& TransformTrack,
+	UMovieScene3DTransformSection* FindOrCreateTransformSectionForTrack(UMovieSceneTrack& TransformTrack,
 		FFrameNumber KeyTime)
 	{
 		UMovieScenePropertyTrack* PropertyTrack = Cast<UMovieScenePropertyTrack>(&TransformTrack);
@@ -393,8 +379,7 @@ namespace
 		return TransformSection;
 	}
 
-	bool KeyViewportCameraTransformTracks(
-		const FEditorViewportClient& ViewportClient,
+	bool KeyViewportCameraTransformTracks(const FEditorViewportClient& ViewportClient,
 		ISequencer& Sequencer,
 		UMovieScene& MovieScene,
 		const TArray<UMovieSceneTrack*>& TransformTracks,
@@ -404,8 +389,7 @@ namespace
 		{
 			UE_LOG(LogComposableCameraSystemEditor, Warning,
 				TEXT("Key viewport camera transform failed: Sequencer does not allow edits."));
-			NotifyViewportTransformResult(
-				LOCTEXT("KeySequencerReadOnly", "Sequencer does not allow edits."),
+			NotifyViewportTransformResult(LOCTEXT("KeySequencerReadOnly", "Sequencer does not allow edits."),
 				SNotificationItem::CS_Fail);
 			return false;
 		}
@@ -414,14 +398,12 @@ namespace
 		{
 			UE_LOG(LogComposableCameraSystemEditor, Warning,
 				TEXT("Key viewport camera transform failed: no selected CCS Level Sequence Transform track."));
-			NotifyViewportTransformResult(
-				LOCTEXT("KeyNoTransformParameterTrack", "Select a CCS Level Sequence Transform track first."),
+			NotifyViewportTransformResult(LOCTEXT("KeyNoTransformParameterTrack", "Select a CCS Level Sequence Transform track first."),
 				SNotificationItem::CS_Fail);
 			return false;
 		}
 
-		const FTransform ViewportWorldTransform(
-			ViewportClient.GetViewRotation(),
+		const FTransform ViewportWorldTransform(ViewportClient.GetViewRotation(),
 			ViewportClient.GetViewLocation(),
 			FVector::OneVector);
 		const FFrameNumber KeyTime = Sequencer.GetLocalTime().Time.RoundToFrame();
@@ -430,7 +412,7 @@ namespace
 
 		int32 KeyedCount = 0;
 		int32 SkippedCount = 0;
-		for (UMovieSceneTrack* TransformTrack : TransformTracks)
+		for (UMovieSceneTrack* TransformTrack: TransformTracks)
 		{
 			if (!TransformTrack || !IsComposableCameraLevelSequenceTransformTrack(MovieScene, TransformTrack))
 			{
@@ -450,8 +432,7 @@ namespace
 			Frames.Add(KeyTime);
 			TArray<FTransform> Transforms;
 			Transforms.Add(ViewportWorldTransform);
-			const bool bKeyed = MovieSceneToolHelpers::AddTransformKeys(
-				TransformSection,
+			const bool bKeyed = MovieSceneToolHelpers::AddTransformKeys(TransformSection,
 				Frames,
 				Transforms,
 				EMovieSceneTransformChannel::AllTransform);
@@ -471,8 +452,7 @@ namespace
 			Transaction.Cancel();
 			UE_LOG(LogComposableCameraSystemEditor, Warning,
 				TEXT("Key viewport camera transform failed: no CCS Level Sequence Transform tracks were keyed."));
-			NotifyViewportTransformResult(
-				LOCTEXT("KeyNoTransformParameterTracks", "No CCS Level Sequence Transform tracks were keyed."),
+			NotifyViewportTransformResult(LOCTEXT("KeyNoTransformParameterTracks", "No CCS Level Sequence Transform tracks were keyed."),
 				SNotificationItem::CS_Fail);
 			return false;
 		}
@@ -486,9 +466,7 @@ namespace
 			*SourceLabel.ToString(),
 			KeyTime.Value,
 			SkippedCount);
-		NotifyViewportTransformResult(
-			FText::Format(
-				LOCTEXT("KeySucceeded", "Keyed {0} CCS Transform track(s)."),
+		NotifyViewportTransformResult(FText::Format(LOCTEXT("KeySucceeded", "Keyed {0} CCS Transform track(s)."),
 				FText::AsNumber(KeyedCount)),
 			SNotificationItem::CS_Success);
 		return true;
@@ -500,19 +478,16 @@ void FComposableCameraViewportTransformClipboard::Register()
 	FComposableCameraViewportTransformCommands::Register();
 
 	FLevelEditorModule& LevelEditorModule = FModuleManager::LoadModuleChecked<FLevelEditorModule>("LevelEditor");
-	LevelEditorModule.GetGlobalLevelEditorActions()->MapAction(
-		FComposableCameraViewportTransformCommands::Get().CopyActiveViewportCameraTransform,
+	LevelEditorModule.GetGlobalLevelEditorActions()->MapAction(FComposableCameraViewportTransformCommands::Get().CopyActiveViewportCameraTransform,
 		FExecuteAction::CreateStatic(&ExecuteCopyActiveViewportCameraTransform),
 		FCanExecuteAction::CreateStatic(&FComposableCameraViewportTransformClipboard::CanCopyActiveLevelViewportCameraTransform));
-	LevelEditorModule.GetGlobalLevelEditorActions()->MapAction(
-		FComposableCameraViewportTransformCommands::Get().KeyActiveViewportCameraTransform,
+	LevelEditorModule.GetGlobalLevelEditorActions()->MapAction(FComposableCameraViewportTransformCommands::Get().KeyActiveViewportCameraTransform,
 		FExecuteAction::CreateStatic(&ExecuteKeyActiveViewportCameraTransform),
 		FCanExecuteAction::CreateStatic(&FComposableCameraViewportTransformClipboard::CanKeyActiveLevelViewportCameraTransformToSequencer));
 
 	if (UToolMenus::IsToolMenuUIEnabled())
 	{
-		StartupCallbackHandle = UToolMenus::RegisterStartupCallback(
-			FSimpleMulticastDelegate::FDelegate::CreateStatic(&FComposableCameraViewportTransformClipboard::RegisterMenus));
+		StartupCallbackHandle = UToolMenus::RegisterStartupCallback(FSimpleMulticastDelegate::FDelegate::CreateStatic(&FComposableCameraViewportTransformClipboard::RegisterMenus));
 	}
 }
 
@@ -531,10 +506,8 @@ void FComposableCameraViewportTransformClipboard::Unregister()
 	if (FModuleManager::Get().IsModuleLoaded("LevelEditor"))
 	{
 		FLevelEditorModule& LevelEditorModule = FModuleManager::GetModuleChecked<FLevelEditorModule>("LevelEditor");
-		LevelEditorModule.GetGlobalLevelEditorActions()->UnmapAction(
-			FComposableCameraViewportTransformCommands::Get().CopyActiveViewportCameraTransform);
-		LevelEditorModule.GetGlobalLevelEditorActions()->UnmapAction(
-			FComposableCameraViewportTransformCommands::Get().KeyActiveViewportCameraTransform);
+		LevelEditorModule.GetGlobalLevelEditorActions()->UnmapAction(FComposableCameraViewportTransformCommands::Get().CopyActiveViewportCameraTransform);
+		LevelEditorModule.GetGlobalLevelEditorActions()->UnmapAction(FComposableCameraViewportTransformCommands::Get().KeyActiveViewportCameraTransform);
 	}
 
 	FComposableCameraViewportTransformCommands::Unregister();
@@ -552,8 +525,7 @@ bool FComposableCameraViewportTransformClipboard::CopyActiveLevelViewportCameraT
 	{
 		UE_LOG(LogComposableCameraSystemEditor, Warning,
 			TEXT("Copy viewport camera transform failed: no active Level Editor viewport."));
-		NotifyViewportTransformResult(
-			LOCTEXT("NoActiveViewport", "No active Level Editor viewport."),
+		NotifyViewportTransformResult(LOCTEXT("NoActiveViewport", "No active Level Editor viewport."),
 			SNotificationItem::CS_Fail);
 		return false;
 	}
@@ -561,12 +533,10 @@ bool FComposableCameraViewportTransformClipboard::CopyActiveLevelViewportCameraT
 	return CopyViewportCameraTransform(*ViewportClient, LOCTEXT("LevelEditorViewport", "Level Editor viewport"));
 }
 
-bool FComposableCameraViewportTransformClipboard::CopyViewportCameraTransform(
-	const FEditorViewportClient& ViewportClient,
+bool FComposableCameraViewportTransformClipboard::CopyViewportCameraTransform(const FEditorViewportClient& ViewportClient,
 	const FText& SourceLabel)
 {
-	const FTransform CameraTransform(
-		ViewportClient.GetViewRotation(),
+	const FTransform CameraTransform(ViewportClient.GetViewRotation(),
 		ViewportClient.GetViewLocation(),
 		FVector::OneVector);
 	const FString ClipboardText = ExportTransformForClipboard(CameraTransform);
@@ -575,8 +545,7 @@ bool FComposableCameraViewportTransformClipboard::CopyViewportCameraTransform(
 	{
 		UE_LOG(LogComposableCameraSystemEditor, Warning,
 			TEXT("Copy viewport camera transform failed: export produced an empty string."));
-		NotifyViewportTransformResult(
-			LOCTEXT("CopyExportFailed", "Could not export viewport camera transform."),
+		NotifyViewportTransformResult(LOCTEXT("CopyExportFailed", "Could not export viewport camera transform."),
 			SNotificationItem::CS_Fail);
 		return false;
 	}
@@ -586,8 +555,7 @@ bool FComposableCameraViewportTransformClipboard::CopyViewportCameraTransform(
 	UE_LOG(LogComposableCameraSystemEditor, Log,
 		TEXT("Copied %s camera transform to clipboard: %s"),
 		*SourceLabel.ToString(), *ClipboardText);
-	NotifyViewportTransformResult(
-		FText::Format(LOCTEXT("CopySucceeded", "Copied {0} camera transform."), SourceLabel),
+	NotifyViewportTransformResult(FText::Format(LOCTEXT("CopySucceeded", "Copied {0} camera transform."), SourceLabel),
 		SNotificationItem::CS_Success);
 	return true;
 }
@@ -604,8 +572,7 @@ bool FComposableCameraViewportTransformClipboard::KeyActiveLevelViewportCameraTr
 	{
 		UE_LOG(LogComposableCameraSystemEditor, Warning,
 			TEXT("Key viewport camera transform failed: no active Level Editor viewport."));
-		NotifyViewportTransformResult(
-			LOCTEXT("KeyNoActiveViewport", "No active Level Editor viewport."),
+		NotifyViewportTransformResult(LOCTEXT("KeyNoActiveViewport", "No active Level Editor viewport."),
 			SNotificationItem::CS_Fail);
 		return false;
 	}
@@ -615,8 +582,7 @@ bool FComposableCameraViewportTransformClipboard::KeyActiveLevelViewportCameraTr
 		LOCTEXT("LevelEditorViewport", "Level Editor viewport"));
 }
 
-bool FComposableCameraViewportTransformClipboard::KeyViewportCameraTransformToSequencer(
-	const FEditorViewportClient& ViewportClient,
+bool FComposableCameraViewportTransformClipboard::KeyViewportCameraTransformToSequencer(const FEditorViewportClient& ViewportClient,
 	const FText& SourceLabel)
 {
 	FResolvedTransformTrackSelection Selection = ResolveSequencerAndTransformTracksToKey();
@@ -626,8 +592,7 @@ bool FComposableCameraViewportTransformClipboard::KeyViewportCameraTransformToSe
 	{
 		UE_LOG(LogComposableCameraSystemEditor, Warning,
 			TEXT("Key viewport camera transform failed: no open Sequencer with selected CCS Level Sequence Transform tracks."));
-		NotifyViewportTransformResult(
-			LOCTEXT("KeyNoSequencer", "Select a CCS Level Sequence Transform track first."),
+		NotifyViewportTransformResult(LOCTEXT("KeyNoSequencer", "Select a CCS Level Sequence Transform track first."),
 			SNotificationItem::CS_Fail);
 		return false;
 	}
@@ -636,8 +601,7 @@ bool FComposableCameraViewportTransformClipboard::KeyViewportCameraTransformToSe
 	{
 		UE_LOG(LogComposableCameraSystemEditor, Warning,
 			TEXT("Key viewport camera transform failed: focused MovieScene is no longer valid."));
-		NotifyViewportTransformResult(
-			LOCTEXT("KeyNoMovieScene", "Focused MovieScene is no longer valid."),
+		NotifyViewportTransformResult(LOCTEXT("KeyNoMovieScene", "Focused MovieScene is no longer valid."),
 			SNotificationItem::CS_Fail);
 		return false;
 	}
@@ -658,14 +622,12 @@ void FComposableCameraViewportTransformClipboard::RegisterMenus()
 
 	FToolMenuSection& Section = Menu->FindOrAddSection("ComposableCameraSystem");
 	Section.Label = LOCTEXT("ComposableCameraSystemSection", "Composable Camera System");
-	Section.AddEntry(FToolMenuEntry::InitMenuEntryWithCommandList(
-		FComposableCameraViewportTransformCommands::Get().CopyActiveViewportCameraTransform,
+	Section.AddEntry(FToolMenuEntry::InitMenuEntryWithCommandList(FComposableCameraViewportTransformCommands::Get().CopyActiveViewportCameraTransform,
 		LevelEditorModule.GetGlobalLevelEditorActions(),
 		TAttribute<FText>(),
 		TAttribute<FText>(),
 		FSlateIcon(FAppStyle::GetAppStyleSetName(), "Icons.Copy")));
-	Section.AddEntry(FToolMenuEntry::InitMenuEntryWithCommandList(
-		FComposableCameraViewportTransformCommands::Get().KeyActiveViewportCameraTransform,
+	Section.AddEntry(FToolMenuEntry::InitMenuEntryWithCommandList(FComposableCameraViewportTransformCommands::Get().KeyActiveViewportCameraTransform,
 		LevelEditorModule.GetGlobalLevelEditorActions(),
 		TAttribute<FText>(),
 		TAttribute<FText>(),

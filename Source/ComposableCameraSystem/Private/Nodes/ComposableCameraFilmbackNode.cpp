@@ -1,4 +1,4 @@
-// Copyright Sulley. All rights reserved.
+﻿// Copyright Sulley. All rights reserved.
 
 #include "Nodes/ComposableCameraFilmbackNode.h"
 
@@ -9,7 +9,7 @@ void UComposableCameraFilmbackNode::OnTickNode_Implementation(float DeltaTime,
 	// `b` prefix on bools) so the node Details customization pairs them into
 	// a single unified row. Dropping the `b` here would cause the Details
 	// panel to render the UPROPERTY row AND a plain-text SEditableTextBox
-	// fallback row for the pin, side by side — exactly the "duplicate
+	// fallback row for the pin, side by side. Exactly the "duplicate
 	// parameter" bug this node was fixed for.
 	const float PinSensorWidth   = GetInputPinValue<float>("SensorWidth");
 	const float PinSensorHeight  = GetInputPinValue<float>("SensorHeight");
@@ -30,7 +30,7 @@ void UComposableCameraFilmbackNode::OnTickNode_Implementation(float DeltaTime,
 	OutCameraPose.Overscan = (PinOverscan > 0.f) ? PinOverscan : Overscan;
 
 	// Bools: pin returns false when unresolved. To keep the UPROPERTY meaningful
-	// when no wire is attached, we OR the pin and UPROPERTY values — i.e. either
+	// when no wire is attached, we OR the pin and UPROPERTY values. I.e. either
 	// path can set the flag to true. This matches the "pin overrides if truthy"
 	// convention used elsewhere; a wire that explicitly wants false should be
 	// achieved by setting the UPROPERTY to false and leaving the pin unwired.
@@ -110,7 +110,7 @@ void UComposableCameraFilmbackNode::GetPinDeclarations_Implementation(
 		OutPins.Add(Pin);
 	}
 
-	// Input: bConstrainAspectRatio — pin name keeps the `b` prefix so it matches
+	// Input: bConstrainAspectRatio. Pin name keeps the `b` prefix so it matches
 	// the UPROPERTY FName exactly (required by the Details customization).
 	{
 		FComposableCameraNodePinDeclaration Pin;
@@ -125,7 +125,7 @@ void UComposableCameraFilmbackNode::GetPinDeclarations_Implementation(
 		OutPins.Add(Pin);
 	}
 
-	// Input: bOverrideAspectRatioAxisConstraint — same b-prefix rule.
+	// Input: bOverrideAspectRatioAxisConstraint. Same b-prefix rule.
 	{
 		FComposableCameraNodePinDeclaration Pin;
 		Pin.PinName = "bOverrideAspectRatioAxisConstraint";
@@ -139,7 +139,7 @@ void UComposableCameraFilmbackNode::GetPinDeclarations_Implementation(
 		OutPins.Add(Pin);
 	}
 
-	// Input: AspectRatioAxisConstraint (as int32 — enum index into EAspectRatioAxisConstraint)
+	// Input: AspectRatioAxisConstraint (as int32. Enum index into EAspectRatioAxisConstraint)
 	{
 		FComposableCameraNodePinDeclaration Pin;
 		Pin.PinName = "AspectRatioAxisConstraint";

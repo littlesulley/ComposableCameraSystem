@@ -43,19 +43,19 @@ enum class EComposableCameraResumeCameraTransformSchema : uint8
  * Camera pose state produced by node evaluation and consumed by the PCM.
  *
  * Field categories:
- *   - Transform (Position, Rotation) — always lerped.
- *   - FOV dual-mode (FieldOfView, FocalLength) — a pose expresses FOV either in
+ *   - Transform (Position, Rotation). Always lerped.
+ *   - FOV dual-mode (FieldOfView, FocalLength). A pose expresses FOV either in
  *     degrees (FieldOfView > 0) or via physical optics (FocalLength > 0), never
  *     both. Use GetEffectiveFieldOfView() to resolve to degrees. BlendBy()
  *     resolves both sides to degrees BEFORE lerping and emits a degrees-mode
  *     result (FocalLength = -1). See "FOV resolution invariant" in DesignDoc.
- *   - Physical camera (SensorWidth/Height, Aperture, FocusDistance, ISO, etc.)
- *     — always lerped; only applied to post-process when
- *     PhysicalCameraBlendWeight > 0 via ApplyPhysicalCameraSettings().
- *   - Projection & aspect (ProjectionMode, ConstrainAspectRatio, ...) —
- *     booleans and enums snap at 50% blend factor; numerics (OrthographicWidth
+ *   - Physical camera (SensorWidth/Height, Aperture, FocusDistance, ISO, etc.).
+ *     Always lerped; only applied to post-process when
+ *     PhysicalCameraBlendWeight > 0 for DoF or ExposureBlendWeight > 0 for exposure.
+ *   - Projection & aspect (ProjectionMode, ConstrainAspectRatio, ...).
+ *     Booleans and enums snap at 50% blend factor; numerics (OrthographicWidth
  *     etc.) lerp normally.
- *   - Post-process (PostProcessSettings) — blended via
+ *   - Post-process (PostProcessSettings). Blended via
  *     FPostProcessUtils::BlendPostProcessSettings in BlendBy(). Individual
  *     properties are only active when their corresponding bOverride_* flag is
  *     true; a default-constructed FPostProcessSettings (all overrides off)
@@ -112,7 +112,7 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "ComposableCameraSystem|CameraPose|Physical")
 	float FocusDistance { -1.f };
 
-	/** Shutter speed in 1/seconds. Used for auto-exposure when PhysicalCameraBlendWeight > 0. */
+	/** Shutter speed in 1/seconds. Used for exposure when ExposureBlendWeight > 0. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "ComposableCameraSystem|CameraPose|Physical")
 	float ShutterSpeed { 60.f };
 
@@ -133,13 +133,20 @@ public:
 	float Overscan { 0.f };
 
 	/**
-	 * Blend weight for physical-camera post-process contribution.
-	 * 0 = skip ApplyPhysicalCameraSettings entirely (no DoF/exposure override).
-	 * 1 = apply physical settings at full strength.
+	 * Blend weight for physical-camera DoF post-process contribution.
+	 * 0 = skip DoF-derived physical settings.
+	 * 1 = apply DoF settings at full strength.
 	 * Naturally gates the fade-in of DoF during non-physical -> physical transitions.
 	 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "ComposableCameraSystem|CameraPose|Physical")
 	float PhysicalCameraBlendWeight { 0.f };
+
+	/**
+	 * Blend weight for physical-camera exposure contribution (ISO / ShutterSpeed).
+	 * 0 = leave exposure untouched. 1 = apply exposure settings at full strength.
+	 */
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "ComposableCameraSystem|CameraPose|Physical")
+	float ExposureBlendWeight { 0.f };
 
 	// --- Projection & aspect ---
 
@@ -203,9 +210,11 @@ public:
 	COMPOSABLECAMERASYSTEM_API void SetFieldOfViewDegrees(double InFieldOfViewDegrees);
 
 	/**
-	 * Apply physical-camera-derived settings (DoF, auto-exposure) to a post-process settings block.
-	 * No-op if PhysicalCameraBlendWeight <= 0. Scales contribution by PhysicalCameraBlendWeight.
-	 * Mirrors GameplayCameras' FCameraPose::ApplyPhysicalCameraSettings.
+	 * Apply physical-camera-derived settings (DoF, exposure) to a post-process settings block.
+	 * DoF is gated by PhysicalCameraBlendWeight; exposure is gated by ExposureBlendWeight.
+	 * The physical-exposure enable flag is preserved, not toggled here. When
+	 * that flag is enabled upstream, Lens-driven f-stop changes follow UE's
+	 * physical-camera semantics and may affect exposure.
 	 *
 	 * @param InOutPostProcessSettings  Target to modify.
 	 * @param bOverwriteSettings        If true, overwrites already-set post-process entries; else only writes unset ones.
@@ -220,7 +229,7 @@ public:
 	 *   - Rotation: delta-angle lerp (normalized).
 	 *   - FOV: resolve both sides via GetEffectiveFieldOfView(), lerp degrees, emit degrees-mode result (FocalLength = -1).
 	 *   - Physical numerics: linear lerp.
-	 *   - Sentinel fields (FocusDistance): LerpOptional — inherit valid side if the other is unset.
+	 *   - Sentinel fields (FocusDistance): LerpOptional. Inherit valid side if the other is unset.
 	 *   - Projection booleans/enums: snap at OtherWeight >= 0.5.
 	 */
 	COMPOSABLECAMERASYSTEM_API void BlendBy(const FComposableCameraPose& Other, float OtherWeight);
@@ -310,7 +319,7 @@ public:
 	 *  by per-tick `TRACE_CPUPROFILER_EVENT_SCOPE_STR` so the dynamic Insights
 	 *  scope name doesn't allocate an FString per tick. CameraTag is
 	 *  EditDefaultsOnly so the cache is stable across the camera's lifetime
-	 *  — repopulated only on Initialize (in case the runtime mutates the
+	 * . Repopulated only on Initialize (in case the runtime mutates the
 	 *  tag before construction completes). */
 	FString CameraTagTraceName;
 
@@ -347,7 +356,7 @@ public:
 	 * UComposableCameraTypeAsset::ComputeNodeTemplates into this array,
 	 * then reorders by the type asset's ComputeExecutionOrder (built from
 	 * the editor's BeginPlay compute chain rooted at
-	 * UComposableCameraBeginPlayStartGraphNode — see EditorDesignDoc §8
+	 * UComposableCameraBeginPlayStartGraphNode. See EditorDesignDoc Section 8
 	 * "Dual exec chains: camera chain vs BeginPlay compute chain").
 	 *
 	 * @NOTE: Like CameraNodes, this is EditAnywhere only for debug inspection.
@@ -366,10 +375,10 @@ public:
 	 * Per-node initialization loop. Walks CameraNodes and ComputeNodes, calls
 	 * Node->Initialize on each, and wires OnPreTick/OnPostTick delegates for
 	 * CameraNodes only. Compute nodes are initialized but NOT wired to the
-	 * per-frame tick multicasts — they only run once, from BeginPlayCamera.
+	 * per-frame tick multicasts. They only run once, from BeginPlayCamera.
 	 *
 	 * Called twice during type-asset activation: first from Initialize() (where
-	 * CameraNodes is still empty — a no-op), then again from
+	 * CameraNodes is still empty. A no-op), then again from
 	 * OnTypeAssetCameraConstructed once templates have been duplicated and the
 	 * RuntimeDataBlock wired, so every node's Initialize() runs exactly once.
 	 */
@@ -383,7 +392,7 @@ public:
 	 * AActor::BeginPlay, after per-node Initialize has run for every node.
 	 *
 	 * Compute nodes that need the outgoing camera pose read it from
-	 * OwningPlayerCameraManager->GetCurrentCameraPose() — which is why this
+	 * OwningPlayerCameraManager->GetCurrentCameraPose(). Which is why this
 	 * function no longer takes a pose parameter.
 	 */
 	void BeginPlayCamera();
@@ -396,14 +405,14 @@ public:
 	 * The default per-frame memoization (see `LastTickedFrameCounter`) is a
 	 * correctness requirement for cameras inside the snapshot DAG (a single
 	 * underlying leaf reachable via multiple RefLeaf paths must tick exactly
-	 * once). Callers that own a camera OUTSIDE the DAG — most notably
+	 * once). Callers that own a camera OUTSIDE the DAG. Most notably
 	 * `UComposableCameraLevelSequenceComponent`'s `InternalCamera` and the
-	 * Patch-overlay evaluators — can use this hook to rerun the chain after
+	 * Patch-overlay evaluators. Can use this hook to rerun the chain after
 	 * pushing fresh inputs in the same frame (e.g. a Sequencer Shot / Patch
 	 * override applied after an earlier same-frame tick has already cached a
 	 * stale pose). Inside the DAG, calling
 	 * this would re-introduce the double-advance bug the cache exists to
-	 * prevent — DAG callers must not use it.
+	 * prevent -DAG callers must not use it.
 	 */
 	void InvalidateTickCache() { LastTickedFrameCounter = 0; }
 
@@ -415,13 +424,13 @@ public:
 	 *
 	 * Side effects on the per-frame state are deliberate and identical to a normal
 	 * tick afterward: `LastFrameCameraPose` will reflect this frame's upstream
-	 * input on next tick (per PatchSystemProposal §16.7 — damping / spring nodes
+	 * input on next tick (per PatchSystemProposal Section 16.7. Damping / spring nodes
 	 * inside a Patch see "how much did upstream change between frames", which is
 	 * the right input for smoothing the upstream's motion).
 	 *
 	 * Memoization caveat (carried from TickCamera): if this is called twice in
 	 * the same `GFrameCounter` on the same evaluator, the second call returns the
-	 * cached `CameraPose` from the first call — node chain does NOT re-tick.
+	 * cached `CameraPose` from the first call. Node chain does NOT re-tick.
 	 * Patches do not currently exercise this case (each evaluator is referenced
 	 * by exactly one PatchInstance in exactly one Director's ActivePatches list).
 	 */
@@ -440,7 +449,7 @@ public:
 	 * BindCameraActionsForNewCamera). Matching is by exact class (Node->GetClass()
 	 * == Action->TargetNodeClass), same rule as the Modifier system.
 	 *
-	 * These are NOT UPROPERTY — ownership lives on the PCM's CameraActions
+	 * These are NOT UPROPERTY. Ownership lives on the PCM's CameraActions
 	 * UPROPERTY TSet, which is the GC root. This camera-local view is just a
 	 * hot-path iteration cache; the PCM clears it via UnregisterNodeAction when
 	 * an action expires, and EndPlay clears it defensively.
@@ -478,19 +487,19 @@ public:
 	 *
 	 * Invoked from the viewport debug ticker when `CCS.Debug.Viewport` is
 	 * enabled. Two independently gated pieces:
-	 *  - Frustum pyramid at the camera's current pose — drawn only when
+	 *  - Frustum pyramid at the camera's current pose. Drawn only when
 	 *    `bDrawFrustum` is true. The ticker passes true only while the
 	 *    player is NOT viewing through the camera (F8 eject / SIE /
 	 *    `CCS.Debug.Viewport.AlwaysShow`), because otherwise the pyramid
 	 *    just occludes the near plane.
 	 *  - A walk over `CameraNodes` calling each node's `DrawNodeDebug`.
-	 *    Always invoked — each node's override checks its own per-node
+	 *    Always invoked. Each node's override checks its own per-node
 	 *    CVar (`CCS.Debug.Viewport.<NodeName>`) and early-outs when zero.
 	 *    Per-node gizmos are therefore visible in BOTH possessed play
 	 *    and ejected state, because they rarely occlude the viewpoint.
 	 *
 	 * Reads `CameraPose` (the leaf-local evaluated pose), not the PCM's
-	 * blended pose — for the running camera in a steady state these are
+	 * blended pose. For the running camera in a steady state these are
 	 * the same; during a transition, this shows the pose this camera is
 	 * contributing, not the blended result.
 	 *
@@ -501,7 +510,7 @@ public:
 	/**
 	 * 2D counterpart to DrawCameraDebug. Walks `CameraNodes` and invokes
 	 * each node's `DrawNodeDebug2D` override. Called by the viewport debug
-	 * service's "Game"-channel hook (HUD pass) — fires during PIE possessed
+	 * service's "Game"-channel hook (HUD pass). Fires during PIE possessed
 	 * play, not during F8 eject. Each node gates its own output on its
 	 * per-node CVar, same pattern as the 3D path.
 	 */
@@ -545,10 +554,10 @@ public:
 	 * Per-frame tick memoization.
 	 *
 	 * When the evaluation DAG (produced by snapshot-based RefLeaves)
-	 * reaches the same camera via multiple paths in a single frame —
-	 * e.g. the pop transition's target subtree AND the RefLeaf→B →
-	 * push-source RefLeaf both bottom out at the same original A leaf —
-	 * a second TickCamera would double-advance the camera's per-node
+	 * reaches the same camera via multiple paths in a single frame, e.g.
+	 * the pop transition's target subtree and the RefLeaf-A push-source
+	 * RefLeaf both bottom out at the same original A leaf, a second
+	 * TickCamera would double-advance the camera's per-node
 	 * state (damping, interpolator `bStartFrame`, spline progress, noise
 	 * seeds, etc.). TickCamera compares GFrameCounter against this
 	 * value: if it matches, the cached CameraPose is returned verbatim
@@ -557,13 +566,13 @@ public:
 	 * 0 is a valid sentinel: GFrameCounter starts above 0 in any real
 	 * engine session, so a freshly-constructed camera (counter = 0)
 	 * will always take the full-tick path on its first evaluation.
-	 * Not a UPROPERTY — purely transient evaluation-time scratch.
+	 * Not a UPROPERTY. Purely transient evaluation-time scratch.
 	 */
 	uint64 LastTickedFrameCounter { 0 };
 
 	/**
 	 * Set by `UComposableCameraCompositionFramingNode::OnTickNode` each tick
-	 * — true when the primary `SolveShot` returned `bValid=false` (anchor
+	 *. True when the primary `SolveShot` returned `bValid=false` (anchor
 	 * unresolvable, all weights zero, target index out of range, etc.).
 	 *
 	 * Consumed by `UComposableCameraLevelSequenceComponent::ProjectPoseToCineCamera`
@@ -573,14 +582,14 @@ public:
 	 * invalid-framing path: if evaluation runs before Sequencer has pushed
 	 * the first Shot override, the solver runs against the framing node's
 	 * default empty Shot, fails, and would otherwise project an origin pose
-	 * onto the CineCam — destroying the camera's spawn-position transform
+	 * onto the CineCam. Destroying the camera's spawn-position transform
 	 * just before the PCM ViewTarget switch reads it.
 	 *
 	 * Cameras without a CompositionFramingNode keep this at the default
-	 * `false` and project normally — the flag is only ever written by the
+	 * `false` and project normally. The flag is only ever written by the
 	 * framing node, so non-framing pipelines aren't affected.
 	 *
-	 * Transient — not a UPROPERTY. Reset by spawn (default ctor → false)
+	 * Transient. Not a UPROPERTY. Reset by spawn (default ctor->false)
 	 * and by every framing node tick.
 	 */
 	bool bLastTickFramingFailed { false };
@@ -604,7 +613,7 @@ public:
 	 *
 	 * CameraNodeIndex in each entry references the author-order index in
 	 * ComputeNodes (which is parallel to TypeAsset::ComputeNodeTemplates when
-	 * ComputeFullExecChain is non-empty — in that case OnTypeAssetCameraConstructed
+	 * ComputeFullExecChain is non-empty. In that case OnTypeAssetCameraConstructed
 	 * skips the legacy reorder to preserve index correspondence).
 	 */
 	UPROPERTY(Transient)
@@ -624,7 +633,7 @@ public:
 	/**
 	 * Owned RuntimeDataBlock for type-asset-based cameras.
 	 * Allocated during activation from a UComposableCameraTypeAsset.
-	 * Nodes hold raw pointers into this block — they never outlive the camera.
+	 * Nodes hold raw pointers into this block. They never outlive the camera.
 	 */
 	TUniquePtr<FComposableCameraRuntimeDataBlock> OwnedRuntimeDataBlock;
 
@@ -637,15 +646,15 @@ public:
 	 * STRONG ref by design (not weak). Reactivation routes through
 	 * `OnTypeAssetCameraConstructed`, which dereferences this to walk the
 	 * type asset's NodeTemplates / ExposedParameters / FullExecChain. If
-	 * the asset was originally loaded transiently — soft path resolved
+	 * the asset was originally loaded transiently. Soft path resolved
 	 * mid-frame, DataTable row asset, BP local that already went out of
-	 * scope — the only remaining reference at activation time may be this
+	 * scope. The only remaining reference at activation time may be this
 	 * one. A weak ref would let GC reclaim the asset between activation
 	 * and a later modifier-triggered Reactivate, the `.Get()` would return
 	 * null, and the new camera would be built as an empty shell with no
 	 * nodes / no data block (silent regression, no crash). The strong
 	 * ref's only cost is keeping the type asset alive for the camera's
-	 * lifetime — acceptable because (a) type assets are small metadata,
+	 * lifetime. Acceptable because (a) type assets are small metadata,
 	 * (b) the camera owns this anyway in spirit (it can't function
 	 * without it), and (c) the field is `Transient` so save / load is
 	 * unaffected.

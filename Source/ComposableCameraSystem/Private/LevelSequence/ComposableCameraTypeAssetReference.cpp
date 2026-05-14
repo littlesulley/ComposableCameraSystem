@@ -1,4 +1,4 @@
-// Copyright Sulley. All rights reserved.
+﻿// Copyright Sulley. All rights reserved.
 
 #include "LevelSequence/ComposableCameraTypeAssetReference.h"
 
@@ -28,7 +28,7 @@ void FComposableCameraTypeAssetReference::RebuildBagsFromTypeAsset()
 	}
 
 	// Variables bag: one descriptor per entry in TypeAsset->ExposedVariables.
-	// InternalVariables are node-private (not caller-overridable) — they do not
+	// InternalVariables are node-private (not caller-overridable). They do not
 	// appear in the bag and are driven purely by the TypeAsset's InitialValueString.
 	TArray<FPropertyBagPropertyDesc> VariableDescs;
 	VariableDescs.Reserve(TypeAsset->ExposedVariables.Num());
@@ -43,9 +43,8 @@ void FComposableCameraTypeAssetReference::RebuildBagsFromTypeAsset()
 
 	// MigrateToNewBagStruct preserves values for properties whose name + type
 	// survive the new layout and resets the rest to their type defaults. This
-	// is what we want: renaming an exposed parameter → entry re-created; pure
-	// addition of new parameters → existing values preserved; type change →
-	// value reset (can't carry a float through into a vector slot safely).
+	// is what we want: renaming an exposed parameter ->entry re-created; pure
+	// addition of new parameters ->existing values preserved; type change ->	// value reset (can't carry a float through into a vector slot safely).
 	if (const UPropertyBag* NewParamStruct = UPropertyBag::GetOrCreateFromDescs(ParameterDescs))
 	{
 		Parameters.MigrateToNewBagStruct(NewParamStruct);

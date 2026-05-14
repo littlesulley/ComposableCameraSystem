@@ -1,4 +1,4 @@
-// Copyright Sulley. All rights reserved.
+﻿// Copyright Sulley. All rights reserved.
 
 #pragma once
 
@@ -11,11 +11,11 @@
  * for every active `UComposableCameraCompositionFramingNode` whose
  * `Aim.AimZones` (or `Placement.PlacementZones` under `AnchorAtScreen`)
  * has `bEnabled == true`. Mirrors the Shot Editor's preview overlay
- * (§D.4.1 of EditorDesignDoc) so designers see identical framing zones
+ * (Section D.4.1 of EditorDesignDoc) so designers see identical framing zones
  * in PIE / packaged play / Sequencer scrub as they did while authoring.
  *
  * Gating:
- *   - Master CVar: `CCS.Debug.Viewport.ShotZones 0|1` — when 0, nothing
+ *   - Master CVar: `CCS.Debug.Viewport.ShotZones 0|1`. When 0, nothing
  *     draws and the registered delegates skip in O(1).
  *   - Independent of the 3D-gizmo `CCS.Debug.Viewport` master and any
  *     per-node CVars. The two viewport-debug groups address different
@@ -23,7 +23,7 @@
  *     framing-zone overlay) and shouldn't entangle.
  *
  * Rendering pathway: `UDebugDrawService::Register("Game" / "Editor", ...)`
- * — same dual-channel + per-(frame, FCanvas*) dedup pattern
+ *. Same dual-channel + per-(frame, FCanvas*) dedup pattern
  * `FComposableCameraDebugPanel` uses, so the overlay survives the F8
  * eject viewport swap and doesn't double-draw when one viewport
  * transiently has both ShowFlags set. Iterating
@@ -32,7 +32,7 @@
  * camera"; both the gameplay PCM path and the LS Component path
  * register identically because both end up running the same node.
  *
- * All cost is guarded `#if !UE_BUILD_SHIPPING` — overlays are an
+ * All cost is guarded `#if !UE_BUILD_SHIPPING`. Overlays are an
  * authoring / debugging affordance, not a runtime feature.
  *
  * Lifecycle: module-owned. `FComposableCameraSystemModule::StartupModule`

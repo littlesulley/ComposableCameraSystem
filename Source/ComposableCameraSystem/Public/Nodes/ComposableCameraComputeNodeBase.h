@@ -1,4 +1,4 @@
-// Copyright Sulley. All rights reserved.
+﻿// Copyright Sulley. All rights reserved.
 
 #pragma once
 
@@ -16,9 +16,9 @@
  * then plumbed through the graph).
  *
  * Why a dedicated base class instead of "just use a camera node"?
- * ──────────────────────────────────────────────────────────────
+ * --------------------------------------------------------------
  *   - Camera nodes are walked per-frame by TickCamera and multicast through
- *     OnPreTick / OnPostTick. A compute node must not touch any of that — it
+ *     OnPreTick / OnPostTick. A compute node must not touch any of that. It
  *     would otherwise burn hot-path time on values that never change.
  *   - Compute nodes still need the pin system (GetInputPinValue /
  *     SetOutputPinValue / Set/GetInternalVariable), which only lives on
@@ -30,12 +30,12 @@
  *     camera nodes wire off the main Start sentinel. The sync/rebuild phases
  *     classify a UComposableCameraNodeGraphNode as camera-chain vs
  *     compute-chain by testing IsA<UComposableCameraComputeNodeBase> on its
- *     underlying NodeTemplate, which is exactly this base class — so the
+ *     underlying NodeTemplate, which is exactly this base class. So the
  *     runtime discriminator "this belongs on the BeginPlay chain" is the
  *     same type check the editor uses.
  *
  * Why a dedicated class instead of UObject?
- * ─────────────────────────────────────────
+ * -----------------------------------------
  *   - K2 math graph nodes from the BlueprintGraph module do not work in our
  *     custom UEdGraph without significant engineering. The pragmatic Option
  *     B is: author a compute node in C++, use FMath / FVector / FQuat /
@@ -46,7 +46,7 @@
  *     editor palette / pin rendering / type-asset authoring uniform.
  *
  * Lifecycle
- * ─────────
+ * ---------
  *   1. Camera activation fires AComposableCameraCameraBase::InitializeNodes.
  *   2. Each compute node has OnInitialize_Implementation invoked via the
  *      inherited Initialize() path (same machinery camera nodes use). This
@@ -59,7 +59,7 @@
  *      pins the compute chain published.
  *
  * Compute nodes must NOT register for OnPreTick / OnPostTick and must NOT
- * override OnTickNode_Implementation — they are not per-frame nodes. The
+ * override OnTickNode_Implementation. They are not per-frame nodes. The
  * camera's InitializeNodes loop intentionally skips tick-delegate wiring
  * for compute nodes for exactly this reason.
  */
@@ -70,7 +70,7 @@ class COMPOSABLECAMERASYSTEM_API UComposableCameraComputeNodeBase
 	GENERATED_BODY()
 
 public:
-	// Compute-tree default category — lifts subclasses out of "Misc" without
+	// Compute-tree default category. Lifts subclasses out of "Misc" without
 	// needing each one to set the field explicitly. Concrete compute nodes
 	// can still override in their own ctor when a more specific bucket fits
 	// (e.g. a future "Compute Nodes|Probe" / "Compute Nodes|IO" group).
@@ -92,7 +92,7 @@ public:
 	 *
 	 * The outgoing camera pose (the pose the previous camera was evaluating
 	 * before this one became active) is available via
-	 * OwningPlayerCameraManager->GetCurrentCameraPose() — this is the same
+	 * OwningPlayerCameraManager->GetCurrentCameraPose(). This is the same
 	 * value AActor::BeginPlay used to pass into BeginPlayCamera as a
 	 * parameter before Step 4a removed that argument.
 	 *
@@ -104,7 +104,7 @@ public:
 	 */
 	virtual void ExecuteBeginPlay() {}
 
-	// Compute nodes are never evaluated in the Level Sequence path — LS skips
+	// Compute nodes are never evaluated in the Level Sequence path -LS skips
 	// the entire BeginPlay compute chain because scrubbing a timeline with
 	// one-shot initialization logic is ambiguous. Values the compute chain
 	// would publish must instead be re-sourced as exposed parameters. The

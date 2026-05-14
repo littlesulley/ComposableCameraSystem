@@ -18,7 +18,7 @@
  * FComposableCameraSystemEditorModule::StartupModule, alongside the existing
  * pin factory.
  */
-class FComposableCameraGraphNodeFactory : public FGraphPanelNodeFactory
+class FComposableCameraGraphNodeFactory: public FGraphPanelNodeFactory
 {
 public:
 	virtual TSharedPtr<class SGraphNode> CreateNode(class UEdGraphNode* InNode) const override;

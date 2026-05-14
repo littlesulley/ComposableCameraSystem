@@ -7,7 +7,7 @@
 #include "Transitions/ComposableCameraTransitionBase.h"
 #include "ComposableCameraNamespaces.h"
 #include "Core/ComposableCameraParameterBlock.h"
-// Always included — `GetPoseHistory` is part of the public surface even
+// Always included -`GetPoseHistory` is part of the public surface even
 // in shipping builds (returns an empty array there). Keeps the Panel
 // cpp linkable without per-configuration #ifs around every call site.
 #include "Debug/ComposableCameraPoseHistoryData.h"
@@ -107,11 +107,11 @@ public:
 	// ~~~~ Actions.
 	UComposableCameraActionBase* AddCameraAction(TSubclassOf<UComposableCameraActionBase> ActionClass, bool bOnlyForCurrentCamera);
 	UComposableCameraActionBase* FindCameraAction(TSubclassOf<UComposableCameraActionBase> ActionClass);
-	/** Public API: fully remove an action — unbind from RunningCamera AND drop
+	/** Public API: fully remove an action. Unbind from RunningCamera AND drop
 	 *  it from the `CameraActions` TSet so neither `FindCameraAction` returns
 	 *  it nor `BindCameraActionsForNewCamera` re-binds it onto the next camera.
 	 *  Previously this only unbound from RunningCamera, leaving the action
-	 *  strongly referenced by the PCM's TSet — external callers that expected
+	 *  strongly referenced by the PCM's TSet. External callers that expected
 	 *  "remove" semantics ended up with the action zombie-bound to every
 	 *  subsequent camera switch. */
 	void RemoveCameraAction(UComposableCameraActionBase* Action);
@@ -136,7 +136,7 @@ public:
 		const FComposableCameraActivateParams& ActivationParams = FComposableCameraActivateParams());
 
 	/**
-	 * Terminate the current camera context — pops the active (top) context off the stack.
+	 * Terminate the current camera context. Pops the active (top) context off the stack.
 	 * The previous context resumes with an optional transition. Cannot pop the base context.
 	 * This is the explicit way to end a context. Transient cameras trigger this automatically.
 	 *
@@ -172,7 +172,7 @@ public:
 	/** Read-only access to the Tier-1 context stack. Intended for debug
 	 *  tooling (FComposableCameraDebugPanel, editor inspectors, tests).
 	 *  Gameplay code should go through the PCM's ActivateCamera / Pop*
-	 *  methods — do not mutate the stack through this pointer. */
+	 *  methods. Do not mutate the stack through this pointer. */
 	const UComposableCameraContextStack* GetContextStack() const { return ContextStack; }
 
 	/** Read-only access to the modifier manager. Intended for debug tooling
@@ -188,8 +188,7 @@ public:
 	 * `PoseHistoryCapacity` frames (~2 s at 60 fps).
 	 *
 	 * Debug-only consumer: the Pose History panel reads this every frame
-	 * to render sparklines and hover tooltips. Not exposed to Blueprint —
-	 * gameplay code should not depend on it.
+	 * to render sparklines and hover tooltips. Not exposed to Blueprint - gameplay code should not depend on it.
 	 *
 	 * In shipping builds this is a no-op returning an empty array (the
 	 * ring itself is `#if !UE_BUILD_SHIPPING`). The signature is kept in
@@ -198,7 +197,7 @@ public:
 	 */
 	void GetPoseHistory(TArray<FComposableCameraPoseHistoryEntry>& OutHistory) const;
 
-	/** Fixed ring-buffer capacity. 120 frames ≈ 2 seconds at 60 fps, which
+	/** Fixed ring-buffer capacity. 120 frames <=2 seconds at 60 fps, which
 	 *  is enough to catch the "what happened half a second ago?" class of
 	 *  debug questions without blowing memory. Per-entry footprint is
 	 *  ~48 bytes so total is ~6 KB per PCM. */
@@ -222,20 +221,20 @@ private:
 	 *    2. Falling back to ensuring the project-settings base context
 	 *  Returns nullptr only if both paths fail (no stack, no configured
 	 *  context names). The single shared implementation prevents the
-	 *  "n public APIs, n−1 of them remembered to fall back" drift pattern
+	 *  "n public APIs, nin of them remembered to fall back" drift pattern
 	 *  that recurs whenever a new public entry-point is added. `Caller` is
-	 *  used purely to attribute the failure log — pass a literal string. */
+	 *  used purely to attribute the failure log. Pass a literal string. */
 	UComposableCameraDirector* ResolveActiveDirectorOrFallback(const TCHAR* Caller);
 
 	/** Unbind an action's delegates / node hooks from the running camera, but
-	 *  do NOT touch the `CameraActions` TSet — used by `UpdateActions`'s
+	 *  do NOT touch the `CameraActions` TSet. Used by `UpdateActions`'s
 	 *  iterate-then-remove pattern (mutating the TSet during iteration is
 	 *  unsafe; the scratch + post-loop `Remove` handles the membership side).
 	 *  External callers wanting "remove and forget" should call the public
 	 *  `RemoveCameraAction`, which composes this helper with the TSet drop. */
 	void UnbindCameraActionFromCamera(UComposableCameraActionBase* Action);
 
-	/** Mirror of `UnbindCameraActionFromCamera` — the bind side of the
+	/** Mirror of `UnbindCameraActionFromCamera`. The bind side of the
 	 *  per-Action delegate / node-hook setup. Pulled out of the public
 	 *  `AddCameraAction` body so the post-loop sweep in `UpdateActions`
 	 *  can finish the deferred-add path without duplicating the dispatch
@@ -248,7 +247,7 @@ private:
 	// Build debug string for modifiers.
 	void BuildModifierDebugString(FDisplayDebugManager& DisplayDebugManager);
 
-	// ─── Type Asset Activation Helper ─────────────────────────────────────
+	// --- Type Asset Activation Helper -------------------------------------
 	// FOnCameraFinishConstructed is a dynamic delegate that doesn't support BindLambda.
 	// These transient members + UFUNCTION serve as the callback for ActivateNewCameraFromTypeAsset.
 
@@ -262,18 +261,18 @@ public:
 	 * to another. Implements the five-tier resolution chain:
 	 *
 	 *   1. CallerOverride             (returned directly if non-null)
-	 *   2. Transition table lookup    (exact A→B pair from project settings)
-	 *   3. Source's ExitTransition    (SourceTypeAsset field — "always leave this way")
-	 *   4. Target's EnterTransition   (TargetTypeAsset field — "always enter this way")
+	 *   2. Transition table lookup    (exact A->A pair from project settings)
+	 *   3. Source's ExitTransition    (SourceTypeAsset field -"always leave this way")
+	 *   4. Target's EnterTransition   (TargetTypeAsset field -"always enter this way")
 	 *   5. nullptr                    (hard cut)
 	 *
-	 * The table (tier 2) performs exact-match only — no wildcards. Per-camera
+	 * The table (tier 2) performs exact-match only. No wildcards. Per-camera
 	 * ExitTransition and EnterTransition (tiers 3/4) serve as the per-camera
 	 * fallbacks when no explicit pair is defined in the table.
 	 *
 	 * @param SourceTypeAsset  The type asset of the currently-running camera (may be nullptr).
 	 * @param TargetTypeAsset  The type asset being activated (may be nullptr).
-	 * @param CallerOverride   Explicit caller transition — if non-null, wins unconditionally.
+	 * @param CallerOverride   Explicit caller transition. If non-null, wins unconditionally.
 	 * @return The resolved transition instance (owned by the type asset or table entry),
 	 *         or nullptr for a hard cut. Caller must DuplicateObject before mutating.
 	 */
@@ -299,7 +298,7 @@ private:
 	UPROPERTY(Transient)
 	TObjectPtr<UComposableCameraTypeAsset> PendingTypeAsset;
 
-	/** Pending parameter block for the type-asset activation callback. Not a UPROPERTY — plain struct. */
+	/** Pending parameter block for the type-asset activation callback. Not a UPROPERTY. Plain struct. */
 	FComposableCameraParameterBlock PendingParameterBlock;
 
 public:
@@ -335,10 +334,10 @@ public:
 
 	/** Per-frame scratch buffer for `UpdateActions`: collects pointers of
 	 *  expired/null actions during the iteration so the actual `Remove`s
-	 *  happen in a second pass (safe — TSet mutation during iteration is
+	 *  happen in a second pass (safe -TSet mutation during iteration is
 	 *  not). Member-scoped so the TArray's heap allocation amortizes
 	 *  across frames; `Reset()` keeps capacity. Earlier code constructed
-	 *  a fresh `TSet<UObject*>` every tick — TSet allocates a node per
+	 *  a fresh `TSet<UObject*>` every tick -TSet allocates a node per
 	 *  insert and may rehash, so even an empty set paid one heap alloc
 	 *  per frame and a populated set paid more. Move to a `TArray` of
 	 *  raw pointers since (a) we never look up by key, (b) actions can't
@@ -346,7 +345,7 @@ public:
 	 *
 	 *  **Lifetime contract**: this scratch is intentionally NOT UPROPERTY
 	 *  and NOT TWeakObjectPtr. It must therefore be EMPTY whenever
-	 *  control is outside `UpdateActions` — `Reset()` runs both at the
+	 *  control is outside `UpdateActions` -`Reset()` runs both at the
 	 *  start AND at the end of the function so a GC sweep between frames
 	 *  cannot encounter stale raw `UObject*` entries here. Do not add
 	 *  any code path that leaves entries live across the function
@@ -365,10 +364,10 @@ public:
 	 *  effect on the NEXT frame's UpdateActions tick (it does not
 	 *  retroactively join the iteration that spawned it).
 	 *
-	 *  This list IS `UPROPERTY(Transient)` because — unlike
+	 *  This list IS `UPROPERTY(Transient)` because. Unlike
 	 *  `CameraActionsRemovalScratch` whose entries are still members of
 	 *  the GC-visible `CameraActions` TSet for the duration of the
-	 *  function — pending-add entries are freshly `NewObject`ed and have
+	 *  function. Pending-add entries are freshly `NewObject`ed and have
 	 *  NOT been registered into any reflected container yet. A GC pass
 	 *  triggered re-entrantly from inside an Action's `OnCanExecute`
 	 *  (sync `LoadObject`, BP exception during eval, slow Blueprint that
@@ -394,15 +393,15 @@ private:
 	UPROPERTY(Transient)
 	FMinimalViewInfo LastDesiredView;
 
-	// ─── Implicit Camera Activation State ────────────────────────────────
+	// --- Implicit Camera Activation State --------------------------------
 	/** Guard against re-entrant SetViewTarget calls during implicit activation.
 	 *  When the PCM calls ActivateNewCamera internally, the Director may call
-	 *  Super::SetViewTarget as part of its bookkeeping — the guard prevents
+	 *  Super::SetViewTarget as part of its bookkeeping. The guard prevents
 	 *  that from recursing back into implicit activation. */
 	bool bIsImplicitlyActivating { false };
 
 	/** True only inside `UpdateActions`'s range-for over `CameraActions`. The
-	 *  public `RemoveCameraAction` checks this — when set, it performs the
+	 *  public `RemoveCameraAction` checks this. When set, it performs the
 	 *  unbind half + queues the action into `CameraActionsRemovalScratch`
 	 *  instead of mutating the TSet directly. UpdateActions then does a
 	 *  single post-loop sweep that drains the scratch with `Remove`. Without
@@ -414,7 +413,7 @@ private:
 	bool bIsUpdatingActions { false };
 
 #if !UE_BUILD_SHIPPING
-	// ─── Pose History Ring Buffer (debug only) ───────────────────────────
+	// --- Pose History Ring Buffer (debug only) ---------------------------
 	//
 	// Flat fixed-size array + head index. Writer advances HeadIndex each
 	// frame; reader copies out into a chronological TArray by walking

@@ -1,4 +1,4 @@
-// Copyright Sulley. All rights reserved.
+ï»¿// Copyright Sulley. All rights reserved.
 
 #pragma once
 
@@ -96,7 +96,7 @@ private:
 	// Stored as TWeakObjectPtr (not raw, not UPROPERTY): LookAtActor can be
 	// driven by an input pin and CHANGE every frame, and the SkelMesh
 	// component on that actor can be destroyed / re-spawned independently
-	// of this node ¡ª Tick must IsValid()-check before deref. Resolution
+	// of this node - Tick must IsValid()-check before deref. Resolution
 	// happens lazily in Tick when the active LookAtActor differs from the
 	// last actor we resolved against (`LastResolvedLookAtActor`); that
 	// avoids the per-frame `GetComponentByClass` walk while still picking

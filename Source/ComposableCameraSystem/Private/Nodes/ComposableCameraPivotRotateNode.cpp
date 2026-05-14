@@ -10,7 +10,7 @@ void UComposableCameraPivotRotateNode::OnInitialize_Implementation()
 {
 	Super::OnInitialize_Implementation();
 
-	// Build the per-instance rotator interpolator once — every subsequent tick
+	// Build the per-instance rotator interpolator once. Every subsequent tick
 	// just calls Reset/Run on it, so the hot path stays allocation-free.
 	Interpolator_T = IsValid(Interpolator) ? Interpolator->BuildRotatorInterpolator() : nullptr;
 }
@@ -18,13 +18,13 @@ void UComposableCameraPivotRotateNode::OnInitialize_Implementation()
 void UComposableCameraPivotRotateNode::OnTickNode_Implementation(float DeltaTime,
 	const FComposableCameraPose& CurrentCameraPose, FComposableCameraPose& OutCameraPose)
 {
-	// Pin-resolved PivotActor is missing — leave the upstream rotation
+	// Pin-resolved PivotActor is missing. Leave the upstream rotation
 	// untouched so the camera doesn't snap to identity. Intentional null
 	// wiring is common during early activation (context parameter not yet
 	// pushed); spamming a per-frame log would be noisy. The editor's
 	// required-pin diagnostics surface authoring mistakes instead.
 	AActor* EffectivePivotActor = ComposableCameraSystem::ResolveActorInput(
-		PivotActorSource, PivotActor.Get(), GetOwningPlayerCameraManager());
+		PivotActorSource, PivotActor.Get(), GetOwningPlayerCameraManager(), this);
 	if (!IsValid(EffectivePivotActor))
 	{
 		return;
@@ -42,8 +42,8 @@ void UComposableCameraPivotRotateNode::OnTickNode_Implementation(float DeltaTime
 	if (Interpolator_T)
 	{
 		// Standard interpolator idiom across this plugin (matches AutoRotateNode
-		// and LookAtNode soft-mode): re-seed Current ← live camera rotation,
-		// Target ← this frame's resolved target, then advance one DeltaTime
+		// and LookAtNode soft-mode): re-seed Current ->live camera rotation,
+		// Target -> this frame's resolved target, then advance one DeltaTime
 		// step. The interpolator's OnReset gets both old and new (Current,
 		// Target) pairs so velocity-aware variants can adapt when the target
 		// shifts mid-flight (e.g. PivotActor turning continuously).
@@ -52,7 +52,7 @@ void UComposableCameraPivotRotateNode::OnTickNode_Implementation(float DeltaTime
 	}
 	else
 	{
-		// No interpolator authored — snap to the target.
+		// No interpolator authored. Snap to the target.
 		OutCameraPose.Rotation = TargetRotation;
 	}
 }
@@ -103,7 +103,7 @@ void UComposableCameraPivotRotateNode::GetPinDeclarations_Implementation(
 		OutPins.Add(Pin);
 	}
 
-	// Note: `Interpolator` is an Instanced subobject — the base class's
+	// Note: `Interpolator` is an Instanced subobject. The base class's
 	// AutoDeclareSubobjectPins automatically surfaces its inner properties as
 	// "Interpolator.<Field>" pins; no manual declaration needed here.
 }

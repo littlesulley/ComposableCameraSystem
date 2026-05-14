@@ -26,14 +26,14 @@ namespace
 namespace
 {
 	// FOV is authored in degrees; clamp to a sane open range before passing
-	// through tan/atan. tan(FOV/2) explodes as FOV approaches 180°, and near
-	// 0° it underflows toward zero — either extreme yields nonsense camera
-	// distances (zero or infinity). 1°..179° is far wider than any real
+	// through tan/atan. tan(FOV/2) explodes as FOV approaches 180 deg, and near
+	// 0 deg it underflows toward zero. Either extreme yields nonsense camera
+	// distances (zero or infinity). 1 deg..179 deg is far wider than any real
 	// cinematic use of the effect yet avoids the singularities.
 	constexpr double MinSafeFOVDegrees = 1.0;
 	constexpr double MaxSafeFOVDegrees = 179.0;
 
-	// Distances below this floor are treated as unusable — the LockConstant
+	// Distances below this floor are treated as unusable. The LockConstant
 	// formula divides by sin/tan/2 at these distances and the derived FOV
 	// shoots past MaxSafeFOV. Matches the "below this, there is no useful
 	// DoF" floor at roughly a typical near plane.
@@ -62,7 +62,7 @@ void UComposableCameraHitchcockZoomNode::OnTickNode_Implementation(
 
 	if (!bEnable)
 	{
-		// Pass-through this tick; do NOT advance ElapsedTime — when the
+		// Pass-through this tick; do NOT advance ElapsedTime. When the
 		// user re-enables, the effect resumes from exactly where it
 		// paused. Also do NOT clear bHasCapturedInitialState so a mid-
 		// effect disable/enable doesn't recapture against a different
@@ -81,7 +81,7 @@ void UComposableCameraHitchcockZoomNode::OnTickNode_Implementation(
 
 	const FVector UpstreamPos = OutCameraPose.Position;
 
-	// ─── First-tick capture ──────────────────────────────────────────────
+	// --- First-tick capture ----------------------------------------------
 	if (!bHasCapturedInitialState)
 	{
 		const double Dist = FVector::Distance(UpstreamPos, TargetPoint);
@@ -89,7 +89,7 @@ void UComposableCameraHitchcockZoomNode::OnTickNode_Implementation(
 		{
 			// Upstream placed the camera essentially at the subject. We
 			// cannot meaningfully derive a lock constant (tan(FOV/2) *
-			// near-zero distance = near-zero constant → any subsequent
+			// near-zero distance = near-zero constant ->any subsequent
 			// FOV change would yield wild distances). Skip capture this
 			// frame and try again on the next one; typical cameras settle
 			// into their authored distance within a frame or two of a
@@ -105,8 +105,7 @@ void UComposableCameraHitchcockZoomNode::OnTickNode_Implementation(
 		// Resolve the baseline FOV from either the explicit override (when
 		// the camera type asset has no upstream FOV-writing node and the
 		// author wants to specify the effect's starting FOV directly) or
-		// from the upstream pose. Sentinel <= 0 means "use upstream" —
-		// same convention as LensNode's FocusDistance and the pose's
+		// from the upstream pose. Sentinel <= 0 means "use upstream" -		// same convention as LensNode's FocusDistance and the pose's
 		// FieldOfView / FocalLength fields.
 		const double BaselineFOV = (InitialFOVOverride > 0.f)
 			? static_cast<double>(InitialFOVOverride)
@@ -117,18 +116,18 @@ void UComposableCameraHitchcockZoomNode::OnTickNode_Implementation(
 		LockConstant = InitialDistance * FMath::Tan(HalfFOVRad);
 		bHasCapturedInitialState = true;
 
-		// Fall through — first-tick output is InitialFOV / InitialDistance
+		// Fall through: first-tick output is InitialFOV / InitialDistance
 		// exactly, because at NormalizedTime = 0 the additive curves
 		// evaluate to 0 delta. No seam at t=0.
 	}
 
-	// ─── NormalizedTime (Once-only, clamps at 1) ─────────────────────────
+	// --- NormalizedTime (Once-only, clamps at 1) -------------------------
 	ElapsedTime += DeltaTime;
 	const double NormalizedTime = Duration > UE_KINDA_SMALL_NUMBER
 		? FMath::Min<double>(ElapsedTime / Duration, 1.0)
 		: 1.0;
 
-	// ─── Solve FOV + Distance from the chosen driver ─────────────────────
+	// --- Solve FOV + Distance from the chosen driver ---------------------
 	double FOVDegrees = InitialFOVDegrees;
 	double Distance = InitialDistance;
 
@@ -142,7 +141,7 @@ void UComposableCameraHitchcockZoomNode::OnTickNode_Implementation(
 			FOVDegrees = FMath::Clamp(InitialFOVDegrees + FOVDelta, MinSafeFOVDegrees, MaxSafeFOVDegrees);
 
 			// Solve Distance from the lock constant. tan is monotonic on
-			// (0°, 180°); clamping FOV above guarantees denominator is
+			// (0 deg, 180 deg); clamping FOV above guarantees denominator is
 			// strictly positive and finite.
 			const double HalfFOVRad = FMath::DegreesToRadians(FOVDegrees * 0.5);
 			const double TanHalf = FMath::Tan(HalfFOVRad);
@@ -167,7 +166,7 @@ void UComposableCameraHitchcockZoomNode::OnTickNode_Implementation(
 		break;
 	}
 
-	// ─── User-facing distance clamp (safety rail for pathological curves) ─
+	// --- User-facing distance clamp (safety rail for pathological curves) ---
 	if (bClampCameraDistance)
 	{
 		const double Clamped = FMath::Clamp(
@@ -189,7 +188,7 @@ void UComposableCameraHitchcockZoomNode::OnTickNode_Implementation(
 		}
 	}
 
-	// ─── Resolve direction and apply ─────────────────────────────────────
+	// --- Resolve direction and apply -------------------------------------
 	// Direction is re-read from the upstream pose every tick so an upstream
 	// LookAt / CameraOffset can still steer the view direction during the
 	// effect. Hitchcock owns only the radial distance + FOV.
@@ -224,7 +223,7 @@ void UComposableCameraHitchcockZoomNode::OnTickNode_Implementation(
 bool UComposableCameraHitchcockZoomNode::ResolveTargetPoint(FVector& OutTargetPoint) const
 {
 	AActor* EffectivePivotActor = ComposableCameraSystem::ResolveActorInput(
-		PivotActorSource, PivotActor.Get(), GetOwningPlayerCameraManager());
+		PivotActorSource, PivotActor.Get(), GetOwningPlayerCameraManager(), this);
 	if (!EffectivePivotActor)
 	{
 		return false;
@@ -242,7 +241,7 @@ bool UComposableCameraHitchcockZoomNode::ResolveTargetPoint(FVector& OutTargetPo
 				return true;
 			}
 		}
-		// Bone missing — fall through to actor + Z offset.
+		// Bone missing. Fall through to actor + Z offset.
 	}
 
 	OutTargetPoint = EffectivePivotActor->GetActorLocation() + FVector(0.f, 0.f, PivotZOffset);
@@ -280,7 +279,7 @@ void UComposableCameraHitchcockZoomNode::GetPinDeclarations_Implementation(
 		Pin.bRequired = false;
 		Pin.bDefaultAsPin = true;
 		Pin.Tooltip = NSLOCTEXT("ComposableCameraSystem", "Hitchcock_PivotActor_Tip",
-			"Subject the effect locks on — camera dollies along the camera→subject axis, FOV compensates to hold subject size.");
+			"Subject the effect locks on. Camera dollies along the camera-to-subject axis, FOV compensates to hold subject size.");
 		OutPins.Add(Pin);
 	}
 
@@ -357,7 +356,7 @@ void UComposableCameraHitchcockZoomNode::GetPinDeclarations_Implementation(
 			? Pin.EnumType->GetNameStringByValue(static_cast<int64>(Driver))
 			: FString();
 		Pin.Tooltip = NSLOCTEXT("ComposableCameraSystem", "Hitchcock_Driver_Tip",
-			"Which authored curve drives the effect — FOV delta or camera-distance delta. The other quantity is solved from the frame-zero lock constant.");
+			"Which authored curve drives the effect -FOV delta or camera-distance delta. The other quantity is solved from the frame-zero lock constant.");
 		OutPins.Add(Pin);
 	}
 
@@ -460,25 +459,25 @@ void UComposableCameraHitchcockZoomNode::DrawNodeDebug(UWorld* World, bool bView
 
 	const FColor HitchcockColor(180, 80, 220);  // purple
 
-	// Sphere at the target point — the "lock subject".
+	// Sphere at the target point. The "lock subject".
 	FComposableCameraViewportDebug::DrawSolidDebugSphere(
 		World, DebugTargetPoint, /*Radius=*/8.f, HitchcockColor,
 		/*Alpha=*/160, /*Segments=*/12, /*DepthPriority=*/0);
 
-	// Sphere at the current camera position — the "dolly endpoint".
+	// Sphere at the current camera position. The "dolly endpoint".
 	FComposableCameraViewportDebug::DrawSolidDebugSphere(
 		World, DebugCameraPosition, /*Radius=*/8.f, HitchcockColor,
 		/*Alpha=*/120, /*Segments=*/12, /*DepthPriority=*/0);
 
 	if (bViewerIsOutsideCamera)
 	{
-		// Dolly axis — line from target out to camera. View-aligned in
+		// Dolly axis. Line from target out to camera. View-aligned in
 		// possessed play, only useful from F8 / SIE (matches LookAt /
 		// CollisionPush / FocusPull precedent).
 		DrawDebugLine(World, DebugTargetPoint, DebugCameraPosition, HitchcockColor,
 			/*bPersistentLines=*/false, /*LifeTime=*/-1.f, /*DepthPriority=*/0, /*Thickness=*/1.0f);
 
-		// Small frustum at the current FOV — makes the zoom-change visible
+		// Small frustum at the current FOV. Makes the zoom-change visible
 		// from outside the camera. Aspect 16:9 is a cosmetic default; the
 		// subject-size lock is invariant to aspect anyway.
 		constexpr float FrustumScale = 50.f;

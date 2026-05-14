@@ -137,14 +137,14 @@ bool FEvalTreeCameraCutTest::RunTest(const FString& Parameters)
 	// No camera yet.
 	UTEST_FALSE("No active camera initially", Tree->HasActiveCamera());
 
-	// Activate first camera (camera cut — no transition).
+	// Activate first camera (camera cut. No transition).
 	AComposableCameraCameraBase* CamA = TestWorld.SpawnCamera(FVector(100, 0, 0));
 	Tree->OnActivateNewCamera(CamA, nullptr);
 
 	UTEST_TRUE("Tree has active camera after activation", Tree->HasActiveCamera());
 	UTEST_EQUAL("RunningCamera is CamA", Tree->GetRunningCamera(), CamA);
 
-	// Activate second camera (camera cut — replaces CamA).
+	// Activate second camera (camera cut. Replaces CamA).
 	AComposableCameraCameraBase* CamB = TestWorld.SpawnCamera(FVector(200, 0, 0));
 	Tree->OnActivateNewCamera(CamB, nullptr);
 
@@ -154,7 +154,7 @@ bool FEvalTreeCameraCutTest::RunTest(const FString& Parameters)
 }
 
 // ============================================================================
-// Test: Normal transition collapse (A → transition → B, transition finishes → B wins)
+// Test: Normal transition collapse (A->transition ->B, transition finishes -> B wins)
 // ============================================================================
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
@@ -178,11 +178,11 @@ bool FEvalTreeNormalCollapseTest::RunTest(const FString& Parameters)
 
 	UTEST_EQUAL("RunningCamera is CamB", Tree->GetRunningCamera(), CamB);
 
-	// Evaluate while transition is in progress — tree should stay intact.
+	// Evaluate while transition is in progress. Tree should stay intact.
 	(void)Tree->Evaluate(0.016f);
 	UTEST_TRUE("Tree still has active camera during transition", Tree->HasActiveCamera());
 
-	// Mark transition as finished and evaluate again — should collapse to CamB.
+	// Mark transition as finished and evaluate again. Should collapse to CamB.
 	Transition->SetFinished(true);
 	(void)Tree->Evaluate(0.016f);
 
@@ -206,7 +206,7 @@ bool FEvalTreeReferenceLeafTest::RunTest(const FString& Parameters)
 {
 	ComposableCameraTest::FTestWorld TestWorld;
 
-	// Source Director — its internal tree is empty, so Evaluate() returns a default pose.
+	// Source Director. Its internal tree is empty, so Evaluate() returns a default pose.
 	// This is fine for testing the reference leaf wiring and collapse behavior.
 	UComposableCameraDirector* SourceDirector = TestWorld.CreateDirector();
 
@@ -219,18 +219,18 @@ bool FEvalTreeReferenceLeafTest::RunTest(const FString& Parameters)
 
 	UTEST_EQUAL("Target tree's running camera is CamB", TargetTree->GetRunningCamera(), CamB);
 
-	// Evaluate — reference leaf calls SourceDirector->Evaluate() (returns default pose).
+	// Evaluate. Reference leaf calls SourceDirector->Evaluate() (returns default pose).
 	// Transition blends default pose with CamB's pose. No crash = reference leaf works.
 	FComposableCameraPose Pose = TargetTree->Evaluate(0.016f);
 	UTEST_TRUE("Tree still has active camera", TargetTree->HasActiveCamera());
 	UTEST_EQUAL("Running camera unchanged", TargetTree->GetRunningCamera(), CamB);
 
-	// Transition finishes → normal collapse to right, reference leaf is discarded.
+	// Transition finishes ->normal collapse to right, reference leaf is discarded.
 	Transition->SetFinished(true);
 	(void)TargetTree->Evaluate(0.016f);
 
 	UTEST_EQUAL("RunningCamera is CamB after collapse", TargetTree->GetRunningCamera(), CamB);
-	// Source Director is still alive — reference leaf doesn't own or destroy it.
+	// Source Director is still alive. Reference leaf doesn't own or destroy it.
 	UTEST_TRUE("Source Director still valid", IsValid(SourceDirector));
 
 	return true;
@@ -253,7 +253,7 @@ bool FEvalTreeReferenceLeafCutTest::RunTest(const FString& Parameters)
 	UComposableCameraEvaluationTree* TargetTree = TestWorld.CreateTree();
 	AComposableCameraCameraBase* CamB = TestWorld.SpawnCamera(FVector(200, 0, 0));
 
-	// Camera cut with reference source — no transition, should just place the leaf directly.
+	// Camera cut with reference source. No transition, should just place the leaf directly.
 	TargetTree->OnActivateNewCameraWithReferenceSource(CamB, nullptr, SourceDirector);
 
 	UTEST_EQUAL("RunningCamera is CamB after cut", TargetTree->GetRunningCamera(), CamB);
@@ -298,7 +298,7 @@ bool FEvalTreeDestroyAllTest::RunTest(const FString& Parameters)
 }
 
 // ============================================================================
-// Test: Chained collapse — D→B, E→B, B→A, C→A
+// Test: Chained collapse -D->A, E->A, B->B, C->B
 // When B finishes before A, B collapses to E. Then when A finishes, A collapses to C.
 // ============================================================================
 
@@ -312,7 +312,7 @@ bool FEvalTreeChainedCollapseTest::RunTest(const FString& Parameters)
 	ComposableCameraTest::FTestWorld TestWorld;
 	UComposableCameraEvaluationTree* Tree = TestWorld.CreateTree();
 
-	// Build the tree: D→B, E→B, B→A, C→A
+	// Build the tree: D->A, E->A, B->B, C->B
 	// Step 1: Activate CamD (leaf root).
 	AComposableCameraCameraBase* CamD = TestWorld.SpawnCamera(FVector(100, 0, 0));
 	Tree->OnActivateNewCamera(CamD, nullptr);
@@ -329,7 +329,7 @@ bool FEvalTreeChainedCollapseTest::RunTest(const FString& Parameters)
 
 	UTEST_EQUAL("RunningCamera is CamC", Tree->GetRunningCamera(), CamC);
 
-	// Evaluate — both transitions active, full tree intact.
+	// Evaluate. Both transitions active, full tree intact.
 	(void)Tree->Evaluate(0.016f);
 	UTEST_TRUE("CamD valid during both transitions", IsValid(CamD));
 	UTEST_TRUE("CamE valid during both transitions", IsValid(CamE));
@@ -382,7 +382,7 @@ bool FEvalTreeSourceDestroyedCollapseTest::RunTest(const FString& Parameters)
 	// Externally destroy CamA (source) while transition is still active.
 	CamA->Destroy();
 
-	// Evaluate — should detect source destroyed and collapse to CamB.
+	// Evaluate. Should detect source destroyed and collapse to CamB.
 	(void)Tree->Evaluate(0.016f);
 
 	UTEST_TRUE("CamB still valid after source destroyed", IsValid(CamB));

@@ -1,4 +1,4 @@
-// Copyright Sulley. All rights reserved.
+﻿// Copyright Sulley. All rights reserved.
 
 #pragma once
 
@@ -33,7 +33,7 @@ public:
 	virtual void OnTickNode_Implementation(float DeltaTime, const FComposableCameraPose& CurrentCameraPose, FComposableCameraPose& OutCameraPose) override;
 
 	// Reads FMinimalViewInfo from an external UCameraComponent and writes it over
-	// the pose — bypasses the upstream InPose entirely. Also not designer-placed
+	// the pose. Bypasses the upstream InPose entirely. Also not designer-placed
 	// (created programmatically by PCM::SetViewTarget), but flagged for parity.
 	virtual EComposableCameraNodePatchCompatibility GetPatchCompatibility_Implementation() const override
 	{
@@ -51,7 +51,7 @@ private:
 	UPROPERTY(Transient)
 	TWeakObjectPtr<AActor> ViewTargetActor;
 
-	/** Cached camera component — resolved once in SetViewTargetActor. */
+	/** Cached camera component. Resolved once in SetViewTargetActor. */
 	UPROPERTY(Transient)
 	TWeakObjectPtr<UCameraComponent> CachedCameraComponent;
 };

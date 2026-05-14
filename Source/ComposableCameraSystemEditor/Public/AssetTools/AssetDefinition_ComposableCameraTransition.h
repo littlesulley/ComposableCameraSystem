@@ -12,7 +12,7 @@
  * "Composable Camera System" category with a distinctive color.
  */
 UCLASS(ClassGroup = ComposableCameraSystemEditor)
-class UAssetDefinition_ComposableCameraTransition : public UAssetDefinitionDefault
+class UAssetDefinition_ComposableCameraTransition: public UAssetDefinitionDefault
 {
 	GENERATED_BODY()
 

@@ -1,4 +1,4 @@
-// Copyright Sulley. All rights reserved.
+﻿// Copyright Sulley. All rights reserved.
 
 #pragma once
 
@@ -8,10 +8,10 @@
 #include "ComposableCameraShotAsset.generated.h"
 
 /**
- * Reusable Shot data asset — a `UDataAsset` wrapping one `FComposableCameraShot`.
+ * Reusable Shot data asset. A `UDataAsset` wrapping one `FComposableCameraShot`.
  *
  * Phase E of Shot-Based Keyframing introduces two storage modes for Shot data
- * carried by a `UMovieSceneComposableCameraShotSection` (spec §3.4.1):
+ * carried by a `UMovieSceneComposableCameraShotSection` (spec Section 3.4.1):
  *
  *   - **Inline**: Shot value-typed inside the Section. One-off framing for
  *     a specific moment in a sequence.
@@ -20,7 +20,7 @@
  *     for "close-up A", "two-shot wide", reusable framing presets.
  *
  * This class is the AssetReference target. It carries no behavior of its own
- * — it is a data envelope. The Shot Editor (Phase D) opens it via the
+ *. It is a data envelope. The Shot Editor (Phase D) opens it via the
  * Sequencer Section selection sync (Phase E.5) or directly from the Content
  * Browser via `UAssetDefinition_ComposableCameraShotAsset::OpenAssets`.
  *

@@ -1,4 +1,4 @@
-// Copyright Sulley. All rights reserved.
+﻿// Copyright Sulley. All rights reserved.
 
 #include "Transitions/ComposableCameraDynamicDeocclusionTransition.h"
 
@@ -25,7 +25,7 @@ namespace
 		TEXT("  - Standard source/target/progress triplet in red accent.\n")
 		TEXT("  - Every feeler ray emanating from the current blended pose,\n")
 		TEXT("    drawn with its configured radius and length. Essential when\n")
-		TEXT("    tuning feeler angles — you can see in 3D whether a feeler\n")
+		TEXT("    tuning feeler angles. You can see in 3D whether a feeler\n")
 		TEXT("    actually points at the geometry it's supposed to dodge.\n")
 		TEXT("Requires `CCS.Debug.Viewport 1`. Gizmo disappears when the transition finishes."),
 		ECVF_Default);
@@ -43,14 +43,14 @@ void UComposableCameraDynamicDeocclusionTransition::OnBeginPlay_Implementation(f
 	}
 
 	// Kismet-trace built-in debug draw is disabled in favour of the unified
-	// CCS.Debug.Viewport framework — a future DrawTransitionDebug(UWorld*)
+	// CCS.Debug.Viewport framework. A future DrawTransitionDebug(UWorld*)
 	// virtual on UComposableCameraTransitionBase can route through it if
 	// transition-level gizmos are wanted back.
 	DrawDebugType = EDrawDebugTrace::None;
 
 	// Ignored actors. Reset both arrays first so a re-used transition object
 	// (NewObject from a previous activation) doesn't accumulate entries
-	// across runs — the original code only `Append`'d, so a transition that
+	// across runs. The original code only `Append`'d, so a transition that
 	// was activated twice ended up with double + stale entries.
 	ActorsToIgnoreWeak.Reset();
 	ResolvedActorsToIgnore.Reset();
@@ -76,8 +76,8 @@ FComposableCameraPose UComposableCameraDynamicDeocclusionTransition::OnEvaluate_
 	if (!DrivingTransition)
 	{
 		// Returning a default-constructed `FComposableCameraPose{}` here would
-		// hand back zero position / identity rotation / default FOV (90°) /
-		// default projection — a hard snap to a black-frame-ish pose that
+		// hand back zero position / identity rotation / default FOV (90 deg) /
+		// default projection. A hard snap to a black-frame-ish pose that
 		// looks like missing data, asset corruption, or init-failure error
 		// art. Hard-cutting to the target pose is the standard "transition
 		// ineffective" fallback and matches what `PathGuidedTransition`
@@ -93,7 +93,7 @@ FComposableCameraPose UComposableCameraDynamicDeocclusionTransition::OnEvaluate_
 	FVector AggregateOffset = FVector::ZeroVector;
 
 	// Rebuild the raw ignore-list from the weak snapshot taken at
-	// OnBeginPlay — actors that have been destroyed during the transition
+	// OnBeginPlay. Actors that have been destroyed during the transition
 	// drop out, the ones still alive flow through. `Reset` keeps the
 	// previously-allocated capacity so this is allocation-free in steady
 	// state.
@@ -218,7 +218,7 @@ void UComposableCameraDynamicDeocclusionTransition::DrawTransitionDebug(
 			/*DepthPriority=*/SDPG_Foreground, /*Thickness=*/0.f);
 
 		// If the feeler has a non-zero radius the engine performs a sphere
-		// trace along the ray — show the sphere at the tip so the user
+		// trace along the ray. Show the sphere at the tip so the user
 		// knows the trace has volume, not just a line. Low alpha (70) so
 		// multiple overlapping feeler tips don't pile up into an opaque
 		// mass.

@@ -1,4 +1,4 @@
-﻿// Copyright Sulley. All rights reserved.
+// Copyright Sulley. All rights reserved.
 
 #pragma once
 
@@ -10,7 +10,7 @@
  * Utility class for creating a camera actor, attaching it to the selected actor and piloting the camera actor.
  */
 UCLASS()
-class COMPOSABLECAMERASYSTEMEDITOR_API UComposableCameraCreateAttachCamera : public UActorActionUtility
+class COMPOSABLECAMERASYSTEMEDITOR_API UComposableCameraCreateAttachCamera: public UActorActionUtility
 {
 	GENERATED_BODY()
 

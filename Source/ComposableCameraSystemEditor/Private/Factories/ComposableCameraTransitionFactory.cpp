@@ -11,8 +11,7 @@ UComposableCameraTransitionFactory::UComposableCameraTransitionFactory(const FOb
 	SupportedClass = UComposableCameraTransitionDataAsset::StaticClass();
 }
 
-UObject* UComposableCameraTransitionFactory::FactoryCreateNew(
-	UClass* Class, UObject* Parent, FName Name, EObjectFlags Flags, UObject* Context, FFeedbackContext* Warn)
+UObject* UComposableCameraTransitionFactory::FactoryCreateNew(UClass* Class, UObject* Parent, FName Name, EObjectFlags Flags, UObject* Context, FFeedbackContext* Warn)
 {
 	return NewObject<UComposableCameraTransitionDataAsset>(Parent, Class, Name, Flags | RF_Transactional);
 }

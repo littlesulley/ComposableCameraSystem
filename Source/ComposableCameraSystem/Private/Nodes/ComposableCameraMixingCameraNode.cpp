@@ -15,7 +15,7 @@ void UComposableCameraMixingCameraNode::OnInitialize_Implementation()
 	Super::OnInitialize_Implementation();
 
 	// Mixing cameras depend on the PCM to spawn and manage their child camera
-	// instances — there is no PCM-less equivalent for CreateNewCamera. The
+	// instances. There is no PCM-less equivalent for CreateNewCamera. The
 	// Level Sequence path uses GetLevelSequenceCompatibility() == RequiresPCM
 	// and will warn in the Details panel before activation; this guard is the
 	// safety net in case a TypeAsset with a MixingCamera node is still evaluated
@@ -72,13 +72,13 @@ void UComposableCameraMixingCameraNode::OnTickNode_Implementation(float DeltaTim
 
 	// Mix FOV through effective-degrees so each mixed pose contributes its resolved FOV
 	// regardless of whether it was expressed via FieldOfView or FocalLength. Emit the result
-	// as a degrees-mode pose (FocalLength cleared) — same invariant as BlendBy().
+	// as a degrees-mode pose (FocalLength cleared). Same invariant as BlendBy().
 	OutCameraPose.SetFieldOfViewDegrees(GetMixedFieldOfView(Poses, Weights));
 }
 
 void UComposableCameraMixingCameraNode::GetPinDeclarations_Implementation(TArray<FComposableCameraNodePinDeclaration>& OutPins) const
 {
-	// Cameras (TArray of struct) is intentionally not exposed as a pin — it is consumed once at
+	// Cameras (TArray of struct) is intentionally not exposed as a pin. It is consumed once at
 	// OnInitialize. The four enum/float knobs below ARE per-frame relevant and follow the same
 	// Details-only-by-default convention as the other nodes (bDefaultAsPin = false).
 	// OnReceiveMixingCameraWeights is exposed as a delegate pin so callers can bind it at
@@ -109,7 +109,7 @@ void UComposableCameraMixingCameraNode::GetPinDeclarations_Implementation(TArray
 		PinDecl.bDefaultAsPin = false;
 		PinDecl.DefaultValueString = PinDecl.EnumType ? PinDecl.EnumType->GetNameStringByValue(static_cast<int64>(WeightNormalizationMethod)) : FString();
 		PinDecl.Tooltip = NSLOCTEXT("ComposableCameraMixingCameraNode", "WeightNormalizationMethodTip",
-			"Method used to normalize the per-camera weights before mixing — L1, L2, or SoftMax.");
+			"Method used to normalize the per-camera weights before mixing -L1, L2, or SoftMax.");
 		OutPins.Add(PinDecl);
 	}
 
@@ -124,7 +124,7 @@ void UComposableCameraMixingCameraNode::GetPinDeclarations_Implementation(TArray
 		PinDecl.bDefaultAsPin = false;
 		PinDecl.DefaultValueString = PinDecl.EnumType ? PinDecl.EnumType->GetNameStringByValue(static_cast<int64>(MixRotationMethod)) : FString();
 		PinDecl.Tooltip = NSLOCTEXT("ComposableCameraMixingCameraNode", "MixRotationMethodTip",
-			"Algorithm used to average rotations across mixed cameras — only consulted when Mix Mode is RotationOnly or Both.");
+			"Algorithm used to average rotations across mixed cameras. Only consulted when Mix Mode is RotationOnly or Both.");
 		OutPins.Add(PinDecl);
 	}
 
@@ -142,7 +142,7 @@ void UComposableCameraMixingCameraNode::GetPinDeclarations_Implementation(TArray
 		OutPins.Add(PinDecl);
 	}
 
-	// Delegate pin: OnReceiveMixingCameraWeights — bound at activation time via
+	// Delegate pin: OnReceiveMixingCameraWeights. Bound at activation time via
 	// ApplyDelegateBindings. The signature function is retrieved from the
 	// FDelegateProperty on this node's class; it carries the return type
 	// (TArray<float>) that the K2 schema needs to validate wiring.

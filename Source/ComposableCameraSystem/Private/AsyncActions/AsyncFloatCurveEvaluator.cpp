@@ -34,7 +34,7 @@ bool UAsyncFloatCurveEvaluator::IsTickable() const
 	// FTickableGameObject ticks every registered object including the CDO and
 	// archetype templates. Without these guards the CDO would enter Tick with
 	// Curve == nullptr, fire OnComplete on whatever delegates the CDO has and
-	// call SetReadyToDestroy on a class default — undefined behaviour.
+	// call SetReadyToDestroy on a class default. Undefined behaviour.
 	// bShouldTick is also gated false until the factory has finished assigning
 	// Curve / Duration so a partially-initialised instance is never ticked.
 	return bShouldTick

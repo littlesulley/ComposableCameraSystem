@@ -134,7 +134,7 @@ void UComposableCameraSplineNode::GetPinDeclarations_Implementation(TArray<FComp
 		PinDecl.bDefaultAsPin = false;
 		PinDecl.DefaultValueString = PinDecl.EnumType ? PinDecl.EnumType->GetNameStringByValue(static_cast<int64>(MoveMethod)) : FString();
 		PinDecl.Tooltip = NSLOCTEXT("UComposableCameraSplineNode", "MoveMethodTip",
-			"How the camera moves along the spline — Automatic (time-driven) or ClosestPoint (tracks an actor's projection).");
+			"How the camera moves along the spline -Automatic (time-driven) or ClosestPoint (tracks an actor's projection).");
 		OutPins.Add(PinDecl);
 	}
 
@@ -238,7 +238,7 @@ void UComposableCameraSplineNode::UpdateCameraPoseByBuiltInSpline(FVector& OutPo
 	case EComposableCameraSplineNodeMoveMethod::ClosestPoint:
 		{
 			AActor* EffectivePivotActor = ComposableCameraSystem::ResolveActorInput(
-				ClosestMoveMethodPivotActorSource, ClosestMoveMethodPivotActor.Get(), GetOwningPlayerCameraManager());
+				ClosestMoveMethodPivotActorSource, ClosestMoveMethodPivotActor.Get(), GetOwningPlayerCameraManager(), this);
 			if (!IsValid(EffectivePivotActor))
 			{
 				UE_LOG(LogComposableCameraSystem, Error, TEXT("Resolved ClosestMoveMethodPivotActor is null, will not proceed."))
@@ -383,7 +383,7 @@ void UComposableCameraSplineNode::DrawNodeDebug(UWorld* World, bool /*bViewerIsO
 	// Neither piece occludes the view meaningfully, so no gate.
 
 	// Sample the spline at a fixed number of steps and chain them into a
-	// polyline. 64 samples balances smoothness with draw cost — closed-loop
+	// polyline. 64 samples balances smoothness with draw cost. Closed-loop
 	// splines still read correctly because each segment is drawn independently.
 	constexpr int32 SampleCount = 64;
 	const float TotalLength = SplineInterface->GetSplineLength();

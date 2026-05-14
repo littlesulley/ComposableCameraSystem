@@ -1,4 +1,4 @@
-// Copyright Sulley. All rights reserved.
+﻿// Copyright Sulley. All rights reserved.
 
 #pragma once
 
@@ -37,6 +37,6 @@ protected:
 		const FComposableCameraPose& CurrentTargetPose) override;
 
 private:
-	/** The engine transition params — stores blend function, exponent, and lock flags. */
+	/** The engine transition params. Stores blend function, exponent, and lock flags. */
 	FViewTargetTransitionParams ViewTargetParams;
 };

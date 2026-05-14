@@ -35,8 +35,8 @@ private:
 
 template <typename DataType, typename ConcreteInertializerType>
 	requires requires (ConcreteInertializerType I) {
-		{ I.Evaluate( 0.0f, DataType{} ) } -> std::convertible_to<DataType>;
-		{ I.Evaluate( 0.0f, DataType{}, 0.0f, 0.0f ) } -> std::convertible_to<DataType>;
+		{ I.Evaluate( 0.0f, DataType{} ) } ->std::convertible_to<DataType>;
+		{ I.Evaluate( 0.0f, DataType{}, 0.0f, 0.0f ) } ->std::convertible_to<DataType>;
 		ConcreteInertializerType{ FComposableCameraPose{}, FComposableCameraPose{}, FComposableCameraPose{}, 0.f, 0.f };
 	}
 struct ComposableCameraInitializer
@@ -129,7 +129,7 @@ public:
 
 	FVector Evaluate(float BlendDuration, FVector TargetLocation)
 	{
-		// Hot path — every active transition calls this each tick. Stray
+		// Hot path. Every active transition calls this each tick. Stray
 		// PrintString / FString-concat / GEngine-deref calls go here.
 		const float NewLength = Poly.Evaluate(BlendDuration);
 		return NewLength * _InitialDirection + TargetLocation;
@@ -274,7 +274,7 @@ public:
 
 #if !UE_BUILD_SHIPPING
 	// Gated on `CCS.Debug.Viewport.Transitions.Inertialized`. Pure standard
-	// visualization — the inertialized path deviates substantially from
+	// visualization. The inertialized path deviates substantially from
 	// the white lerp baseline, which is exactly the point of watching it.
 	virtual void DrawTransitionDebug(UWorld* World, bool bViewerIsOutsideCamera) const override;
 #endif
@@ -309,7 +309,7 @@ private:
 #if !UE_BUILD_SHIPPING
 private:
 	// 33 polynomial offsets (t = 0/32, 1/32, ..., 32/32) precomputed at
-	// OnBeginPlay. They encode "position relative to target" — the real
+	// OnBeginPlay. They encode "position relative to target". The real
 	// runtime formula is `Poly.Evaluate(blendDuration) + CurrentTarget`, so
 	// the offset alone is target-independent and therefore safe to cache
 	// once. DrawTransitionDebug adds `LastDebugTarget.Position` at draw

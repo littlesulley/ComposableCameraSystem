@@ -7,7 +7,7 @@
 
 void UComposableCameraOutputGraphNode::AllocateDefaultPins()
 {
-	// Execution input pin — receives the execution chain from the last
+	// Execution input pin - receives the execution chain from the last
 	// camera node. PN_ExecIn and the boilerplate live on the shared base.
 	CreateExecInPin();
 }

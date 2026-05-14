@@ -78,7 +78,7 @@ namespace ComposableCameraTest
 }
 
 // ============================================================================
-// Mock Scenario 1: "Gameplay → Cutscene → Back to Gameplay"
+// Mock Scenario 1: "Gameplay->Cutscene -> Back to Gameplay"
 // Simulates a typical flow: gameplay camera active, cutscene camera overrides
 // with a transition, cutscene transition finishes, then cutscene ends and
 // goes back to gameplay with another transition.
@@ -108,21 +108,21 @@ bool FExecMockGameplayCutsceneFlowTest::RunTest(const FString& Parameters)
 		UTEST_TRUE("Pose from gameplay cam", FMath::IsNearlyEqual(Pose.Position.Z, 100.0, 1.0));
 	}
 
-	// Frame 11: Cutscene camera activates with blend transition (blend = 0.0 → full source).
+	// Frame 11: Cutscene camera activates with blend transition (blend = 0.0 ->full source).
 	UComposableCameraTestTransition* ToCutsceneTrans = TestWorld.CreateTransition(false, 0.0f);
 	AComposableCameraCameraBase* CutsceneCam = TestWorld.SpawnCamera(FVector(500, 500, 50), 60.f);
 	Tree->OnActivateNewCamera(CutsceneCam, ToCutsceneTrans);
 	UTEST_EQUAL("Running is CutsceneCam", Tree->GetRunningCamera(), CutsceneCam);
 
-	// Frame 12: Evaluate during transition — at blend=0, output should be full source (GameplayCam).
+	// Frame 12: Evaluate during transition. At blend=0, output should be full source (GameplayCam).
 	{
 		FComposableCameraPose Pose = Tree->Evaluate(DT);
-		// BlendFactor 0.0 → Lerp(source, target, 0) = source.
+		// BlendFactor 0.0 ->Lerp(source, target, 0) = source.
 		UTEST_TRUE("During transition at blend=0: position from GameplayCam",
 			FMath::IsNearlyEqual(Pose.Position.Z, 100.0, 1.0));
 	}
 
-	// Frame 13: Mid-transition — change blend to 0.5.
+	// Frame 13: Mid-transition. Change blend to 0.5.
 	ToCutsceneTrans->BlendFactor = 0.5f;
 	{
 		FComposableCameraPose Pose = Tree->Evaluate(DT);
@@ -131,7 +131,7 @@ bool FExecMockGameplayCutsceneFlowTest::RunTest(const FString& Parameters)
 			FMath::IsNearlyEqual(Pose.Position.Z, 75.0, 1.0));
 	}
 
-	// Frame 14: Transition finishes → collapse to CutsceneCam.
+	// Frame 14: Transition finishes ->collapse to CutsceneCam.
 	ToCutsceneTrans->SetFinished(true);
 	ToCutsceneTrans->BlendFactor = 1.0f;
 	{
@@ -166,7 +166,7 @@ bool FExecMockGameplayCutsceneFlowTest::RunTest(const FString& Parameters)
 
 // ============================================================================
 // Mock Scenario 2: "Rapid camera switches during combat"
-// Simulates rapid target-lock switches: A → B → C → D with overlapping
+// Simulates rapid target-lock switches: A->B ->C -> D with overlapping
 // transitions. Each new activation creates a deeper tree, then transitions
 // finish in order.
 // ============================================================================
@@ -199,10 +199,10 @@ bool FExecMockRapidSwitchTest::RunTest(const FString& Parameters)
 	AComposableCameraCameraBase* CamD = TestWorld.SpawnCamera(FVector(400, 0, 0));
 	Tree->OnActivateNewCamera(CamD, TransCD);
 
-	// Tree structure: ((A -TransAB→ B) -TransBC→ C) -TransCD→ D
+	// Tree structure: ((A -TransAB->B) -TransBC->C) -TransCD->D
 	UTEST_EQUAL("Running is CamD", Tree->GetRunningCamera(), CamD);
 
-	// Simulate a few frames — all transitions active.
+	// Simulate a few frames. All transitions active.
 	for (int i = 0; i < 3; ++i)
 	{
 		(void)Tree->Evaluate(DT);
@@ -231,7 +231,7 @@ bool FExecMockRapidSwitchTest::RunTest(const FString& Parameters)
 	UTEST_TRUE("CamD still valid (final camera)", IsValid(CamD));
 	UTEST_EQUAL("Running is still CamD", Tree->GetRunningCamera(), CamD);
 
-	// Tree should now be a single leaf — evaluate clean.
+	// Tree should now be a single leaf. Evaluate clean.
 	FComposableCameraPose FinalPose = Tree->Evaluate(DT);
 	UTEST_TRUE("Final pose from CamD", FMath::IsNearlyEqual(FinalPose.Position.X, 400.0, 1.0));
 
@@ -240,7 +240,7 @@ bool FExecMockRapidSwitchTest::RunTest(const FString& Parameters)
 
 // ============================================================================
 // Mock Scenario 3: "Camera cut interrupts active transition"
-// During an A→B transition, a camera cut to C occurs. The entire old tree
+// During an A->A transition, a camera cut to C occurs. The entire old tree
 // (A and B) should be destroyed, and C becomes the sole camera.
 // ============================================================================
 
@@ -263,12 +263,12 @@ bool FExecMockCutInterruptsTransitionTest::RunTest(const FString& Parameters)
 	AComposableCameraCameraBase* CamB = TestWorld.SpawnCamera(FVector(200, 0, 0));
 	Tree->OnActivateNewCamera(CamB, TransAB);
 
-	// Evaluate a frame — transition active.
+	// Evaluate a frame. Transition active.
 	(void)Tree->Evaluate(DT);
 	UTEST_TRUE("A valid during transition", IsValid(CamA));
 	UTEST_TRUE("B valid during transition", IsValid(CamB));
 
-	// Camera CUT to C (nullptr transition) — should destroy entire old tree.
+	// Camera CUT to C (nullptr transition). Should destroy entire old tree.
 	AComposableCameraCameraBase* CamC = TestWorld.SpawnCamera(FVector(300, 0, 0));
 	Tree->OnActivateNewCamera(CamC, nullptr);
 
@@ -285,9 +285,9 @@ bool FExecMockCutInterruptsTransitionTest::RunTest(const FString& Parameters)
 
 // ============================================================================
 // Mock Scenario 4: "Transition over a transition"
-// A→B transition active, then B→C transition starts while A→B is still running.
+// A->A transition active, then B transition starts while A->A is still running.
 // Both transitions active simultaneously, forming a 3-level tree.
-// The outer (A→B) finishes first, then (B→C) finishes.
+// The outer (A->A) finishes first, then (B) finishes.
 // ============================================================================
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
@@ -306,7 +306,7 @@ bool FExecMockNestedTransitionTest::RunTest(const FString& Parameters)
 	AComposableCameraCameraBase* CamA = TestWorld.SpawnCamera(FVector(0, 0, 0));
 	Tree->OnActivateNewCamera(CamA, nullptr);
 
-	// Start A→B transition.
+	// Start A->A transition.
 	UComposableCameraTestTransition* TransAB = TestWorld.CreateTransition(false, 0.3f);
 	AComposableCameraCameraBase* CamB = TestWorld.SpawnCamera(FVector(100, 0, 0));
 	Tree->OnActivateNewCamera(CamB, TransAB);
@@ -315,8 +315,8 @@ bool FExecMockNestedTransitionTest::RunTest(const FString& Parameters)
 	(void)Tree->Evaluate(DT);
 	(void)Tree->Evaluate(DT);
 
-	// Start B→C transition while A→B is still running.
-	// Tree becomes: (A -TransAB→ B) -TransBC→ C
+	// Start B transition while A->A is still running.
+	// Tree becomes: (A -TransAB->B) -TransBC->C
 	UComposableCameraTestTransition* TransBC = TestWorld.CreateTransition(false, 0.7f);
 	AComposableCameraCameraBase* CamC = TestWorld.SpawnCamera(FVector(200, 0, 0));
 	Tree->OnActivateNewCamera(CamC, TransBC);
@@ -333,7 +333,7 @@ bool FExecMockNestedTransitionTest::RunTest(const FString& Parameters)
 	UTEST_TRUE("CamB valid (promoted to leaf)", IsValid(CamB));
 	UTEST_TRUE("CamC valid (target of outer)", IsValid(CamC));
 
-	// Continue evaluation — now tree is B -TransBC→ C.
+	// Continue evaluation. Now tree is B -TransBC->C.
 	(void)Tree->Evaluate(DT);
 
 	// TransBC finishes.
@@ -424,12 +424,12 @@ bool FExecMockInterContextTransitionTest::RunTest(const FString& Parameters)
 
 	const float DT = 0.016f;
 
-	// Source context's Director — has its own camera.
+	// Source context's Director. Has its own camera.
 	UComposableCameraDirector* SourceDirector = TestWorld.CreateDirector();
 	AComposableCameraCameraBase* SourceCam = TestWorld.SpawnCamera(FVector(0, 0, 0));
 	SourceDirector->ResumeCamera(SourceCam, nullptr, FTransform::Identity);
 
-	// Target context's tree — activate a camera with reference source.
+	// Target context's tree. Activate a camera with reference source.
 	UComposableCameraEvaluationTree* TargetTree = TestWorld.CreateTree();
 	AComposableCameraCameraBase* TargetCam = TestWorld.SpawnCamera(FVector(500, 0, 0));
 	UComposableCameraTestTransition* Trans = TestWorld.CreateTransition(false, 0.5f);
@@ -438,19 +438,19 @@ bool FExecMockInterContextTransitionTest::RunTest(const FString& Parameters)
 
 	UTEST_EQUAL("Running camera is TargetCam", TargetTree->GetRunningCamera(), TargetCam);
 
-	// Evaluate several frames — reference leaf should evaluate source Director live.
+	// Evaluate several frames. Reference leaf should evaluate source Director live.
 	for (int i = 0; i < 5; ++i)
 	{
 		FComposableCameraPose Pose = TargetTree->Evaluate(DT);
 		// At blend 0.5: Lerp(source, target, 0.5).
-		// Source Director evaluates SourceCam → pose at (0,0,0).
+		// Source Director evaluates SourceCam ->pose at (0,0,0).
 		// Target is at (500,0,0).
 		// Expected X: Lerp(0, 500, 0.5) = 250.
 		UTEST_TRUE(*FString::Printf(TEXT("Frame %d: blended X ~250"), i),
 			FMath::IsNearlyEqual(Pose.Position.X, 250.0, 5.0));
 	}
 
-	// Transition finishes — reference leaf discarded, target promoted.
+	// Transition finishes. Reference leaf discarded, target promoted.
 	Trans->SetFinished(true);
 	(void)TargetTree->Evaluate(DT);
 
@@ -458,7 +458,7 @@ bool FExecMockInterContextTransitionTest::RunTest(const FString& Parameters)
 	// Source Director NOT destroyed (reference leaf doesn't own it).
 	UTEST_TRUE("Source Director still valid", IsValid(SourceDirector));
 
-	// Post-collapse evaluation — pure target.
+	// Post-collapse evaluation. Pure target.
 	FComposableCameraPose FinalPose = TargetTree->Evaluate(DT);
 	UTEST_TRUE("Final X is 500", FMath::IsNearlyEqual(FinalPose.Position.X, 500.0, 1.0));
 
@@ -467,7 +467,7 @@ bool FExecMockInterContextTransitionTest::RunTest(const FString& Parameters)
 
 // ============================================================================
 // Mock Scenario 7: "Empty tree evaluation safety"
-// Evaluate a tree with no cameras — should return default pose, not crash.
+// Evaluate a tree with no cameras. Should return default pose, not crash.
 // ============================================================================
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
@@ -483,7 +483,7 @@ bool FExecMockEmptyTreeTest::RunTest(const FString& Parameters)
 	UTEST_FALSE("Empty tree has no active camera", Tree->HasActiveCamera());
 	UTEST_EQUAL("RunningCamera is null", Tree->GetRunningCamera(), static_cast<AComposableCameraCameraBase*>(nullptr));
 
-	// Evaluate empty tree — should not crash.
+	// Evaluate empty tree. Should not crash.
 	FComposableCameraPose Pose = Tree->Evaluate(0.016f);
 	UTEST_TRUE("Default pose position is zero", Pose.Position.IsNearlyZero());
 

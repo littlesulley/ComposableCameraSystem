@@ -24,8 +24,7 @@ void FComposableCameraShotTarget::RefreshAutoBoundsCache()
 
 	// Use the first mesh component's world bounds (Skeletal preferred, then
 	// Static), NOT `AActor::GetComponentsBoundingBox(bNonColliding=true)`. The
-	// full-actor variant unions in EVERY registered PrimitiveComponent —
-	// CameraBoom / SpringArm endpoints, FollowCamera frustum bounds, debug
+	// full-actor variant unions in EVERY registered PrimitiveComponent -	// CameraBoom / SpringArm endpoints, FollowCamera frustum bounds, debug
 	// arrow / billboard primitives, attached weapon collision sweepers, etc.
 	// On a stock UE5 ThirdPersonCharacter the union extends ~15m beyond the
 	// visible character because the FollowCamera primitive at the end of a
@@ -40,7 +39,7 @@ void FComposableCameraShotTarget::RefreshAutoBoundsCache()
 	// otherwise burn 240 component-list walks/sec on character actors with
 	// 30+ components. Validity check on the weak ptr is O(1); only first
 	// resolve and recovery from owner-actor swaps re-walk the component
-	// list. Cache MUST be invalidated when Target.Actor changes — covered
+	// list. Cache MUST be invalidated when Target.Actor changes. Covered
 	// by the `Component->GetOwner() == Actor` consistency check below.
 	UPrimitiveComponent* MeshComp = CachedBoundsMeshComponent.Get();
 	if (!MeshComp || MeshComp->GetOwner() != Actor)
@@ -64,7 +63,7 @@ void FComposableCameraShotTarget::RefreshAutoBoundsCache()
 	}
 	else
 	{
-		// Actor has no SkelMesh / StaticMesh component (rare — debug-only
+		// Actor has no SkelMesh / StaticMesh component (rare. Debug-only
 		// / proxy-spawning fallback). Falls back to the full-actor bounds
 		// box; CachedBoundsMeshComponent stays null so subsequent ticks
 		// re-attempt the resolve cheaply if the actor gains a mesh later.
@@ -95,7 +94,7 @@ FVector FComposableCameraShotTarget::GetEffectiveBoundsExtent() const
 
 	case EShotTargetBoundsShape::AutoFromComponentBounds:
 		// Cold cache (CachedAutoBoundsExtent == ZeroVector) silently
-		// degrades to "no bounds" rather than crashing. Spec §5.4
+		// degrades to "no bounds" rather than crashing. Spec Section 5.4
 		// documents this; the FOV solve will skip targets with zero
 		// extent so the failure mode is "this target doesn't push the
 		// FOV", not "wrong FOV".

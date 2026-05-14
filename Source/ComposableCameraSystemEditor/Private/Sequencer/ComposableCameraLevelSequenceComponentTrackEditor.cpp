@@ -23,14 +23,12 @@
 
 #define LOCTEXT_NAMESPACE "FComposableCameraLevelSequenceComponentTrackEditor"
 
-TSharedRef<ISequencerTrackEditor> FComposableCameraLevelSequenceComponentTrackEditor::CreateTrackEditor(
-	TSharedRef<ISequencer> OwningSequencer)
+TSharedRef<ISequencerTrackEditor> FComposableCameraLevelSequenceComponentTrackEditor::CreateTrackEditor(TSharedRef<ISequencer> OwningSequencer)
 {
 	return MakeShareable(new FComposableCameraLevelSequenceComponentTrackEditor(OwningSequencer));
 }
 
-FComposableCameraLevelSequenceComponentTrackEditor::FComposableCameraLevelSequenceComponentTrackEditor(
-	TSharedRef<ISequencer> InSequencer)
+FComposableCameraLevelSequenceComponentTrackEditor::FComposableCameraLevelSequenceComponentTrackEditor(TSharedRef<ISequencer> InSequencer)
 	: FMovieSceneTrackEditor(InSequencer)
 {
 }
@@ -44,8 +42,7 @@ bool FComposableCameraLevelSequenceComponentTrackEditor::SupportsType(TSubclassO
 	return false;
 }
 
-void FComposableCameraLevelSequenceComponentTrackEditor::ExtendObjectBindingTrackMenu(
-	TSharedRef<FExtender> Extender,
+void FComposableCameraLevelSequenceComponentTrackEditor::ExtendObjectBindingTrackMenu(TSharedRef<FExtender> Extender,
 	const TArray<FGuid>& ObjectBindings,
 	const UClass* ObjectClass)
 {
@@ -55,32 +52,29 @@ void FComposableCameraLevelSequenceComponentTrackEditor::ExtendObjectBindingTrac
 	}
 
 	// Two acceptable binding shapes:
-	//   (a) binding resolves to the component directly (user added a component
-	//       binding under the actor binding — this is the only fully-wired
-	//       path today, see GatherParameterEntries).
-	//   (b) binding resolves to AComposableCameraLevelSequenceActor — we still
-	//       attach the extender to leave a future-compat hook, but
-	//       GatherParameterEntries currently returns empty for actor bindings.
+	// (a) binding resolves to the component directly (user added a component
+	// binding under the actor binding - this is the only fully-wired
+	// path today, see GatherParameterEntries).
+	// (b) binding resolves to AComposableCameraLevelSequenceActor - we still
+	// attach the extender to leave a future-compat hook, but
+	// GatherParameterEntries currently returns empty for actor bindings.
 	const bool bIsComponentBinding = ObjectClass->IsChildOf<UComposableCameraLevelSequenceComponent>();
-	const bool bIsActorBinding     = ObjectClass->IsChildOf<AComposableCameraLevelSequenceActor>();
+	const bool bIsActorBinding = ObjectClass->IsChildOf<AComposableCameraLevelSequenceActor>();
 
 	if (!bIsComponentBinding && !bIsActorBinding)
 	{
 		return;
 	}
 
-	Extender->AddMenuExtension(
-		TEXT("Tracks"),
+	Extender->AddMenuExtension(TEXT("Tracks"),
 		EExtensionHook::After,
 		nullptr,
-		FMenuExtensionDelegate::CreateSP(
-			this,
+		FMenuExtensionDelegate::CreateSP(this,
 			&FComposableCameraLevelSequenceComponentTrackEditor::OnExtendObjectBindingTrackMenu,
 			ObjectBindings));
 }
 
-UComposableCameraLevelSequenceComponent* FComposableCameraLevelSequenceComponentTrackEditor::GetComponentForBinding(
-	const FGuid& ObjectBinding) const
+UComposableCameraLevelSequenceComponent* FComposableCameraLevelSequenceComponentTrackEditor::GetComponentForBinding(const FGuid& ObjectBinding) const
 {
 	TSharedPtr<ISequencer> SequencerPtr = GetSequencer();
 	if (!SequencerPtr.IsValid())
@@ -101,7 +95,7 @@ UComposableCameraLevelSequenceComponent* FComposableCameraLevelSequenceComponent
 
 	if (AComposableCameraLevelSequenceActor* Actor = Cast<AComposableCameraLevelSequenceActor>(BoundObject))
 	{
-		// The actor exposes a private component as its root — reach it via a
+		// The actor exposes a private component as its root - reach it via a
 		// component-type search so we don't need the actor to expose a getter.
 		return Actor->FindComponentByClass<UComposableCameraLevelSequenceComponent>();
 	}
@@ -109,8 +103,7 @@ UComposableCameraLevelSequenceComponent* FComposableCameraLevelSequenceComponent
 	return nullptr;
 }
 
-UObject* FComposableCameraLevelSequenceComponentTrackEditor::GetBoundObjectForBinding(
-	const FGuid& ObjectBinding) const
+UObject* FComposableCameraLevelSequenceComponentTrackEditor::GetBoundObjectForBinding(const FGuid& ObjectBinding) const
 {
 	TSharedPtr<ISequencer> SequencerPtr = GetSequencer();
 	if (!SequencerPtr.IsValid())
@@ -120,8 +113,7 @@ UObject* FComposableCameraLevelSequenceComponentTrackEditor::GetBoundObjectForBi
 	return SequencerPtr->FindSpawnedObjectOrTemplate(ObjectBinding);
 }
 
-void FComposableCameraLevelSequenceComponentTrackEditor::BuildObjectBindingContextMenu(
-	FMenuBuilder& MenuBuilder, const TArray<FGuid>& ObjectBindings, const UClass* ObjectClass)
+void FComposableCameraLevelSequenceComponentTrackEditor::BuildObjectBindingContextMenu(FMenuBuilder& MenuBuilder, const TArray<FGuid>& ObjectBindings, const UClass* ObjectClass)
 {
 	// Same gating as ExtendObjectBindingTrackMenu: only attach when the
 	// binding resolves to our component or to AComposableCameraLevelSequenceActor.
@@ -130,7 +122,7 @@ void FComposableCameraLevelSequenceComponentTrackEditor::BuildObjectBindingConte
 		return;
 	}
 	const bool bIsComponentBinding = ObjectClass->IsChildOf<UComposableCameraLevelSequenceComponent>();
-	const bool bIsActorBinding     = ObjectClass->IsChildOf<AComposableCameraLevelSequenceActor>();
+	const bool bIsActorBinding = ObjectClass->IsChildOf<AComposableCameraLevelSequenceActor>();
 	if (!bIsComponentBinding && !bIsActorBinding)
 	{
 		return;
@@ -148,13 +140,12 @@ void FComposableCameraLevelSequenceComponentTrackEditor::BuildObjectBindingConte
 	}
 
 	// Right-click menu: only the Type Asset picker. Parameter / variable
-	// channels stay under "+ Track" (their natural home — they create new
+	// channels stay under "+ Track" (their natural home - they create new
 	// tracks on the binding, which is what the + button is for).
 	BuildCameraTypeAssetSection(MenuBuilder, ObjectBindings);
 }
 
-void FComposableCameraLevelSequenceComponentTrackEditor::BuildCameraTypeAssetSection(
-	FMenuBuilder& MenuBuilder, TArray<FGuid> ObjectBindings)
+void FComposableCameraLevelSequenceComponentTrackEditor::BuildCameraTypeAssetSection(FMenuBuilder& MenuBuilder, TArray<FGuid> ObjectBindings)
 {
 	UComposableCameraLevelSequenceComponent* Component = GetComponentForBinding(ObjectBindings[0]);
 	if (!Component)
@@ -168,22 +159,19 @@ void FComposableCameraLevelSequenceComponentTrackEditor::BuildCameraTypeAssetSec
 	MenuBuilder.BeginSection(TEXT("CameraTypeAsset"),
 		FText::Format(LOCTEXT("CameraTypeAssetSection",
 			"Camera Type Asset: {0}"), FText::FromString(CurrentAssetName)));
-	MenuBuilder.AddSubMenu(
-		LOCTEXT("CameraTypeAssetSubMenu", "Choose Camera Type Asset…"),
+	MenuBuilder.AddSubMenu(LOCTEXT("CameraTypeAssetSubMenu", "Choose Camera Type Asset"),
 		LOCTEXT("CameraTypeAssetSubMenuTooltip",
 			"Pick a UComposableCameraTypeAsset for this LS Actor's camera. "
 			"Replaces editing TypeAssetReference.TypeAsset in the Details panel. "
 			"Renames the binding to the asset name when the binding still has "
 			"its default class label."),
-		FNewMenuDelegate::CreateSP(
-			this,
+		FNewMenuDelegate::CreateSP(this,
 			&FComposableCameraLevelSequenceComponentTrackEditor::AddCameraTypeAssetSubMenu,
 			ObjectBindings));
 	MenuBuilder.EndSection();
 }
 
-void FComposableCameraLevelSequenceComponentTrackEditor::OnExtendObjectBindingTrackMenu(
-	FMenuBuilder& MenuBuilder, TArray<FGuid> ObjectBindings)
+void FComposableCameraLevelSequenceComponentTrackEditor::OnExtendObjectBindingTrackMenu(FMenuBuilder& MenuBuilder, TArray<FGuid> ObjectBindings)
 {
 	// Multi-selection not supported in this first cut (same as Epic's editor).
 	if (ObjectBindings.Num() != 1)
@@ -200,9 +188,9 @@ void FComposableCameraLevelSequenceComponentTrackEditor::OnExtendObjectBindingTr
 
 	if (!Component->TypeAssetReference.TypeAsset)
 	{
-		// No TypeAsset → no bag entries to expose. The Type Asset picker now
+		// No TypeAsset -> no bag entries to expose. The Type Asset picker now
 		// lives on the right-click context menu (BuildObjectBindingContextMenu)
-		// — the "+ Track" menu only surfaces parameter / variable channels.
+		// - the "+ Track" menu only surfaces parameter / variable channels.
 		return;
 	}
 
@@ -218,27 +206,23 @@ void FComposableCameraLevelSequenceComponentTrackEditor::OnExtendObjectBindingTr
 	}
 
 	// Flat two-section layout: each exposed parameter / variable is a leaf
-	// entry directly under its section header. No submenus — one click adds
+	// entry directly under its section header. No submenus - one click adds
 	// the track. Sections act as the only separator.
 	if (ParameterEntries.Num() > 0)
 	{
 		MenuBuilder.BeginSection(TEXT("CameraParameters"),
 			LOCTEXT("CameraParameters", "Camera Parameters"));
-		for (const FParameterMenuEntry& Entry : ParameterEntries)
+		for (const FParameterMenuEntry& Entry: ParameterEntries)
 		{
-			FUIAction AddAction(
-				FExecuteAction::CreateSP(
-					this,
+			FUIAction AddAction(FExecuteAction::CreateSP(this,
 					&FComposableCameraLevelSequenceComponentTrackEditor::AddParameterTrack,
 					Entry,
 					ObjectBindings[0]),
-				FCanExecuteAction::CreateSP(
-					this,
+				FCanExecuteAction::CreateSP(this,
 					&FComposableCameraLevelSequenceComponentTrackEditor::CanAddParameterTrack,
 					Entry,
 					ObjectBindings[0]));
-			MenuBuilder.AddMenuEntry(
-				Entry.DisplayName.IsEmpty() ? FText::FromName(Entry.Name) : Entry.DisplayName,
+			MenuBuilder.AddMenuEntry(Entry.DisplayName.IsEmpty() ? FText::FromName(Entry.Name) : Entry.DisplayName,
 				FText::GetEmpty(),
 				FSlateIcon(),
 				AddAction);
@@ -250,21 +234,17 @@ void FComposableCameraLevelSequenceComponentTrackEditor::OnExtendObjectBindingTr
 	{
 		MenuBuilder.BeginSection(TEXT("CameraVariables"),
 			LOCTEXT("CameraVariables", "Camera Variables"));
-		for (const FParameterMenuEntry& Entry : VariableEntries)
+		for (const FParameterMenuEntry& Entry: VariableEntries)
 		{
-			FUIAction AddAction(
-				FExecuteAction::CreateSP(
-					this,
+			FUIAction AddAction(FExecuteAction::CreateSP(this,
 					&FComposableCameraLevelSequenceComponentTrackEditor::AddParameterTrack,
 					Entry,
 					ObjectBindings[0]),
-				FCanExecuteAction::CreateSP(
-					this,
+				FCanExecuteAction::CreateSP(this,
 					&FComposableCameraLevelSequenceComponentTrackEditor::CanAddParameterTrack,
 					Entry,
 					ObjectBindings[0]));
-			MenuBuilder.AddMenuEntry(
-				Entry.DisplayName.IsEmpty() ? FText::FromName(Entry.Name) : Entry.DisplayName,
+			MenuBuilder.AddMenuEntry(Entry.DisplayName.IsEmpty() ? FText::FromName(Entry.Name) : Entry.DisplayName,
 				FText::GetEmpty(),
 				FSlateIcon(),
 				AddAction);
@@ -273,8 +253,7 @@ void FComposableCameraLevelSequenceComponentTrackEditor::OnExtendObjectBindingTr
 	}
 }
 
-void FComposableCameraLevelSequenceComponentTrackEditor::GatherParameterEntries(
-	UObject* BoundObject,
+void FComposableCameraLevelSequenceComponentTrackEditor::GatherParameterEntries(UObject* BoundObject,
 	UComposableCameraLevelSequenceComponent* Component,
 	bool bIsVariables,
 	TArray<FParameterMenuEntry>& OutEntries) const
@@ -291,19 +270,18 @@ void FComposableCameraLevelSequenceComponentTrackEditor::GatherParameterEntries(
 	}
 
 	// Build the chain of prefix properties:
-	//   BoundObject.class
-	//     → (if Actor) RootComponent / the component subobject — not a FProperty drill;
-	//       instead, Sequencer's CanKeyProperty handles component traversal via
-	//       the component binding. For actor bindings we'd need a different path
-	//       starting at the actor's component reference. For first cut, require
-	//       the binding to resolve to a UComposableCameraLevelSequenceComponent
-	//       directly (bIsComponentBinding path), which is what Epic's editor
-	//       requires too. Actor-binding support can be added later by injecting
-	//       a component-name prefix into the property path.
+	// BoundObject.class
+	// -> (if Actor) RootComponent / the component subobject - not a FProperty drill;
+	// instead, Sequencer's CanKeyProperty handles component traversal via
+	// the component binding. For actor bindings we'd need a different path
+	// starting at the actor's component reference. For first cut, require
+	// the binding to resolve to a UComposableCameraLevelSequenceComponent
+	// directly (bIsComponentBinding path), which is what Epic's editor
+	// requires too. Actor-binding support can be added later by injecting
+	// a component-name prefix into the property path.
 	const UClass* ComponentClass = Component->GetClass();
 
-	FProperty* RefProp = ComponentClass->FindPropertyByName(
-		GET_MEMBER_NAME_CHECKED(UComposableCameraLevelSequenceComponent, TypeAssetReference));
+	FProperty* RefProp = ComponentClass->FindPropertyByName(GET_MEMBER_NAME_CHECKED(UComposableCameraLevelSequenceComponent, TypeAssetReference));
 	if (!RefProp)
 	{
 		return;
@@ -340,8 +318,7 @@ void FComposableCameraLevelSequenceComponentTrackEditor::GatherParameterEntries(
 
 	// Iterate the per-instance UPropertyBag to see the bag's actual fields.
 	FInstancedPropertyBag& Bag = bIsVariables
-		? Component->TypeAssetReference.Variables
-		: Component->TypeAssetReference.Parameters;
+		? Component->TypeAssetReference.Variables: Component->TypeAssetReference.Parameters;
 
 	const UPropertyBag* BagStruct = Bag.GetPropertyBagStruct();
 	if (!BagStruct)
@@ -351,14 +328,14 @@ void FComposableCameraLevelSequenceComponentTrackEditor::GatherParameterEntries(
 
 	// If the bound object is the component itself, the property path starts
 	// at TypeAssetReference. If it's an actor containing the component, we'd
-	// need a component-traversal prefix — skipped for first cut; users bind
+	// need a component-traversal prefix - skipped for first cut; users bind
 	// the component directly (or accept the actor-binding path won't key).
 	const UClass* BoundObjectClass = BoundObject->GetClass();
 	const bool bIsComponentBoundDirectly = BoundObjectClass->IsChildOf<UComposableCameraLevelSequenceComponent>();
 
 	if (!bIsComponentBoundDirectly)
 	{
-		// Actor-binding path isn't wired yet — menu stays empty for that case.
+		// Actor-binding path isn't wired yet - menu stays empty for that case.
 		return;
 	}
 
@@ -395,8 +372,7 @@ void FComposableCameraLevelSequenceComponentTrackEditor::GatherParameterEntries(
 	});
 }
 
-void FComposableCameraLevelSequenceComponentTrackEditor::AddParameterTrack(
-	FParameterMenuEntry Entry, FGuid ObjectBinding)
+void FComposableCameraLevelSequenceComponentTrackEditor::AddParameterTrack(FParameterMenuEntry Entry, FGuid ObjectBinding)
 {
 	TSharedPtr<ISequencer> SequencerPtr = GetSequencer();
 	if (!SequencerPtr.IsValid())
@@ -417,52 +393,47 @@ void FComposableCameraLevelSequenceComponentTrackEditor::AddParameterTrack(
 	// ManualKeyForced otherwise. This matches how stock property track menu
 	// entries behave on any UObject, so our entries feel native.
 	const ESequencerKeyMode KeyMode = SequencerPtr->GetAutoSetTrackDefaults()
-		? ESequencerKeyMode::ManualKey
-		: ESequencerKeyMode::ManualKeyForced;
+		? ESequencerKeyMode::ManualKey: ESequencerKeyMode::ManualKeyForced;
 
 	FKeyPropertyParams Params(KeyableBoundObjects, Entry.PropertyPath, KeyMode);
 	SequencerPtr->KeyProperty(Params);
 }
 
-bool FComposableCameraLevelSequenceComponentTrackEditor::CanAddParameterTrack(
-	FParameterMenuEntry Entry, FGuid ObjectBinding) const
+bool FComposableCameraLevelSequenceComponentTrackEditor::CanAddParameterTrack(FParameterMenuEntry Entry, FGuid ObjectBinding) const
 {
 	return GetBoundObjectForBinding(ObjectBinding) != nullptr;
 }
 
-void FComposableCameraLevelSequenceComponentTrackEditor::AddCameraTypeAssetSubMenu(
-	FMenuBuilder& MenuBuilder, TArray<FGuid> ObjectBindings)
+void FComposableCameraLevelSequenceComponentTrackEditor::AddCameraTypeAssetSubMenu(FMenuBuilder& MenuBuilder, TArray<FGuid> ObjectBindings)
 {
 	TSharedPtr<ISequencer> SequencerPtr = GetSequencer();
 	UMovieSceneSequence* Sequence = SequencerPtr ? SequencerPtr->GetFocusedMovieSceneSequence() : nullptr;
 
-	// Asset picker — filter to UComposableCameraTypeAsset and subclasses
+	// Asset picker - filter to UComposableCameraTypeAsset and subclasses
 	// (UComposableCameraPatchTypeAsset is technically a subclass; surfacing it
 	// here lets advanced users opt to use a Patch asset as the base camera if
 	// they really want, though the UX is unusual). Same FAssetPickerConfig
 	// shape FCameraShakeTrackEditor uses.
 	FAssetPickerConfig AssetPickerConfig;
 	{
-		AssetPickerConfig.OnAssetSelected = FOnAssetSelected::CreateRaw(
-			this,
+		AssetPickerConfig.OnAssetSelected = FOnAssetSelected::CreateRaw(this,
 			&FComposableCameraLevelSequenceComponentTrackEditor::OnCameraTypeAssetSelected,
 			ObjectBindings);
-		AssetPickerConfig.OnAssetEnterPressed = FOnAssetEnterPressed::CreateRaw(
-			this,
+		AssetPickerConfig.OnAssetEnterPressed = FOnAssetEnterPressed::CreateRaw(this,
 			&FComposableCameraLevelSequenceComponentTrackEditor::OnCameraTypeAssetEnterPressed,
 			ObjectBindings);
-		AssetPickerConfig.bAllowNullSelection      = false;
-		AssetPickerConfig.bAddFilterUI             = true;
-		AssetPickerConfig.bShowTypeInColumnView    = false;
-		AssetPickerConfig.InitialAssetViewType     = EAssetViewType::List;
-		AssetPickerConfig.SaveSettingsName         = TEXT("ComposableCameraSequencerTypeAssetPicker");
+		AssetPickerConfig.bAllowNullSelection = false;
+		AssetPickerConfig.bAddFilterUI = true;
+		AssetPickerConfig.bShowTypeInColumnView = false;
+		AssetPickerConfig.InitialAssetViewType = EAssetViewType::List;
+		AssetPickerConfig.SaveSettingsName = TEXT("ComposableCameraSequencerTypeAssetPicker");
 		AssetPickerConfig.AdditionalReferencingAssets.Add(FAssetData(Sequence));
 
 		// Filter to UComposableCameraTypeAsset (and subclasses, including
 		// UComposableCameraPatchTypeAsset). Asset Registry doesn't auto-resolve
 		// subclass relationships for non-Blueprint UCLASSes via class path
 		// alone; we add the base class path and let the picker show all assets
-		// of that class — UComposableCameraPatchTypeAsset assets will appear
+		// of that class - UComposableCameraPatchTypeAsset assets will appear
 		// because they're saved with their full class identity in the registry.
 		AssetPickerConfig.Filter.ClassPaths.Add(UComposableCameraTypeAsset::StaticClass()->GetClassPathName());
 		AssetPickerConfig.Filter.bRecursiveClasses = true;
@@ -471,25 +442,22 @@ void FComposableCameraLevelSequenceComponentTrackEditor::AddCameraTypeAssetSubMe
 	FContentBrowserModule& ContentBrowserModule =
 		FModuleManager::Get().LoadModuleChecked<FContentBrowserModule>(TEXT("ContentBrowser"));
 
-	// Hardcode dims to avoid pulling in USequencerSettings — the engine's
+	// Hardcode dims to avoid pulling in USequencerSettings - the engine's
 	// CameraShakeTrackEditor uses Sequencer's saved settings for these but
 	// the dependency isn't worth dragging in for two floats. 500x400 matches
 	// the engine's documented defaults for FAssetPickerConfig.
-	const float WidthOverride  = 500.f;
+	const float WidthOverride = 500.f;
 	const float HeightOverride = 400.f;
 
 	TSharedPtr<SBox> MenuEntry = SNew(SBox)
 		.WidthOverride(WidthOverride)
 		.HeightOverride(HeightOverride)
-		[
-			ContentBrowserModule.Get().CreateAssetPicker(AssetPickerConfig)
-		];
+		[ContentBrowserModule.Get().CreateAssetPicker(AssetPickerConfig)];
 
 	MenuBuilder.AddWidget(MenuEntry.ToSharedRef(), FText::GetEmpty(), true);
 }
 
-void FComposableCameraLevelSequenceComponentTrackEditor::OnCameraTypeAssetSelected(
-	const FAssetData& AssetData, TArray<FGuid> ObjectBindings)
+void FComposableCameraLevelSequenceComponentTrackEditor::OnCameraTypeAssetSelected(const FAssetData& AssetData, TArray<FGuid> ObjectBindings)
 {
 	FSlateApplication::Get().DismissAllMenus();
 
@@ -501,24 +469,22 @@ void FComposableCameraLevelSequenceComponentTrackEditor::OnCameraTypeAssetSelect
 
 	// Resolve the inner FProperty for TypeAssetReference.TypeAsset so we can
 	// route through the standard PreEditChange / PostEditChangeProperty pair.
-	// This mirrors what the Details-panel asset picker does — the Component's
+	// This mirrors what the Details-panel asset picker does - the Component's
 	// PostEditChangeProperty override sees PropertyName == "TypeAsset" and
 	// runs RebuildBagsFromTypeAsset + RebuildInternalCamera. Going through
 	// the formal property pipeline (instead of calling those two methods
 	// directly from the Slate menu callback) avoids a crash where component
 	// destruction fires while Slate / Sequencer are still mid-paint with
 	// references to the soon-to-be-replaced InternalCamera.
-	FProperty* RefProp = UComposableCameraLevelSequenceComponent::StaticClass()->FindPropertyByName(
-		GET_MEMBER_NAME_CHECKED(UComposableCameraLevelSequenceComponent, TypeAssetReference));
+	FProperty* RefProp = UComposableCameraLevelSequenceComponent::StaticClass()->FindPropertyByName(GET_MEMBER_NAME_CHECKED(UComposableCameraLevelSequenceComponent, TypeAssetReference));
 	FStructProperty* RefStructProp = CastField<FStructProperty>(RefProp);
 	FProperty* TypeAssetProp = (RefStructProp && RefStructProp->Struct)
-		? RefStructProp->Struct->FindPropertyByName(
-			GET_MEMBER_NAME_CHECKED(FComposableCameraTypeAssetReference, TypeAsset))
+		? RefStructProp->Struct->FindPropertyByName(GET_MEMBER_NAME_CHECKED(FComposableCameraTypeAssetReference, TypeAsset))
 		: nullptr;
 
 	const FScopedTransaction Transaction(LOCTEXT("SetCameraTypeAsset", "Set Camera Type Asset"));
 
-	for (const FGuid& Binding : ObjectBindings)
+	for (const FGuid& Binding: ObjectBindings)
 	{
 		UComposableCameraLevelSequenceComponent* Component = GetComponentForBinding(Binding);
 		if (!Component)
@@ -545,8 +511,7 @@ void FComposableCameraLevelSequenceComponentTrackEditor::OnCameraTypeAssetSelect
 	}
 }
 
-void FComposableCameraLevelSequenceComponentTrackEditor::OnCameraTypeAssetEnterPressed(
-	const TArray<FAssetData>& AssetData, TArray<FGuid> ObjectBindings)
+void FComposableCameraLevelSequenceComponentTrackEditor::OnCameraTypeAssetEnterPressed(const TArray<FAssetData>& AssetData, TArray<FGuid> ObjectBindings)
 {
 	if (AssetData.Num() > 0)
 	{

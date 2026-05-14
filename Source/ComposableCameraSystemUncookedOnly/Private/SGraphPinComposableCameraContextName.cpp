@@ -26,8 +26,7 @@ TSharedRef<SWidget> SGraphPinComposableCameraContextName::GetDefaultValueWidget(
 	return SNew(SBox)
 		.MinDesiredWidth(120.f)
 		.MaxDesiredWidth(260.f)
-		[
-			SAssignNew(ContextCombo, SSearchableComboBox)
+		[SAssignNew(ContextCombo, SSearchableComboBox)
 				.OptionsSource(&ContextOptions)
 				.OnGenerateWidget(this, &SGraphPinComposableCameraContextName::OnGenerateOptionWidget)
 				.OnSelectionChanged(this, &SGraphPinComposableCameraContextName::OnOptionSelected)
@@ -38,14 +37,11 @@ TSharedRef<SWidget> SGraphPinComposableCameraContextName::GetDefaultValueWidget(
 					"Select 'None' to use the default context."))
 				.IsEnabled(this, &SGraphPin::GetDefaultValueIsEditable)
 				.Content()
-				[
-					SNew(STextBlock)
-					.Text_Lambda([this]() { return GetCurrentContextNameText(); })
-				]
-		];
+				[SNew(STextBlock)
+					.Text_Lambda([this]() { return GetCurrentContextNameText(); })]];
 }
 
-// ─── Data Resolution ──────────────────────────────────────────────────────────
+// Data Resolution 
 
 void SGraphPinComposableCameraContextName::RefreshContextOptions()
 {
@@ -57,22 +53,21 @@ void SGraphPinComposableCameraContextName::RefreshContextOptions()
 	TArray<FName> Names = UComposableCameraProjectSettings::GetContextNames();
 	Names.Sort([](const FName& A, const FName& B) { return A.LexicalLess(B); });
 	ContextOptions.Reserve(ContextOptions.Num() + Names.Num());
-	for (const FName& Name : Names)
+	for (const FName& Name: Names)
 	{
 		ContextOptions.Add(MakeShared<FString>(Name.ToString()));
 	}
 }
 
-// ─── Combo Callbacks ──────────────────────────────────────────────────────────
+// Combo Callbacks 
 
 TSharedRef<SWidget> SGraphPinComposableCameraContextName::OnGenerateOptionWidget(TSharedPtr<FString> InOption)
 {
 	return SNew(STextBlock)
-		.Text(FText::FromString(InOption.IsValid() ? *InOption : FString()));
+		.Text(FText::FromString(InOption.IsValid() ? *InOption: FString()));
 }
 
-void SGraphPinComposableCameraContextName::OnOptionSelected(
-	TSharedPtr<FString> InOption, ESelectInfo::Type InSelectInfo)
+void SGraphPinComposableCameraContextName::OnOptionSelected(TSharedPtr<FString> InOption, ESelectInfo::Type InSelectInfo)
 {
 	if (InSelectInfo == ESelectInfo::Direct || !InOption.IsValid())
 	{
@@ -103,7 +98,7 @@ void SGraphPinComposableCameraContextName::OnOptionSelected(
 	}
 }
 
-// ─── Display Helpers ──────────────────────────────────────────────────────────
+// Display Helpers 
 
 FText SGraphPinComposableCameraContextName::GetCurrentContextNameText() const
 {

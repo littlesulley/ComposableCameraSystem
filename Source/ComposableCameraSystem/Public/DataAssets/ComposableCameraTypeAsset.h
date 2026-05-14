@@ -116,8 +116,8 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraExposedParameter
  * Describes a camera-level variable (internal or caller-exposed).
  *
  * This is the struct used for BOTH InternalVariables and ExposedVariables on
- * UComposableCameraTypeAsset — the two arrays share the same field layout and
- * the runtime also stores both in a single FName→offset map. The distinction
+ * UComposableCameraTypeAsset. The two arrays share the same field layout and
+ * the runtime also stores both in a single FNameffset map. The distinction
  * lives purely at the authoring surface: which array an entry lives in.
  *
  *  - InternalVariables: node-only slots. InitialValueString is applied at camera
@@ -127,7 +127,7 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraExposedParameter
  *    FComposableCameraParameterBlock may override the initial value at
  *    activation time (by keying on VariableName, same channel used for
  *    ExposedParameters). After activation, there is no external read/write API
- *    for them — they behave exactly like internal variables from that point on.
+ *    for them. They behave exactly like internal variables from that point on.
  *
  * All fields apply to both usages; none are ignored in either case.
  */
@@ -147,7 +147,7 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraInternalVariable
 	 * the toolkit populates a missing GUID lazily on load (see
 	 * UComposableCameraTypeAsset::PostLoad).
 	 *
-	 * This field is never read by the runtime — it exists purely for editor
+	 * This field is never read by the runtime. It exists purely for editor
 	 * identity tracking and serialization round-trip.
 	 */
 	UPROPERTY()
@@ -157,7 +157,7 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraInternalVariable
 	 *
 	 *  Serves both as the runtime lookup key (ParameterBlock / RuntimeDataBlock)
 	 *  and as the display label in the graph editor context menu and on
-	 *  Get/Set variable nodes. There is no separate DisplayName — the FName IS
+	 *  Get/Set variable nodes. There is no separate DisplayName. The FName IS
 	 *  the display name. Renames are tracked via VariableGuid so existing
 	 *  Get/Set graph nodes follow the variable through edits in the Details panel. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Variable")
@@ -205,11 +205,11 @@ class COMPOSABLECAMERASYSTEM_API UComposableCameraTypeAsset : public UPrimaryDat
 	GENERATED_BODY()
 
 public:
-	// ─── Node Chain ────────────────────────────────────────────────────────
+	// --- Node Chain --------------------------------------------------------
 
 	/** Flat list of node template UObjects owned by this asset.
 	 *
-	 *  This array is intentionally **hidden from the Details panel** — the visual
+	 *  This array is intentionally **hidden from the Details panel**. The visual
 	 *  node graph editor is the authoritative editing surface for camera nodes,
 	 *  and showing a separate "NodeTemplates" array in Details would tempt users
 	 *  into thinking its order has semantic meaning. It does not: execution order
@@ -217,7 +217,7 @@ public:
 	 *  not from this array's order. The array exists purely as a GC anchor and
 	 *  serialization container for the instanced node UObjects.
 	 *
-	 *  UPROPERTY has no EditAnywhere / Category keywords on purpose — the field
+	 *  UPROPERTY has no EditAnywhere / Category keywords on purpose. The field
 	 *  is still serialized (bare UPROPERTY) and Instanced (so subobjects round-trip),
 	 *  but invisible to IDetailCustomization panels. Editor code accesses this
 	 *  array directly through SyncToTypeAsset / RebuildFromTypeAsset. */
@@ -237,22 +237,21 @@ public:
 	 *  before this field existed start with an empty array; the first sync
 	 *  after load grows it to match.
 	 *
-	 *  Hidden from the Details panel for the same reason NodeTemplates is —
-	 *  the visual graph (+ its per-node Details customization) is the
+	 *  Hidden from the Details panel for the same reason NodeTemplates is - the visual graph (+ its per-node Details customization) is the
 	 *  authoritative editing surface. Editor code accesses this array
 	 *  directly through the Sync/Rebuild phases and through the graph
 	 *  node's accessor helpers. */
 	UPROPERTY()
 	TArray<FComposableCameraNodeTemplatePinOverrides> NodePinOverrides;
 
-	// ─── BeginPlay Compute Chain ───────────────────────────────────────────
+	// --- BeginPlay Compute Chain -------------------------------------------
 	//
 	// Parallel to NodeTemplates / NodePinOverrides / PinConnections /
 	// FullExecChain, but for one-shot compute nodes that run on the BeginPlay
 	// execution chain (see UComposableCameraComputeNodeBase and
 	// AComposableCameraCameraBase::BeginPlayCamera for the runtime model).
 	//
-	// Compute templates live in their own index space — the index used for
+	// Compute templates live in their own index space. The index used for
 	// FComposableCameraPinKey at runtime is (NodeTemplates.Num() + ComputeIdx),
 	// which keeps output pin keys unique across the two chains without having
 	// to teach the pin key to disambiguate. See
@@ -268,7 +267,7 @@ public:
 	// two non-overlapping index domains.
 
 	/** Flat list of compute node templates authored on this type asset.
-	 *  Hidden from Details for the same reason NodeTemplates is — the visual
+	 *  Hidden from Details for the same reason NodeTemplates is. The visual
 	 *  graph editor is the authoritative editing surface. */
 	UPROPERTY(Instanced)
 	TArray<TObjectPtr<UComposableCameraComputeNodeBase>> ComputeNodeTemplates;
@@ -303,7 +302,7 @@ public:
 	 *  sentinel's ExecOut and records each step here. For CameraNode entries,
 	 *  CameraNodeIndex indexes into ComputeNodeTemplates (not NodeTemplates).
 	 *  For SetVariable entries, CameraNodeIndex also indexes
-	 *  ComputeNodeTemplates — the source node is always on the same chain.
+	 *  ComputeNodeTemplates. The source node is always on the same chain.
 	 *
 	 *  The runtime copies this to AComposableCameraCameraBase::ComputeFullExecChain
 	 *  during OnTypeAssetCameraConstructed. BeginPlayCamera walks it to
@@ -311,11 +310,11 @@ public:
 	UPROPERTY()
 	TArray<FComposableCameraExecEntry> ComputeFullExecChain;
 
-	// ─── Camera Identity ───────────────────────────────────────────────────
+	// --- Camera Identity ---------------------------------------------------
 
 	/** Tag for this camera type. Propagated to spawned camera instances so
 	 *  modifiers can distinguish different cameras at runtime. Mirrors
-	 *  AComposableCameraCameraBase::CameraTag — the TypeAsset carries it so
+	 *  AComposableCameraCameraBase::CameraTag. The TypeAsset carries it so
 	 *  designers don't need to subclass the camera in Blueprint just to set a tag. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Camera")
 	FGameplayTag CameraTag;
@@ -327,20 +326,20 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Camera")
 	bool bDefaultPreserveCameraPose = true;
 
-	// ─── Transitions ──────────────────────────────────────────────────────
+	// --- Transitions ------------------------------------------------------
 
-	/** Optional enter transition — used when this camera type becomes active.
+	/** Optional enter transition. Used when this camera type becomes active.
 	 *  The full resolution chain is:
 	 *    1. Caller-supplied override
-	 *    2. Transition table lookup (Source → Target pair)
+	 *    2. Transition table lookup (Source -> Target pair)
 	 *    3. Source's ExitTransition
-	 *    4. Target's EnterTransition  ← this field
+	 *    4. Target's EnterTransition  ->this field
 	 *    5. Hard cut
 	 *  Callers can always override via the activation API. */
 	UPROPERTY(EditAnywhere, Instanced, Category = "Transition")
 	TObjectPtr<UComposableCameraTransitionBase> EnterTransition;
 
-	/** Optional exit transition — used when leaving this camera type.
+	/** Optional exit transition. Used when leaving this camera type.
 	 *  Checked at priority 3 in the resolution chain (after the table,
 	 *  before the target's EnterTransition). Useful for cameras that
 	 *  must always leave with a specific transition regardless of what
@@ -348,17 +347,17 @@ public:
 	UPROPERTY(EditAnywhere, Instanced, Category = "Transition")
 	TObjectPtr<UComposableCameraTransitionBase> ExitTransition;
 
-	// ─── Exposed Parameters ────────────────────────────────────────────────
+	// --- Exposed Parameters ------------------------------------------------
 
 	/** Parameters that callers provide when activating this camera type.
 	 *
-	 *  Authoring model — split between graph and Details panel:
+	 *  Authoring model. Split between graph and Details panel:
 	 *
 	 *    - **Structure** (which pins are exposed) is authored **exclusively**
 	 *      through the visual graph editor: designers right-click a node input
 	 *      pin and select "Expose as Camera Parameter" (or "Unexpose"). The
 	 *      array is `EditFixedSize`, so the Details panel does not offer
-	 *      Add/Remove buttons — adding a free-standing entry that doesn't map
+	 *      Add/Remove buttons. Adding a free-standing entry that doesn't map
 	 *      to any node pin would have no runtime meaning, and removing one
 	 *      from Details would silently leave the underlying pin in an
 	 *      "orphaned-exposed" state on the graph side.
@@ -374,7 +373,7 @@ public:
 	 *
 	 *    - **Identity fields** (ParameterName, PinType, StructType,
 	 *      TargetNodeIndex, TargetPinName) are deliberately read-only or
-	 *      hidden — renaming or retyping them in Details would silently break
+	 *      hidden. Renaming or retyping them in Details would silently break
 	 *      every consumer keying by name (K2 node UserOverrideNames, DataTable
 	 *      row Values, ParameterBlock activations, the row editor's orphan
 	 *      detection). To rename or retype, change it on the underlying pin
@@ -382,7 +381,7 @@ public:
 	UPROPERTY(EditAnywhere, EditFixedSize, Category = "Parameters")
 	TArray<FComposableCameraExposedParameter> ExposedParameters;
 
-	// ─── Internal Variables ────────────────────────────────────────────────
+	// --- Internal Variables ------------------------------------------------
 
 	/** Camera-level variables not exposed to callers but readable/writable by nodes.
 	 *  Used for cross-node communication and cross-frame state caching.
@@ -391,13 +390,13 @@ public:
 	 *  ExposedVariables below; the two categories differ only in whether the
 	 *  caller's ParameterBlock may override the initial value at activation time
 	 *  (ExposedVariables: yes; InternalVariables: no). At runtime both arrays
-	 *  feed the same InternalVariableOffsets map on the data block — Get/Set
+	 *  feed the same InternalVariableOffsets map on the data block -Get/Set
 	 *  variable graph nodes treat them uniformly. Names must be unique across
-	 *  ExposedParameters ∪ InternalVariables ∪ ExposedVariables; see Build(). */
+	 *  ExposedParameters inInternalVariables inExposedVariables; see Build(). */
 	UPROPERTY(EditAnywhere, Category = "Internal Variables")
 	TArray<FComposableCameraInternalVariable> InternalVariables;
 
-	// ─── Exposed Variables ─────────────────────────────────────────────────
+	// --- Exposed Variables -------------------------------------------------
 
 	/** Camera-level variables whose initial value may be overridden by the
 	 *  caller at activation time, but which are otherwise identical to internal
@@ -417,21 +416,21 @@ public:
 	 *  from InternalVariables. Their slots live in the same
 	 *  FComposableCameraRuntimeDataBlock::InternalVariableOffsets map, and the
 	 *  editor's variable graph nodes (Get/Set) find them via the same
-	 *  FindVariable() lookup path — both arrays are searched.
+	 *  FindVariable() lookup path. Both arrays are searched.
 	 *
-	 *  Name uniqueness is enforced across ExposedParameters ∪ InternalVariables
-	 *  ∪ ExposedVariables in Build(); see that function for the rationale. */
+	 *  Name uniqueness is enforced across ExposedParameters inInternalVariables
+	 *  inExposedVariables in Build(); see that function for the rationale. */
 	UPROPERTY(EditAnywhere, Category = "Exposed Variables")
 	TArray<FComposableCameraInternalVariable> ExposedVariables;
 
-	// ─── Pin Wiring (serialized by the editor) ─────────────────────────────
+	// --- Pin Wiring (serialized by the editor) -----------------------------
 
 	/** Describes all data-pin connections between nodes.
 	 *  Each entry maps a target node's input pin to a source node's output pin. */
 	UPROPERTY()
 	TArray<FComposableCameraPinConnection> PinConnections;
 
-	// ─── Execution Chain (serialized by the editor) ────────────────────────
+	// --- Execution Chain (serialized by the editor) ------------------------
 
 	/** Ordered list of node indices defining the execution chain, filtered down
 	 *  to camera nodes only.
@@ -458,7 +457,7 @@ public:
 	UPROPERTY()
 	TArray<FComposableCameraExecEntry> FullExecChain;
 
-	// ─── Variable Graph Nodes (serialized by the editor) ───────────────────
+	// --- Variable Graph Nodes (serialized by the editor) -------------------
 
 	/** Editor-only records describing each Get/Set variable graph node in the
 	 *  visual editor, along with the camera-node pins each one is wired to.
@@ -467,7 +466,7 @@ public:
 	UPROPERTY()
 	TArray<FComposableCameraVariableNodeRecord> VariableNodes;
 
-	// ─── Editor-Only Data ──────────────────────────────────────────────────
+	// --- Editor-Only Data --------------------------------------------------
 
 #if WITH_EDITORONLY_DATA
 	/** Canvas positions of each camera graph node, parallel to NodeTemplates.
@@ -478,7 +477,7 @@ public:
 	 *  Invariant: after any successful SyncToTypeAsset,
 	 *  NodeTemplatePositions.Num() == NodeTemplates.Num(). For legacy assets
 	 *  that were saved before this field existed, the array is empty and
-	 *  RebuildFromTypeAsset falls back to a default horizontal layout — the
+	 *  RebuildFromTypeAsset falls back to a default horizontal layout. The
 	 *  first save after load will populate it.
 	 *
 	 *  Editor-only because layout is purely a visual concern. */
@@ -515,7 +514,7 @@ public:
 
 	/** EdGraph for the visual node editor. Created lazily by the editor toolkit.
 	 *
-	 *  MUST be Transient. The editor graph is a pure derived view — every single
+	 *  MUST be Transient. The editor graph is a pure derived view. Every single
 	 *  thing it contains (graph nodes, pin wires, layout, variable graph nodes,
 	 *  exec chain) is reconstructed from scratch by
 	 *  UComposableCameraNodeGraph::RebuildFromTypeAsset on every editor open,
@@ -529,14 +528,14 @@ public:
 	 *       GraphNode->NodeTemplate and TypeAsset->NodeTemplates. Because
 	 *       UComposableCameraCameraNodeBase is declared with DefaultToInstanced,
 	 *       UHT implicitly promotes any TObjectPtr<UComposableCameraCameraNodeBase>
-	 *       property to Instanced — so the GraphNode's serializer tries to
+	 *       property to Instanced. So the GraphNode's serializer tries to
 	 *       export NodeTemplate inline under itself, colliding with the
 	 *       TypeAsset's NodeTemplates array export of the same object. See
-	 *       ComposableCameraNodeGraphNode.h and EditorDesignDoc §8 "Gotcha".
+	 *       ComposableCameraNodeGraphNode.h and EditorDesignDoc Section 8 "Gotcha".
 	 *
 	 *    2. Re-entrancy hazards on load. RebuildFromTypeAsset starts by calling
 	 *       RemoveNode on every existing graph node; RemoveNode fires
-	 *       NotifyGraphChanged → the toolkit's OnGraphChanged → SyncToTypeAsset,
+	 *       NotifyGraphChanged -> the toolkit's OnGraphChanged->SyncToTypeAsset,
 	 *       which walks the (partially-drained) Nodes array and writes the
 	 *       resulting empty NodeTemplates back to the TypeAsset, clobbering
 	 *       the freshly-loaded durable data.
@@ -552,7 +551,7 @@ public:
 	 *  above hazards can occur.
 	 *
 	 *  IMPORTANT: this is a UPROPERTY flag change. Live Coding will NOT pick
-	 *  this up — you must do a full editor restart after changing it. */
+	 *  this up. You must do a full editor restart after changing it. */
 	UPROPERTY(Transient)
 	TObjectPtr<UEdGraph> EditorGraph;
 
@@ -566,7 +565,7 @@ public:
 #endif
 
 public:
-	// ─── Runtime API ───────────────────────────────────────────────────────
+	// --- Runtime API -------------------------------------------------------
 
 	/** Get the list of exposed parameters for K2Node / DataTable introspection. */
 	const TArray<FComposableCameraExposedParameter>& GetExposedParameters() const { return ExposedParameters; }
@@ -619,41 +618,41 @@ public:
 	 * @param bLogResult When true (default), prints a one-line summary to
 	 *        `LogComposableCameraSystem` after validation. The editor toolkit's
 	 *        graph-sync path passes `false` so continuous editing doesn't spam
-	 *        the log — the per-node error badges driven by the same
+	 *        the log. The per-node error badges driven by the same
 	 *        BuildMessages serve as the ambient status indicator instead.
 	 */
 	void Build(bool bLogResult = true);
 
 	/**
-	 * Subclass extension point — called from the tail of Build() so subclasses
+	 * Subclass extension point. Called from the tail of Build() so subclasses
 	 * can append their own validation results without having to override Build
 	 * itself. Default: empty.
 	 *
 	 * Messages appended here flow through the same BuildMessages / inline-badge
 	 * pipeline as the base checks. Used by UComposableCameraPatchTypeAsset to
-	 * flag Patch-incompatible nodes (PatchSystemProposal §11).
+	 * flag Patch-incompatible nodes (PatchSystemProposal Section 11).
 	 */
 	virtual void ValidateAdditional(TArray<FComposableCameraBuildMessage>& OutMessages) const {}
 
 	/** Ensure every internal variable has a valid VariableGuid, generating
 	 *  one for any legacy entry whose GUID is invalid. Safe to call multiple
-	 *  times — it only touches variables whose GUID is invalid. */
+	 *  times. It only touches variables whose GUID is invalid. */
 	void EnsureInternalVariableGuids();
 
 	/** Ensure every exposed variable has a valid VariableGuid, generating one
 	 *  for any legacy entry whose GUID is invalid. Same rationale as
-	 *  EnsureInternalVariableGuids — the editor's Get/Set variable graph nodes
+	 *  EnsureInternalVariableGuids. The editor's Get/Set variable graph nodes
 	 *  identify variables by GUID so renames in the Details panel don't orphan
 	 *  existing graph nodes. Safe to call multiple times. */
 	void EnsureExposedVariableGuids();
 
 	/**
 	 * Return a name that does not collide with any existing entry in
-	 * ExposedParameters ∪ ExposedVariables ∪ InternalVariables.
+	 * ExposedParameters inExposedVariables inInternalVariables.
 	 *
 	 * If BaseName is already free, returns BaseName unchanged. Otherwise,
 	 * appends the smallest free numeric suffix ("_2", "_3", ...) and returns
-	 * the result. The asset itself is not modified — callers are responsible
+	 * the result. The asset itself is not modified. Callers are responsible
 	 * for assigning the returned name to the new entry.
 	 *
 	 * Used by:
@@ -664,20 +663,19 @@ public:
 	 *     that contain duplicates from before this guard existed.
 	 *
 	 * NameAlreadyOwned (optional): a name to ignore during the collision check.
-	 * Use this when renaming an existing entry — pass the entry's current name
+	 * Use this when renaming an existing entry. Pass the entry's current name
 	 * so the helper doesn't consider the entry's own slot as a collision and
 	 * leave the name unchanged. Pass NAME_None when adding a brand-new entry.
 	 */
 	FName MakeUniqueExposedName(FName BaseName, FName NameAlreadyOwned = NAME_None) const;
 
 	/**
-	 * Walk ExposedParameters → ExposedVariables → InternalVariables (in that
+	 * Walk ExposedParameters->ExposedVariables ->InternalVariables (in that
 	 * order) and rename any duplicate-name entries to a unique suffix using
 	 * MakeUniqueExposedName. The first occurrence of each name is preserved
 	 * unchanged; subsequent occurrences are renamed.
 	 *
-	 * Returns true if anything was renamed. The asset is not marked dirty —
-	 * callers (typically PostLoad) decide whether to flag the package on a
+	 * Returns true if anything was renamed. The asset is not marked dirty - callers (typically PostLoad) decide whether to flag the package on a
 	 * silent migration.
 	 *
 	 * Logs LogComposableCameraSystem::Warning per rename so the user can spot
@@ -685,12 +683,12 @@ public:
 	 */
 	bool DeduplicateExposedNames();
 
-	// ─── UObject Editor Interface ──────────────────────────────────────────
+	// --- UObject Editor Interface ------------------------------------------
 	virtual void PostLoad() override;
 	virtual void PostEditChangeChainProperty(FPropertyChangedChainEvent& PropertyChangedEvent) override;
 #endif
 
-	// ─── UPrimaryDataAsset Interface ───────────────────────────────────────
+	// --- UPrimaryDataAsset Interface ---------------------------------------
 
 	virtual FPrimaryAssetId GetPrimaryAssetId() const override;
 };

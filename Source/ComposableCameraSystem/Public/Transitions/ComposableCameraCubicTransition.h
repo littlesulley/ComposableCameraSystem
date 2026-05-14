@@ -1,4 +1,4 @@
-// Copyright Sulley. All rights reserved.
+﻿// Copyright Sulley. All rights reserved.
 
 #pragma once
 
@@ -18,7 +18,7 @@ class COMPOSABLECAMERASYSTEM_API UComposableCameraCubicTransition
 public:
 	virtual FComposableCameraPose OnEvaluate_Implementation(float DeltaTime, const FComposableCameraPose& CurrentSourcePose, const FComposableCameraPose& CurrentTargetPose) override;
 
-	// `FMath::CubicInterp(0, 0, 1, 0, t)` — matches OnEvaluate's curve
+	// `FMath::CubicInterp(0, 0, 1, 0, t)`. Matches OnEvaluate's curve
 	// so the debug sparkline reads as the same cubic shape the camera
 	// actually blends with.
 	virtual float GetBlendWeightAt(float NormalizedTime) const override;

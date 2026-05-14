@@ -26,10 +26,10 @@ void FComposableCameraLogCapture::Serialize(const TCHAR* V, ELogVerbosity::Type 
 	}
 
 	// Filter 2: category. FName equality is a uint32 compare on the name
-	// pool index — fast enough to run on every single engine log line
+	// pool index. Fast enough to run on every single engine log line
 	// (`Serialize` is called for ALL `UE_LOG` invocations, not just
 	// CCS ones). Prior version used `ToString().StartsWith(...)` which
-	// allocated an FString per call — unacceptable for a hot path that
+	// allocated an FString per call. Unacceptable for a hot path that
 	// fires thousands of times per second.
 	//
 	// Trade-off: this explicit-list approach requires updating the
@@ -53,7 +53,7 @@ void FComposableCameraLogCapture::Serialize(const TCHAR* V, ELogVerbosity::Type 
 	FScopeLock Lock(&BufferCS);
 
 	// Dedupe: identical (Category, Verbosity, Message) triples collapse
-	// into the existing entry — refresh its timestamp + bump repeat
+	// into the existing entry. Refresh its timestamp + bump repeat
 	// counter, keep its position. Linear scan is O(N) with N <= 16;
 	// we only reach here AFTER verbosity + category filters, so the
 	// path is cold in steady state.

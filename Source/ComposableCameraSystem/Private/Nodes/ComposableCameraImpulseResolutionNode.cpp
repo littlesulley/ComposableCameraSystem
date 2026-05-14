@@ -17,7 +17,7 @@ void UComposableCameraImpulseResolutionNode::AddImpulseShape(AActor* Shape)
 	if (!Shape->GetClass()->ImplementsInterface(UComposableCameraImpulseShapeInterface::StaticClass()))
 	{
 		UE_LOG(LogComposableCameraSystem, Warning,
-			TEXT("AddImpulseShape: actor '%s' does not implement IComposableCameraImpulseShapeInterface — rejected."),
+			TEXT("AddImpulseShape: actor '%s' does not implement IComposableCameraImpulseShapeInterface. Rejected."),
 			*Shape->GetName());
 		return;
 	}
@@ -35,7 +35,7 @@ void UComposableCameraImpulseResolutionNode::RemoveImpulseShape(AActor* Shape)
 	ImpulseShapeActors.RemoveAll([Shape](const TWeakObjectPtr<AActor>& WeakActor)
 	{
 		// Drop both the matching actor AND any incidentally-stale entries
-		// while we're walking — keeps the array small over long sessions
+		// while we're walking. Keeps the array small over long sessions
 		// where End-Overlap fires were missed.
 		return !WeakActor.IsValid() || WeakActor.Get() == Shape;
 	});
@@ -62,9 +62,9 @@ void UComposableCameraImpulseResolutionNode::OnTickNode_Implementation(float Del
 	FVector CombinedForce = FVector::ZeroVector;
 
 	// Iterate backwards so RemoveAtSwap-while-prune doesn't skip entries.
-	// Resolve each weak in place: dead → drop (covers missed EndOverlap on
-	// actor destruction / streaming-out); alive but interface gone → drop;
-	// alive + interface → call GetForce.
+	// Resolve each weak in place: dead->drop (covers missed EndOverlap on
+	// actor destruction / streaming-out); alive but interface gone->drop;
+	// alive + interface ->call GetForce.
 	for (int32 i = ImpulseShapeActors.Num() - 1; i >= 0; --i)
 	{
 		AActor* Actor = ImpulseShapeActors[i].Get();
@@ -78,7 +78,7 @@ void UComposableCameraImpulseResolutionNode::OnTickNode_Implementation(float Del
 		if (!Shape)
 		{
 			// Class no longer implements the interface (hot-reload / class
-			// reinstancing edge case) — prune.
+			// reinstancing edge case). Prune.
 			ImpulseShapeActors.RemoveAtSwap(i, EAllowShrinking::No);
 			continue;
 		}

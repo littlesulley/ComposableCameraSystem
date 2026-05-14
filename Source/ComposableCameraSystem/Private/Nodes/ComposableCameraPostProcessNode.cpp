@@ -1,4 +1,4 @@
-// Copyright Sulley. All rights reserved.
+﻿// Copyright Sulley. All rights reserved.
 
 #include "Nodes/ComposableCameraPostProcessNode.h"
 
@@ -12,6 +12,6 @@ void UComposableCameraPostProcessNode::OnTickNode_Implementation(float DeltaTime
 	// PostProcessSettings are written into the pose. All other properties on
 	// the pose (from the component baseline or earlier nodes) pass through
 	// untouched. Multiple PostProcess nodes in the same camera compose in
-	// execution order — later overrides win for the same property.
+	// execution order. Later overrides win for the same property.
 	FPostProcessUtils::OverridePostProcessSettings(OutCameraPose.PostProcessSettings, PostProcessSettings);
 }

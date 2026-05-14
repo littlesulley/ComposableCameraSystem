@@ -18,7 +18,7 @@ class UComposableCameraVariableGraphNode;
  * drawn outside the layout system so it never affects node width or
  * interaction hit-testing.
  */
-class COMPOSABLECAMERASYSTEMEDITOR_API SComposableCameraVariableGraphNode : public SGraphNode
+class COMPOSABLECAMERASYSTEMEDITOR_API SComposableCameraVariableGraphNode: public SGraphNode
 {
 public:
 	SLATE_BEGIN_ARGS(SComposableCameraVariableGraphNode) {}
@@ -27,8 +27,7 @@ public:
 	void Construct(const FArguments& InArgs, UComposableCameraVariableGraphNode* InNode);
 
 	virtual void UpdateGraphNode() override;
-	virtual int32 OnPaint(
-		const FPaintArgs& Args,
+	virtual int32 OnPaint(const FPaintArgs& Args,
 		const FGeometry& AllottedGeometry,
 		const FSlateRect& MyCullingRect,
 		FSlateWindowElementList& OutDrawElements,

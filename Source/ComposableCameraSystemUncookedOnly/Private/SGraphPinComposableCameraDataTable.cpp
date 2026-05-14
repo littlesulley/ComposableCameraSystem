@@ -30,14 +30,14 @@ namespace ComposableCameraDataTablePin
 			return false;
 		}
 
-		// Full path name comparison — the most common modern form.
+		// Full path name comparison - the most common modern form.
 		const FString RequiredPath = RequiredStruct->GetStructPathName().ToString();
 		if (TagValue == RequiredPath)
 		{
 			return true;
 		}
 
-		// Short-name comparison — the legacy form.
+		// Short-name comparison - the legacy form.
 		const FString RequiredShortName = RequiredStruct->GetName();
 		if (TagValue == RequiredShortName)
 		{
@@ -71,7 +71,7 @@ TSharedRef<SWidget> SGraphPinComposableCameraDataTable::GenerateAssetPicker()
 	// Build our own FAssetPickerConfig so we can install a custom
 	// OnShouldFilterAsset delegate. The base class's OnShouldFilterAsset
 	// is non-virtual, so overriding it from a subclass doesn't change
-	// the filter that its own GenerateAssetPicker installs — we have to
+	// the filter that its own GenerateAssetPicker installs - we have to
 	// replace the whole thing.
 	FAssetPickerConfig AssetPickerConfig;
 
@@ -86,12 +86,9 @@ TSharedRef<SWidget> SGraphPinComposableCameraDataTable::GenerateAssetPicker()
 	AssetPickerConfig.SelectionMode = ESelectionMode::Single;
 	AssetPickerConfig.SaveSettingsName = TEXT("SGraphPinComposableCameraDataTable");
 
-	AssetPickerConfig.OnShouldFilterAsset = FOnShouldFilterAsset::CreateSP(
-		this, &SGraphPinComposableCameraDataTable::ShouldFilterDataTable);
-	AssetPickerConfig.OnAssetSelected = FOnAssetSelected::CreateSP(
-		this, &SGraphPinComposableCameraDataTable::HandleAssetSelected);
-	AssetPickerConfig.OnAssetEnterPressed = FOnAssetEnterPressed::CreateSP(
-		this, &SGraphPinComposableCameraDataTable::HandleAssetEnterPressed);
+	AssetPickerConfig.OnShouldFilterAsset = FOnShouldFilterAsset::CreateSP(this, &SGraphPinComposableCameraDataTable::ShouldFilterDataTable);
+	AssetPickerConfig.OnAssetSelected = FOnAssetSelected::CreateSP(this, &SGraphPinComposableCameraDataTable::HandleAssetSelected);
+	AssetPickerConfig.OnAssetEnterPressed = FOnAssetEnterPressed::CreateSP(this, &SGraphPinComposableCameraDataTable::HandleAssetEnterPressed);
 
 	FContentBrowserModule& ContentBrowserModule =
 		FModuleManager::LoadModuleChecked<FContentBrowserModule>(TEXT("ContentBrowser"));
@@ -101,9 +98,7 @@ TSharedRef<SWidget> SGraphPinComposableCameraDataTable::GenerateAssetPicker()
 	return SNew(SBox)
 		.HeightOverride(300.f)
 		.WidthOverride(300.f)
-		[
-			ContentBrowserModule.Get().CreateAssetPicker(AssetPickerConfig)
-		];
+		[ContentBrowserModule.Get().CreateAssetPicker(AssetPickerConfig)];
 }
 
 void SGraphPinComposableCameraDataTable::HandleAssetSelected(const FAssetData& AssetData)
@@ -134,13 +129,13 @@ bool SGraphPinComposableCameraDataTable::ShouldFilterDataTable(const FAssetData&
 		UK2Node_ActivateComposableCameraFromDataTable::GetRequiredRowStruct();
 	if (!RequiredStruct)
 	{
-		// No requirement — accept all DataTables. This branch exists only
+		// No requirement - accept all DataTables. This branch exists only
 		// to keep the widget robust if the K2 node's static is ever
 		// changed to return nullptr in some configuration.
 		return false;
 	}
 
-	// ── Fast path: asset registry tag comparison ─────────────────────────
+	// Fast path: asset registry tag comparison 
 	// Both known tag names are checked, and the comparator accepts the
 	// full path name, the short name, and the path-object-name portion.
 	// This avoids loading the asset when the metadata is sufficient.
@@ -160,7 +155,7 @@ bool SGraphPinComposableCameraDataTable::ShouldFilterDataTable(const FAssetData&
 		}
 	}
 
-	// ── Slow path: sync-load and inspect the actual row struct ──────────
+	// Slow path: sync-load and inspect the actual row struct 
 	// Fallback for the case where the asset registry tag format changes
 	// or is missing entirely. DataTable assets are small, and the picker
 	// only runs this on the tiny set of DataTable assets in the project,

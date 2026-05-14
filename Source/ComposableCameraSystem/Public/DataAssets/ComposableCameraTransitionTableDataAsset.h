@@ -19,7 +19,7 @@ class UComposableCameraTypeAsset;
  *
  * Defines which transition to use when switching from a camera built from
  * SourceTypeAsset to one built from TargetTypeAsset. Both fields are
- * required — the table performs exact-match lookups only. Wildcard /
+ * required. The table performs exact-match lookups only. Wildcard /
  * fallback behavior is handled by per-camera ExitTransition and
  * EnterTransition fields on UComposableCameraTypeAsset, which sit
  * below the table in the resolution chain.
@@ -37,11 +37,11 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraTransitionTableEntry
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Transition Table")
 	TSoftObjectPtr<UComposableCameraTypeAsset> TargetTypeAsset;
 
-	/** Transition to use for this (Source → Target) pair. */
+	/** Transition to use for this (Source->Target) pair. */
 	UPROPERTY(EditAnywhere, Instanced, Category = "Transition Table")
 	TObjectPtr<UComposableCameraTransitionBase> Transition;
 
-	/** Computed display string for the array header (e.g. "ThirdPerson → FirstPerson"). */
+	/** Computed display string for the array header (e.g. "ThirdPerson -> FirstPerson"). */
 	UPROPERTY(VisibleAnywhere, Transient, Category = "Transition Table")
 	FString DisplayTitle;
 
@@ -59,9 +59,9 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraTransitionTableEntry
  * Resolution order when switching from camera A to camera B:
  *
  *   1. Caller-supplied override (TransitionOverride parameter)
- *   2. Table lookup by (A, B) pair  — this asset
- *   3. A's ExitTransition           — source camera declares how to leave
- *   4. B's EnterTransition            — target camera declares how to enter
+ *   2. Table lookup by (A, B) pair . This asset
+ *   3. A's ExitTransition          . Source camera declares how to leave
+ *   4. B's EnterTransition           . Target camera declares how to enter
  *   5. Hard cut (no transition)
  *
  * Steps 3 and 4 are per-camera-type-asset fields; step 2 is what this table

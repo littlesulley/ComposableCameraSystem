@@ -32,19 +32,19 @@ bool FComposableCameraViewportDebug::ShouldShowAllTransitionGizmos()
 	return false;
 }
 #endif
-// ─────────────────────────────────────────────────────────────────────
-// Viewport 3D debug — private implementation.
+// ---------------------------------------------------------------------
+// Viewport 3D debug. Private implementation.
 //
 // Design note: an earlier iteration used `UDebugDrawService::Register`
 // on the "Game" show-flag channel. That hook works while the player is
 // actively rendering through the game viewport, but does NOT fire when
-// F8 ejects the player in PIE — the editor viewport takes over, and
+// F8 ejects the player in PIE. The editor viewport takes over, and
 // its draw path doesn't fan out to the game-channel debug delegates.
 //
 // We now drive the debug draw off `FTSTicker::GetCoreTicker()` instead:
 // a single-shot ticker fires every frame regardless of which viewport
 // owns the current render pass. The draw itself goes through
-// `DrawDebugCamera`, which adds lines to the world's LineBatcher — and
+// `DrawDebugCamera`, which adds lines to the world's LineBatcher. And
 // LineBatcher content is rendered by every viewport that draws that
 // world, so the frustum is visible both in the game viewport (when
 // possessed) and in the editor viewport (when F8-ejected or in
@@ -53,9 +53,9 @@ bool FComposableCameraViewportDebug::ShouldShowAllTransitionGizmos()
 // Auto-hide while possessed: gated on `GEditor->bIsSimulatingInEditor`
 // (WITH_EDITOR only). That flag is true for both "Simulate in Editor"
 // mode and the F8-ejected-from-PIE state, and false while the player
-// is possessing the camera — exactly the semantics we want. In
+// is possessing the camera. Exactly the semantics we want. In
 // non-editor builds the gate is skipped (draw always when CVar is on).
-// ─────────────────────────────────────────────────────────────────────
+// ---------------------------------------------------------------------
 namespace
 {
 	// ---- Console variables ---------------------------------------------
@@ -64,10 +64,10 @@ namespace
 		0,
 		TEXT("Master toggle for in-world 3D debug draw.\n")
 		TEXT("  0: everything disabled\n")
-		TEXT("  1: enabled — draws the camera FRUSTUM (auto-hidden while the player\n")
+		TEXT("  1: enabled. Draws the camera FRUSTUM (auto-hidden while the player\n")
 		TEXT("     is possessing the camera, shown after F8 eject / Simulate mode).\n")
 		TEXT("     Per-node gizmos (pivot spheres, look-at lines, collision traces,\n")
-		TEXT("     spline paths, etc.) DO NOT turn on just from this CVar — each\n")
+		TEXT("     spline paths, etc.) DO NOT turn on just from this CVar. Each\n")
 		TEXT("     node has its own `CCS.Debug.Viewport.<NodeName>` CVar that you\n")
 		TEXT("     enable individually. Per-node gizmos show in BOTH possessed\n")
 		TEXT("     play and F8 eject when their CVar is on."),
@@ -83,14 +83,14 @@ namespace
 		ECVF_Default);
 
 	// "Enable all per-X gizmos" shortcut CVars. Still gated by the master
-	// `CCS.Debug.Viewport 1` — when master is off nothing draws. OR logic
+	// `CCS.Debug.Viewport 1`. When master is off nothing draws. OR logic
 	// against each per-item CVar; no negative/except semantics.
 	static TAutoConsoleVariable<int32> CVarViewportDebugNodesAll(
 		TEXT("CCS.Debug.Viewport.Nodes.All"),
 		0,
 		TEXT("Enable every per-node gizmo at once (3D + 2D HUD overlays both).\n")
 		TEXT("Saves typing 9+ individual `CCS.Debug.Viewport.<NodeName>` commands.\n")
-		TEXT("Requires `CCS.Debug.Viewport 1`. OR-ed with each per-node CVar —\n")
+		TEXT("Requires `CCS.Debug.Viewport 1`. OR-ed with each per-node CVar n")
 		TEXT("turning this on does NOT turn the per-node CVars on; the node\n")
 		TEXT("gizmo draws as long as EITHER this or its own CVar is non-zero."),
 		ECVF_Default);
@@ -108,11 +108,11 @@ namespace
 	static FTSTicker::FDelegateHandle GTickerHandle;
 	// (FTSTicker::FDelegateHandle is defined in Containers/Ticker.h and is the
 	// handle type AddTicker / RemoveTicker use; plain FDelegateHandle is NOT
-	// interchangeable — the ticker has its own subclassed handle type.)
+	// interchangeable. The ticker has its own subclassed handle type.)
 
 	// 2D HUD-pass hook for per-node Canvas overlays (safe-zone rectangles,
 	// projected pivot markers, etc.). Registered on the "Game" channel of
-	// UDebugDrawService — fires from UGameViewportClient::Draw during PIE
+	// UDebugDrawService. Fires from UGameViewportClient::Draw during PIE
 	// possessed play and standalone, does NOT fire from the editor viewport
 	// during F8 eject. That's the right gating: 2D overlays answer "is the
 	// player's on-screen view correct", which only makes sense when the
@@ -121,12 +121,12 @@ namespace
 
 	// Cached master CVar values, refreshed once per frame at the top of
 	// TickDraw / Draw2DHUD. Each per-node and per-transition override calls
-	// ShouldShowAll*() before every atomic CVar read of its own CVar — with
+	// ShouldShowAll*() before every atomic CVar read of its own CVar. With
 	// ~8 nodes and ~9 transitions active that's ~34 atomic loads per frame
 	// from the two master "All" CVars alone. Caching them into a module-scope
 	// bool lets the helpers return a plain load instead. Default false so
 	// early-out paths that never hit a refresh remain safe (the shortcut
-	// just isn't honored that frame — identical to the CVar being 0).
+	// just isn't honored that frame. Identical to the CVar being 0).
 	static bool GAllNodeGizmosThisFrame = false;
 	static bool GAllTransitionGizmosThisFrame = false;
 
@@ -135,7 +135,7 @@ namespace
 	/** Decide whether the frustum pyramid should be drawn this frame.
 	 *
 	 *  The frustum is the ONE piece of debug draw that genuinely occludes the
-	 *  scene when the player is looking through the camera — its wireframe
+	 *  scene when the player is looking through the camera. Its wireframe
 	 *  ends up immediately in front of the near plane. So it stays gated on
 	 *  `GEditor->bIsSimulatingInEditor` (true in F8 eject / SIE, false while
 	 *  possessing). The `CCS.Debug.Viewport.AlwaysShow` CVar overrides the
@@ -143,7 +143,7 @@ namespace
 	 *
 	 *  Per-node gizmos have their OWN per-CVar gating inside each
 	 *  `UComposableCameraCameraNodeBase::DrawNodeDebug` override, so they are
-	 *  invoked regardless of SIE state — usable during live gameplay because
+	 *  invoked regardless of SIE state. Usable during live gameplay because
 	 *  they rarely occlude the viewpoint (spheres out in the world, lines to
 	 *  distant targets, etc.). */
 	static bool ShouldDrawFrustumThisFrame()
@@ -165,7 +165,7 @@ namespace
 	 *  each node's own CVar check inside `DrawNodeDebug`. */
 	static bool TickDraw(float /*DeltaTime*/)
 	{
-		// Master CVar still gates the whole path — zero cost when off.
+		// Master CVar still gates the whole path. Zero cost when off.
 		if (CVarViewportDebugEnabled.GetValueOnGameThread() == 0) { return true; }
 		if (!GEngine)                                             { return true; }
 
@@ -240,7 +240,7 @@ namespace
 		if (!Canvas || Canvas->SizeX <= 0 || Canvas->SizeY <= 0) { return; }
 		if (!GEngine) { return; }
 
-		// Refresh the cached flags here too — the 2D hook fires from
+		// Refresh the cached flags here too. The 2D hook fires from
 		// UGameViewportClient::Draw, which runs after the ticker but we
 		// don't want to depend on the exact ordering across frames.
 		GAllNodeGizmosThisFrame       = CVarViewportDebugNodesAll.GetValueOnGameThread() != 0;
@@ -282,9 +282,9 @@ namespace
 #endif // !UE_BUILD_SHIPPING
 } // anonymous namespace
 
-// ─────────────────────────────────────────────────────────────────────
+// ---------------------------------------------------------------------
 // Public lifecycle.
-// ─────────────────────────────────────────────────────────────────────
+// ---------------------------------------------------------------------
 void FComposableCameraViewportDebug::Initialize()
 {
 #if !UE_BUILD_SHIPPING
@@ -348,14 +348,14 @@ void FComposableCameraViewportDebug::DrawSolidDebugSphere(
 	// busywork.
 	//
 	// Implementation history (short version):
-	//   1. Wireframe `DrawDebugSphere` — too lattice-y, looked "ugly".
-	//   2. Solid mesh via `DrawDebugMesh` — looked nice unoccluded, but
+	//   1. Wireframe `DrawDebugSphere`. Too lattice-y, looked "ugly".
+	//   2. Solid mesh via `DrawDebugMesh`. Looked nice unoccluded, but
 	//      engine's hardcoded `DebugMeshMaterial` depth-tests regardless
 	//      of `DepthPriority`, so the fill got clipped by character
 	//      meshes (pivot on a chest, target on a bone socket, etc.).
 	//      `SDPG_Foreground` only bypasses depth for LINE primitives,
 	//      not for the mesh material path.
-	//   3. Hybrid solid+wireframe — the double layer read as two stacked
+	//   3. Hybrid solid+wireframe. The double layer read as two stacked
 	//      gizmos rather than one coherent marker; the user preferred
 	//      the wireframe layer alone.
 	//   4. CURRENT: just the wireframe layer (line primitive, Alpha
@@ -375,7 +375,7 @@ void FComposableCameraViewportDebug::DrawSolidDebugSphere(
 	// get consistent translucency without baking it into the color.
 	const FColor Final(Color.R, Color.G, Color.B, Alpha);
 
-	// `SDPG_Foreground` is the key — for line primitives the line batcher
+	// `SDPG_Foreground` is the key. For line primitives the line batcher
 	// draws in a foreground pass that ignores depth test, so the sphere
 	// outline renders THROUGH opaque meshes (character in the way, etc.).
 	// If a caller explicitly passes SDPG_World we honor that, but the

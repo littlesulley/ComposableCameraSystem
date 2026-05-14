@@ -66,19 +66,19 @@ struct FComposableCameraSequencerShotEntry
 	GENERATED_BODY()
 
 	/** Latest Shot data sampled from the section at the current playhead.
-	 *  Re-pushed every frame the section is in-range (cheap value copy —
+	 *  Re-pushed every frame the section is in-range (cheap value copy -
 	 *  Shot's TArray<FShotTarget> is short and the rest is POD). */
 	UPROPERTY()
 	FComposableCameraShot Shot;
 
-	/** Section row index — top-row (lowest index) was the V1 winner; Phase F
+	/** Section row index. Top-row (lowest index) was the V1 winner; Phase F
 	 *  blender picks the lowest two and blends. */
 	int32 RowIndex = 0;
 
 	/**
 	 * Resolved EnterTransition asset for this section, loaded synchronously
 	 * by the TrackInstance from the section's `EnterTransition` soft-ref each
-	 * frame. Null if the section's EnterTransition is unset or fails to load —
+	 * frame. Null if the section's EnterTransition is unset or fails to load -
 	 * the blender treats null as a hard cut (the incoming section's pose
 	 * snaps in at the boundary; no transition pose-blend pass runs).
 	 *
@@ -103,7 +103,7 @@ struct FComposableCameraSequencerShotEntry
 	 * Defaults to 1.0 when the entry has no lower-row overlapping peer (the
 	 * blender treats this as standalone, equivalent to V1's single-section
 	 * write-through). The lower-row entry of an overlapping pair also keeps
-	 * BlendAlpha = 1.0 — only the *higher-row* (incoming) entry's BlendAlpha
+	 * BlendAlpha = 1.0. Only the *higher-row* (incoming) entry's BlendAlpha
 	 * is read by the blender; the lower-row entry's contribution is
 	 * implicitly (1 - higher_entry.BlendAlpha) and computed inside the blender.
 	 */
@@ -121,18 +121,18 @@ struct FComposableCameraSequencerShotEntry
  * so Sequencer's Camera Cut Track and viewport Pilot both see the CCS camera
  * natively via the standard UCameraComponent path.
  *
- * Pure UActorComponent — NOT a USceneComponent. The component holds no
+ * Pure UActorComponent -NOT a USceneComponent. The component holds no
  * transform of its own; it is a logic-and-data driver. The owning Actor is
  * expected to provide a UCineCameraComponent as its RootComponent (that's
  * what AComposableCameraLevelSequenceActor does), and to hand us the
  * reference via OutputCineCameraComponent during construction. If a designer
  * adds this component to an arbitrary Actor (BlueprintSpawnableComponent),
  * OnRegister falls back to FindComponentByClass<UCineCameraComponent>(GetOwner())
- * — the component will then drive whatever CineCamera is first found on the
+ *. The component will then drive whatever CineCamera is first found on the
  * owning Actor, or be a no-op if none exists.
  *
  * Why ActorComponent not SceneComponent
- * ─────────────────────────────────────
+ * -------------------------------------
  * Previously this was a USceneComponent whose RootComponent role doubled as
  * a parent for the CineCamera child. That arrangement collided with UE's
  * DefaultSubobject semantics (a component creating its own
@@ -142,7 +142,7 @@ struct FComposableCameraSequencerShotEntry
  * AActor::FindComponentByClass<UCameraComponent>). PCM::SetViewTarget's
  * implicit-activation filter relies on that traversal and silently bailed,
  * which manifested as "second camera never activates" for blended Camera
- * Cut sections — see the diagnostic log that uncovered it.
+ * Cut sections. See the diagnostic log that uncovered it.
  *
  * With the CineCamera as the Actor's RootComponent and this component as a
  * plain sibling UActorComponent, the engine's standard "find a CameraComponent
@@ -152,7 +152,7 @@ struct FComposableCameraSequencerShotEntry
  *
  * Compatibility & responsibilities remain unchanged:
  *   - PCM-independent evaluation (via UE::ComposableCameras::ConstructCameraFromTypeAsset).
- *   - Per-tick bag → RuntimeDataBlock re-sync before TickCamera.
+ *   - Per-tick bag ->RuntimeDataBlock re-sync before TickCamera.
  *   - Pose projection to OutputCineCameraComponent (position + rotation only).
  *   - On-demand tick gating via SetEvaluationEnabled.
  */
@@ -177,13 +177,13 @@ public:
 	 *  terminal. Assigned by the owning Actor's constructor (primary path)
 	 *  or resolved in OnRegister via FindComponentByClass (fallback for
 	 *  arbitrary Actor hosts). The component does not own lifetime of the
-	 *  CineCamera — the Actor does.
+	 *  CineCamera. The Actor does.
 	 *
 	 *  No edit/visible specifier on purpose: `AComposableCameraLevelSequenceActor`
 	 *  exposes the same `UCineCameraComponent` via its own `OutputCineCameraComponent`
 	 *  UPROPERTY (the surface designers actually use to author optics). Adding
 	 *  Visible/EditAnywhere here would create TWO UPROPERTY paths reaching the
-	 *  same component instance — when the Details panel walks the actor's
+	 *  same component instance. When the Details panel walks the actor's
 	 *  property map, `UpdateSinglePropertyMapRecursive` follows both paths,
 	 *  hits the component on the second path, and recurses without cycle
 	 *  detection (StackOverflow inside SDetailsView::SetObjects on Track / actor
@@ -203,7 +203,7 @@ public:
 	virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;
 #endif
 
-	// ─── Sequencer-facing API ────────────────────────────────────────────
+	// --- Sequencer-facing API --------------------------------------------
 
 	/**
 	 * Enable or disable component-driven evaluation.
@@ -227,7 +227,7 @@ public:
 	 *  before calling this. Marks the component dirty for transaction tracking. */
 	void NotifyTypeAssetExternallyChanged();
 
-	// ─── Sequencer Patch Overlay (driven by Patch TrackInstance) ─────────
+	// --- Sequencer Patch Overlay (driven by Patch TrackInstance) ---------
 	//
 	// Per-frame the Patch track's TrackInstance::OnAnimate walks its in-range
 	// sections, resolves each section's TargetActorBinding to its bound LS
@@ -256,7 +256,7 @@ public:
 	 *  the section's playhead position via `PatchEnvelope::ComputeStatelessAlpha`)
 	 *  drives the BlendBy. The component caches a transient evaluator actor
 	 *  per section (lazy-spawned on first use, destroyed on Remove or component
-	 *  teardown). Intentionally accepts the parameter block by value — caller
+	 *  teardown). Intentionally accepts the parameter block by value. Caller
 	 *  builds it per-frame from the section's channel curves. */
 	void SetSequencerPatchOverlay(
 		UMovieSceneComposableCameraPatchSection* Section,
@@ -265,7 +265,7 @@ public:
 
 	/** Remove an overlay registration when the section leaves its range or
 	 *  when the TrackInstance shuts down. Destroys the cached evaluator actor.
-	 *  Idempotent — safe to call on a section that wasn't registered. */
+	 *  Idempotent. Safe to call on a section that wasn't registered. */
 	void RemoveSequencerPatchOverlay(UMovieSceneComposableCameraPatchSection* Section);
 
 	/** Capture this LS Component's currently-registered Sequencer patch overlays
@@ -278,7 +278,7 @@ public:
 	 *  populated so the renderer can prefix "[Seq]" / suffix "on Actor". */
 	void BuildSequencerPatchSnapshot(TArray<struct FComposableCameraPatchSnapshot>& OutPatches) const;
 
-	// ─── Sequencer Shot Override (driven by Shot TrackInstance, Phase E) ─────
+	// --- Sequencer Shot Override (driven by Shot TrackInstance, Phase E) -----
 	//
 	// Per-frame the Shot track's TrackInstance::OnAnimate walks its in-range
 	// sections, resolves the parent-binding's bound LS Actor, and pushes
@@ -304,7 +304,7 @@ public:
 
 	/** Push (or refresh) a Shot override for `Section`. Called every frame
 	 *  the section is in-range. The `InEntry` carries the resolved Shot,
-	 *  RowIndex, EnterTransition, and pre-computed BlendAlpha — the
+	 *  RowIndex, EnterTransition, and pre-computed BlendAlpha. The
 	 *  TrackInstance does the cross-section overlap analysis once per frame
 	 *  and the LSComponent blender just consumes the result. */
 	void SetSequencerShotOverride(
@@ -316,7 +316,7 @@ public:
 	void RemoveSequencerShotOverride(UMovieSceneComposableCameraShotSection* Section);
 
 private:
-	/** Transient internal camera — spawned lazily on first evaluation. Not
+	/** Transient internal camera. Spawned lazily on first evaluation. Not
 	 *  added to any context stack or director; driven entirely by this
 	 *  component's TickComponent. */
 	UPROPERTY(Transient)
@@ -363,14 +363,14 @@ private:
 
 	/** Active overlays keyed by section. Key is `TWeakObjectPtr` (NOT
 	 *  `TObjectPtr`) so a stale section that's been GC'd can actually go
-	 *  stale — a strong-ref key would keep every Sequencer-side patch
+	 *  stale. A strong-ref key would keep every Sequencer-side patch
 	 *  section alive forever, defeating the prune-on-tick path in
 	 *  `ApplySequencerPatchOverlays` that exists precisely to clean up
 	 *  overlays whose source section has been destroyed (Sequencer rebuild,
 	 *  asset reimport, undo across the section creation, etc.). TMap with
 	 *  TWeakObjectPtr keys cannot be UPROPERTY-reflected, so the inner
 	 *  `Evaluator` / `LatestParameters` UObject references are walked
-	 *  manually in `AddReferencedObjects` below — without that override,
+	 *  manually in `AddReferencedObjects` below. Without that override,
 	 *  the inner Evaluator actor would be GC-blind. The section pointer
 	 *  itself stays alive via Sequencer's own TrackInstance / SectionInterface
 	 *  ownership while it's a live edit target. */
@@ -382,22 +382,22 @@ private:
 
 public:
 	/** Walk UObject references inside the non-UPROPERTY-reflected
-	 *  `SequencerPatchOverlays` map. The map keys are weak (intentional —
+	 *  `SequencerPatchOverlays` map. The map keys are weak (intentional -
 	 *  see field doc above), so the TMap itself can't be UPROPERTY-tagged;
 	 *  this override surfaces each overlay's `Evaluator` actor and the
 	 *  UObject contents of its `LatestParameters` parameter block to GC.
-	 *  (Same override also walks `SequencerShotOverrides` — see
+	 *  (Same override also walks `SequencerShotOverrides`. See
 	 *  `LSComponent.cpp::AddReferencedObjects` for the implementation.) */
 	static void AddReferencedObjects(UObject* InThis, FReferenceCollector& Collector);
 
 private:
-	// ─── Shot override storage ────────────────────────────────────────────
+	// --- Shot override storage --------------------------------------------
 
 	/**
 	 * Pick the top-row override (lowest RowIndex) and write its Shot into the
 	 * first found `UComposableCameraCompositionFramingNode` on the
 	 * InternalCamera's CameraNodes array. No-op when the map is empty (gap
-	 * between sections — CompositionFramingNode keeps last-written Shot).
+	 * between sections -CompositionFramingNode keeps last-written Shot).
 	 *
 	 * Called from TickComponent BEFORE `InternalCamera->TickCamera` so the
 	 * solver evaluates with the new Shot data on the same frame.
@@ -405,15 +405,15 @@ private:
 	void ApplyActiveSequencerShotOverride();
 
 	/**
-	 * Run one full evaluation pass (parameter block sync → Shot override
-	 * apply → InternalCamera TickCamera → patch overlays → CineCamera
+	 * Run one full evaluation pass (parameter block sync ->Shot override
+	 * apply ->InternalCamera TickCamera ->patch overlays->CineCamera
 	 * projection). Identical to a `TickComponent` body sans the
 	 * `Super::TickComponent` / evaluation guard. Used by TickComponent and by
 	 * the Shot override first-entry path, where Sequencer has already pushed
 	 * the current Section data and the CineCamera must be re-projected before
 	 * the cut renders.
 	 *
-	 * `DeltaTime <= 0` is the standard "first-frame snap" signal —
+	 * `DeltaTime <= 0` is the standard "first-frame snap" signal -
 	 * downstream solvers (V2.2 IIR damping, scrub-aware nodes) treat it
 	 * as "use authored values, don't damp", which matches the cut-as-cut
 	 * design intent.
@@ -424,7 +424,7 @@ private:
 	 *  tolerate GC of the section between frames (a common case during
 	 *  Sequencer hot-reload / asset reimport).
 	 *
-	 *  **Not UPROPERTY** — same constraint as `SequencerPatchOverlays`
+	 *  **Not UPROPERTY**. Same constraint as `SequencerPatchOverlays`
 	 *  above: TMap with `TWeakObjectPtr` keys cannot be UHT-reflected. The
 	 *  inner `FComposableCameraSequencerShotEntry`'s UObject references
 	 *  (`EnterTransition` TObjectPtr; `Shot` containing FShotTarget
@@ -444,10 +444,10 @@ private:
 	TWeakObjectPtr<UMovieSceneComposableCameraShotSection> LastActivePrimarySection;
 
 	/** Last frame's resolved *secondary* Section (next-lowest RowIndex).
-	 *  Used to recognize the normal overlap exit A+B -> B, where B should
+	 *  Used to recognize the normal overlap exit A+B->B, where B should
 	 *  inherit the secondary prior cache instead of hard-seeding as a fresh
 	 *  primary on the first post-blend frame. Also detects secondary swaps
-	 *  like A+B -> A+C so C starts from its own authored pose. */
+	 *  like A+B->A+C so C starts from its own authored pose. */
 	UPROPERTY(Transient)
 	TWeakObjectPtr<UMovieSceneComposableCameraShotSection> LastActiveSecondarySection;
 };

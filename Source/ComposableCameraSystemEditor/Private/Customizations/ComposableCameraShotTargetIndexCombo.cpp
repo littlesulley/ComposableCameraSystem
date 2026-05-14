@@ -15,11 +15,10 @@
 
 #define LOCTEXT_NAMESPACE "ShotTargetIndexCombo"
 
-TSharedPtr<IPropertyHandleArray> FShotTargetIndexCombo::ResolveTargetsArrayUpwards(
-	const TSharedPtr<IPropertyHandle>& Start)
+TSharedPtr<IPropertyHandleArray> FShotTargetIndexCombo::ResolveTargetsArrayUpwards(const TSharedPtr<IPropertyHandle>& Start)
 {
 	// Walk parent chain. At each level, attempt to resolve a child handle
-	// named "Targets" → if it's an array handle, that's our shot. Walking
+	// named "Targets" -> if it's an array handle, that's our shot. Walking
 	// upward (rather than searching siblings) handles arbitrary embedding
 	// depth: Shot.Placement.BasisActorIndex (depth 1), Shot.Aim.AimAnchor.TargetIndex
 	// (depth 2), Shot.Placement.PlacementAnchor.WeightedTargets[i].TargetIndex
@@ -27,8 +26,7 @@ TSharedPtr<IPropertyHandleArray> FShotTargetIndexCombo::ResolveTargetsArrayUpwar
 	TSharedPtr<IPropertyHandle> Cur = Start;
 	while (Cur.IsValid())
 	{
-		TSharedPtr<IPropertyHandle> Maybe = Cur->GetChildHandle(
-			GET_MEMBER_NAME_CHECKED(FComposableCameraShot, Targets));
+		TSharedPtr<IPropertyHandle> Maybe = Cur->GetChildHandle(GET_MEMBER_NAME_CHECKED(FComposableCameraShot, Targets));
 		if (Maybe.IsValid())
 		{
 			TSharedPtr<IPropertyHandleArray> AsArr = Maybe->AsArray();
@@ -42,33 +40,28 @@ TSharedPtr<IPropertyHandleArray> FShotTargetIndexCombo::ResolveTargetsArrayUpwar
 	return nullptr;
 }
 
-FText FShotTargetIndexCombo::FormatTargetEntryLabel(
-	const TSharedPtr<IPropertyHandleArray>& TargetsArray, int32 Idx)
+FText FShotTargetIndexCombo::FormatTargetEntryLabel(const TSharedPtr<IPropertyHandleArray>& TargetsArray, int32 Idx)
 {
 	if (!TargetsArray.IsValid())
 	{
-		return FText::Format(
-			LOCTEXT("EntryUnreachable", "{0} — (unreachable)"),
+		return FText::Format(LOCTEXT("EntryUnreachable", "{0} - (unreachable)"),
 			FText::AsNumber(Idx));
 	}
 	uint32 Num = 0;
 	TargetsArray->GetNumElements(Num);
 	if (Idx < 0 || static_cast<uint32>(Idx) >= Num)
 	{
-		return FText::Format(
-			LOCTEXT("EntryInvalid", "{0} — (invalid)"),
+		return FText::Format(LOCTEXT("EntryInvalid", "{0} - (invalid)"),
 			FText::AsNumber(Idx));
 	}
 
 	TSharedPtr<IPropertyHandle> ItemHandle = TargetsArray->GetElement(Idx);
 	if (!ItemHandle.IsValid())
 	{
-		return FText::Format(
-			LOCTEXT("EntryNullSlot", "{0} — (null slot)"),
+		return FText::Format(LOCTEXT("EntryNullSlot", "{0} - (null slot)"),
 			FText::AsNumber(Idx));
 	}
-	TSharedPtr<IPropertyHandle> InfoHandle = ItemHandle->GetChildHandle(
-		GET_MEMBER_NAME_CHECKED(FComposableCameraShotTarget, Target));
+	TSharedPtr<IPropertyHandle> InfoHandle = ItemHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FComposableCameraShotTarget, Target));
 	TSharedPtr<IPropertyHandle> ActorHandle = InfoHandle.IsValid()
 		? InfoHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FComposableCameraTargetInfo, Actor))
 		: nullptr;
@@ -107,14 +100,12 @@ FText FShotTargetIndexCombo::FormatTargetEntryLabel(
 		}
 	}
 
-	return FText::Format(
-		LOCTEXT("EntryFormat", "{0} — {1}"),
+	return FText::Format(LOCTEXT("EntryFormat", "{0} - {1}"),
 		FText::AsNumber(Idx),
 		FText::FromString(ActorLabel));
 }
 
-FText FShotTargetIndexCombo::GetCurrentSelectionText(
-	const TSharedPtr<IPropertyHandle>& IndexHandle,
+FText FShotTargetIndexCombo::GetCurrentSelectionText(const TSharedPtr<IPropertyHandle>& IndexHandle,
 	const TSharedPtr<IPropertyHandleArray>& TargetsArray)
 {
 	if (!IndexHandle.IsValid())
@@ -129,15 +120,13 @@ FText FShotTargetIndexCombo::GetCurrentSelectionText(
 	return FormatTargetEntryLabel(TargetsArray, CurIdx);
 }
 
-void FShotTargetIndexCombo::BuildIndexMenu(
-	FMenuBuilder& MenuBuilder,
+void FShotTargetIndexCombo::BuildIndexMenu(FMenuBuilder& MenuBuilder,
 	const TWeakPtr<IPropertyHandle>& WeakIndexHandle,
 	const TSharedPtr<IPropertyHandleArray>& TargetsArray)
 {
 	if (!TargetsArray.IsValid())
 	{
-		MenuBuilder.AddMenuEntry(
-			LOCTEXT("MenuUnreachable", "(targets array unreachable in this context)"),
+		MenuBuilder.AddMenuEntry(LOCTEXT("MenuUnreachable", "(targets array unreachable in this context)"),
 			FText::GetEmpty(),
 			FSlateIcon(),
 			FUIAction(FExecuteAction(), FCanExecuteAction::CreateLambda([] { return false; })));
@@ -147,8 +136,7 @@ void FShotTargetIndexCombo::BuildIndexMenu(
 	TargetsArray->GetNumElements(Num);
 	if (Num == 0)
 	{
-		MenuBuilder.AddMenuEntry(
-			LOCTEXT("MenuEmpty", "(no targets authored — add a Target to the Shot first)"),
+		MenuBuilder.AddMenuEntry(LOCTEXT("MenuEmpty", "(no targets authored - add a Target to the Shot first)"),
 			FText::GetEmpty(),
 			FSlateIcon(),
 			FUIAction(FExecuteAction(), FCanExecuteAction::CreateLambda([] { return false; })));
@@ -158,12 +146,10 @@ void FShotTargetIndexCombo::BuildIndexMenu(
 	for (uint32 i = 0; i < Num; ++i)
 	{
 		const int32 IdxToSet = static_cast<int32>(i);
-		MenuBuilder.AddMenuEntry(
-			FormatTargetEntryLabel(TargetsArray, IdxToSet),
+		MenuBuilder.AddMenuEntry(FormatTargetEntryLabel(TargetsArray, IdxToSet),
 			FText::GetEmpty(),
 			FSlateIcon(),
-			FUIAction(
-				FExecuteAction::CreateLambda([WeakIndexHandle, IdxToSet]()
+			FUIAction(FExecuteAction::CreateLambda([WeakIndexHandle, IdxToSet]()
 				{
 					if (TSharedPtr<IPropertyHandle> Pin = WeakIndexHandle.Pin())
 					{
@@ -179,14 +165,14 @@ TSharedRef<SWidget> FShotTargetIndexCombo::Build(const TSharedRef<IPropertyHandl
 	// handle alive past customization tear-down. `IPropertyHandle::GetChildHandle`
 	// returns a fresh `TSharedPtr` each call and the property tree does
 	// not retain a parallel reference once the customization's local
-	// SharedPtr goes out of scope — a `TWeakPtr` capture here pins to
+	// SharedPtr goes out of scope - a `TWeakPtr` capture here pins to
 	// nullptr immediately after `CustomizeChildren` returns and the combo
 	// renders "(no handle)". Same gotcha the existing
 	// `FComposableCameraTargetInfoCustomization::ActorHandle` comment
 	// calls out for sibling-handle storage.
 	//
 	// `BuildIndexMenu` takes a TWeakPtr so its menu actions don't extend
-	// the handle's life past the menu — fine because the menu's own SharedPtr
+	// the handle's life past the menu - fine because the menu's own SharedPtr
 	// (`StrongIndex` below) keeps the handle live for as long as the
 	// combo widget exists.
 	const TSharedPtr<IPropertyHandle> StrongIndex = IndexHandle;
@@ -200,13 +186,11 @@ TSharedRef<SWidget> FShotTargetIndexCombo::Build(const TSharedRef<IPropertyHandl
 			return MenuBuilder.MakeWidget();
 		})
 		.ButtonContent()
-		[
-			SNew(STextBlock)
+		[SNew(STextBlock)
 			.Text_Lambda([StrongIndex]() -> FText
 			{
 				return GetCurrentSelectionText(StrongIndex, ResolveTargetsArrayUpwards(StrongIndex));
-			})
-		];
+			})];
 }
 
 #undef LOCTEXT_NAMESPACE

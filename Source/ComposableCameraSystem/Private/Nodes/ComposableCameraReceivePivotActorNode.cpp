@@ -52,7 +52,7 @@ void UComposableCameraReceivePivotActorNode::OnInitialize_Implementation()
 {
 	Super::OnInitialize_Implementation();
 
-	// Don't resolve the SkelMesh component here — PivotActor can be driven
+	// Don't resolve the SkelMesh component here -PivotActor can be driven
 	// by an input pin and change every frame. Resolution happens lazily in
 	// Tick when the active PivotActor differs from `LastResolvedPivotActor`.
 	SkeletalMeshComponentForPivotActor.Reset();
@@ -65,11 +65,11 @@ void UComposableCameraReceivePivotActorNode::OnTickNode_Implementation(
 	const FComposableCameraPose& CurrentCameraPose,
 	FComposableCameraPose& OutCameraPose)
 {
-	// PivotActor and bUseBoneForPivot are pin-matched UPROPERTYs — already
+	// PivotActor and bUseBoneForPivot are pin-matched UPROPERTYs. Already
 	// resolved by the base TickNode prologue. Refresh the SkelMesh cache
 	// against the just-written PivotActor before reading either branch.
 	AActor* InPivotActor = ComposableCameraSystem::ResolveActorInput(
-		PivotActorSource, PivotActor.Get(), GetOwningPlayerCameraManager());
+		PivotActorSource, PivotActor.Get(), GetOwningPlayerCameraManager(), this);
 	LastEffectivePivotActor = InPivotActor;
 	ResolveSkelMeshForReceivePivotActor(InPivotActor, SkeletalMeshComponentForPivotActor, LastResolvedPivotActor);
 
@@ -96,12 +96,12 @@ void UComposableCameraReceivePivotActorNode::DrawNodeDebug(UWorld* World, bool /
 	if (CVarShowReceivePivotActorGizmo.GetValueOnGameThread() == 0
 		&& !FComposableCameraViewportDebug::ShouldShowAllNodeGizmos()) { return; }
 
-	// Resolve pivot position the same way OnTickNode does — sphere at the
+	// Resolve pivot position the same way OnTickNode does. Sphere at the
 	// bone socket if configured, otherwise at the actor origin. White sphere
 	// so it's distinct from PivotOffset's yellow / PivotDamping's magenta.
 	// DrawNodeDebug is `const`; it can read the cached weak ptr from the
 	// last Tick but cannot refresh it (no mutating side effects). Stale-
-	// cache windows are bounded by one tick — fine for a debug gizmo.
+	// cache windows are bounded by one tick. Fine for a debug gizmo.
 	constexpr uint8 KForeground = 1;
 	FVector PivotPos = FVector::ZeroVector;
 	USkeletalMeshComponent* PivotSkelMesh = SkeletalMeshComponentForPivotActor.Get();

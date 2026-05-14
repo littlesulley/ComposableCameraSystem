@@ -42,7 +42,7 @@ public:
 	float InterpSpeed { 1.f };
 
 private:
-	/** Walk PCM → OwningPC → LocalPlayer with per-link `IsValid`, then
+	/** Walk PCM -> OwningPC -> LocalPlayer with per-link `IsValid`, then
 	 *  reuse the cached subsystem only if its owning LocalPlayer matches
 	 *  the chain's current LocalPlayer. Returns nullptr on any chain
 	 *  null OR mismatch (after invalidating the stale cache).
@@ -51,13 +51,13 @@ private:
 	 *  can be re-pointed (re-possess, AI takeover, splitscreen reshuffle)
 	 *  to a DIFFERENT `LocalPlayer` whose subsystem is a different live
 	 *  object. The previous LocalPlayer can stay alive (its subsystem
-	 *  still valid in isolation) — so a `IsValid(CachedSubsystem)` test
+	 *  still valid in isolation). So a `IsValid(CachedSubsystem)` test
 	 *  alone passes against a stale-player cache and we'd keep reading
 	 *  the previous player's input source. The LocalPlayer comparison
 	 *  fixes that. */
 	class UEnhancedInputLocalPlayerSubsystem* ResolveInputSubsystem();
 
-	/** Weak — `UEnhancedInputLocalPlayerSubsystem` is owned by the
+	/** Weak -`UEnhancedInputLocalPlayerSubsystem` is owned by the
 	 *  LocalPlayer, which is destroyed on PIE stop, controller swap,
 	 *  level-streaming-out, or kick. */
 	TWeakObjectPtr<class UEnhancedInputLocalPlayerSubsystem> CachedSubsystem;

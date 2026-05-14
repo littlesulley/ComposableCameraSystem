@@ -16,7 +16,7 @@ struct FComposableCameraPose;
 struct FComposableCameraRuntimeDataBlock;
 
 /**
- * Cached description of a single pin ↔ UPROPERTY binding on a camera node class.
+ * Cached description of a single pin ->UPROPERTY binding on a camera node class.
  *
  * Produced once per concrete UClass by UComposableCameraCameraNodeBase::GetOrBuildPinBindings()
  * and reused by every instance of that class to resolve declared input pins without
@@ -96,14 +96,14 @@ enum class EComposableCameraNodeLevelSequenceCompatibility : uint8
 
 /**
  * Declares how a node behaves when placed in a Camera Patch graph (per
- * PatchSystemProposal §11). A Patch evaluator receives an upstream pose each
- * frame and expects its nodes to read-modify-write that pose — nodes that
+ * PatchSystemProposal Section 11). A Patch evaluator receives an upstream pose each
+ * frame and expects its nodes to read-modify-write that pose. Nodes that
  * synthesize pose from scratch or delegate to external sources produce
  * surprising results in a Patch context.
  *
  * Queried by the Patch asset's editor-time validation (to warn the designer
  * via Build messages) and by future runtime tooling (no current runtime gate,
- * so Incompatible nodes do run — they just produce wrong output). The
+ * so Incompatible nodes do run. They just produce wrong output). The
  * classification is authoring-side guidance, not a runtime safety net.
  *
  * Default is Compatible; override in nodes that have surprising semantics.
@@ -114,7 +114,7 @@ enum class EComposableCameraNodePatchCompatibility : uint8
 	/** Reads upstream pose, mutates it. Safe in a Patch graph. */
 	Compatible,
 
-	/** Initializes pose from scratch or delegates to external sources — ignores
+	/** Initializes pose from scratch or delegates to external sources. Ignores
 	 *  InPose. Meaningless in a Patch context; editor emits an error build message. */
 	Incompatible,
 
@@ -134,15 +134,15 @@ class COMPOSABLECAMERASYSTEM_API UComposableCameraCameraNodeBase
 	GENERATED_BODY()
 
 public:
-	// ─── Editor Metadata ─────────────────────────────────────────────────
+	// --- Editor Metadata -------------------------------------------------
 
 	/** Palette category in the camera-editor "Add Node" context menu.
 	 *  The schema reads this off the CDO and nests it under the existing
 	 *  "Camera Nodes" / "Compute Nodes" root via UE's "|"-separated category
-	 *  path, so a value of "Rotation" surfaces as Camera Nodes → Rotation.
+	 *  path, so a value of "Rotation" surfaces as Camera Nodes->Rotation.
 	 *  C++ nodes set this in their constructor; Blueprint nodes (subclasses
 	 *  of UComposableCameraBlueprintCameraNode) set it in Class Defaults.
-	 *  Default "Misc" is intentional — unset nodes still appear, but they
+	 *  Default "Misc" is intentional. Unset nodes still appear, but they
 	 *  cluster in one bucket so the author notices and assigns a real
 	 *  category. Stored as FName for POD comparison and pool reuse; mapped
 	 *  to FText at palette-build time via FText::FromName. */
@@ -171,7 +171,7 @@ public:
 	 * alongside native nodes. C++ overrides go on the _Implementation below;
 	 * Blueprint subclasses override via a "Get Level Sequence Compatibility"
 	 * BlueprintImplementableEvent node in their graph. External callers use
-	 * the plain method name — the generated dispatcher routes to the BP
+	 * the plain method name. The generated dispatcher routes to the BP
 	 * override if present, else the _Implementation.
 	 */
 	UFUNCTION(BlueprintNativeEvent, BlueprintPure, Category = "ComposableCameraSystem|Node")
@@ -183,11 +183,11 @@ public:
 
 	/**
 	 * Declare how this node behaves when placed in a Camera Patch graph
-	 * (PatchSystemProposal §11). Default: Compatible. Override on nodes that
+	 * (PatchSystemProposal Section 11). Default: Compatible. Override on nodes that
 	 * synthesize pose from scratch (Incompatible) or have surprising semantics
 	 * when reading from an upstream pose (CompatibleWithCaveat).
 	 *
-	 * BlueprintNativeEvent to mirror GetLevelSequenceCompatibility's idiom —
+	 * BlueprintNativeEvent to mirror GetLevelSequenceCompatibility's idiom -
 	 * BP-authored camera nodes (subclasses of UComposableCameraBlueprintCameraNode)
 	 * can declare their own compatibility alongside native nodes. C++ overrides
 	 * go on the _Implementation below; BP subclasses override via a "Get Patch
@@ -200,7 +200,7 @@ public:
 		return EComposableCameraNodePatchCompatibility::Compatible;
 	}
 
-	// ─── Pin System ──────────────────────────────────────────────────────
+	// --- Pin System ------------------------------------------------------
 
 	/**
 	 * Declare this node's input and output data pins.
@@ -223,7 +223,7 @@ public:
 	/** Check if this node has a RuntimeDataBlock attached. */
 	bool HasRuntimeDataBlock() const { return RuntimeDataBlock != nullptr; }
 
-	// ─── Pin Gathering (preferred entry point) ──────────────────────────
+	// --- Pin Gathering (preferred entry point) --------------------------
 
 	/**
 	 * Gather ALL pin declarations: calls GetPinDeclarations() (the virtual chain),
@@ -235,7 +235,7 @@ public:
 	 */
 	void GatherAllPinDeclarations(TArray<FComposableCameraNodePinDeclaration>& OutPins) const;
 
-	// ─── Subobject Pin Helpers ───────────────────────────────────────────
+	// --- Subobject Pin Helpers -------------------------------------------
 
 	/**
 	 * Generate pin declarations for an Instanced subobject's EditAnywhere properties.
@@ -276,7 +276,7 @@ public:
 		FName SubobjectPropertyName,
 		UObject* Subobject);
 
-	// ─── Top-level Pin Auto-Resolution ───────────────────────────────────
+	// --- Top-level Pin Auto-Resolution -----------------------------------
 
 	/**
 	 * Re-resolve every declared top-level input pin into its matching UPROPERTY
@@ -285,12 +285,12 @@ public:
 	 *
 	 * The binding between a pin and a UPROPERTY is by exact FName match against
 	 * the name declared in GetPinDeclarations(). Each matched UPROPERTY must map
-	 * cleanly to an EComposableCameraPinType (via TryMapPropertyToPinType) — if
+	 * cleanly to an EComposableCameraPinType (via TryMapPropertyToPinType). If
 	 * a pin has no backing UPROPERTY or the types don't align, the pin is skipped
 	 * here and subclass code must use GetInputPinValue<T>() for it.
 	 *
 	 * Subobject property pins ("Subobject.Field" compound names) are NOT touched
-	 * by this method — they are handled once at Initialize() via AutoApplySubobjectPinValues().
+	 * by this method. They are handled once at Initialize() via AutoApplySubobjectPinValues().
 	 *
 	 * Performance: the per-class binding table is built once on first use and
 	 * cached module-locally. Per-frame cost is a tight switch-dispatch loop with
@@ -304,7 +304,7 @@ protected:
 	 * false on nodes that manage their own pin reads (e.g. nodes whose UPROPERTYs
 	 * must survive across frames or are written by external actors mid-tick).
 	 *
-	 * Default: true — any node with a pin + matching UPROPERTY gets the member
+	 * Default: true. Any node with a pin + matching UPROPERTY gets the member
 	 * refreshed before every OnTickNode call.
 	 */
 	virtual bool ShouldAutoResolveInputPins() const { return true; }
@@ -339,9 +339,9 @@ private:
 
 public:
 
-	// ─── Pin Value Accessors (C++ template) ──────────────────────────────
+	// --- Pin Value Accessors (C++ template) ------------------------------
 
-	/** Read an input pin's resolved value. Checks wired → exposed → default. */
+	/** Read an input pin's resolved value. Checks wired -> exposed ->default. */
 	template<typename T>
 	T GetInputPinValue(FName PinName) const;
 
@@ -357,7 +357,7 @@ public:
 	template<typename T>
 	void SetInternalVariable(FName VariableName, const T& Value);
 
-	// ─── Pin Value Accessors (Blueprint-callable, type-specific) ─────────
+	// --- Pin Value Accessors (Blueprint-callable, type-specific) ---------
 
 	UFUNCTION(BlueprintCallable, Category = "ComposableCameraSystem|Node|Pins")
 	bool GetInputPinValueBool(FName PinName) const;
@@ -451,7 +451,7 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "ComposableCameraSystem|Node|Pins")
 	void SetOutputPinValueName(FName PinName, FName Value);
 
-	/** Write a wildcard enum value to an output pin. Mirrors GetInputPinValueEnum —
+	/** Write a wildcard enum value to an output pin. Mirrors GetInputPinValueEnum -
 	 *  reads the enum from the caller's property (FEnumProperty or FByteProperty)
 	 *  via the numeric-property API, normalizes to int64, and stores it in the
 	 *  data block slot. Callers on the consumer side read it back through the
@@ -545,7 +545,7 @@ public:
 
 	/** Write a wildcard enum value to an internal variable. Normalizes to int64
 	 *  via the caller's FEnumProperty/FByteProperty and stores in the data block
-	 *  slot — the same representation every other enum consumer reads. */
+	 *  slot. The same representation every other enum consumer reads. */
 	UFUNCTION(BlueprintCallable, CustomThunk, Category = "ComposableCameraSystem|Node|Variables", meta = (CustomStructureParam = "Value"))
 	void SetInternalVariableEnum(FName VariableName, const int32& Value);
 	DECLARE_FUNCTION(execSetInternalVariableEnum)
@@ -590,7 +590,7 @@ private:
 	/** Inverse of ReadBPEnumPropertyAsInt64: narrow-cast a normalized int64 into
 	 *  the caller's enum property (FEnumProperty underlying numeric width, or
 	 *  FByteProperty uint8). No-op on unknown kinds. Non-const because
-	 *  DECLARE_FUNCTION inline thunks need a matching this-pointer — the write
+	 *  DECLARE_FUNCTION inline thunks need a matching this-pointer. The write
 	 *  itself is into the caller's memory, not the node. */
 	void WriteEnumInt64ToBPProperty(const FProperty* OutValueProperty, void* OutValuePtr, int64 Value) const;
 
@@ -611,7 +611,7 @@ protected:
 	 *
 	 * Nodes that need the outgoing camera's pose (what BeginPlayNode used to
 	 * receive as CurrentCameraPose) should read it via
-	 * OwningPlayerCameraManager->GetCurrentCameraPose() — this is the same value
+	 * OwningPlayerCameraManager->GetCurrentCameraPose(). This is the same value
 	 * AActor::BeginPlay was passing in when it called BeginPlayCamera.
 	 *
 	 * BlueprintNativeEvent: Blueprint subclasses can override "InitializeNode"
@@ -619,7 +619,7 @@ protected:
 	 * OnInitialize_Implementation and should call Super when chaining.
 	 *
 	 * NOTE: Input pin values are NOT yet resolved when this is called. Do not
-	 * read pin-backed UPROPERTYs here to seed per-frame state — use
+	 * read pin-backed UPROPERTYs here to seed per-frame state. Use
 	 * OnFirstTickNode instead, which runs after the first ResolveAllInputPins().
 	 */
 	UFUNCTION(BlueprintNativeEvent, DisplayName = "InitializeNode", Category = "ComposableCameraSystem|Node")
@@ -691,12 +691,12 @@ public:
 	 * Called each frame when the `CCS.Debug.Viewport` CVar is enabled, for
 	 * every node on the currently running camera. Override to draw world-space
 	 * debug gizmos via `DrawDebugHelpers` (DrawDebugSphere, DrawDebugLine, etc.)
-	 * that visualise this node's runtime state — e.g. a pivot sphere for
+	 * that visualise this node's runtime state. E.g. a pivot sphere for
 	 * PivotOffsetNode, a look-at line for LookAtNode, the collision trace for
 	 * CollisionPushNode, a sampled spline path for SplineNode.
 	 *
 	 * Access the owning camera via `OwningCamera` and current-frame pin values
-	 * via the usual `GetInputPinValue<T>()` / member-read path — this hook
+	 * via the usual `GetInputPinValue<T>()` / member-read path. This hook
 	 * fires AFTER TickNode, so pin-backed UPROPERTYs still hold the resolved
 	 * values from the most recent evaluation.
 	 *
@@ -716,7 +716,7 @@ public:
 
 	/**
 	 * 2D counterpart to DrawNodeDebug. Fires from a separate UDebugDrawService
-	 * hook on the "Game" channel — which means it runs during PIE-possessed
+	 * hook on the "Game" channel. Which means it runs during PIE-possessed
 	 * play (and standalone), NOT during F8 eject (editor viewport doesn't
 	 * route through the game channel). That lines up with what 2D overlays
 	 * are good for: screen-space debug that the player-eye perspective
@@ -725,7 +725,7 @@ public:
 	 *
 	 * Canvas provides the 2D surface; PC is the local player controller
 	 * whose view is being rendered (for ProjectWorldToScreen and aspect
-	 * ratio queries). Either may be null in edge cases — always check.
+	 * ratio queries). Either may be null in edge cases. Always check.
 	 *
 	 * Default implementation does nothing. Compiled out in shipping builds.
 	 */
@@ -733,7 +733,7 @@ public:
 #endif
 };
 
-// ─── Template Implementations ──────────────────────────────────────────
+// --- Template Implementations ------------------------------------------
 
 template<typename T>
 T UComposableCameraCameraNodeBase::GetInputPinValue(FName PinName) const
