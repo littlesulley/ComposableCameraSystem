@@ -458,6 +458,7 @@ Subobject property pins (compound names like `Interpolator.Speed`) are **not** t
 | Node | Purpose |
 |---|---|
 | `ReceivePivotActorNode` | Reads an actor's position and writes it to an output pin |
+| `PivotLookAheadNode` | Projects a pivot forward by `Velocity * LookAheadTime`. Uses a resolved velocity actor when valid, otherwise falls back to frame-to-frame pivot delta; optional velocity damping smooths direction changes before downstream framing / look-at nodes consume the predicted pivot. |
 | `PivotOffsetNode` | Offsets the pivot position in world/actor/camera space |
 | `CameraOffsetNode` | Applies an offset in camera-local space |
 | `LookAtNode` | Rotates camera to face a target (hard or soft constraint). No-ops when the camera and resolved target coincide so the singular `SpiralNode -> LookAtNode` composition (Spiral places the camera on its pivot when the radius curve crosses zero) does not produce a zero-rotation snap. |
@@ -511,12 +512,13 @@ Compute nodes run once at camera activation (from `BeginPlayCamera`) and publish
 
 ```
 1. ReceivePivotActorNode     �?writes PivotPosition from character
-2. PivotOffsetNode           �?offsets pivot upward (shoulder height)
-3. CameraOffsetNode          �?offsets camera behind and to the side
-4. ControlRotateNode         �?reads player input for orbit rotation
-5. CollisionPushNode         �?pushes camera forward on wall collision
-6. LookAtNode (soft)         �?soft look-at toward pivot
-7. FieldOfViewNode           �?sets FOV with optional dynamic zoom
+2. PivotLookAheadNode        - predicts PivotPosition from velocity when the camera should lead movement
+3. PivotOffsetNode           �?offsets pivot upward (shoulder height)
+4. CameraOffsetNode          �?offsets camera behind and to the side
+5. ControlRotateNode         �?reads player input for orbit rotation
+6. CollisionPushNode         �?pushes camera forward on wall collision
+7. LookAtNode (soft)         �?soft look-at toward pivot
+8. FieldOfViewNode           �?sets FOV with optional dynamic zoom
 ```
 
 ### Subobject Property Pin Exposure
@@ -1306,6 +1308,7 @@ Complementing the 2D HUD panel, a separate facility draws world-space debug prim
     - `UComposableCameraCameraNodeBase::DrawNodeDebug(UWorld*) const` �?virtual with an empty default. Concrete nodes override to draw their own gizmos. Nodes read current-frame pin values through the usual `GetInputPinValue<T>()` / pin-bound UPROPERTY path �?the hook fires after TickNode so those values reflect the most recent evaluation.
 - **Shipped node overrides** (each with its own CVar, default 0):
     - `PivotOffsetNode` (`CCS.Debug.Viewport.PivotOffset`) �?yellow sphere at the post-offset pivot (mirrored in `LastComputedPivot` since output pins aren't re-readable by name).
+    - `PivotLookAheadNode` (`CCS.Debug.Viewport.PivotLookAhead`) - orange sphere at the predicted pivot after velocity projection.
     - `PivotDampingNode` (`CCS.Debug.Viewport.PivotDamping`) �?magenta sphere at the damped pivot (reads existing `LastPivotPosition` state).
     - `LookAtNode` (`CCS.Debug.Viewport.LookAt`) �?cyan sphere at the target (resolves `ByPosition` / `ByActor` / socket the same way the tick path does). Possessed play: sphere only. F8 eject: adds a thin cyan line from camera to target.
     - `CollisionPushNode` (`CCS.Debug.Viewport.CollisionPush`) �?green/red trace sphere at the pivot (bTraceUseSphere) or small point (line trace), red sphere at the hit location when blocked. Possessed play: spheres only. F8 eject: adds the full pivot→camera trace line and the cyan self-collision sphere around the camera. Cache members (`LastTraceStart/End/HitLocation`, `LastSelfSphereCenter`, `bLastTraceBlocked`) populated in `FindCollisionPoint`.
