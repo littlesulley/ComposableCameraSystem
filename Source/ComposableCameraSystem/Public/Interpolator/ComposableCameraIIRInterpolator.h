@@ -105,40 +105,27 @@ public:
 		if (bUseFixedStep)
 		{
 			float RemainingTime = DeltaTime;
-
-			if (bDoLeftoverRewind && (LastUpdateLeftoverTime > 0.f))
+			if (RemainingTime > KINDA_SMALL_NUMBER)
 			{
-				RemainingTime += LastUpdateLeftoverTime;
-				LastUpdateLeftoverTime = 0.f;
-			}
+				WrappedValueType LastTargetToTargetValue = this->TargetValue - LastTargetValue;
+				const WrappedValueType EquilibriumStepRate = LastTargetToTargetValue * (1.f / RemainingTime);
+				WrappedValueType LerpedTargetValue = LastTargetValue;
 
-			WrappedValueType LastTargetToTargetValue = this->TargetValue - LastTargetValue;
-			const WrappedValueType EquilibriumStepRate = LastTargetToTargetValue * (1.f / RemainingTime);
-			WrappedValueType LerpedTargetValue = LastTargetValue;
-
-			while (RemainingTime > KINDA_SMALL_NUMBER)
-			{
-				const float StepTime = FMath::Min(MaxSubstepTime, RemainingTime);
-
-				if (bDoLeftoverRewind && (StepTime < MaxSubstepTime))
+				while (RemainingTime > KINDA_SMALL_NUMBER)
 				{
-					LastUpdateLeftoverTime = StepTime;
-					break;
-				}
+					const float StepTime = FMath::Min(MaxSubstepTime, RemainingTime);
 
-				{
 					LerpedTargetValue = EquilibriumStepRate * StepTime + LerpedTargetValue;
 					RemainingTime -= StepTime;
 					this->CurrentValue = RunSubstep(LerpedTargetValue.Value, StepTime);
 				}
-			}
 
-			LastTargetValue = LerpedTargetValue;
+				LastTargetValue = LerpedTargetValue;
+			}
 		}
 		else
 		{
 			this->CurrentValue = RunSubstep((this->TargetValue).Value, DeltaTime);
-			LastUpdateLeftoverTime = 0.f;
 		}
 
 		return (this->CurrentValue).Value;
@@ -148,7 +135,6 @@ protected:
 	virtual void OnReset(ConstValueType OldCurrentValue,  ConstValueType OldTargetValue, ConstValueType NewCurrentValue, ConstValueType NewTargetValue) override
 	{
 		LastTargetValue = this->TargetValue;
-		LastUpdateLeftoverTime = 0.f;
 	}
 
 	ValueType RunSubstep(ValueType SubstepTargetValue, float DeltaTime)
@@ -158,12 +144,10 @@ protected:
 
 private:
 	static constexpr float MaxSubstepTime = 1.f / 120.f;
-	static constexpr bool bDoLeftoverRewind = true;
 
 	const UComposableCameraIIRInterpolator* IIRInterpolator;
 	float Speed = 1.f;
 	bool bUseFixedStep = false;
 
 	WrappedValueType LastTargetValue {};
-	float LastUpdateLeftoverTime = 0.f;
 };

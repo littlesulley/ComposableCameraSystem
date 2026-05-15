@@ -9,6 +9,7 @@
 #include "Core/ComposableCameraEvaluationTree.h"
 #include "Cameras/ComposableCameraCameraBase.h"
 #include "DataAssets/ComposableCameraTypeAsset.h"
+#include "Interpolator/ComposableCameraIIRInterpolator.h"
 #include "Nodes/ComposableCameraCollisionPushNode.h"
 #include "Nodes/ComposableCameraLookAtNode.h"
 #include "Nodes/ComposableCameraRotationConstraints.h"
@@ -42,6 +43,104 @@ namespace
 		Actor->SetActorLocationAndRotation(Location, Rotation);
 		return Actor;
 	}
+}
+
+// ============================================================================
+// Test: IIR fixed-step mode progresses when callers reset every frame
+// BUG: Nodes such as ScreenSpacePivot and Spline reset their IIR interpolators
+//      every tick from the current value to the latest target. At frame rates
+//      above 120fps, fixed-step IIR stored the substep remainder but Reset()
+//      either cleared it before enough time accumulated or held the output
+//      until a later frame, causing packaged high-FPS cameras to freeze or
+//      visibly stutter.
+// ============================================================================
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FIIRFixedStepPerFrameResetProgressesBelowMaxSubstepTest,
+	"System.Engine.ComposableCameraSystem.Interpolator.IIR.FixedStepPerFrameResetProgressesBelowMaxSubstep",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FIIRFixedStepPerFrameResetProgressesBelowMaxSubstepTest::RunTest(const FString& Parameters)
+{
+	constexpr float SubframeDelta = 1.f / 240.f;
+
+	TIIRInterpolator<double> Interpolator(10.f, true);
+	Interpolator.Reset(0.0, 100.0);
+	const double FirstValue = Interpolator.Run(SubframeDelta);
+
+	Interpolator.Reset(FirstValue, 100.0);
+	const double SecondValue = Interpolator.Run(SubframeDelta);
+
+	UTEST_TRUE("Fixed-step IIR advances on the first sub-120Hz frame",
+		FirstValue > 0.0);
+	UTEST_TRUE("Repeated per-frame Reset below the fixed step advances every frame",
+		SecondValue > FirstValue);
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FIIRFixedStepZeroDeltaKeepsCurrentValueTest,
+	"System.Engine.ComposableCameraSystem.Interpolator.IIR.FixedStepZeroDeltaKeepsCurrentValue",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FIIRFixedStepZeroDeltaKeepsCurrentValueTest::RunTest(const FString& Parameters)
+{
+	TIIRInterpolator<double> Interpolator(10.f, true);
+	Interpolator.Reset(25.0, 100.0);
+	const double Value = Interpolator.Run(0.f);
+
+	UTEST_TRUE("Zero DeltaTime keeps the current value",
+		FMath::IsNearlyEqual(Value, 25.0, KINDA_SMALL_NUMBER));
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FIIRFixedStepLargeDeltaUsesSubstepsTest,
+	"System.Engine.ComposableCameraSystem.Interpolator.IIR.FixedStepLargeDeltaUsesSubsteps",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FIIRFixedStepLargeDeltaUsesSubstepsTest::RunTest(const FString& Parameters)
+{
+	constexpr float StepDelta = 1.f / 120.f;
+	constexpr float LargeDelta = 1.f / 30.f;
+	constexpr double Target = 100.0;
+	constexpr double Speed = 10.0;
+
+	double Expected = 0.0;
+	for (int32 StepIndex = 0; StepIndex < 4; ++StepIndex)
+	{
+		Expected = FMath::FInterpTo(Expected, Target, StepDelta, Speed);
+	}
+
+	TIIRInterpolator<double> Interpolator(Speed, true);
+	Interpolator.Reset(0.0, Target);
+	const double Value = Interpolator.Run(LargeDelta);
+
+	UTEST_TRUE("Large DeltaTime uses fixed-size substeps",
+		FMath::IsNearlyEqual(Value, Expected, KINDA_SMALL_NUMBER));
+	UTEST_TRUE("Large DeltaTime does not snap directly to target",
+		Value < Target);
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FIIRNonFixedStepSubFrameDeltaProgressesTest,
+	"System.Engine.ComposableCameraSystem.Interpolator.IIR.NonFixedStepSubFrameDeltaProgresses",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FIIRNonFixedStepSubFrameDeltaProgressesTest::RunTest(const FString& Parameters)
+{
+	TIIRInterpolator<double> Interpolator(10.f, false);
+	Interpolator.Reset(0.0, 100.0);
+	const double Value = Interpolator.Run(1.f / 240.f);
+
+	UTEST_TRUE("Non-fixed IIR keeps original sub-frame behavior",
+		Value > 0.0);
+
+	return true;
 }
 
 // ============================================================================
