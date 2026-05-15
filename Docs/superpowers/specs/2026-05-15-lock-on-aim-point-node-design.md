@@ -54,9 +54,12 @@ Pivot
 
 Inputs:
 
-- `FollowPosition` (`Vector3D`, required): the player/follow pivot in world space.
-- `AimPosition` (`Vector3D`, required): the raw lock target pivot in world space.
+- `FollowSource` / `AimSource` (`Enum`): whether each point is a world-space position or actor-derived position.
+- `FollowWorldPosition` / `AimWorldPosition` (`Vector3D`): world-space fallback or authored points.
+- `FollowActorSource` / `AimActorSource`, `FollowActor` / `AimActor`, and world-up offsets: actor-based point resolution, matching the other camera nodes that use `Source` inputs.
 - `Radius` (`Float`, details by default, default `500.0`): minimum horizontal projected distance before correction is active.
+- `PitchRange` (`Vector2D`, details by default, default `(-45.0, 45.0)`): min/max pitch in degrees used by `PitchAddition`. Current pitch inside this range is used directly; outside the range it is clamped to the nearest boundary.
+- `BlendOutTime` (`Float`, details by default, default `0.15`): seconds used to fade the correction offset to zero after leaving `Radius`.
 - `Weights` (`Vector3D`, details by default, default `(0.2, 0.5, 0.3)`): blend weights for pitch-preserving, camera-to-aim, and camera-forward additions. The values are used directly, matching the legacy extension, rather than normalized.
 
 Output:
@@ -66,7 +69,7 @@ Output:
 Runtime-only state:
 
 - `bInModify`: whether the node is currently inside the close-distance correction region.
-- `CachedPitch`: pitch captured when entering the correction region.
+- `CurrentAddition`: the most recent blended correction offset, reused for blend-out after leaving the correction region.
 - `LastOutputPivotPosition`: non-shipping debug mirror for the output point.
 
 ## Algorithm
@@ -75,9 +78,9 @@ Each tick:
 
 1. Read `FollowPosition` and `AimPosition`.
 2. Compute planar distance between the two positions.
-3. If planar distance is greater than or equal to `Radius`, clear `bInModify` and output raw `AimPosition`.
+3. If planar distance is greater than or equal to `Radius`, clear `bInModify` and blend the previous correction offset back to zero over `BlendOutTime`.
 4. If planar distance is below `Radius`, compute three candidate offsets:
-   - `PitchAddition`: preserves the pitch captured when entering the radius while enforcing the minimum planar distance.
+   - `PitchAddition`: uses the current follow-to-aim pitch if it is inside `PitchRange`, or clamps to the nearest pitch boundary while enforcing the minimum planar distance.
    - `CamToAimAddition`: extends along the current camera-to-aim direction, preserving screen-space feel as much as possible.
    - `CamForwardAddition`: extends along the camera forward vector projected onto the horizontal plane.
 5. Blend the offsets with `Weights`.
@@ -89,10 +92,10 @@ This matches the legacy extension's behavior while adapting it to the composable
 
 ## Edge Cases
 
-- If `Radius <= 0`, output raw `AimPosition`.
+- If `Radius <= 0`, treat it like leaving the correction region and blend any existing correction offset back to raw `AimPosition`.
 - If the raw horizontal direction is nearly zero, use the camera forward projected onto the horizontal plane as a fallback direction.
 - If a quadratic solve has no valid solution or a direction cannot be normalized, treat that candidate offset as zero.
-- Clamp unsafe math around `DegCos(CachedPitch)` and quadratic coefficient `A` to avoid division by zero.
+- Clamp unsafe pitch math and quadratic coefficient `A` to avoid division by zero.
 - The node does not mutate actors, camera rotation, or the second `ScreenSpacePivot`; it only produces a world-space point.
 
 ## Debugging
@@ -111,7 +114,8 @@ Add focused automation tests for the math behavior:
 
 - Outside `Radius`, output equals raw `AimPosition`.
 - Inside `Radius` with `Weights=(1,0,0)`, output planar distance from `FollowPosition` is within a small floating-point tolerance of `Radius`.
-- Re-entering the radius updates `CachedPitch`; remaining inside keeps the cached pitch stable.
+- Inside `Radius`, current pitch within `PitchRange` is used directly, while pitch outside `PitchRange` is clamped to the configured boundary.
+- Leaving `Radius` blends the previous correction offset to zero instead of snapping to the raw aim position.
 - Degenerate follow/aim overlap does not produce NaN or invalid vectors.
 
 The tests should call a small pure helper where possible so the math is testable without requiring a full camera actor setup.

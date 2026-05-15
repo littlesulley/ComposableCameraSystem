@@ -2100,6 +2100,7 @@ namespace
 
 		// Nodes. Colors taken from each node's DrawNodeDebug override.
 		{ TEXT("PivotOffset"),          FLinearColor(1.f,        1.f,        0.f,        1.f), TEXT("CCS.Debug.Viewport.PivotOffset"),          false },  // Yellow
+		{ TEXT("LockOnAimPoint"),       FLinearColor(80.f/255.f,160.f/255.f,255.f/255.f, 1.f), TEXT("CCS.Debug.Viewport.LockOnAimPoint"),       false },  // Blue
 		{ TEXT("PivotDamping"),         FLinearColor(1.f,        0.f,        1.f,        1.f), TEXT("CCS.Debug.Viewport.PivotDamping"),         false },  // Magenta
 		{ TEXT("LookAt"),               FLinearColor(0.f,        1.f,        1.f,        1.f), TEXT("CCS.Debug.Viewport.LookAt"),               false },  // Cyan
 		{ TEXT("CollisionPush"),        FLinearColor(0.3f,       0.85f,      0.3f,       1.f), TEXT("CCS.Debug.Viewport.CollisionPush"),        false },  // Green (clear state; red when blocked)
