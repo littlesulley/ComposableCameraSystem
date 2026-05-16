@@ -407,6 +407,135 @@ bool FExecMockBlendVerificationTest::RunTest(const FString& Parameters)
 }
 
 // ============================================================================
+// Mock Scenario 5b: "Transition keeps its initial rotation path while endpoints move"
+// The source camera can keep receiving control rotation input during a blend.
+// Rotation blending must keep the path chosen at transition start, then fade the
+// source endpoint's live offset out instead of recalculating the shortest path
+// from the newly-rotated source to the fixed target every frame.
+// ============================================================================
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FExecMockTransitionKeepsInitialRotationPathWithMovingSourceTest,
+	"System.Engine.ComposableCameraSystem.Execution.RotationBlend.KeepsInitialPathWithMovingSource",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FExecMockTransitionKeepsInitialRotationPathWithMovingSourceTest::RunTest(const FString& Parameters)
+{
+	constexpr float DT = 0.016f;
+
+	UComposableCameraTestTransition* Transition = NewObject<UComposableCameraTestTransition>();
+	Transition->BlendFactor = 0.5f;
+
+	FComposableCameraPose SourcePose;
+	SourcePose.Rotation = FRotator(0.f, 170.f, 0.f);
+
+	FComposableCameraPose TargetPose;
+	TargetPose.Rotation = FRotator(0.f, -170.f, 0.f);
+
+	FComposableCameraTransitionInitParams InitParams;
+	InitParams.CurrentSourcePose = SourcePose;
+	InitParams.PreviousSourcePose = SourcePose;
+	InitParams.DeltaTime = DT;
+	Transition->TransitionEnabled(InitParams);
+	Transition->SetTransitionTime(10.f);
+	Transition->ResetTransitionState();
+
+	(void)Transition->Evaluate(DT, SourcePose, TargetPose);
+
+	const float SourceYawFrames[] = { 130.f, 90.f, 50.f, 10.f, -30.f };
+	FComposableCameraPose ResultPose;
+	for (const float SourceYaw : SourceYawFrames)
+	{
+		SourcePose.Rotation = FRotator(0.f, SourceYaw, 0.f);
+		ResultPose = Transition->Evaluate(DT, SourcePose, TargetPose);
+	}
+
+	// Initial path: 170 -> -170 goes forward by +20 deg, so alpha 0.5 is 180.
+	// Source then moves by -200 deg over several frames; at alpha 0.5 that
+	// source-side offset contributes -100 deg, producing yaw 80. Recomputing
+	// the shortest path from the live source (-30) to the target (-170) would
+	// instead produce -100, a 180-degree flip.
+	UTEST_TRUE("Moving source endpoint is applied as a faded live offset on the initial path",
+		FMath::IsNearlyEqual(FMath::FindDeltaAngleDegrees(ResultPose.Rotation.Yaw, 80.f), 0.f, 0.01f));
+
+	return true;
+}
+
+// ============================================================================
+// Mock Scenario 5c: "Nested transitions apply endpoint offsets per node"
+// Tree shape is (A->B)->C. A and C keep rotating while B stays fixed. Each
+// transition node should preserve its own initial path, so A's live offset fades
+// through the inner transition and then through the outer source side, while C's
+// live offset fades in through the outer target side.
+// ============================================================================
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FExecMockNestedTransitionKeepsRotationPathWithMovingEndpointsTest,
+	"System.Engine.ComposableCameraSystem.Execution.RotationBlend.NestedKeepsInitialPathsWithMovingEndpoints",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FExecMockNestedTransitionKeepsRotationPathWithMovingEndpointsTest::RunTest(const FString& Parameters)
+{
+	constexpr float DT = 0.016f;
+
+	UComposableCameraTestTransition* InnerTransition = NewObject<UComposableCameraTestTransition>();
+	InnerTransition->BlendFactor = 0.5f;
+	InnerTransition->SetTransitionTime(10.f);
+
+	UComposableCameraTestTransition* OuterTransition = NewObject<UComposableCameraTestTransition>();
+	OuterTransition->BlendFactor = 0.5f;
+	OuterTransition->SetTransitionTime(10.f);
+
+	FComposableCameraPose APose;
+	APose.Rotation = FRotator(0.f, 170.f, 0.f);
+
+	FComposableCameraPose BPose;
+	BPose.Rotation = FRotator(0.f, -170.f, 0.f);
+
+	FComposableCameraTransitionInitParams InnerInitParams;
+	InnerInitParams.CurrentSourcePose = APose;
+	InnerInitParams.PreviousSourcePose = APose;
+	InnerInitParams.DeltaTime = DT;
+	InnerTransition->TransitionEnabled(InnerInitParams);
+	InnerTransition->ResetTransitionState();
+
+	FComposableCameraPose ABPose = InnerTransition->Evaluate(DT, APose, BPose);
+
+	FComposableCameraPose CPose;
+	CPose.Rotation = FRotator(0.f, -170.f, 0.f);
+
+	FComposableCameraTransitionInitParams OuterInitParams;
+	OuterInitParams.CurrentSourcePose = ABPose;
+	OuterInitParams.PreviousSourcePose = ABPose;
+	OuterInitParams.DeltaTime = DT;
+	OuterTransition->TransitionEnabled(OuterInitParams);
+	OuterTransition->ResetTransitionState();
+
+	FComposableCameraPose ResultPose = OuterTransition->Evaluate(DT, ABPose, CPose);
+
+	const float AYawFrames[] = { 130.f, 90.f, 50.f, 10.f, -30.f };
+	const float CYawFrames[] = { -150.f, -130.f, -110.f, -90.f, -70.f };
+	for (int32 Index = 0; Index < UE_ARRAY_COUNT(AYawFrames); ++Index)
+	{
+		APose.Rotation = FRotator(0.f, AYawFrames[Index], 0.f);
+		CPose.Rotation = FRotator(0.f, CYawFrames[Index], 0.f);
+
+		ABPose = InnerTransition->Evaluate(DT, APose, BPose);
+		ResultPose = OuterTransition->Evaluate(DT, ABPose, CPose);
+	}
+
+	// Inner A->B starts at yaw 180 and A contributes -200 * 0.5 = -100,
+	// so the live inner output reaches yaw 80. The outer transition started
+	// at source 180 -> target -170 (fixed midpoint 185/-175). Its source
+	// live offset is -100 at 0.5 weight and its target live offset is +100
+	// at 0.5 weight, so they cancel and the outer midpoint remains -175.
+	UTEST_TRUE("Nested transition nodes preserve their own rotation paths",
+		FMath::IsNearlyEqual(FMath::FindDeltaAngleDegrees(ResultPose.Rotation.Yaw, -175.f), 0.f, 0.01f));
+
+	return true;
+}
+
+// ============================================================================
 // Mock Scenario 6: "Reference leaf inter-context transition with evaluation"
 // Simulates context pop with a transition: the new active context's tree
 // contains a reference leaf pointing to the popped context's Director.

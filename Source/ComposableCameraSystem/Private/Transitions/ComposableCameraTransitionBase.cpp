@@ -29,7 +29,12 @@ FComposableCameraPose UComposableCameraTransitionBase::Evaluate(float DeltaTime,
 
 	if (bFirstFrame)
 	{
+		InitializeLockedRotationPathState(CurrentSourcePose, CurrentTargetPose);
 		OnBeginPlay(DeltaTime, CurrentSourcePose, CurrentTargetPose);
+	}
+	else
+	{
+		UpdateLockedRotationPathState(CurrentSourcePose, CurrentTargetPose);
 	}
 
 	// If no time remains, directly return the target pose.
@@ -76,6 +81,73 @@ void UComposableCameraTransitionBase::ResetTransitionState()
 	RemainingTime = TransitionTime;
 	bFinished = false;
 	bFirstFrame = true;
+	bHasLockedRotationPathState = false;
+	InitialSourceRotation = FRotator::ZeroRotator;
+	InitialTargetRotation = FRotator::ZeroRotator;
+	InitialRotationDelta = FRotator::ZeroRotator;
+	PreviousSourceRotation = FRotator::ZeroRotator;
+	PreviousTargetRotation = FRotator::ZeroRotator;
+	AccumulatedSourceRotationOffset = FRotator::ZeroRotator;
+	AccumulatedTargetRotationOffset = FRotator::ZeroRotator;
+}
+
+FComposableCameraPose UComposableCameraTransitionBase::BlendPosesByLockedRotationPath(
+	const FComposableCameraPose& CurrentSourcePose,
+	const FComposableCameraPose& CurrentTargetPose,
+	float TargetWeight) const
+{
+	FComposableCameraPose ResultPose = CurrentSourcePose;
+	ResultPose.BlendBy(CurrentTargetPose, TargetWeight);
+	ResultPose.Rotation = BlendRotationByLockedPath(TargetWeight);
+	return ResultPose;
+}
+
+FRotator UComposableCameraTransitionBase::BlendRotationByLockedPath(float TargetWeight) const
+{
+	const float ClampedWeight = FMath::Clamp(TargetWeight, 0.f, 1.f);
+	const FRotator BaseRotation =
+		(InitialSourceRotation + InitialRotationDelta * ClampedWeight).GetNormalized();
+	return ApplyLiveRotationOffsetsToBaseRotation(BaseRotation, ClampedWeight);
+}
+
+FRotator UComposableCameraTransitionBase::ApplyLiveRotationOffsetsToBaseRotation(
+	const FRotator& BaseRotation,
+	float TargetWeight) const
+{
+	const float ClampedWeight = FMath::Clamp(TargetWeight, 0.f, 1.f);
+	const FRotator SourceOffset = AccumulatedSourceRotationOffset * (1.f - ClampedWeight);
+	const FRotator TargetOffset = AccumulatedTargetRotationOffset * ClampedWeight;
+	return (BaseRotation + SourceOffset + TargetOffset).GetNormalized();
+}
+
+void UComposableCameraTransitionBase::InitializeLockedRotationPathState(
+	const FComposableCameraPose& CurrentSourcePose,
+	const FComposableCameraPose& CurrentTargetPose)
+{
+	InitialSourceRotation = CurrentSourcePose.Rotation;
+	InitialTargetRotation = CurrentTargetPose.Rotation;
+	InitialRotationDelta = (InitialTargetRotation - InitialSourceRotation).GetNormalized();
+	PreviousSourceRotation = InitialSourceRotation;
+	PreviousTargetRotation = InitialTargetRotation;
+	AccumulatedSourceRotationOffset = FRotator::ZeroRotator;
+	AccumulatedTargetRotationOffset = FRotator::ZeroRotator;
+	bHasLockedRotationPathState = true;
+}
+
+void UComposableCameraTransitionBase::UpdateLockedRotationPathState(
+	const FComposableCameraPose& CurrentSourcePose,
+	const FComposableCameraPose& CurrentTargetPose)
+{
+	if (!bHasLockedRotationPathState)
+	{
+		InitializeLockedRotationPathState(CurrentSourcePose, CurrentTargetPose);
+		return;
+	}
+
+	AccumulatedSourceRotationOffset += (CurrentSourcePose.Rotation - PreviousSourceRotation).GetNormalized();
+	AccumulatedTargetRotationOffset += (CurrentTargetPose.Rotation - PreviousTargetRotation).GetNormalized();
+	PreviousSourceRotation = CurrentSourcePose.Rotation;
+	PreviousTargetRotation = CurrentTargetPose.Rotation;
 }
 
 #if !UE_BUILD_SHIPPING

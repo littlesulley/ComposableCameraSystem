@@ -25,7 +25,9 @@ FComposableCameraPose UComposableCameraViewTargetTransition::OnEvaluate_Implemen
 	const float BlendWeight = ViewTargetParams.GetBlendAlpha(TimeFactor);
 	Percentage = BlendWeight;
 
-	FComposableCameraPose OutPose = CurrentSourcePose;
-	OutPose.BlendBy(CurrentTargetPose, BlendWeight);
+	FComposableCameraPose OutPose = BlendPosesByLockedRotationPath(
+		CurrentSourcePose,
+		CurrentTargetPose,
+		BlendWeight);
 	return OutPose;
 }

@@ -98,18 +98,20 @@ FComposableCameraPose UComposableCameraCylindricalTransition::OnEvaluate_Impleme
 
 	// Rotation, looking at the blended pivot or using vanilla rotation blend.
 	FVector ResultPivot = FMath::Lerp(StartPivot, TargetPivot, BlendPct);
-	FRotator ResultRotation =
-		bLockToPivot ?
-		UKismetMathLibrary::FindLookAtRotation(ResultPosition, ResultPivot) :
-		(CurrentSourcePose.Rotation + BlendPct * (CurrentTargetPose.Rotation - CurrentSourcePose.Rotation).GetNormalized()).GetNormalized();
+	FRotator ResultRotation = UKismetMathLibrary::FindLookAtRotation(ResultPosition, ResultPivot);
 
-	// Blend ALL pose fields (FOV, physical camera, projection, etc.) using the shared BlendBy rule.
-	// Position/Rotation are then overwritten below with the cylindrical path values. This transition's
-	// whole point is that positional/rotational blending follow a curved trajectory, not a straight lerp.
-	FComposableCameraPose ResultPose = CurrentSourcePose;
-	ResultPose.BlendBy(CurrentTargetPose, BlendPct);
+	// Blend ALL pose fields (FOV, physical camera, projection, etc.) using the shared rule.
+	// Position is overwritten with the cylindrical path. Rotation keeps the locked-path
+	// blend unless bLockToPivot asks for an explicit look-at-pivot solve.
+	FComposableCameraPose ResultPose = BlendPosesByLockedRotationPath(
+		CurrentSourcePose,
+		CurrentTargetPose,
+		BlendPct);
 	ResultPose.Position = ResultPosition;
-	ResultPose.Rotation = ResultRotation;
+	if (bLockToPivot)
+	{
+		ResultPose.Rotation = ResultRotation;
+	}
 
 	// Debug draw lives on the `CCS.Debug.Viewport.Transitions.Cylindrical`
 	// path now. See DrawTransitionDebug below.

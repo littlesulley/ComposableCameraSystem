@@ -81,21 +81,33 @@ FComposableCameraPose UComposableCameraInertializedTransition::OnEvaluate_Implem
 	const float BlendPct = BlendDuration / TransitionTime;
 	Percentage = BlendPct;
 
-	// Blend ALL pose fields (FOV, physical camera, projection, etc.) using the shared BlendBy rule.
-	// Position/Rotation are then overwritten below with the inertialized values. This transition's
-	// whole point is that transform blending is governed by velocity/acceleration, not linear lerp.
-	FComposableCameraPose OutPose = CurrentSourcePose;
-	OutPose.BlendBy(CurrentTargetPose, BlendPct);
+	// Blend ALL pose fields (FOV, physical camera, projection, etc.) using the shared rule.
+	// Position/Rotation are then overwritten below with inertialized values; rotation still
+	// receives the base transition's live endpoint offsets so control input cannot re-path it.
+	FComposableCameraPose OutPose = BlendPosesByLockedRotationPath(
+		CurrentSourcePose,
+		CurrentTargetPose,
+		BlendPct);
 
 	if (AdditiveCurve)
 	{
 		OutPose.Position = PositionalInertializer.Evaluate(BlendDuration, CurrentTargetPose.Position, BlendPct, AdditiveCurve, AdditiveCurveWeight, AdditiveCurveShape);
-		OutPose.Rotation = RotationalInertializer.Evaluate(BlendDuration, CurrentTargetPose.Rotation, BlendPct, AdditiveCurve, AdditiveCurveWeight, AdditiveCurveShape);
+		const FRotator BaseRotation = RotationalInertializer.Evaluate(
+			BlendDuration,
+			GetInitialTargetRotation(),
+			BlendPct,
+			AdditiveCurve,
+			AdditiveCurveWeight,
+			AdditiveCurveShape);
+		OutPose.Rotation = ApplyLiveRotationOffsetsToBaseRotation(BaseRotation, BlendPct);
 	}
 	else
 	{
 		OutPose.Position = PositionalInertializer.Evaluate(BlendDuration, CurrentTargetPose.Position);
-		OutPose.Rotation = RotationalInertializer.Evaluate(BlendDuration, CurrentTargetPose.Rotation);
+		const FRotator BaseRotation = RotationalInertializer.Evaluate(
+			BlendDuration,
+			GetInitialTargetRotation());
+		OutPose.Rotation = ApplyLiveRotationOffsetsToBaseRotation(BaseRotation, BlendPct);
 	}
 
 	return OutPose;

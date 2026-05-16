@@ -34,8 +34,10 @@ protected:
 		// Simple linear interpolation for predictable test output. Delegating to BlendBy
 		// ensures we cover all pose fields (FOV, physical, projection) and respect the
 		// "resolve FOV before blending" invariant.
-		FComposableCameraPose Result = CurrentSourcePose;
-		Result.BlendBy(CurrentTargetPose, BlendFactor);
+		FComposableCameraPose Result = BlendPosesByLockedRotationPath(
+			CurrentSourcePose,
+			CurrentTargetPose,
+			BlendFactor);
 		return Result;
 	}
 };

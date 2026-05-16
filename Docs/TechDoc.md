@@ -2,9 +2,10 @@
 
 *Companion to [DesignDoc.md](DesignDoc.md) and [EditorDesignDoc.md](EditorDesignDoc.md).*
 *Companion feature spec: [ShotBasedKeyframing.md](ShotBasedKeyframing.md) �?Shot-based composition authoring + Composition Solver. Phases A through F shipped (V1 complete: Layer-1 extraction �?Composition Solver �?CompositionFramingNode �?Shot Editor �?LS Section integration �?inter-Shot blending via CCS Transitions); V1.1 adds Shot-level Roll. See that doc's §7 for the phase roadmap; subsequent work targets the remaining deferred items in §7.7 (Phase G+) �?multi-Shot composition stacking, WeightedScreenCentroid Anchor mode, FocusAnchor / DistanceMode / LookAt-basis enhancements, in-viewport bone picking, etc.*
-*Last updated: 2026-05-15. Detailed change history (technique-by-technique revisions, prior catalog updates, gotcha additions) lives in `git log Docs/TechDoc.md`; recent addenda are inlined below until they fold into the relevant sections.*
+*Last updated: 2026-05-16. Detailed change history (technique-by-technique revisions, prior catalog updates, gotcha additions) lives in `git log Docs/TechDoc.md`; recent addenda are inlined below until they fold into the relevant sections.*
 
 *2026-05-13 addendum: Lens/Exposure split: `LensNode` keeps `FocusDistance` and `PhysicalCameraBlendWeight`, but that weight now gates only DoF fields. New `ExposureNode` owns `ISO`, `ShutterSpeed`, and `ExposureBlendWeight`. `ApplyPhysicalCameraSettings` applies DoF and exposure through separate weights, so placing a lens node no longer brightens the image by itself.*
+*2026-05-16 addendum: transition rotation blending now uses `UComposableCameraTransitionBase::BlendPosesByLockedRotationPath(...)` for built-ins that otherwise delegate to pose blending. The helper keeps the first-frame source-to-target rotation delta fixed and applies later endpoint rotation changes as accumulated live offsets faded by source/target blend weights.*
 
 ---
 
@@ -168,6 +169,17 @@ This is why transitions are pose-only: the transition has no idea whether the le
 6. On finish, the eval tree collapses the inner node containing the transition.
 
 **Why duplicate, not new:** asset-authored config (duration, curve, flags) is preserved by `DuplicateObject`; only the transient state gets reset. This keeps transitions allocation-free on the hot path while still supporting per-asset authoring.
+
+**Locked rotation path helper:** built-in transitions that otherwise use pose blending call `BlendPosesByLockedRotationPath(Source, Target, Alpha)` instead of calling `FComposableCameraPose::BlendBy` directly. `Evaluate` captures the first-frame source/target rotations, then accumulates per-frame source/target rotation deltas into non-normalized endpoint offsets. The helper still delegates all non-rotation fields to `BlendBy`, then writes:
+
+```cpp
+BaseRotation = InitialSourceRotation + Alpha * InitialRotationDelta;
+OutputRotation = BaseRotation
+	+ (1.f - Alpha) * AccumulatedSourceRotationOffset
+	+ Alpha * AccumulatedTargetRotationOffset;
+```
+
+The accumulator is per transition instance, so nested blends naturally compose. Do not replace this with `(Target - Source).GetNormalized()` inside a transition body; that reselects a shortest path every frame and can flip 180 degrees when only one endpoint moves.
 
 ### 3.9 Type-asset activation: `ActivateNewCameraFromTypeAsset`
 

@@ -102,6 +102,30 @@ public:
 	}
 
 protected:
+	/**
+	 * Blend two poses while keeping the rotation path chosen when this transition started.
+	 *
+	 * Source and target poses are still evaluated live every frame. Any rotation
+	 * movement that happens after the transition starts is accumulated as an
+	 * endpoint offset and faded out/in by the same blend weight. This prevents
+	 * mid-transition live input on only one side from making the blend re-pick a
+	 * different shortest path.
+	 */
+	FComposableCameraPose BlendPosesByLockedRotationPath(
+		const FComposableCameraPose& CurrentSourcePose,
+		const FComposableCameraPose& CurrentTargetPose,
+		float TargetWeight) const;
+
+	/** Evaluate only the locked rotation path plus live endpoint offsets. */
+	FRotator BlendRotationByLockedPath(float TargetWeight) const;
+
+	/** Apply live endpoint rotation offsets to a transition-specific base rotation. */
+	FRotator ApplyLiveRotationOffsetsToBaseRotation(
+		const FRotator& BaseRotation,
+		float TargetWeight) const;
+
+	const FRotator& GetInitialTargetRotation() const { return InitialTargetRotation; }
+
 	/** Begin Play event. Called on the first frame of the transition, before the first OnEvaluate. \n
 	 * Use this to construct or initialize internal parameters specialized for this type of transition. \n
 	 * @param DeltaTime World delta time. \n
@@ -247,6 +271,17 @@ protected:
 	UPROPERTY(BlueprintReadOnly, Category = "Transition")
 	float Percentage { 0.f };
 
+	// Rotation path state captured at transition start. Not UPROPERTY: transient
+	// hot-path math state derived from evaluated poses, not authored data.
+	FRotator InitialSourceRotation { FRotator::ZeroRotator };
+	FRotator InitialTargetRotation { FRotator::ZeroRotator };
+	FRotator InitialRotationDelta { FRotator::ZeroRotator };
+	FRotator PreviousSourceRotation { FRotator::ZeroRotator };
+	FRotator PreviousTargetRotation { FRotator::ZeroRotator };
+	FRotator AccumulatedSourceRotationOffset { FRotator::ZeroRotator };
+	FRotator AccumulatedTargetRotationOffset { FRotator::ZeroRotator };
+	bool bHasLockedRotationPathState { false };
+
 	/** Cached `GetClass()->GetName()` populated lazily at first Evaluate
 	 *  and reused by per-evaluate `TRACE_CPUPROFILER_EVENT_SCOPE_STR` so
 	 *  the dynamic Insights label doesn't allocate an FString per
@@ -254,4 +289,13 @@ protected:
 	 *  so the lazy populate runs once over the transition's lifetime.
 	 *  Non-UPROPERTY because it's transient diagnostic state, not data. */
 	FString TransitionClassTraceName;
+
+private:
+	void InitializeLockedRotationPathState(
+		const FComposableCameraPose& CurrentSourcePose,
+		const FComposableCameraPose& CurrentTargetPose);
+
+	void UpdateLockedRotationPathState(
+		const FComposableCameraPose& CurrentSourcePose,
+		const FComposableCameraPose& CurrentTargetPose);
 };

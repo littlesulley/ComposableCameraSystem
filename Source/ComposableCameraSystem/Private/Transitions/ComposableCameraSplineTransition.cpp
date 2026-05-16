@@ -1,4 +1,4 @@
-﻿// Copyright Sulley. All rights reserved.
+// Copyright Sulley. All rights reserved.
 
 #include "Transitions/ComposableCameraSplineTransition.h"
 
@@ -68,8 +68,10 @@ FComposableCameraPose UComposableCameraSplineTransition::OnEvaluate_Implementati
 
 	Percentage = BlendWeight;
 	
-	FComposableCameraPose ResultPose = CurrentSourcePose;
-	ResultPose.BlendBy(CurrentTargetPose, BlendWeight);
+	FComposableCameraPose ResultPose = BlendPosesByLockedRotationPath(
+		CurrentSourcePose,
+		CurrentTargetPose,
+		BlendWeight);
 	
 	switch (SplineType)
 	{

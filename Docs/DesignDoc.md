@@ -2,7 +2,7 @@
 
 *Internal reference for the ComposableCameraSystem UE5.6 plugin.*
 *In-design feature spec: [ShotBasedKeyframing.md](ShotBasedKeyframing.md) �?Shot-based composition authoring (Composition Solver, Shot Editor, LS Section integration). Phase A (`FComposableCameraTargetInfo` extraction) is the next implementation step; see that doc's §6.*
-*Last updated: 2026-05-13. Detailed change history (review passes, prior architectural revisions) lives in `git log Docs/DesignDoc.md`; recent runtime-side addenda are inlined below until they fold into the relevant sections.*
+*Last updated: 2026-05-16. Detailed change history (review passes, prior architectural revisions) lives in `git log Docs/DesignDoc.md`; recent runtime-side addenda are inlined below until they fold into the relevant sections.*
 
 *2026-05-12 addendum: the CCS Level Sequence CameraCut ECS gate has been removed. Spawn Tracks now own LS camera lifecycle; spawned LS components evaluate while their actor exists, then `OnUnregister` / `EndPlay` tear down the transient evaluator.*
 *2026-05-12 addendum: LS-owned evaluators now use Sequencer-aware DeltaTime. Runtime spawned actors resolve the owning `UMovieSceneSequencePlayer` via spawnable annotation / spawn register and scale by `GetPlayRate()`; pure editor preview resolves the active `ISequencer` through `FGetEditorSequencerPlaybackDeltaTime` and scales by `GetPlaybackSpeed()`. Paused preview contributes zero DeltaTime.*
@@ -10,6 +10,7 @@
 *2026-05-13 addendum: Lens/Exposure split. `LensNode` still owns focal length, aperture, blade count, and `FocusDistance`, and `PhysicalCameraBlendWeight` now gates only DoF physical-camera fields. `ExposureNode` owns `ISO`, `ShutterSpeed`, and `ExposureBlendWeight`. `ApplyPhysicalCameraSettings` applies DoF and exposure separately, so adding Lens for DoF no longer changes scene brightness unless an Exposure node is present or `ExposureBlendWeight` is driven.*
 *2026-05-13 addendum: `LookAtNode` now treats a zero-length camera-to-target vector as a no-op. This matters for the supported `SpiralNode -> LookAtNode` composition: Spiral can place the camera exactly on its pivot when the radius curve is null, zero, or crosses zero; a downstream LookAt aimed at that same pivot has no meaningful forward direction to solve. Preserving the incoming rotation avoids zero-rotation snaps / jitter at the singularity.*
 *2026-05-13 addendum: `SpiralNode` gained `PivotActorInitialForward` as a Reference Direction. It captures the resolved pivot actor's forward vector on the first tick where the actor is valid, then reuses that fixed vector for the node lifetime. This covers character/pawn pivots whose location is stable but whose actor rotation can be driven by camera-to-ControlRotation sync; `PivotActorForward` remains live-every-frame for authors who intentionally want the spiral basis to track actor yaw.*
+*2026-05-16 addendum: transitions now lock the rotation path chosen on the first evaluation frame. Each transition still evaluates live source and target poses every frame, but source/target rotation changes after start are accumulated as endpoint offsets and faded by `(1 - Alpha)` / `Alpha` instead of forcing the transition to recalculate a fresh shortest path. Nested blends apply the same rule per transition node.*
 
 *2026-05-11 addendum: `DirectionalMoveNode` now has a `Duration` input / UPROPERTY. Negative duration preserves the original infinite move; non-negative duration clamps travel time so the camera holds its final directional offset after `Duration` seconds.*
 
@@ -391,7 +392,7 @@ A camera can be marked transient with a fixed lifetime. When `RemainingLifeTime 
 - Orthographic fields (`OrthographicWidth`, `OrthoNearClipPlane`, `OrthoFarClipPlane`): linear lerp. Safe to interpolate even while `ProjectionMode` snaps.
 - `PostProcessSettings`: blended via `FPostProcessUtils::BlendPostProcessSettings`. All properties (numerics and `bOverride_*` booleans) are interpolated; booleans snap at 50% like the projection fields. A camera with no PostProcess node has all overrides off �?blending against it naturally fades the overridden properties toward their defaults and turns off the override flags at the 50% mark.
 
-`BlendBy(Other, Alpha)` is the single entry point for blending one pose into another using all the rules above. Every transition's `OnEvaluate` should start its result pose from `CurrentSourcePose`, call `BlendBy(CurrentTargetPose, Alpha)`, and then overwrite only the fields it specifically customizes (e.g., a cylindrical transition overwrites Position and Rotation after BlendBy; an inertialized transition does the same with inertializer-derived values). Transitions must not hand-lerp individual pose fields �?if they do, any new pose field added in the future will silently drop out of that transition.
+`BlendBy(Other, Alpha)` is the single entry point for blending one pose into another using all the field rules above. Built-in transitions call `UComposableCameraTransitionBase::BlendPosesByLockedRotationPath(...)`, which delegates the non-rotation fields to `BlendBy` and then overwrites `Rotation` with the transition's locked rotation path plus live endpoint offsets. This keeps transition rotation continuous when one endpoint keeps moving after the blend starts. Custom transition code should follow the same pattern: use the base helper for normal pose blending, then overwrite only the fields it specifically customizes (e.g., spline transitions overwrite Position; cylindrical transitions overwrite Position and, when `bLockToPivot` is true, Rotation; inertialized transitions overwrite Position and Rotation with polynomial values plus the same live-offset rule). Transitions must not hand-lerp individual pose fields - if they do, any new pose field added in the future will silently drop out of that transition.
 
 **Pose is authoritative over CameraComponent.** For projection, aspect, and post-process, the pose holds the truth. `GetCameraViewFromCameraPose` copies `ProjectionMode`, `ConstrainAspectRatio`, and the override/axis fields from the pose into the outgoing `FMinimalViewInfo`. The `ACameraActor`'s `CameraComponent` contributes its `AspectRatio` numeric value and its `PostProcessSettings` as the base layer. The pose's `PostProcessSettings` is then applied on top via `FPostProcessUtils::OverridePostProcessSettings` (only overridden properties take effect), followed by `ApplyPhysicalCameraSettings` for DoF/exposure. This three-layer stack (component baseline -> pose PP -> physical camera) means cameras without a PostProcess node pass through the component's PP unchanged, while cameras with one can override specific properties without wiping the baseline. Nodes that want to change projection/aspect/PP do so by writing the pose, not by mutating the actor.
 
@@ -601,9 +602,24 @@ All transitions derive from `UComposableCameraTransitionBase`. They are pose-onl
 
 **Lifecycle**:
 1. `TransitionEnabled(InitParams)`: Called once when the transition is first wired into the tree. Receives `CurrentSourcePose`, `PreviousSourcePose`, and `DeltaTime` at the moment of creation.
-2. First `Evaluate()` frame: `OnBeginPlay()` fires before `OnEvaluate()`. This is where transitions set up internal state (spline control points, inertialization polynomials, etc.) using both the InitParams and the live source/target poses.
-3. Each subsequent frame: `RemainingTime` is decremented, `Percentage` is updated, `OnEvaluate()` computes the blended pose from the live source and target poses.
+2. First `Evaluate()` frame: the base class captures the initial source/target rotations and their shortest delta, then `OnBeginPlay()` fires before `OnEvaluate()`. This is where transitions set up internal state (spline control points, inertialization polynomials, etc.) using both the InitParams and the live source/target poses.
+3. Each subsequent frame: the base class accumulates source/target rotation deltas into live endpoint offsets, `RemainingTime` is decremented, `Percentage` is updated, and `OnEvaluate()` computes the blended pose from the live source and target poses.
 4. When `RemainingTime <= 0`: `TransitionFinished()` is called, which sets `bFinished = true`, fires `OnFinished()`, and broadcasts `OnTransitionFinishesDelegate`.
+
+### Locked Rotation Path
+
+Transitions keep source and target poses live, but their rotation interpolation path is fixed at transition start. `UComposableCameraTransitionBase` captures `InitialSourceRotation`, `InitialTargetRotation`, and `InitialRotationDelta` on the first `Evaluate()` frame. On later frames it accumulates per-frame source and target rotation changes by adding the normalized delta from the previous evaluated endpoint rotation. The accumulated offsets are deliberately not normalized; a player can rotate through more than 180 degrees over several frames, and collapsing that history back to the shortest equivalent orientation would reintroduce the same path flip the lock is meant to prevent.
+
+The normal helper computes:
+
+```
+BaseRotation = InitialSourceRotation + Alpha * InitialRotationDelta
+OutputRotation = BaseRotation
+    + (1 - Alpha) * AccumulatedSourceRotationOffset
+    + Alpha * AccumulatedTargetRotationOffset
+```
+
+Each active transition node owns its own state. In a nested tree such as `(A -> B) -> C`, the inner transition fades A's endpoint motion out as A blends into B; the outer transition sees the inner blended result as its source endpoint and applies the same source/target offset rule against C. This preserves the tree semantics: every Inner node locks only the path it owns, and finished nodes still collapse to the right subtree exactly as before.
 
 ### InitParams and Velocity
 

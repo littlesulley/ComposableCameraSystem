@@ -27,8 +27,10 @@ FComposableCameraPose UComposableCameraEaseTransition::OnEvaluate_Implementation
 	float BlendWeight = FMath::InterpEaseInOut(0.f, 1.f, DurationPct, Exp);
 	Percentage = BlendWeight;
 
-	FComposableCameraPose CurrentPose = CurrentSourcePose;
-	CurrentPose.BlendBy(CurrentTargetPose, BlendWeight);
+	FComposableCameraPose CurrentPose = BlendPosesByLockedRotationPath(
+		CurrentSourcePose,
+		CurrentTargetPose,
+		BlendWeight);
 
 	return CurrentPose;
 }
