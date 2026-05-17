@@ -8,6 +8,8 @@ Instead of subclassing a monolithic camera class, cameras are assembled from reu
 
 **Full docs:** https://sulley.cc/ComposableCameraSystem-Docs/
 
+**Demo Project:** https://drive.google.com/file/d/15tfMGTo7HvptKyLwlOwtDqn4Gr-tLGg0/view?usp=drive_link
+
 The public site covers concepts, node/transition/modifier reference, editor workflows, and the C++ API.
 
 ## Highlights
