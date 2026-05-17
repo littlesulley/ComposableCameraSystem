@@ -1,5 +1,7 @@
 # Composable Camera System
 
+![](Resources/Icon128.png)
+
 A modular, composable camera framework for Unreal Engine 5.6 and above.
 
 Instead of subclassing a monolithic camera class, cameras are assembled from reusable single-responsibility **nodes**, blended through a tree-based **evaluation tree**, and orchestrated across independent **contexts**. Camera types are data-driven assets authored in a visual graph editor — no Blueprint subclass per camera.
