@@ -1,4 +1,4 @@
-// Copyright Sulley. All rights reserved.
+// Copyright 2026 Sulley. All Rights Reserved.
 
 #include "Toolkits/ComposableCameraTypeAssetEditorToolkit.h"
 #include "DataAssets/ComposableCameraTypeAsset.h"

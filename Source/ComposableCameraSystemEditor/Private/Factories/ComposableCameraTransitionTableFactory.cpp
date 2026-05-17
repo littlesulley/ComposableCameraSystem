@@ -1,4 +1,4 @@
-// Copyright Sulley. All rights reserved.
+// Copyright 2026 Sulley. All Rights Reserved.
 
 #include "Factories/ComposableCameraTransitionTableFactory.h"
 #include "DataAssets/ComposableCameraTransitionTableDataAsset.h"

@@ -1,4 +1,4 @@
-// Copyright Sulley. All rights reserved.
+// Copyright 2026 Sulley. All Rights Reserved.
 
 // Tests for bugs fixed during the codebase review pass.
 // BUG 4: ReactivateCurrentCamera null dereference

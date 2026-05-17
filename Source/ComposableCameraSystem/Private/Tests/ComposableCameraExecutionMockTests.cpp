@@ -1,4 +1,4 @@
-// Copyright Sulley. All rights reserved.
+// Copyright 2026 Sulley. All Rights Reserved.
 
 // Execution mock tests: simulate realistic multi-frame camera scenarios.
 // These tests exercise the full evaluation + collapse pipeline over time.

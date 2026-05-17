@@ -1,4 +1,4 @@
-// Copyright Sulley. All rights reserved.
+// Copyright 2026 Sulley. All Rights Reserved.
 
 // Regression tests for the visual-position-driven NodeTemplates ordering
 // added when the Patch / Camera Type Asset editor was found to ignore

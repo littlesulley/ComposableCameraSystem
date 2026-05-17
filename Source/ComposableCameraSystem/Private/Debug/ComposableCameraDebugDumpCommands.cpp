@@ -1,4 +1,4 @@
-// Copyright Sulley. All rights reserved.
+// Copyright 2026 Sulley. All Rights Reserved.
 //
 // Console commands that dump the current CCS state as plain text: to the log
 // (at Display verbosity, so it shows up without raising LogComposableCameraSystem

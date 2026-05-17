@@ -1,4 +1,4 @@
-﻿// Copyright Sulley. All rights reserved.
+// Copyright 2026 Sulley. All Rights Reserved.
 
 #pragma once
 
@@ -33,7 +33,7 @@ public:
 		AComposableCameraPlayerCameraManager* PlayerCameraManager,
 		TSubclassOf<AComposableCameraCameraBase> CameraClass,
 		const FComposableCameraActivateParams& ActivationParams);
-	
+
 	AComposableCameraCameraBase* ActivateNewCamera(
 		AComposableCameraPlayerCameraManager* PlayerCameraManager,
 		TSubclassOf<AComposableCameraCameraBase> CameraClass,
@@ -125,7 +125,7 @@ public:
 		TSubclassOf<AComposableCameraCameraBase> CameraClass,
 		UComposableCameraTransitionBase* Transition,
 		const FOnCameraFinishConstructed& OnPreBeginplayEvent);
-	
+
 	[[nodiscard]] FComposableCameraPose Evaluate(float DeltaTime);
 
 	/** Get the currently running (target) camera in this Director's evaluation tree. */

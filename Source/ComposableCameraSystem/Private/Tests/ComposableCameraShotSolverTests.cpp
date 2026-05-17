@@ -1,4 +1,4 @@
-// Copyright Sulley. All rights reserved.
+// Copyright 2026 Sulley. All Rights Reserved.
 
 // Unit tests for the Composition Solver. Three-layer pipeline
 // (Placement / Aim / Lens) plus independent Focus and Roll composition.

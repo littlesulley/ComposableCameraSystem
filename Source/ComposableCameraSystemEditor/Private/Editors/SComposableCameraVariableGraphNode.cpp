@@ -1,4 +1,4 @@
-// Copyright Sulley. All rights reserved.
+// Copyright 2026 Sulley. All Rights Reserved.
 
 #include "Editors/SComposableCameraVariableGraphNode.h"
 #include "Editors/ComposableCameraVariableGraphNode.h"
