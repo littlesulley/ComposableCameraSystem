@@ -45,7 +45,7 @@ namespace
 	// Game/PIE world with a CCS PCM. Editor-world invocations (main
 	// viewport without PIE running) return nullptr and the command
 	// emits a warning.
-	static AComposableCameraPlayerCameraManager* ResolvePCM(UWorld* World)
+	static AComposableCameraPlayerCameraManager* ResolveDumpCommandPCM(UWorld* World)
 	{
 		auto TryWorld = [](UWorld* W) ->AComposableCameraPlayerCameraManager*
 		{
@@ -392,7 +392,7 @@ namespace
 
 	static void CmdDumpStack(const TArray<FString>& /*Args*/, UWorld* World)
 	{
-		AComposableCameraPlayerCameraManager* PCM = ResolvePCM(World);
+		AComposableCameraPlayerCameraManager* PCM = ResolveDumpCommandPCM(World);
 		if (!PCM || !PCM->GetContextStack())
 		{
 			UE_LOG(LogComposableCameraSystem, Warning,
@@ -406,7 +406,7 @@ namespace
 
 	static void CmdDumpTree(const TArray<FString>& /*Args*/, UWorld* World)
 	{
-		AComposableCameraPlayerCameraManager* PCM = ResolvePCM(World);
+		AComposableCameraPlayerCameraManager* PCM = ResolveDumpCommandPCM(World);
 		if (!PCM) { UE_LOG(LogComposableCameraSystem, Warning,
 			TEXT("CCS.Dump.Tree: no CCS PCM found.")); return; }
 
@@ -431,7 +431,7 @@ namespace
 	//                in the dump output).
 	static void CmdDumpPatches(const TArray<FString>& /*Args*/, UWorld* World)
 	{
-		AComposableCameraPlayerCameraManager* PCM = ResolvePCM(World);
+		AComposableCameraPlayerCameraManager* PCM = ResolveDumpCommandPCM(World);
 		if (!PCM) { UE_LOG(LogComposableCameraSystem, Warning,
 			TEXT("CCS.Dump.Patches: no CCS PCM found.")); return; }
 
@@ -476,7 +476,7 @@ namespace
 	// right now" is almost always about the top/target side of any blend.
 	static void CmdDumpCamera(const TArray<FString>& Args, UWorld* World)
 	{
-		AComposableCameraPlayerCameraManager* PCM = ResolvePCM(World);
+		AComposableCameraPlayerCameraManager* PCM = ResolveDumpCommandPCM(World);
 		if (!PCM) { UE_LOG(LogComposableCameraSystem, Warning,
 			TEXT("CCS.Dump.Camera: no CCS PCM found.")); return; }
 

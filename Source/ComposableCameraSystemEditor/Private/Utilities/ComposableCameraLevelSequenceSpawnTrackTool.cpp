@@ -36,7 +36,7 @@
 namespace
 {
 	const FName SpawnTrackToolMenuOwner(TEXT("ComposableCameraLevelSequenceSpawnTrackTool"));
-	FDelegateHandle StartupCallbackHandle;
+	FDelegateHandle SpawnTrackStartupCallbackHandle;
 
 	struct FSpawnInterval
 	{
@@ -112,7 +112,7 @@ namespace
 		TEXT("Rebuild CCS Level Sequence Actor Spawn Tracks from the focused Level Sequence Camera Cut sections."),
 		FConsoleCommandDelegate::CreateStatic(&ExecuteKeySpawnTracksFromCameraCuts));
 
-	TArray<TSharedPtr<ISequencer>> ResolveLiveSequencers()
+	TArray<TSharedPtr<ISequencer>> ResolveSpawnTrackLiveSequencers()
 	{
 		if (!FModuleManager::Get().IsModuleLoaded("ComposableCameraSystemEditor"))
 		{
@@ -127,7 +127,7 @@ namespace
 	FResolvedSequencer ResolveFocusedSequencerWithMovieScene()
 	{
 		FResolvedSequencer FirstResolved;
-		for (const TSharedPtr<ISequencer>& Sequencer: ResolveLiveSequencers())
+		for (const TSharedPtr<ISequencer>& Sequencer: ResolveSpawnTrackLiveSequencers())
 		{
 			UMovieSceneSequence* Sequence = Sequencer.IsValid()
 				? Sequencer->GetFocusedMovieSceneSequence()
@@ -593,16 +593,16 @@ void FComposableCameraLevelSequenceSpawnTrackTool::Register()
 
 	if (UToolMenus::IsToolMenuUIEnabled())
 	{
-		StartupCallbackHandle = UToolMenus::RegisterStartupCallback(FSimpleMulticastDelegate::FDelegate::CreateStatic(&FComposableCameraLevelSequenceSpawnTrackTool::RegisterMenus));
+		SpawnTrackStartupCallbackHandle = UToolMenus::RegisterStartupCallback(FSimpleMulticastDelegate::FDelegate::CreateStatic(&FComposableCameraLevelSequenceSpawnTrackTool::RegisterMenus));
 	}
 }
 
 void FComposableCameraLevelSequenceSpawnTrackTool::Unregister()
 {
-	if (StartupCallbackHandle.IsValid())
+	if (SpawnTrackStartupCallbackHandle.IsValid())
 	{
-		UToolMenus::UnRegisterStartupCallback(StartupCallbackHandle);
-		StartupCallbackHandle.Reset();
+		UToolMenus::UnRegisterStartupCallback(SpawnTrackStartupCallbackHandle);
+		SpawnTrackStartupCallbackHandle.Reset();
 	}
 	if (UToolMenus::IsToolMenuUIEnabled())
 	{

@@ -16,7 +16,7 @@ namespace
 {
 	const FVector2D DefaultPitchRange(-45.f, 45.f);
 
-	void AddVectorOutputSlot(FComposableCameraRuntimeDataBlock& RuntimeData, int32 NodeIndex, FName PinName, int32 Offset)
+	void AddLockOnAimPointVectorOutputSlot(FComposableCameraRuntimeDataBlock& RuntimeData, int32 NodeIndex, FName PinName, int32 Offset)
 	{
 		RuntimeData.Storage.SetNumZeroed(Offset + static_cast<int32>(sizeof(FVector)));
 		RuntimeData.TotalSize = RuntimeData.Storage.Num();
@@ -255,7 +255,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 bool FLockOnAimPointNodeWritesStablePivotOutputTest::RunTest(const FString& Parameters)
 {
 	FComposableCameraRuntimeDataBlock RuntimeData;
-	AddVectorOutputSlot(RuntimeData, 0, TEXT("PivotPosition"), 0);
+	AddLockOnAimPointVectorOutputSlot(RuntimeData, 0, TEXT("PivotPosition"), 0);
 
 	UComposableCameraLockOnAimPointNode* Node = NewObject<UComposableCameraLockOnAimPointNode>();
 	Node->FollowSource = EComposableCameraLockOnAimPointSource::WorldPosition;
@@ -302,7 +302,7 @@ bool FLockOnAimPointNodeResolvesActorSourcesTest::RunTest(const FString& Paramet
 	AActor* AimActor = SpawnActorWithRoot(World, FVector(100.f, 0.f, 0.f));
 
 	FComposableCameraRuntimeDataBlock RuntimeData;
-	AddVectorOutputSlot(RuntimeData, 0, TEXT("PivotPosition"), 0);
+	AddLockOnAimPointVectorOutputSlot(RuntimeData, 0, TEXT("PivotPosition"), 0);
 
 	UComposableCameraLockOnAimPointNode* Node = NewObject<UComposableCameraLockOnAimPointNode>();
 	Node->FollowSource = EComposableCameraLockOnAimPointSource::ActorPosition;

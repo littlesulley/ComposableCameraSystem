@@ -25,7 +25,7 @@ namespace
 	 *  object isn't an actor, actor has no LS Component). The TrackInstance
 	 *  callbacks tolerate null. Silent skip with no log spam (this fires per
 	 *  Sequencer scrub frame and any noise here would flood the log). */
-	UComposableCameraLevelSequenceComponent* ResolveLSComponent(
+	UComposableCameraLevelSequenceComponent* ResolvePatchTrackLSComponent(
 		const UMovieSceneEntitySystemLinker* Linker,
 		const FMovieSceneTrackInstanceInput& Input,
 		const UMovieSceneComposableCameraPatchSection& Section)
@@ -147,7 +147,7 @@ void UMovieSceneComposableCameraPatchTrackInstance::OnAnimate()
 				Section ? *Section->GetName() : TEXT("<null>"));
 			continue;
 		}
-		UComposableCameraLevelSequenceComponent* LSComp = ResolveLSComponent(Linker, Input, *Section);
+		UComposableCameraLevelSequenceComponent* LSComp = ResolvePatchTrackLSComponent(Linker, Input, *Section);
 		if (!LSComp)
 		{
 			UE_LOG(LogComposableCameraSystem, Verbose,
@@ -203,7 +203,7 @@ void UMovieSceneComposableCameraPatchTrackInstance::OnInputRemoved(const FMovieS
 	{
 		return;
 	}
-	if (UComposableCameraLevelSequenceComponent* LSComp = ResolveLSComponent(GetLinker(), InInput, *Section))
+	if (UComposableCameraLevelSequenceComponent* LSComp = ResolvePatchTrackLSComponent(GetLinker(), InInput, *Section))
 	{
 		LSComp->RemoveSequencerPatchOverlay(Section);
 	}
@@ -223,7 +223,7 @@ void UMovieSceneComposableCameraPatchTrackInstance::OnDestroyed()
 		{
 			continue;
 		}
-		if (UComposableCameraLevelSequenceComponent* LSComp = ResolveLSComponent(Linker, Input, *Section))
+		if (UComposableCameraLevelSequenceComponent* LSComp = ResolvePatchTrackLSComponent(Linker, Input, *Section))
 		{
 			LSComp->RemoveSequencerPatchOverlay(Section);
 		}

@@ -23,7 +23,7 @@ namespace
 	 *  bound actor. Returns null on any miss (track is root / not under a
 	 *  binding, binding not yet spawned, bound object isn't an actor, actor
 	 *  has no LS Component). */
-	UComposableCameraLevelSequenceComponent* ResolveLSComponent(
+	UComposableCameraLevelSequenceComponent* ResolveShotTrackLSComponent(
 		const UMovieSceneEntitySystemLinker* Linker,
 		const FMovieSceneTrackInstanceInput& Input,
 		const UMovieSceneComposableCameraShotSection& Section)
@@ -167,7 +167,7 @@ void UMovieSceneComposableCameraShotTrackInstance::OnAnimate()
 		}
 
 		UComposableCameraLevelSequenceComponent* LSComp =
-			ResolveLSComponent(Linker, Input, *Section);
+			ResolveShotTrackLSComponent(Linker, Input, *Section);
 		if (!LSComp)
 		{
 			UE_LOG(LogComposableCameraSystem, Verbose,
@@ -244,7 +244,7 @@ void UMovieSceneComposableCameraShotTrackInstance::OnInputRemoved(const FMovieSc
 	{
 		return;
 	}
-	if (UComposableCameraLevelSequenceComponent* LSComp = ResolveLSComponent(GetLinker(), InInput, *Section))
+	if (UComposableCameraLevelSequenceComponent* LSComp = ResolveShotTrackLSComponent(GetLinker(), InInput, *Section))
 	{
 		LSComp->RemoveSequencerShotOverride(Section);
 	}
@@ -260,7 +260,7 @@ void UMovieSceneComposableCameraShotTrackInstance::OnDestroyed()
 		{
 			continue;
 		}
-		if (UComposableCameraLevelSequenceComponent* LSComp = ResolveLSComponent(Linker, Input, *Section))
+		if (UComposableCameraLevelSequenceComponent* LSComp = ResolveShotTrackLSComponent(Linker, Input, *Section))
 		{
 			LSComp->RemoveSequencerShotOverride(Section);
 		}

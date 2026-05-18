@@ -2369,7 +2369,7 @@ namespace
 	// nullptr on some call paths in UE 5.6 (the World-less `Draw(Flags, Canvas)`
 	// overload, and some editor-PIE timings), so we fall back to scanning world
 	// contexts for a PIE/Game world and grabbing its first local PC.
-	static AComposableCameraPlayerCameraManager* ResolvePCM(APlayerController* DelegatePC)
+	static AComposableCameraPlayerCameraManager* ResolveDebugPanelPCM(APlayerController* DelegatePC)
 	{
 		if (DelegatePC)
 		{
@@ -2663,7 +2663,7 @@ namespace
 		if (CVarPoseHistoryEnabled.GetValueOnGameThread() == 0) { return; }
 		if (!Canvas || Canvas->SizeX <= 0 || Canvas->SizeY <= 0) { return; }
 
-		AComposableCameraPlayerCameraManager* PCM = ResolvePCM(PC);
+		AComposableCameraPlayerCameraManager* PCM = ResolveDebugPanelPCM(PC);
 		if (!PCM) { return; }
 
 		TArray<FComposableCameraPoseHistoryEntry> History;
@@ -2848,7 +2848,7 @@ namespace
 				PC ? *PC->GetName() : TEXT("nullptr"));
 		}
 
-		AComposableCameraPlayerCameraManager* PCM = ResolvePCM(PC);
+		AComposableCameraPlayerCameraManager* PCM = ResolveDebugPanelPCM(PC);
 		if (!PCM)
 		{
 			// In editor-idle (no PIE/Game world) the `"Editor"` channel
