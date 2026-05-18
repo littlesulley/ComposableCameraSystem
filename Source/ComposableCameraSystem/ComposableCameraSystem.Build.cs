@@ -22,9 +22,6 @@ public class ComposableCameraSystem : ModuleRules
                 "GameplayTags",
                 "MovieSceneTracks",
                 "DeveloperSettings",
-                // FInstancedPropertyBag used by FComposableCameraTypeAssetReference
-                // (the Level Sequence component's designer-facing parameter / variable surface).
-                "StructUtils",
                 // FSlateApplication used by the debug panel's mouse-hover
                 // fallback when the DebugDrawService callback doesn't supply
                 // a PlayerController (it never does — engine passes nullptr).
