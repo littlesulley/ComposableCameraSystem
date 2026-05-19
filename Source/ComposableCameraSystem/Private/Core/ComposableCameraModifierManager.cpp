@@ -75,7 +75,7 @@ void UComposableCameraModifierManager::AddModifier(UComposableCameraNodeModifier
 
 			if (!NodeModifiers->Contains(FModifierEntry{ Modifier, ModifierAsset }))
 			{
-				NodeModifiers->Emplace(Modifier, ModifierAsset);
+				NodeModifiers->Add(FModifierEntry{ Modifier, ModifierAsset });
 			}
 		}
 	}

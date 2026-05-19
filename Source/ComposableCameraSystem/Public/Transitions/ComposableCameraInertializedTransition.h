@@ -7,6 +7,7 @@
 #include "Curves/CurveFloat.h"
 #include "Kismet/KismetSystemLibrary.h"
 #include "Math/ComposableCameraMath.h"
+#include <concepts>
 #include "ComposableCameraInertializedTransition.generated.h"
 
 template <size_t Order, typename ElementType>
@@ -35,8 +36,8 @@ private:
 
 template <typename DataType, typename ConcreteInertializerType>
 	requires requires (ConcreteInertializerType I) {
-		{ I.Evaluate( 0.0f, DataType{} ) } ->std::convertible_to<DataType>;
-		{ I.Evaluate( 0.0f, DataType{}, 0.0f, 0.0f ) } ->std::convertible_to<DataType>;
+		{ I.Evaluate( 0.0f, DataType{} ) } -> std::convertible_to<DataType>;
+		{ I.Evaluate( 0.0f, DataType{}, 0.0f, 0.0f ) } -> std::convertible_to<DataType>;
 		ConcreteInertializerType{ FComposableCameraPose{}, FComposableCameraPose{}, FComposableCameraPose{}, 0.f, 0.f };
 	}
 struct ComposableCameraInitializer

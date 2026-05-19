@@ -51,7 +51,8 @@ FComposableCameraEditorStyle::FComposableCameraEditorStyle()
 	const FVector2D Icon48x48(48.0f, 48.0f);
 	const FVector2D Icon64x64(64.0f, 64.0f);
 	
-	const FString ContentDir = IPluginManager::Get().FindPlugin(TEXT("ComposableCameraSystem"))->GetContentDir();
+	const FString ContentDir = IPluginManager::Get().FindPlugin(TEXT("ComposableCameraSystem"))->GetBaseDir()
+		/ TEXT("Resources/Content");
 	SetContentRoot(ContentDir);
 	SetCoreContentRoot(FPaths::EngineContentDir() / TEXT("Slate"));
 
