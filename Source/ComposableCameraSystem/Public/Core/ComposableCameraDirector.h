@@ -183,4 +183,4 @@ private:
 	FComposableCameraPose PreviousEvaluatedPose;
 
 	void ForceCameraPoses(AComposableCameraCameraBase* Camera, const FTransform& Transform);
-};                                                                                                                     
+};
