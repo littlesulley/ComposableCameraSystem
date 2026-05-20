@@ -12,6 +12,8 @@
 //
 // Shipping builds strip the whole translation unit.
 
+#include "CoreMinimal.h"
+
 #if !UE_BUILD_SHIPPING
 
 #include "Cameras/ComposableCameraCameraBase.h"

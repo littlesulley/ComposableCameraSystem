@@ -142,11 +142,6 @@ protected:
 	 * during SEditorViewport::Construct, after PreviewScene is built. */
 	virtual TSharedRef<FEditorViewportClient> MakeEditorViewportClient() override;
 
-	/** SEditorViewport calls this to populate any toolbar overlay; we return
-	 * no overlay in Phase D.2 (no toolbar, just the rendered scene). D.3+
-	 * may add one (free-look toggle, view mode switcher). */
-	virtual TSharedPtr<SWidget> MakeViewportToolbar() override { return nullptr; }
-
 private:
 	/** PreviewScene owned by this widget (NOT by the client - the client
 	 * borrows it via raw pointer; FAdvancedPreviewScene IS-A FPreviewScene
