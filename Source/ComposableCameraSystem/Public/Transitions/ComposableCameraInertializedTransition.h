@@ -7,7 +7,8 @@
 #include "Curves/CurveFloat.h"
 #include "Kismet/KismetSystemLibrary.h"
 #include "Math/ComposableCameraMath.h"
-#include <concepts>
+#include <type_traits>
+#include <utility>
 #include "ComposableCameraInertializedTransition.generated.h"
 
 template <size_t Order, typename ElementType>
@@ -35,13 +36,27 @@ private:
 };
 
 template <typename DataType, typename ConcreteInertializerType>
-	requires requires (ConcreteInertializerType I) {
-		{ I.Evaluate( 0.0f, DataType{} ) } -> std::convertible_to<DataType>;
-		{ I.Evaluate( 0.0f, DataType{}, 0.0f, 0.0f ) } -> std::convertible_to<DataType>;
-		ConcreteInertializerType{ FComposableCameraPose{}, FComposableCameraPose{}, FComposableCameraPose{}, 0.f, 0.f };
-	}
 struct ComposableCameraInitializer
 {
+	static_assert(std::is_constructible_v<
+		ConcreteInertializerType,
+		const FComposableCameraPose&,
+		const FComposableCameraPose&,
+		const FComposableCameraPose&,
+		float,
+		float>,
+		"ConcreteInertializerType must be constructible from camera poses and blend timing.");
+
+	static_assert(std::is_convertible_v<
+		decltype(std::declval<ConcreteInertializerType&>().Evaluate(0.0f, std::declval<DataType>())),
+		DataType>,
+		"ConcreteInertializerType::Evaluate(TimeStamp, DataType) must return DataType.");
+
+	static_assert(std::is_convertible_v<
+		decltype(std::declval<ConcreteInertializerType&>().Evaluate(0.0f, std::declval<DataType>(), 0.0f, 0.0f)),
+		DataType>,
+		"ConcreteInertializerType::Evaluate(TimeStamp, DataType, BlendCurveValue, BlendWeight) must return DataType.");
+
 	ComposableCameraInitializer()
 		: ConcreteInertializer{}
 	{ }
