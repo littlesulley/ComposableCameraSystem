@@ -12,6 +12,8 @@ Instead of subclassing a monolithic camera class, cameras are assembled from reu
 
 **Demo Project:** https://drive.google.com/file/d/15tfMGTo7HvptKyLwlOwtDqn4Gr-tLGg0/view?usp=drive_link
 
+**Fab Page:** https://www.fab.com/listings/7a7e0805-247c-4630-b961-791811c8ebbd
+
 The public site covers concepts, node/transition/modifier reference, editor workflows, and the C++ API.
 
 ## Highlights
