@@ -15,7 +15,7 @@ class UMovieSceneSection;
  * params + parameter bag); when a section enters its TrueRange the runtime
  * fires AddCameraPatch, when it exits ExpireCameraPatch fires.
  *
- * Root track (no object binding) by design -Patches live on the Director
+ * Root track (no object binding) by design. Patches live on the Director
  * resolved through PlayerIndex + ContextName on the section, mirroring the
  * BP `AddCameraPatch` library entry. This avoids forcing designers to bind
  * the track to the PCM (which is itself transient and hard to bind cleanly

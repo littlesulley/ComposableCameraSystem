@@ -671,7 +671,8 @@ FComposableCameraRuntimeDataBlock UComposableCameraTypeAsset::BuildRuntimeDataLa
 	// validated against BOTH source and target pin declarations. The previous
 	// behavior validated only that the source offset existed, so a stale asset
 	// (saved before a pin was renamed / retyped), a hand-edited asset, or a
-	// schema-bypass code path could wire a Float source into an Actor target -	// the runtime would then read sizeof(AActor*) bytes from a 4-byte float
+	// schema-bypass code path could wire a Float source into an Actor target.
+	// The runtime would then read sizeof(AActor*) bytes from a 4-byte float
 	// slot and dereference garbage as a UObject pointer, crashing inside
 	// CopySlot's struct/POD discrimination check or at the first AActor::*
 	// call.
@@ -683,7 +684,7 @@ FComposableCameraRuntimeDataBlock UComposableCameraTypeAsset::BuildRuntimeDataLa
 	// (NodeTemplates < ComputeNodeIndexBase <=ComputeNodeTemplates).
 	//
 	// Storage uses TUniquePtr<TArray<...>> so the inner TArray's address stays
-	// stable across cache growth -TMap::Add can rehash and move its values,
+	// stable across cache growth. TMap::Add can rehash and move its values,
 	// but the heap-allocated TArray that TUniquePtr owns does not. Without
 	// this indirection, holding a pointer into one cached node's pin array
 	// across a FindPinDecl call for a second node could deref reallocated
@@ -1066,7 +1067,8 @@ FComposableCameraRuntimeDataBlock UComposableCameraTypeAsset::BuildRuntimeDataLa
 				continue;
 			}
 			// Entries that the runtime already short-circuits on (no source
-			// node wired, no variable name, zero size) need no validation -			// the existing `<= 0` early-out covers them. Note: the
+			// node wired, no variable name, zero size) need no validation:
+			// the existing `<= 0` early-out covers them. Note: the
 			// StructSlotSentinel value (TNumericLimits<int32>::Max()) is
 			// positive, so non-POD struct variables still get validated here.
 			if (Entry.CameraNodeIndex == INDEX_NONE
@@ -1267,7 +1269,7 @@ void UComposableCameraTypeAsset::ApplyParameterBlock(
 
 	// --- Exposed parameters ---
 	// Caller value only: the default lives on the node's pin (resolved by
-	// GetExposedParameterDefaultValue at the caller site -K2 node, DataTable
+	// GetExposedParameterDefaultValue at the caller site: K2 node, DataTable
 	// row). By the time we get here, either the ParameterBlock has an entry
 	// or the slot stays zero / default-initialized.
 	for (const FComposableCameraExposedParameter& Param : ExposedParameters)
@@ -1568,7 +1570,7 @@ void UComposableCameraTypeAsset::Build(bool bLogResult)
 	// / ExposedVariables.
 	//
 	// All three collections share the runtime's FName keyspace inside the data
-	// block -ExposedParameters land in ExposedParameterOffsets, both variable
+	// block. ExposedParameters land in ExposedParameterOffsets, both variable
 	// kinds land in InternalVariableOffsets, and the caller's ParameterBlock is
 	// indexed by name only. A collision between any two of these would either
 	// overwrite a slot (ExposedVariable vs InternalVariable, caught defensively
@@ -2177,7 +2179,7 @@ void UComposableCameraTypeAsset::EnsureInternalVariableGuids()
 
 void UComposableCameraTypeAsset::EnsureExposedVariableGuids()
 {
-	// Mirror of EnsureInternalVariableGuids() -ExposedVariables share the
+	// Mirror of EnsureInternalVariableGuids(). ExposedVariables share the
 	// same struct type and the same GUID-based identity rules (editor graph
 	// nodes resolve them by VariableGuid primary, VariableName fallback), so
 	// they need the exact same migration pass.
@@ -2192,7 +2194,7 @@ void UComposableCameraTypeAsset::EnsureExposedVariableGuids()
 	}
 	if (bDirtied)
 	{
-		// Same rationale as the internal variant -PostLoad migration should
+		// Same rationale as the internal variant. PostLoad migration should
 		// not mark the package dirty; the next user edit will persist the new
 		// GUIDs naturally.
 	}

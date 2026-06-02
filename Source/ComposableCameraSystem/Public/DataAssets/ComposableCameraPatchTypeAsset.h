@@ -19,12 +19,9 @@
  * graph schema, pin system, parameter / variable system, and runtime data-block
  * layout are all inherited unchanged.
  *
- * Patch-incompatible nodes (those that ignore InPose and synthesize pose from
- * scratch. E.g. RelativeFixedPose, MixingCamera, ViewTargetProxy) will be
- * caught by the upcoming GetPatchCompatibility() node enum + a yellow-banner
- * editor warning. That enum is introduced in a later staging step (see
- * PatchSystemProposal Section 11 / Section 19); until then, any node may be wired into a
- * Patch graph without surface-level guard rails.
+ * Patch-incompatible nodes are reported during asset validation through each
+ * node's GetPatchCompatibility() result. Incompatible nodes are build errors;
+ * caveat nodes are warnings shown on the graph node.
  */
 UCLASS(BlueprintType, ClassGroup = ComposableCameraSystem)
 class COMPOSABLECAMERASYSTEM_API UComposableCameraPatchTypeAsset : public UComposableCameraTypeAsset

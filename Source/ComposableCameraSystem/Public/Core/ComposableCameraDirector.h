@@ -137,10 +137,8 @@ public:
 	 *  it across activations, since the tree is torn down with the director. */
 	UComposableCameraEvaluationTree* GetEvaluationTree() const { return EvaluationTree; }
 
-	/** Access to this director's PatchManager. Owner of active CameraPatches.
-	 *  Lifetime: created in the director ctor, destroyed with the director. Stage 1
-	 *  has the manager wired through but its Apply pass is a no-op stub (see
-	 *  UComposableCameraPatchManager doc comment for the staging plan). */
+	/** Access to this director's PatchManager. Owns active camera patches and
+	 *  applies them after the evaluation tree. */
 	UComposableCameraPatchManager* GetPatchManager() const { return PatchManager; }
 
 	/** Get the last evaluated (blended) pose from this Director. */

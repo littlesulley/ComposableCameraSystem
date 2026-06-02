@@ -412,7 +412,7 @@ public:
 	 * override applied after an earlier same-frame tick has already cached a
 	 * stale pose). Inside the DAG, calling
 	 * this would re-introduce the double-advance bug the cache exists to
-	 * prevent -DAG callers must not use it.
+	 * prevent. DAG callers must not use it.
 	 */
 	void InvalidateTickCache() { LastTickedFrameCounter = 0; }
 

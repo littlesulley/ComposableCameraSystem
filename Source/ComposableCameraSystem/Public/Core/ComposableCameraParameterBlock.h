@@ -493,12 +493,12 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraParameterBlock
 	 * in the editor is accepted identically at runtime.
 	 *
 	 * Supported types:
-	 *   Bool, Int32, Float, Double  -LexFromString
-	 *   Vector2D/3D/4, Rotator, Transform -ImportText on the matching core struct
-	 *   Struct                      -ImportText on the provided StructType
-	 *   Object                     . Resolved via FSoftObjectPath and sync-loaded
-	 *   Name                        -FName::FromString (no Unicode canonicalization)
-	 *   Enum                        -UEnum::GetValueByNameString, stored as int64
+	 *   Bool, Int32, Float, Double: LexFromString
+	 *   Vector2D/3D/4, Rotator, Transform: ImportText on the matching core struct
+	 *   Struct: ImportText on the provided StructType
+	 *   Object: Resolved via FSoftObjectPath and sync-loaded
+	 *   Name: FName::FromString (no Unicode canonicalization)
+	 *   Enum: UEnum::GetValueByNameString, stored as int64
 	 *
 	 * Unsupported (returns false, writes OutError):
 	 *   Actor. Actors are world-scoped and cannot be resolved from a DataTable

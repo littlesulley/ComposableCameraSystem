@@ -9,7 +9,7 @@
 #include "GameFramework/Actor.h"
 #include "Math/ComposableCameraMath.h"           // SolveCameraRotationForScreenTarget, ProjectWorldPointToScreen
 #include "Math/Interval.h"
-#include "Utils/ComposableCameraProjectSettings.h" // Picard tuning (max iters, tolerance, relaxation)
+#include "Utils/ComposableCameraProjectSettings.h"
 
 /**
  * Composition Solver for `FComposableCameraShot`. The heart of the
@@ -29,7 +29,7 @@
  *   3. Lens -> FOV + Aperture
  *      Manual           . Direct passthrough.
  *      SolvedFromBoundsFit -Weight-scaled Perceptual Union Box on Targets'
- *                            bounds (BlackEye-derived; spec Section 4.5).
+ *                            bounds.
  *
  *   4. Focus -> focus distance (independent)
  *      Manual / FollowPlacementAnchor / FollowAimAnchor / FollowCustomAnchor.
@@ -48,8 +48,8 @@
  *     boundaries; cold-enough that we don't care about code-size
  *     duplication. Same convention as `Math/ComposableCameraMath.h`.
  *
- *   - No Blueprint-callable surface (per spec Section 1.4 "no runtime BP API for
- *     mutating Shot data"). Solver consumers are C++ only - `UComposableCameraCompositionFramingNode` and the unit tests.
+ *   - No Blueprint-callable surface for mutating Shot data. Solver consumers
+ *     are C++ only - `UComposableCameraCompositionFramingNode` and unit tests.
  *
  *   - Chicken-and-egg with FOV: the rotation-solve projection uses the
  *     previous frame's FOV (passed in via `FShotSolveContext`). When
@@ -57,12 +57,10 @@
  *     SolvedFromBoundsFit is active, the solver converges in 1-2 frames
  *     after a Shot transition.
  *
- *   - AnchorAtScreen + LookAtAnchor has a strict first-frame seed path:
- *     when no prior pose is supplied, a bounded Picard solve satisfies both
- *     Placement.ScreenPosition and Aim.ScreenPosition before zone damping
- *     starts. Once a prior pose exists, the hot path uses the cheaper
- *     decoupled Position-then-Aim solve and lets zones / damping provide
- *     the Cinemachine-style steady-state behavior.
+ *   - AnchorAtScreen + LookAtAnchor uses a decoupled Position-then-Aim
+ *     solve. Without a prior pose, the rotation seed is derived from the
+ *     PlacementAnchor -> AimAnchor direction; after that, prior pose, zones,
+ *     and damping provide Cinemachine-style steady-state behavior.
  */
 namespace ComposableCameraSystem::ShotSolver
 {
@@ -178,7 +176,7 @@ namespace ComposableCameraSystem::ShotSolver
 	}
 
 	// ---------------------------------------------------------------------
-	// Layer 1 -Placement (camera Position)
+	// Layer 1: Placement (camera Position)
 	// ---------------------------------------------------------------------
 
 	/**
@@ -232,9 +230,9 @@ namespace ComposableCameraSystem::ShotSolver
 			const FVector WorldUp = FVector::UpVector;
 			// UE LHS convention: right = up x forward (NOT forward x up).
 			// Sanity check at identity rotation (forward = +X, up = +Z):
-			//   up x forward = (0,0,1) x (1,0,0) = (0, 1, 0) = +Y = +Right ?			//   (forward x up = (0, -1, 0) = -Right. That's the opposite axis,
-			//    which causes lateral shifts to go the WRONG direction. V1
-			//    bug fixed in V2 polish.)
+			//   up x forward = (0,0,1) x (1,0,0) = (0, 1, 0) = +Y = +Right.
+			//   forward x up = (0, -1, 0) = -Right, the opposite axis.
+			// Using the wrong cross product flips lateral screen shifts.
 			// When Forward <=WorldUp (looking straight up/down), the
 			// cross product degenerates. Fall back to skipping the
 			// lateral shift to avoid NaN.
@@ -266,19 +264,17 @@ namespace ComposableCameraSystem::ShotSolver
 	// ---------------------------------------------------------------------
 
 	/**
-	 * Soft-clamp limit for authored screen positions in the joint-solve
-	 * paths. The screen-coord convention is `[-0.5, +0.5]` (= edge of
+	 * Soft-clamp limit for authored screen positions in screen-solve paths.
+	 * The screen-coord convention is `[-0.5, +0.5]` (= edge of
 	 * frustum at the projection FOV). Authoring values *at* the edge make
-	 * the iterative solver's `SolveCameraRotationForScreenTarget` saturate
-	 * its `|T| <=1` clamp, which is correct math but loses convergence
-	 * margin and tends to produce contorted poses. We clamp authored
-	 * inputs to a slightly inset envelope (~ 98% of frustum width / height)
-	 * before they enter the iteration so the solver always has headroom.
+	 * the rotation solver's `SolveCameraRotationForScreenTarget` saturate
+	 * its `|T| <=1` clamp, which is correct math but loses margin and tends
+	 * to produce contorted poses. We clamp authored inputs to a slightly
+	 * inset envelope (~ 98% of frustum width / height) before they enter the
+	 * solve so the solver always has headroom.
 	 *
-	 * Designers authoring values outside this envelope see a one-shot
-	 * warning per solve; the clamp is silent at the iteration's interior
-	 * (pre-rotation by -Roll can push pre-rotated values outside the
-	 * envelope, which is fine. That's an internal value, not user input).
+	 * Designers authoring values outside this envelope see a one-shot warning
+	 * per solve; internal pre-rotated values may still exceed the envelope.
 	 */
 	inline constexpr float ShotSolverScreenClampLimit = 0.49f;
 
@@ -306,7 +302,7 @@ namespace ComposableCameraSystem::ShotSolver
 	 * final pose has Roll composed onto its rotation, the world point
 	 * still projects to the *authored* (un-pre-rotated) screen coords.
 	 *
-	 * Math (derivation in spec Section 4.8): under camera Roll R about forward,
+	 * Math: under camera Roll R about forward,
 	 * a fixed world point's projected coords transform anisotropically as
 	 *
 	 *     Sx_R = Sx_0 * cosR  -  (Sy_0 / AR) * sinR
@@ -319,7 +315,7 @@ namespace ComposableCameraSystem::ShotSolver
 	 *
 	 * Defined here (above the first caller, `SolveLookAtAnchorRotation`)
 	 * so the order of inline definitions in this header matches the order
-	 * of use -C++ requires inline functions to be defined before use
+	 * of use. C++ requires inline functions to be defined before use
 	 * within the same translation unit.
 	 */
 	inline FVector2D PreRotateScreenForRoll(
@@ -346,7 +342,7 @@ namespace ComposableCameraSystem::ShotSolver
 		FVector  Position = FVector::ZeroVector;
 		FRotator Rotation = FRotator::ZeroRotator;
 
-		/** Last frame's effective `Distance` (after V2.2 damping + 1cm
+		/** Last frame's effective `Distance` (after damping + 1cm
 		 *  clamp). `< 0` means no prior, solver skips Distance damping and
 		 *  uses the authored value. Set by the caller from
 		 *  `FShotSolveResult::EffectiveDistance` after a successful solve. */
@@ -461,7 +457,7 @@ namespace ComposableCameraSystem::ShotSolver
 	 * Resolve the effective screen-space target for a single anchor
 	 * given a prior camera pose. Convenience wrapper that handles the
 	 * "anchor unresolvable" failure path (returns the authored screen
-	 * position so the V1 hard-constraint solver still has something
+	 * position so the hard-constraint solver still has something
 	 * sensible to chew on. Caller will likely fail on anchor resolve
 	 * downstream anyway).
 	 *
@@ -474,7 +470,7 @@ namespace ComposableCameraSystem::ShotSolver
 	 *
 	 * The projection uses the same `TanHalfHOR` / `AspectRatio` the rest
 	 * of the SolveShot pipeline uses for the current frame. So the
-	 * effective screen target is consistent with the projection the V1
+	 * effective screen target is consistent with the projection the
 	 * solver will subsequently invert.
 	 */
 	inline FVector2D ResolveEffectiveScreenTarget(
@@ -504,7 +500,7 @@ namespace ComposableCameraSystem::ShotSolver
 				TanHalfHOR, AspectRatio, CurrentScreen))
 		{
 			// Anchor behind camera under prior pose, or projection
-			// degenerate. Fall back to authored target -V1 hard solve
+			// degenerate. Fall back to authored target - hard solve
 			// will pull the anchor back into frame, breaking out of the
 			// degenerate state on the next tick (where the prior pose
 			// will project the anchor sensibly). One-frame artifact
@@ -519,9 +515,7 @@ namespace ComposableCameraSystem::ShotSolver
 	// AnchorAtScreen. Closed-form Placement (decoupled from Aim)
 	// ---------------------------------------------------------------------
 	//
-	// The earlier joint Picard solver (5-on-5 closed-form for AnchorAtScreen +
-	// LookAtAnchor) has been removed in favor of a Cinemachine-style decoupled
-	// pipeline:
+	// Runtime steady state is a Cinemachine-style decoupled pipeline:
 	//
 	//   1. Position pass -`SolveAnchorAtScreenPos` finds CamPos that places
 	//      `PlacementAnchor` at `Placement.ScreenPosition` AT DEPTH `Distance`,
@@ -533,18 +527,13 @@ namespace ComposableCameraSystem::ShotSolver
 	//      form rotation that lands AimAnchor at `Aim.ScreenPosition`, taking
 	//      the just-computed CamPos as input.
 	//
-	// The trade-off vs. the joint solver: PlacementAnchor's projected screen
-	// position drifts slightly from `Placement.ScreenPosition` once the
-	// Aim-pass rotation differs from the assumed rotation, because the
-	// position-pass CamPos was computed under the *assumed* rotation. With
-	// the prior frame's rotation seeding the assumption, the drift is
-	// per-frame O(rotation delta). Typically a few pixels when targets
-	// move smoothly, washed out completely the moment framing zones are
-	// enabled (the zone solver explicitly tolerates this drift). Designers
-	// who needed the V1 strict joint constraint should compose their
-	// shots with `AnchorOrbit + LookAtAnchor` instead. That mode is
-	// fully closed-form and has no decoupling drift at all (because the
-	// Position pass doesn't read `ScreenPosition`).
+	// The trade-off: PlacementAnchor's projected screen position drifts
+	// slightly from `Placement.ScreenPosition` once the Aim-pass rotation
+	// differs from the assumed rotation, because the position-pass CamPos
+	// was computed under the *assumed* rotation. With the prior frame's
+	// rotation seeding the assumption, the drift is per-frame O(rotation
+	// delta). Typically a few pixels when targets move smoothly, and washed
+	// out completely when framing zones are enabled.
 	//
 	// Cinemachine reference: PositionComposer + RotationComposer run
 	// independently and accept the same kind of soft "best-effort"
@@ -725,8 +714,8 @@ namespace ComposableCameraSystem::ShotSolver
 	 *
 	 * `EffectiveDistance` overrides `Shot.Placement.Distance` for the
 	 * `AnchorOrbit` mode -`SolveShot` injects a damped distance here
-	 * (V2.2 IIR via `Shot.Placement.DistanceSpeed`); decoupled callers
-	 * pass `Shot.Placement.Distance` directly to keep V1 hard behavior.
+	 * (IIR via `Shot.Placement.DistanceSpeed`); decoupled callers
+	 * pass `Shot.Placement.Distance` directly to keep hard-solve behavior.
 	 * `FixedWorldPosition` ignores it; the solver expects callers to
 	 * still pass a sensible value for symmetry.
 	 */
@@ -786,9 +775,10 @@ namespace ComposableCameraSystem::ShotSolver
 	// Layer 2 -Aim (camera Rotation)
 	// ---------------------------------------------------------------------
 	//
-	// `PreRotateScreenForRoll` lives above the AnchorAtScreen section -	// see the helper block before `SolveAnchorAtScreenPos` for the math
-	// derivation. Only the LookAtAnchor rotation pass needs it now (the
-	// V2.2 closed-form Position pass folds Roll into AssumedRot directly).
+	// `PreRotateScreenForRoll` lives above the AnchorAtScreen section; see
+	// the helper block before `SolveAnchorAtScreenPos` for the math derivation.
+	// Only the LookAtAnchor rotation pass needs it now because the closed-form
+	// Position pass folds Roll into AssumedRot directly.
 
 	/**
 	 * Solves camera Rotation for LookAtAnchor mode: closed-form rotation
@@ -828,12 +818,12 @@ namespace ComposableCameraSystem::ShotSolver
 	 * `EffectiveAimScreenPos` overrides `Shot.Aim.ScreenPosition` for
 	 * `LookAtAnchor` mode. This is how `SolveShot` injects a zone-derived
 	 * effective screen target (Cinemachine-style damped framing). Pass
-	 * `Shot.Aim.ScreenPosition` directly to keep V1 hard-constraint
+	 * `Shot.Aim.ScreenPosition` directly to keep hard-constraint
 	 * behavior. NoOp ignores this argument (it has no screen constraint).
 	 *
-	 * `EffectiveRollDeg` is the V2.2 damped Roll (computed in `SolveShot`
+	 * `EffectiveRollDeg` is the damped Roll (computed in `SolveShot`
 	 * from `Shot.Roll`, `PriorPose->LastRoll`, and `Shot.RollSpeed`). Pass
-	 * `Shot.Roll` directly to keep V1 hard-constraint behavior.
+	 * `Shot.Roll` directly to keep hard-constraint behavior.
 	 */
 	inline bool SolveAim(
 		const FComposableCameraShot& Shot,
@@ -909,7 +899,7 @@ namespace ComposableCameraSystem::ShotSolver
 
 	/**
 	 * Solves FOV from per-target bounds via the Weight-scaled Perceptual
-	 * Union Box algorithm. See spec Section 4.5 for the algorithm; ported from
+	 * Union Box algorithm. Ported from
 	 * BlackEyeCameras' ULookAtComponent::GetTargetGroupViewportBoundingBox.
 	 *
 	 * Edge cases:
@@ -1114,14 +1104,14 @@ namespace ComposableCameraSystem::ShotSolver
 	/**
 	 * Runs the full pipeline. `bValid == false` when Placement or Aim
 	 * fails to resolve. Caller preserves upstream pose for the frame
-	 * (spec Section 5.3).
+	 * (invalid index, zero total weight, unresolved actor, etc.).
 	 *
 	 * `PriorPose` + `DeltaTime` enable Cinemachine-style screen-space
 	 * framing zones. When non-null AND `Aim.AimZones.bEnabled` /
 	 * `Placement.PlacementZones.bEnabled` is set, the solver projects
 	 * the corresponding anchor through `*PriorPose` and substitutes a
-	 * zone-derived effective screen target for the V1 hard ScreenPosition
-	 * read. When null OR zones disabled, V1 hard-constraint behavior is
+	 * zone-derived effective screen target for the hard ScreenPosition
+	 * read. When null OR zones disabled, hard-constraint behavior is
 	 * preserved exactly. Every existing call site continues to work
 	 * with default arguments.
 	 *
@@ -1150,8 +1140,7 @@ namespace ComposableCameraSystem::ShotSolver
 		// Pre-fill Lens / Focus so that *pose-failure* exits below still
 		// emit a usable FieldOfView and FocusDistance. The editor viewport
 		// applies these regardless of `bValid` so the Manual FOV / Manual
-		// Focus sliders stay live even when the joint Picard fails to
-		// converge or an anchor can't resolve. Runtime
+		// Focus sliders stay live even when an anchor can't resolve. Runtime
 		// `CompositionFramingNode` ignores `R` entirely on `bValid=false`
 		// (it preserves the upstream pose for the frame), so the runtime
 		// path is unaffected. These pre-fills are observable only via the
@@ -1168,11 +1157,11 @@ namespace ComposableCameraSystem::ShotSolver
 			: Context.PreviousFrameFOV;
 		R.FocusDistance = Shot.Focus.ManualDistance;
 
-		// --- Distance damping (V2.2) ---------------------------------
+		// --- Distance damping ----------------------------------------
 		// `Placement.DistanceSpeed > 0` + valid PriorPose with a stored
 		// `LastDistance` means FInterpTo from prior toward authored. Falls
-		// back to the authored value when any of those is missing: V1
-		// "snap to authored" behavior.
+		// back to the authored value when any of those is missing: snap to
+		// authored behavior.
 		const float AuthoredDistance = Shot.Placement.Distance;
 		float EffectiveDistance = AuthoredDistance;
 		if (PriorPose != nullptr && PriorPose->LastDistance > 0.f
@@ -1186,7 +1175,7 @@ namespace ComposableCameraSystem::ShotSolver
 		EffectiveDistance = FMath::Max(EffectiveDistance, 1.f);
 		R.EffectiveDistance = EffectiveDistance;
 
-		// --- Roll damping (V2.2) -------------------------------------
+		// --- Roll damping --------------------------------------------
 		// `RollSpeed > 0` + valid prior `LastRoll` means wrap-aware IIR.
 		// Sentinel for LastRoll is `FLT_MAX`; any other value means a
 		// real prior is available.
@@ -1205,7 +1194,7 @@ namespace ComposableCameraSystem::ShotSolver
 		// latter only when AnchorAtScreen actually consumes one). Each
 		// resolver is a no-op when zones are disabled OR the prior pose
 		// is null. Both fall back to the authored ScreenPosition, and
-		// the V1 path below runs unchanged.
+		// the hard-solve path below runs unchanged.
 		const FVector2D EffectiveAimScreen = (PriorPose != nullptr)
 			? ResolveEffectiveScreenTarget(
 				Shot.Aim.AimAnchor, Shot.Targets,
@@ -1224,13 +1213,14 @@ namespace ComposableCameraSystem::ShotSolver
 		// Dispatch on Placement.Mode:
 		//   - AnchorAtScreen->closed-form Position pass
 		//     (`SolveAnchorAtScreenPos`) under an assumed rotation, then
-		//     normal Aim pass for rotation. First-frame hard seeds run a
-		//     joint Picard pass; prior-pose steady-state stays decoupled.
+		//     normal Aim pass for rotation. First-frame hard seeds may run a
+		//     bounded joint seed; prior-pose steady-state stays decoupled.
 		//     PlacementAnchor's projected screen position drifts O(rotation
 		//     delta) from `Placement.ScreenPosition` once the Aim pass
 		//     diverges from the assumed rotation. Drift is washed out by
 		//     framing-zone damping in practice.
-		//   - other Placement modes ->existing decoupled SolvePlacement ->		//     SolveAim pipeline.
+		//   - other Placement modes ->existing decoupled
+		//     SolvePlacement -> SolveAim pipeline.
 		if (Shot.Placement.Mode == EShotPlacementMode::AnchorAtScreen)
 		{
 			FVector PlacementAnchorPos;
@@ -1354,7 +1344,7 @@ namespace ComposableCameraSystem::ShotSolver
 		// Layer 3 -Lens (FOV).
 		R.FieldOfView = SolveLens(Shot, R.CameraPosition, R.CameraRotation, Context);
 
-		// FOV damping (V2.2). Sentinel for LastFOV is `< 0`; any
+		// FOV damping. Sentinel for LastFOV is `< 0`; any
 		// positive value means a real prior is available. Damping is
 		// applied AFTER `SolveLens` so it covers both Manual and
 		// SolvedFromBoundsFit modes uniformly. The latter benefits

@@ -45,7 +45,8 @@ FComposableCameraPose FComposableCameraEvaluationTreeReferenceLeafNodeWrapper::E
 	{
 		// Legitimate when the source director had no running camera at the
 		// moment the RefLeaf was created (e.g. unit tests that wire a
-		// RefLeaf to an empty director on purpose). Warn, don't error -		// the old director-forwarding path logged at the same severity
+		// RefLeaf to an empty director on purpose). Warn, don't error;
+		// the old director-forwarding path logged at the same severity
 		// via UComposableCameraEvaluationTree::Evaluate's empty-root branch.
 		UE_LOG(LogComposableCameraSystem, Warning, TEXT("SnapshotRoot is null when evaluating reference leaf node."));
 		return FComposableCameraPose{};
@@ -130,7 +131,7 @@ FComposableCameraPose FComposableCameraEvaluationTreeInnerNodeWrapper::Evaluate(
 
 #if !UE_BUILD_SHIPPING
 	// Snapshot source / target for DrawTransitionDebug. We capture only the
-	// scalar fields the debug helper reads -NOT the full FComposableCameraPose
+	// scalar fields the debug helper reads, not the full FComposableCameraPose
 	//. Because pose.PostProcessSettings embeds TObjectPtr members that
 	// wouldn't be GC-tracked through our (non-UPROPERTY) cache. See the
 	// FTransitionDebugSnapshot comment in ComposableCameraTransitionBase.h.

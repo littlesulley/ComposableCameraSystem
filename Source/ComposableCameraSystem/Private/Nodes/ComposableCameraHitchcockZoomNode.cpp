@@ -105,7 +105,8 @@ void UComposableCameraHitchcockZoomNode::OnTickNode_Implementation(
 		// Resolve the baseline FOV from either the explicit override (when
 		// the camera type asset has no upstream FOV-writing node and the
 		// author wants to specify the effect's starting FOV directly) or
-		// from the upstream pose. Sentinel <= 0 means "use upstream" -		// same convention as LensNode's FocusDistance and the pose's
+		// from the upstream pose. Sentinel <= 0 means "use upstream",
+		// same convention as LensNode's FocusDistance and the pose's
 		// FieldOfView / FocalLength fields.
 		const double BaselineFOV = (InitialFOVOverride > 0.f)
 			? static_cast<double>(InitialFOVOverride)
@@ -356,7 +357,7 @@ void UComposableCameraHitchcockZoomNode::GetPinDeclarations_Implementation(
 			? Pin.EnumType->GetNameStringByValue(static_cast<int64>(Driver))
 			: FString();
 		Pin.Tooltip = NSLOCTEXT("ComposableCameraSystem", "Hitchcock_Driver_Tip",
-			"Which authored curve drives the effect -FOV delta or camera-distance delta. The other quantity is solved from the frame-zero lock constant.");
+			"Which authored curve drives the effect: FOV delta or camera-distance delta. The other quantity is solved from the frame-zero lock constant.");
 		OutPins.Add(Pin);
 	}
 

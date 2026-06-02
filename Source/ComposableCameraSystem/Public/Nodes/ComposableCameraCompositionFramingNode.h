@@ -14,19 +14,16 @@ class UComposableCameraTransitionDataAsset;
  * pose (Position + Rotation + FOV + Focus + Aperture) from an authored
  * `FComposableCameraShot` each tick.
  *
- * This is the consumer that connects the Phase B Shot data model to the
- * camera evaluation pipeline. See Docs/ShotBasedKeyframing.md Section 3-4 for the
- * data model + solver pipeline; TechDoc Section 3.25 for the solver internals.
+ * This is the consumer that connects Shot data to the camera evaluation
+ * pipeline. See DesignDoc for the data model and TechDoc for solver internals.
  *
- * -- Authoring model (V1) ------------------------------------------------
+ * -- Authoring model -----------------------------------------------------
  *
- * The Shot is authored fully in this node's Details panel inside the
- * camera type asset. The struct contains a `TArray<FShotTarget>` which
- * violates the pin data block's POD constraint (TechDoc Section 3.2), so it is
- * NOT pin-exposable. Phase E's LS Shot Section integration will push Shot
- * data via a separate runtime API (not pin wiring). `GetPinDeclarations`
- * accordingly returns no pins. The node has no inputs to wire and no
- * outputs to pipe; it OWNS the camera pose.
+ * The Shot is authored in this node's Details panel or pushed by Sequencer
+ * Shot Sections. The struct contains a `TArray<FShotTarget>` which violates
+ * the pin data block's POD constraint, so it is NOT pin-exposable.
+ * `GetPinDeclarations` accordingly returns no pins. The node has no inputs to
+ * wire and no outputs to pipe; it OWNS the camera pose.
  *
  * -- Behavior ------------------------------------------------------------
  *
@@ -46,7 +43,7 @@ class UComposableCameraTransitionDataAsset;
  * Downstream `LensNode` may override.
  *
  * When `Shot.Placement.PlacementAnchor` or `Shot.Aim.AimAnchor` is
- * unresolvable (spec Section 5.3 - invalid index, all weights zero, etc.), the
+ * unresolvable (invalid index, all weights zero, etc.), the
  * node passes the upstream pose through unmodified and the solver logs a
  * warning. Camera doesn't snap; previous frame's pose effectively persists.
  *
@@ -114,14 +111,13 @@ public:
 	 * Authored Shot. Drives the Composition Solver each tick. Edited in
 	 * the node's Details panel. NOT pin-exposable: `FComposableCameraShot`
 	 * contains a `TArray<FShotTarget>` which violates the pin data block's
-	 * POD constraint (TechDoc Section 3.2). Runtime pushes (e.g. from LS Shot
-	 * Sections in Phase E) mutate this struct via the
-	 * `SetActiveShotsFromSequencer` API.
+	 * POD constraint. Runtime pushes (e.g. from LS Shot Sections) mutate this
+	 * struct via the `SetActiveShotsFromSequencer` API.
 	 *
-	 * `BlueprintReadOnly` per spec Section 1.4 -Shot data is designer-authored
-	 * content, not gameplay-controlled state.
+	 * `BlueprintReadOnly` because Shot data is designer-authored content,
+	 * not gameplay-controlled state.
 	 *
-	 * In Phase F's two-Shot blend the field is treated as the *primary*
+	 * During a two-Shot blend the field is treated as the *primary*
 	 * (outgoing / lower-row) Shot. The secondary Shot is held in
 	 * `SecondaryShot` and active iff `bHasSecondaryShot` is true.
 	 */
@@ -129,10 +125,10 @@ public:
 	FComposableCameraShot Shot;
 
 	/**
-	 * Phase F: push the active Shot pair from the LSComponent each frame
-	 * an override is applied.
+	 * Push the active Shot pair from the LSComponent each frame an override
+	 * is applied.
 	 *
-	 *   InPrimaryShot   -> written into `Shot` (the V1 primary path).
+	 *   InPrimaryShot   -> written into `Shot` (the primary path).
 	 *   InSecondaryShot -> optional incoming Shot (the higher-row of an
 	 *                     overlap pair). When non-null AND `InTransition`
 	 *                     is non-null, the framing node runs both solvers
@@ -140,8 +136,7 @@ public:
 	 *                     using `InAlpha` in [0, 1].
 	 *   InTransition    -> resolved transition asset; null = hard cut.
 	 *                     The blend pass is skipped - `Shot` (primary)
-	 *                     is the sole solver input, matching V1 top-row-
-	 *                     winner behavior.
+	 *                     is the sole solver input.
 	 *   InAlpha         -> secondary's contribution weight in [0, 1]. Clamped
 	 *                     defensively. Ignored when `InSecondaryShot` is null
 	 *                     or `InTransition` is null.
@@ -165,8 +160,7 @@ public:
 	 *
 	 * Persistence: the node retains the last-written state across frames.
 	 * When the LSComponent's override map empties, no further calls happen
-	 * and the camera holds its last framing. The gap-fill semantic Phase E
-	 * established and Phase F preserves.
+	 * and the camera holds its last framing.
 	 */
 	void SetActiveShotsFromSequencer(
 		const FComposableCameraShot& InPrimaryShot,
@@ -224,9 +218,8 @@ private:
 	// set, the solver reads anchor positions through the *previous* frame's
 	// pose and damps the screen-space residual instead of re-solving the
 	// hard constraint each frame. These caches hold "previous frame's solved
-	// pose" for the primary and (Phase F) secondary shots independently -	// damping is per-shot so blending two damped shots stacks IIR responses,
-	// which is the user's chosen Phase F behavior (over option A's blend-
-	// time hard-constraint fallback).
+	// pose" for the primary and secondary shots independently; damping is
+	// per-shot so blending two damped shots stacks IIR responses.
 	//
 	// Lifecycle:
 	//   - `OnInitialize`            ->both `bHas*` cleared. First valid solve
@@ -245,11 +238,11 @@ private:
 	//     specific behavior.
 	//
 	// Pose snapshot scope: only what the zone preprocessor needs from a
-	// prior pose -Position + Rotation. FOV / Focus / Aperture are reread
+	// prior pose: Position + Rotation. FOV / Focus / Aperture are reread
 	// from the current frame's solver context.
 
 	/** True iff `LastPrimaryOutputPose` carries a valid prior solve.
-	 *  False = next tick performs a V1 hard solve and seeds the cache. */
+	 *  False = next tick performs a hard solve and seeds the cache. */
 	bool bHasLastPrimaryOutputPose = false;
 
 	/** Position + rotation produced by the most recent successful primary
@@ -274,7 +267,7 @@ private:
 	float    LastPrimaryFOV  = -1.f;
 	float    LastPrimaryRoll = TNumericLimits<float>::Max();
 
-	/** Same as primary, but for the Phase F secondary (incoming) shot.
+	/** Same as primary, but for the secondary (incoming) shot.
 	 *  Cleared whenever `SetActiveShotsFromSequencer` transitions out of
 	 *  the secondary-active state. */
 	bool     bHasLastSecondaryOutputPose = false;
@@ -284,9 +277,9 @@ private:
 	float    LastSecondaryFOV            = -1.f;
 	float    LastSecondaryRoll           = TNumericLimits<float>::Max();
 
-	// --- Phase F two-Shot blend state ------------------------------------
+	// --- Two-Shot blend state --------------------------------------------
 	//
-	// Set by `SetActiveShotsFromSequencer`; consumed by `OnTickNode` (F.4).
+	// Set by `SetActiveShotsFromSequencer`; consumed by `OnTickNode`.
 	// Owning entity for these fields is the LSComponent's per-section
 	// override map. The framing node holds them only as transient per-frame
 	// snapshots. No `UPROPERTY` annotation on `bHasSecondaryShot` /
@@ -295,17 +288,17 @@ private:
 	// asset reference must outlive arbitrary GC sweeps between frames.
 
 	/** True iff a secondary (incoming) Shot is currently active for blend.
-	 *  When false the node behaves as V1: Shot is the sole solver input. */
+	 *  When false Shot is the sole solver input. */
 	bool bHasSecondaryShot = false;
 
-	/** Phase F secondary Shot. The higher-row (incoming) section's
+	/** Secondary Shot. The higher-row (incoming) section's
 	 *  effective Shot. Only consumed when `bHasSecondaryShot` is true and
 	 *  `ActiveBlendTransition` is non-null. */
 	UPROPERTY(Transient)
 	FComposableCameraShot SecondaryShot;
 
 	/** Resolved EnterTransition asset for the active two-Shot blend. Set
-	 *  by `SetActiveShotsFromSequencer`. Null indicates hard cut -F.4
+	 *  by `SetActiveShotsFromSequencer`. Null indicates hard cut: the node
 	 *  treats this as "secondary Shot is unused" and runs only the primary
 	 *  solver path. */
 	UPROPERTY(Transient)

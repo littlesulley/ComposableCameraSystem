@@ -48,7 +48,8 @@ void UComposableCameraSplineNode::OnTickNode_Implementation(float DeltaTime,
 				bShouldProceed = false;
 			}
 		}
-	// @TODO: implement all splines
+	// Non-built-in spline modes are declared but currently evaluate as no-op
+	// stubs below; only BuiltInSpline validates an external rail here.
 	case EComposableCameraSplineNodeSplineType::BasicSpline:
 		break;
 	case EComposableCameraSplineNodeSplineType::Bezier:
@@ -134,7 +135,7 @@ void UComposableCameraSplineNode::GetPinDeclarations_Implementation(TArray<FComp
 		PinDecl.bDefaultAsPin = false;
 		PinDecl.DefaultValueString = PinDecl.EnumType ? PinDecl.EnumType->GetNameStringByValue(static_cast<int64>(MoveMethod)) : FString();
 		PinDecl.Tooltip = NSLOCTEXT("UComposableCameraSplineNode", "MoveMethodTip",
-			"How the camera moves along the spline -Automatic (time-driven) or ClosestPoint (tracks an actor's projection).");
+			"How the camera moves along the spline: Automatic (time-driven) or ClosestPoint (tracks an actor's projection).");
 		OutPins.Add(PinDecl);
 	}
 

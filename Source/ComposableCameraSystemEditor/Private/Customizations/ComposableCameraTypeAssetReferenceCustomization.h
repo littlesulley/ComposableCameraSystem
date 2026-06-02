@@ -16,18 +16,12 @@ class FPropertyEditorModule;
  * Compatible. Two categories of warning:
  *
  * - ComputeOnly nodes: Compute chain is skipped entirely in the LS
- * evaluation path - Phase A marks every
- * UComposableCameraComputeNodeBase as ComputeOnly.
- * The warning tells the designer that any value
- * those nodes would publish must be re-sourced as
- * an exposed parameter for LS playback to see it.
+ * evaluation path. The warning tells the designer that any value those nodes
+ * would publish must be re-sourced as an exposed parameter for LS playback.
  *
- * - RequiresPCM nodes: Node's OnInitialize / OnTickNode dereference the
- * PlayerCameraManager in ways that would crash
- * without it; Phase A added null-guards so the
- * node is a silent no-op in LS, but the designer
- * should be told. The banner lists each offending
- * node class by name.
+ * - RequiresPCM nodes: node initialization / ticking needs a
+ * PlayerCameraManager. These nodes are guarded in LS and become silent no-ops,
+ * so the designer should be told. The banner lists each offending node class.
  *
  * Registered once per module startup alongside the other detail customizations
  * (see FComposableCameraSystemEditorModule::RegisterDetailsCustomizations).

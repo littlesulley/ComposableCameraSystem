@@ -20,9 +20,8 @@ UMovieSceneComposableCameraShotTrack::UMovieSceneComposableCameraShotTrack(const
 	TrackTint = FColor(64, 192, 160, 65);
 #endif
 
-	// Phase F adds inter-Shot transitions; V1 sections are hard cuts. Pre/
-	// post-roll evaluation would push Shot overrides outside the authored
-	// window. Undesirable for hard cuts. Disable both.
+	// Pre/post-roll evaluation would push Shot overrides outside the authored
+	// window and distort overlap-derived transition windows. Disable both.
 	EvalOptions.bEvaluateInPreroll  = false;
 	EvalOptions.bEvaluateInPostroll = false;
 }
@@ -48,8 +47,7 @@ UMovieSceneSection* UMovieSceneComposableCameraShotTrack::CreateNewSection()
 	UMovieScene* OwnerScene = GetTypedOuter<UMovieScene>();
 
 	// Default 5-second window. Same convention as Patch / CameraShake. The
-	// track-editor side (Phase E.4) repositions the section to the playhead
-	// before adding it.
+	// track editor repositions the section to the playhead before adding it.
 	if (OwnerScene)
 	{
 		const FFrameRate TickResolution = OwnerScene->GetTickResolution();
@@ -62,8 +60,8 @@ UMovieSceneSection* UMovieSceneComposableCameraShotTrack::CreateNewSection()
 
 EMovieSceneTrackEasingSupportFlags UMovieSceneComposableCameraShotTrack::SupportsEasing(FMovieSceneSupportsEasingParams& Params) const
 {
-	// Easing disabled in V1. Sections are hard cuts. Phase F repurposes the
-	// easing handles to drive inter-Shot CCS Transition blend windows.
+	// Easing handles are disabled. Section overlap defines inter-Shot
+	// transition duration instead.
 	return EMovieSceneTrackEasingSupportFlags::None;
 }
 

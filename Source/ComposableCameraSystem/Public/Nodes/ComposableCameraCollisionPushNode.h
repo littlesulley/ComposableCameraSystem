@@ -127,7 +127,7 @@ private:
 	// TWeakObjectPtr (not raw, not UPROPERTY): PivotActor is an input pin
 	// and can be driven to a new actor every frame, and the SkelMesh
 	// component on that actor can be destroyed / re-spawned independently
-	// of this node -Tick / DrawNodeDebug must IsValid()-check before
+	// of this node. Tick / DrawNodeDebug must IsValid()-check before
 	// deref. Resolution happens lazily in Tick when the active PivotActor
 	// differs from `LastResolvedPivotActor`, avoiding a per-frame
 	// `GetComponentByClass` walk in the common stable-actor case.

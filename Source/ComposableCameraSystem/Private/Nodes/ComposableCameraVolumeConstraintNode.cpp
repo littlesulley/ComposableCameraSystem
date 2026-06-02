@@ -73,7 +73,7 @@ void UComposableCameraVolumeConstraintNode::OnTickNode_Implementation(
 	const FVector Target = NearestPointInVolume(Volume, UpstreamPos, bAlreadyInside);
 
 	// Apply per-axis smoothing when an interpolator is configured. Each
-	// axis uses its own filter instance -Reset(current, target) updates
+	// axis uses its own filter instance. Reset(current, target) updates
 	// the filter's goal, Run(DT) advances one step. Without an interpolator
 	// the output is the hard clamp (or pass-through when already inside).
 	FVector Output;

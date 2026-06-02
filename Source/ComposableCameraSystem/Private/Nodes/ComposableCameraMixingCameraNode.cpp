@@ -109,7 +109,7 @@ void UComposableCameraMixingCameraNode::GetPinDeclarations_Implementation(TArray
 		PinDecl.bDefaultAsPin = false;
 		PinDecl.DefaultValueString = PinDecl.EnumType ? PinDecl.EnumType->GetNameStringByValue(static_cast<int64>(WeightNormalizationMethod)) : FString();
 		PinDecl.Tooltip = NSLOCTEXT("ComposableCameraMixingCameraNode", "WeightNormalizationMethodTip",
-			"Method used to normalize the per-camera weights before mixing -L1, L2, or SoftMax.");
+			"Method used to normalize the per-camera weights before mixing: L1, L2, or SoftMax.");
 		OutPins.Add(PinDecl);
 	}
 

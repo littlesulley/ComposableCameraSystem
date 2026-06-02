@@ -153,7 +153,7 @@ public:
 	bool bAffectStaticMeshes { true };
 
 	/** Whether skeletal mesh components are eligible for fade. Enabled by
-	 *  default -Epic's node misses this, but NPCs / characters blocking the
+	 *  default. Epic's node misses this, but NPCs / characters blocking the
 	 *  view are one of the most common fade cases. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters)
 	bool bAffectSkeletalMeshes { true };

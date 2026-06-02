@@ -543,7 +543,8 @@ inline bool IsBytewiseSafeStruct(const UScriptStruct* Struct)
 	}
 	// Strict opt-in. Any user-defined USTRUCT that wants bytewise transport
 	// must explicitly set WithIsPlainOldData=true in its TStructOpsTypeTraits
-	// specialization. Reflection-based heuristics deliberately removed -	// non-UPROPERTY members are invisible to the walk and the previous
+	// specialization. Reflection-based heuristics were removed because
+	// non-UPROPERTY members are invisible to the walk and the previous
 	// trailing-padding sanity check could not catch hidden interior or
 	// leading members. FInstancedStruct handles every other USTRUCT
 	// correctly via CopyScriptStruct.

@@ -109,7 +109,8 @@ void UComposableCameraFocusPullNode::OnTickNode_Implementation(
 	const FVector CameraPos = OutCameraPose.Position;
 
 	// Project (Target - Camera) onto the camera's forward axis.
-	// `FocusDistance` is consumed by the renderer as camera-space depth -	// how far along the view axis the focus plane sits -NOT as Euclidean
+	// `FocusDistance` is consumed by the renderer as camera-space depth:
+	// how far along the view axis the focus plane sits, not Euclidean
 	// distance. An off-axis target (e.g. 10 m away, 45 deg to the side) has
 	// Euclidean distance 10 m but on-axis depth ~7 m; using Euclidean
 	// would rack focus too far for off-axis subjects.
@@ -168,9 +169,8 @@ void UComposableCameraFocusPullNode::OnTickNode_Implementation(
 
 bool UComposableCameraFocusPullNode::ResolveTargetPoint(FVector& OutTargetPoint) const
 {
-	// Phase A migration (V1.x): delegates to the consolidated helper in
-	// DataAssets/ComposableCameraTargetInfo.h. Bit-exact behavior parity
-	// with the prior inline implementation. Three cases:
+	// Shared target-info resolution keeps bone / offset fallback semantics
+	// consistent with other camera nodes. Three cases:
 	//   1. Bone mode + valid bone   -> socket location only, no Z offset.
 	//   2. Bone mode + invalid bone ->fall back to ActorLocation + Z offset.
 	//   3. Actor mode->ActorLocation + Z offset.
@@ -179,8 +179,8 @@ bool UComposableCameraFocusPullNode::ResolveTargetPoint(FVector& OutTargetPoint)
 	// NOT use the bone path (OutUsedBone == false). This preserves the
 	// original "Z offset applies only on the actor branch" semantic exactly.
 	FComposableCameraTargetInfo Info;
-	// Explicit `.Get()` to convert TObjectPtr->AActor* ->TSoftObjectPtr -	// the unambiguous chain. The TargetInfo struct now uses TSoftObjectPtr
-	// (V1.x) so its Details-panel picker can span level actors.
+	// Explicit `.Get()` makes the TObjectPtr -> AActor* -> TSoftObjectPtr
+	// conversion chain unambiguous.
 	Info.Actor               = ComposableCameraSystem::ResolveActorInput(
 		PivotActorSource, PivotActor.Get(), GetOwningPlayerCameraManager(), this);
 	Info.bUseBoneAsPivot     = bUseBoneForDetection;

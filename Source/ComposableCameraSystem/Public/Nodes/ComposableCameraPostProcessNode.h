@@ -19,7 +19,7 @@
  * Multiple PostProcess nodes in the same camera stack compose in execution order
  * (later nodes override earlier ones for the same bOverride_* property).
  *
- * No pins are declared -FPostProcessSettings is configured entirely through
+ * No pins are declared. FPostProcessSettings is configured entirely through
  * the Details panel, matching the PostProcessVolume workflow UE artists are
  * already familiar with.
  */

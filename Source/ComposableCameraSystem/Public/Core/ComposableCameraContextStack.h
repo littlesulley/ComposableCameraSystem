@@ -142,7 +142,7 @@ public:
 	 *      transition 5s).
 	 *   3. Mid-push-transition, the caller invokes ActivateCamera(A, Gameplay)
 	 *      to flip back to Gameplay. `EnsureContext(Gameplay)` rearranges the
-	 *      stack to `[Transient, Gameplay]` -Transient drops off the top.
+	 *      stack to `[Transient, Gameplay]`; Transient drops off the top.
 	 *   4. With only-top-scans-for-auto-pop semantics, Transient is now
 	 *      permanently stuck on the stack: its camera B is no longer at the
 	 *      top so the auto-pop loop in `Evaluate` never inspects it, and its

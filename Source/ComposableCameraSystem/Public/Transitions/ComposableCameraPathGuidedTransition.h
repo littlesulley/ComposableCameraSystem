@@ -37,7 +37,7 @@ public:
 	virtual void OnBeginPlay_Implementation(float DeltaTime, const FComposableCameraPose& CurrentSourcePose, const FComposableCameraPose& CurrentTargetPose) override;
 	virtual FComposableCameraPose OnEvaluate_Implementation(float DeltaTime, const FComposableCameraPose& CurrentSourcePose, const FComposableCameraPose& CurrentTargetPose) override;
 
-	// Delegates to the inner DrivingTransition's curve -PathGuided just
+	// Delegates to the inner DrivingTransition's curve. PathGuided just
 	// bends the spatial path, the timing is whatever the driving transition
 	// authored. Falls back to linear if DrivingTransition is unset.
 	virtual float GetBlendWeightAt(float NormalizedTime) const override;

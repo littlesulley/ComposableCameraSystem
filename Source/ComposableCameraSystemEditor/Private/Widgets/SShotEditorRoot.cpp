@@ -181,7 +181,7 @@ void SShotEditorRoot::Construct(const FArguments& /*InArgs*/)
 							"of world anchor / target points; they are "
 							"greyed out and not interactive. Switching back "
 							"to Drag will pop a 'save current camera framing "
-							"as Shot params?' dialog (Phase D.4.3)."))
+							"as Shot params?' dialog."))
 					+ SSegmentedControl<EShotEditorMode>::Slot(EShotEditorMode::Lock)
 						.Text(LOCTEXT("ModeLock", "Lock"))
 						.ToolTip(LOCTEXT("ModeLockTip",
@@ -460,7 +460,7 @@ FText SShotEditorRoot::BuildHostContextChain() const
 		return FText::FromString(ShotAsset->GetName());
 	}
 
-	// Camera-graph node host (CompositionFramingNode in V1, possibly other
+	// Camera-graph node host (CompositionFramingNode, possibly other
 	// solver-aware nodes in the future) -> "{TypeAsset} -> {Node}".
 	if (const UComposableCameraCameraNodeBase* Node =
 			Cast<UComposableCameraCameraNodeBase>(Host))
@@ -473,8 +473,8 @@ FText SShotEditorRoot::BuildHostContextChain() const
 		return FText::FromString(FString::Printf(TEXT("%s -> %s"), *AssetName, *Node->GetName()));
 	}
 
-	// Unknown host shape - fall back to the V1.x identity format so the
-	// designer at least sees what's bound rather than a blank label.
+	// Unknown host shape - show enough identity for the designer to see what's
+	// bound rather than a blank label.
 	return FText::Format(LOCTEXT("ActiveHostFmt", "{0} ({1})"),
 		FText::FromString(Host->GetName()),
 		FText::FromString(Host->GetClass()->GetName()));

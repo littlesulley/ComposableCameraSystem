@@ -381,8 +381,8 @@ namespace
 	// ---- Region: Current Pose -----------------------------------------
 	/** Populate the Current Pose region as four labelled groups, laid out
 	 *  across two columns by the renderer:
-	 *    Left column  -Transform, Context
-	 *    Right column -Projection, Physical
+	 *    Left column: Transform, Context
+	 *    Right column: Projection, Physical
 	 *
 	 *  Left/right split is controlled by `PoseLeftGroupCount`. The Physical
 	 *  group collapses to a single `Status: off` line when the pose's
@@ -566,7 +566,8 @@ namespace
 				Phys.Lines.Add({ TEXT("Focus"), FString(B), CValue });
 
 				// ISO / Shutter on a CineCamera come from PostProcessSettings
-				// overrides. No override = engine default / auto-exposure -				// show "auto" rather than the uninitialized numeric slot.
+				// overrides. No override means engine default / auto-exposure,
+				// so show "auto" rather than the uninitialized numeric slot.
 				const FPostProcessSettings& PP = CineCam->PostProcessSettings;
 
 				B.Reset();
@@ -821,7 +822,8 @@ namespace
 		//   Root nodes (Depth == 0) have no role and print without prefix.
 		//   EXCEPTION: when a RefLeaf inlines its referenced subtree, the
 		//   direct child of the RefLeaf (tagged `bIsReferencedRoot`) sits at
-		//   Depth > 0 but its parent is a ReferenceLeaf, not a transition -		//   so no source/target role applies and the prefix is suppressed.
+		//   Depth > 0 but its parent is a ReferenceLeaf, not a transition,
+		//   so no source/target role applies and the prefix is suppressed.
 		const TCHAR* RolePrefix = TEXT("");
 		if (TN.Depth > 0 && !TN.bIsReferencedRoot)
 		{
@@ -972,7 +974,7 @@ namespace
 			//     - Root (Depth == 0): no connectors.
 			for (const FComposableCameraTreeNodeSnapshot& TN : Ctxt.TreeNodes)
 			{
-				// Row height depends on node kind -InnerTransition rows
+				// Row height depends on node kind. InnerTransition rows
 				// are taller because they host the blend-curve sparkline,
 				// but only in the active context (see `bShowCurve` above).
 				const float RowH = GetTreeNodeRowHeight(TN, bShowCurve);
@@ -1266,7 +1268,7 @@ namespace
 			// keys: byte `Storage` for POD slots (offset < StructSlotsOffsetBase)
 			// and the typed `StructSlots` array for non-POD struct slots
 			// (offset >= StructSlotsOffsetBase, indexed by Offset - base). Sizes
-			// must be computed differently per pool -POD slot size is the
+			// must be computed differently per pool. POD slot size is the
 			// distance to the next consecutive POD offset (with `Storage.Num()`
 			// as the upper bound for the last POD slot), struct slot size is
 			// the struct's own `GetStructureSize()`. Subtracting a struct-pool
@@ -1316,7 +1318,8 @@ namespace
 				else
 				{
 					// POD slot. Look at the next sorted slot to bound the
-					// size, but only if that next slot is also a POD slot -					// otherwise we're at the boundary between the two pools
+					// size, but only if that next slot is also a POD slot;
+					// otherwise we're at the boundary between the two pools
 					// and must use `Storage.Num()` as the upper bound to
 					// avoid the cross-pool phantom-size bug.
 					int32 NextBoundary = DB.Storage.Num();
@@ -1514,7 +1517,8 @@ namespace
 	//   1. "Effective (N)": what's actually driving the running camera
 	//      right now. One line per node class, showing the winning
 	//      modifier (highest priority whose tag matches the camera).
-	//   2. "All (M)": every registered modifier grouped by [CameraTag] ->	//      [NodeClass] ->modifier entries. The one marked `[*]` inside
+	//   2. "All (M)": every registered modifier grouped by [CameraTag] ->
+	//      [NodeClass] -> modifier entries. The one marked `[*]` inside
 	//      each node-class group is the effective winner. Makes "why
 	//      is my modifier not applying?" trivially answerable (look for
 	//      a [*] mark on a different modifier of the same node class).
@@ -1683,7 +1687,9 @@ namespace
 	}
 
 	// Emit "X.YY / Z.ZZ s   <action> (NN%)" for the timing line. Action label is
-	// chosen by phase: Entering ->"enter", Exiting ->"exit", Active+Duration ->	// "active", Active+no-Duration ->just elapsed. Returns empty if there's no
+	// chosen by phase: Entering -> "enter", Exiting -> "exit",
+	// Active+Duration -> "active", Active+no-Duration -> just elapsed.
+	// Returns empty if there's no
 	// meaningful timing (no duration on Active without channel).
 	static FString FormatPatchTimingLine(const FComposableCameraPatchSnapshot& P)
 	{
@@ -1796,7 +1802,7 @@ namespace
 		Out.Title      = TEXT("Patches");
 		Out.bIsPatches = true;
 
-		// Source 1 -BP path: PCM->ContextStack ->ActiveDirector->PatchManager.
+		// Source 1: BP path: PCM->ContextStack ->ActiveDirector->PatchManager.
 		// One snapshot row per patch added via UComposableCameraBlueprintLibrary::AddCameraPatch.
 		const UComposableCameraContextStack* Stack = Ctx.PCM->GetContextStack();
 		UComposableCameraDirector* Director = Stack ? Stack->GetActiveDirector() : nullptr;
@@ -1805,7 +1811,7 @@ namespace
 			Manager->BuildDebugSnapshot(Out.PatchSnapshots);
 		}
 
-		// Source 2 -Sequencer path: walk every UComposableCameraLevelSequenceComponent
+		// Source 2: Sequencer path: walk every UComposableCameraLevelSequenceComponent
 		// in the world and ask it for its registered overlays. Sequencer-driven
 		// patches don't go through PatchManager (they live on the LS Component's
 		// SequencerPatchOverlays map and apply directly to the bound CineCamera);
@@ -1948,13 +1954,13 @@ namespace
 			DrawTextLineClipped(Canvas, Font, IdLine, BodyPos.X, CursorY, RightX, Hue);
 			CursorY += KPatchIdentityRowH + KPatchInterRowGap;
 
-			// Row B -Alpha bar (always).
+			// Row B: Alpha bar (always).
 			const float BarOriginX = BodyPos.X + KPatchBarIndentPx;
 			DrawPatchBarRow(Ctx, BarOriginX, CursorY, RightX,
 				TEXT("Alpha"), P.Alpha, FString::Printf(TEXT("%.2f"), P.Alpha), Hue);
 			CursorY += KPatchBarRowH + KPatchInterRowGap;
 
-			// Row C -Time bar (conditional).
+			// Row C: Time bar (conditional).
 			if (PatchHasTimeBar(P, Phase))
 			{
 				float Elapsed = 0.f, Total = 0.f;
@@ -1978,7 +1984,7 @@ namespace
 				CursorY += KPatchBarRowH + KPatchInterRowGap;
 			}
 
-			// Row D -Expire (conditional).
+			// Row D: Expire (conditional).
 			if (PatchHasExpire(P))
 			{
 				const FString Line = FString::Printf(TEXT("    Expire   %s"),
@@ -2069,7 +2075,8 @@ namespace
 	// ---- Region: Legend -----------------------------------------------
 	//
 	// Matches screen colors to node/transition names. Populated from a
-	// static table of (label, color, CVar-name, is-transition) tuples -	// entries whose CVar is zero (AND the corresponding `.All` CVar is
+	// static table of (label, color, CVar-name, is-transition) tuples. Entries
+	// whose CVar is zero (AND the corresponding `.All` CVar is
 	// zero) are filtered out, so the legend shrinks to the set of gizmos
 	// the user has actually enabled.
 	//
@@ -2396,7 +2403,7 @@ namespace
 	}
 
 	// True if we're currently running a world where a PCM is expected to
-	// exist -PIE (incl. F8-ejected PIE, which keeps the PIE world alive)
+	// exist: PIE (incl. F8-ejected PIE, which keeps the PIE world alive)
 	// or a standalone Game world. Returns false in editor-idle state, so
 	// the "no PCM found" banner in the main panel can stay silent when
 	// the delegate fires via the `"Editor"` debug-draw channel while PIE
@@ -2724,7 +2731,8 @@ namespace
 
 		// Resolve mouse-hover frame index. Uses a Slate-based fallback
 		// (see `ResolveMouseCanvasPos`) because the PlayerController
-		// passed to our DebugDrawService callback is always nullptr -		// engine broadcasts delegates with `PC=nullptr`. So we can't
+		// passed to our DebugDrawService callback is always nullptr:
+		// engine broadcasts delegates with `PC=nullptr`. So we can't
 		// rely on `PC->GetMousePosition`. The Slate path works in both
 		// possessed PIE (when mouse is released via Shift+F1 or UI input
 		// mode) and F8-ejected PIE (mouse naturally released).
@@ -2932,7 +2940,7 @@ namespace
 		Regions.SetNum(NumRegions);
 		BuildPoseGroups         (Ctx, Regions[0]);
 
-		// Region[1] -Context Stack & Evaluation Tree (structured, not text).
+		// Region[1]: Context Stack & Evaluation Tree (structured, not text).
 		Regions[1].Title            = TEXT("Context Stack & Evaluation Tree");
 		Regions[1].bIsStackAndTree  = true;
 		Regions[1].StackBodyHeight  = ComputeStackBodyHeight(StackSnapshot);
@@ -3047,7 +3055,8 @@ namespace
 				// user-defined names. A single region-wide MaxLabelPx would
 				// push "Class"' value far to the right to make room for the
 				// longest Parameter name. Visually ugly. So we break rows
-				// into GROUPS separated by full-line rows (empty Label -				// section headers / placeholders / list items), compute
+				// into GROUPS separated by full-line rows (empty Label:
+				// section headers / placeholders / list items), compute
 				// MaxLabelPx per group, and align only within each group.
 				// Proportional font means pixel-measure is the only way to get
 				// clean alignment; padding labels with spaces at build time
@@ -3150,7 +3159,8 @@ namespace
 // viewport and the visible editor viewport each issue their own
 // `UDebugDrawService::Draw` call per frame. With a `UCanvas*`-keyed
 // dedup, the first call in a frame (whichever viewport happened to
-// draw first) "claimed" the frame and every subsequent call skipped -// so if the Game-channel call fired first (drawing on the invisible
+// draw first) "claimed" the frame and every subsequent call skipped.
+// If the Game-channel call fired first (drawing on the invisible
 // canvas) the user saw nothing that frame. When the mouse moved, Slate
 // invalidated widgets at irregular intervals and re-ordered viewport
 // draws, flipping which viewport got the frame's one draw. Visible /

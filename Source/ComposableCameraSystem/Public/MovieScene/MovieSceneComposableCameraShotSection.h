@@ -55,9 +55,9 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraShotTargetActorOverride
 };
 
 /**
- * Source-of-truth for a Shot Section's framing data -Inline value-typed
+ * Source of truth for a Shot Section's framing data. Inline value-typed
  * struct or AssetReference soft-pointer. See `UComposableCameraShotAsset` and
- * spec Section 3.4.1.
+ * inline data or a reusable ShotAsset reference.
  */
 UENUM(BlueprintType)
 enum class EComposableCameraShotSource : uint8
@@ -90,17 +90,14 @@ enum class EComposableCameraShotSource : uint8
  *      `UComposableCameraLevelSequenceComponent`.
  *   2. Calls `BuildEffectiveShot()` to get the section-local Shot data
  *      plus Sequencer actor-binding overrides.
- *   3. Pushes (Section, Shot, RowIndex) to the LS Component via
+ *   3. Pushes (Section, Shot, RowIndex, EnterTransition, BlendAlpha) to the LS Component via
  *      `SetSequencerShotOverride`.
  *
- * The LS Component's `TickComponent` then picks the top-row override
- * (`MinByRowIndex`) and writes its Shot into the first found
- * `UComposableCameraCompositionFramingNode::Shot` UPROPERTY on the internal
- * camera before `TickCamera` runs. So the framing solver evaluates with
- * the new data on the same frame.
- *
- * Phase F (inter-Shot transitions) will replace the top-row picker with a
- * blender; the multi-entry override map already supports this.
+ * The LS Component's `TickComponent` then pushes the primary Shot and optional
+ * secondary overlap Shot into the first found
+ * `UComposableCameraCompositionFramingNode` on the internal camera before
+ * `TickCamera` runs. So the framing solver evaluates with the new data on
+ * the same frame.
  *
  * No `UMovieSceneParameterSection` inheritance (unlike the Patch section) - Shot fields are not designed for per-frame channel keying. Designers who
  * want a moving target should instead drive the underlying `Targets[i].Actor`
@@ -189,7 +186,7 @@ public:
 		FComposableCameraShot& OutShot) const;
 
 public:
-	/** Source mode picker -Inline (data in Section) vs. AssetReference (data
+	/** Source mode picker: Inline (data in Section) vs. AssetReference (data
 	 *  in a ShotAsset). Default Inline because the common authoring flow is
 	 *  one-off shots, and elevating an Inline shot to a reusable asset is
 	 *  trivial later (Right-click ->"Save as Shot Asset"; deferred to a
@@ -197,9 +194,8 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shot")
 	EComposableCameraShotSource Source = EComposableCameraShotSource::Inline;
 
-	/** Used iff `Source == Inline`. Edited via the Shot Editor (single-click
-	 *  on the Section auto-swaps the editor's context -Phase E.5) or
-	 *  inline in the Details panel. */
+	/** Used iff `Source == Inline`. Edited via the Shot Editor (Sequencer
+	 *  Section selection swaps the editor context) or inline in the Details panel. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Shot",
 		meta = (EditCondition = "Source == EComposableCameraShotSource::Inline",
 		        EditConditionHides))
@@ -243,7 +239,7 @@ public:
 	/**
 	 * Transition asset that drives the inter-Shot blend when the playhead
 	 * enters this Section from a previous overlapping Section on the same
-	 * Shot Track (Phase F).
+	 * Shot Track.
 	 *
 	 *  - When two Sections overlap in time, the lower-row Section is the
 	 *    *outgoing* shot and the higher-row Section is the *incoming* shot
@@ -252,18 +248,18 @@ public:
 	 *  - The overlap window itself defines the blend duration. The
 	 *    Transition asset's `TransitionTime` is ignored. Designers control
 	 *    duration via section overlap on the timeline; the transition asset
-	 *    contributes its ease curve / blend math only (handoff Section F decision Q4).
+	 *    contributes its ease curve / blend math only.
 	 *  - Null = hard cut. The incoming Section snaps in at the boundary;
-	 *    no blend is performed. Equivalent V1 top-row-winner behavior with
-	 *    no overlap region treated as a transition.
+	 *    no blend is performed. Equivalent to a hard boundary with no
+	 *    overlap region treated as a transition.
 	 *  - On the *first* Section's left edge (no previous overlapping
 	 *    Section) `EnterTransition` is ignored. There is nothing to blend
-	 *    from (handoff Section F decision Q2).
+	 *    from.
 	 *
 	 * Soft-ref so the section doesn't force-load the transition asset at
 	 * level streaming time. Eval-path resolution goes through
 	 * `ResolveCachedEnterTransition()` (non-blocking, returns null when
-	 * not yet loaded -TrackInstance degrades to "no blend" rather than
+	 * not yet loaded. TrackInstance degrades to "no blend" rather than
 	 * stalling on `LoadSynchronous`). The blocking load happens off the
 	 * hot path in `RefreshCachedAssets()` at PostLoad / PostEdit.
 	 */
@@ -282,7 +278,7 @@ public:
 	UComposableCameraShotAsset* ResolveCachedShotAsset() const;
 
 	/** Same policy as `ResolveCachedShotAsset` but for the `EnterTransition`
-	 *  soft pointer. The Phase F blender treats null as a hard cut, so an
+	 *  soft pointer. The Shot blender treats null as a hard cut, so an
 	 *  unloaded asset on the eval path degrades gracefully to "no blend"
 	 *  rather than blocking on a synchronous load. */
 	UComposableCameraTransitionDataAsset* ResolveCachedEnterTransition() const;

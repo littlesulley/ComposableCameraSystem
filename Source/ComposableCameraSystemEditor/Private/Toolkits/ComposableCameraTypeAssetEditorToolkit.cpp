@@ -305,7 +305,7 @@ void FComposableCameraTypeAssetEditorToolkit::RegisterToolbar()
 		&FComposableCameraTypeAssetEditorToolkit::MakeDebugInstancePickerWidget);
 	Section.AddEntry(DebugEntry);
 
-	// "Shot Editor" entry - opens the Phase D.1 Shot Editor tab for the
+	// "Shot Editor" entry - opens the Shot Editor tab for the
 	// currently selected CompositionFraming graph node in this editor.
 	// FToolUIAction (vs FUIAction) so handlers receive the FToolMenuContext
 	// and can resolve the per-instance toolkit, sidestepping the
@@ -1504,7 +1504,7 @@ TSharedRef<SWidget> FComposableCameraTypeAssetEditorToolkit::BuildDebugInstanceP
 	return MenuBuilder.MakeWidget();
 }
 
-// Shot Editor toolbar entry (Phase D.1) 
+// Shot Editor toolbar entry.
 
 UComposableCameraCompositionFramingNode*
 FComposableCameraTypeAssetEditorToolkit::GetSelectedCompositionFramingNode() const

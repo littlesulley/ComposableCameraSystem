@@ -3,7 +3,7 @@
 #include "Nodes/ComposableCameraComputeNodeBase.h"
 
 // Intentionally empty. All behavior for UComposableCameraComputeNodeBase lives
-// in the header as an abstract base -ExecuteBeginPlay has an empty default
+// in the header as an abstract base. ExecuteBeginPlay has an empty default
 // implementation there, and everything else (pin system, Initialize, pin value
 // accessors, internal variable accessors) is inherited unchanged from
 // UComposableCameraCameraNodeBase.

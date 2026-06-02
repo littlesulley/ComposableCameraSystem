@@ -15,8 +15,7 @@ class UMovieSceneComposableCameraShotSection;
 class UMovieSceneComposableCameraShotTrack;
 
 /**
- * Sequencer track editor for `UMovieSceneComposableCameraShotTrack` - Phase E
- * of Shot-Based Keyframing.
+ * Sequencer track editor for `UMovieSceneComposableCameraShotTrack`.
  *
  * Surfaces:
  * 1. **Object binding row menu entry** - `BuildObjectBindingTrackMenu`
@@ -38,8 +37,8 @@ class UMovieSceneComposableCameraShotTrack;
  * binding; ignored otherwise).
  *
  * Mirrors `FComposableCameraPatchTrackEditor` minus the Patch-specific
- * envelope / bag-leaf-keying paths - Shot sections carry no keyable
- * channels in V1.
+ * envelope / bag-leaf-keying paths - Shot sections carry structured Shot data
+ * and overlap-transition metadata instead of keyable channels.
  */
 class FComposableCameraShotTrackEditor: public FMovieSceneTrackEditor
 {
@@ -103,12 +102,10 @@ public:
 	virtual FText GetSectionToolTip() const override;
 	virtual int32 OnPaintSection(FSequencerSectionPainter& Painter) const override;
 
-	/** Right-click context menu - adds an "Edit Shot..." entry that opens
-	 * the Shot Editor for this section. Replaces the V1 single-click /
-	 * double-click auto-open path (the auto-open was easy to mistrigger
-	 * during normal Sequencer interaction - selecting sections to drag,
-	 * to delete, or just clicking on the timeline near them all popped
-	 * the editor open). The right-click is explicit and discoverable. */
+	/** Right-click context menu - adds "Edit Shot...", target binding, and
+	 * EnterTransition actions for this section. The right-click path is
+	 * explicit and avoids opening the editor during ordinary selection /
+	 * trimming interactions. */
 	virtual void BuildSectionContextMenu(FMenuBuilder& MenuBuilder, const FGuid& ObjectBinding) override;
 
 private:

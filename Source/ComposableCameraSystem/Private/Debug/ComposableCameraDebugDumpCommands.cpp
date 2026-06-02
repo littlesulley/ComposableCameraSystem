@@ -439,7 +439,7 @@ namespace
 
 		TArray<FComposableCameraPatchSnapshot> Patches;
 
-		// Source 1 -PatchManager (BP path).
+		// Source 1: PatchManager (BP path).
 		const UComposableCameraContextStack* Stack = PCM->GetContextStack();
 		UComposableCameraDirector* Director = Stack ? Stack->GetActiveDirector() : nullptr;
 		if (const UComposableCameraPatchManager* Manager = Director ? Director->GetPatchManager() : nullptr)
@@ -447,7 +447,7 @@ namespace
 			Manager->BuildDebugSnapshot(Patches);
 		}
 
-		// Source 2 -LS Component overlays (Sequencer path). Walk every LS Component
+		// Source 2: LS Component overlays (Sequencer path). Walk every LS Component
 		// in the same world and merge in. Mirrors the panel's BuildPatchesLines
 		// logic so the dump and the on-screen panel always agree on what's active.
 		if (UWorld* CmdWorld = PCM->GetWorld())

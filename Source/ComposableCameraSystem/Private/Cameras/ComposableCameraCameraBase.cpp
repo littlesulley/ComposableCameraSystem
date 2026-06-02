@@ -227,7 +227,7 @@ void FComposableCameraPose::BlendBy(const FComposableCameraPose& Other, float Ot
 	//     stays at `false` for the whole blend. The renderer ignores the value,
 	//     DoF doesn't draw, and only when `CollapseFinishedTransitions` replaces
 	//     the blended pose with the proxy pose directly does `bOverride = true`
-	//     reappear -DoF "snaps on" at the very end of the transition.
+	//     reappear; DoF "snaps on" at the very end of the transition.
 	//   - `DepthOfFieldMatteBoxFlags`, `LensFlareTints`, `MobileHQGaussian` -
 	//     same pattern, less commonly hit but same bug.
 	//
@@ -474,7 +474,7 @@ namespace
 	// `UnregisterNodeAction` and mutates the very `PreNodeTickActions` /
 	// `PostNodeTickActions` array we'd be iterating. The PCM-level
 	// `bIsUpdatingActions` reentrancy gate covers the PCM `CameraActions`
-	// TSet but does NOT cover the camera-side TArrays -Register/Unregister
+	// TSet but does not cover the camera-side TArrays. Register/Unregister
 	// happen unconditionally inside the public Add/Remove paths. Iterating
 	// a stable snapshot decouples "what fires this broadcast" from "what
 	// gets registered for next broadcast"; AddUnique-induced reallocation
@@ -483,7 +483,7 @@ namespace
 	// OnExecute take effect on the NEXT broadcast (matches the PCM
 	// pending-add semantics for symmetry).
 	//
-	// Snapshot stores `TWeakObjectPtr<UComposableCameraActionBase>` -NOT
+	// Snapshot stores `TWeakObjectPtr<UComposableCameraActionBase>`, not
 	// raw pointers. `Action->OnExecute` is a `BlueprintNativeEvent`, so
 	// the body can run arbitrary BP that triggers GC mid-loop (sync
 	// `LoadObject`, async-load completion, BP exception unwind, slow BP
@@ -580,7 +580,7 @@ FComposableCameraPose AComposableCameraCameraBase::TickWithInputPose(
 	// Patch evaluators are driven by their PatchManager via this entry point;
 	// the PCM-driven main camera path uses TickCamera directly. Seeding
 	// CameraPose with the upstream pose makes the first node in the chain read
-	// it as the starting state -TickCamera's existing per-node loop then
+	// it as the starting state. TickCamera's existing per-node loop then
 	// mutates it the same way it does for non-Patch cameras. TickCamera's
 	// end-of-tick `LastFrameCameraPose = CameraPose` snapshot then captures
 	// THIS frame's upstream pose for the next frame's delta-style nodes
@@ -926,4 +926,3 @@ void AComposableCameraCameraBase::DrawCameraDebug2D(UCanvas* Canvas, APlayerCont
 	}
 }
 #endif // !UE_BUILD_SHIPPING
-

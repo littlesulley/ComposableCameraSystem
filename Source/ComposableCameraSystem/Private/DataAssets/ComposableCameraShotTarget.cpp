@@ -24,7 +24,8 @@ void FComposableCameraShotTarget::RefreshAutoBoundsCache()
 
 	// Use the first mesh component's world bounds (Skeletal preferred, then
 	// Static), NOT `AActor::GetComponentsBoundingBox(bNonColliding=true)`. The
-	// full-actor variant unions in EVERY registered PrimitiveComponent -	// CameraBoom / SpringArm endpoints, FollowCamera frustum bounds, debug
+	// full-actor variant unions in EVERY registered PrimitiveComponent:
+	// CameraBoom / SpringArm endpoints, FollowCamera frustum bounds, debug
 	// arrow / billboard primitives, attached weapon collision sweepers, etc.
 	// On a stock UE5 ThirdPersonCharacter the union extends ~15m beyond the
 	// visible character because the FollowCamera primitive at the end of a

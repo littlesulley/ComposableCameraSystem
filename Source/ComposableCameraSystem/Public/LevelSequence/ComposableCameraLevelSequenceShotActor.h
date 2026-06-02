@@ -9,11 +9,12 @@
 class UComposableCameraTypeAsset;
 
 /**
- * Specialized `AComposableCameraLevelSequenceActor` whose `LevelSequenceComponent`
- * comes pre-wired with a system-managed default `UComposableCameraTypeAsset` - a one-node TypeAsset whose only camera node is a
+ * Specialized `AComposableCameraLevelSequenceActor` whose
+ * `LevelSequenceComponent` comes pre-wired with a system-managed default
+ * `UComposableCameraTypeAsset`: a one-node TypeAsset whose only camera node is
  * `UComposableCameraCompositionFramingNode`.
  *
- * Phase E of Shot-Based Keyframing. Handoff Section "Phase E Final Architecture":
+ * Shot Track authoring flow:
  *
  *     1. Designer drops an AComposableCameraLevelSequenceShotActor into the LS
  *        as Spawnable or Possessable.

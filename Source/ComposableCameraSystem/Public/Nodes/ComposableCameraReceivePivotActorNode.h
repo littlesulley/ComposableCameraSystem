@@ -63,7 +63,7 @@ public:
 
 private:
 	// Cached SkelMesh on the currently-resolved PivotActor. TWeakObjectPtr
-	// (not raw, not UPROPERTY) -PivotActor is an input pin and can change
+	// (not raw, not UPROPERTY). PivotActor is an input pin and can change
 	// every frame, and the SkelMesh component on that actor can be
 	// destroyed / re-spawned independently. Tick / DrawNodeDebug must
 	// IsValid()-check before deref. Resolution happens lazily in Tick when

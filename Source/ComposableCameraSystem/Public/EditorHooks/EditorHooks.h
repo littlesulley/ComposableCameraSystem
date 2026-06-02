@@ -27,8 +27,8 @@ public:
 
 /**
  * Bridge for "open the Shot Editor for this Shot" calls coming from runtime
- * UFUNCTION(CallInEditor) buttons (currently `UComposableCameraCompositionFramingNode::OpenShotEditor`,
- * future Phase E LS Section context menu).
+ * UFUNCTION(CallInEditor) buttons and Sequencer / asset-editor entry points
+ * without the runtime module depending on the editor module.
  *
  * The runtime module declares the hook and exposes a guarded execute helper;
  * the editor module binds the hook in `FComposableCameraSystemEditorModule::StartupModule`

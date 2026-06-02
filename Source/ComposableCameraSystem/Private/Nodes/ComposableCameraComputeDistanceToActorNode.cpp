@@ -12,7 +12,7 @@ void UComposableCameraComputeDistanceToActorNode::ExecuteBeginPlay()
 	float Distance = 0.f;
 	FVector Direction = FVector::ForwardVector;
 
-	// Use IsValid() instead of raw null check -Actor pointers read from the
+	// Use IsValid() instead of raw null check. Actor pointers read from the
 	// RuntimeDataBlock are type-erased bytes invisible to GC. A destroyed
 	// actor leaves a dangling pointer (not null), so (Actor != nullptr) would
 	// pass and dereference garbage. IsValid() checks the weak object table.

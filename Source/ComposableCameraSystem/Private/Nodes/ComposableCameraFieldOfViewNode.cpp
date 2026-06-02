@@ -7,9 +7,9 @@
 void UComposableCameraFieldOfViewNode::OnTickNode_Implementation(float DeltaTime,
                                                                  const FComposableCameraPose& CurrentCameraPose, FComposableCameraPose& OutCameraPose)
 {
-	// FieldOfView and every dynamic-FoV parameter are pin-matched UPROPERTYs -	// ResolveAllInputPins() in the base TickNode prologue has already written
-	// any wired / exposed / default-override value into the members. Read them
-	// directly.
+	// FieldOfView and every dynamic-FoV parameter are pin-matched UPROPERTYs.
+	// ResolveAllInputPins() in the base TickNode prologue has already written
+	// any wired / exposed / default-override value into the members.
 	// Use SetFieldOfViewDegrees so the FocalLength sentinel is cleared and this pose is unambiguously
 	// in degrees mode. Otherwise GetEffectiveFieldOfView() downstream might resolve to the focal length
 	// value instead of our explicit degrees.
@@ -108,4 +108,3 @@ void UComposableCameraFieldOfViewNode::GetPinDeclarations_Implementation(
 		OutPins.Add(Pin);
 	}
 }
-

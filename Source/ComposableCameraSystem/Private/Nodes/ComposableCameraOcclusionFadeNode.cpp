@@ -89,7 +89,7 @@ void UComposableCameraOcclusionFadeNode::OnTickNode_Implementation(
 	LastResolvedTargetPoint = TargetPos;
 
 	// -- Gather this frame's desired-to-fade set from both detection paths.
-	// DesiredFadedScratch is a member-scoped TSet -Reset on entry clears
+	// DesiredFadedScratch is a member-scoped TSet. Reset on entry clears
 	// any leftover from a (defensive: shouldn't happen) prior abnormal
 	// exit, then Reserve to the empirical >=6 steady-state size so the
 	// internal bucket array sits at full capacity from frame two onward.
@@ -142,9 +142,8 @@ void UComposableCameraOcclusionFadeNode::OnTickNode_Implementation(
 
 bool UComposableCameraOcclusionFadeNode::ResolveTargetPoint(FVector& OutTargetPoint) const
 {
-	// Phase A migration (V1.x): delegates to the consolidated helper in
-	// DataAssets/ComposableCameraTargetInfo.h. Bit-exact behavior parity
-	// with the prior inline implementation. Three cases:
+	// Shared target-info resolution keeps bone / offset fallback semantics
+	// consistent with other camera nodes. Three cases:
 	//   1. Bone mode + valid bone   -> socket location only, no Z offset.
 	//   2. Bone mode + invalid bone ->fall back to ActorLocation + Z offset.
 	//   3. Actor mode->ActorLocation + Z offset.
@@ -153,8 +152,8 @@ bool UComposableCameraOcclusionFadeNode::ResolveTargetPoint(FVector& OutTargetPo
 	// NOT use the bone path (OutUsedBone == false). This preserves the
 	// original "Z offset applies only on the actor branch" semantic exactly.
 	FComposableCameraTargetInfo Info;
-	// Explicit `.Get()` to convert TObjectPtr->AActor* ->TSoftObjectPtr -	// the unambiguous chain. The TargetInfo struct now uses TSoftObjectPtr
-	// (V1.x) so its Details-panel picker can span level actors.
+	// Explicit `.Get()` makes the TObjectPtr -> AActor* -> TSoftObjectPtr
+	// conversion chain unambiguous.
 	Info.Actor               = ComposableCameraSystem::ResolveActorInput(
 		PivotActorSource, PivotActor.Get(), GetOwningPlayerCameraManager(), this);
 	Info.bUseBoneAsPivot     = bUseBoneForDetection;
@@ -254,7 +253,7 @@ void UComposableCameraOcclusionFadeNode::RunProximityQuery(
 	// "characters and NPCs" intent without requiring configuration.
 	const UClass* EffectiveClass = ProximityActorClass ? *ProximityActorClass : APawn::StaticClass();
 
-	// Member-scoped scratch -Reset (not Empty) keeps the array allocation
+	// Member-scoped scratch. Reset (not Empty) keeps the array allocation
 	// hot across ticks. OverlapMultiByObjectType appends to OutOverlaps so
 	// we must clear before the call. FOverlapResult uses TWeakObjectPtr
 	// internally->GC-safe even if entries linger transiently.
@@ -334,7 +333,8 @@ void UComposableCameraOcclusionFadeNode::CollectFadableComponentsOnActor(
 {
 	if (!Actor) { return; }
 
-	// TInlineAllocator<8> stores the first 8 elements inline on the stack -	// most pawns carry a handful of mesh components, so the heap is never
+	// TInlineAllocator<8> stores the first 8 elements inline on the stack.
+	// Most pawns carry a handful of mesh components, so the heap is never
 	// touched in the common case. AActor::GetComponents<T> accepts an
 	// allocator-templated TArray since UE 4.18.
 	TArray<UPrimitiveComponent*, TInlineAllocator<8>> PrimComps;
@@ -504,13 +504,14 @@ void UComposableCameraOcclusionFadeNode::DrawNodeDebug(UWorld* World, bool bView
 	if (CVarShowOcclusionFadeGizmo.GetValueOnGameThread() == 0
 		&& !FComposableCameraViewportDebug::ShouldShowAllNodeGizmos()) { return; }
 
-	// Sweep visualisation, split into two pieces that gate independently -	// same pattern as CollisionPushNode's pivot-sphere + trace-line split:
+	// Sweep visualisation, split into two pieces that gate independently.
+	// Same pattern as CollisionPushNode's pivot-sphere + trace-line split:
 	//
 	//  * Endpoint sphere at the target (on the character's head, if
 	//    bUseBoneForDetection). Always drawn. This is the "target sphere"
 	//    that answers "where exactly is the protected point?" and reads
 	//    fine in both possessed play and F8 since it sits out in the world.
-	//  * Line from camera to target -F8 / SIE only. The line axis matches
+	//  * Line from camera to target: F8 / SIE only. The line axis matches
 	//    the view axis in possessed play, projecting to near-zero screen
 	//    length; see TechDoc Section 3.20.2 "view-aligned lines".
 	if (bFadeOccluders && bDebugSweepSubmittedThisTick)

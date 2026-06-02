@@ -66,7 +66,7 @@ void UMovieSceneComposableCameraPatchSection::PostEditChangeProperty(FPropertyCh
 	{
 		RebuildBagsFromPatchAsset();
 		// Note: existing keyed channels for parameters that survive the asset
-		// swap are deliberately left in place -UMovieSceneParameterSection's
+		// swap are deliberately left in place. UMovieSceneParameterSection's
 		// Scalar/Bool/Vector/etc. arrays are keyed by FName, so a renamed-or-removed
 		// parameter's channel becomes orphaned. Designer can clean those up via
 		// the channel row's right-click "Delete" (handled by FParameterSection
@@ -124,7 +124,7 @@ void UMovieSceneComposableCameraPatchSection::RebuildBagsFromPatchAsset()
 	}
 
 	// Same shape as FComposableCameraTypeAssetReference::RebuildBagsFromTypeAsset
-	// -Parameters bag mirrors ExposedParameters, Variables bag mirrors
+	// Parameters bag mirrors ExposedParameters, Variables bag mirrors
 	// ExposedVariables (NOT InternalVariables, which are node-private).
 	TArray<FPropertyBagPropertyDesc> ParameterDescs;
 	ParameterDescs.Reserve(PatchAsset->ExposedParameters.Num());

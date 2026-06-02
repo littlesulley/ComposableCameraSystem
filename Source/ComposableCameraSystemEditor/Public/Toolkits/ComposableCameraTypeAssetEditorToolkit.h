@@ -228,7 +228,7 @@ private:
 	 * bug where the last editor to register overwrites all others. */
 	static TSharedRef<SWidget> MakeDebugInstancePickerWidget(const FToolMenuContext& Context, const FToolMenuCustomWidgetContext& WidgetContext);
 
-	// Shot Editor toolbar entry (Phase D.1) 
+	// Shot Editor toolbar entry.
 	//
 	// Adjacent to the Debug button. Routes to the Shot Editor (in the
 	// editor module) for the currently selected `UComposableCameraCompositionFramingNode`

@@ -14,7 +14,7 @@
 
 namespace
 {
-	/** `GetDeltaSeconds` with an explicit null-World guard. The Director
+	/** `GetDeltaSeconds` with an explicit null World guard. The Director
 	 *  outer always has a World during normal play, but multiple eval
 	 *  paths (notably `ResumeCamera` and the activation variants) build
 	 *  `FComposableCameraTransitionInitParams` even during late teardown,
@@ -76,13 +76,13 @@ namespace
 		if (!World)
 		{
 			UE_LOG(LogComposableCameraSystem, Warning,
-				TEXT("%s: cannot spawn camera -World is null."), CallSite);
+				TEXT("%s: cannot spawn camera. World is null."), CallSite);
 			return nullptr;
 		}
 		if (!*CameraClass)
 		{
 			UE_LOG(LogComposableCameraSystem, Warning,
-				TEXT("%s: cannot spawn camera -CameraClass is null."), CallSite);
+				TEXT("%s: cannot spawn camera. CameraClass is null."), CallSite);
 			return nullptr;
 		}
 		AComposableCameraCameraBase* Spawned =

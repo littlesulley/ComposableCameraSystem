@@ -12,18 +12,10 @@ class USkeletalMesh;
  * Identifies a single world-frame point on (or near) an Actor. The "pivot"
  * that camera nodes resolve to a world position each frame.
  *
- * Phase A consumers (V1.x): FocusPullNode, OcclusionFadeNode. Both call
- * ResolveWorldPoint() instead of duplicating the same bone-walk-and-fallback
- * logic inline. The other two pivot-using nodes (CollisionPushNode,
- * ScreenSpacePivotNode) keep their own resolution code in V1: CollisionPush
- * caches a SkeletalMeshComponent on activation for hot-path speed;
- * ScreenSpacePivot has no bone path at all (it's just ActorLocation +
- * WorldUpOffset). They may adopt this struct later if and when there's a
- * win.
- *
- * Phase B+ consumers: the Shot composition system (see
- * Docs/ShotBasedKeyframing.md). Used directly inside FShotTarget and
- * resolved via the Composition Solver.
+ * Consumers include FocusPullNode, OcclusionFadeNode, and the Shot
+ * composition solver. Focus / occlusion reuse `ResolveWorldPoint()` instead
+ * of duplicating bone-walk-and-fallback logic; Shot targets store this struct
+ * directly and resolve it during `SolveShot()`.
  *
  * Resolution proceeds in two paths:
  *
@@ -41,7 +33,8 @@ class USkeletalMesh;
  * existing pivot-using nodes pass through), or rotated through the pivot
  * frame quaternion first if bOffsetInLocalSpace is true.
  *
- * Properties are BlueprintReadOnly per Docs/ShotBasedKeyframing.md Section 1.4 - Shot data is designer-authored content, not gameplay-controlled state.
+ * Properties are BlueprintReadOnly: Shot data is designer-authored content,
+ * not gameplay-controlled state.
  * The struct is BlueprintType for editor / Sequencer / Details panel
  * reflection only.
  */
@@ -112,8 +105,7 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraTargetInfo
 	 *  actor's quaternion in actor path. When false (default), Offset is
 	 *  added directly in world space. Matches the legacy "PivotZOffset"
 	 *  semantics that existing FocusPullNode / OcclusionFadeNode authors
-	 *  expect when their call sites construct an FComposableCameraTargetInfo
-	 *  via the Phase A migration. */
+	 *  expect when their call sites construct an FComposableCameraTargetInfo. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Target)
 	bool bOffsetInLocalSpace = false;
 
@@ -143,7 +135,7 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraTargetInfo
 	 *   - Resolved Actor has no SkeletalMeshComponent (silently falls back
 	 *     to the actor quat. Same as if the flag were false).
 	 *
-	 * Default `false` to preserve V1.x behavior for existing assets. Toggle
+	 * Default `false` to preserve existing asset behavior. Toggle
 	 * to true for Character-style targets when authoring new Shots.
 	 *
 	 * Independent of `bUseBoneAsPivot` / `BoneName`: this flag drives the
@@ -169,7 +161,7 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraTargetInfo
 	 *                     path resolved successfully (bUseBoneAsPivot was
 	 *                     true AND BoneName was found on a SkelMesh). Set
 	 *                     to false in every other case (no bone mode,
-	 *                     fallback fired, or Actor null). Used by the V1.x
+	 *                     fallback fired, or Actor null). Used by the
 	 *                     migration call sites in FocusPullNode /
 	 *                     OcclusionFadeNode to preserve the legacy "Z
 	 *                     offset is applied only when the bone path did

@@ -666,9 +666,9 @@ void FComposableCameraPatchSectionInterface::GatherParameterEntries(bool bIsVari
 	auto EmitFromExposedSurface = [&](FName Name, FText DisplayName, EComposableCameraPinType PinType,
 	 const UScriptStruct* StructType, const UEnum* EnumType)
 	{
-		// Filter: only show params whose pin type maps to a UMovieSceneParameterSection
-		// channel kind. Int32 / Enum / Object / Name / Struct / Delegate stay
-		// bag-only (no channel keying in V1.x).
+		// Filter: only show params whose pin type maps to a
+		// UMovieSceneParameterSection channel kind. Int32 / Enum / Object /
+		// Name / Struct / Delegate stay bag-only.
 		if (PinTypeToChannelKind(PinType) == EPatchChannelKind::None)
 		{
 			return;

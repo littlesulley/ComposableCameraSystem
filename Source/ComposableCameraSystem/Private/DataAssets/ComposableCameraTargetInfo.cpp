@@ -120,7 +120,7 @@ namespace
 	 *      any path the rewrite couldn't fix (including raw `AActor*`
 	 *      assignments that already point at a PIE actor, e.g. the
 	 *      `BuildEffectiveShot` override path).
-	 *   3. **Walk-PIE-worlds fallback** -`RemapToPIECounterpartIfNeeded` on
+	 *   3. **Walk-PIE-worlds fallback**. `RemapToPIECounterpartIfNeeded` on
 	 *      the resolved actor. Catches editor-world actor that the path
 	 *      rewrite couldn't redirect (sublevels, WP cells, Spawnables whose
 	 *      names match across worlds even though the path doesn't).
@@ -261,7 +261,7 @@ bool FComposableCameraTargetInfo::ResolveBasisQuat(FQuat& OutQuat) const
 		// without a SkelMesh trivially hits this path. Warning here would
 		// be noise. Designer-facing warning lives instead in
 		// `ResolvePlacementBasis` for the Actor-null case (the path that
-		// actually defeats the InheritFromActor intent -World identity
+		// actually defeats the InheritFromActor intent. World identity
 		// instead of any actor-derived quat).
 	}
 

@@ -1501,7 +1501,7 @@ void UComposableCameraNodeGraph::RebuildPhase_RestoreExecutionChain(UComposableC
 
 	// Resolve a chain entry's ExecIn / ExecOut pin. Switch-on-enum rather than
 	// if/else so adding a new EComposableCameraExecEntryType alternative trips
-	// the compiler's -Wswitch warning at every call site - this project has a
+	// the compiler's -Wswitch warning at every call site. This project has a
 	// rule about keeping exhaustive handling tight (see.auto-memory feedback
 	// entry on TVariant exhaustive handling, same principle applies to enums).
 	auto FindExecPin = [&](int32 ChainIndex, EEdGraphPinDirection Dir) ->UEdGraphPin*

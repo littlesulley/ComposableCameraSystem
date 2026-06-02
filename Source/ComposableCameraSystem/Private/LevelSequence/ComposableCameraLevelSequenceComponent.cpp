@@ -235,8 +235,8 @@ void UComposableCameraLevelSequenceComponent::EvaluateOnce(float DeltaTime)
 		return;
 	}
 
-	// Phase D: re-sync the bag's current values into the runtime data block
-	// before ticking. Sequencer's stock FPropertyTrack evaluation writes
+	// Re-sync the bag's current values into the runtime data block before
+	// ticking. Sequencer's stock FPropertyTrack evaluation writes
 	// directly into the bag's backing FProperty each frame; our job is to
 	// propagate those writes into the camera's data block so node tick
 	// reads see the animated value. ApplyParameterBlock handles enum
@@ -259,9 +259,9 @@ void UComposableCameraLevelSequenceComponent::EvaluateOnce(float DeltaTime)
 		TypeAssetReference.TypeAsset->ApplyParameterBlock(*InternalCamera->OwnedRuntimeDataBlock, Block);
 	}
 
-	// Phase E: apply Sequencer Shot override BEFORE TickCamera so the
+	// Apply Sequencer Shot override BEFORE TickCamera so the
 	// CompositionFramingNode's solver sees the new Shot data on the same
-	// frame. No-op when the override map is empty -CompositionFramingNode
+	// frame. No-op when the override map is empty; CompositionFramingNode
 	// keeps its last-written Shot.
 	if (SequencerShotOverrides.Num() > 0)
 	{
@@ -269,8 +269,8 @@ void UComposableCameraLevelSequenceComponent::EvaluateOnce(float DeltaTime)
 	}
 
 	// Note: DeltaTime in editor-world scrubbing is synthetic (Sequencer drives
-	// it). History-dependent nodes may look off during scrub. Phase B accepts
-	// this; see TechDoc Section 7 gotcha for history-dependent nodes. PIE DeltaTime is
+	// it). History-dependent nodes may look off during scrub; see TechDoc
+	// gotchas for history-dependent nodes. PIE DeltaTime is
 	// real frame-to-frame time and nodes behave normally.
 	FComposableCameraPose Pose = InternalCamera->TickCamera(DeltaTime);
 
@@ -324,8 +324,8 @@ void UComposableCameraLevelSequenceComponent::PostEditChangeProperty(FPropertyCh
 		return;
 	}
 
-	// Bag value edits (Parameters / Variables): Phase D no longer rebuilds
-	// the camera. The next TickComponent re-applies the bag via
+	// Bag value edits (Parameters / Variables) do not rebuild the camera.
+	// The next TickComponent re-applies the bag via
 	// ApplyParameterBlock, which is O(exposed-parameter count) and cheap
 	// enough to pay once per frame. This also matches the Sequencer-driven
 	// path: when a property track writes to the bag's backing field, the
@@ -413,7 +413,7 @@ void UComposableCameraLevelSequenceComponent::EnsureInternalCamera()
 	// with empty CameraNodes / ComputeNodes, so the compute-chain walk was a
 	// harmless no-op. That is intentional: we skip the compute chain entirely
 	// in the LS path (compute nodes return GetLevelSequenceCompatibility() ==
-	// ComputeOnly; see Phase F warning). Any subsequent TickCamera walks
+	// ComputeOnly). Any subsequent TickCamera walks
 	// CameraNodes only, which is exactly what we want.
 
 	// The internal camera is driven by our TickComponent via explicit TickCamera
@@ -421,8 +421,8 @@ void UComposableCameraLevelSequenceComponent::EnsureInternalCamera()
 	// visit per frame. Suppress it.
 	InternalCamera->SetActorTickEnabled(false);
 
-	// Initialize with PCM = nullptr. Phase A made this path valid: the camera
-	// base null-guards its BindCameraActionsForNewCamera call, and nodes that
+	// Initialize with PCM = nullptr. The camera base null-guards its
+	// BindCameraActionsForNewCamera call, and nodes that
 	// unconditionally require a PCM either (a) early-return in OnInitialize
 	// and OnTickNode or (b) are categorically ComputeOnly (skipped). See
 	// GetLevelSequenceCompatibility overrides on ScreenSpace*, MixingCamera,
@@ -554,8 +554,8 @@ void UComposableCameraLevelSequenceComponent::ProjectPoseToCineCamera(const FCom
 	// Section is driving the LS Component this frame.
 	OutputCineCameraComponent->SetWorldLocationAndRotation(Pose.Position, Pose.Rotation);
 
-	// Phase E + Polish: Lens fields (FOV / Aperture / FocusDistance)
-	// project onto the CineCamera ONLY when a Sequencer Shot Section is
+	// Lens fields (FOV / Aperture / FocusDistance) project onto the
+	// CineCamera ONLY when a Sequencer Shot Section is
 	// actively overriding the framing this frame. I.e.
 	// `SequencerShotOverrides.Num() > 0`. The pose then carries the
 	// solver's resolved Lens.* values from the active Shot's
@@ -570,10 +570,9 @@ void UComposableCameraLevelSequenceComponent::ProjectPoseToCineCamera(const FCom
 	// meaningless context (no Section asked for them) and writing them
 	// here would clobber the designer-authored CineCamera optics
 	// (recently made editable via the `OutputCineCameraComponent`
-	// UPROPERTY). The Section-active check keeps the original Phase B
-	// invariant -"free-standing LSActors don't steal CineCam optic
-	// authoring". While the V2 Shot system gets its expected
-	// "Shot.Lens flows to CineCam" behaviour.
+	// UPROPERTY). The Section-active check keeps free-standing LSActors
+	// from stealing CineCam optic authoring, while Shot Sections still get
+	// expected "Shot.Lens flows to CineCam" behaviour.
 	//
 	// Patch overlay path (`ApplySequencerPatchOverlays` above) writes a
 	// FOV separately for DollyZoom etc.; that path still works because
@@ -660,7 +659,7 @@ void UComposableCameraLevelSequenceComponent::SetSequencerPatchOverlay(
 			return;
 		}
 
-		// Suppress actor tick -TickComponent drives ticks via TickWithInputPose.
+		// Suppress actor tick. TickComponent drives ticks via TickWithInputPose.
 		NewEvaluator->SetActorTickEnabled(false);
 		// PCM-independent init (skips BindCameraActionsForNewCamera).
 		NewEvaluator->Initialize(/*Manager=*/nullptr);
@@ -900,10 +899,11 @@ void UComposableCameraLevelSequenceComponent::ApplyActiveSequencerShotOverride()
 		return;
 	}
 
-	// --- Phase F: collect valid entries sorted ascending by RowIndex.
+	// Collect valid entries sorted ascending by RowIndex.
 	// Lowest RowIndex (Sequencer's "top row") = primary / outgoing.
 	// Next-lowest RowIndex = secondary / incoming for the active overlap.
-	// Third+ entries are silently dropped per spec Section 7.6 decision Q3.
+	// Third+ entries are silently dropped; only primary + one secondary
+	// overlap participate in the blend.
 	//
 	// Stale entries (section GC'd) are pruned in the same pass to keep
 	// the map tight.
@@ -955,7 +955,7 @@ void UComposableCameraLevelSequenceComponent::ApplyActiveSequencerShotOverride()
 
 	// Find the first UComposableCameraCompositionFramingNode on the
 	// InternalCamera's CameraNodes array. The DefaultShotTypeAsset bootstrap
-	// (Phase E.5) guarantees exactly one CompositionFramingNode for the
+	// guarantees exactly one CompositionFramingNode for the
 	// AComposableCameraLevelSequenceShotActor flow; this "first found" rule
 	// only matters when a power user pairs the generic LSActor with a custom
 	// TypeAsset that contains multiple framing nodes (push to first; their
@@ -1011,8 +1011,8 @@ void UComposableCameraLevelSequenceComponent::ApplyActiveSequencerShotOverride()
 	// node. The node's `SetActiveShotsFromSequencer` decides whether to run
 	// the two-solver blend (F.4) based on whether secondary + transition
 	// are both non-null. When `Secondary->EnterTransition` is null, the
-	// node treats it as a hard cut. Primary is the sole solver input,
-	// matching V1 top-row-winner behavior throughout the overlap.
+	// node treats it as a hard cut. Primary is the sole solver input
+	// throughout the overlap.
 	if (Secondary)
 	{
 		Framing->SetActiveShotsFromSequencer(

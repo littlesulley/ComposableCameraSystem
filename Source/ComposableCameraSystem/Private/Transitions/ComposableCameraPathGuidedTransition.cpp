@@ -302,7 +302,7 @@ FComposableCameraPose UComposableCameraPathGuidedTransition::OnEvaluate_Implemen
 				{
 					// Lazy-create the exit transition the first time we
 					// cross GuideRange.Y. Same null-check discipline as
-					// OnBeginPlay's earlier spawns -NewObject can return
+					// OnBeginPlay's earlier spawns. NewObject can return
 					// null on teardown / GC pressure / abnormal source-
 					// object state, and the immediate `TransitionEnabled`
 					// deref would crash. On failure, tear down the

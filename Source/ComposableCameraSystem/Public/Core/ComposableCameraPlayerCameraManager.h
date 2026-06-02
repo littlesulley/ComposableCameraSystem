@@ -334,10 +334,10 @@ public:
 
 	/** Per-frame scratch buffer for `UpdateActions`: collects pointers of
 	 *  expired/null actions during the iteration so the actual `Remove`s
-	 *  happen in a second pass (safe -TSet mutation during iteration is
+	 *  happen in a second pass. TSet mutation during iteration is
 	 *  not). Member-scoped so the TArray's heap allocation amortizes
 	 *  across frames; `Reset()` keeps capacity. Earlier code constructed
-	 *  a fresh `TSet<UObject*>` every tick -TSet allocates a node per
+	 *  a fresh `TSet<UObject*>` every tick. TSet allocates a node per
 	 *  insert and may rehash, so even an empty set paid one heap alloc
 	 *  per frame and a populated set paid more. Move to a `TArray` of
 	 *  raw pointers since (a) we never look up by key, (b) actions can't

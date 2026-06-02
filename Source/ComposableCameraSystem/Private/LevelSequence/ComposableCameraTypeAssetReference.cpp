@@ -43,8 +43,9 @@ void FComposableCameraTypeAssetReference::RebuildBagsFromTypeAsset()
 
 	// MigrateToNewBagStruct preserves values for properties whose name + type
 	// survive the new layout and resets the rest to their type defaults. This
-	// is what we want: renaming an exposed parameter ->entry re-created; pure
-	// addition of new parameters ->existing values preserved; type change ->	// value reset (can't carry a float through into a vector slot safely).
+	// is what we want: renaming an exposed parameter recreates the entry; pure
+	// addition of new parameters preserves existing values; type changes reset
+	// the value (can't carry a float through into a vector slot safely).
 	if (const UPropertyBag* NewParamStruct = UPropertyBag::GetOrCreateFromDescs(ParameterDescs))
 	{
 		Parameters.MigrateToNewBagStruct(NewParamStruct);

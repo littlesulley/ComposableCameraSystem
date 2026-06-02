@@ -17,8 +17,8 @@
 struct FShotEditorHistoryEntry
 {
 	/** Weak ref to the host UObject - `UComposableCameraCompositionFramingNode`,
-	 * `UMovieSceneComposableCameraShotSection`, or `UComposableCameraShotAsset`
-	 * in V1. Goes stale on host destruction. Empty for entries loaded from
+	 * `UMovieSceneComposableCameraShotSection`, or `UComposableCameraShotAsset`.
+	 * Goes stale on host destruction. Empty for entries loaded from
 	 * the ini before their host asset is back in memory. */
 	TWeakObjectPtr<UObject> Host;
 

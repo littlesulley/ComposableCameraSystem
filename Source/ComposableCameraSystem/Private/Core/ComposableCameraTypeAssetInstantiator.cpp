@@ -57,7 +57,8 @@ namespace UE::ComposableCameras
 		// execution chain. Nodes not in this set are orphaned in the graph (no
 		// exec-pin connection) and are skipped during duplication to save memory
 		// and initialization cost. We still push nullptr at their index so that
-		// CameraNodes[i] keeps its 1:1 correspondence with NodeTemplates[i] -		// the RuntimeDataBlock pin-key offsets and FullExecChain indices depend
+		// CameraNodes[i] keeps its 1:1 correspondence with NodeTemplates[i];
+		// the RuntimeDataBlock pin-key offsets and FullExecChain indices depend
 		// on that mapping.
 		TSet<int32> ConnectedNodeIndices;
 		if (TypeAsset->FullExecChain.Num() > 0)
@@ -79,7 +80,7 @@ namespace UE::ComposableCameras
 			}
 		}
 		// If both are empty (should not happen for type-asset cameras), we
-		// duplicate everything -ConnectedNodeIndices stays empty and the
+		// duplicate everything. ConnectedNodeIndices stays empty and the
 		// bHasExecChain flag below gates the skip logic off.
 		const bool bHasExecChain = ConnectedNodeIndices.Num() > 0;
 

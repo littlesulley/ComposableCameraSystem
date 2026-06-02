@@ -50,7 +50,7 @@ class UComposableCameraTypeAsset;
 // through the Details panel (EditAnywhere) and C++ / editor code reads the bags
 // directly; Blueprint just can't introspect it. The TypeAsset field is still a
 // plain TObjectPtr which BP could handle on its own, but we don't need that
-// surface in Phase B.
+// surface for direct bag editing.
 USTRUCT()
 struct COMPOSABLECAMERASYSTEM_API FComposableCameraTypeAssetReference
 {
@@ -69,9 +69,9 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraTypeAssetReference
 	 *  - We deliberately do NOT set meta=(InterpBagProperties=true) here.
 	 *    That metadata would make Sequencer's core drill-in walk the bag
 	 *    automatically and surface leaves through a deep "TypeAssetReference
-	 *    -Parameters -Value -Leaf" chain. Duplicating what our own
+	 *    "Parameters > Value > Leaf" chain. Duplicating what our own
 	 *    FComposableCameraLevelSequenceComponentTrackEditor already surfaces
-	 *    at two levels (Camera Parameters -Leaf). Instead, we only rely on
+	 *    at two levels (Camera Parameters > Leaf). Instead, we only rely on
 	 *    CPF_Interp being set on each dynamic bag leaf by
 	 *    RebuildBagsFromTypeAsset (see UE::ComposableCameras::ExposedBag::AddDescIfSupported) - that single flag is what makes CanKeyProperty succeed; the outer
 	 *    bag metadata is not required for the custom track-editor path. */

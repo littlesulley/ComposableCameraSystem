@@ -60,9 +60,8 @@ private:
 	void RefreshBoneOptions();
 
 	/** Resolve the SkeletalMesh asset for the effective target
-	 * actor. Effective actor = LS Section override binding's resolved
-	 * actor when present (Phase E `FComposableCameraShotTargetActorOverride`
-	 * routed through the open Sequencer), else the directly-authored
+	 * actor. Effective actor = LS Section override binding's resolved actor
+	 * when present (routed through the open Sequencer), else the directly-authored
 	 * `Actor` UPROPERTY, else the editor-only preview mesh asset. Returns
 	 * null when none of those paths resolves. */
 	USkeletalMesh* ResolveSkeletalMesh() const;

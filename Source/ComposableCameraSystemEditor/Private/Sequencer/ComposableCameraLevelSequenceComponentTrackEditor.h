@@ -29,8 +29,9 @@ class AComposableCameraLevelSequenceActor;
  * TypeAssetReference.Variables.Value.{VarName}
  *
  * Once the track exists, Sequencer's normal evaluation writes the animated
- * value into the bag's backing FProperty each frame, and Phase D's per-tick
- * ApplyParameterBlock propagates that into the camera's runtime data block.
+ * value into the bag's backing FProperty each frame, and the component's
+ * per-tick ApplyParameterBlock propagates that into the camera's runtime data
+ * block.
  *
  * Mirrors Epic's FGameplayCameraComponentTrackEditor
  * (Engine/Plugins/Cameras/GameplayCameras/Source/GameplayCamerasEditor/Private/Sequencer/

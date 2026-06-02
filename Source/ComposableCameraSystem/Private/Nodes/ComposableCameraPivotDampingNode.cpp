@@ -44,7 +44,8 @@ void UComposableCameraPivotDampingNode::OnFirstTickNode_Implementation()
 void UComposableCameraPivotDampingNode::OnTickNode_Implementation(float DeltaTime,
 	const FComposableCameraPose& CurrentCameraPose, FComposableCameraPose& OutCameraPose)
 {
-	// PivotPosition and bMaintainCameraSpacePivotPosition are pin-matched UPROPERTYs -	// already resolved by the base TickNode prologue. Read PivotPosition directly.
+	// PivotPosition and bMaintainCameraSpacePivotPosition are pin-matched
+	// UPROPERTYs already resolved by the base TickNode prologue.
 	const FVector Pivot = PivotPosition;
 
 	// The rotation must be determined before this node. 
@@ -192,4 +193,3 @@ void UComposableCameraPivotDampingNode::GetPinDeclarations_Implementation(TArray
 	PinDecl.Tooltip = NSLOCTEXT("ComposableCameraPivotDampingNode", "PivotPositionOutputTip", "Damped pivot position output.");
 	OutPins.Add(PinDecl);
 }
-

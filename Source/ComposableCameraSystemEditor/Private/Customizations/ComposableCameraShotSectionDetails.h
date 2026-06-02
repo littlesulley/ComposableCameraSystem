@@ -18,7 +18,7 @@ class FPropertyEditorModule;
  * Hiding it removes the redundant entry point so designers have one canonical
  * authoring surface.
  * - `EnterTransition` - fully driven by the right-click context menu
- * "Set Enter Transition " submenu (Phase F). Same rationale: the menu
+ * "Set Enter Transition " submenu. Same rationale: the menu
  * surfaces the soft-pointer asset picker plus a Clear entry, with the
  * current selection labeled in the parent menu - friendlier than the bare
  * `TSoftObjectPtr` Details slot.

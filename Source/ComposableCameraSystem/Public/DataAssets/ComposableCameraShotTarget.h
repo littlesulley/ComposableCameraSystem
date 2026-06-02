@@ -8,8 +8,8 @@
 
 /**
  * Selects how the bounding box around a shot target is determined. The
- * bounding box drives the FOV solve when FOVMode == SolvedFromBoundsFit
- * (Docs/ShotBasedKeyframing.md Section 4.5 -Weight-scaled Perceptual Union Box).
+ * bounding box drives the FOV solve when FOVMode == SolvedFromBoundsFit.
+ * See DesignDoc / TechDoc for the weight-scaled perceptual union box.
  */
 UENUM(BlueprintType)
 enum class EShotTargetBoundsShape : uint8
@@ -23,8 +23,7 @@ enum class EShotTargetBoundsShape : uint8
 	/**
 	 * Snapshot of Actor->GetComponentsBoundingBox() per BoundsCachePolicy.
 	 * Walks the actor's component hierarchy each refresh. Never per-frame
-	 * unless BoundsCachePolicy == Live. See Section 3.3.1 of the spec for the
-	 * cache lifecycle.
+	 * unless BoundsCachePolicy == Live.
 	 */
 	AutoFromComponentBounds
 };
@@ -62,19 +61,12 @@ enum class EBoundsCachePolicy : uint8
  * world-space objects: identity (Actor + Bone + Offset via the embedded
  * `FComposableCameraTargetInfo`) plus an optional bounding box used by the
  * FOV bounds-fit solve. Targets do NOT carry screen-space composition
- * data. That lives on the Shot's Placement / Aim layers (see
- * Docs/ShotBasedKeyframing.md Section 3 for the layered data model).
+ * data. Screen-space composition lives on the Shot's Placement / Aim layers:
+ * `FShotPlacement::ScreenPosition` for where the placement anchor lands, and
+ * `FShotAim::ScreenPosition` for where the aim anchor lands.
  *
- * V1.x (pre-refactor): `DesiredScreenPosition`, `ScreenPositionWeight`,
- * `Method` (Rotate / Translate) lived here. V2 deletes those fields - screen-position constraints come from `FShotPlacement::ScreenPosition`
- * (where the placement anchor lands, realized via lateral camera
- * translation) and `FShotAim::ScreenPosition` (where the aim anchor
- * lands, realized via camera rotation). Method is no longer per-target:
- * Placement is always Translate (changes Position), Aim is always Rotate
- * (changes Rotation). This kills the old V1.x cross-layer coupling.
- *
- * Properties are BlueprintReadOnly per the Shot system's "no runtime BP
- * API for mutating Shot data" principle (spec Section 1.4).
+ * Properties are BlueprintReadOnly per the Shot system's "no runtime BP API
+ * for mutating Shot data" principle.
  */
 USTRUCT(BlueprintType)
 struct COMPOSABLECAMERASYSTEM_API FComposableCameraShotTarget
@@ -96,8 +88,7 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraShotTarget
 		meta = (EditCondition = "BoundsShape == EShotTargetBoundsShape::ManualExtent"))
 	FVector ManualBoundsExtent = FVector(50.f);
 
-	/** Cache refresh policy when BoundsShape == AutoFromComponentBounds.
-	 *  See EBoundsCachePolicy and spec Section 3.3.1. */
+	/** Cache refresh policy when BoundsShape == AutoFromComponentBounds. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Bounds",
 		meta = (EditCondition = "BoundsShape == EShotTargetBoundsShape::AutoFromComponentBounds"))
 	EBoundsCachePolicy BoundsCachePolicy = EBoundsCachePolicy::StaticSnapshot;
@@ -141,8 +132,8 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraShotTarget
 
 	/**
 	 * Importance weight of this target's bounds in the FOV bounds-fit
-	 * solve. Drives the BlackEye-style "perceptual union box" sizing in
-	 * spec Section 4.5: high-weight targets dominate the resulting box, low-weight
+	 * solve. Drives the BlackEye-style "perceptual union box" sizing:
+	 * high-weight targets dominate the resulting box, low-weight
 	 * ones contribute proportionally less. 0 = target has bounds but
 	 * doesn't drive FOV. Clamped [0, 1]. Only ratios matter in the
 	 * perceptual-box math, the [0, 1] convention keeps Details-panel

@@ -48,7 +48,7 @@ class FSceneView;
 class USkeletalMesh;
 
 /**
- * FEditorViewportClient subclass for the Shot Editor's middle region (Phase D.2).
+ * FEditorViewportClient subclass for the Shot Editor's middle region.
  *
  * Renders the Shot Editor's `FPreviewScene` (a separate UWorld from the user's
  * level), spawns one proxy actor per `Shot.Targets[i]` (snapshot of source actor's
@@ -104,9 +104,8 @@ public:
 	FComposableCameraShot* GetActiveShot() const { return ActiveShot; }
 
 	/** Tri-state mode (Drag / Free / Lock - see EShotEditorMode in
-	 * SShotEditorViewport.h for semantics). Replaces V1.x bool Manual
-	 * Mode toggle. Cancels any in-flight bone-picking sub-mode (Phase G+)
-	 * when the user leaves Drag. */
+	 * SShotEditorViewport.h for semantics). Cancels any in-flight bone-picking
+	 * sub-mode when the user leaves Drag. */
 	void SetMode(EShotEditorMode InMode);
 	EShotEditorMode GetMode() const { return CurrentMode; }
 
@@ -125,8 +124,8 @@ public:
 	bool CanReverseSolveCurrentCamera() const;
 
 	/** Reverse-solve: take the current camera pose (location, rotation,
-	 * ViewFOV) and write Shot params that would produce it. V2 (3-layer
-	 * Placement / Aim model) writes:
+	 * ViewFOV) and write Shot params that would produce it. The Placement /
+	 * Aim / Lens model writes:
 	 *
 	 * Placement.Distance = |CameraPos - PlacementAnchorPos|
 	 * Placement.LocalCameraDirection = inverse spherical of
@@ -137,8 +136,8 @@ public:
 	 * Lens.ManualFOV = ViewFOV (only when FOVMode == Manual)
 	 * Roll = CamRot.Roll
 	 *
-	 * Per-target screen positions no longer exist (V2 dropped them - Targets
-	 * are pure world-space). Wraps the writes in a host transaction
+	 * Targets are pure world-space, so there are no per-target screen
+	 * positions. Wraps the writes in a host transaction
 	 * (Modify + PostEditChangeProperty ValueSet) so the whole reverse-solve
 	 * is one undo entry. Returns true iff PlacementAnchor + AimAnchor both
 	 * resolved AND Distance > 1cm; false (no-op) otherwise. */
@@ -334,8 +333,8 @@ private:
 
 	// D.4 Handle drag state 
 
-	/** Type of handle being drawn / hit-tested / dragged. V2 (3-layer
-	 * Placement / Aim model): two handles - one per anchor screen
+	/** Type of handle being drawn / hit-tested / dragged. Two handles - one
+	 * per anchor screen
 	 * position (Placement.ScreenPosition + Aim.ScreenPosition). Per-target
 	 * handles dropped (no more per-target screen-position UPROPERTY). */
 	enum class EHandleType: uint8
@@ -506,13 +505,11 @@ private:
 	 */
 	bool TryAdjustDistanceFromMouseWheel(bool bScrollUp);
 
-	// V2 has no RMB context menu on the anchor handles. The previous Method
-	// submenu (V1.x Rotate/Translate) was removed when Method was made fixed
-	// per layer; the in-viewport bone picker entry was removed because
-	// anchors don't carry bones - bone authoring lives on the per-target
-	// Details combo (`FComposableCameraTargetInfoCustomization`). RMB on
-	// the viewport falls through to base class behavior (camera-look in
-	// Free mode, eaten in Drag/Lock).
+	// No RMB context menu on anchor handles. Anchors do not carry bones; bone
+	// authoring lives on the per-target Details combo
+	// (`FComposableCameraTargetInfoCustomization`). RMB on the viewport falls
+	// through to base class behavior (camera-look in Free mode, eaten in
+	// Drag/Lock).
 
 	/** Cached solver-output focus distance (cm). Pushed into the SceneView's
 	 * `FinalPostProcessSettings.DepthOfFieldFocalDistance` each frame in
@@ -547,10 +544,10 @@ private:
 	bool bHasCachedPriorPose = false;
 	FVector CachedPriorPos = FVector::ZeroVector;
 	FRotator CachedPriorRot = FRotator::ZeroRotator;
-	/** Last frame's effective `Placement.Distance` (post-V2.2 damping +
-	 * clamp). `< 0` no prior; solver skips Distance damping. */
+	/** Last frame's effective `Placement.Distance` (post-damping + clamp).
+	 * `< 0` no prior; solver skips Distance damping. */
 	float CachedPriorDistance = -1.f;
-	/** Last frame's effective FOV / Roll (post-V2.2 damping). Sentinels
+	/** Last frame's effective FOV / Roll (post-damping). Sentinels
 	 * match `FShotPriorPose::LastFOV` (`< 0`) and `LastRoll` (`FLT_MAX`). */
 	float CachedPriorFOV = -1.f;
 	float CachedPriorRoll = TNumericLimits<float>::Max();

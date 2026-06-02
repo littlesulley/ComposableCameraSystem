@@ -181,7 +181,7 @@ void UK2Node_PlayCutsceneSequence::ExpandNode(FKismetCompilerContext& CompilerCo
 		CompilerContext.SpawnIntermediateNode<UK2Node_AssignmentStatement>(this, SourceGraph);
 	AssignProxy->AllocateDefaultPins();
 
-	// The assignment's variable AND value pin types must both be set explicitly - 
+	// The assignment's variable and value pin types must both be set explicitly;
 	// the assignment node creates wildcard pins by default and the K2 compiler
 	// raises "type of Variable is undetermined" if they remain unresolved.
 	FEdGraphPinType ProxyPinType;

@@ -36,7 +36,7 @@ namespace UE::ComposableCameras
 		}
 
 		// 2. GameViewport (game worlds without a PCM, or a PCM whose owning
-		//    controller isn't wired yet -PIE, standalone, packaged game).
+		//    controller isn't wired yet: PIE, standalone, packaged game).
 		if (GEngine && GEngine->GameViewport)
 		{
 			FVector2D Size = FVector2D::ZeroVector;

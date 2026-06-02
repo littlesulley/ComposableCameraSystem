@@ -111,7 +111,8 @@ UMovieSceneSection* UMovieSceneComposableCameraPatchTrack::CreateNewSection()
 		}
 		if (MatchCount == 1)
 		{
-			// 5.6 doesn't expose FMovieSceneObjectBindingID(Guid, SequenceID) -			// construct via the UE::MovieScene::FRelativeObjectBindingID helper
+			// 5.6 doesn't expose FMovieSceneObjectBindingID(Guid, SequenceID).
+			// Construct via the UE::MovieScene::FRelativeObjectBindingID helper
 			// (single-arg ctor defaults SequenceID to MovieSceneSequenceID::Root)
 			// and let the converting constructor / operator= on FMovieSceneObjectBindingID
 			// do the rest. This is the same path the Sequencer picker UI takes

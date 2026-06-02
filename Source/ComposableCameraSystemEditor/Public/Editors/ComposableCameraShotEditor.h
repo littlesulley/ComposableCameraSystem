@@ -12,16 +12,16 @@ class FSpawnTabArgs;
 class UMovieSceneComposableCameraShotSection;
 
 /**
- * Static API + module-lifetime registry for the Shot Editor (Phase D of
- * Shot-Based Keyframing). The editor is a **single-instance nomad tab**
+ * Static API + module-lifetime registry for the Shot Editor. The editor is a
+ * **single-instance nomad tab**
  * registered with `FGlobalTabmanager` - re-invoking `OpenForShot` while
  * the tab is already open swaps the active Shot context (per Q6 design),
  * it does not spawn a second window.
  *
  * Triggered by:
- * - `UComposableCameraCompositionFramingNode::OpenShotEditor` (V1 - 
- * Details-panel "Open Shot Editor" CallInEditor button on the node).
- * - Phase E LS Shot Section right-click -> "Open Shot Editor" (TBD).
+ * - `UComposableCameraCompositionFramingNode::OpenShotEditor`
+ *   Details-panel "Open Shot Editor" CallInEditor button on the node.
+ * - Sequencer Shot Section selection / context actions.
  *
  * Routed via `FOpenShotEditor::OpenShotEditorDelegate` (declared in
  * `Public/EditorHooks/EditorHooks.h` on the runtime module side); this

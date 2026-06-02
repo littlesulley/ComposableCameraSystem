@@ -176,7 +176,8 @@ void UComposableCameraInertializedTransition::DrawTransitionDebug(UWorld* World,
 
 	// Reconstitute the world-space path by adding this frame's target
 	// position to every cached offset. A moving target during the blend
-	// (live camera actor) still produces a visually consistent path -	// offsets are target-relative by construction.
+	// still produces a visually consistent path because offsets are
+	// target-relative by construction.
 	const FVector TgtPos = LastDebugTarget.Position;
 	FVector PrevPoint = DebugPathOffsets[0] + TgtPos;
 	for (int32 i = 1; i < DebugPathOffsets.Num(); ++i)

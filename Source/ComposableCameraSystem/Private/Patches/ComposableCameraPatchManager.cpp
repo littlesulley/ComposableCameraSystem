@@ -26,7 +26,7 @@ namespace
 	 * Advance the envelope state machine by DeltaTime.
 	 *
 	 *   Entering : alpha = ease(t),         t = ElapsedInPhase / EnterDuration; transition -> Active when t <=1.
-	 *   Active   : alpha = 1; ElapsedTimeActive accumulates (Stage 4 wires Duration channel against it).
+	 *   Active   : alpha = 1; ElapsedTimeActive accumulates for Duration expiration.
 	 *   Exiting  : alpha = ExitStartAlpha * (1 - ease(t)), t = ElapsedInPhase / ExitDuration; transition ->Expired when t <=1.
 	 *   Expired  : no-op; Apply's end-of-pass sweep removes the entry.
 	 *
@@ -196,7 +196,9 @@ UComposableCameraPatchHandle* UComposableCameraPatchManager::AddPatch(
 	}
 
 	// Sentinel resolution. Each overridable field is gated by its own paired
-	// bOverride* bool (FPostProcessSettings::bOverride_* idiom). Unchecked ->	// asset default; checked ->caller value wins, even when the value is 0.
+	// bOverride* bool (FPostProcessSettings::bOverride_* idiom). Unchecked
+	// means asset default; checked means caller value wins, even when the
+	// value is 0.
 	// See FComposableCameraPatchActivateParams doc for the full design rationale.
 	const uint8 EffectiveExpirationType = Params.bOverrideExpirationType
 		? Params.ExpirationType
@@ -263,7 +265,7 @@ UComposableCameraPatchHandle* UComposableCameraPatchManager::AddPatch(
 	// to avoid a wasted scheduler visit. Same pattern as the LS component.
 	Evaluator->SetActorTickEnabled(false);
 
-	// PCM-independent init -Patch evaluators do not participate in PCM-level
+	// PCM-independent init. Patch evaluators do not participate in PCM-level
 	// Action dispatch (PatchSystemProposal Section 16.9). The CameraBase's
 	// Initialize(nullptr) path skips BindCameraActionsForNewCamera, so this is
 	// just the existing LS-compatible spine.
@@ -286,8 +288,8 @@ UComposableCameraPatchHandle* UComposableCameraPatchManager::AddPatch(
 	Instance->EnterDuration = EffectiveEnter;
 	Instance->ExitDuration = EffectiveExit;
 	Instance->EaseType = PatchAsset->DefaultEaseType;
-	// Stage 3: Patch starts in Entering at alpha = 0. Apply's AdvanceEnvelope
-	// ramps alpha 0 ->1 over EnterDuration before the first BlendBy contribution.
+	// Patch starts in Entering at alpha = 0. Apply's AdvanceEnvelope ramps
+	// alpha 0 ->1 over EnterDuration before the first BlendBy contribution.
 	// EnterDuration <= 0 short-circuits to Active at alpha = 1 on the first
 	// AdvanceEnvelope call. No wasted invisible frame.
 	Instance->Phase = EComposableCameraPatchPhase::Entering;

@@ -49,16 +49,14 @@ struct FComposableCameraSequencerPatchOverlay
 
 /**
  * Per-section Shot override state owned by
- * UComposableCameraLevelSequenceComponent::SequencerShotOverrides (Phase E,
- * extended for Phase F inter-Shot transitions).
+ * UComposableCameraLevelSequenceComponent::SequencerShotOverrides.
  *
  * Top-level USTRUCT (not nested) because UHT rejects USTRUCT-inside-UCLASS.
  * One entry per active Shot Section; map key is the section weak pointer.
  *
- * RowIndex + EnterTransition + BlendAlpha together let the LSComponent's
- * `ApplyActiveSequencerShotOverride` blender pick the lowest-two RowIndex
- * entries (Phase F) and produce a blended camera pose using the higher
- * entry's resolved transition and alpha.
+ * RowIndex + EnterTransition + BlendAlpha let `ApplyActiveSequencerShotOverride`
+ * pick the two lowest RowIndex entries and blend the incoming higher-row
+ * pose through its resolved transition.
  */
 USTRUCT()
 struct FComposableCameraSequencerShotEntry
@@ -71,8 +69,8 @@ struct FComposableCameraSequencerShotEntry
 	UPROPERTY()
 	FComposableCameraShot Shot;
 
-	/** Section row index. Top-row (lowest index) was the V1 winner; Phase F
-	 *  blender picks the lowest two and blends. */
+	/** Section row index. Lowest index is primary / outgoing; the next-lowest
+	 *  overlapping row is secondary / incoming for the blend. */
 	int32 RowIndex = 0;
 
 	/**
@@ -101,8 +99,7 @@ struct FComposableCameraSequencerShotEntry
 	 *                            / (overlap_end - overlap_start) )
 	 *
 	 * Defaults to 1.0 when the entry has no lower-row overlapping peer (the
-	 * blender treats this as standalone, equivalent to V1's single-section
-	 * write-through). The lower-row entry of an overlapping pair also keeps
+	 * blender treats this as standalone, single-section write-through). The lower-row entry of an overlapping pair also keeps
 	 * BlendAlpha = 1.0. Only the *higher-row* (incoming) entry's BlendAlpha
 	 * is read by the blender; the lower-row entry's contribution is
 	 * implicitly (1 - higher_entry.BlendAlpha) and computed inside the blender.
@@ -121,7 +118,7 @@ struct FComposableCameraSequencerShotEntry
  * so Sequencer's Camera Cut Track and viewport Pilot both see the CCS camera
  * natively via the standard UCameraComponent path.
  *
- * Pure UActorComponent -NOT a USceneComponent. The component holds no
+ * Pure UActorComponent, not a USceneComponent. The component holds no
  * transform of its own; it is a logic-and-data driver. The owning Actor is
  * expected to provide a UCineCameraComponent as its RootComponent (that's
  * what AComposableCameraLevelSequenceActor does), and to hand us the
@@ -278,19 +275,15 @@ public:
 	 *  populated so the renderer can prefix "[Seq]" / suffix "on Actor". */
 	void BuildSequencerPatchSnapshot(TArray<struct FComposableCameraPatchSnapshot>& OutPatches) const;
 
-	// --- Sequencer Shot Override (driven by Shot TrackInstance, Phase E) -----
+	// --- Sequencer Shot Override (driven by Shot TrackInstance) -----------
 	//
 	// Per-frame the Shot track's TrackInstance::OnAnimate walks its in-range
 	// sections, resolves the parent-binding's bound LS Actor, and pushes
 	// (Section, Shot, RowIndex) here. This LS Component's TickComponent
 	// applies the active override BEFORE InternalCamera->TickCamera, by
-	// writing the Shot into the first found UComposableCameraCompositionFramingNode
-	// inside the InternalCamera's CameraNodes array.
-	//
-	// Multi-section semantics (V1): top-row winner. The override entry with
-	// the lowest RowIndex is applied; sections on lower rows are silently
-	// skipped. Phase F replaces this picker with a multi-Shot blender for
-	// transition-zone overlap.
+	// pushing the primary Shot and optional secondary overlap Shot into the
+	// first found UComposableCameraCompositionFramingNode inside the
+	// InternalCamera's CameraNodes array.
 	//
 	// Section exit: CompositionFramingNode::Shot retains the last-written
 	// value when no override is active (gap between sections / past the
@@ -397,7 +390,7 @@ private:
 	 * Pick the top-row override (lowest RowIndex) and write its Shot into the
 	 * first found `UComposableCameraCompositionFramingNode` on the
 	 * InternalCamera's CameraNodes array. No-op when the map is empty (gap
-	 * between sections -CompositionFramingNode keeps last-written Shot).
+	 * between sections: CompositionFramingNode keeps last-written Shot).
 	 *
 	 * Called from TickComponent BEFORE `InternalCamera->TickCamera` so the
 	 * solver evaluates with the new Shot data on the same frame.
@@ -414,7 +407,7 @@ private:
 	 * the cut renders.
 	 *
 	 * `DeltaTime <= 0` is the standard "first-frame snap" signal -
-	 * downstream solvers (V2.2 IIR damping, scrub-aware nodes) treat it
+	 * downstream solvers (IIR damping, scrub-aware nodes) treat it
 	 * as "use authored values, don't damp", which matches the cut-as-cut
 	 * design intent.
 	 */
