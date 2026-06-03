@@ -1,6 +1,6 @@
 # ComposableCameraSystem Editor Design
 
-Updated: 2026-06-01
+Updated: 2026-06-03
 
 This document describes the current editor module. It replaces the old
 phase-by-phase implementation plan. Runtime architecture lives in
@@ -43,12 +43,18 @@ Current surfaces:
 - graph tab.
 - details tab.
 - build messages tab.
+- runtime previewer tab, opened from the Window menu.
 - debug instance picker / graph overlay.
 - toolbar command to open Shot Editor for selected composition framing node.
 
 The toolkit uses `FBaseAssetToolkit`. It owns graph commands, selection sync,
 save/build hooks, property-change hooks, debug ticker, and selected-instance
 tracking.
+
+Runtime Previewer is not part of the default layout. `RuntimePreviewerTabId`
+registers with the toolkit's local tab manager so users can open or close it
+from Window like other optional editor tabs. It shares the existing Debug
+instance picker selection; it does not create a separate runtime camera picker.
 
 Delegate rule: any `AddRaw(this, ...)` binding to a details view, graph, ticker,
 or external editor object must be explicitly removed in the toolkit destructor.
@@ -333,6 +339,7 @@ selected PIE/world camera instance
   -> editor debug snapshot
   -> graph node overlay
   -> details/debug panels
+  -> runtime previewer tab
 ```
 
 Rules:
@@ -341,6 +348,43 @@ Rules:
 - Clear debug state on PIE end and toolkit destruction.
 - Snapshot values before painting.
 - Do not deref stale runtime pointers from Slate paint.
+
+Runtime Previewer:
+
+- `SComposableCameraRuntimePreviewer` owns an `FAdvancedPreviewScene` and a
+  `FComposableCameraRuntimePreviewerViewportClient`.
+- The previewer receives slim `FComposableCameraRuntimePreviewData` from the
+  toolkit after `SnapshotDebugState()` succeeds: controlled pawn weak pointer,
+  visual subject transform, pawn velocity, camera position/rotation/FOV,
+  context, and active-state only.
+- Each data push immediately refreshes the preview scene and invalidates the
+  `SEditorViewport`. The tab does not rely only on the viewport client's normal
+  tick to stay synchronized with PIE.
+- The toolkit resolves the controlled pawn from the debugged camera's
+  `AComposableCameraPlayerCameraManager` and owning `APlayerController`.
+- The visible subject transform is the preview reference frame. For skeletal
+  pawns, the toolkit uses the root bone world transform so global root-bone yaw
+  from animation/controller bookkeeping is removed from the proxy. It then
+  falls back to a valid static mesh component, and finally the pawn actor
+  transform. This keeps a visually stationary character stationary in the
+  preview even if the pawn root/control frame rotates while the runtime camera
+  orbits.
+- The preview subject stays at origin; live world translation is removed.
+- The preview floor is offset down to the proxy bounds minimum Z. Character
+  meshes whose component transform is below the pawn root therefore stand on
+  the floor without changing subject-relative camera math.
+- Skeletal pawns render through a preview `ASkeletalMeshActor`. The proxy copies
+  source component-space bone transforms each editor tick and applies them with
+  `ApplyEditedComponentSpaceTransforms()`.
+- If source/proxy component-space transform arrays are empty or incompatible,
+  the previewer destroys the skeletal proxy, falls back to a capsule-like static
+  mesh, and remembers that source mesh so it does not rebuild every tick.
+- The runtime camera is drawn as a subject-local marker, axes, and frustum using
+  the copied camera position/rotation/FOV from `Snapshot.FinalPose`.
+- Mouse input controls only the preview viewport observer camera. It never
+  drives the PIE pawn or runtime camera.
+- PIE end, camera unbind, invalid snapshots, and missing pawns clear the
+  previewer to concise empty states while leaving the tab open.
 
 ## 17. Asset and Factory Coverage
 

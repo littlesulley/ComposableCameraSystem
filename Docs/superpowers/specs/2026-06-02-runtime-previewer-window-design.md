@@ -1,6 +1,6 @@
 # Runtime Previewer Window Design
 
-Updated: 2026-06-02
+Updated: 2026-06-03
 
 Status: approved for implementation planning.
 
@@ -43,7 +43,7 @@ Preview scene contents:
 - controlled pawn at the preview origin.
 - copied skeletal pose from the live PIE pawn when available.
 - fallback capsule / direction marker when skeletal pose cannot be copied.
-- live game camera marker at pawn-local position.
+- live game camera marker at visible-subject-local position.
 - live game camera frustum and forward vector.
 - movement / velocity direction arrow.
 - small textual overlay for bound camera, pawn, relative camera location, and
@@ -94,25 +94,43 @@ DebuggedCamera
 Each preview update:
 
 1. Resolve the live pawn.
-2. Capture the pawn world transform as the reference frame.
-3. Convert the final game camera pose into pawn-local space.
-4. Place the preview pawn at origin using the pawn's relative facing.
-5. Place the camera marker and frustum at the pawn-local camera pose.
-6. Copy skeletal pose from the live pawn into a preview pose component if the
-   pawn exposes a compatible skeletal mesh.
+2. Capture the visible subject transform as the reference frame: skeletal root
+   bone world transform, then valid static mesh component, then pawn actor
+   transform.
+3. Convert the final game camera pose into subject-local space.
+4. Place the preview subject at origin using the subject's relative facing.
+5. Place the camera marker and frustum at the subject-local camera pose.
+6. Copy skeletal component-space bone transforms from the live pawn into a
+   preview skeletal actor if the pawn exposes a compatible skeletal mesh.
 7. Draw movement direction from pawn velocity or last-frame displacement.
+8. Refresh the preview scene immediately and invalidate the `SEditorViewport`
+   so the docked tab keeps following PIE even if the viewport active timer
+   would otherwise sleep.
 
-The preview transform origin is the live pawn. World translation is deliberately
-removed. Rotation and pose remain visible.
+The preview transform origin is the live visible subject. World translation is
+deliberately removed. Rotation and pose remain visible. This avoids the false
+case where a rotating pawn root makes the preview character spin while the
+runtime character is visually still.
 
 ## Pose Copy
 
-Preferred first implementation:
+Implementation:
 
-- Use a preview `UPoseableMeshComponent`.
-- Resolve the live pawn's primary `USkeletalMeshComponent`.
-- Mirror its skeletal mesh asset into the preview component.
-- Copy bone transforms by name or index each editor tick.
+- Spawn an `ASkeletalMeshActor` in the `FAdvancedPreviewScene` when the live
+  pawn exposes a `USkeletalMeshComponent`.
+- Mirror the source skeletal mesh asset onto the proxy skeletal component.
+- Disable proxy animation and component ticking.
+- Each editor tick, copy source `GetComponentSpaceTransforms()` into the
+  proxy's editable component-space transform array and call
+  `ApplyEditedComponentSpaceTransforms()`.
+- Place the proxy actor at the source mesh component transform relative to the
+  live pawn transform, so world translation is stripped while pose and facing
+  remain visible.
+
+Rationale: a cross-world `UPoseableMeshComponent` path would require a second
+bone-copy convention and does not match the Shot Editor's proven proxy pattern.
+The skeletal actor + component-space-transform copy keeps Runtime Previewer and
+Shot Editor preview lifecycles aligned.
 
 Fallback:
 

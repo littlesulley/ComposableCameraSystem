@@ -1,6 +1,6 @@
 # ComposableCameraSystem Tech Notes
 
-Updated: 2026-06-01
+Updated: 2026-06-03
 
 Purpose: compact implementation reference. Keep this file current when code
 patterns, public APIs, hot-path rules, node catalogs, or gotchas change.
@@ -351,9 +351,53 @@ Editor debug:
 
 - selected runtime instance picker in type asset editor.
 - graph overlay of live node data.
+- runtime previewer tab showing visible-subject-local camera relation.
 - `CCS.Editor.Dump.*`.
 
 Snapshot rule: resolve runtime pointers to names and value copies early.
+
+Runtime Previewer technique:
+
+- The Camera Type Asset editor registers `RuntimePreviewerTabId`, but does not
+  include it in the default layout.
+- `SComposableCameraRuntimePreviewer` follows the Shot Editor viewport lifetime
+  pattern: widget owns `FAdvancedPreviewScene`, viewport client borrows it, and
+  widget destruction clears `ViewportClient->Viewport` before draining scene
+  resources.
+- Toolkit `DebugTick` pushes slim `FComposableCameraRuntimePreviewData` after a
+  valid `SnapshotDebugState()` call. It copies only pawn weak pointer, pawn
+  velocity, visual subject transform, camera position/rotation/FOV, context,
+  and active-state; it does not store full `FComposableCameraPose` in Slate
+  because that pose owns post-process settings with UObject references.
+- `SetPreviewData` actively refreshes proxy pose, camera markers, floor offset,
+  and viewport invalidation on the same Slate/game-thread handoff. Do not make
+  runtime sync depend only on `FEditorViewportClient::Tick`; docked editor
+  viewports may otherwise sleep between invalidations.
+- Preview transforms are visible-subject-relative via
+  `SourceWorldTransform.GetRelativeTransform(SubjectWorldTransform)`.
+  Subject transform selection prefers the skeletal root bone world transform,
+  then a valid static mesh component, then the pawn actor transform. The
+  skeletal root-bone anchor cancels global root-bone yaw that would otherwise
+  make a stationary character appear to rotate when only the camera orbits. The
+  chosen reference transform strips scale so camera positions are not distorted
+  by mesh scale.
+- The preview floor offset is derived from proxy bounds with
+  `ComputeFloorOffsetForBounds`, so a Character mesh whose root sits below the
+  capsule/pawn origin is not clipped by the default `FAdvancedPreviewScene`
+  floor.
+- Skeletal pawn proxies use `ASkeletalMeshActor` plus direct
+  component-space-transform copy:
+  source `GetComponentSpaceTransforms()` -> proxy
+  `GetEditableComponentSpaceTransforms()` ->
+  `ApplyEditedComponentSpaceTransforms()`.
+- If the source/proxy transform arrays are empty or have different counts, the
+  previewer destroys the skeletal proxy, switches to the static fallback marker,
+  and tracks the failed skeletal mesh so it does not rebuild into the same bad
+  proxy every tick.
+- Proxy animation and component ticking stay disabled so the copied pose is not
+  overwritten by an editor-preview animation tick.
+- The observer camera is the normal `FEditorViewportClient` camera. It is not
+  coupled to runtime camera data.
 
 ## 16. Built-In Camera Nodes
 

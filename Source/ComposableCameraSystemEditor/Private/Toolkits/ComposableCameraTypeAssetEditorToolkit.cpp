@@ -5,6 +5,7 @@
 #include "EditorHooks/EditorHooks.h"
 #include "Editors/ComposableCameraNodeGraph.h"
 #include "Editors/ComposableCameraNodeGraphNode.h"
+#include "Editors/ComposableCameraRuntimePreviewerViewportClient.h"
 #include "Editors/ComposableCameraVariableGraphNode.h"
 #include "Editors/ComposableCameraNodeGraphSchema.h"
 #include "Nodes/ComposableCameraCameraNodeBase.h"
@@ -15,6 +16,8 @@
 #include "ComposableCameraSystemEditorModule.h"
 #include "Cameras/ComposableCameraCameraBase.h"
 #include "Core/ComposableCameraDebugSnapshot.h"
+#include "Core/ComposableCameraPlayerCameraManager.h"
+#include "Widgets/SComposableCameraRuntimePreviewer.h"
 
 #include "EdGraph/EdGraph.h"
 #include "EdGraphUtilities.h"
@@ -36,8 +39,14 @@
 #include "ToolMenus.h"
 #include "Styling/AppStyle.h"
 #include "Containers/Ticker.h"
+#include "Components/SkeletalMeshComponent.h"
+#include "Components/StaticMeshComponent.h"
 #include "Engine/World.h"
+#include "Engine/SkeletalMesh.h"
+#include "Engine/StaticMesh.h"
 #include "EngineUtils.h"
+#include "GameFramework/Pawn.h"
+#include "GameFramework/PlayerController.h"
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(ComposableCameraTypeAssetEditorToolkit)
 
@@ -48,6 +57,7 @@
 const FName FComposableCameraTypeAssetEditorToolkit::GraphEditorTabId(TEXT("ComposableCameraTypeAsset_GraphEditor"));
 const FName FComposableCameraTypeAssetEditorToolkit::DetailsTabId(TEXT("ComposableCameraTypeAsset_Details"));
 const FName FComposableCameraTypeAssetEditorToolkit::BuildMessagesTabId(TEXT("ComposableCameraTypeAsset_BuildMessages"));
+const FName FComposableCameraTypeAssetEditorToolkit::RuntimePreviewerTabId(TEXT("ComposableCameraTypeAsset_RuntimePreviewer"));
 
 // Construction 
 
@@ -116,6 +126,8 @@ FComposableCameraTypeAssetEditorToolkit::~FComposableCameraTypeAssetEditorToolki
 		FEditorDelegates::PrePIEEnded.Remove(PIEEndedHandle);
 		PIEEndedHandle.Reset();
 	}
+	ClearRuntimePreviewer(ERuntimePreviewerStatus::NoPIE);
+	RuntimePreviewerWidget.Reset();
 
 	if (NodeGraph)
 	{
@@ -177,6 +189,12 @@ void FComposableCameraTypeAssetEditorToolkit::RegisterTabSpawners(const TSharedR
 		.SetDisplayName(LOCTEXT("BuildMessagesTab", "Build Messages"))
 		.SetGroup(LocalWorkspaceMenuCategory)
 		.SetIcon(FSlateIcon(FAppStyle::GetAppStyleSetName(), "LevelEditor.Tabs.StatsViewer"));
+
+	InTabManager->RegisterTabSpawner(RuntimePreviewerTabId,
+		FOnSpawnTab::CreateSP(this, &FComposableCameraTypeAssetEditorToolkit::SpawnTab_RuntimePreviewer))
+		.SetDisplayName(LOCTEXT("RuntimePreviewerTab", "Runtime Previewer"))
+		.SetGroup(LocalWorkspaceMenuCategory)
+		.SetIcon(FSlateIcon(FAppStyle::GetAppStyleSetName(), "ClassIcon.CameraComponent"));
 }
 
 void FComposableCameraTypeAssetEditorToolkit::UnregisterTabSpawners(const TSharedRef<FTabManager>& InTabManager)
@@ -184,6 +202,7 @@ void FComposableCameraTypeAssetEditorToolkit::UnregisterTabSpawners(const TShare
 	InTabManager->UnregisterTabSpawner(GraphEditorTabId);
 	InTabManager->UnregisterTabSpawner(DetailsTabId);
 	InTabManager->UnregisterTabSpawner(BuildMessagesTabId);
+	InTabManager->UnregisterTabSpawner(RuntimePreviewerTabId);
 
 	FAssetEditorToolkit::UnregisterTabSpawners(InTabManager);
 }
@@ -233,6 +252,25 @@ TSharedRef<SDockTab> FComposableCameraTypeAssetEditorToolkit::SpawnTab_BuildMess
 	return SNew(SDockTab)
 		.Label(LOCTEXT("BuildMessagesTabLabel", "Build Messages"))
 		[BuildBuildMessagesWidget()];
+}
+
+TSharedRef<SDockTab> FComposableCameraTypeAssetEditorToolkit::SpawnTab_RuntimePreviewer(const FSpawnTabArgs& Args)
+{
+	RuntimePreviewerWidget = SNew(SComposableCameraRuntimePreviewer);
+	RuntimePreviewerWidget->ClearPreviewData(
+		bIsPIEActive ? ERuntimePreviewerStatus::NoCamera : ERuntimePreviewerStatus::NoPIE);
+	TWeakPtr<FComposableCameraTypeAssetEditorToolkit> WeakToolkit = SharedThis(this);
+
+	return SNew(SDockTab)
+		.Label(LOCTEXT("RuntimePreviewerTabLabel", "Runtime Previewer"))
+		.OnTabClosed_Lambda([WeakToolkit](TSharedRef<SDockTab>)
+		{
+			if (TSharedPtr<FComposableCameraTypeAssetEditorToolkit> Toolkit = WeakToolkit.Pin())
+			{
+				Toolkit->RuntimePreviewerWidget.Reset();
+			}
+		})
+		[RuntimePreviewerWidget.ToSharedRef()];
 }
 
 // Widgets 
@@ -1163,6 +1201,7 @@ TSharedRef<SWidget> FComposableCameraTypeAssetEditorToolkit::BuildBuildMessagesW
 void FComposableCameraTypeAssetEditorToolkit::OnPIEStarted(bool bIsSimulating)
 {
 	bIsPIEActive = true;
+	ClearRuntimePreviewer(ERuntimePreviewerStatus::NoCamera);
 
 	// Start the debug ticker - polls every frame while PIE is active.
 	DebugTickerHandle = FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateRaw(this, &FComposableCameraTypeAssetEditorToolkit::DebugTick));
@@ -1188,6 +1227,7 @@ void FComposableCameraTypeAssetEditorToolkit::OnPIEEnded(bool bIsSimulating)
 
 	DebuggedCamera.Reset();
 	ClearGraphNodeDebugState();
+	ClearRuntimePreviewer(ERuntimePreviewerStatus::NoPIE);
 }
 
 bool FComposableCameraTypeAssetEditorToolkit::DebugTick(float DeltaTime)
@@ -1195,6 +1235,7 @@ bool FComposableCameraTypeAssetEditorToolkit::DebugTick(float DeltaTime)
 	if (!GEditor || !GEditor->PlayWorld)
 	{
 		ClearGraphNodeDebugState();
+		ClearRuntimePreviewer(ERuntimePreviewerStatus::NoPIE);
 		return false; // Unregister ticker.
 	}
 
@@ -1202,6 +1243,7 @@ bool FComposableCameraTypeAssetEditorToolkit::DebugTick(float DeltaTime)
 	if (!DebuggedCamera.IsValid())
 	{
 		ClearGraphNodeDebugState();
+		ClearRuntimePreviewer(ERuntimePreviewerStatus::NoCamera);
 		return true;
 	}
 
@@ -1210,8 +1252,11 @@ bool FComposableCameraTypeAssetEditorToolkit::DebugTick(float DeltaTime)
 	if (!Snapshot.bIsValid)
 	{
 		ClearGraphNodeDebugState();
+		ClearRuntimePreviewer(ERuntimePreviewerStatus::NoCamera);
 		return true;
 	}
+
+	PushRuntimePreviewData(Snapshot);
 
 	// Push snapshot data into graph nodes by correlating NodeIndex.
 	// Also push variable values into Get/Set variable graph nodes.
@@ -1356,6 +1401,10 @@ TArray<TWeakObjectPtr<AComposableCameraCameraBase>> FComposableCameraTypeAssetEd
 void FComposableCameraTypeAssetEditorToolkit::BindToCamera(AComposableCameraCameraBase* Camera)
 {
 	DebuggedCamera = Camera;
+	if (!Camera)
+	{
+		ClearRuntimePreviewer(ERuntimePreviewerStatus::NoCamera);
+	}
 }
 
 void FComposableCameraTypeAssetEditorToolkit::ClearGraphNodeDebugState()
@@ -1379,6 +1428,90 @@ void FComposableCameraTypeAssetEditorToolkit::ClearGraphNodeDebugState()
 
 	// No explicit repaint needed - the custom SGraphNode OnPaint overlays are
 	// re-evaluated by Slate on the next paint pass automatically.
+}
+
+void FComposableCameraTypeAssetEditorToolkit::PushRuntimePreviewData(
+	const FComposableCameraDebugSnapshot& Snapshot)
+{
+	if (!RuntimePreviewerWidget.IsValid())
+	{
+		return;
+	}
+
+	FComposableCameraRuntimePreviewData PreviewData;
+	PreviewData.CameraPosition = Snapshot.FinalPose.Position;
+	PreviewData.CameraRotation = Snapshot.FinalPose.Rotation;
+	PreviewData.CameraFieldOfView = Snapshot.FinalPose.GetEffectiveFieldOfView();
+	PreviewData.bHasValidCameraPose = Snapshot.bIsValid;
+	PreviewData.ContextName = Snapshot.ContextName;
+	PreviewData.bIsActiveCamera = Snapshot.bIsActiveCamera;
+
+	if (AActor* PawnActor = ResolveDebuggedControlledPawn())
+	{
+		PreviewData.ControlledPawn = PawnActor;
+		PreviewData.SubjectWorldTransform = PawnActor->GetActorTransform();
+		bool bHasVisualSubject = false;
+		if (USkeletalMeshComponent* SourceSK = PawnActor->FindComponentByClass<USkeletalMeshComponent>())
+		{
+			if (SourceSK->GetSkeletalMeshAsset())
+			{
+				PreviewData.SubjectWorldTransform =
+					ComposableCameraSystem::RuntimePreviewer::MakeSkeletalSubjectWorldTransform(
+						SourceSK->GetComponentTransform(),
+						SourceSK->GetComponentSpaceTransforms());
+				bHasVisualSubject = true;
+			}
+		}
+		if (!bHasVisualSubject)
+		{
+			if (UStaticMeshComponent* SourceSM = PawnActor->FindComponentByClass<UStaticMeshComponent>())
+			{
+				if (SourceSM->GetStaticMesh())
+				{
+					PreviewData.SubjectWorldTransform = SourceSM->GetComponentTransform();
+				}
+			}
+		}
+		PreviewData.SubjectWorldTransform.SetScale3D(FVector::OneVector);
+		PreviewData.PawnVelocity = PawnActor->GetVelocity();
+	}
+
+	RuntimePreviewerWidget->SetPreviewData(PreviewData);
+}
+
+void FComposableCameraTypeAssetEditorToolkit::ClearRuntimePreviewer(
+	ERuntimePreviewerStatus Status)
+{
+	if (RuntimePreviewerWidget.IsValid())
+	{
+		RuntimePreviewerWidget->ClearPreviewData(Status);
+	}
+}
+
+AActor* FComposableCameraTypeAssetEditorToolkit::ResolveDebuggedControlledPawn() const
+{
+	AComposableCameraCameraBase* Camera = DebuggedCamera.Get();
+	if (!Camera)
+	{
+		return nullptr;
+	}
+
+	AComposableCameraPlayerCameraManager* PCM = Camera->GetOwningPlayerCameraManager();
+	APlayerController* PC = PCM ? PCM->GetOwningPlayerController() : nullptr;
+	if (PC && PC->GetPawn())
+	{
+		return PC->GetPawn();
+	}
+
+	if (UWorld* World = Camera->GetWorld())
+	{
+		if (APlayerController* WorldPC = World->GetFirstPlayerController())
+		{
+			return WorldPC->GetPawn();
+		}
+	}
+
+	return nullptr;
 }
 
 TSharedRef<SWidget> FComposableCameraTypeAssetEditorToolkit::MakeDebugInstancePickerWidget(const FToolMenuContext& Context, const FToolMenuCustomWidgetContext& /*WidgetContext*/)
@@ -1469,6 +1602,7 @@ TSharedRef<SWidget> FComposableCameraTypeAssetEditorToolkit::BuildDebugInstanceP
 			{
 				DebuggedCamera.Reset();
 				ClearGraphNodeDebugState();
+				ClearRuntimePreviewer(ERuntimePreviewerStatus::NoCamera);
 			}))
 		);
 
