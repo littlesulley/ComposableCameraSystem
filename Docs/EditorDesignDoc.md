@@ -369,7 +369,9 @@ Runtime Previewer:
   transform. This keeps a visually stationary character stationary in the
   preview even if the pawn root/control frame rotates while the runtime camera
   orbits.
-- The preview subject stays at origin; live world translation is removed.
+- The preview subject stays near origin; live world translation is removed, but
+  live subject rotation is preserved. Character transform sync and camera
+  transform sync are independent.
 - The preview floor is offset down to the proxy bounds minimum Z. Character
   meshes whose component transform is below the pawn root therefore stand on
   the floor without changing subject-relative camera math.
@@ -379,8 +381,11 @@ Runtime Previewer:
 - If source/proxy component-space transform arrays are empty or incompatible,
   the previewer destroys the skeletal proxy, falls back to a capsule-like static
   mesh, and remembers that source mesh so it does not rebuild every tick.
-- The runtime camera is drawn as a subject-local marker, axes, and frustum using
-  the copied camera position/rotation/FOV from `Snapshot.FinalPose`.
+- The runtime camera is drawn with the same translation-relative rule as the
+  subject proxy: remove subject translation, preserve source rotation. Its
+  axes/frustum use the copied camera rotation from `Snapshot.FinalPose`.
+  Character/root/pose rotation therefore cannot create fake camera rotation in
+  the preview, and camera rotation cannot overwrite character rotation.
 - Mouse input controls only the preview viewport observer camera. It never
   drives the PIE pawn or runtime camera.
 - PIE end, camera unbind, invalid snapshots, and missing pawns clear the

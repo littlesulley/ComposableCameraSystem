@@ -68,6 +68,22 @@ namespace ComposableCameraSystem::RuntimePreviewer
 		return SourceWorldTransform.GetRelativeTransform(SubjectWorldTransform);
 	}
 
+	FTransform MakeTranslationRelativeTransform(const FTransform& SourceWorldTransform,
+		const FTransform& SubjectWorldTransform)
+	{
+		const FTransform SubjectOriginTransform(FQuat::Identity,
+			SubjectWorldTransform.GetLocation(),
+			FVector::OneVector);
+		return SourceWorldTransform.GetRelativeTransform(SubjectOriginTransform);
+	}
+
+	FTransform MakeCameraPreviewTransform(const FTransform& CameraWorldTransform,
+		const FTransform& SubjectWorldTransform)
+	{
+		return MakeTranslationRelativeTransform(CameraWorldTransform,
+			SubjectWorldTransform);
+	}
+
 	FTransform MakeSkeletalSubjectWorldTransform(
 		const FTransform& ComponentWorldTransform,
 		const TArray<FTransform>& ComponentSpaceTransforms)
@@ -238,9 +254,9 @@ void FComposableCameraRuntimePreviewerViewportClient::DrawCanvas(FViewport& InVi
 	const FTransform CameraTransform = GetCameraPreviewTransform();
 	const FVector CameraLoc = CameraTransform.GetLocation();
 	const FRotator CameraRot = CameraTransform.Rotator();
-	DrawLine(Line++, FString::Printf(TEXT("Camera Relative Location: %.1f, %.1f, %.1f"),
+	DrawLine(Line++, FString::Printf(TEXT("Camera Offset: %.1f, %.1f, %.1f"),
 		CameraLoc.X, CameraLoc.Y, CameraLoc.Z), Gray);
-	DrawLine(Line++, FString::Printf(TEXT("Camera Relative Rotation: P %.1f  Y %.1f  R %.1f"),
+	DrawLine(Line++, FString::Printf(TEXT("Camera Rotation: P %.1f  Y %.1f  R %.1f"),
 		CameraRot.Pitch, CameraRot.Yaw, CameraRot.Roll), Gray);
 	DrawLine(Line++, FString::Printf(TEXT("FOV: %.2f deg"),
 		PreviewData.CameraFieldOfView), Gray);
@@ -329,13 +345,13 @@ void FComposableCameraRuntimePreviewerViewportClient::SyncPawnProxy()
 
 	using namespace ComposableCameraSystem::RuntimePreviewer;
 
-	FTransform SourceRelativeTransform = MakeSubjectRelativeTransform(
+	FTransform SourcePreviewTransform = MakeTranslationRelativeTransform(
 		Pawn->GetActorTransform(),
 		PreviewData.SubjectWorldTransform);
 
 	if (USkeletalMeshComponent* SourceSK = Pawn->FindComponentByClass<USkeletalMeshComponent>())
 	{
-		SourceRelativeTransform = MakeSubjectRelativeTransform(
+		SourcePreviewTransform = MakeTranslationRelativeTransform(
 			SourceSK->GetComponentTransform(),
 			PreviewData.SubjectWorldTransform);
 
@@ -363,19 +379,19 @@ void FComposableCameraRuntimePreviewerViewportClient::SyncPawnProxy()
 	}
 	else if (UStaticMeshComponent* SourceSM = Pawn->FindComponentByClass<UStaticMeshComponent>())
 	{
-		SourceRelativeTransform = MakeSubjectRelativeTransform(
+		SourcePreviewTransform = MakeTranslationRelativeTransform(
 			SourceSM->GetComponentTransform(),
 			PreviewData.SubjectWorldTransform);
 	}
 
 	if (bProxyUsesFallback)
 	{
-		Proxy->SetActorLocationAndRotation(SourceRelativeTransform.GetLocation(),
-			SourceRelativeTransform.GetRotation());
+		Proxy->SetActorLocationAndRotation(SourcePreviewTransform.GetLocation(),
+			SourcePreviewTransform.GetRotation());
 	}
 	else
 	{
-		Proxy->SetActorTransform(SourceRelativeTransform);
+		Proxy->SetActorTransform(SourcePreviewTransform);
 	}
 }
 
@@ -407,7 +423,7 @@ AActor* FComposableCameraRuntimePreviewerViewportClient::SpawnProxyForPawn(AActo
 				ASkeletalMeshActor* Proxy = PreviewWorld->SpawnActor<ASkeletalMeshActor>(Params);
 				if (Proxy && Proxy->GetSkeletalMeshComponent())
 				{
-					Proxy->SetActorTransform(MakeSubjectRelativeTransform(
+					Proxy->SetActorTransform(MakeTranslationRelativeTransform(
 						SourceSK->GetComponentTransform(),
 						PreviewData.SubjectWorldTransform));
 
@@ -435,7 +451,7 @@ AActor* FComposableCameraRuntimePreviewerViewportClient::SpawnProxyForPawn(AActo
 				AStaticMeshActor* Proxy = PreviewWorld->SpawnActor<AStaticMeshActor>(Params);
 				if (Proxy && Proxy->GetStaticMeshComponent())
 				{
-					Proxy->SetActorTransform(MakeSubjectRelativeTransform(
+					Proxy->SetActorTransform(MakeTranslationRelativeTransform(
 						SourceSM->GetComponentTransform(),
 						PreviewData.SubjectWorldTransform));
 					Proxy->GetStaticMeshComponent()->SetStaticMesh(Mesh);
@@ -457,11 +473,11 @@ AActor* FComposableCameraRuntimePreviewerViewportClient::SpawnProxyForPawn(AActo
 		{
 			Proxy->GetStaticMeshComponent()->SetStaticMesh(FallbackMesh);
 		}
-		const FTransform RelativeTransform = MakeSubjectRelativeTransform(
+		const FTransform PreviewTransform = MakeTranslationRelativeTransform(
 			SourcePawn->GetActorTransform(),
 			PreviewData.SubjectWorldTransform);
-		Proxy->SetActorLocationAndRotation(RelativeTransform.GetLocation(),
-			RelativeTransform.GetRotation());
+		Proxy->SetActorLocationAndRotation(PreviewTransform.GetLocation(),
+			PreviewTransform.GetRotation());
 		Proxy->SetActorScale3D(kFallbackPawnScale);
 	}
 
@@ -481,7 +497,7 @@ FTransform FComposableCameraRuntimePreviewerViewportClient::GetCameraPreviewTran
 
 	const FTransform CameraWorldTransform(PreviewData.CameraRotation,
 		PreviewData.CameraPosition);
-	return MakeSubjectRelativeTransform(CameraWorldTransform,
+	return MakeCameraPreviewTransform(CameraWorldTransform,
 		PreviewData.SubjectWorldTransform);
 }
 

@@ -146,13 +146,93 @@
   previews to `ComponentSpaceTransforms[0] * ComponentWorldTransform`. The
   proxy component is then placed relative to that root-bone anchor, cancelling
   copied root-bone yaw while preserving child-bone pose.
-- Regression-test name:
-  `ComposableCameraSystem.RuntimePreviewer.SkeletalRootYawIsRemovedFromProxy`.
+- Regression-test name: superseded by
+  `ComposableCameraSystem.RuntimePreviewer.SkeletalRootTransformIsPreservedInProxy`,
+  which keeps the visual root transform synchronized while camera marker math
+  stays decoupled from subject rotation.
 - Test blocker: automation test added, but project rules prohibit Codex from
   invoking Unreal Editor automation from shell. User must run it from IDE /
   Unreal Editor.
 - Avoid next time: when copying skeletal component-space transforms into a
   proxy, decide whether the root bone is subject transform or pose detail. Do
   not anchor at the component when the copied root bone can carry global yaw.
-- Possible conflicts: skeletal preview now removes global root-bone yaw from the
-  preview subject anchor. Local child-bone pose still copies from the live pawn.
+- Possible conflicts: skeletal preview uses the root-bone world transform as
+  the origin anchor, but no longer strips real visual-root rotation from the
+  drawn proxy. Local child-bone pose still copies from the live pawn.
+
+## 2026-06-03 - Runtime Previewer fakes camera rotation during character strafe
+
+- Symptom: when pressing A in PIE so the character moves left in camera space,
+  Runtime Previewer shows the camera rotating even though the PIE camera itself
+  has not rotated.
+- Trigger / repro: open Runtime Previewer during PIE, bind a runtime camera,
+  hold A to move the controlled character left while keeping the camera
+  rotation unchanged.
+- Why it happens: camera marker math used the same
+  `SourceWorldTransform.GetRelativeTransform(SubjectWorldTransform)` path as
+  pawn proxy math. If the visual subject/root/pose rotates while strafing, that
+  inverse subject rotation is applied to the runtime camera marker too.
+- Root cause: Runtime Previewer coupled camera marker rotation to subject
+  rotation instead of using the camera's final runtime rotation as the sole
+  source of camera orientation.
+- Touched files:
+  - `Source/ComposableCameraSystemEditor/Private/Editors/ComposableCameraRuntimePreviewerViewportClient.h`
+  - `Source/ComposableCameraSystemEditor/Private/Editors/ComposableCameraRuntimePreviewerViewportClient.cpp`
+  - `Source/ComposableCameraSystemEditor/Private/Tests/ComposableCameraRuntimePreviewerTests.cpp`
+  - `Docs/EditorDesignDoc.md`
+  - `Docs/TechDoc.md`
+  - `Docs/BugLog.md`
+- Fix: added `MakeCameraPreviewTransform`, which subtracts subject translation
+  but preserves the runtime camera rotation. Pawn proxy pose math still uses
+  the visible-subject-relative transform path.
+- Regression-test name:
+  `ComposableCameraSystem.RuntimePreviewer.CameraPreviewIgnoresSubjectRotation`.
+- Test blocker: automation test added, but project rules prohibit Codex from
+  invoking Unreal Editor automation from shell. User must run it from IDE /
+  Unreal Editor.
+- Avoid next time: do not share one relative-transform helper between visual
+  subject normalization and camera marker orientation. Camera rotation in the
+  preview must come only from the runtime camera pose.
+- Possible conflicts: camera relative location is subject-origin-relative with
+  world/camera rotation preserved. Pawn proxy transforms were later changed to
+  the same translation-only rule so real character rotation remains visible.
+
+## 2026-06-03 - Runtime Previewer drops protagonist transform sync
+
+- Symptom: after decoupling camera marker rotation from subject rotation,
+  Runtime Previewer no longer synchronizes the protagonist's live transform
+  rotation.
+- Trigger / repro: open Runtime Previewer during PIE, bind a runtime camera, and
+  rotate or strafe the controlled character so the protagonist transform changes
+  while the camera does not rotate.
+- Why it happens: pawn proxy transforms still used
+  `SourceWorldTransform.GetRelativeTransform(SubjectWorldTransform)`. That path
+  removes subject rotation. It is useful for fully local math, but wrong for
+  drawing a live character proxy whose transform rotation should remain visible.
+- Root cause: Runtime Previewer used one "subject-relative" transform rule for
+  two different jobs: removing world translation and normalizing orientation.
+  Camera/character decoupling needs translation removal only.
+- Touched files:
+  - `Source/ComposableCameraSystemEditor/Private/Editors/ComposableCameraRuntimePreviewerViewportClient.h`
+  - `Source/ComposableCameraSystemEditor/Private/Editors/ComposableCameraRuntimePreviewerViewportClient.cpp`
+  - `Source/ComposableCameraSystemEditor/Private/Tests/ComposableCameraRuntimePreviewerTests.cpp`
+  - `Docs/EditorDesignDoc.md`
+  - `Docs/TechDoc.md`
+  - `Docs/BugLog.md`
+- Fix: added `MakeTranslationRelativeTransform` and use it for pawn proxy
+  spawn/sync. The helper subtracts subject translation but preserves the source
+  world rotation and scale. Camera marker math now uses the same
+  translation-only rule through `MakeCameraPreviewTransform`.
+- Regression-test names:
+  `ComposableCameraSystem.RuntimePreviewer.TranslationRelativeTransformPreservesRotation`
+  and
+  `ComposableCameraSystem.RuntimePreviewer.SkeletalRootTransformIsPreservedInProxy`.
+- Test blocker: automation tests added, but project rules prohibit Codex from
+  invoking Unreal Editor automation from shell. User must run them from IDE /
+  Unreal Editor.
+- Avoid next time: name helper functions by the transform components they
+  remove. "Relative" was too broad and hid that rotation was also being
+  stripped.
+- Possible conflicts: character transform rotation is now visible in the
+  preview. Camera marker rotation remains driven only by the runtime camera
+  pose, so the earlier fake camera rotation should remain fixed.

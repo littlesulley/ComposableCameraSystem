@@ -22,6 +22,14 @@ namespace ComposableCameraSystem::RuntimePreviewer
 		const FTransform& SourceWorldTransform,
 		const FTransform& SubjectWorldTransform);
 
+	COMPOSABLECAMERASYSTEMEDITOR_API FTransform MakeTranslationRelativeTransform(
+		const FTransform& SourceWorldTransform,
+		const FTransform& SubjectWorldTransform);
+
+	COMPOSABLECAMERASYSTEMEDITOR_API FTransform MakeCameraPreviewTransform(
+		const FTransform& CameraWorldTransform,
+		const FTransform& SubjectWorldTransform);
+
 	COMPOSABLECAMERASYSTEMEDITOR_API FTransform MakeSkeletalSubjectWorldTransform(
 		const FTransform& ComponentWorldTransform,
 		const TArray<FTransform>& ComponentSpaceTransforms);

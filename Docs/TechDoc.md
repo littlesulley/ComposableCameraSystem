@@ -373,14 +373,19 @@ Runtime Previewer technique:
   and viewport invalidation on the same Slate/game-thread handoff. Do not make
   runtime sync depend only on `FEditorViewportClient::Tick`; docked editor
   viewports may otherwise sleep between invalidations.
-- Preview transforms are visible-subject-relative via
-  `SourceWorldTransform.GetRelativeTransform(SubjectWorldTransform)`.
+- Pawn proxy transforms are translation-relative via
+  `MakeTranslationRelativeTransform`: subtract the visual subject translation
+  but preserve each source transform's world rotation and scale.
   Subject transform selection prefers the skeletal root bone world transform,
   then a valid static mesh component, then the pawn actor transform. The
-  skeletal root-bone anchor cancels global root-bone yaw that would otherwise
-  make a stationary character appear to rotate when only the camera orbits. The
-  chosen reference transform strips scale so camera positions are not distorted
-  by mesh scale.
+  skeletal root-bone anchor supplies the origin location for the copied pose.
+  Do not apply the subject inverse rotation to proxy transforms; doing so eats
+  the character's real runtime rotation.
+- Runtime camera markers use `MakeCameraPreviewTransform`: subtract subject
+  translation only and preserve the runtime camera rotation from
+  `Snapshot.FinalPose`. Do not transform camera rotation through the subject
+  rotation; character facing, root motion, or strafe pose changes must not
+  create fake camera rotation.
 - The preview floor offset is derived from proxy bounds with
   `ComputeFloorOffsetForBounds`, so a Character mesh whose root sits below the
   capsule/pawn origin is not clipped by the default `FAdvancedPreviewScene`

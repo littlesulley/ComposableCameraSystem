@@ -77,15 +77,63 @@ bool FRuntimePreviewerVisualSubjectReferenceKeepsCameraOrbitTest::RunTest(
 	return true;
 }
 
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FRuntimePreviewerSkeletalRootYawIsRemovedFromProxyTest,
-	"ComposableCameraSystem.RuntimePreviewer.SkeletalRootYawIsRemovedFromProxy",
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FRuntimePreviewerCameraPreviewIgnoresSubjectRotationTest,
+	"ComposableCameraSystem.RuntimePreviewer.CameraPreviewIgnoresSubjectRotation",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
-bool FRuntimePreviewerSkeletalRootYawIsRemovedFromProxyTest::RunTest(
+bool FRuntimePreviewerCameraPreviewIgnoresSubjectRotationTest::RunTest(
+	const FString& /*Parameters*/)
+{
+	using ComposableCameraSystem::RuntimePreviewer::MakeCameraPreviewTransform;
+
+	const FTransform SubjectWorld(FRotator(0.0, 90.0, 0.0),
+		FVector(100.0, 50.0, 0.0));
+	const FTransform CameraWorld(FRotator(10.0, 25.0, 0.0),
+		FVector(130.0, 70.0, 10.0));
+	const FTransform PreviewCamera =
+		MakeCameraPreviewTransform(CameraWorld, SubjectWorld);
+
+	TestEqual(TEXT("Preview camera location removes only subject translation"),
+		PreviewCamera.GetLocation(), FVector(30.0, 20.0, 10.0));
+	TestTrue(TEXT("Preview camera rotation matches runtime camera rotation"),
+		PreviewCamera.GetRotation().Equals(CameraWorld.GetRotation(), KINDA_SMALL_NUMBER));
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FRuntimePreviewerTranslationRelativeTransformPreservesRotationTest,
+	"ComposableCameraSystem.RuntimePreviewer.TranslationRelativeTransformPreservesRotation",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FRuntimePreviewerTranslationRelativeTransformPreservesRotationTest::RunTest(
+	const FString& /*Parameters*/)
+{
+	using ComposableCameraSystem::RuntimePreviewer::MakeTranslationRelativeTransform;
+
+	const FTransform SubjectWorld(FRotator(0.0, 90.0, 0.0),
+		FVector(100.0, 50.0, 0.0));
+	const FTransform SourceWorld(FRotator(0.0, 45.0, 0.0),
+		FVector(130.0, 70.0, 10.0));
+	const FTransform PreviewTransform =
+		MakeTranslationRelativeTransform(SourceWorld, SubjectWorld);
+
+	TestEqual(TEXT("Preview location removes only subject translation"),
+		PreviewTransform.GetLocation(), FVector(30.0, 20.0, 10.0));
+	TestTrue(TEXT("Preview rotation preserves source world rotation"),
+		PreviewTransform.GetRotation().Equals(SourceWorld.GetRotation(), KINDA_SMALL_NUMBER));
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FRuntimePreviewerSkeletalRootTransformIsPreservedInProxyTest,
+	"ComposableCameraSystem.RuntimePreviewer.SkeletalRootTransformIsPreservedInProxy",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FRuntimePreviewerSkeletalRootTransformIsPreservedInProxyTest::RunTest(
 	const FString& /*Parameters*/)
 {
 	using ComposableCameraSystem::RuntimePreviewer::MakeSkeletalSubjectWorldTransform;
-	using ComposableCameraSystem::RuntimePreviewer::MakeSubjectRelativeTransform;
+	using ComposableCameraSystem::RuntimePreviewer::MakeTranslationRelativeTransform;
 
 	const FTransform ComponentWorld(FRotator::ZeroRotator, FVector::ZeroVector);
 	TArray<FTransform> ComponentSpaceTransforms;
@@ -94,12 +142,12 @@ bool FRuntimePreviewerSkeletalRootYawIsRemovedFromProxyTest::RunTest(
 	const FTransform SubjectWorld =
 		MakeSkeletalSubjectWorldTransform(ComponentWorld, ComponentSpaceTransforms);
 	const FTransform ProxyComponentRelative =
-		MakeSubjectRelativeTransform(ComponentWorld, SubjectWorld);
+		MakeTranslationRelativeTransform(ComponentWorld, SubjectWorld);
 	const FTransform PreviewRoot =
 		ComponentSpaceTransforms[0] * ProxyComponentRelative;
 
-	TestTrue(TEXT("Root bone yaw is removed by subject anchoring"),
-		PreviewRoot.GetRotation().Equals(FQuat::Identity, KINDA_SMALL_NUMBER));
+	TestTrue(TEXT("Root bone yaw is preserved in the preview subject transform"),
+		PreviewRoot.GetRotation().Equals(SubjectWorld.GetRotation(), KINDA_SMALL_NUMBER));
 
 	return true;
 }
