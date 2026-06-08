@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "ComposableCameraCameraNodeBase.h"
+#include "Curves/CurveFloat.h"
 #include "ComposableCameraCameraOffsetNode.generated.h"
 
 /**
@@ -23,7 +24,7 @@ public:
 	virtual void GetPinDeclarations_Implementation(TArray<FComposableCameraNodePinDeclaration>& OutPins) const override;
 
 protected:
-	
+
 public:
 	// Pivot position the camera offset is applied from. Almost always driven by an
 	// upstream pivot-producing node via wire (or a context parameter); kept as a
@@ -35,4 +36,10 @@ public:
 	// Offset to apply on the pivot position in camera space.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters)
 	FVector CameraOffset;
+
+	// Additive forward offset sampled by current pitch. Curve X = pitch in
+	// degrees, Y = additive CameraOffset.X in cm. Stored inline on the node so
+	// authors can edit keys without creating a separate UCurveFloat asset.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters)
+	FRuntimeFloatCurve ForwardOffsetDeltaByPitchCurve;
 };

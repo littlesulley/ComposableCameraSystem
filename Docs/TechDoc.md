@@ -1,6 +1,6 @@
 # ComposableCameraSystem Tech Notes
 
-Updated: 2026-06-03
+Updated: 2026-06-08
 
 Purpose: compact implementation reference. Keep this file current when code
 patterns, public APIs, hot-path rules, node catalogs, or gotchas change.
@@ -445,6 +445,13 @@ Current node classes:
 - `UComposableCameraTwoPointMoveNode`
 - `UComposableCameraViewTargetProxyNode`
 - `UComposableCameraVolumeConstraintNode`
+
+Node notes:
+
+- `UComposableCameraCameraOffsetNode` applies `CameraOffset` in camera-local
+  space (`X=forward, Y=right, Z=up`). Its inline
+  `ForwardOffsetDeltaByPitchCurve` samples X as current pitch in degrees and
+  adds Y as a camera-forward delta in cm before building the final position.
 
 Base classes:
 
