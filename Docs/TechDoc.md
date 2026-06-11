@@ -1,6 +1,6 @@
 # ComposableCameraSystem Tech Notes
 
-Updated: 2026-06-08
+Updated: 2026-06-12
 
 Purpose: compact implementation reference. Keep this file current when code
 patterns, public APIs, hot-path rules, node catalogs, or gotchas change.
@@ -542,6 +542,10 @@ Rules:
   effective FOV.
 - Focus distance uses sentinel behavior. Do not blend invalid focus distance as
   a real distance.
+- Interpolator `Run()` returns an absolute value, not a delta. If a scalar
+  damping helper computes only `Target - Current` progress, add it back to the
+  current value before returning; Spline, FocusPull, and VolumeConstraint reset
+  double interpolators from their last smoothed output each frame.
 
 ## 22. Build and Verification
 

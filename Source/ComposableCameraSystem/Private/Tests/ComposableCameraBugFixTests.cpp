@@ -10,6 +10,7 @@
 #include "Cameras/ComposableCameraCameraBase.h"
 #include "DataAssets/ComposableCameraTypeAsset.h"
 #include "Interpolator/ComposableCameraIIRInterpolator.h"
+#include "Interpolator/ComposableCameraSimpleSpringInterpolator.h"
 #include "Nodes/ComposableCameraCollisionPushNode.h"
 #include "Nodes/ComposableCameraLookAtNode.h"
 #include "Nodes/ComposableCameraRotationConstraints.h"
@@ -139,6 +140,53 @@ bool FIIRNonFixedStepSubFrameDeltaProgressesTest::RunTest(const FString& Paramet
 
 	UTEST_TRUE("Non-fixed IIR keeps original sub-frame behavior",
 		Value > 0.0);
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FSimpleSpringDoublePerFrameResetProgressesTowardTargetTest,
+	"System.Engine.ComposableCameraSystem.Interpolator.SimpleSpring.DoublePerFrameResetProgressesTowardTarget",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FSimpleSpringDoublePerFrameResetProgressesTowardTargetTest::RunTest(const FString& Parameters)
+{
+	TSimpleSpringInterpolator<double> Interpolator(1.f);
+	Interpolator.Reset(0.0, 1.0);
+	const double FirstValue = Interpolator.Run(1.f / 60.f);
+
+	Interpolator.Reset(FirstValue, 1.0);
+	const double SecondValue = Interpolator.Run(1.f / 60.f);
+
+	UTEST_TRUE("First frame moves away from the current value",
+		FirstValue > 0.0);
+	UTEST_TRUE("Per-frame Reset keeps progressing toward the target",
+		SecondValue > FirstValue);
+	UTEST_TRUE("SimpleSpring double returns an absolute value, not only a delta",
+		SecondValue < 1.0);
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FSimpleSpringVectorPerFrameResetDoesNotDoubleAddCurrentTest,
+	"System.Engine.ComposableCameraSystem.Interpolator.SimpleSpring.VectorPerFrameResetDoesNotDoubleAddCurrent",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FSimpleSpringVectorPerFrameResetDoesNotDoubleAddCurrentTest::RunTest(const FString& Parameters)
+{
+	TSimpleSpringInterpolator<FVector2d> Interpolator(1.f);
+	Interpolator.Reset(FVector2d(0.5, 0.5), FVector2d(1.0, 1.0));
+	const FVector2d Value = Interpolator.Run(1.f / 60.f);
+
+	UTEST_TRUE("Vector SimpleSpring moves forward on X",
+		Value.X > 0.5);
+	UTEST_TRUE("Vector SimpleSpring moves forward on Y",
+		Value.Y > 0.5);
+	UTEST_TRUE("Vector SimpleSpring does not double-add the current X",
+		Value.X < 1.0);
+	UTEST_TRUE("Vector SimpleSpring does not double-add the current Y",
+		Value.Y < 1.0);
 
 	return true;
 }

@@ -236,3 +236,43 @@
 - Possible conflicts: character transform rotation is now visible in the
   preview. Camera marker rotation remains driven only by the runtime camera
   pose, so the earlier fake camera rotation should remain fixed.
+
+## 2026-06-12 - Spline node stalls with SimpleSpring move interpolator
+
+- Symptom: a `UComposableCameraSplineNode` using `MoveInterpolator =
+  UComposableCameraSimpleSpringInterpolator` does not visibly advance along the
+  spline.
+- Trigger / repro: configure a BuiltInSpline node with `MoveMethod` Automatic or
+  ClosestPoint, assign SimpleSpring as `MoveInterpolator`, then tick while the
+  desired normalized spline position changes.
+- Why it happens: Spline stores `Rail->CurrentPositionOnRail` from the
+  interpolator return value each frame. That path expects `Run()` to return the
+  absolute smoothed position.
+- Root cause: `TSimpleSpringInterpolatorTraits<double>::Damp` returned only the
+  damped delta (`Target - Current` progress), while the vector, rotator, and
+  quat SimpleSpring paths returned absolute values. Any double interpolator
+  reset from a non-zero smoothed value could collapse back toward a small delta.
+- Touched files:
+  - `Source/ComposableCameraSystem/Public/Interpolator/ComposableCameraSimpleSpringInterpolator.h`
+  - `Source/ComposableCameraSystem/Private/Tests/ComposableCameraBugFixTests.cpp`
+  - `Docs/TechDoc.md`
+  - `Docs/BugLog.md`
+- Fix: make the double SimpleSpring trait return `CurrentValue + DampedDelta`,
+  matching the `TCameraInterpolator` contract. Vector SimpleSpring traits now
+  treat the scalar helper result as an absolute component value so they do not
+  double-add `CurrentValue`.
+- Regression-test names:
+  `System.Engine.ComposableCameraSystem.Interpolator.SimpleSpring.DoublePerFrameResetProgressesTowardTarget`
+  and
+  `System.Engine.ComposableCameraSystem.Interpolator.SimpleSpring.VectorPerFrameResetDoesNotDoubleAddCurrent`.
+- Test blocker: automation test added, but project rules prohibit Codex from
+  invoking Unreal Editor automation from shell. User must run it from IDE /
+  Unreal Editor.
+- Avoid next time: when adding interpolator value-type specializations, test the
+  per-frame `Reset(LastOutput, Target) -> Run(DeltaTime)` pattern and assert
+  that `Run()` returns an absolute value.
+- Possible conflicts: double SimpleSpring users that reset from `0` to a delta
+  keep the same result. Users that reset from a non-zero smoothed state, such as
+  Spline, FocusPull, and VolumeConstraint, now continue toward the target
+  instead of treating the damped delta as the final value. Vector SimpleSpring
+  behavior is intended to remain unchanged.

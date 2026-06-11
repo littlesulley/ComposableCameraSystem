@@ -15,7 +15,7 @@ struct TSimpleSpringInterpolatorTraits<double>
 {
 	static double Damp(double CurrentValue, double TargetValue, float DeltaTime, float DampTime)
 	{
-		return ComposableCameraSystem::SimpleExpDamp(DeltaTime, DampTime, TargetValue - CurrentValue);
+		return CurrentValue + ComposableCameraSystem::SimpleExpDamp(DeltaTime, DampTime, TargetValue - CurrentValue);
 	}
 };
 
@@ -24,9 +24,9 @@ struct TSimpleSpringInterpolatorTraits<FVector2d>
 {
 	static FVector2d Damp(const FVector2d& CurrentValue, const FVector2d& TargetValue,  float DeltaTime, float DampTime)
 	{
-		double TargetValue_0 = TSimpleSpringInterpolatorTraits<double>::Damp(CurrentValue[0], TargetValue[0], DeltaTime, DampTime);
-		double TargetValue_1 = TSimpleSpringInterpolatorTraits<double>::Damp(CurrentValue[1], TargetValue[1], DeltaTime, DampTime);
-		return { CurrentValue[0] + TargetValue_0, CurrentValue[1] + TargetValue_1 };
+		double NewValue_0 = TSimpleSpringInterpolatorTraits<double>::Damp(CurrentValue[0], TargetValue[0], DeltaTime, DampTime);
+		double NewValue_1 = TSimpleSpringInterpolatorTraits<double>::Damp(CurrentValue[1], TargetValue[1], DeltaTime, DampTime);
+		return { NewValue_0, NewValue_1 };
 	}
 };
 
@@ -35,10 +35,10 @@ struct TSimpleSpringInterpolatorTraits<FVector3d>
 {
 	static FVector3d Damp(const FVector3d& CurrentValue, const FVector3d& TargetValue,  float DeltaTime, float DampTime)
 	{
-		double TargetValue_0 = TSimpleSpringInterpolatorTraits<double>::Damp(CurrentValue[0], TargetValue[0], DeltaTime, DampTime);
-		double TargetValue_1 = TSimpleSpringInterpolatorTraits<double>::Damp(CurrentValue[1], TargetValue[1], DeltaTime, DampTime);
-		double TargetValue_2 = TSimpleSpringInterpolatorTraits<double>::Damp(CurrentValue[2], TargetValue[2], DeltaTime, DampTime);
-		return { CurrentValue[0] + TargetValue_0, CurrentValue[1] + TargetValue_1, CurrentValue[2] + TargetValue_2 };
+		double NewValue_0 = TSimpleSpringInterpolatorTraits<double>::Damp(CurrentValue[0], TargetValue[0], DeltaTime, DampTime);
+		double NewValue_1 = TSimpleSpringInterpolatorTraits<double>::Damp(CurrentValue[1], TargetValue[1], DeltaTime, DampTime);
+		double NewValue_2 = TSimpleSpringInterpolatorTraits<double>::Damp(CurrentValue[2], TargetValue[2], DeltaTime, DampTime);
+		return { NewValue_0, NewValue_1, NewValue_2 };
 	}
 };
 
