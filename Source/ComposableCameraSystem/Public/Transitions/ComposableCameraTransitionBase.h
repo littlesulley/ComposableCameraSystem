@@ -8,6 +8,7 @@
 #include "ComposableCameraTransitionBase.generated.h"
 
 class UComposableCameraTransitionBase;
+class AComposableCameraPlayerCameraManager;
 
 DECLARE_MULTICAST_DELEGATE(FOnTransitionFinishes);
 
@@ -125,6 +126,7 @@ protected:
 		float TargetWeight) const;
 
 	const FRotator& GetInitialTargetRotation() const { return InitialTargetRotation; }
+	AComposableCameraPlayerCameraManager* GetOwningPlayerCameraManager() const { return CachedPlayerCameraManager.Get(); }
 
 	/** Begin Play event. Called on the first frame of the transition, before the first OnEvaluate. \n
 	 * Use this to construct or initialize internal parameters specialized for this type of transition. \n
@@ -281,6 +283,7 @@ protected:
 	FRotator AccumulatedSourceRotationOffset { FRotator::ZeroRotator };
 	FRotator AccumulatedTargetRotationOffset { FRotator::ZeroRotator };
 	bool bHasLockedRotationPathState { false };
+	TWeakObjectPtr<AComposableCameraPlayerCameraManager> CachedPlayerCameraManager;
 
 	/** Cached `GetClass()->GetName()` populated lazily at first Evaluate
 	 *  and reused by per-evaluate `TRACE_CPUPROFILER_EVENT_SCOPE_STR` so

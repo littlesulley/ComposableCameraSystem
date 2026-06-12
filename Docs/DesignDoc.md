@@ -1,6 +1,6 @@
 # ComposableCameraSystem Design
 
-Updated: 2026-06-01
+Updated: 2026-06-12
 
 This document describes the current runtime architecture of the UE 5.6
 ComposableCameraSystem plugin. It is intentionally compact. Implementation
@@ -213,10 +213,25 @@ Transition selection order:
 5. hard cut.
 
 A transition receives source pose, target pose, and delta time. It emits one
-pose. It must not own camera lifecycle.
+pose. It must not own camera lifecycle. On activation the base transition caches
+its typed outer `AComposableCameraPlayerCameraManager` only as owner context for
+actor-input resolution; camera ownership and lifetime still stay outside the
+transition.
 
 Built-in transition families include linear, smooth, ease, cubic, inertialized,
-cylindrical, spline, path-guided, dynamic deocclusion, and view-target.
+cylindrical, spline, path-guided, dynamic deocclusion, composition-preserving,
+and view-target.
+
+Composition-preserving transitions preserve subject composition in the driving
+rotation space. At transition start they capture the subject's source-camera
+local offset. Each tick a nested driving transition computes rotation `R'` and
+blend weight alpha, while the target-camera local offset is recomputed from the
+live target pose and live subject. The output blends normal non-transform pose
+fields from current source to current target, then overrides rotation with `R'`
+and location with
+`SubjectNow - R'.RotateVector(Lerp(CapturedSourceOffset, LiveTargetOffset, alpha))`.
+The target pose is not modified, and alpha = 1 converges to the live target
+pose to avoid a collapse-frame snap.
 
 ## 10. Modifiers and Actions
 

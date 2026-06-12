@@ -6,6 +6,8 @@
 #include "Transitions/ComposableCameraTransitionBase.h"
 #include "ComposableCameraTestObjects.generated.h"
 
+class AComposableCameraPlayerCameraManager;
+
 /**
  * A controllable transition for testing. Allows tests to manually set finished state
  * and control the blend output.
@@ -20,6 +22,11 @@ public:
 	void SetFinished(bool bInFinished)
 	{
 		bFinished = bInFinished;
+	}
+
+	AComposableCameraPlayerCameraManager* GetCachedPlayerCameraManagerForTest() const
+	{
+		return GetOwningPlayerCameraManager();
 	}
 
 	/** The blend factor returned by this transition (0 = full source, 1 = full target). */

@@ -9,7 +9,6 @@
 #include "Engine/World.h"
 #include "Kismet/GameplayStatics.h"
 #include "Nodes/ComposableCameraSplineNode.h"
-#include "Utils/ComposableCameraBlueprintLibrary.h"
 
 #if !UE_BUILD_SHIPPING
 #include "Debug/ComposableCameraViewportDebug.h"
@@ -172,7 +171,7 @@ void UComposableCameraPathGuidedTransition::OnBeginPlay_Implementation(float Del
 			IntermediateCamera->bIsTransient = false;
 			IntermediateCamera->LifeTime = -1.f;
 			IntermediateCamera->RemainingLifeTime = -1.f;
-			IntermediateCamera->Initialize(UComposableCameraBlueprintLibrary::GetComposableCameraPlayerCameraManager(this, 0));
+			IntermediateCamera->Initialize(GetOwningPlayerCameraManager());
 
 			UComposableCameraSplineNode* SplineNode = NewObject<UComposableCameraSplineNode>(IntermediateCamera, UComposableCameraSplineNode::StaticClass());
 			if (!SplineNode)

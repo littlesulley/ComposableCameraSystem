@@ -205,10 +205,46 @@ Transition init uses:
 - current source pose.
 - previous source pose.
 - delta time from a guarded `SafeDeltaSeconds`.
+- a cached typed outer `AComposableCameraPlayerCameraManager`, used by
+  transitions that need owner-aware actor input or temporary camera
+  initialization.
 
 Fallback rule: a transition that cannot compute should return one input pose,
 usually target pose for activation-style transitions. Never return a default
 constructed pose as an error fallback.
+
+`UComposableCameraCompositionPreservingTransition` wraps a
+`DrivingTransition`. On begin play it captures the subject actor offset from
+the source pose in source-camera local space. If the wrapper transition's
+`TransitionTime` is unset or zero, it adopts the `DrivingTransition` duration so
+the wrapper does not finish before the driving transition can tick. Subject
+lookup uses the base transition's cached PCM when `SubjectActorSource` is
+`ControllerControlledPawn`, so split-screen or multi-controller worlds do not
+fall back to the wrong first world controller. Each tick:
+
+- evaluate `DrivingTransition(CurrentSourcePose, CurrentTargetPose)`.
+- take the driving pose rotation as `R'` and the driving transition percentage
+  as the blend weight.
+- blend non-transform pose fields from current source pose to current target
+  pose.
+- recompute the live target-camera local offset from
+  `CurrentTargetPose` and `SubjectLocation`.
+- compute camera position as
+  `SubjectLocation - R'.RotateVector(Lerp(CapturedSourceOffset, LiveTargetOffset, Percentage))`.
+- overwrite output rotation with `R'`.
+
+The target offset must be live, not captured at transition start. Otherwise a
+moving subject can leave the near-final preserved pose offset from
+`CurrentTargetPose`, and the evaluation tree collapse back to raw B will snap.
+
+If the subject actor cannot be captured or disappears, the transition returns
+the driving pose. If `DrivingTransition` is unset, it logs and falls back to the
+target pose.
+
+`UComposableCameraPathGuidedTransition` also uses the base cached PCM when it
+initializes its temporary intermediate camera. It must not ask the Blueprint
+library for player index 0, because the active PCM can belong to a different
+local player.
 
 ## 10. Context Stack
 
@@ -469,6 +505,7 @@ Base classes:
 - `UComposableCameraSplineTransition`
 - `UComposableCameraPathGuidedTransition`
 - `UComposableCameraDynamicDeocclusionTransition`
+- `UComposableCameraCompositionPreservingTransition`
 - `UComposableCameraViewTargetTransition`
 
 ## 18. Built-In Actions and Interpolators
@@ -491,6 +528,7 @@ Interpolators:
 Existing test files include:
 
 - `ComposableCameraBugFixTests.cpp`
+- `ComposableCameraCompositionPreservingTransitionTests.cpp`
 - `ComposableCameraShotSolverTests.cpp`
 - `ComposableCameraPivotLookAheadNodeTests.cpp`
 - `ComposableCameraLockOnAimPointNodeTests.cpp`

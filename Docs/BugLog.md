@@ -1,5 +1,163 @@
 # Bug Log
 
+## 2026-06-12 - CompositionPreserving snaps on final collapse frame
+
+- Symptom: a CompositionPreserving transition keeps the subject framed during
+  most of the blend, then jumps on the final frame / tree collapse.
+- Trigger / repro: start an A to B CompositionPreserving transition, move the
+  controlled pawn during the blend, and let the transition finish.
+- Why it happens: the previous formula captured B-side subject offset only at
+  transition start. After the pawn moved, alpha near 1 still produced a
+  composition-preserving pose based on stale B offset. The base transition and
+  evaluation tree then returned/collapsed to the live raw B pose.
+- Root cause: the preserved pose did not converge to `CurrentTargetPose` when
+  alpha reached 1 unless B's start-time subject offset still matched the live
+  target pose.
+- Touched files:
+  - `Source/ComposableCameraSystem/Public/Transitions/ComposableCameraCompositionPreservingTransition.h`
+  - `Source/ComposableCameraSystem/Private/Transitions/ComposableCameraCompositionPreservingTransition.cpp`
+  - `Source/ComposableCameraSystem/Private/Tests/ComposableCameraCompositionPreservingTransitionTests.cpp`
+  - `Docs/DesignDoc.md`
+  - `Docs/TechDoc.md`
+  - `Docs/BugLog.md`
+- Fix: keep the A/source offset captured, but recompute B/target offset every
+  frame from live subject location and `CurrentTargetPose`. The blend now uses
+  `Lerp(CapturedSourceOffset, LiveTargetOffset, Alpha)`, so alpha = 1 matches
+  live B and collapse has no stale-offset snap.
+- Regression-test name:
+  `System.Engine.ComposableCameraSystem.Transitions.CompositionPreserving.ConvergesToLiveTargetPose`.
+- Test blocker: automation test added, but project rules prohibit Codex from
+  invoking Unreal Editor automation from shell. User must run it from IDE /
+  Unreal Editor.
+- Avoid next time: any custom transition output that later collapses to the
+  right/target child must converge to the live target pose at alpha = 1, unless
+  the transition also owns an explicit post-collapse handoff.
+- Possible conflicts: this changes only CompositionPreserving's target-side
+  offset math. B remains unmodified; the transition just uses live B as the
+  convergence endpoint.
+
+## 2026-06-12 - Transition owner PCM lookup was duplicated and inconsistent
+
+- Symptom: transition code that needed the owning player camera manager could
+  either pay repeated outer lookups or resolve the wrong local player.
+- Trigger / repro: use `ControllerControlledPawn` on a CompositionPreserving
+  transition in a multi-controller world, or use PathGuided's intermediate
+  camera from a non-zero / non-first local player.
+- Why it happens: transitions had no shared owner-PCM cache. Composition
+  initially did its own typed-outer lookup, while PathGuided asked the
+  Blueprint library for player index 0.
+- Root cause: `UComposableCameraTransitionBase` did not expose the same owning
+  PCM context that camera nodes already receive.
+- Touched files:
+  - `Source/ComposableCameraSystem/Public/Transitions/ComposableCameraTransitionBase.h`
+  - `Source/ComposableCameraSystem/Private/Transitions/ComposableCameraTransitionBase.cpp`
+  - `Source/ComposableCameraSystem/Public/Transitions/ComposableCameraCompositionPreservingTransition.h`
+  - `Source/ComposableCameraSystem/Private/Transitions/ComposableCameraCompositionPreservingTransition.cpp`
+  - `Source/ComposableCameraSystem/Private/Transitions/ComposableCameraPathGuidedTransition.cpp`
+  - `Source/ComposableCameraSystem/Private/Tests/ComposableCameraTestObjects.h`
+  - `Source/ComposableCameraSystem/Private/Tests/ComposableCameraCompositionPreservingTransitionTests.cpp`
+  - `Docs/DesignDoc.md`
+  - `Docs/TechDoc.md`
+  - `Docs/BugLog.md`
+- Fix: cache the typed outer `AComposableCameraPlayerCameraManager` once in
+  `TransitionEnabled`. CompositionPreserving resolves controlled pawn through
+  that cache. PathGuided initializes its intermediate camera with that cache
+  instead of player index 0.
+- Regression-test name:
+  `System.Engine.ComposableCameraSystem.Transitions.Base.CachesOuterPCM` and
+  `System.Engine.ComposableCameraSystem.Transitions.CompositionPreserving.ResolvesControlledPawnFromOuterPCM`.
+- Test blocker: automation tests added, but project rules prohibit Codex from
+  invoking Unreal Editor automation from shell. User must run them from IDE /
+  Unreal Editor. PathGuided's private intermediate-camera path still needs an
+  IDE compile plus a non-first-player manual smoke test.
+- Avoid next time: shared runtime context should live on the base class when
+  more than one transition needs it. Do not hard-code player index 0 from a
+  transition instance.
+- Possible conflicts: Level Sequence and other no-PCM paths still pass through
+  `nullptr`; `AComposableCameraCameraBase::Initialize(nullptr)` already supports
+  that mode.
+
+## 2026-06-12 - CompositionPreserving mixed driving rotation with raw target location
+
+- Symptom: the controlled pawn could still drift out of the expected framing
+  even after the transition resolved the right pawn and did not hard-cut.
+- Trigger / repro: transition from camera A to camera B where B has a different
+  rotation and world position from A, then move the subject during the blend.
+- Why it happens: the previous implementation rebuilt only the source side
+  around `R'`, then blended that source location toward raw target world
+  location while forcing output rotation back to `R'`.
+- Root cause: location and rotation were no longer in the same composition
+  space. `R'` represented the driving rotation, but target location still
+  represented B's evaluated pose under `R_B`.
+- Touched files:
+  - `Source/ComposableCameraSystem/Public/Transitions/ComposableCameraCompositionPreservingTransition.h`
+  - `Source/ComposableCameraSystem/Private/Transitions/ComposableCameraCompositionPreservingTransition.cpp`
+  - `Source/ComposableCameraSystem/Private/Tests/ComposableCameraCompositionPreservingTransitionTests.cpp`
+  - `Docs/DesignDoc.md`
+  - `Docs/TechDoc.md`
+  - `Docs/BugLog.md`
+- Fix: capture both source and target subject offsets at transition start. This
+  was later refined by the 2026-06-12 final-collapse entry: source offset stays
+  captured, but target offset is recomputed live so the output converges to B.
+- Regression-test name:
+  `System.Engine.ComposableCameraSystem.Transitions.CompositionPreserving.RebuildsSourceFromMovingSubject`.
+- Test blocker: automation test updated, but project rules prohibit Codex from
+  invoking Unreal Editor automation from shell. User must run it from IDE /
+  Unreal Editor.
+- Avoid next time: whenever a transition overrides rotation, recompute location
+  in the same rotation / composition space. Do not blend toward an endpoint
+  world location after changing the rotation frame.
+- Possible conflicts: CompositionPreserving no longer treats raw B location as
+  the direct positional target during the blend. B's start composition relative
+  to the subject is still represented by the captured target offset.
+
+## 2026-06-12 - CompositionPreserving transition hard-cuts when wrapper time is unset
+
+- Symptom: `UComposableCameraCompositionPreservingTransition` appears not to
+  preserve the controlled pawn during a transition.
+- Trigger / repro: add a CompositionPreserving transition, assign a valid
+  `DrivingTransition` with a non-zero duration, but leave the outer wrapper's
+  `TransitionTime` unset or zero.
+- Why it happens: the base transition `Evaluate` decrements the outer wrapper's
+  `RemainingTime` before `OnEvaluate`. With `RemainingTime == 0`, the wrapper
+  finishes on the first frame and returns the target pose, so the subject
+  capture and rebuilt source pose never affect output. In the default
+  `ControllerControlledPawn` mode, the transition also resolved actors without
+  passing its outer `AComposableCameraPlayerCameraManager`, so multi-controller
+  worlds could select the world's first controller pawn instead of the PCM
+  owner's pawn.
+- Root cause: `OnBeginPlay` always pushed the wrapper's `TransitionTime` into
+  the driving transition, but did not adopt the driving transition's authored
+  duration when the wrapper duration was unset. `ResolveSubjectActor` also
+  passed `nullptr` for the PCM even though runtime transition instances are
+  outered under a director / PCM chain.
+- Touched files:
+  - `Source/ComposableCameraSystem/Private/Transitions/ComposableCameraCompositionPreservingTransition.cpp`
+  - `Source/ComposableCameraSystem/Private/Tests/ComposableCameraCompositionPreservingTransitionTests.cpp`
+  - `Docs/TechDoc.md`
+  - `Docs/BugLog.md`
+- Fix: when wrapper `TransitionTime <= 0` and `DrivingTransition` has a valid
+  duration, set the wrapper transition time and remaining time from the driving
+  transition before the base first-frame finish check can collapse the blend.
+  Resolve `ControllerControlledPawn` through the owning PCM so the owning
+  player controller wins over world-first-controller fallback. A later
+  2026-06-12 entry moved that PCM lookup into the transition base class.
+- Regression-test name:
+  `System.Engine.ComposableCameraSystem.Transitions.CompositionPreserving.UsesDrivingTransitionTimeWhenWrapperTimeUnset`
+  and
+  `System.Engine.ComposableCameraSystem.Transitions.CompositionPreserving.ResolvesControlledPawnFromOuterPCM`.
+- Test blocker: automation test added, but project rules prohibit Codex from
+  invoking Unreal Editor automation from shell. User must run it from IDE /
+  Unreal Editor.
+- Avoid next time: wrapper transitions that delegate timing must either require
+  an explicit outer duration or adopt the inner transition duration before the
+  base class can apply the first-frame remaining-time finish check. Runtime
+  transitions that expose `ControllerControlledPawn` must pass their owning PCM
+  into `ResolveActorInput`, not rely on world fallback.
+- Possible conflicts: the duration-adoption behavior is local to
+  CompositionPreserving. Other wrapper transitions still require their wrapper
+  duration to be authored explicitly.
+
 ## 2026-06-03 - Runtime Previewer Slate include path compile failure
 
 - Symptom: `SComposableCameraRuntimePreviewer.cpp` failed to compile with
