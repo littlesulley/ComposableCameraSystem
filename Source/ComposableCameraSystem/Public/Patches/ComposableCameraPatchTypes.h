@@ -1,4 +1,4 @@
-﻿// Copyright Sulley. All rights reserved.
+// Copyright 2026 Sulley. All Rights Reserved.
 
 #pragma once
 
@@ -37,10 +37,10 @@ ENUM_CLASS_FLAGS(EComposableCameraPatchExpirationType)
 /**
  * Easing curve applied symmetrically to the enter and exit alpha ramps.
  *
- * Asset-only in V1. There is no per-AddPatch override (an enum has no natural
- * sentinel value, and adding a parallel bool is worse than asset-only). If a
- * future case requires a runtime override, add a sixth `Custom` member with a
- * companion `FRuntimeFloatCurve` pin (see PatchSystemProposal Section 8.1).
+ * Asset-only. There is no per-AddPatch override (an enum has no natural
+ * sentinel value, and adding a parallel bool would make the API noisier). If a
+ * runtime override is ever needed, add an explicit `Custom` member with a
+ * companion `FRuntimeFloatCurve` pin.
  */
 UENUM(BlueprintType)
 enum class EComposableCameraPatchEase : uint8
@@ -84,13 +84,13 @@ enum class EComposableCameraPatchPhase : uint8
  *     into an inline checkbox next to the value field. Unchecked ->use asset
  *     default; checked ->caller value wins. Standard.
  *
- *   -BP `Make FComposableCameraPatchActivateParams` node: UE's
+ *   - BP `Make FComposableCameraPatchActivateParams` node: UE's
  *     MakeStructHandler treats `InlineEditConditionToggle` bools as *implicit*
  *     override flags. The bool's runtime value is forced TRUE for every value
  *     pin whose `bShowPin` flag is true on the MakeStruct node, and FALSE for
  *     pins whose `bShowPin` is false. **Important UI subtlety**: `bShowPin`
  *     is controlled ONLY by the node's details-panel "Show Pin For -
- *     checkboxes -NOT by the per-pin eye icon visible on the node body. The
+ *     checkboxes, not by the per-pin eye icon visible on the node body. The
  *     eye icon toggles a different state (advanced/visual collapse) and does
  *     NOT propagate to `bShowPin`, so clicking it leaves `bOverride*=true`
  *     even though the pin appears collapsed. Authoring rule: **to use asset

@@ -1,4 +1,4 @@
-// Copyright Sulley. All rights reserved.
+// Copyright 2026 Sulley. All Rights Reserved.
 //
 // Editor-side companion to the runtime CCS.Dump.* family
 // (see ComposableCameraSystem/Private/Debug/ComposableCameraDebugDumpCommands.cpp).

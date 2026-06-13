@@ -1,4 +1,4 @@
-﻿// Copyright Sulley. All rights reserved.
+// Copyright 2026 Sulley. All Rights Reserved.
 
 #pragma once
 
@@ -20,7 +20,7 @@ struct FComposableCameraLogEntry
 	FName CategoryName;
 
 	/** Verbosity level (Warning / Error / Fatal). Filtered at capture
-	 *  time -Log / Display / Verbose / VeryVerbose never enter the ring
+	 *  time. Log / Display / Verbose / VeryVerbose never enter the ring
 	 *  buffer so the panel doesn't drown in trivia. */
 	ELogVerbosity::Type Verbosity = ELogVerbosity::NoLogging;
 

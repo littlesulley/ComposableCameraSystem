@@ -1,4 +1,4 @@
-// Copyright Sulley. All rights reserved.
+// Copyright 2026 Sulley. All Rights Reserved.
 
 #pragma once
 
@@ -58,8 +58,7 @@ enum class EShotAnchorMode : uint8
  *     point. No orbit, no anchor required for position. Useful for
  *     "locked" cinematic shots (cranes, jib heads, surveillance cams).
  *
- * Drives the Placement layer of the Composition Solver. See
- * Docs/ShotBasedKeyframing.md Section 4.3.
+ * Drives the Placement layer of the Composition Solver.
  */
 UENUM(BlueprintType)
 enum class EShotPlacementMode : uint8
@@ -90,7 +89,7 @@ enum class EShotPlacementMode : uint8
  *     computations relative to that frame may not match designer intent;
  *     prefer `Manual` Lens + Focus modes when pairing with NoOp Aim.
  *
- * Drives the Aim layer of the Composition Solver. See spec Section 4.4.
+ * Drives the Aim layer of the Composition Solver.
  */
 UENUM(BlueprintType)
 enum class EShotAimMode : uint8
@@ -109,15 +108,15 @@ enum class EShotFOVMode : uint8
 	Manual,
 
 	/**
-	 * Solve FOV from per-target bounds using the Weight-scaled Perceptual
-	 * Union Box algorithm (spec Section 4.5).
+	 * Solve FOV from per-target bounds using the weight-scaled perceptual
+	 * union box algorithm.
 	 */
 	SolvedFromBoundsFit
 };
 
 /**
  * Selects what world point drives the focus distance. Independent of
- * Position / Rotation / FOV. See spec Section 4.6.
+ * Position / Rotation / FOV.
  */
 UENUM(BlueprintType)
 enum class EShotFocusMode : uint8
@@ -139,7 +138,7 @@ enum class EShotFocusMode : uint8
 
 /**
  * Reference-frame selector for AnchorOrbit's `LocalCameraDirection`.
- * Lives at `FShotPlacement::BasisFrame`. See spec Section 3.5.2.
+ * Lives at `FShotPlacement::BasisFrame`.
  */
 UENUM(BlueprintType)
 enum class EShotPlacementBasisFrame : uint8
@@ -188,7 +187,7 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraAnchorTargetWeight
  *   - WeightedWorldCentroid:  anchor = weighted centroid of N targets
  *   - FixedWorldPosition:     anchor = an explicit world point
  *
- * Properties are BlueprintReadOnly per spec Section 1.4.
+ * Properties are BlueprintReadOnly because Shot data is designer-authored.
  */
 USTRUCT(BlueprintType)
 struct COMPOSABLECAMERASYSTEM_API FComposableCameraAnchorSpec
@@ -217,7 +216,7 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraAnchorSpec
 	/**
 	 * Resolves to a single world point given the Shot's full target list.
 	 * Returns false (OutPos unchanged) when:
-	 *   SingleTarget       -TargetIndex out of range OR Actor null
+	 *   SingleTarget       - TargetIndex out of range OR Actor null
 	 *   WeightedCentroid  . No entry has Weight > 0 AND a valid Actor
 	 *   FixedWorldPosition. Never (always returns true)
 	 */
@@ -270,7 +269,7 @@ struct COMPOSABLECAMERASYSTEM_API FShotScreenZonePadding
  * relative to ScreenPosition while the camera holds, and the solver
  * pulls it back when it strays.
  *
- * When `bEnabled == false` the solver runs the V1 hard-constraint path
+ * When `bEnabled == false` the solver runs the hard-constraint path
  * (anchor lands exactly at `ScreenPosition` every frame). When
  * `bEnabled == true` the solver:
  *
@@ -284,8 +283,8 @@ struct COMPOSABLECAMERASYSTEM_API FShotScreenZonePadding
  *   4. clamps the post-damping offset to the soft-zone padding rectangle
  *      (hard limit. Anchor never leaves soft zone, no damping on the
  *      clamp);
- *   5. feeds the resulting effective screen target into the V1 closed-
- *      form / Picard solver.
+ *   5. feeds the resulting effective screen target into the closed-form /
+ *      decoupled placement solver.
  *
  * One struct, two attachment sites -`FShotAim::AimZones` (always
  * applies when AimMode == LookAtAnchor) and `FShotPlacement::PlacementZones`
@@ -320,11 +319,11 @@ struct COMPOSABLECAMERASYSTEM_API FShotScreenZones
 		SoftZone.Bottom = 0.3f;
 	}
 
-	/** Master switch. `false` = V1 hard-constraint path (every frame the
-	 *  anchor is solved to land exactly at `ScreenPosition`. Closed-form
-	 *  for `LookAtAnchor`, Picard for `AnchorAtScreen + LookAtAnchor`).
+	/** Master switch. `false` = hard-constraint path (every frame the
+	 *  anchor is solved toward `ScreenPosition`: closed-form for
+	 *  `LookAtAnchor`, decoupled placement for `AnchorAtScreen + LookAtAnchor`).
 	 *  `true` = pose-state-aware Cinemachine-style damped framing
-	 *  described above. Default `false` for V1 backward compatibility. */
+	 *  described above. Default `false` for backward compatibility. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Zones")
 	bool bEnabled = false;
 
@@ -357,8 +356,7 @@ struct COMPOSABLECAMERASYSTEM_API FShotScreenZones
 /**
  * Placement layer. Decides camera POSITION. Layered architecture: the
  * solver runs Placement first to get a Position, then Aim (which only
- * decides Rotation), then Lens (FOV), then Focus. See
- * Docs/ShotBasedKeyframing.md Section 3.4 + Section 4.3.
+ * decides Rotation), then Lens (FOV), then Focus.
  *
  * Anchor concepts unified: Placement's anchor is the world point the
  * camera is placed RELATIVE TO; Aim's anchor (separate field on
@@ -410,8 +408,8 @@ struct COMPOSABLECAMERASYSTEM_API FShotPlacement
 
 	/** Camera position direction in BasisFrame's basis, expressed as
 	 *  (Yaw, Pitch) in degrees. AnchorOrbit-only -`AnchorAtScreen`
-	 *  derives camera position from the joint Aim+Placement screen
-	 *  constraints, no spherical direction parameter. Roll about the look
+	 *  derives camera position from the placement screen constraint and
+	 *  Aim rotation seed, no spherical direction parameter. Roll about the look
 	 *  axis is authored separately on the Shot's top-level `Roll` field. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Placement|AnchorOrbit",
 		meta = (EditCondition = "Mode == EShotPlacementMode::AnchorOrbit"))
@@ -426,14 +424,14 @@ struct COMPOSABLECAMERASYSTEM_API FShotPlacement
 	 *      where camera looks at the placement anchor, this equals the
 	 *      cam-frame depth.
 	 *    - AnchorAtScreen: cam-frame depth (X coordinate of
-	 *      PlacementAnchor under the joint-solve camera rotation, which
-	 *      looks at AimAnchor). Designer thinks "I want PlacementAnchor
+	 *      PlacementAnchor under the assumed camera rotation used by the
+	 *      placement pass). Designer thinks "I want PlacementAnchor
 	 *      this far in front of camera" regardless of where the lateral
 	 *      offset lands it.
 	 *
 	 *  Range `[1, 10000]` cm = `[1cm, 100m]`. Floor matches the solver's
-	 *  pre-flight check (1cm prevents division by ~0 in the Picard
-	 *  iteration). Ceiling is a sanity cap against typo / scroll-spam
+	 *  pre-flight check (1cm prevents division by ~0 in screen-space
+	 *  placement math). Ceiling is a sanity cap against typo / scroll-spam
 	 *  pushing Distance to ~1e9. The solver's float math degrades well
 	 *  before that, so a hard 100m clamp is cheaper to enforce here than
 	 *  to chase down NaN poses downstream. 100m covers the vast majority
@@ -453,15 +451,15 @@ struct COMPOSABLECAMERASYSTEM_API FShotPlacement
 	/**
 	 * IIR damping speed for `Distance` (`FMath::FInterpTo` Speed semantics).
 	 * `0` = no damping -> camera snaps to the authored Distance every frame
-	 * (V1 default behavior). Positive = damped. When the designer drags
+	 * (default behavior). Positive = damped. When the designer drags
 	 * the Distance slider or a Sequencer track keys it, the camera glides
 	 * toward the new value over time instead of teleporting. Higher
 	 * values = snappier; lower values = heavier camera. Independent of the
 	 * screen-space framing zones (which damp X / Y); this damps Z.
 	 *
 	 * Skipped in `FixedWorldPosition` mode (Distance is unused there).
-	 * Requires `PriorPose != nullptr` like the rest of the V2.2 stateful
-	 * solver. First-frame seed snaps to authored value, damping kicks in
+	 * Requires `PriorPose != nullptr` like the rest of the stateful solver.
+	 * First-frame seed snaps to authored value, damping kicks in
 	 * from frame 2 onward.
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Placement|AnchorOrbit",
@@ -471,16 +469,14 @@ struct COMPOSABLECAMERASYSTEM_API FShotPlacement
 	/**
 	 * `AnchorAtScreen`-only. Where the resolved PlacementAnchor
 	 * should land on screen, normalized to [-0.5, 0.5] -(0, 0) is screen
-	 * center. Realized via the joint Position+Rotation solve described in
-	 * spec Section 4.3. Camera position is constrained such that PlacementAnchor
-	 * is at depth `Distance` and screen `ScreenPosition` AT THE SAME TIME
-	 * AS Aim's rotation puts AimAnchor at `Aim.ScreenPosition`. Both
-	 * constraints are simultaneously satisfied by a closed-form solve
-	 * (5 constraints on 5 unknowns).
+	 * center. The placement pass positions the camera so PlacementAnchor
+	 * lands at this screen point under an assumed rotation. The Aim pass then
+	 * solves rotation for AimAnchor. On activation / reseed, the solver may
+	 * run a bounded joint seed to reduce first-frame drift.
 	 *
-	 * Requires `Aim.Mode == LookAtAnchor` AND `AimAnchor != PlacementAnchor`
-	 *. The joint solve degenerates without both. Solver logs warning +
-	 * skips pose update otherwise.
+	 * Requires `Aim.Mode == LookAtAnchor` AND `AimAnchor != PlacementAnchor`.
+	 * The screen-seeded solve degenerates without both. Solver logs a warning
+	 * and skips pose update otherwise.
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Placement|AnchorOrbit",
 		meta = (EditCondition = "Mode == EShotPlacementMode::AnchorAtScreen", ClampMin = "-0.5", ClampMax = "0.5"))
@@ -493,11 +489,11 @@ struct COMPOSABLECAMERASYSTEM_API FShotPlacement
 	 * `AnchorOrbit` (no `Placement.ScreenPosition`) and `FixedWorldPosition`
 	 * (placement is world-locked, not screen-driven).
 	 *
-	 * When enabled the joint Picard solve runs against the zone-derived effective
+	 * When enabled the placement solve runs against the zone-derived effective
 	 * screen target instead of the raw authored `ScreenPosition`, with damping
 	 * applied in screen space. Anchor inside the dead zone produces zero
-	 * error ->joint solve is short-circuited and the camera holds its previous
-	 * `LastOutputPose`. See `FShotScreenZones` for the algorithm description.
+	 * error ->the camera holds its previous `LastOutputPose`. See
+	 * `FShotScreenZones` for the algorithm description.
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Placement|AnchorOrbit",
 		meta = (EditCondition = "Mode == EShotPlacementMode::AnchorAtScreen"))
@@ -515,7 +511,7 @@ struct COMPOSABLECAMERASYSTEM_API FShotPlacement
 
 /**
  * Aim layer. Decides camera ROTATION (Position is already determined by
- * the Placement layer). See spec Section 4.4.
+ * the Placement layer).
  */
 USTRUCT(BlueprintType)
 struct COMPOSABLECAMERASYSTEM_API FShotAim
@@ -536,7 +532,7 @@ struct COMPOSABLECAMERASYSTEM_API FShotAim
 
 	/**
 	 * Where the resolved aim anchor should land on screen, normalized to
-	 * [-0.5, 0.5]. With `AimZones.bEnabled == false` (V1 default) this
+	 * [-0.5, 0.5]. With `AimZones.bEnabled == false` this
 	 * is a hard rotation constraint. The closed-form solver satisfies
 	 * it exactly via `SolveCameraRotationForScreenTarget` every frame.
 	 * With `AimZones.bEnabled == true` this becomes the *target* position
@@ -560,7 +556,7 @@ struct COMPOSABLECAMERASYSTEM_API FShotAim
 };
 
 /**
- * Lens layer. Decides FOV + Aperture. See spec Section 4.5.
+ * Lens layer. Decides FOV + Aperture.
  */
 USTRUCT(BlueprintType)
 struct COMPOSABLECAMERASYSTEM_API FShotLens
@@ -594,12 +590,12 @@ struct COMPOSABLECAMERASYSTEM_API FShotLens
 	/**
 	 * IIR damping speed for the solved FOV (`FMath::FInterpTo` Speed
 	 * semantics). `0` = no damping -> camera snaps to the authored /
-	 * solved FOV every frame (V1 default). Positive = damped. When
+	 * solved FOV every frame (default). Positive = damped. When
 	 * the designer drags `ManualFOV` or `SolvedFromBoundsFit`'s solved
 	 * FOV jumps (target-set composition change), the lens glides toward
 	 * the new value over time. Independent of Placement.DistanceSpeed
 	 * (which damps depth). Requires `PriorPose != nullptr` like the
-	 * other V2.2 stateful damping; first-frame seed snaps to authored.
+	 * other stateful damping; first-frame seed snaps to authored.
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Lens",
 		meta = (ClampMin = "0.0"))
@@ -608,7 +604,7 @@ struct COMPOSABLECAMERASYSTEM_API FShotLens
 
 /**
  * Focus layer. Decides focus distance. Independent of Position /
- * Rotation / FOV. See spec Section 4.6.
+ * Rotation / FOV.
  */
 USTRUCT(BlueprintType)
 struct COMPOSABLECAMERASYSTEM_API FShotFocus
@@ -643,8 +639,7 @@ struct COMPOSABLECAMERASYSTEM_API FShotFocus
  * Placement (`ScreenPosition`) and Aim (`ScreenPosition`). Each tied to
  * its own anchor.
  *
- * See Docs/ShotBasedKeyframing.md Section 3 for the full data model and Section 4 for
- * the solver pipeline.
+ * See DesignDoc for the full data model and TechDoc for solver details.
  */
 USTRUCT(BlueprintType)
 struct COMPOSABLECAMERASYSTEM_API FComposableCameraShot
@@ -652,13 +647,13 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraShot
 	GENERATED_BODY()
 
 	/** All actors tracked by this Shot, in authoring order. Index stability
-	 *  matters -Placement / Aim / Focus anchor specs reference indices
+	 *  matters: Placement / Aim / Focus anchor specs reference indices
 	 *  into this array. Reordering must update those indices in lockstep.
 	 *
 	 *  Category is `"Shot"` (NOT a sub-category like `"Shot|Targets"`) so
 	 *  the array renders at the top of the Details panel, above the
 	 *  Placement / Aim / Lens / Focus sub-structs. Designer authoring
-	 *  flow is "pick the actors first, then frame them" -Targets at
+	 *  flow is "pick the actors first, then frame them". Targets at
 	 *  the top reflects that. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Shot")
 	TArray<FComposableCameraShotTarget> Targets;
@@ -674,7 +669,7 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraShot
 	/** Camera roll about its forward (look) axis, in degrees. Composed onto
 	 *  the output rotation as the final operation; the solver pre-rotates
 	 *  Aim.ScreenPosition by -Roll before solving so the screen constraint
-	 *  holds at any Roll. 0 = level. See spec Section 4.8.
+	 *  holds at any Roll. 0 = level.
 	 *
 	 *  Range `[-180, 180]` deg. Kept narrow on purpose:
 	 *    1. The Alt+RMB-drag Roll gesture (Section 23.13) accumulates via
@@ -703,11 +698,11 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraShot
 	/**
 	 * IIR damping speed for `Roll` (`FMath::FInterpTo` Speed semantics).
 	 * `0` = no damping -> camera snaps to the authored Roll every frame
-	 * (V1 default). Positive = damped. When the designer Alt+RMB-drags
+	 * (default). Positive = damped. When the designer Alt+RMB-drags
 	 * Roll or a Sequencer track keys it, the camera eases into the new
 	 * angle. The IIR is **wrap-aware**: a transition from +175 deg to
 	 * -175 deg (visually +10 deg) takes the short way around, not the long
-	 * way. Requires `PriorPose != nullptr` like the other V2.2
+	 * way. Requires `PriorPose != nullptr` like the other
 	 * stateful damping; first-frame seed snaps to authored.
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Shot",

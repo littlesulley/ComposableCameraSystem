@@ -1,4 +1,4 @@
-// Copyright Sulley. All rights reserved.
+// Copyright 2026 Sulley. All Rights Reserved.
 
 #include "Core/ComposableCameraContextStack.h"
 
@@ -384,7 +384,7 @@ FComposableCameraPose UComposableCameraContextStack::Evaluate(float DeltaTime)
 		return FComposableCameraPose{};
 	}
 
-	// Copy the active entry index rather than holding a reference -PopActiveContextInternal
+	// Copy the active entry index rather than holding a reference. PopActiveContextInternal
 	// mutates the Entries array, which would invalidate any reference to Entries.Last().
 	const int32 ActiveIndex = Entries.Num() - 1;
 
@@ -419,7 +419,7 @@ FComposableCameraPose UComposableCameraContextStack::Evaluate(float DeltaTime)
 			FComposableCameraActivateParams ActiveParams;
 			ActiveParams.bPreserveCameraPose = RunningCamera->bDefaultPreserveCameraPose;
 
-			// Pass nullptr as TransitionOverride -PopActiveContextInternal will
+			// Pass nullptr as TransitionOverride. PopActiveContextInternal will
 			// resolve the transition through the five-tier chain (table, source
 			// exit, target enter, etc.) using ResolveTransition.
 			PopActiveContextInternal(PCM, nullptr, ActiveParams);

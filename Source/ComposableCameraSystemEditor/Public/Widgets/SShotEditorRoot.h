@@ -1,4 +1,4 @@
-// Copyright Sulley. All Rights Reserved.
+// Copyright 2026 Sulley. All Rights Reserved.
 
 #pragma once
 
@@ -24,14 +24,9 @@ template<typename ItemType> class SListView;
 enum class EShotEditorMode: uint8;
 
 /**
- * Root widget for the Shot Editor - owns the multi-region layout
- * (left: Shot outliner, center: 3D viewport, right: Details panel) and
- * tracks the currently active Shot context. Phase D.1 ships **placeholder
- * regions only** (text labels saying "Outliner / Viewport / Details");
- * Phase D.2 fills the viewport with a real preview scene, D.3 fills
- * Outliner + Details with real authoring widgets, D.4 wires up drag
- * interaction, D.5 hooks into Sequencer Section selection (Phase E
- * dependency).
+ * Root widget for the Shot Editor. Owns the multi-region layout (left Shot
+ * outliner, center 3D viewport, right Details panel) and tracks the currently
+ * active Shot context.
  *
  * Lifetime: held by the Shot Editor's SDockTab. Construct() runs once
  * when the tab is spawned; the widget persists across SetActiveShot()
@@ -61,10 +56,8 @@ public:
 
 	/**
 	 * Bind the editor to a specific Shot owned by HostObject. Triggers
-	 * `OnActiveShotChanged` which (in Phase D.1) just refreshes the host
-	 * name label, and (in later Phase D.x steps) will rebuild preview
-	 * proxies, refresh AutoBounds caches, retrigger SolveShot, and update
-	 * the Details panel.
+	 * `OnActiveShotChanged`, which refreshes the header, preview proxies,
+	 * AutoBounds caches, solver preview, and Details binding.
 	 *
 	 * Both args may be nullptr - clears the active context and shows the
 	 * "No Shot loaded" placeholder.
@@ -98,8 +91,8 @@ private:
 	 * layout before any node has triggered the open flow). */
 	FComposableCameraShot* ActiveShot { nullptr };
 
-	/** Weak ref to the host UObject (CompositionFramingNode in V1, future
-	 * LS Shot Section in Phase E). Used as a liveness guard - when this
+	/** Weak ref to the host UObject (CompositionFramingNode, Shot Section,
+	 * ShotAsset, etc.). Used as a liveness guard - when this
 	 * goes stale we clear ActiveShot to avoid dangling-pointer reads. */
 	TWeakObjectPtr<UObject> ActiveHost;
 
@@ -120,12 +113,12 @@ private:
 	 * empty). Backed by `FShotEditorHistory` singleton. */
 	TSharedPtr<SComboButton> HistoryCombo;
 
-	/** The 3D preview viewport (Phase D.2). Forwarded SetActiveShot calls
-	 * drive proxy rebuilds + solver-driven camera updates inside this widget. */
+	/** The 3D preview viewport. Forwarded SetActiveShot calls drive proxy
+	 * rebuilds + solver-driven camera updates inside this widget. */
 	TSharedPtr<SShotEditorViewport> Viewport;
 
-	/** Right-pane structure details view (Phase D.3). Bound to the active
-	 * Shot via FStructOnScope wrapping the raw `FComposableCameraShot*`
+	/** Right-pane structure details view. Bound to the active Shot via
+	 * FStructOnScope wrapping the raw `FComposableCameraShot*`
 	 * inside the host UObject. The wrapper's `bOwnsMemory=false` because
 	 * the host UObject owns the actual struct memory. NotifyHook (this
 	 * widget) bridges edit events to host->Modify / PostEditChangeProperty
@@ -137,8 +130,8 @@ private:
 	 * the panel when no Shot is bound. */
 	void RefreshDetailsView();
 
-	/** Update label text + (later) preview proxies / Details panel when
-	 * ActiveShot or ActiveHost changes. */
+	/** Update label text, preview proxies, and Details panel when ActiveShot
+	 * or ActiveHost changes. */
 	void OnActiveShotChanged();
 
 	/**

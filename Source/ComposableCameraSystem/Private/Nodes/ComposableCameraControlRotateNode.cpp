@@ -1,4 +1,4 @@
-// Copyright Sulley. All rights reserved.
+// Copyright 2026 Sulley. All Rights Reserved.
 
 #include "Nodes/ComposableCameraControlRotateNode.h"
 
@@ -55,7 +55,8 @@ void UComposableCameraControlRotateNode::EnsureInputBinding(AActor* EffectiveRot
 	CachedInputComponent = EIC;
 
 	// Register the binding so the EnhancedInput system tracks the action value
-	// for this component. The returned reference is intentionally discarded -	// the underlying TArray<FEnhancedInputActionValueBinding> can reallocate
+	// for this component. The returned reference is intentionally discarded:
+	// the underlying TArray<FEnhancedInputActionValueBinding> can reallocate
 	// when other code calls BindActionValue, which would dangle any cached
 	// pointer. Tick reads the live value via GetBoundActionValue (linear
 	// search, safe across reallocations).

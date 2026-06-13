@@ -1,4 +1,4 @@
-// Copyright Sulley. All rights reserved.
+// Copyright 2026 Sulley. All Rights Reserved.
 
 #pragma once
 
@@ -497,7 +497,7 @@ public:
 				}
 			}
 
-			//  Default (POD) and non-POD struct 
+			//  Default (POD) and non-POD struct
 			// Two paths converge here for the value pin's underlying property:
 			//   bMemcpySafe->byte-array Entry.Data (via StoreValue below).
 			//   non-POD struct -> typed FInstancedStruct via SetStruct.

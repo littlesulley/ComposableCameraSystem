@@ -1,4 +1,4 @@
-﻿// Copyright Sulley. All rights reserved.
+// Copyright 2026 Sulley. All Rights Reserved.
 
 #include "Nodes/ComposableCameraCameraOffsetNode.h"
 
@@ -11,11 +11,16 @@ void UComposableCameraCameraOffsetNode::OnTickNode_Implementation(
 	// TickNode prologue calls ResolveAllInputPins() before OnTickNode_Implementation
 	// runs, so the members already reflect the wired / exposed / default value.
 	FRotator CameraRotation = OutCameraPose.Rotation;
+	FVector EffectiveCameraOffset = CameraOffset;
+	if (FRichCurve* ForwardDeltaCurve = ForwardOffsetDeltaByPitchCurve.GetRichCurve())
+	{
+		EffectiveCameraOffset.X += ForwardDeltaCurve->Eval(CameraRotation.Pitch);
+	}
 
 	FVector OutPosition = PivotPosition
-		+ UKismetMathLibrary::GetRightVector(CameraRotation) * CameraOffset.Y
-		+ UKismetMathLibrary::GetUpVector(CameraRotation) * CameraOffset.Z
-		+ UKismetMathLibrary::GetForwardVector(CameraRotation) * CameraOffset.X;
+		+ UKismetMathLibrary::GetRightVector(CameraRotation) * EffectiveCameraOffset.Y
+		+ UKismetMathLibrary::GetUpVector(CameraRotation) * EffectiveCameraOffset.Z
+		+ UKismetMathLibrary::GetForwardVector(CameraRotation) * EffectiveCameraOffset.X;
 
 	OutCameraPose.Position = OutPosition;
 }

@@ -1,4 +1,4 @@
-// Copyright Sulley. All Rights Reserved.
+// Copyright 2026 Sulley. All Rights Reserved.
 
 #include "Utilities/ComposableCameraViewportTransformClipboard.h"
 
@@ -45,7 +45,7 @@
 namespace
 {
 	const FName ViewportTransformToolMenuOwner(TEXT("ComposableCameraViewportTransformClipboard"));
-	FDelegateHandle StartupCallbackHandle;
+	FDelegateHandle ViewportTransformClipboardStartupCallbackHandle;
 
 	FLevelEditorViewportClient* ResolveActiveLevelViewportClient()
 	{
@@ -135,7 +135,7 @@ namespace
 		TEXT("Key the active Level Editor viewport camera transform onto selected CCS Level Sequence Transform tracks."),
 		FConsoleCommandDelegate::CreateStatic(&ExecuteKeyActiveViewportCameraTransform));
 
-	TArray<TSharedPtr<ISequencer>> ResolveLiveSequencers()
+	TArray<TSharedPtr<ISequencer>> ResolveViewportTransformClipboardLiveSequencers()
 	{
 		if (!FModuleManager::Get().IsModuleLoaded("ComposableCameraSystemEditor"))
 		{
@@ -322,7 +322,7 @@ namespace
 
 	FResolvedTransformTrackSelection ResolveSequencerAndTransformTracksToKey()
 	{
-		for (const TSharedPtr<ISequencer>& Sequencer: ResolveLiveSequencers())
+		for (const TSharedPtr<ISequencer>& Sequencer: ResolveViewportTransformClipboardLiveSequencers())
 		{
 			UMovieSceneSequence* Sequence = Sequencer.IsValid() ? Sequencer->GetFocusedMovieSceneSequence() : nullptr;
 			UMovieScene* MovieScene = Sequence ? Sequence->GetMovieScene() : nullptr;
@@ -487,16 +487,16 @@ void FComposableCameraViewportTransformClipboard::Register()
 
 	if (UToolMenus::IsToolMenuUIEnabled())
 	{
-		StartupCallbackHandle = UToolMenus::RegisterStartupCallback(FSimpleMulticastDelegate::FDelegate::CreateStatic(&FComposableCameraViewportTransformClipboard::RegisterMenus));
+		ViewportTransformClipboardStartupCallbackHandle = UToolMenus::RegisterStartupCallback(FSimpleMulticastDelegate::FDelegate::CreateStatic(&FComposableCameraViewportTransformClipboard::RegisterMenus));
 	}
 }
 
 void FComposableCameraViewportTransformClipboard::Unregister()
 {
-	if (StartupCallbackHandle.IsValid())
+	if (ViewportTransformClipboardStartupCallbackHandle.IsValid())
 	{
-		UToolMenus::UnRegisterStartupCallback(StartupCallbackHandle);
-		StartupCallbackHandle.Reset();
+		UToolMenus::UnRegisterStartupCallback(ViewportTransformClipboardStartupCallbackHandle);
+		ViewportTransformClipboardStartupCallbackHandle.Reset();
 	}
 	if (UToolMenus::IsToolMenuUIEnabled())
 	{

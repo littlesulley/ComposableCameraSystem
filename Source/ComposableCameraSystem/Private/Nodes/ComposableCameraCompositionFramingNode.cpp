@@ -1,4 +1,4 @@
-// Copyright Sulley. All rights reserved.
+// Copyright 2026 Sulley. All Rights Reserved.
 
 #include "Nodes/ComposableCameraCompositionFramingNode.h"
 
@@ -71,7 +71,7 @@ void UComposableCameraCompositionFramingNode::OnInitialize_Implementation()
 #endif
 
 	// Drop any stale framing-zone prior-pose state. The next OnTickNode
-	// will V1-hard-seed a fresh pose for whichever Shot is active. Required
+	// will hard-seed a fresh pose for whichever Shot is active. Required
 	// because OnInitialize fires on every camera reactivation; carrying an
 	// old prior pose across a deactivate / reactivate cycle would project
 	// the anchor against a pose whose context (target list, screen position,
@@ -94,8 +94,8 @@ namespace
 
 	/** Refresh the AutoFromComponentBounds cache on every applicable target
 	 *  in `InOutShot` according to per-target policy + the shared frame
-	 *  counter snapshot. Static helper so primary + Phase F secondary use
-	 *  the same code path with identical phase alignment. */
+	 *  counter snapshot. Static helper so primary + secondary use the same
+	 *  code path with identical phase alignment. */
 	void RefreshShotBoundsCaches(FComposableCameraShot& InOutShot, int32 RefreshSnapshot)
 	{
 		for (FComposableCameraShotTarget& T : InOutShot.Targets)
@@ -117,8 +117,8 @@ namespace
 	}
 
 	/** Apply a successful `FShotSolveResult` onto `OutPose`, starting from
-	 *  `UpstreamPose` so untouched fields persist. Same write set the V1
-	 *  single-Shot path produced -Position / Rotation / FOV / sentinels
+	 *  `UpstreamPose` so untouched fields persist. Same write set the
+	 *  single-Shot path produces Position / Rotation / FOV / sentinels
 	 *  for the renderer's dual-mode FOV + DoF routing. */
 	void ApplySolverResultToPose(
 		const FShotSolveResult& Result,
@@ -144,7 +144,7 @@ void UComposableCameraCompositionFramingNode::OnTickNode_Implementation(
 	using namespace ComposableCameraSystem::ShotSolver;
 
 	// --- 1. Per-target bounds-cache refresh per policy ---------------
-	// Snapshot the counter so primary + Phase F secondary refreshes share
+	// Snapshot the counter so primary + secondary refreshes share
 	// the same "this tick is N" decision. Counter advances once at the end.
 	const int32 RefreshSnapshot = LocalFrameCounter;
 	RefreshShotBoundsCaches(Shot, RefreshSnapshot);
@@ -169,7 +169,7 @@ void UComposableCameraCompositionFramingNode::OnTickNode_Implementation(
 	// back to primary Shot's ManualFOV / 79 deg when invalid (first tick edge
 	// case where the pose is still at default sentinel).
 	//
-	// In Phase F's two-Shot blend both solvers see the same upstream FOV;
+	// In a two-Shot blend both solvers see the same upstream FOV;
 	// the previous-frame blended output is implicit in the upstream pose.
 	const float UpstreamFOV = static_cast<float>(CurrentCameraPose.GetEffectiveFieldOfView());
 	Context.PreviousFrameFOV =
@@ -180,7 +180,7 @@ void UComposableCameraCompositionFramingNode::OnTickNode_Implementation(
 	// Compose the prior-pose snapshot for zone preprocessing. Passing
 	// `nullptr` to SolveShot disables zones for that pass. Used on the
 	// first tick after activation/reseed, when no valid prior pose exists
-	// yet and the solver should V1-hard-seed the cache instead.
+	// yet and the solver should hard-seed the cache instead.
 	FShotPriorPose PrimaryPrior;
 	const FShotPriorPose* PrimaryPriorPtr = nullptr;
 	if (bHasLastPrimaryOutputPose)
@@ -288,9 +288,9 @@ void UComposableCameraCompositionFramingNode::OnTickNode_Implementation(
 
 		// Primary anchor unresolvable. Solver already logged a warning; pass
 		// the upstream pose through unchanged (camera holds its previous
-		// frame's state until the Shot becomes resolvable again). Phase F
-		// secondary is intentionally NOT attempted in this fallback. The
-		// V1 "hold last frame" semantic is preserved when the active
+		// frame's state until the Shot becomes resolvable again). Secondary
+		// solve is intentionally NOT attempted in this fallback. The
+		// "hold last frame" semantic is preserved when the active
 		// primary framing breaks. Designer can fix the Shot data.
 		//
 		// Prior-pose cache is intentionally NOT cleared here. When the
@@ -317,8 +317,8 @@ void UComposableCameraCompositionFramingNode::OnTickNode_Implementation(
 
 	// Cache the primary's solved pose for next-frame zone preprocessing.
 	// Done unconditionally on bValid. Even when zones are currently
-	// disabled, a future authoring change to enable them (or a Phase F
-	// second-shot blend) should have a valid prior pose immediately,
+	// disabled, a future authoring change to enable them (or a second-shot
+	// blend) should have a valid prior pose immediately,
 	// not require a one-frame seed.
 	LastPrimaryOutputPosition   = PrimaryResult.CameraPosition;
 	LastPrimaryOutputRotation   = PrimaryResult.CameraRotation;
@@ -327,7 +327,7 @@ void UComposableCameraCompositionFramingNode::OnTickNode_Implementation(
 	LastPrimaryRoll             = PrimaryResult.CameraRotation.Roll;
 	bHasLastPrimaryOutputPose   = true;
 
-	// --- 4. Phase F secondary solver pass + transition pose blend ----
+	// --- 4. Secondary solver pass + transition pose blend -------------
 	// Active iff the LSComponent pushed both a secondary Shot AND a
 	// resolved EnterTransition (decided in
 	// `SetActiveShotsFromSequencer`). Inner `Transition` UPROPERTY may
@@ -340,7 +340,8 @@ void UComposableCameraCompositionFramingNode::OnTickNode_Implementation(
 
 	if (TransInst)
 	{
-		// Same per-target bounds policy + same RefreshSnapshot as primary -		// keeps periodic refresh phases aligned across both shots.
+		// Same per-target bounds policy + same RefreshSnapshot as primary:
+		// keeps periodic refresh phases aligned across both shots.
 		RefreshShotBoundsCaches(SecondaryShot, RefreshSnapshot);
 
 		FShotPriorPose SecondaryPrior;
@@ -374,7 +375,7 @@ void UComposableCameraCompositionFramingNode::OnTickNode_Implementation(
 			// that curve at the overlap-window-driven NormalizedTime. The
 			// transition's own time-based state (RemainingTime / Percentage)
 			// is intentionally bypassed because the Section overlap window
-			// is the authoritative duration source (spec Section 7.6 decision Q4).
+			// is the authoritative duration source.
 			const float EasedAlpha = FMath::Clamp(
 				TransInst->GetBlendWeightAt(ActiveBlendAlpha), 0.0f, 1.0f);
 
@@ -397,11 +398,10 @@ void UComposableCameraCompositionFramingNode::OnTickNode_Implementation(
 void UComposableCameraCompositionFramingNode::GetPinDeclarations_Implementation(
 	TArray<FComposableCameraNodePinDeclaration>& /*OutPins*/) const
 {
-	// V1: no pins. Shot is authored exclusively in the node's Details panel.
+	// No pins. Shot is authored in Details or pushed from Sequencer.
 	// FComposableCameraShot contains TArray<FShotTarget> which violates the
-	// pin data block's POD-only contract (TechDoc Section 3.2). Phase E LS Shot
-	// Sections will push Shot updates via a separate runtime mutator API,
-	// not via the pin system.
+	// pin data block's POD-only contract. Sequencer Shot Sections push Shot
+	// updates via a separate runtime mutator API, not via the pin system.
 }
 
 EComposableCameraNodePatchCompatibility
@@ -433,12 +433,11 @@ void UComposableCameraCompositionFramingNode::SetActiveShotsFromSequencer(
 	//      zone / damping state continuous.
 	//
 	//   2. **Section A -> B cut, no overlap** (`bPrimaryChanged` set by
-	//      the LSComponent). Without reseeding, V2.2 damping (Distance /
+	//      the LSComponent). Without reseeding, damping (Distance /
 	//      FOV / Roll) carries the previous shot's pose values into the
 	//      new shot's first frame. The camera glides from Shot A's
 	//      framing toward Shot B's authored values over the IIR window
-	//      instead of cutting cleanly. Designer-visible regression
-	//      reported during V2.2 polish: " Shot  damping ?	//      -?. Reseeding here makes cuts cuts.
+	//      instead of cutting cleanly. Reseeding here keeps cuts as cuts.
 	//
 	// Designer-visible cost on true hard cuts: one hard-seed frame where
 	// the anchor snaps to the authored screen position instead of riding
@@ -476,10 +475,9 @@ void UComposableCameraCompositionFramingNode::SetActiveShotsFromSequencer(
 
 	// Secondary state is active only when both a secondary Shot AND a
 	// transition asset are provided. A null transition with a secondary
-	// Shot collapses to V1 top-row-winner behavior: primary is the sole
-	// solver input, secondary is silently ignored. This matches the
-	// Phase F decision that null `EnterTransition` = hard cut, equivalent
-	// to no blending at the section boundary (incoming snaps in only when
+	// Shot collapses to primary-only behavior: primary is the sole solver
+	// input, secondary is silently ignored. Null `EnterTransition` = hard cut,
+	// equivalent to no blending at the section boundary (incoming snaps in only when
 	// the outgoing's range ends and removes itself from the override map).
 	if (bWillBeInBlend)
 	{
@@ -490,7 +488,7 @@ void UComposableCameraCompositionFramingNode::SetActiveShotsFromSequencer(
 	}
 	else
 	{
-		// Reset secondary state so OnTickNode (F.4) takes the single-Shot
+		// Reset secondary state so OnTickNode takes the single-Shot
 		// path. Clearing the TObjectPtr also lets the asset GC if the
 		// LSComponent has no other entry holding it.
 		bHasSecondaryShot     = false;

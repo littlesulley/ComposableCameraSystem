@@ -1,4 +1,4 @@
-// Copyright Sulley. All rights reserved.
+// Copyright 2026 Sulley. All Rights Reserved.
 
 #include "Nodes/ComposableCameraCollisionPushNode.h"
 
@@ -67,7 +67,7 @@ void UComposableCameraCollisionPushNode::OnInitialize_Implementation()
 	PushInterpolator_T = IsValid(PushInterpolator) ? PushInterpolator->BuildDoubleInterpolator() : nullptr;
 	PullInterpolator_T = IsValid(PullInterpolator) ? PullInterpolator->BuildDoubleInterpolator() : nullptr;
 
-	// Don't resolve the SkelMesh component here -PivotActor can be driven
+	// Don't resolve the SkelMesh component here. PivotActor can be driven
 	// by an input pin and change every frame. Resolution happens lazily in
 	// Tick when the active PivotActor differs from `LastResolvedPivotActor`.
 	SkeletalMeshComponentForPivotActor.Reset();

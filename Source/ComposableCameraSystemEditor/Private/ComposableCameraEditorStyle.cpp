@@ -1,4 +1,4 @@
-// Copyright Sulley. All rights reserved.
+// Copyright 2026 Sulley. All Rights Reserved.
 
 #include "ComposableCameraEditorStyle.h"
 
@@ -51,7 +51,8 @@ FComposableCameraEditorStyle::FComposableCameraEditorStyle()
 	const FVector2D Icon48x48(48.0f, 48.0f);
 	const FVector2D Icon64x64(64.0f, 64.0f);
 	
-	const FString ContentDir = IPluginManager::Get().FindPlugin(TEXT("ComposableCameraSystem"))->GetContentDir();
+	const FString ContentDir = IPluginManager::Get().FindPlugin(TEXT("ComposableCameraSystem"))->GetBaseDir()
+		/ TEXT("Resources/Content");
 	SetContentRoot(ContentDir);
 	SetCoreContentRoot(FPaths::EngineContentDir() / TEXT("Slate"));
 
@@ -91,7 +92,7 @@ FComposableCameraEditorStyle::FComposableCameraEditorStyle()
 	Set("ClassThumbnail.ComposableCameraTransitionDataAsset",
 		new IMAGE_BRUSH_SVG("Icons/ContentBrowser-ComposableCameraTransition", Icon64x64));
 
-	// Shot Asset - reusable framing preset (Phase E of Shot-Based Keyframing).
+	// Shot Asset - reusable framing preset.
 	// Visual: small camera + framing rectangle with rule-of-thirds grid + an
 	// anchor dot in teal-green accent matching the asset's Content Browser
 	// color (FColor(64, 192, 160) #40C0A0).

@@ -1,4 +1,4 @@
-// Copyright Sulley. All rights reserved.
+// Copyright 2026 Sulley. All Rights Reserved.
 
 #pragma once
 
@@ -394,7 +394,7 @@ public:
 	 *  ExposedVariables below; the two categories differ only in whether the
 	 *  caller's ParameterBlock may override the initial value at activation time
 	 *  (ExposedVariables: yes; InternalVariables: no). At runtime both arrays
-	 *  feed the same InternalVariableOffsets map on the data block -Get/Set
+	 *  feed the same InternalVariableOffsets map on the data block. Get/Set
 	 *  variable graph nodes treat them uniformly. Names must be unique across
 	 *  ExposedParameters inInternalVariables inExposedVariables; see Build(). */
 	UPROPERTY(EditAnywhere, Category = "Internal Variables")

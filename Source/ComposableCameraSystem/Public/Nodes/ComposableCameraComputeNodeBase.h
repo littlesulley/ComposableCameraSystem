@@ -1,4 +1,4 @@
-﻿// Copyright Sulley. All rights reserved.
+// Copyright 2026 Sulley. All Rights Reserved.
 
 #pragma once
 
@@ -108,7 +108,7 @@ public:
 	 */
 	virtual void ExecuteBeginPlay() {}
 
-	// Compute nodes are never evaluated in the Level Sequence path -LS skips
+	// Compute nodes are never evaluated in the Level Sequence path. LS skips
 	// the entire BeginPlay compute chain because scrubbing a timeline with
 	// one-shot initialization logic is ambiguous. Values the compute chain
 	// would publish must instead be re-sourced as exposed parameters. The

@@ -1,4 +1,4 @@
-// Copyright Sulley. All rights reserved.
+// Copyright 2026 Sulley. All Rights Reserved.
 //
 // Console commands that dump the current CCS state as plain text: to the log
 // (at Display verbosity, so it shows up without raising LogComposableCameraSystem
@@ -11,6 +11,8 @@
 // `ComposableCameraDebug::AppendTreeNodeLine` + the typed-value appenders.
 //
 // Shipping builds strip the whole translation unit.
+
+#include "CoreMinimal.h"
 
 #if !UE_BUILD_SHIPPING
 
@@ -45,7 +47,7 @@ namespace
 	// Game/PIE world with a CCS PCM. Editor-world invocations (main
 	// viewport without PIE running) return nullptr and the command
 	// emits a warning.
-	static AComposableCameraPlayerCameraManager* ResolvePCM(UWorld* World)
+	static AComposableCameraPlayerCameraManager* ResolveDumpCommandPCM(UWorld* World)
 	{
 		auto TryWorld = [](UWorld* W) ->AComposableCameraPlayerCameraManager*
 		{
@@ -392,7 +394,7 @@ namespace
 
 	static void CmdDumpStack(const TArray<FString>& /*Args*/, UWorld* World)
 	{
-		AComposableCameraPlayerCameraManager* PCM = ResolvePCM(World);
+		AComposableCameraPlayerCameraManager* PCM = ResolveDumpCommandPCM(World);
 		if (!PCM || !PCM->GetContextStack())
 		{
 			UE_LOG(LogComposableCameraSystem, Warning,
@@ -406,7 +408,7 @@ namespace
 
 	static void CmdDumpTree(const TArray<FString>& /*Args*/, UWorld* World)
 	{
-		AComposableCameraPlayerCameraManager* PCM = ResolvePCM(World);
+		AComposableCameraPlayerCameraManager* PCM = ResolveDumpCommandPCM(World);
 		if (!PCM) { UE_LOG(LogComposableCameraSystem, Warning,
 			TEXT("CCS.Dump.Tree: no CCS PCM found.")); return; }
 
@@ -431,13 +433,13 @@ namespace
 	//                in the dump output).
 	static void CmdDumpPatches(const TArray<FString>& /*Args*/, UWorld* World)
 	{
-		AComposableCameraPlayerCameraManager* PCM = ResolvePCM(World);
+		AComposableCameraPlayerCameraManager* PCM = ResolveDumpCommandPCM(World);
 		if (!PCM) { UE_LOG(LogComposableCameraSystem, Warning,
 			TEXT("CCS.Dump.Patches: no CCS PCM found.")); return; }
 
 		TArray<FComposableCameraPatchSnapshot> Patches;
 
-		// Source 1 -PatchManager (BP path).
+		// Source 1: PatchManager (BP path).
 		const UComposableCameraContextStack* Stack = PCM->GetContextStack();
 		UComposableCameraDirector* Director = Stack ? Stack->GetActiveDirector() : nullptr;
 		if (const UComposableCameraPatchManager* Manager = Director ? Director->GetPatchManager() : nullptr)
@@ -445,7 +447,7 @@ namespace
 			Manager->BuildDebugSnapshot(Patches);
 		}
 
-		// Source 2 -LS Component overlays (Sequencer path). Walk every LS Component
+		// Source 2: LS Component overlays (Sequencer path). Walk every LS Component
 		// in the same world and merge in. Mirrors the panel's BuildPatchesLines
 		// logic so the dump and the on-screen panel always agree on what's active.
 		if (UWorld* CmdWorld = PCM->GetWorld())
@@ -476,7 +478,7 @@ namespace
 	// right now" is almost always about the top/target side of any blend.
 	static void CmdDumpCamera(const TArray<FString>& Args, UWorld* World)
 	{
-		AComposableCameraPlayerCameraManager* PCM = ResolvePCM(World);
+		AComposableCameraPlayerCameraManager* PCM = ResolveDumpCommandPCM(World);
 		if (!PCM) { UE_LOG(LogComposableCameraSystem, Warning,
 			TEXT("CCS.Dump.Camera: no CCS PCM found.")); return; }
 

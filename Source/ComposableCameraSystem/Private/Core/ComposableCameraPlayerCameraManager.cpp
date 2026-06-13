@@ -1,4 +1,4 @@
-// Copyright Sulley. All rights reserved.
+// Copyright 2026 Sulley. All Rights Reserved.
 
 #include "Core/ComposableCameraPlayerCameraManager.h"
 #include "Cameras/ComposableCameraCameraBase.h"
@@ -133,7 +133,7 @@ void AComposableCameraPlayerCameraManager::SetViewTarget(AActor* NewViewTarget,
 	// out internal camera components buried inside other components (e.g.,
 	// GameplayCameraComponent's OutputCameraComponent, which is a grandchild).
 	// Actors without a qualifying camera (e.g. the player pawn) fall through
-	// -CCS continues evaluating whatever cameras are already active.
+	// - CCS continues evaluating whatever cameras are already active.
 	if (!NewViewTarget)
 	{
 		return;
@@ -913,19 +913,6 @@ void AComposableCameraPlayerCameraManager::OnTypeAssetCameraConstructed(AComposa
 	PendingParameterBlock = FComposableCameraParameterBlock();
 }
 
-#if 0
-// Previous in-place implementation extracted into UE::ComposableCameras::ConstructCameraFromTypeAsset
-// at Source/ComposableCameraSystem/Private/Core/ComposableCameraTypeAssetInstantiator.cpp.
-// Body elided below (kept for grep archaeology during the Phase A change; safe to delete after
-// the next tag).
-void AComposableCameraPlayerCameraManager::OnTypeAssetCameraConstructed_OLD(AComposableCameraCameraBase* Camera)
-{
-	Camera->CameraNodes.Empty();
-	Camera->ComputeNodes.Empty();
-	// ... (old body elided. See ConstructCameraFromTypeAsset)
-}
-#endif
-
 UComposableCameraTransitionBase* AComposableCameraPlayerCameraManager::ResolveTransition(
 	const UComposableCameraTypeAsset* SourceTypeAsset,
 	const UComposableCameraTypeAsset* TargetTypeAsset,
@@ -1082,7 +1069,7 @@ UComposableCameraActionBase* AComposableCameraPlayerCameraManager::AddCameraActi
 		// Re-entrant call from inside `UpdateActions`'s range-for over
 		// `CameraActions` (an Action's `OnCanExecute` callback added a new
 		// action). Mutating the TSet now would invalidate the iterator.
-		// Defer to the post-loop pending-add sweep -Add to TSet + Bind
+		// Defer to the post-loop pending-add sweep. Add to TSet + Bind
 		// happen there, so the new Action takes effect on the NEXT frame
 		// (it does not retroactively join the iteration that spawned it,
 		// which is the correct semantic -`OnCanExecute` would have to
@@ -1421,7 +1408,7 @@ void AComposableCameraPlayerCameraManager::UpdateActions(float DeltaTime)
 	// entry pointing at a since-collected action would dangle). Both the
 	// `Reset()` at function entry AND the explicit `Reset()` at function
 	// exit below guarantee the scratch is empty whenever execution is
-	// outside this function -GC walks therefore never see a stale raw
+	// outside this function. GC walks therefore never see a stale raw
 	// pointer in this slot. Removal-scratch entries are ALSO members of
 	// the GC-visible `CameraActions` TSet for the duration of the
 	// function (the post-loop `CameraActions.Remove` is what drops them),

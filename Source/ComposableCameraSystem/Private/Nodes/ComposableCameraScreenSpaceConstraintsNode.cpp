@@ -1,4 +1,4 @@
-// Copyright Sulley. All rights reserved.
+// Copyright 2026 Sulley. All Rights Reserved.
 
 #include "Nodes/ComposableCameraScreenSpaceConstraintsNode.h"
 
@@ -272,7 +272,7 @@ void UComposableCameraScreenSpaceConstraintsNode::DrawNodeDebug(UWorld* World, b
 namespace
 {
 	/** Filled translucent rect - Canvas equivalent of AHUD::DrawRect. */
-	void DrawCanvasRect(UCanvas* Canvas, float X, float Y, float W, float H, const FLinearColor& Color)
+	void DrawScreenSpaceConstraintsCanvasRect(UCanvas* Canvas, float X, float Y, float W, float H, const FLinearColor& Color)
 	{
 		FCanvasTileItem Tile(FVector2D(X, Y), FVector2D(W, H), Color);
 		Tile.BlendMode = SE_BLEND_Translucent;
@@ -308,16 +308,16 @@ void UComposableCameraScreenSpaceConstraintsNode::DrawNodeDebug2D(UCanvas* Canva
 		const float ScreenY = (-SafeZoneCenter.Y + 0.5f - SafeZoneHeight.Y) * ScreenHeight;
 		const float ScreenW = (SafeZoneWidth.Y  - SafeZoneWidth.X)  * ScreenWidth;
 		const float ScreenH = (SafeZoneHeight.Y - SafeZoneHeight.X) * ScreenHeight;
-		DrawCanvasRect(Canvas, ScreenX, ScreenY, ScreenW, ScreenH, RectColor);
+		DrawScreenSpaceConstraintsCanvasRect(Canvas, ScreenX, ScreenY, ScreenW, ScreenH, RectColor);
 
 		const float CenterX = (SafeZoneCenter.X + 0.5f) * ScreenWidth;
 		const float CenterY = (-SafeZoneCenter.Y + 0.5f) * ScreenHeight;
-		DrawCanvasRect(Canvas, CenterX - Radius, CenterY - Radius, 2.f * Radius, 2.f * Radius, CenterColor);
+		DrawScreenSpaceConstraintsCanvasRect(Canvas, CenterX - Radius, CenterY - Radius, 2.f * Radius, 2.f * Radius, CenterColor);
 
 		FVector2D ScreenPosition;
 		if (PC && UGameplayStatics::ProjectWorldToScreen(PC, Pivot, ScreenPosition))
 		{
-			DrawCanvasRect(Canvas,
+			DrawScreenSpaceConstraintsCanvasRect(Canvas,
 				ScreenPosition.X - Radius, ScreenPosition.Y - Radius,
 				2.f * Radius, 2.f * Radius, PivotCenterColor);
 		}
@@ -354,16 +354,16 @@ void UComposableCameraScreenSpaceConstraintsNode::DrawNodeDebug2D(UCanvas* Canva
 		const float ScreenY = (-SafeZoneCenter.Y * RatioY + 0.5f - SafeZoneHeight.Y * RatioY) * ScreenHeight - ScreenOffset.Y;
 		const float ScreenW = (SafeZoneWidth.Y  * RatioX - SafeZoneWidth.X  * RatioX) * ScreenWidth;
 		const float ScreenH = (SafeZoneHeight.Y * RatioY - SafeZoneHeight.X * RatioY) * ScreenHeight;
-		DrawCanvasRect(Canvas, ScreenX, ScreenY, ScreenW, ScreenH, RectColor);
+		DrawScreenSpaceConstraintsCanvasRect(Canvas, ScreenX, ScreenY, ScreenW, ScreenH, RectColor);
 
 		const float CenterX = (SafeZoneCenter.X  * RatioX + 0.5f) * ScreenWidth  - ScreenOffset.X;
 		const float CenterY = (-SafeZoneCenter.Y * RatioY + 0.5f) * ScreenHeight - ScreenOffset.Y;
-		DrawCanvasRect(Canvas, CenterX - Radius, CenterY - Radius, 2.f * Radius, 2.f * Radius, CenterColor);
+		DrawScreenSpaceConstraintsCanvasRect(Canvas, CenterX - Radius, CenterY - Radius, 2.f * Radius, 2.f * Radius, CenterColor);
 
 		FVector2D ScreenPosition;
 		if (PC && UGameplayStatics::ProjectWorldToScreen(PC, Pivot, ScreenPosition, /*bPlayerViewportRelative=*/true))
 		{
-			DrawCanvasRect(Canvas,
+			DrawScreenSpaceConstraintsCanvasRect(Canvas,
 				ScreenPosition.X - Radius, ScreenPosition.Y - Radius,
 				2.f * Radius, 2.f * Radius, PivotCenterColor);
 		}

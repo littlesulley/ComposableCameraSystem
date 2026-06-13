@@ -1,4 +1,4 @@
-// Copyright Sulley. All rights reserved.
+// Copyright 2026 Sulley. All Rights Reserved.
 
 #include "Customizations/ComposableCameraNodeGraphNodeDetails.h"
 
@@ -698,9 +698,8 @@ void FComposableCameraNodeGraphNodeDetails::CustomizeDetails(IDetailLayoutBuilde
 	// category. UE's standard UObject Details handling auto-surfaces these,
 	// but our custom layout above replaces the default category - so we
 	// explicitly iterate the template's UFUNCTIONs here. Generalises:
-	// any future node that adds a CallInEditor function gets a button
-	// automatically (V1.x first consumer:
-	// `UComposableCameraCompositionFramingNode::OpenShotEditor`).
+	// any node that adds a zero-arg CallInEditor function gets a button
+	// automatically.
 	//
 	// Only zero-arg, void-returning functions are wired up - matches the
 	// stock UE Details panel CallInEditor behavior. Functions with params

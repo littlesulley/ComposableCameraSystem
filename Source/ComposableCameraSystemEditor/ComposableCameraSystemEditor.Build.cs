@@ -1,4 +1,5 @@
-﻿using UnrealBuildTool;
+// Copyright 2026 Sulley. All Rights Reserved.
+using UnrealBuildTool;
 
 public class ComposableCameraSystemEditor : ModuleRules
 {

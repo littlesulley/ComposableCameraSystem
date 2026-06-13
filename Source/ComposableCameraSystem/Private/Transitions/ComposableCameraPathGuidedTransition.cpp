@@ -1,4 +1,4 @@
-// Copyright Sulley. All rights reserved.
+// Copyright 2026 Sulley. All Rights Reserved.
 
 #include "Transitions/ComposableCameraPathGuidedTransition.h"
 #include "Transitions/ComposableCameraInertializedTransition.h"
@@ -9,7 +9,6 @@
 #include "Engine/World.h"
 #include "Kismet/GameplayStatics.h"
 #include "Nodes/ComposableCameraSplineNode.h"
-#include "Utils/ComposableCameraBlueprintLibrary.h"
 
 #if !UE_BUILD_SHIPPING
 #include "Debug/ComposableCameraViewportDebug.h"
@@ -172,7 +171,7 @@ void UComposableCameraPathGuidedTransition::OnBeginPlay_Implementation(float Del
 			IntermediateCamera->bIsTransient = false;
 			IntermediateCamera->LifeTime = -1.f;
 			IntermediateCamera->RemainingLifeTime = -1.f;
-			IntermediateCamera->Initialize(UComposableCameraBlueprintLibrary::GetComposableCameraPlayerCameraManager(this, 0));
+			IntermediateCamera->Initialize(GetOwningPlayerCameraManager());
 
 			UComposableCameraSplineNode* SplineNode = NewObject<UComposableCameraSplineNode>(IntermediateCamera, UComposableCameraSplineNode::StaticClass());
 			if (!SplineNode)
@@ -302,7 +301,7 @@ FComposableCameraPose UComposableCameraPathGuidedTransition::OnEvaluate_Implemen
 				{
 					// Lazy-create the exit transition the first time we
 					// cross GuideRange.Y. Same null-check discipline as
-					// OnBeginPlay's earlier spawns -NewObject can return
+					// OnBeginPlay's earlier spawns. NewObject can return
 					// null on teardown / GC pressure / abnormal source-
 					// object state, and the immediate `TransitionEnabled`
 					// deref would crash. On failure, tear down the

@@ -1,4 +1,4 @@
-// Copyright Sulley. All rights reserved.
+// Copyright 2026 Sulley. All Rights Reserved.
 
 #include "Nodes/ComposableCameraPivotLookAheadNode.h"
 
@@ -14,7 +14,7 @@
 
 namespace
 {
-	void AddVectorOutputSlot(FComposableCameraRuntimeDataBlock& RuntimeData, int32 NodeIndex, FName PinName, int32 Offset)
+	void AddPivotLookAheadVectorOutputSlot(FComposableCameraRuntimeDataBlock& RuntimeData, int32 NodeIndex, FName PinName, int32 Offset)
 	{
 		RuntimeData.Storage.SetNumZeroed(Offset + static_cast<int32>(sizeof(FVector)));
 		RuntimeData.TotalSize = RuntimeData.Storage.Num();
@@ -59,7 +59,7 @@ bool FPivotLookAheadUsesActorVelocityTest::RunTest(const FString& Parameters)
 	AActor* VelocityActor = SpawnVelocityActor(World, FVector::ZeroVector, FVector(200.f, 0.f, 0.f));
 
 	FComposableCameraRuntimeDataBlock RuntimeData;
-	AddVectorOutputSlot(RuntimeData, 0, TEXT("PivotPosition"), 0);
+	AddPivotLookAheadVectorOutputSlot(RuntimeData, 0, TEXT("PivotPosition"), 0);
 
 	UComposableCameraPivotLookAheadNode* Node = NewObject<UComposableCameraPivotLookAheadNode>();
 	Node->PivotPosition = FVector(10.f, 20.f, 30.f);
@@ -92,7 +92,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 bool FPivotLookAheadFallsBackToPivotDeltaTest::RunTest(const FString& Parameters)
 {
 	FComposableCameraRuntimeDataBlock RuntimeData;
-	AddVectorOutputSlot(RuntimeData, 0, TEXT("PivotPosition"), 0);
+	AddPivotLookAheadVectorOutputSlot(RuntimeData, 0, TEXT("PivotPosition"), 0);
 
 	UComposableCameraPivotLookAheadNode* Node = NewObject<UComposableCameraPivotLookAheadNode>();
 	Node->VelocityActorSource = EComposableCameraActorInputSource::ExplicitActor;

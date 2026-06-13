@@ -1,4 +1,4 @@
-// Copyright Sulley. All rights reserved.
+// Copyright 2026 Sulley. All Rights Reserved.
 
 #include "Customizations/ComposableCameraTargetInfoCustomization.h"
 
@@ -214,8 +214,8 @@ void FComposableCameraTargetInfoCustomization::CustomizeChildren(TSharedRef<IPro
 			// its options list inline via `BoneCombo->RefreshOptions`.
 			Child->SetOnPropertyValueChanged(FSimpleDelegate::CreateSP(this, &FComposableCameraTargetInfoCustomization::RefreshBoneOptions));
 
-			// Phase E LS Section override surface - read-only label that
-			// shows the *effective* actor (bound via the Section's right-click
+			// LS Section override surface - read-only label that shows the
+			// *effective* actor (bound via the Section's right-click
 			// "Bind Target Actors " menu) when an override is active. Same
 			// override the runtime + preview viewport already see; surfacing
 			// it in Details closes the loop so designers know which actor
@@ -500,8 +500,8 @@ AActor* FComposableCameraTargetInfoCustomization::ResolveLSOverrideContext(FText
 
 USkeletalMesh* FComposableCameraTargetInfoCustomization::ResolveSkeletalMesh() const
 {
-	// Phase E LS Section override path takes priority: when the section's
-	// right-click "Bind Target Actors" menu has bound this Target index to
+	// LS Section override path takes priority: when the section's right-click
+	// "Bind Target Actors" menu has bound this Target index to
 	// a Sequencer binding, the *bound* actor is what runtime + preview both
 	// see, so the bone picker should list bones from that actor, not from
 	// the directly-authored Actor field.

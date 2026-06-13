@@ -1,4 +1,4 @@
-// Copyright Sulley. All rights reserved.
+// Copyright 2026 Sulley. All Rights Reserved.
 
 #pragma once
 
@@ -172,7 +172,7 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraRuntimeDataBlock
 	 *  fires.
 	 *
 	 *  The earlier ref-slot directionality guard (eleventh-pass P0) only
-	 *  caught one axis of the cross-shape problem -UObject-pointer T
+	 *  caught one axis of the cross-shape problem. UObject-pointer T
 	 *  vs ref-slot membership. It did not catch cross-shape access where
 	 *  neither side involves a ref slot, e.g.
 	 *
@@ -340,7 +340,8 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraRuntimeDataBlock
 		//     either misinterpret bytes or pollute the GC mirror via
 		//     RefreshReferenceSlot.
 		//   * Size mismatch (e.g., `T = FVector` 12 B against a Float
-		//     slot 4 B, or `T = FTransform` against a Bool slot) ->		//     refuse: would memcpy past the slot and clobber adjacent
+		//     slot 4 B, or `T = FTransform` against a Bool slot) -> refuse:
+		//     would memcpy past the slot and clobber adjacent
 		//     storage.
 		//
 		// All three cases short-circuit before any memory read so a

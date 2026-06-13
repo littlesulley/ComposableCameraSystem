@@ -1,4 +1,5 @@
-﻿#pragma once
+// Copyright 2026 Sulley. All Rights Reserved.
+#pragma once
 
 #include "Containers/Array.h"
 #include "Containers/Map.h"

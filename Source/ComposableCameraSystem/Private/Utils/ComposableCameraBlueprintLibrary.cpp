@@ -1,4 +1,4 @@
-// Copyright Sulley. All rights reserved.
+// Copyright 2026 Sulley. All Rights Reserved.
 
 #include "Utils/ComposableCameraBlueprintLibrary.h"
 
@@ -485,7 +485,7 @@ void UComposableCameraBlueprintLibrary::SetParameterBlockObject(
 	ParameterBlock.SetObject(ParameterName, Value);
 }
 
-//  Camera Patch (Stage 2 minimal surface) 
+//  Camera Patch
 
 namespace
 {

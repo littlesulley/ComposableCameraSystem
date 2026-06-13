@@ -1,4 +1,4 @@
-// Copyright Sulley. All Rights Reserved.
+// Copyright 2026 Sulley. All Rights Reserved.
 
 #include "Editors/ComposableCameraShotEditorViewportClient.h"
 
@@ -43,7 +43,7 @@ namespace
 	const FVector kCapsuleFallbackScale(0.7f, 0.7f, 1.8f);
 	const TCHAR* const kCapsuleFallbackMeshPath = TEXT("/Engine/BasicShapes/Cylinder.Cylinder");
 
-	// Handle visuals (V2: dual-anchor) 
+	// Handle visuals: placement anchor and aim anchor.
 	constexpr float kHandleAnchorRadius = 10.f;
 	constexpr float kHandleHoverRadiusBoost = 1.3f;
 	constexpr float kHandleHitRadius = 14.f;
@@ -52,7 +52,7 @@ namespace
 	const FLinearColor kHandleDisabledColor (0.45f, 0.45f, 0.5f, 0.6f); // greyed out
 	const FLinearColor kHandleCrossColor (0.05f, 0.05f, 0.05f, 1.f); // dark cross overlay
 
-	// Zone overlay visuals (V2.2: Cinemachine-style framing zones) 
+	// Zone overlay visuals: Cinemachine-style framing zones.
 	//
 	// Each enabled `FShotScreenZones` paints two nested rectangles
 	// centered on the anchor's authored `ScreenPosition` (NOT on the
@@ -194,7 +194,7 @@ void FComposableCameraShotEditorViewportClient::ReleaseSceneResources()
 	HoveredZoneEdgeIndex = -1;
 	CachedHandles.Reset();
 
-	// V2.1 A.2: same cleanup for any in-flight Alt+RMB Roll drag.
+	// Same cleanup for any in-flight Alt+RMB Roll drag.
 	RollTransaction.Reset();
 	bRollDragActive = false;
 }
@@ -444,8 +444,8 @@ void FComposableCameraShotEditorViewportClient::DrawCanvas(FViewport& InViewport
 		const bool bDistanceUsed =
 			ActiveShot->Placement.Mode != EShotPlacementMode::FixedWorldPosition;
 
-		// V2.2 damping readout - when an axis has DampingSpeed > 0 AND a
-		// valid prior cache, the strip shows `authored -> effective` so
+		// Damping readout: when an axis has DampingSpeed > 0 AND a valid
+		// prior cache, the strip shows `authored -> effective` so
 		// designers can watch the IIR converge on screen. When the values
 		// match (or no prior yet), only the authored value is shown to
 		// keep the strip terse. Roll comparison uses NormalizeAxis on the
@@ -744,8 +744,8 @@ void FComposableCameraShotEditorViewportClient::DrawHandles(FViewport& InViewpor
 		bool bHandleDisabled,
 		bool bHandleInteractive)
 	{
-		// V2.2: the disc represents the AUTHORED ScreenPosition - the
-		// designer's "I want the anchor here" target - so it always
+		// The disc represents the AUTHORED ScreenPosition - the designer's
+		// "I want the anchor here" target - so it always
 		// renders at `AuthoredScreenPos`, regardless of whether zones
 		// are on or where the anchor currently projects. Drag mutates
 		// this same field, so the disc naturally tracks the cursor 1:1.
@@ -851,7 +851,7 @@ void FComposableCameraShotEditorViewportClient::DrawHandles(FViewport& InViewpor
 			CachedHandles.Add(AnchorCache);
 		}
 
-		// Zone overlay (V2.2) 
+		// Zone overlay.
 		//
 		// Centered on the anchor's current displayed pixel position. Drawing
 		// here (not in a separate pass) means the rects auto-track the anchor
@@ -2217,7 +2217,7 @@ void FComposableCameraShotEditorViewportClient::RunSolverAndDriveCamera(float De
 
 	// Hand the solver a prior-pose snapshot when zones may need it. Null
 	// on the first solve after Shot bind / cache invalidation - the solver
-	// then takes the V1 hard-constraint path to seed an initial pose.
+	// then takes the hard-constraint path to seed an initial pose.
 	FShotPriorPose PriorPose;
 	const FShotPriorPose* PriorPosePtr = nullptr;
 	if (bHasCachedPriorPose)
@@ -2236,8 +2236,8 @@ void FComposableCameraShotEditorViewportClient::RunSolverAndDriveCamera(float De
 	// regardless of editor mode. The solver pre-fills `R.FieldOfView`
 	// before the pose-failure exits (Manual mode -> ManualFOV exactly;
 	// SolvedFromBoundsFit on pose-fail -> PreviousFrameFOV best-effort),
-	// so this assignment is meaningful even when the joint Picard fails
-	// to converge or an anchor can't resolve. Without this, dragging the
+	// so this assignment is meaningful even when an anchor can't resolve.
+	// Without this, dragging the
 	// Manual FOV slider (or any Details-panel value) is invisible to the
 	// designer whenever the Shot is in an unsolvable state - they have
 	// no way to escape because the slider that would fix it appears
@@ -2343,11 +2343,9 @@ void FComposableCameraShotEditorViewportClient::RunSolverAndDriveCamera(float De
 	// populates: FocalDistance + Fstop drive the bokeh circle radius (the
 	// visible "out-of-focus" amount), SensorWidth scales the relationship
 	// between f-stop and bokeh size (smaller sensor = less bokeh per f-stop).
-	// We don't expose sensor width as a Shot parameter in V1 - defaulting
-	// to 35mm full-frame (36mm horizontal) matches CineCamera's default
-	// `Filmback.SensorWidth` so the preview matches a stock CineCamera
-	// playback. Phase E may surface sensor width as a Shot UPROPERTY if
-	// designers want to author for non-full-frame setups.
+	// Shot does not currently expose sensor width. Defaulting to 35mm
+	// full-frame (36mm horizontal) matches CineCamera's default
+	// `Filmback.SensorWidth` so the preview matches stock CineCamera playback.
 	FPostProcessSettings& PP = ControllingActorViewInfo.PostProcessSettings;
 
 	PP.bOverride_DepthOfFieldFocalDistance = true;

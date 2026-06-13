@@ -1,4 +1,4 @@
-// Copyright Sulley. All rights reserved.
+// Copyright 2026 Sulley. All Rights Reserved.
 
 #include "Core/ComposableCameraModifierManager.h"
 
@@ -75,7 +75,7 @@ void UComposableCameraModifierManager::AddModifier(UComposableCameraNodeModifier
 
 			if (!NodeModifiers->Contains(FModifierEntry{ Modifier, ModifierAsset }))
 			{
-				NodeModifiers->Emplace(Modifier, ModifierAsset);
+				NodeModifiers->Add(FModifierEntry{ Modifier, ModifierAsset });
 			}
 		}
 	}

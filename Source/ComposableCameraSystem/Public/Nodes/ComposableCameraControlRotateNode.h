@@ -1,4 +1,4 @@
-﻿// Copyright Sulley. All rights reserved.
+// Copyright 2026 Sulley. All Rights Reserved.
 
 #pragma once
 
@@ -76,7 +76,8 @@ private:
 
 	// Make sure the (pin-driven) RotationInputActor's EnhancedInputComponent
 	// has a value-binding registered for RotateAction. Called from OnTickNode
-	// because RotationInputActor is an input pin and is auto-resolved per frame -	// resolving once in OnInitialize would (a) read the pre-pin-resolution
+	// because RotationInputActor is an input pin and is auto-resolved per frame.
+	// Resolving once in OnInitialize would (a) read the pre-pin-resolution
 	// default value and (b) leave us bound to a stale actor if the pin is
 	// later wired to a different one or the original actor is destroyed.
 	//

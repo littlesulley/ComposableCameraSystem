@@ -1,4 +1,4 @@
-// Copyright Sulley. All Rights Reserved.
+// Copyright 2026 Sulley. All Rights Reserved.
 
 #include "Editors/ComposableCameraShotEditor.h"
 
@@ -49,9 +49,8 @@ void FComposableCameraShotEditor::RegisterTabSpawner()
 			"Authoring tool for ComposableCameraSystem Shots - drag actors to compose framing, "
 			"set anchor + distance + lens. Open via the 'Open Shot Editor' button on a "
 			"CompositionFramingNode in the Camera Type Asset Editor."))
-		.SetMenuType(ETabSpawnerMenuType::Hidden); // Hidden from "Window" menu - 
-		// the editor opens contextually from a node button. Phase D.x may flip
-		// this to ETabSpawnerMenuType::Enabled if a global menu entry is wanted.
+		.SetMenuType(ETabSpawnerMenuType::Hidden); // Hidden from "Window" menu;
+		// the editor opens contextually from nodes, Sequencer sections, or assets.
 
 	// Bind the runtime -> editor delegate hook so node CallInEditor buttons
 	// route into OpenForShot.

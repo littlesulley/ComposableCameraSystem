@@ -1,4 +1,4 @@
-﻿// Copyright Sulley. All rights reserved.
+// Copyright 2026 Sulley. All Rights Reserved.
 
 #include "Transitions/ComposableCameraSmoothTransition.h"
 #include "Math/ComposableCameraMath.h"
@@ -38,7 +38,7 @@ FComposableCameraPose UComposableCameraSmoothTransition::OnEvaluate_Implementati
 
 float UComposableCameraSmoothTransition::GetBlendWeightAt(float NormalizedTime) const
 {
-	// Mirrors the OnEvaluate branch exactly -SmootherStep vs SmoothStep,
+	// Mirrors the OnEvaluate branch exactly: SmootherStep vs SmoothStep,
 	// whichever the authored `bSmootherStep` flag picks. Pure math, no
 	// state reads, safe to call many times per frame from the snapshot
 	// sampler.

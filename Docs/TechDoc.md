@@ -1,1571 +1,608 @@
-# ComposableCameraSystem �?Technique & Implementation Reference
+# ComposableCameraSystem Tech Notes
 
-*Companion to [DesignDoc.md](DesignDoc.md) and [EditorDesignDoc.md](EditorDesignDoc.md).*
-*Companion feature spec: [ShotBasedKeyframing.md](ShotBasedKeyframing.md) �?Shot-based composition authoring + Composition Solver. Phases A through F shipped (V1 complete: Layer-1 extraction �?Composition Solver �?CompositionFramingNode �?Shot Editor �?LS Section integration �?inter-Shot blending via CCS Transitions); V1.1 adds Shot-level Roll. See that doc's §7 for the phase roadmap; subsequent work targets the remaining deferred items in §7.7 (Phase G+) �?multi-Shot composition stacking, WeightedScreenCentroid Anchor mode, FocusAnchor / DistanceMode / LookAt-basis enhancements, in-viewport bone picking, etc.*
-*Last updated: 2026-05-16. Detailed change history (technique-by-technique revisions, prior catalog updates, gotcha additions) lives in `git log Docs/TechDoc.md`; recent addenda are inlined below until they fold into the relevant sections.*
+Updated: 2026-06-12
 
-*2026-05-13 addendum: Lens/Exposure split: `LensNode` keeps `FocusDistance` and `PhysicalCameraBlendWeight`, but that weight now gates only DoF fields. New `ExposureNode` owns `ISO`, `ShutterSpeed`, and `ExposureBlendWeight`. `ApplyPhysicalCameraSettings` applies DoF and exposure through separate weights, so placing a lens node no longer brightens the image by itself.*
-*2026-05-16 addendum: transition rotation blending now uses `UComposableCameraTransitionBase::BlendPosesByLockedRotationPath(...)` for built-ins that otherwise delegate to pose blending. The helper keeps the first-frame source-to-target rotation delta fixed and applies later endpoint rotation changes as accumulated live offsets faded by source/target blend weights.*
+Purpose: compact implementation reference. Keep this file current when code
+patterns, public APIs, hot-path rules, node catalogs, or gotchas change.
 
----
+## 1. Module Map
 
-> 2026-05-06 doc sync: final runtime slot shape is `Offset -> {PinType, Size, StructType}`. Struct reads/writes validate exact `UScriptStruct` identity both for `StructSlots` (`FInstancedStruct`) and for byte-storage POD struct slots before `CopyScriptStruct` / memcpy. `IsBytewiseSafeStruct` no longer uses reflected-property heuristics; only the engine math whitelist and explicit `STRUCT_IsPlainOldData` route through byte storage.
+Runtime module: `Source/ComposableCameraSystem`
 
-## 0. Purpose and scope
+- `Core`: PCM, context stack, director, evaluation tree, runtime data block,
+  parameter block, type-asset instantiation.
+- `Cameras`: runtime camera actor and camera type asset interfaces.
+- `Nodes`: camera and compute node implementations.
+- `Transitions`: transition data asset and transition classes.
+- `Modifiers`: PCM-level modifier manager.
+- `Actions`, `AsyncActions`: Blueprint-facing camera actions.
+- `DataAssets`: type assets, patch assets, shot assets, transition table.
+- `Patches`: patch handle, manager, instance, envelope, activation params.
+- `LevelSequence`, `MovieScene`: Sequencer component, actor, tracks, sections.
+- `Debug`: runtime panel, dumps, viewport draw.
+- `Math`, `Interpolator`, `Utils`, `EditorHooks`.
 
-This document is the **implementation cheat-sheet** for the plugin. It is intentionally narrower than the two design docs:
+Editor module: `Source/ComposableCameraSystemEditor`
 
-| Doc | Answers |
-|---|---|
-| `DesignDoc.md` | *Why* the runtime is shaped this way; invariants; lifecycle phases. |
-| `EditorDesignDoc.md` | *How* the editor, graph schema, toolkit, and round-trip work. |
-| `TechDoc.md` (this file) | *How concrete techniques are spelled in C++.* Patterns, idioms, and gotchas that do not belong in a pure architecture doc but are load-bearing when writing or reviewing code. |
+- asset definitions, factories, graph editor, toolkit, schema.
+- details customizations, widgets, Sequencer track editors, Shot Editor.
 
-Read this doc when you need to know "which UE pattern did we pick here, and why" �?e.g., "how do we expose enums to Blueprint pins", "how is the eval tree polymorphism encoded", "what keeps the hot path allocation-free". If you are looking for the big picture or per-frame lifecycle, go to `DesignDoc.md` first.
+UncookedOnly module: `Source/ComposableCameraSystemUncookedOnly`
 
-All file paths below are relative to the plugin root `Plugins/ComposableCameraSystem/`.
+- custom K2 nodes.
+- graph pin widgets and pin type helpers.
 
----
+## 2. Runtime Data Block
 
-## 1. Module anatomy
+`FComposableCameraRuntimeDataBlock` is the shared storage layer used by nodes,
+parameters, variables, Sequencer bags, and patches.
 
-Three C++ modules live under `Source/`:
+Storage shape:
 
-| Module | Type | What lives here |
-|---|---|---|
-| `ComposableCameraSystem` | Runtime | PCM, Context Stack, Director, Evaluation Tree, cameras, nodes, transitions, modifiers, runtime data block, parameter block. |
-| `ComposableCameraSystemEditor` | Editor | Graph editor (UEdGraph + schema + Slate), asset tools, factories, toolkits, detail customizations. |
-| `ComposableCameraSystemUncookedOnly` | UncookedOnly | BP compile-time helpers: `K2Node_ActivateComposableCamera`, `K2Node_ActivateComposableCameraFromDataTable`, `K2Node_PlayCutsceneSequence`, custom `SGraphPin` widgets, and `EComposableCameraPinType` �?`FEdGraphPinType` conversion. |
+- `Storage`: flat byte pool for POD-like values.
+- `StructSlots`: `FInstancedStruct` pool for non-POD struct values.
+- offset maps for node input pins, output pins, internal variables, and exposed
+  values.
+- shape descriptors that must match before read/write.
+- actor/object mirrors for GC-visible references.
 
-**Placement rule is strictly enforced:** a new camera node lives in `Nodes/`, a new transition in `Transitions/`, a new modifier in `Modifiers/`. Nothing camera-shaped belongs in `Core/` or `Utils/`.
+Read/write rules:
 
----
+- Verify slot shape.
+- Verify byte bounds in all builds.
+- Verify object class compatibility for object/actor reads and writes.
+- Use `Try*` accessors where offset validity is not guaranteed.
+- Do not trust `check()` as a shipping guard.
 
-## 2. Key runtime types at a glance
+## 3. Pin Types
 
-| Class | Header | Role |
-|---|---|---|
-| `AComposableCameraPlayerCameraManager` | `Core/ComposableCameraPlayerCameraManager.h` | Entry point. Replaces `APlayerCameraManager`. Owns the context stack and modifier manager; hosts the `SetViewTarget` �?CCS bridge. |
-| `UComposableCameraContextStack` | `Core/ComposableCameraContextStack.h` | Tier-1 LIFO of contexts. One Director per context; manages push/pop and inter-context blends via *reference leaves*. |
-| `UComposableCameraDirector` | `Core/ComposableCameraDirector.h` | Per-context orchestrator. Owns the evaluation tree, activates cameras, produces the per-frame blended pose. |
-| `UComposableCameraEvaluationTree` | `Core/ComposableCameraEvaluationTree.h` | Tier-2 binary tree of transitions and cameras. Node = `TVariant<Leaf, ReferenceLeaf, Inner>`. Collapses finished transitions. |
-| `AComposableCameraCameraBase` | `Cameras/ComposableCameraCameraBase.h` | One camera instance. Holds `CameraNodes` (per-frame) and `ComputeNodes` (one-shot at BeginPlay). |
-| `UComposableCameraCameraNodeBase` | `Nodes/ComposableCameraCameraNodeBase.h` | Base for all per-frame nodes. Declares pins, reads/writes the runtime data block, mutates the pose. |
-| `UComposableCameraComputeNodeBase` | `Nodes/ComposableCameraComputeNodeBase.h` | One-shot sibling of the camera node. Runs once at BeginPlay; publishes into internal variables or output pins. |
-| `UComposableCameraTransitionBase` | `Transitions/ComposableCameraTransitionBase.h` | Stateful blend machine. Pose-only in, pose out; never references cameras or directors. |
-| `UComposableCameraModifierBase` | `Modifiers/ComposableCameraModifierBase.h` | PCM-level override for matching node properties. Applied post-camera-construction, outside the graph. |
-| `UComposableCameraTypeAsset` | `DataAssets/ComposableCameraTypeAsset.h` | Data-driven camera definition: node templates, pin overrides, connections, exposed parameters, variables, default transition. |
-| `FComposableCameraRuntimeDataBlock` | `Core/ComposableCameraRuntimeDataBlock.h` | Flat `TArray<uint8>` backing store for all pin, parameter, and variable values on a camera instance. |
-| `FComposableCameraParameterBlock` | `Core/ComposableCameraParameterBlock.h` | Caller-side parameter container for camera activation. Type-erased, keyed by exposed-parameter name. |
+Current `EComposableCameraPinType` coverage:
 
-See [DesignDoc.md](DesignDoc.md) §2 for the ownership diagram.
+- Bool.
+- Int32.
+- Float.
+- Double.
+- Vector2D, Vector3D, Vector4.
+- Rotator.
+- Transform.
+- Actor.
+- Object.
+- Struct.
+- Name.
+- Enum.
+- Delegate.
 
----
+Storage conventions:
 
-## 3. Core techniques
+- Enum values store as `int64`.
+- Name values store as `FName`.
+- Delegate values live in `FComposableCameraParameterBlock::DelegateValues`.
+- Struct values use POD byte storage when safe, otherwise `FInstancedStruct`.
+- Actor and Object values are mirrored for GC and class-checked.
 
-### 3.1 Polymorphic eval tree node via `TVariant`
+String conversion:
 
-The evaluation tree deliberately avoids a `UObject` node hierarchy. Each tree node is a `TVariant` over three wrapper structs:
+- DataTable activation uses `FComposableCameraParameterBlock::ApplyStringValue`.
+- Supported string targets include Bool, Int32, Float, Double, Vector2D/3D/4D,
+  Rotator, Transform, Struct, Object soft path, Name, and Enum.
+- Actor string conversion is not supported by the DataTable path.
 
-```cpp
-TVariant<
-    FComposableCameraEvaluationTreeLeafNodeWrapper,           // single camera
-    FComposableCameraEvaluationTreeReferenceLeafNodeWrapper,  // TSharedPtr snapshot of another tree's root
-    FComposableCameraEvaluationTreeInnerNodeWrapper           // transition + two children
-> Wrapper;
+## 4. Parameter Blocks
+
+`FComposableCameraParameterBlock` carries activation-time and Sequencer-time
+values.
+
+Maps:
+
+- `Values`: scalar / POD byte values.
+- `ActorValues`.
+- `ObjectValues`.
+- `StructValues`.
+- `DelegateValues`.
+
+The struct opts into manual reference collection. Keep that trait if maps or
+delegate targets change.
+
+Blueprint wildcard setter caveat:
+
+- `SetParameterBlockValue` is a custom thunk.
+- Literal wildcard values can lose type information.
+- Prefer generated typed K2 pins / typed setters for activation nodes.
+
+## 5. Type Asset Build
+
+`UComposableCameraTypeAsset` owns durable graph-derived data.
+
+Build responsibilities:
+
+- validate node templates.
+- assign and deduplicate node GUIDs.
+- build exposed parameter, internal variable, and exposed variable layouts.
+- build main and compute runtime data layouts.
+- build pin connection maps.
+- build full execution chains.
+- bind delegate pins.
+- apply parameter block values.
+
+Activation path:
+
+```text
+Blueprint/K2/DataTable
+  -> PCM resolves context
+  -> Director spawns camera
+  -> Camera.Initialize
+  -> ConstructCameraFromTypeAsset
+       -> duplicate node templates
+       -> build runtime data block
+       -> apply params/delegates
+       -> assign nodes/chains
+  -> modifiers
+  -> FinishSpawning
+  -> evaluation tree activation
 ```
 
-**Why TVariant, not polymorphism:** No vtable cost, no `NewObject` per tree node, cache-friendly, and the three cases are closed by construction �?we are never adding a fourth "kind" of node at runtime.
+## 6. Camera Tick
 
-**Load-bearing rule:** a new variant alternative must be handled in **every** branching site, not only a `Visit` call. Grep for `IsLeaf()`, `IsReferenceLeaf()`, `IsInner()`, and `GetIndex()` �?each site is a distinct dispatch and each needs the new arm. This is a recurring failure mode in this codebase; see §9.
+`AComposableCameraCameraBase::TickCamera` is memoized per `GFrameCounter`.
 
-### 3.2 Runtime data block: flat bytes, precomputed offsets
+Camera tick:
 
-`FComposableCameraRuntimeDataBlock` is a single `TArray<uint8> Storage` plus a set of `TMap<FComposableCameraPinKey, int32>` offset tables (one per logical region: output pins, input sources, exposed parameters, instance defaults, internal variables).
+1. Start from current camera pose.
+2. Walk `FullExecChain`.
+3. Run node pre-actions.
+4. Tick node.
+5. Run node post-actions.
+6. Apply set-variable entries.
+7. Store pose and frame cache.
 
-Access is type-erased at the API level but monomorphic on the hot path �?`ReadValue<T>` / `WriteValue<T>` resolve the offset once and `FMemory::Memcpy` the bytes. No allocation on read or write.
+`TickWithInputPose` is used by patches and Sequencer patch overlays. It lets a
+patch node graph consume the upstream pose instead of synthesizing from the
+camera actor's current pose.
 
-Object-valued slots (`Actor`, `Object`) are the only exception to "bytes only": the block registers reference-slot offsets during layout, mirrors the raw pointer bytes into `TObjectPtr` side maps on every write/copy, and `AComposableCameraCameraBase::AddReferencedObjects` walks those side maps. `FComposableCameraParameterBlock` mirrors object parameters the same way, and non-UPROPERTY owners (`SourceParameterBlock`, PCM pending activation state) call its manual collector. Never add a new object-valued storage path without either `UPROPERTY` visibility or an `AddReferencedObjects` bridge.
+`InvalidateTickCache` is required when an external system re-enters evaluation
+in the same frame after changing inputs, such as first-frame Sequencer shot
+override fixes.
 
-Generic `Struct` pins are intentionally disabled for runtime byte storage, with `FFloatInterval` as the current POD whitelist case used by clamp-range pins. Known POD math structs (`FVector2D`, `FVector`, `FVector4`, `FRotator`, `FTransform`) keep their dedicated pin types. Arbitrary `UScriptStruct` values need owned initialized storage plus `CopyScriptStruct` / `DestroyStruct` / reference collection; do not memcpy them through `FComposableCameraParameterValue` or `FComposableCameraRuntimeDataBlock`.
+## 7. Compute Nodes
 
-The layout is built **once**, at camera instantiation, when we walk the type asset's `NodeTemplates` + `PinConnections` and precompute every offset. The per-frame cost is a map lookup plus a memcpy.
+Compute nodes derive from `UComposableCameraComputeNodeBase`.
 
-### 3.3 Pin system: declaration �?binding table �?auto-resolve
+Rules:
 
-Nodes declare their pins by overriding `GetPinDeclarations` (returns an array of `FComposableCameraNodePinDeclaration`). The editor consumes this for graph layout and for building the runtime data block offsets. At runtime, resolution goes through a **cached per-class binding table**:
+- Run on the camera BeginPlay/initialization chain.
+- Write data into the runtime data block.
+- Do not run per frame.
+- Level Sequence compatibility defaults to compute-only; LS internal camera
+  path skips compute nodes after spawn because BeginPlay happened before node
+  construction in that path.
 
-```
-Declaration (static per class)
-        �?        �?FComposableCameraNodePinBindingTable  �?cached module-locally, built once
-   name �?UPROPERTY offset + type
-        �?        �?ResolveAllInputPins()     �?walks the table, writes resolved values into UPROPERTY members
-        �?        �?OnTickNode()              �?subclass reads its members normally; no reflection inside the tick
-```
+## 8. Evaluation Tree
 
-When `ShouldAutoResolveInputPins()` returns true (the default), `TickNode` calls `ResolveAllInputPins` before `OnTickNode`, so most nodes never touch the data block API directly. If a node has to read/write pins off the tick cadence (once-at-init, mid-tick), override it to `false` and call `GetInputPinValue<T>` / `SetOutputPinValue<T>` manually.
+`FComposableCameraEvaluationTreeNode` is a `TVariant` wrapper with:
 
-**Four-tier input pin resolution** in `RuntimeDataBlock::TryResolveInputPin`:
+- leaf camera.
+- reference leaf captured subtree.
+- inner transition.
 
-1. Wired connection from another node's output pin.
-2. Exposed caller parameter (if the pin is exposed on the type asset).
-3. Per-instance default override (`FComposableCameraPinOverride::DefaultValue`).
-4. None �?fall through to the node's UPROPERTY default.
+Memoization exists at camera and wrapper level. Reference leaf snapshots are
+`TSharedPtr` tree roots. They do not recurse through the source director.
 
-### 3.4 Enum pins: canonical `int64` storage + `CustomThunk`
+Transition collapse:
 
-All enum pin / variable / parameter values are stored in the data block as **normalized `int64`**, regardless of the backing property width (`uint8`, `int32`, `int64`).
+- finished inner transition promotes its right child.
+- left source subtree is destroyed or moved to pending destroy as needed.
+- right target remains dominant.
 
-- **Why:** uniform slot size. The block allocator does not need to know the enum's concrete backing width at layout time.
-- **How BP binds arbitrary enums:** `UComposableCameraCameraNodeBase` exposes `GetInputPinValueEnum` / `SetOutputPinValueEnum` / `GetInternalVariableEnum` / `SetInternalVariableEnum` as `CustomThunk + CustomStructureParam` pairs. The generated thunk uses `Stack.StepCompiledIn` to capture the caller's `FProperty*`, discover the backing width, and narrow/widen between the caller side and the canonical `int64` slot. The same pattern is used in `UComposableCameraBlueprintLibrary::SetParameterBlockValue`.
-- **Mirror methods for `FName`:** `Get/SetInputPinValueName` / `Get/SetOutputPinValueName` / `Get/SetInternalVariableName` exist as plain UFUNCTIONs (no thunk needed).
+When adding a new variant alternative, update every manual branch and debug
+builder, not only `Visit()`.
 
-**Gotcha:** if you author a new enum pin in C++ and forget the thunk path, Blueprint callers get a type-mismatch error when trying to bind an enum to that pin. Always route enum access through the CustomThunk wrappers.
+## 9. Transitions
 
-### 3.5 `bDefaultAsPin` and per-instance pin overrides
+Transition duplication must be null-checked. Null means hard cut fallback.
 
-Two orthogonal concepts:
+Transition init uses:
 
-- **`FComposableCameraNodePinDeclaration::bDefaultAsPin`** �?the class-level default for a pin. If `false`, a freshly-placed node has the pin rendered in the Details panel only; if `true`, the pin shows on the graph as a wireable input.
-- **`FComposableCameraPinOverride::bAsPin`** (per node instance in the type asset) �?promotes or demotes a pin for this specific graph node, independent of the declaration default.
+- current source pose.
+- previous source pose.
+- delta time from a guarded `SafeDeltaSeconds`.
+- a cached typed outer `AComposableCameraPlayerCameraManager`, used by
+  transitions that need owner-aware actor input or temporary camera
+  initialization.
 
-Many enum / FName UPROPERTYs across the built-in nodes are declared `bDefaultAsPin = false` (Details-only by default) but individual instances can toggle `bAsPin = true` when runtime variation is wanted. Toggling `true �?false` on a wired pin must break the wire; the editor enforces that transactionally.
+Fallback rule: a transition that cannot compute should return one input pose,
+usually target pose for activation-style transitions. Never return a default
+constructed pose as an error fallback.
 
-### 3.6 Compute nodes vs camera nodes
+`UComposableCameraCompositionPreservingTransition` wraps a
+`DrivingTransition`. On begin play it captures the subject actor offset from
+the source pose in source-camera local space. If the wrapper transition's
+`TransitionTime` is unset or zero, it adopts the `DrivingTransition` duration so
+the wrapper does not finish before the driving transition can tick. Subject
+lookup uses the base transition's cached PCM when `SubjectActorSource` is
+`ControllerControlledPawn`, so split-screen or multi-controller worlds do not
+fall back to the wrong first world controller. Each tick:
 
-The type asset carries **two parallel chains**: `NodeTemplates` (camera chain, per-frame) and `ComputeNodeTemplates` (compute chain, one-shot). Both go through `InitializeNodes` at spawn; only camera nodes get `OnPreTick` / `OnPostTick` wired.
+- evaluate `DrivingTransition(CurrentSourcePose, CurrentTargetPose)`.
+- take the driving pose rotation as `R'` and the driving transition percentage
+  as the blend weight.
+- blend non-transform pose fields from current source pose to current target
+  pose.
+- recompute the live target-camera local offset from
+  `CurrentTargetPose` and `SubjectLocation`.
+- compute camera position as
+  `SubjectLocation - R'.RotateVector(Lerp(CapturedSourceOffset, LiveTargetOffset, Percentage))`.
+- overwrite output rotation with `R'`.
 
-`BeginPlayCamera()` walks `ComputeNodes` in order and calls `ExecuteBeginPlay` on each. `TickCamera` walks `CameraNodes`. Cross-chain communication happens via **internal variables**: a compute node publishes once; downstream camera nodes read every frame.
+The target offset must be live, not captured at transition start. Otherwise a
+moving subject can leave the near-final preserved pose offset from
+`CurrentTargetPose`, and the evaluation tree collapse back to raw B will snap.
 
-**Why this split exists:** expensive setup work (ray traces, spline integrals, distance calculations) runs once and is cached; the hot path reads a cached value. Keeping the categories separate at the type level makes it a hard error to accidentally tick a compute node.
+If the subject actor cannot be captured or disappears, the transition returns
+the driving pose. If `DrivingTransition` is unset, it logs and falls back to the
+target pose.
 
-### 3.7 Reference leaf for inter-context blending
-
-When pushing a new context, the context stack does **not** freeze the previous context. Instead, it wraps a **snapshot** of the outgoing director's current tree root in a `ReferenceLeafNodeWrapper` and inserts it as the left child of a new inner (transition) node in the incoming context's tree:
-
-```
-         [Inner: transition]
-         /                \
-  [RefLeaf: snapshot of  [Leaf: incoming camera]
-   prevDirector's root]
-```
-
-`RefLeaf::Evaluate(dt)` walks its captured `TSharedPtr<Node> SnapshotRoot` directly �?it does **not** call back into `ReferencedDirector->Evaluate()`, and in fact no longer holds a live director pointer (only a weak `DebugSourceDirector` for label display). The captured subtree is a snapshot of the *topology*: the original leaves inside still tick live cameras every frame, but the shape is frozen at capture time, so future mutations to the source director's root (e.g. the source later being popped and getting its own pop Inner wrapped at its root) don't follow into the RefLeaf. That is what makes the evaluation reachable graph a DAG with no cycles, which in turn is what makes inter-context pop-while-push-still-active safe. See DesignDoc §"Inter-Context Transitions" for the full picture.
-
-When the transition finishes, the tree collapses and the reference leaf is discarded (the TSharedPtr to the snapshot drops; the captured nodes live on as long as the source director also holds them).
-
-This is why transitions are pose-only: the transition has no idea whether the left side is a real camera leaf or a reference to a whole other context.
-
-### 3.8 Transition runtime state
-
-`UComposableCameraTransitionBase` is stateful. The contract:
-
-1. Asset stores a template transition (authored in the Content Browser or inline on the type asset).
-2. At activation, `DuplicateObject` produces a fresh instance.
-3. `TransitionEnabled(InitParams)` �?captures `CurrentSourcePose`, `PreviousSourcePose` (for velocity estimation), and any asset-authored config.
-4. `ResetTransitionState()` �?zeroes `RemainingTime`, `Percentage`, `bFirstFrame`, `bFinished` so the instance can be reused.
-5. Each frame: `Evaluate(dt, SourcePose, TargetPose) �?blended pose`. `bFinished` flips to true when `RemainingTime <= 0`.
-6. On finish, the eval tree collapses the inner node containing the transition.
-
-**Why duplicate, not new:** asset-authored config (duration, curve, flags) is preserved by `DuplicateObject`; only the transient state gets reset. This keeps transitions allocation-free on the hot path while still supporting per-asset authoring.
-
-**Locked rotation path helper:** built-in transitions that otherwise use pose blending call `BlendPosesByLockedRotationPath(Source, Target, Alpha)` instead of calling `FComposableCameraPose::BlendBy` directly. `Evaluate` captures the first-frame source/target rotations, then accumulates per-frame source/target rotation deltas into non-normalized endpoint offsets. The helper still delegates all non-rotation fields to `BlendBy`, then writes:
-
-```cpp
-BaseRotation = InitialSourceRotation + Alpha * InitialRotationDelta;
-OutputRotation = BaseRotation
-	+ (1.f - Alpha) * AccumulatedSourceRotationOffset
-	+ Alpha * AccumulatedTargetRotationOffset;
-```
-
-The accumulator is per transition instance, so nested blends naturally compose. Do not replace this with `(Target - Source).GetNormalized()` inside a transition body; that reselects a shortest path every frame and can flip 180 degrees when only one endpoint moves.
-
-### 3.9 Type-asset activation: `ActivateNewCameraFromTypeAsset`
-
-The sequence, end-to-end:
-
-1. PCM::`ActivateNewCameraFromTypeAsset(Context, TypeAsset, Params, Transition)`.
-2. Context stack `EnsureContext` returns or creates the context's Director.
-3. Director spawns an `AComposableCameraCameraBase` (deferred).
-4. PCM binds `OnTypeAssetCameraConstructed` as `FOnCameraFinishConstructed`.
-5. Before `FinishSpawning`, `OnPreBeginplayEvent` fires �?`OnTypeAssetCameraConstructed`:
-   - Duplicates `NodeTemplates` / `ComputeNodeTemplates` from the type asset into the camera.
-   - Builds `RuntimeDataBlock` layout from declarations + connections + exposed parameters.
-   - Applies caller-provided `FComposableCameraParameterBlock` values into the block via exposed-parameter offsets.
-   - Applies instance-level `FComposableCameraPinOverride` default values.
-   - Calls `InitializeNodes(nullptr)` �?each node's `OnInitialize` fires (one-shot setup).
-6. `ApplyModifiers(Camera, bNewCamera=true)` runs after the callback so modifiers see fully-populated nodes.
-7. `FinishSpawning` �?`AActor::BeginPlay` �?`BeginPlayCamera` walks `ComputeNodes` and fires `ExecuteBeginPlay` on each.
-8. Transition (if any) is duplicated, `TransitionEnabled` and `ResetTransitionState` are called.
-9. Director hands the new camera + transition to `EvaluationTree::OnActivateNewCamera`, which wraps the existing root in an inner node with the new camera as the target leaf.
-
-See [ExecutionFlowExamples.md](ExecutionFlowExamples.md) for the full trace including field-by-field data flow.
-
-### 3.10 `SyncToTypeAsset` / `RebuildFromTypeAsset` editor round-trip
-
-The editor graph is the source of truth **while the asset editor is open**; the persisted asset arrays (`NodeTemplates`, `NodePinOverrides`, `PinConnections`, `FullExecChain`, and the parallel compute chain) are the source of truth **on disk**. The two are kept synced by two explicit passes:
-
-- `SyncToTypeAsset` �?graph �?asset. Walks graph nodes, extracts node class + per-instance overrides, serializes wires into `PinConnections`, computes `FullExecChain` from exec-pin topology.
-- `RebuildFromTypeAsset` �?asset �?graph. Instantiates graph nodes from `NodeTemplates`, restores override metadata, reconstructs wires.
-
-**Identity stability:** node identity on the graph side is tracked by `FGuid`, and the compute chain and camera chain are serialized as parallel arrays. Any new editor-side state needs both sides of the round-trip implemented �?including `FGuid` stability across save/load �?or the graph silently reshuffles on reload.
-
-**Sync coalescing for Details-panel callbacks.** Any `IDetailCustomization` callback that calls `NotifyGraphChanged` on `UComposableCameraNodeGraph` must bracket its body in `FComposableCameraDetailsRebuildScope`. Without the scope, a compound-pin edit on a nested property runs `SyncToTypeAsset` 3-4 times per user action �?the outer lambda's explicit call, plus one extra call per child lambda re-fired by `DetailBuilder.ForceRefreshDetails`. The scope holds a depth counter + pending flag on the graph; the toolkit's `OnGraphChanged` handler defers during scope and the outermost scope exit runs one coalesced sync. The scope must enclose `ForceRefreshDetails` itself, since that is the call that re-enters child lambdas. See EditorDesignDoc §8 "Details-rebuild coalescing" for the full rationale.
-
-**Silent validation + inline node badges on the sync tail.** `SyncToTypeAsset` calls `OwningTypeAsset->Build(/* bLogResult = */ false)` followed by `ApplyBuildMessagesToGraphNodes` at its tail. The apply helper clears every `UEdGraphNode::{bHasCompilerMessage, ErrorType, ErrorMsg}` on the graph, then walks `BuildMessages` and deposits each entry whose `NodeIndex` resolves to a camera graph node onto that node's error fields (severity escalates, messages concatenate). `SComposableCameraGraphNode::OnPaint` reads those fields each frame and renders the matching UE-stock `Icons.{Error,Warning,Info}WithColor` brush at the node's top-right inset. `UComposableCameraNodeGraphNode::GetTooltipText` appends the aggregated `ErrorMsg` to the class tooltip, so hovering a badged node reveals the details. `RebuildFromTypeAsset` runs the same silent-build + apply at its tail so a freshly-opened asset already shows its badges. The `bLogResult` parameter on `Build()` keeps continuous editing from spamming `LogComposableCameraSystem`; the toolbar-triggered build still passes the default `true`. See EditorDesignDoc §16 "Inline node validation badges" for the full behaviour.
-
-See [EditorDesignDoc.md](EditorDesignDoc.md) §§16, 18 for the full contract.
-
-### 3.11 `K2Node_ActivateComposableCamera`: opt-in dynamic pins
-
-The BP activation node does **not** auto-pin every exposed parameter on the selected type asset. Instead:
-
-- Required exposed parameters �?always-visible pins.
-- Optional exposed parameters �?hidden until opted-in via the node's right-click "Add Override Pin" submenu. Opt-ins live in `UserOverrideNames : TArray<FName>`. The currently-materialized set is cached in `DynamicParameterPinNames`.
-- On `OnCameraTypeAssetChanged`: `RemoveDynamicParameterPins` then `CreateDynamicParameterPins` from `UserOverrideNames`.
-- `ExpandNode` emits one `SetParameterBlockValue` call per dynamic pin, then the final `ActivateComposableCameraFromTypeAsset`.
-- **M1 migration:** legacy nodes from before the opt-in model were saved without `UserOverrideNames`. `PostLoad` calls `InitializeUserOverridesFromCachedAsset` to backfill with *all* non-required exposed names �?preserving previous "everything is pinned" behavior on load.
-
-The `FromDataTable` variant follows the same opt-in model but sources values from a DataTable row.
-
-### 3.12 Modifier system
-
-Modifiers live at the PCM level, not the Director level. That is intentionally different from Unreal's built-in `UCameraModifier` which hangs off `APlayerCameraManager`'s own modifier stack.
-
-- `UComposableCameraModifierBase` targets a specific node class via `NodeClass` and overrides `ApplyModifier(Node)`.
-- `FComposableCameraModifierManager` (owned by the PCM) iterates active modifiers and, for each modifier, walks the active camera's nodes calling `ApplyModifier` on every matching one.
-- `ApplyModifiers` is called once per activation (after `OnTypeAssetCameraConstructed` so nodes are populated) and again when the modifier set changes.
-
-Concrete modifier subclasses are project-owned; the shipped plugin only provides the base class.
-
-### 3.12.1 Action system: four hook points, two dispatch shapes
-
-`UComposableCameraActionBase::ExecutionType` picks one of four hook points around camera evaluation. Two use multicast delegates on the camera (whole-camera scope, fires once per tick); two use node-scoped arrays on the camera (fires once per matching node instance). DesignDoc §10 has the per-type table.
-
-- **PreCameraTick / PostCameraTick** �?delegates `Camera->OnActionPreTick` / `OnActionPostTick` (`AddDynamic` at bind time, `RemoveDynamic` at unbind). Fires from `TickCamera` before any node / after all nodes.
-- **PreNodeTick / PostNodeTick** �?plain arrays `Camera->PreNodeTickActions` / `PostNodeTickActions`. `TickCamera` walks each array inside the node loop and invokes `OnExecute` on any action whose `TargetNodeClass` equals `Node->GetClass()` (exact-class match, mirroring the modifier system �?§3.12). Iteration happens in both the `FullExecChain` branch and the linear fallback.
-
-Binding is centralized on the PCM: `AddCameraAction` binds to the `RunningCamera` at add-time, `BindCameraActionsForNewCamera` re-binds persistent (`!bOnlyForCurrentCamera`) actions onto each newly activated camera, and `RemoveCameraAction` strips both delegate bindings and array entries �?so adding a new `ExecutionType` just means extending each of those three sites. Expiration is driven centrally by `UpdateActions`; there is no per-node expiration bookkeeping.
-
-Hot-path cost for node-scoped actions is `O(NumNodes × NumNodeScopedActions)` per `TickCamera`. Both arrays are `TArray<UComposableCameraActionBase*>`, non-`UPROPERTY` (ownership lives on `PCM::CameraActions`). The per-element work is a pointer-and-class compare plus the conditional `OnExecute` �?no allocations, no `FString`, no map lookups.
-
-### 3.13 No-alloc hot path �?rules in force
-
-The per-frame path of each camera, the eval tree traversal, and PCM `UpdateCamera` must not allocate. Concretely:
-
-- **No `new`, no `MakeShared`** anywhere reachable from tick.
-- **No `TArray::Add` / `TMap::Add`** that can reallocate; use `Reserve` at init and `Num()`-based indexing thereafter, or reuse preallocated scratch buffers on the camera or director.
-- **No `FString` formatting** �?use `FName` or precomputed debug strings.
-- **No `DuplicateObject` per frame** �?transition duplication happens at activation time only.
-- **Cached binding tables** �?`FComposableCameraNodePinBindingTable` is built once per `UClass` and reused; never rebuilt per instance, certainly not per frame.
-- **TVariant, not vtables**, for the eval tree nodes (see §3.1).
-
-If a path is unclear, assume it is hot. The evaluation tree evaluates `N` nodes per frame per camera per active context; even a single `Add` in a tight loop compounds fast.
-
-**Profiling surfaces in force.** Two parallel instrumentation layers sit at every key hot-path site and should be kept in lockstep:
-
-- **Unreal Insights via `TRACE_CPUPROFILER_EVENT_SCOPE`** �?each scope is named. `Transition::Evaluate` and `Camera::TickCamera` also emit a second `TRACE_CPUPROFILER_EVENT_SCOPE_STR` with the dynamic class name / `CameraTag`, so Insights timelines break out per-type cost. `Node::TickNode` is instrumented via `CachedProfilerSpecId` + `CachedNodeClassName` (resolved once at class-construction time, zero per-frame cost beyond the existing trace macro) so each node subclass shows up as its own scope in Insights.
-- **`stat CCS` group (`STATGROUP_CCS`) via `SCOPE_CYCLE_COUNTER`** �?declared in the public module header alongside `LogComposableCameraSystem`. Counters sit at the same call sites as the trace scopes: `STAT_CCS_PCM_DoUpdateCamera`, `STAT_CCS_PCM_UpdateActions`, `STAT_CCS_ContextStack_Evaluate`, `STAT_CCS_Director_Evaluate`, `STAT_CCS_EvaluationTree_Evaluate`, `STAT_CCS_EvalTree_InnerNode_Evaluate`, `STAT_CCS_Camera_TickCamera`, `STAT_CCS_Node_TickNode`, `STAT_CCS_Node_ResolveAllInputPins`, `STAT_CCS_Transition_Evaluate`, `STAT_CCS_ModifierManager_UpdateEffectiveModifiers`. Enables `stat CCS` in the console for realtime numeric overlays. Cycle counters aggregate across the frame (one sum per scope), so `stat CCS` is for "is this change making a scope cheaper or more expensive" at-a-glance checks; Insights remains the tool for per-call timeline analysis.
-
-When adding a new hot-path scope, add **both**: the trace scope for Insights AND the cycle counter for `stat CCS`. When extending an existing scope that is called many times per frame with a per-call dynamic name, use `TRACE_CPUPROFILER_EVENT_SCOPE_STR` for Insights but skip the cycle counter if the identifier would need to be dynamic �?stat groups only accept static identifiers (work around via the `CachedProfilerSpecId` pattern in the node base if per-class stat breakdown is ever needed).
-
-### 3.14 PCM-independent camera evaluation + factored construction spine
-
-`AComposableCameraCameraBase::Initialize(AComposableCameraPlayerCameraManager*)` accepts `nullptr`. The one unconditional dereference it used to have �?`Manager->BindCameraActionsForNewCamera(this)` �?is now null-guarded; action binding is a PCM-only concern that doesn't apply when the camera is being driven by something other than the PCM (currently only the Level Sequence component path, §3.15).
-
-`UComposableCameraCameraNodeBase::GetLevelSequenceCompatibility()` is a `BlueprintNativeEvent` returning `EComposableCameraNodeLevelSequenceCompatibility`. C++ overrides go on `GetLevelSequenceCompatibility_Implementation()`; Blueprint-authored nodes (subclasses of `UComposableCameraBlueprintCameraNode`) override via a BP graph event. External callers use the plain name; UHT's dispatcher routes to the BP override if present, else the native `_Implementation`. This is the same pattern the node base uses for `OnInitialize` / `OnTickNode` / `GetPinDeclarations`.
-
-The camera construction logic (duplicate node templates, build `RuntimeDataBlock`, apply parameter block, wire node �?block, fire `InitializeNodes`) previously lived inline inside `AComposableCameraPlayerCameraManager::OnTypeAssetCameraConstructed` (a dynamic delegate callback). It has been factored into:
-
-```cpp
-namespace UE::ComposableCameras
-{
-    COMPOSABLECAMERASYSTEM_API void ConstructCameraFromTypeAsset(
-        AComposableCameraCameraBase* Camera,
-        UComposableCameraTypeAsset*  TypeAsset,
-        const FComposableCameraParameterBlock& ParameterBlock);
-}
+`UComposableCameraPathGuidedTransition` also uses the base cached PCM when it
+initializes its temporary intermediate camera. It must not ask the Blueprint
+library for player index 0, because the active PCM can belong to a different
+local player.
+
+## 10. Context Stack
+
+`EnsureContext` can reorder stack entries. It moves an existing context to top.
+
+Pop rules:
+
+- base cannot pop.
+- inactive pop destroys immediately.
+- active pop resumes previous camera in place.
+- transition pop holds popped context in pending destroy.
+- transient camera finish triggers auto-pop.
+
+`PendingDestroyEntries` directors may still be reachable through captured
+reference subtrees. Do not destroy them before the owning transition finishes.
+
+## 11. Camera Patches
+
+Runtime path:
+
+```text
+AddPatch
+  -> resolve activation params from per-call overrides + asset defaults
+  -> spawn transient evaluator camera
+  -> Initialize(nullptr)
+  -> ConstructCameraFromTypeAsset
+  -> insert by layer index
+
+Director::Evaluate
+  -> tree pose
+  -> PatchManager::Apply
+       -> advance envelope
+       -> check expiration
+       -> TickWithInputPose
+       -> BlendBy alpha
+       -> sweep expired
 ```
 
-Defined at `Public/Core/ComposableCameraTypeAssetInstantiator.h`. PCM-independent by construction �?touches zero PCM state. The PCM's `OnTypeAssetCameraConstructed` is now a ~5-line wrapper that reads `PendingTypeAsset` / `PendingParameterBlock` members and delegates; the LS component path calls the free function directly.
+Activation params use paired override booleans. Unchecked means asset default.
+Checked means caller value wins, including literal zero.
 
-This is what makes every other LS technique below work. Without a shared instantiation spine, the LS path would have had to duplicate ~250 lines of node duplication + data block layout logic.
+Expiration:
 
-### 3.15 Level Sequence authoring path: actor + component + reference struct
+- Duration after Active phase starts.
+- Manual through `ExpirePatch`.
+- Condition through patch asset `CanRemain`.
+- `bExpireOnCameraChange`.
 
-A Spawnable-only actor exposes composable cameras as first-class Sequencer objects whose exposed parameters and variables are directly keyable.
+Sequencer patch sections use a separate overlay map on
+`UComposableCameraLevelSequenceComponent`. They sort by effective layer index,
+apply latest parameter bags, tick evaluators, and blend by section envelope
+alpha.
 
-```
-AComposableCameraLevelSequenceActor        (NotPlaceable, Spawnable-only)
- �?UCineCameraComponent (Output)                     �?RootComponent, viewport terminal
- �?UComposableCameraLevelSequenceComponent            (sibling UActorComponent, pure logic)
-    �?FComposableCameraTypeAssetReference
-    �?  �?TypeAsset  : UComposableCameraTypeAsset*
-    �?  �?Parameters : FInstancedPropertyBag         (from ExposedParameters)
-    �?  �?Variables  : FInstancedPropertyBag         (from ExposedVariables)
-    �?OutputCineCameraComponent : TObjectPtr<UCineCameraComponent>   �?back-reference to root
-    �?InternalCamera : AComposableCameraCameraBase*  (transient, PCM=nullptr)
-```
+## 12. Level Sequence
 
-The CineCamera is the Actor's RootComponent; the LevelSequenceComponent is a pure `UActorComponent` (no transform) that holds the bag, spawns the internal evaluator, and writes poses onto the root CineCamera each tick. Mirrors `ACineCameraActor`'s shape precisely, so native UE paths (`FindComponentByClass<UCameraComponent>`, `PCM::SetViewTarget`'s implicit-activation filter) resolve against the root without any component-tree walk.
+Main types:
 
-**Bag generation (editor + load time):**
-- `FComposableCameraTypeAssetReference::RebuildBagsFromTypeAsset()` walks `TypeAsset->ExposedParameters` and `TypeAsset->ExposedVariables`, builds one `FPropertyBagPropertyDesc` per entry, and rebuilds each bag via `UPropertyBag::GetOrCreateFromDescs(...)` �?`FInstancedPropertyBag::MigrateToNewBagStruct(...)`. Values under matching name+type survive; everything else resets to type default.
-- The pin-type �?`EPropertyBagPropertyType` mapping lives in `UE::ComposableCameras::PinTypeToPropertyBagType` at `Public/LevelSequence/ComposableCameraPinTypeUtils.h`. Covers all `EComposableCameraPinType` entries except `Delegate` (not representable in a bag �?delegates go through the existing `FComposableCameraParameterBlock::DelegateValues` path at activation time).
+- `AComposableCameraLevelSequenceActor`.
+- `UComposableCameraLevelSequenceComponent`.
+- `FComposableCameraTypeAssetReference`.
+- `UMovieSceneComposableCameraShotSection`.
+- `UMovieSceneComposableCameraPatchSection`.
+- corresponding tracks and track instances.
 
-**Runtime flow:**
-- `OnRegister` -> calls `SetEvaluationEnabled(true)`, enabling `PrimaryComponentTick` (`bTickInEditor=true` so editor scrub works too) and marking a deferred zero-delta warm-up. Camera Cut participation can still force a later reset on the first active cut edge.
-- First tick �?`EnsureInternalCamera` spawns a transient `AComposableCameraCameraBase`, calls `Initialize(nullptr)`, then `UE::ComposableCameras::ConstructCameraFromTypeAsset(Camera, TypeAsset, BuiltBlock)`. Because `SpawnActor` fires `BeginPlay` with empty node arrays, the compute chain is a no-op and never runs in LS �?that's the ComputeOnly nodes' "skip entirely" behavior.
-- Each subsequent tick: rebuild a `FComposableCameraParameterBlock` from the bags (cheap; POD memcpies per entry), call `TypeAsset->ApplyParameterBlock(*InternalCamera->OwnedRuntimeDataBlock, Block)` to re-sync, then `InternalCamera->TickCamera(DeltaTime)`, then project pose �?CineCamera.
+LS component rules:
 
-**Physical optics are NOT projected.** `ProjectPoseToCineCamera` writes position and rotation only. FocalLength / Aperture / Filmback / PostProcess / Focus stay on the CineCamera �?designer controls them directly there, or via Sequencer's stock property tracks. This is the deliberate division of responsibility between CCS (spatial behavior) and CineCamera (physical optics) in the LS path. The PCM-driven path still projects the full pose (no change there).
+- Creates an internal transient `AComposableCameraCameraBase`.
+- Initializes with `Manager=nullptr`.
+- Suppresses actor tick.
+- Rebuilds parameter/variable bags from the TypeAsset.
+- Reapplies bags to runtime data each tick.
+- Applies shot overrides before `TickCamera`.
+- Applies patch overlays after `TickCamera`.
+- Projects final pose to `UCineCameraComponent`.
+- Destroys internal camera and overlay evaluators on unregister/end play.
 
-**Playback-speed DeltaTime.** After the zero-delta warm-up, the LS component resolves a Sequencer-aware DeltaTime before ticking the internal evaluator. Runtime playback scales world DeltaTime by the owning `UMovieSceneSequencePlayer::GetPlayRate()`. Pure editor preview resolves the active `ISequencer` through the runtime/editor hook and scales by `ISequencer::GetPlaybackSpeed()`. Time-history nodes therefore follow Level Sequence playback speed without per-node code.
+Hot-path asset resolution:
 
-### 3.16 Keying bag leaves: the three things Sequencer needs
+- Shot section soft references are cached off the eval path.
+- Eval path does not call blocking `LoadSynchronous`.
+- Null cached transition means hard cut / no blend.
 
-When a bag-backed UPROPERTY is exposed for keying, three separate plumbing bits must be in place. Missing any one silently kills keying �?each one was a surprise cost during Phase E.
+## 13. Shot Solver
 
-1. **`CPF_Interp` on the dynamic leaf property.** Sequencer's `FindPropertySetter` (in `SequencerObjectChangeListener.cpp`) walks `CanKeyProperty`'s path and accepts the leaf only if `Property->HasAnyPropertyFlags(CPF_Interp)` returns true, OR a `Set<PropName>` function exists on the containing class, OR a native setter exists. Dynamic bag properties have none of those by default. Fix: construct the `FPropertyBagPropertyDesc` with `PropertyFlags = CPF_Edit | CPF_Interp`. `UPropertyBag::GetOrCreateFromDescs` forwards that to `NewProperty->SetPropertyFlags(...)` �?see `AddDescIfSupported` in `ComposableCameraTypeAssetReference.cpp`.
-2. **Struct must NOT be `BlueprintType` if it carries `FInstancedPropertyBag`.** UHT rejects `FInstancedPropertyBag` as not Blueprint-supported. `FComposableCameraTypeAssetReference` uses bare `USTRUCT()`, and the bag UPROPERTYs are `EditAnywhere` without `BlueprintReadWrite`. Same for the component's `TypeAssetReference` field.
-3. **Don't set `meta=(InterpBagProperties=true)` on the bag.** That metadata makes Sequencer's *core* iteration drill into the bag from the bound-object class traversal �?producing a duplicate deep path like `TypeAssetReference �?Parameters �?Value �?Leaf` (4 levels) alongside our flat `Camera Parameters �?Leaf` custom menu. We skip the metadata; `CPF_Interp` alone is enough to make `CanKeyProperty` succeed when the custom track editor constructs the path explicitly.
+Core types:
 
-### 3.17 Bag -> runtime data block per-tick sync + Spawn Track lifecycle (Phase G cleanup)
+- `FComposableCameraTargetInfo`.
+- `FComposableCameraShotTarget`.
+- `FComposableCameraShot`.
+- `FComposableCameraShotSolveParams`.
+- `FComposableCameraShotSolveResult`.
+- `UComposableCameraShotSolver`.
+- `UComposableCameraCompositionFramingNode`.
 
-> 2026-05-12 note: the CCS CameraCut ECS gate was removed. Level Sequence Spawn Tracks now own CCS LS camera lifetime completely: when the Spawnable exists, its `UComposableCameraLevelSequenceComponent` evaluates; when the Spawn track destroys the actor, `OnUnregister` / `EndPlay` clean up the transient evaluator.
+Pipeline:
 
-**Bag sync.** Lives in `UComposableCameraLevelSequenceComponent::TickComponent`, right before `InternalCamera->TickCamera`. Sequencer stock `FPropertyTrack` evaluation writes animated values directly into the bag backing FProperty each frame; the component rebuilds a scratch `FComposableCameraParameterBlock` from current bag values and calls `TypeAsset->ApplyParameterBlock(*RuntimeDataBlock, Block)`. Reuses the existing path (enum narrow-cast, struct copy, every pin type). O(exposed-parameter count) per frame. Pre-animated restore remains Sequencer-native because keyed values are normal FProperty writes.
-
-**Lifecycle.** `OnRegister` calls `SetEvaluationEnabled(true)` for every spawned LS Actor. `SetEvaluationEnabled(false)` remains a local teardown / external-host switch and destroys `InternalCamera`; no MovieScene instantiator drives it per CameraCut. On an OFF->ON transition, TickComponent consumes a one-shot zero-delta evaluation flag after Sequencer property tracks have written current bag values, so elapsed-time nodes start from authored Source / Duration values instead of advancing before the cut-visible frame.
-
-**Spawn Track authoring helper.** `FComposableCameraLevelSequenceSpawnTrackTool` (editor module) can rebuild Spawn Tracks from the focused Level Sequence's Camera Cut track. It resolves each `UMovieSceneCameraCutSection` binding back to the owning `AComposableCameraLevelSequenceActor` binding by first walking possessable parents, then falling back to live Sequencer-bound objects so CameraCut bindings that resolve to `UCineCameraComponent` still map to the owning CCS actor. It accepts old-style `FMovieSceneSpawnable` bindings and UE 5.6 custom spawnable bindings, skips non-CCS or non-spawnable bindings, unions overlapping/adjacent cut ranges per actor, clears that actor's existing Spawn Track, then writes one full-playback `UMovieSceneSpawnSection` with a false default, true keys at interval starts, and false keys at interval ends / playback boundaries. This keeps Spawnable lifetime aligned to CameraCut coverage without reintroducing an ECS gate.
-
-**Sequencer-aware DeltaTime.** Non-zero LS component evaluation goes through `ResolveSequencerAwareDeltaTime`. Runtime spawned actors use `FMovieSceneSpawnableAnnotation::Find(GetOwner())` plus the public `IMovieScenePlayer::GetSpawnRegister().FindSpawnedObject(...)` path to cache the owning `UMovieSceneSequencePlayer`; while that player is playing, DeltaTime becomes `WorldDeltaTime * Abs(GetPlayRate())`, otherwise zero. Pure editor Sequencer preview cannot see a runtime `ULevelSequencePlayer`, so the runtime module asks `FGetEditorSequencerPlaybackDeltaTime`; the editor module binds that hook, matches the active `ISequencer` spawn register, and scales by `ISequencer::GetPlaybackSpeed()`. This is deliberately centralized at the LS component driver so every history-dependent node follows Level Sequence playback speed without per-node special cases.
-
-**Shot override first-entry re-eval.** `SetSequencerShotOverride` still performs a same-frame `EvaluateOnce(0.f)` when a Section first appears. That covers TrackInstance ordering where the Shot override arrives after the component tick for the frame; `InternalCamera->InvalidateTickCache()` is safe here because LS-owned evaluators live outside the Director snapshot DAG.
-
-**OnRegister/OnUnregister pairing.** Editor-world Spawnable actors (Sequencer preview, Save-triggered re-spawn) never go through BeginPlay / EndPlay, so cleanup must not rely on EndPlay alone. `OnUnregister` calls `DestroyInternalCamera()` to pair with `OnRegister`; EndPlay stays as a redundant runtime cleanup path.
-
-### 3.18 Viewport size resolution without a PCM
-
-Nodes that need viewport aspect (e.g. `ScreenSpaceConstraintsNode`, `ScreenSpacePivotNode`) used to deref the PCM to reach `PlayerController->GetViewportSize`. V1.4 extracted the resolution into a free helper at `Public/Utils/ComposableCameraViewportUtils.h`:
-
-```cpp
-namespace UE::ComposableCameras
-{
-    COMPOSABLECAMERASYSTEM_API bool TryGetEffectiveViewportSize(
-        const AComposableCameraPlayerCameraManager* OptionalPCM,
-        FIntPoint& OutSize);
-
-    COMPOSABLECAMERASYSTEM_API float GetEffectiveViewportAspectRatio(
-        const AComposableCameraPlayerCameraManager* OptionalPCM);
-}
+```text
+resolve targets
+  -> anchor
+  -> placement
+  -> aim
+  -> lens/FOV
+  -> focus
+  -> roll
 ```
 
-Resolution order: PCM �?`GEngine->GameViewport` �?1920×1080 sentinel. First valid source wins. Editor-world Spawnable preview always hits the fallback (no `GameViewport` in pure editor world); PIE / Standalone / Packaged all get pixel-exact sizes.
-
-This is a small pattern but load-bearing: it's what lets those two screen-space nodes drop their `RequiresPCM` compatibility classification and become usable inside LS-authored cameras. Any future node that wants viewport dimensions should route through this helper rather than reaching for the PCM directly.
-
-### 3.19 In-viewport debug panel via `UDebugDrawService`
-
-`Public/Debug/ComposableCameraDebugPanel.h` registers a multi-region HUD overlay with `UDebugDrawService`. The pattern is worth remembering for any future camera-system telemetry because it avoids the three pitfalls of "ad hoc `DrawDebugString` + per-actor cached state":
-
-- **Registration point.** `UDebugDrawService::Register(TEXT("Game"), FDebugDrawDelegate::CreateStatic(&DrawPanel))` inside `FComposableCameraSystemModule::StartupModule` �?not in PCM `BeginPlay`. The service is global, fires once per viewport per frame with `UCanvas* + APlayerController*`, and survives PIE reconstruction. Registering at module scope means zero correlation with actor lifetime.
-- **Off-switch is the draw function, not the delegate.** Toggle via `TAutoConsoleVariable<int32> CVarPanelEnabled("CCS.Debug.Panel", 0, �?`; the delegate reads it at the top of each draw and early-outs when zero. Do **not** register/unregister on CVar flips �?a sink would fight PIE re-entrancy and leak handles on shutdown. The always-registered-cheap-delegate shape is the engine-idiomatic pattern (cf. `AIModule` / `GameplayDebugger`).
-- **PCM discovery via PC.** The delegate dereferences `PC->PlayerCameraManager` and `Cast<AComposableCameraPlayerCameraManager>`; non-composable PCMs silently skip. No friend declarations, no global PCM registry �?the debug panel is fully decoupled from PCM lifetime.
-- **Canvas primitives.** Use `FCanvasTileItem(Pos, Size, Color)` with `BlendMode = SE_BLEND_Translucent` for filled rects (defaults to `GWhiteTexture` internally), `FCanvasBoxItem` for borders (outline only, cleaner than four `FCanvasLineItem`s), and `FCanvasTextItem` with `EnableShadow(FLinearColor::Black)` for legibility on busy scenes. `UCanvas->SizeX / SizeY` are viewport pixels, safe to scale by a CVar-driven fraction.
-- **Line height vs. font.** Match the body line height constant (`KLineH = 13.f` for `GEngine->GetSmallFont()`) to the font; don't call `Canvas->StrLen` per line for layout �?the per-char allocation is wasted when rows are fixed-height.
-- **Text overflow is a real failure mode with user-controlled widths.** `FCanvasTextItem` does not clip to any bounds �?it paints at the given position and spills past the region border silently. When the panel's `CCS.Debug.Panel.Width` CVar is dialled down, long strings (type asset names, parameter labels, transition class names) overflow the right edge. The panel's `DrawTextLineClipped` helper uses `Canvas->StrLen` + binary search to truncate with a trailing `...` �?O(log n · StrLen) per line. All text draws in the panel go through this helper; `DrawTextLine` (unclipped) has been retired. Apply the same pattern to any future panel / HUD widget with user-controllable width. Geometric primitives (stems, elbows, progress bars) also need a right-edge guard �?the tree renderer checks `StemX < RightX` before each column and clips elbow width to `FMath::Min(KTreeIndentPx, RightX - StemX)`.
-- **Data sourcing �?structured snapshot.** The `Context Stack & Evaluation Tree` region consumes `FComposableCameraContextStackSnapshot` (defined in `Public/Debug/ComposableCameraDebugPanelData.h`), built by `UComposableCameraContextStack::BuildDebugSnapshot` which delegates to each Director's `BuildDebugSnapshot` which in turn calls the EvaluationTree's. Tree nodes are flattened DFS pre-order with a `Depth` field �?the renderer draws indent stems + elbow connectors from `Depth` in a single pass, no recursion. Per-inner-node `TransitionProgress / Elapsed / Total` drive a translucent amber fill underlay. `bIsDominantLeaf` (tagged by walking root �?Right �?Right �?...) drives a green underlay + `*` prefix that makes it obvious at a glance which camera is producing the output even across a branching transition tree.
-- **Snapshot is the single source of truth.** `BuildDebugSnapshot` on the three core classes (ContextStack / Director / EvaluationTree) is the one pipeline every debug consumer reads: the 2D panel renders geometric primitives from it, and `showdebug camera` renders text from it via `ComposableCameraDebug::AppendTreeNodeLine` (in `Utils/ComposableCameraDebugFormatUtils.h`). The old `BuildDebugString` / `BuildNodeDebugString` path has been removed �?adding a new tree-node kind is now one switch in `AppendTreeNodeLine` plus the snapshot enum, no second parallel branch site. The TVariant-exhaustiveness gotcha (§7) still applies to the snapshot builders themselves, though.
-- **Dominant leaf heuristic.** `bIsDominantLeaf` is computed by "walk root �?Right �?Right �?... until non-inner". This matches the collapse semantics exactly �?`CollapseFinishedTransitions` replaces each finished Inner with its Right subtree, so the rightmost reachable leaf is what would remain after all collapses. This is a design correctness anchor, not a display heuristic; any change to the collapse rule has to update the dominant walk in lockstep. **Dominance is outer-tree-only** �?when `BuildNodeDebugSnapshot` recurses into a `ReferenceLeaf.SnapshotRoot`, it passes `DominantNodePtr = nullptr` for the inlined subtree. Referenced subtrees are frozen historical snapshots; they don't participate in the active tree's collapse chain, so no "dominant leaf" concept applies inside them.
-
-- **Referenced-subtree inline expansion.** When the snapshot walk hits a `ReferenceLeaf` with a valid `SnapshotRoot`, it emits the RefLeaf node and then recursively flattens the referenced director's tree *inline* at `Depth + 1`, marking every emitted node with `bInReferencedSubtree = true` and the subtree's top node with `bIsReferencedRoot = true`. The panel renderer (a) suppresses the `[from]/[to]` role prefix when `bIsReferencedRoot` is true (the invariant "Depth > 0 �?transition parent" does not hold across the RefLeaf seam �?the parent there is a leaf, not an Inner), and (b) lerps every `bInReferencedSubtree` node's text color 45 % toward `CNeutral` so the source snapshot reads as "historical / dimmed" while each kind's hue (green leaf, amber transition) remains recognizable. Both `showdebug camera` and `CCS.Dump.*` pick up the expansion automatically �?they walk the same flat array via `AppendTreeNodeLine`, and the bumped Depth naturally indents the subtree under the RefLeaf line. Nested RefLeaves compose: the `bInReferencedSubtree` flag threads through the recursive call so every descendant stays dimmed.
-- **Proper tree connectors via bitmask.** Each snapshot node carries `bIsLastSibling` (last child of its parent?) and `AncestorLastFlagsBitmask` (bit L = "ancestor at depth L was last child of its parent"). The mask is built during DFS by OR-ing `1u << Depth` into the child mask iff the current node is last-sibling. Renderer draws geometric `�?/ �?/ │` �?continuation stem `│` at column L when bit (L+1) is 0, node connector `└` (half stem) / `├` (full stem) at column Depth-1 based on `bIsLastSibling`. The mask is uint32 �?depth cap 32 (30+ past anything real). All glyphs are filled rects, not text characters, so no dependency on Unicode box-drawing font coverage.
-- **Marker disambiguation policy.** The panel deliberately avoids overloaded text glyphs. `->` is reserved for nothing (used to mean both "active context" and "reference leaf target" �?dropped from both). `*` is reserved for nothing (used to mark dominant leaf �?dropped). Current marker set:
-    - `[leaf]` prefix on camera leaves, `[ref]` prefix on reference leaves. These are *symmetric* �?both leaf kinds get a bracketed tag so readers can scan for "all my leaves" without colour vision.
-    - `[from]` / `[to]` role prefix on any non-root node, derived in the renderer from `bIsLastSibling` (`false` �?Left �?`[from]`, `true` �?Right �?`[to]`). Because the eval tree has only Inner nodes as *outer* parents, `Depth > 0` in the active tree guarantees a transition parent �?no extra snapshot field is needed. Result: a child of a transition reads e.g. `[from] [leaf] CameraA`, `[to] [leaf] CameraB`, `[from] [ref] OldDirector`. Root nodes (Depth 0) print without role prefix. When a RefLeaf expands its referenced subtree inline, the direct child (tagged `bIsReferencedRoot`) is ALSO printed without prefix �?the RefLeaf is a leaf, not a transition, so source/target has no meaning at that seam.
-    - `[pending]` prefix on pending-destroy contexts; `(base)` suffix on the base context.
-    - One small colored bullet rect per context header (drawn for *every* context, not just the active one �?colour encodes state: `CActiveMarker` cyan = active, `CBulletInactive` lilac = live but non-active, `CDestroyed` red = pending destroy). Every context line is indented by the same bullet gutter so names align vertically.
-    - Colored underlays (amber = transition progress, green = dominant leaf).
-  When adding future markers, pick an explicit bracketed tag or a geometric underlay �?do not reuse `->` / `*` / `=>`.
-  If the tree ever gains a non-Inner parent kind (e.g. a multi-way branch node), the `Depth > 0 �?transition parent` assumption breaks and the role prefix rule has to be rewritten �?at that point, store the role explicitly on the snapshot rather than inferring it.
-
-- **Warnings region.** New sixth region (above Legend) that surfaces recent `LogComposableCamera*` warnings / errors inside the panel itself. Backing store is `FComposableCameraLogCapture` (in `Public/Debug/ComposableCameraLogCapture.h`), an `FOutputDevice` installed into `GLog` at module startup and uninstalled at shutdown. The filter is twofold: verbosity `<= Warning` and category FName matching `LogComposableCameraSystem` / `LogComposableCameraSystemEditor` (explicit FName comparison, not string startsWith �?`Serialize` runs for every engine log line, so the filter must be branch-predictable). Ring-buffer cap is 16 entries; new ones push old ones off the front. Thread-safe (`Serialize` fires from whatever thread logged; a `FCriticalSection` guards both push and the panel's read). Each entry prints as `[E] 3s ago  System : <msg>` with the verbosity letter + age + category suffix (prefix `LogComposableCamera` stripped to save width) + message. Verbosity tints the line: Error / Fatal red-pink, Warning amber. The whole region is hidden when the buffer is empty �?a quiet session has no wasted screen real estate. Gated additionally by `CCS.Debug.Panel.Warnings` (default 1). Shipping-build cost: zero �?Install / Uninstall / GetRecentEntries are `#if !UE_BUILD_SHIPPING`, so the output device is never registered and `Serialize` is never called.
-
-- **Running Camera region �?per-node output pin values, in exec-chain order.** The node list under the running camera walks `Camera->FullExecChain` (the editor-built execution sequence derived from graph exec-pin wiring) when it's populated, so step numbers `[1]` `[2]` ... reflect the order nodes actually TICK, not the order they happen to sit in the `CameraNodes` array. A regression noticed the index-based display was misleading when the graph's exec wiring ordered nodes differently from how they were added to the template array (e.g. a LookAt connected first but placed after PivotOffset in template storage would previously show as `[1] PivotOffset` / `[2] LookAt` when the camera actually ticked `LookAt` first). The exec-chain's `SetVariable` entries �?scratch-variable copies interleaved between node ticks �?are surfaced as subtle indented `-> set <var> = <pin>` lines between the node headers; makes variable-wire debugging trivial. Fallback path: when `FullExecChain` is empty (legacy or non-type-asset cameras) the walk drops back to linear `CameraNodes` iteration �?matches the same fallback branch in `TickCamera`, so what's shown equals what's run. Each node header still gets its output-pin values (via `FormatOutputPinValue` against the camera's `OwnedRuntimeDataBlock`) �?same data the editor-side `SnapshotDebugState` feeds into the Type Asset graph overlay. `GatherAllPinDeclarations` is called via `const_cast` matching the editor snapshot pattern (the call is semantically read-only but the BlueprintNativeEvent dispatch needs non-const).
-
-- **Running Camera region �?data block stats subsection.** Below the Parameters + Variables lists, a compact `-- Data Block --` block prints Storage bytes, four slot-source counts (output pins / exposed params / internal vars / defaults), and the largest slot. The largest is derived by sorting all four offset maps' values in one pass and deriving per-slot size from consecutive offsets (`Size = Next.Offset - This.Offset`, with `Storage.Num()` as the trailing sentinel); this means the reported size includes any trailing alignment padding, which is close enough to the real type size for the diagnostic purpose �?"something is oversized" shows up clearly at 64+ bytes (Transform) vs. 24 (Vector) vs. 8 (int64 / FName / enum). Input-lookup maps (`InputPinSourceOffsets`, `ExposedInputPinOffsets`) are deliberately excluded because they are wiring tables pointing back into the four slot sources, not additional storage. Output pins get a trailing `(largest: node[N].PinName, X B)` on their count line when a pin is the biggest slot; if something else wins (rare), a separate `Largest slot:` line surfaces it. Use cases: regression-check that pin-layout changes haven't silently bloated the block, spot a Transform slot that should have been a Vector, compare two type assets' storage footprints without attaching a debugger. Slot enumeration uses `TArray<FSlotRef, TInlineAllocator<64>>` so typical cameras stay heap-free on the hot path.
-
-- **Actions region.** Three lines per action: `<ClassName> <scope>`, `exec: <Phase> [-> <TargetNode>]`, `expire: <bitmask summary>`. Execution phase is one of `PreCameraTick` / `PreNodeTick` / `PostNodeTick` / `PostCameraTick`; the arrow to a target node class is only rendered for the node-scoped phases, and flags "(null �?action will be ignored)" if `TargetNodeClass` was left unset (same ignore rule as the modifier system). Expiration summary joins the active bitmask bits in enum-declaration order so `Duration | Condition` and `Condition | Duration` read identically �?Duration shows live `Elapsed/Total` via a new `GetElapsedTime()` getter on `UComposableCameraActionBase`, the other bits print as tagged words (`Instant` / `Manual` / `Condition`). Keeps the signal-to-noise high: one glance tells you "what fires when" and "how will this expire". Count in the header (`Actions (N)`) distinguishes populated-empty-set from "no set" when collaborators report weird states.
-
-- **Transition row: timing-curve sparkline.** Each `InnerTransition` row in the Tree region is taller than leaf rows (`KTreeTransitionLineH = 36` vs `KLineH = 13`) �?the extra ~22 px below the text line hosts a blend-weight sparkline. Samples come from a new `UComposableCameraTransitionBase::GetBlendWeightAt(float NormalizedTime) const` virtual that each concrete transition overrides to return the exact timing-curve shape its `OnEvaluate` uses (Linear �?t, Smooth �?SmoothStep/SmootherStep, Ease �?InterpEaseInOut with authored Exp, Cubic �?CubicInterp, Cylindrical �?SmootherStep, Spline �?switches on EvaluationCurveType, PathGuided/DynamicDeocclusion delegate to DrivingTransition, Inertialized/ViewTarget fall back to linear because their "blend weight" concept isn't a scalar of time). The eval tree's `BuildNodeDebugSnapshot` samples 25 values per transition (24 segments at t = i/24) at snapshot-build time and stuffs them into `FComposableCameraTreeNodeSnapshot::BlendCurveSamples`.
-- **Sparkline render details (lessons from iterating on appearance):**
-    - **Width is CAPPED at `KTreeCurveMaxWidth = 220 px`**, not stretched to the full row width. A full-width curve on a wide panel produces a ~1:40 aspect ratio that makes every curve shape look like the same shallow line. Capping preserves ~1:10 aspect so SmoothStep's S-curve, Ease's Exp shoulder, and Cubic's gentle arc all read distinctly.
-    - **Fill is TRAPEZOIDAL TRIANGLES via `FCanvasTriangleItem`**, not a column histogram. Earlier iterations tried per-sample wide columns (read as a staircase) and 2-px pixel strips (smooth but still technically stepped). The current approach turns each of the 24 sample intervals into a trapezoid whose top edge IS the curve segment between `samples[i]` and `samples[i+1]` �?genuinely continuous fill, zero staircasing. Each trapezoid = 2 triangles; interval containing `ProgressX` splits (amber + ahead meet at an interpolated midpoint) �?up to 4 tris; total 48�?0 tris per transition per frame. Submitted as a single `FCanvasTriangleItem` with `GWhiteTexture` + `SE_BLEND_Translucent`.
-    - **Two fill colors separate reached from upcoming.** Amber (`CProgressBar`) left of `ProgressX`, muted grey-purple (`CCurveAhead`) right of it. The boundary reads as a liquid level rising along the curve as time advances �?simultaneously a progress indicator and a shape preview.
-    - **Outline polyline is `LineThickness = 1.6`** (not 1.0) so it sits clearly above the filled area on the panel's dark background without competing with the fill for attention.
-    - **Falls back to the legacy flat amber bar** if the snapshot didn't populate samples (shouldn't happen post-wiring but guarded).
-    - **Curves are drawn only in the ACTIVE (top-of-stack) context.** During a cross-context transition, the source context (pending-destroy or simply shoved down the stack) and the new active context would otherwise both render full-height sparkline rows for the SAME blend �?the active context's tree inlines the source's subtree through a `ReferenceLeaf`, so the same `InnerTransition` nodes appear in two trees at once. `DrawStackAndTreeStructured` now gates `GetTreeNodeRowHeight` and `DrawTreeNodeLine` on `Ctxt.bIsActive`; non-active contexts collapse their transition rows to a single `KLineH`-tall line that still shows the `NN%  (e/Ts)` progress readout, just without the curve area. Keeps the transition visualization unambiguous and halves the Tree region's vertical footprint during cross-context blends.
-
-- **Modifier region.** Rewritten from the phase-1 stub (`(phase 2 �?use 'showdebug camera' ...)`) into a structured two-section view: **Effective (N)** lists the winning modifier per node class currently driving the camera; **All (M)** groups every registered modifier by `CameraTag �?NodeClass �?Modifier entries` with a trailing `[*]` mark on whichever entry won for that node class. Lets the user instantly answer "is my modifier applying?" by scanning for `[*]` on the expected row �?if `[*]` sits on a different modifier in the same node class, priority is the reason. Data source is `PCM->GetModifierManager()->GetModifierData()` (new `GetModifierManager()` accessor on PCM + `const GetModifierData()` overload on the manager), mirroring the existing string-builder in `BuildModifierDebugString`. All text still routes through `DrawTextLineClipped` so long modifier / asset names truncate with `...` on narrow panel widths.
-
-- **Legend region (Regions[5]).** Adaptive legend that lists color swatches + labels for every per-node and per-transition gizmo whose CVar is currently enabled (respecting the `Nodes.All` / `Transitions.All` shortcuts). Two-column layout (transitions left, nodes right); empty columns' headers are suppressed; the entire region is hidden when both columns end up empty (so enabling `CCS.Debug.Panel.Legend 1` at rest costs nothing until a gizmo is switched on). Double-gated: requires both `CCS.Debug.Panel 1` (the panel itself) AND the master `CCS.Debug.Viewport 1` �?without the latter, no colors are drawn on screen and labelling them would lie. Accent colors are duplicated from each gizmo's draw site into a file-static `KLegendEntries[]` table; the "no central color registry" caveat is documented on the table itself, so when a new gizmo's accent color is chosen the author knows to update the legend alongside. Universal source/target swatches (green/blue) lead the transition column only when at least one transition is enabled (they are endpoint markers drawn by `DrawStandardTransitionDebug`, meaningless when no transition runs).
-
-### 3.19.1 Right-side Pose History panel
-
-A sibling panel (`CCS.Debug.Panel.PoseHistory`, default 0) rendered on the RIGHT edge of the screen �?mirrored from the main panel on the left so neither competes for horizontal space. Implementation lives in the same `ComposableCameraDebugPanel.cpp`, registered as a second `UDebugDrawService("Game")` delegate with its own handle.
-
-- **Ring buffer on PCM.** `AComposableCameraPlayerCameraManager::PoseHistoryRing` (a `TArray<FComposableCameraPoseHistoryEntry>`) + head index + used-count, all `#if !UE_BUILD_SHIPPING`. Captures Position / Rotation / FOV / GameTime / ContextName at the end of `DoUpdateCamera` each tick after `CurrentCameraPose` is finalized. Capacity 120 frames (~2 s at 60 fps, scales with framerate �?at 30 fps the window is 4 s which is arguably a bug-hunting bonus, not a problem).
-- **Narrow snapshot struct.** `FComposableCameraPoseHistoryEntry` holds only the fields the panel actually reads (~48 bytes), deliberately excluding `FPostProcessSettings`. Same GC-safety rationale as `FTransitionDebugSnapshot`: the ring isn't a `UPROPERTY`, so any embedded `TObjectPtr` would escape GC tracking.
-- **`GetPoseHistory` is always compilable** (returns empty array in shipping) so the panel cpp can call it without per-config `#if` guards at every call site. Body does real work only in non-shipping �?the ring memory and capture path are compile-gated.
-- **6 sparkline rows**: Pos.X / Pos.Y / Pos.Z / Rot.P / Rot.Y / Rot.R. Each row auto-normalizes its Y-axis to its own min/max over the current history window, so both a 1° yaw jitter and a 500-unit position spike read as full-height curves �?the panel is about SHAPE of recent motion, not absolute scale. Each row labels on the left, sparkline in the middle, current / hovered numeric value on the right.
-- **Context-switch markers** (teal vertical lines spanning all 6 rows) wherever two adjacent ring entries have different `ContextName` �?lets users correlate "that pose spike" with "oh, a context push happened right there."
-- **Mouse hover scrub.** `APlayerController::GetMousePosition` is probed each frame; when the mouse sits inside the sparkline block, the hovered frame's X-index becomes a cursor (orange vertical line across all 6 rows) and a tooltip box renders the full pose (t, position XYZ, rotation PYR, FOV, context) for that frame. Tooltip auto-flips to the other side of the cursor if it would clip the panel's right edge. Default state (mouse outside) is static sparklines with no cursor �?keeps the panel visually quiet unless you're actively investigating.
-- **Per-frame overhead (debug only, CVar on)**: one ring write in `DoUpdateCamera`, one TArray copy of �?20 entries per panel draw, ~140 FCanvasLineItem's per draw for the six polylines. Comfortable within debug budget.
-
-The CVars (`CCS.Debug.Panel`, `CCS.Debug.Panel.Width`, `CCS.Debug.Panel.Legend`, `CCS.Debug.Panel.PoseHistory`, `CCS.Debug.Panel.PoseHistory.Width`) are global read-only by convention. No gameplay code reads them; treat them as pure debug surface.
-
-### 3.19.2 Console dump commands (`CCS.Dump.*` / `CCS.Editor.Dump.*`)
-
-`Private/Debug/ComposableCameraDebugDumpCommands.cpp` (runtime module) registers three `FAutoConsoleCommandWithWorldAndArgs`:
-
-- `CCS.Dump.Stack` �?full context stack (depth, each context's running camera + last pose + tree).
-- `CCS.Dump.Tree`  �?active director's evaluation tree only.
-- `CCS.Dump.Camera [<CameraTag>]` �?running camera with nodes (exec-chain order), per-pin output values, exposed parameters, internal variables, data block summary. No arg �?active context's running camera. With arg �?scans each live context's `Director::RunningCamera` for a case-insensitive CameraTag match; first hit wins. Source-side cameras mid-transition aren't searched (they live in eval-tree leaves, not `RunningCamera`) �?acceptable for the "what's this camera doing right now" diagnostic.
-
-Editor-side companion in `Source/ComposableCameraSystemEditor/Private/Debug/ComposableCameraEditorDumpCommands.cpp`:
-
-- `CCS.Editor.Dump.Graph` �?walks every currently-open Camera Type Asset editor (via `UAssetEditorSubsystem::GetAllEditedAssets()`) and serialises each asset's graph data: node templates + positions, compute templates + positions, pin connections, `ExecutionOrder` / `FullExecChain`, `ComputeExecutionOrder` / `ComputeFullExecChain`, exposed parameters, internal / exposed variables, variable node records (including wired pins), and default Enter / Exit transitions. Same output plumbing as the runtime commands: `LogComposableCameraSystemEditor` at Display + system clipboard. Primary use case is "graph doesn't save correctly" bug reports �?the dump is greppable and diffable, so users paste the before / after into the issue instead of shipping `.uasset` files.
-
-All three run on exactly the same `BuildDebugSnapshot` pipeline the panel + `showdebug camera` use, and reuse `ComposableCameraDebug::AppendTreeNodeLine` / `AppendTypedValue` / `AppendOutputPinValue` for formatting �?adding a new tree-node kind or pin type automatically flows through the dump commands too. No parallel "dump formatter" code path.
-
-Both destinations in one call: `UE_LOG(LogComposableCameraSystem, Display, ...)` so the dump shows up without raising verbosity, AND `FPlatformApplicationMisc::ClipboardCopy` so the dump is ready to paste into an issue / diff. `ApplicationCore` is listed in `Build.cs` for the clipboard header. The whole translation unit is `#if !UE_BUILD_SHIPPING`; shipping strips it entirely (the three `FAutoConsoleCommand` statics are never constructed).
-
-PCM discovery mirrors the viewport ticker's fallback pattern: prefer the command-context `UWorld*`, fall back to scanning `GEngine->GetWorldContexts()` for the first Game/PIE world with a CCS PCM. Editor-world invocations (console opened in the main viewport while PIE isn't running) warn via `LogComposableCameraSystem` and do nothing �?no point dumping an empty stack.
-
-### 3.20 In-world 3D debug draw via `DrawDebugHelpers`
-
-Complementing §3.19's 2D HUD panel, `Public/Debug/ComposableCameraViewportDebug.h` registers a second `UDebugDrawService` hook that draws world-space debug primitives via `DrawDebugHelpers.h`. Lessons worth carrying to any future 3D debug work:
-
-- **Separate CVar, separate delegate.** `CCS.Debug.Viewport` is independent of `CCS.Debug.Panel`. The panel hooks `UDebugDrawService` (2D Canvas). The viewport debug hooks `FTSTicker::GetCoreTicker()` (per-frame, viewport-agnostic) �?see next bullet for why.
-- **`UDebugDrawService` is NOT a viable hook for F8-eject viewport debug.** An earlier iteration registered on the `"Game"` show-flag channel. That fires from the game viewport client during PIE possessing, but does *not* fire from the editor viewport client during F8 eject / Simulate mode �?which is the exact time you want the frustum visible. We moved to `FTSTicker` (every-frame, viewport-agnostic) and draw via `DrawDebugCamera` �?which adds lines to the world's LineBatcher, and the LineBatcher is rendered by *every* viewport that draws that world (game viewport, editor viewport, PIE preview, etc.). If you ever build another world-space debug draw that needs to be visible during F8 eject, use the same ticker + LineBatcher pattern, not UDebugDrawService.
-- **Eject detection via `GEditor->bIsSimulatingInEditor`.** WITH_EDITOR-gated. True during SIE and during F8-ejected-from-PIE; false while possessing. An earlier attempt gated on `TActorIterator<ADebugCameraController>` was wrong �?F8 does *not* spawn a DCC (that's `;` in-game); F8 switches to SIE mode with the editor pilot, no DCC is spawned. Another wrong attempt used `Canvas->SceneView->ViewActor == PCM->GetViewTarget()`, which fails because the delegate driving that check doesn't fire in F8 mode at all. Only the editor flag works. Non-editor builds skip the gate (no eject concept exists). Escape hatch `CCS.Debug.Viewport.AlwaysShow 1` bypasses for multi-viewport setups.
-- **Runtime module gains a conditional `UnrealEd` dep.** Accessing `GEditor->bIsSimulatingInEditor` needs `Editor.h` from `UnrealEd`. The Build.cs guards it with `if (Target.bBuildEditor) { PrivateDependencyModuleNames.Add("UnrealEd"); }` so shipping / cooked-game targets still link cleanly without the editor module. This is the standard UE pattern for editor-only conveniences in a runtime module �?don't reach for it lightly, but for "editor-aware debug tooling" like this it's the right trade-off.
-- **`#if !UE_BUILD_SHIPPING` around everything.** Both the delegate body and the virtuals it invokes (`DrawCameraDebug` / `DrawNodeDebug`) are fully guarded. Shipping builds compile to nothing �?zero vtable slot consumed, zero delegate registered. This is what lets us put a virtual on a hot class (`UComposableCameraCameraNodeBase`) without paying for it in ship.
-- **Extension contract: `virtual DrawNodeDebug(UWorld*) const`.** Empty default, fires AFTER the frame's tick so pin-backed UPROPERTYs still hold the resolved values. Node authors read their own state via `GetInputPinValue<T>()` / member reads + owning-camera accessors. Draw via `DrawDebugSphere / DrawDebugLine / DrawDebugBox` with `bPersistentLines=false` and `LifeTime=-1.f` �?the UDebugDrawService rate is one frame, no persistence needed. Do not use `DrawDebugDirectionalArrow` for look-at lines; prefer a sphere at target + a line �?arrows are visually noisy across many nodes.
-- **`DrawDebugCamera` is the idiomatic frustum.** Don't hand-roll pyramid lines. `DrawDebugCamera(World, Loc, Rot, FOV, Scale, Color, bPersistentLines, LifeTime, DepthPriority)` is in `DrawDebugHelpers.h`, handles aspect ratio, and matches what Sequencer / the engine's own debug tools draw.
-- **Sphere gizmos use `FComposableCameraViewportDebug::DrawSolidDebugSphere`, NOT raw `DrawDebugSphere`.** The helper is a thin wrapper that forwards to `DrawDebugSphere` with a consistent set of defaults: `Alpha` as a dedicated parameter (overrides `Color.A` so callsites keep `FColor::Yellow` ergonomics), `Thickness = 0` for clean 1-pixel lines, lower `Segments` (12 default) for a smooth-but-sparse silhouette that doesn't read as cluttered, and `SDPG_Foreground` so the sphere draws THROUGH occluding geometry via the line batcher's foreground pass. The net effect is a translucent-wireframe sphere that reads as a volumetric marker without the busy-lattice look engine's default wireframe has at Thickness=1. Default alpha 100/255 (~39 %) for typical pivot markers; raise for emphasis (progress spheres at ~130) or drop for large volume spheres like CollisionPushNode's self-sphere (~60 so the 100+ unit ball doesn't drown the view).
-- **"Solid" in the helper name is historical.** An intermediate iteration rendered a filled UV-mesh via `DrawDebugMesh`, but the engine's hardcoded `DebugMeshMaterial` depth-tests regardless of `DepthPriority` �?a character mesh in front clipped the sphere even with `SDPG_Foreground`. `SDPG_Foreground` bypass only works for LINE primitives, not the mesh path. The filled-mesh approach was pulled; the helper now draws only the wireframe layer (line primitive �?properly respects `SDPG_Foreground` �?survives occlusion). Name kept for API stability (16+ callsites). A "true solid through-wall translucent sphere" would need a custom depth-test-disabled UMaterial + a procedural mesh / scene proxy bypassing the line batcher �?work/payoff ratio doesn't justify it for cosmetic debug gizmos.
-- **PCM discovery mirrors the panel.** `ResolvePCM(PC)` falls back to `GEngine->GetWorldContexts()` when the delegate PC is nullptr (UE 5.6 passes nullptr on some code paths). Same pattern as the panel; keep them in sync if one ever changes.
-- **V1 drew the running camera only. V2 adds per-transition gizmos** �?see §3.20.4 below. The evaluation tree is now walked via `UComposableCameraEvaluationTree::DrawTransitionsDebug`, which recurses into reference leaves so inter-context blends also expose the source context's in-flight transitions.
-
-Concrete `DrawNodeDebug` overrides, each fronted by its own per-node CVar (default 0): `PivotOffsetNode` (`CCS.Debug.Viewport.PivotOffset`), `PivotLookAheadNode` (`.PivotLookAhead`), `LockOnAimPointNode` (`.LockOnAimPoint`), `PivotDampingNode` (`.PivotDamping`), `LookAtNode` (`.LookAt`), `CollisionPushNode` (`.CollisionPush`), `SplineNode` (`.Spline`), `SpiralNode` (`.Spiral`), `OcclusionFadeNode` (`.OcclusionFade`), `VolumeConstraintNode` (`.VolumeConstraint`), `FocusPullNode` (`.FocusPull`), `HitchcockZoomNode` (`.HitchcockZoom`), `ReceivePivotActorNode` (`.ReceivePivotActor`), `RelativeFixedPoseNode` (`.RelativeFixedPose`), `ScreenSpacePivotNode` (`.ScreenSpacePivot`), `ScreenSpaceConstraintsNode` (`.ScreenSpaceConstraints`). Camera-parameter nodes (Lens / Filmback / FOV / Ortho / PostProcess) are covered by the frustum itself; abstract blend nodes (Mixing) have no single anchor; rotation / input nodes have no spatial state. Full skip list with rationale lives in DesignDoc §19. Resist adding gizmos just for completeness �?each extra gizmo costs screen noise and CVar clutter.
-
-**"Enable all" shortcut CVars**: `CCS.Debug.Viewport.Nodes.All 1` enables every per-node gizmo at once (covers both the 3D path AND the 2D `DrawNodeDebug2D` HUD overlay �?the two share this single toggle because each node's 2D+3D pieces already share one per-node CVar). `CCS.Debug.Viewport.Transitions.All 1` does the same for the 9 per-transition gizmos. Both still require the master `CCS.Debug.Viewport 1` and are OR-ed with each per-item CVar �?no "All=1 except X" subtractive semantics; users wanting granularity leave the All CVar off and flip per-item CVars individually. Callsite idiom for new nodes / transitions:
-
-```cpp
-if (CVarShowMyGizmo.GetValueOnGameThread() == 0
-    && !FComposableCameraViewportDebug::ShouldShowAllNodeGizmos())  // or ShouldShowAllTransitionGizmos
-{
-    return;
-}
-```
-
-Accessors live on `FComposableCameraViewportDebug` and read the All CVars; declared `#if !UE_BUILD_SHIPPING` so Shipping builds strip them. Each call is one atomic CVar read �?same cost as the per-item check.
-
-### 3.20.3 2D HUD overlay path
-
-Some nodes' debug story is fundamentally 2D �?`ScreenSpacePivotNode` / `ScreenSpaceConstraintsNode` want a safe-zone rectangle on the HUD, a projected pivot marker, etc. A 3D sphere at the world anchor doesn't answer "is my pivot inside the safe zone this frame?". The infrastructure for this is parallel to the 3D path:
-
-- **Virtual**: `UComposableCameraCameraNodeBase::DrawNodeDebug2D(UCanvas*, APlayerController*) const` �?empty default, override for HUD-space gizmos. Canvas for drawing primitives, PC for `UGameplayStatics::ProjectWorldToScreen` and aspect-ratio queries.
-- **Walker**: `AComposableCameraCameraBase::DrawCameraDebug2D(UCanvas*, APlayerController*) const` �?iterates `CameraNodes`, calls each override. Mirrors `DrawCameraDebug` for 3D.
-- **Hook**: `FComposableCameraViewportDebug` registers a SECOND `UDebugDrawService::Register("Game", FDebugDrawDelegate)` alongside the 3D FTSTicker. This fires from `UGameViewportClient::Draw` during PIE possessed play + standalone �?and importantly does NOT fire from the editor viewport during F8 eject. That's the right gating for 2D HUD overlays, which only make sense when the player IS looking at the HUD; F8 is the "observe from outside in 3D" mode.
-- **Gating**: same per-node CVar as the 3D draw. `CCS.Debug.Viewport.ScreenSpacePivot 1` enables BOTH the 3D sphere AND the 2D safe-zone overlay. If a future case wants independent control, split the CVar.
-- **Canvas primitives**: `FCanvasTileItem(Pos, Size, Color)` with `BlendMode = SE_BLEND_Translucent` for filled rects (AHUD::DrawRect's Canvas equivalent). `FCanvasBoxItem` for outlines. `FCanvasTextItem` if you need labels.
-- **`bConstrainAspectRatio` �?DO preserve the two-branch math.** When the player's camera has `bConstrainAspectRatio = true` and PIE is running windowed with a different aspect, the game view is letterboxed / pillar-boxed inside the full UCanvas. Screen-space math without an offset correction draws the safe-zone rect in the wrong spot �?visually outside the actual rendered viewport. Use `ULocalPlayer::GetProjectionData(Viewport, ProjectionData)` to read `ProjectionData.GetConstrainedViewRect().Min` as the offset, and scale the safe-zone rect by `ClampedScreenWidth / ScreenWidth` in each axis. The ScreenSpace nodes include this branch verbatim from the pre-framework `DrawDebugInfo` implementations �?don't simplify it away when touching this code.
-
-### 3.20.4 Cross-cutting overlay via static instance registry
-
-The framing-zone overlay (`FComposableCameraShotZoneOverlay`,
-`Public/Debug/ComposableCameraShotZoneOverlay.h`) is the first overlay in the
-plugin that needs to draw for **every active instance of a specific node type
-across all camera contexts** �?not "the one node on the active camera" (the
-per-node 2D pattern above) and not "all nodes on the active camera" (the
-camera walker pattern). It addresses two concerns the existing patterns don't:
-
-1. *Multiple cameras simultaneously alive*: in Phase F, two Shot sections
-   overlap and both `UComposableCameraLevelSequenceComponent` instances drive
-   their own `FramingNode` through the LS path. The PCM walker doesn't see
-   either of them (LS path is component-driven, not PCM-driven).
-2. *No PCM at all*: the LS path is independent of `APlayerCameraManager`, so
-   any "walk the PCM tree" lookup misses LS-driven shots entirely.
-
-Solution: the node class itself maintains a static
-`TSet<TWeakObjectPtr<UComposableCameraCompositionFramingNode>>` registry,
-joined in `OnInitialize` and pruned in `BeginDestroy`. The overlay's
-`UDebugDrawService` callback iterates the registry and projects each shot's
-anchors through the supplied viewport's view info (PCM-bound when the
-delegate carries a `PlayerController`, fallback to `UCanvas::SceneView` for
-runtime editor-channel draws without a PC). Pure editor Level Sequence preview
-is ignored: the callback world must resolve to `World->IsGameWorld()` before
-any diagnostic text or overlay draw.
-
-Use this pattern when adding a future overlay that must paint for every
-active *instance* of a node type, regardless of which camera owns it:
-
-- Add `static TSet<TWeakObjectPtr<UMyNode>>` + an accessor on the node class,
-  guarded `#if !UE_BUILD_SHIPPING`.
-- `OnInitialize` adds; `BeginDestroy` removes �?the latter calls `Super` after
-  the remove so any base-class teardown still sees the de-registered state.
-- The callback must pass a runtime-world gate before drawing: PC world first,
-  then `UCanvas::SceneView->Family->Scene->GetWorld()`, and finally
-  `World->IsGameWorld()`. This keeps PIE/SIE and F8 eject working while
-  suppressing pure editor LS preview.
-- The overlay's `UDebugDrawService` registration follows the dual-channel
-  (`"Game"` + `"Editor"`) + `(GFrameCounter, FCanvas*)` dedup pattern from
-  §7.2 �?non-negotiable for surviving F8 eject + multi-viewport draws.
-- Each draw entry projects through the *callback's* view info (PC's PCM, or
-  scene-view fallback), NOT the node's stored owner �?the overlay is for the
-  *current viewport's* projection of every active instance, which lets one
-  Shot show up in multiple PIE viewports each with its own perspective.
-
-Cost is minimal: when the CVar is off, the callback exits in O(1) without
-ever iterating the registry. When on, iteration is O(N) over active shot
-nodes (typically �?4 across two LS Components + a gameplay camera) and
-each entry's draw is a fixed handful of canvas tiles + lines.
-
-### 3.20.2 Per-node gizmo pattern
-
-Each per-node gizmo is a localised addition in the node's own .cpp �?no registration table, no module-level indirection. Template:
-
-```cpp
-#if !UE_BUILD_SHIPPING
-#include "DrawDebugHelpers.h"
-#include "HAL/IConsoleManager.h"
-
-namespace
-{
-    static TAutoConsoleVariable<int32> CVarShowMyNodeGizmo(
-        TEXT("CCS.Debug.Viewport.MyNode"),
-        0,
-        TEXT("Show MyNode gizmo. Requires `CCS.Debug.Viewport 1`."),
-        ECVF_Default);
-}
-#endif
-
-#if !UE_BUILD_SHIPPING
-void UComposableCameraMyNode::DrawNodeDebug(UWorld* World, bool bViewerIsOutsideCamera) const
-{
-    if (!World) { return; }
-    if (CVarShowMyNodeGizmo.GetValueOnGameThread() == 0) { return; }
-
-    // Always-visible parts (out in the world, don't occlude the view):
-    //   DrawDebug* calls reading the node's resolved runtime state.
-
-    // Occluding parts (sit AT the camera's own position �?frustum-like):
-    if (bViewerIsOutsideCamera)
-    {
-        //   DrawDebug* calls for gizmos that would hermetically enclose
-        //   the player's view during live gameplay.
-    }
-}
-#endif
-```
-
-Design points worth preserving:
-- **Default off.** Each per-node CVar starts at 0 �?"everything on" turns a useful debug overlay into visual noise the moment the camera has more than two or three nodes. Users opt in to the specific thing they're debugging.
-- **Master CVar still required.** The node's CVar only matters when `CCS.Debug.Viewport` is 1 �?otherwise the ticker doesn't invoke `DrawNodeDebug` at all. Two switches, both must be on.
-- **F8 gate for NEAR-CAMERA parts only.** The ticker only gates the FRUSTUM on `GEditor->bIsSimulatingInEditor` (because the pyramid occludes the near plane). Per-node gizmos run regardless of SIE state, so they're usable during live gameplay. `DrawCameraDebug(UWorld*, bool bDrawFrustum)` takes the flag and passes it through as `bViewerIsOutsideCamera` on `DrawNodeDebug(UWorld*, bool)`; node authors use the bool to gate ONLY the parts of their gizmo that sit on top of the camera. Reference case: `CollisionPushNode` has a trace line, trace sphere at pivot, hit sphere �?all out in the world, always on �?plus a self-collision sphere AT the camera center (UPROPERTY-driven radius, can easily be >100 units) that would seal the player inside a wireframe ball during live play. Only the self-sphere is gated on `bViewerIsOutsideCamera`.
-- **Not every node benefits.** The `ScreenSpace*` nodes are the illustrative counter-example: their useful debug data is 2D. Don't force every node into this framework �?add the override only when a world-space primitive genuinely answers "is this node doing its job?".
-- **Cache state if you need output pin values.** Output pins aren't re-readable by name from a const `DrawNodeDebug`. If your gizmo shows a post-tick value, mirror it into a `#if !UE_BUILD_SHIPPING` member (`LastComputedPivot` on PivotOffsetNode and `LastOutputPivotPosition` on PivotLookAheadNode are the reference patterns). Values already cached for other reasons (e.g. `LastPivotPosition` on PivotDampingNode, `LastTrace*` / `LastSelfSphereCenter` on CollisionPushNode) can be reused directly.
-- **View-aligned lines are structurally invisible during possessed play.** Any debug line whose 3D axis matches the view direction projects to near-zero screen-space length regardless of `Thickness` �?a `Thickness=0` primitive has zero screen fragments, and a `Thickness>0` quad-strip has zero length dimension too. This hits every "line from camera to target" gizmo in LookAt (camera→target is the node's definition) and CollisionPush (pivot→camera in any 3rd-person follow rig). No combination of thickness / DrawDebugLine / DrawDebugDirectionalArrow / manual arrow + box-tip marker read reliably after extensive attempts. DrawDebugDirectionalArrow additionally fails to propagate `SDPG_Foreground` to its internal arrowhead segments, so the head gets occluded by the character mesh whenever the anchor sits on a bone socket or chest point. All these attempts are preserved in git history under earlier 2026-04-21 commits; the conclusion was to stop trying.
-- **Current policy for these two gizmos:**
-    - **Possessed play** �?just the target/pivot sphere (+ hit sphere for CollisionPush when blocked). Colour conveys state (cyan LookAt target, green/red CollisionPush). Direction is implicit from geometry �?the viewer is AT the camera, so "line from camera" is by definition behind the viewer. Nothing useful to draw.
-    - **F8 eject / Simulate** �?add a plain `DrawDebugLine(Thickness=0, SDPG_Foreground)` from camera to target (LookAt) or pivot to camera (CollisionPush). From outside the camera the line's axis is NOT the view axis, so a 1px primitive renders fine. No ratio, no arrowhead, no cube tip �?just a line between two spheres.
-- **Use `DepthPriority = SDPG_Foreground` (1) on debug gizmos anchored to world geometry.** Any gizmo whose anchor position lies inside or behind a mesh (LookAt on a bone socket, CollisionPush pivot at a character chest) gets occluded by that mesh with the default `SDPG_World` priority. Debug gizmos almost always want to be ABOVE the scene, so default to `DepthPriority = 1` for `DrawDebugLine` / `DrawDebugSphere` / `DrawDebugBox` / `DrawDebugPoint` in node debug draws.
-- **Rule of thumb for future gizmos that include a "camera �?target" line:** only draw the line when the viewer is observing from outside (`bViewerIsOutsideCamera == true`). Possessed play uses the target sphere alone.
-
-### 3.20.1 Migration: removing `PCM->bDrawDebugInformation`
-
-The old `AComposableCameraPlayerCameraManager::bDrawDebugInformation` UPROPERTY was the gate for every pre-framework world-space debug draw in the plugin �?inside nodes (`PivotOffsetNode`, `PivotDampingNode`, `CollisionPushNode`, `ScreenSpacePivotNode`, `ScreenSpaceConstraintsNode`) and inside transitions (`CylindricalTransition`, `PathGuidedTransition`, `DynamicDeocclusionTransition`, `SplineTransition`). The flag has been deleted; consumers fell into three buckets during migration:
-
-1. **Per-node world-space gizmos** �?rewritten as `DrawNodeDebug` overrides (`PivotOffsetNode`, `PivotDampingNode`, `CollisionPushNode`). The flag-gated `DrawDebugSphere` / `DrawDebugPoint` calls inside `OnTickNode` bodies were removed; the drawing moved to the new hook, with cache members where necessary (`LastComputedPivot` on `PivotOffsetNode`, the trace state on `CollisionPushNode`). The `CollisionPushNode` also lost its dynamic `EDrawDebugTrace::ForOneFrame` branch on `SphereTraceSingle` / `LineTraceSingle` �?the Kismet trace's built-in debug draw path is permanently disabled (`EDrawDebugTrace::None`) in favour of the unified hook.
-2. **Per-node 2D HUD overlays** �?deleted outright (`ScreenSpacePivotNode` / `ScreenSpaceConstraintsNode`). The `OnHUDPostRender` lambda registration, the `DrawDebugInfo(AHUD*, UCanvas*)` function, the `FDelegateHandle DrawDebugHandle` member, and the `BeginDestroy` override that tore the hook down are all gone. The 3D equivalent in `DrawNodeDebug` is just a world-space sphere at the resolved pivot �?the 2D safe-zone rectangle belongs to a future 2D debug panel, not to per-node viewport gizmos.
-3. **Per-transition gizmos** �?were removed without replacement during the initial migration, then re-added under a dedicated transition debug framework (see §3.20.4). The `CylindricalTransition` / `PathGuidedTransition` / `DynamicDeocclusionTransition` / `SplineTransition` gizmos that used to live inside `OnEvaluate` bodies are now `virtual UComposableCameraTransitionBase::DrawTransitionDebug(UWorld*, bool)` overrides, invoked from `UComposableCameraEvaluationTree::DrawTransitionsDebug` each frame. The per-transition enum-driven dispatch inside `SplineTransition::OnEvaluate` was also factored into `EvaluatePositionOnCurve(t, start, end)` so the debug path can sample the full curve without re-entering the blend pipeline.
-
-Lessons for future flag removals of this shape: a single "global debug toggle" UPROPERTY spread across ~9 call sites is worse than it looks �?consumers drift apart over time (some gate on it plus `FIsSimulatingInEditor::GetIsSimulatingInEditor()`, some gate on it alone, some use it to pick between `EDrawDebugTrace::ForOneFrame` and `None`), so "just delete the flag" becomes an audit of every call site, not a one-line change. When adding a new framework flag, define a single getter helper and route all consumers through it from day one so the eventual removal is surgical.
-
-### 3.20.4 Per-transition gizmos
-
-The per-node gizmo pattern (§3.20.2) maps almost one-to-one onto transitions. The small differences are what this section exists to pin down:
-
-- **Lifetime is bounded by the transition.** A transition only lives while its Inner node is in the eval tree �?as soon as `IsFinished()` is true, `CollapseFinishedTransitions` replaces the node with its right subtree and the transition is no longer walked. The gizmo winks out the instant the blend resolves. This is a feature, not a bug: the visual drops when the debug data stops being meaningful.
-- **Pose caching happens at the one call site that sees all three poses.** `FComposableCameraEvaluationTreeInnerNodeWrapper::Evaluate` is the single place where the left-subtree output (source), the right-subtree output (target), and the transition's blended result are all visible in the same scope. It writes them into `UComposableCameraTransitionBase::LastDebugSource / LastDebugTarget / LastDebugBlended` under `#if !UE_BUILD_SHIPPING`. These are `FTransitionDebugSnapshot` �?a narrow struct holding only Position + Rotation + resolved FOV degrees (POD-only). We deliberately do NOT cache the full `FComposableCameraPose` because `FPostProcessSettings` embeds UObject refs (`TObjectPtr<UTexture>` through color grading / bloom / etc.) and these fields are NOT UPROPERTY, so any embedded UObject refs would escape GC tracking. Shipping builds strip the cache entirely.
-- **Tree walk handles inter-context correctly.** `UComposableCameraEvaluationTree::DrawTransitionsDebug` is a DFS that, when it hits a reference-leaf, recurses into the referenced director's tree. Without that recursion the outer inter-context transition would be visible but any intra-context transition still in flight inside the source context would be hidden �?and that's exactly the moment (a context pop happening while the source context's own blend is half-done) when you most want to see both.
-- **Transition CVar namespace.** `CCS.Debug.Viewport.Transitions.<Name>` �?mirrors the per-node `CCS.Debug.Viewport.<NodeName>` convention but with a `Transitions.` sub-namespace so tab-complete groups them together (one node set, one transition set). Still gated on the master `CCS.Debug.Viewport 1`.
-- **Standard visualization helper paints markers ONLY, not the path.** `UComposableCameraTransitionBase::DrawStandardTransitionDebug(World, bViewerIsOutsideCamera, AccentColor)` draws:
-    - Green sphere at `LastDebugSource.Position`  (always)
-    - Blue sphere at `LastDebugTarget.Position`    (always)
-    - Accent sphere at `LastDebugBlended.Position` (always �?the actual camera pose this frame)
-    - Half-scale green + blue frustums at source / target poses (F8 / SIE only �?possessed play would stack them on top of the existing main frustum)
-
-  **It deliberately does NOT draw any line between source and target.** Path shape is per-transition and must be drawn by the concrete override. The earlier version painted a white "lerp baseline" line here; that was wrong because for non-linear transitions (Cylindrical, Inertialized, Spline, PathGuided) a straight line from source to target IS NOT the path �?it misleads. Each concrete override now paints the **real** path in its accent color on top of the standard markers.
-- **Path drawing is per-transition-type:**
-    - `LinearTransition` / `SmoothTransition` / `EaseTransition` / `CubicTransition` �?these lerp position linearly in space; only the timing curve (blend weight) differs. One `DrawDebugLine(source, target)` in accent color is the correct path.
-    - `CylindricalTransition` �?samples the cylindrical arc 32 times via a static `SampleCylindricalPathPosition(t, �?` helper (file-local in the cpp). Because OnEvaluate also needs the intermediate StartPivot / TargetPivot for its look-at rotation, the helper is position-only and the formula lives in BOTH places with a �?SYNC POINT comment �?cleaner than inventing a struct return for a two-call-site math chunk.
-    - `InertializedTransition` �?cannot sample on demand (inertializer math is private inside the polynomial), so instead pre-samples **target-relative offsets** at OnBeginPlay into `TArray<FVector> DebugPathOffsets` (33 entries, t = 0/32 �?32/32). At draw time we add `LastDebugTarget.Position` to each offset. Runtime formula is `Poly.Evaluate(blendDuration) + Target`, so passing zero target at sample-time yields pure offsets �?target-independent by construction, which means a moving target pose during the blend still produces a correct path without re-sampling. The additive-curve branch is NOT captured (it's target-dependent at eval time); users who need that read the panel instead.
-    - `SplineTransition` �?samples the authored curve via `EvaluatePositionOnCurve(t, start, end)` 32 times. The curve math is shared between OnEvaluate and the debug path through this helper (cleaner than Cylindrical's two-body approach because there's no pivot reuse).
-    - `PathGuidedTransition` �?samples the active spline component (`RailActor`'s spline for `Type=Inertialized`, `InternalSpline` for `Type=Auto`) at 32 distance steps in world space.
-    - `DynamicDeocclusionTransition` �?no path polyline. Its path is `DrivingTransition.Evaluate + runtime feeler offsets`; the offsets accumulate frame-by-frame based on hit tests, so the path is fundamentally unpredictable without re-running traces. Users instead read the feeler rays (which ARE drawn), and for the underlying blend curve the advice is to enable both the deocclusion CVar and the driving transition's CVar �?but note that only THIS transition's LastDebug* gets populated (the driving transition is not in the eval tree), so the driving transition's path won't show as spheres, only implicitly through the red accent sphere at LastDebugBlended.
-- **`ViewTargetTransition` is intentionally not exposed.** It's `Hidden, NotBlueprintable`, created programmatically by the PCM's SetViewTarget bridge. There's no user-authored instance to debug. Adding a CVar would just be clutter.
-- **Accent-color reservation policy.** Each new transition claims a distinct color (see the table below). When adding a new transition type, avoid every color already used by a node gizmo OR a transition gizmo; keep sphere/line interactions readable.
-
-  | Transition | Accent | Notes |
-  |---|---|---|
-  | Linear             | `(200, 200, 200)` | Light grey �?"neutral", matches the simple lerp. |
-  | Smooth             | `(255, 220, 100)` | Gold. |
-  | Ease               | `(255, 160,  80)` | Burnt orange. |
-  | Cubic              | `(180, 130, 255)` | Lavender. |
-  | Spline             | `(140, 200, 255)` | Sky blue �?for the curve polyline. |
-  | PathGuided         | `(255, 130, 130)` | Coral �?for the rail polyline. |
-  | Cylindrical        | `(100, 230, 200)` | Aqua �?deviation-from-baseline shows the cylinder curve. |
-  | Inertialized       | `(255, 100, 200)` | Hot pink �?emphasizes the velocity-driven overshoot. |
-  | DynamicDeocclusion | `(255,  90,  90)` | Red �?reinforces the avoid/danger semantic + feeler rays. |
-
-- **Template for new transitions:**
-
-```cpp
-#if !UE_BUILD_SHIPPING
-#include "HAL/IConsoleManager.h"
-namespace
-{
-    static TAutoConsoleVariable<int32> CVarShowMyTransitionGizmo(
-        TEXT("CCS.Debug.Viewport.Transitions.MyTransition"),
-        0,
-        TEXT("Show MyTransition gizmo. Requires `CCS.Debug.Viewport 1`."),
-        ECVF_Default);
-}
-#endif
-
-#if !UE_BUILD_SHIPPING
-void UComposableCameraMyTransition::DrawTransitionDebug(UWorld* World, bool bViewerIsOutsideCamera) const
-{
-    if (!World) { return; }
-    if (CVarShowMyTransitionGizmo.GetValueOnGameThread() == 0) { return; }
-
-    static const FColor AccentColor { /* pick unused accent */ };
-    DrawStandardTransitionDebug(World, bViewerIsOutsideCamera, AccentColor);
-
-    // Draw the REAL path �?a straight line for spatial-linear transitions,
-    // a polyline sampling your curve formula for non-linear ones. Use
-    // LastDebugSource / LastDebugTarget / LastDebugBlended for endpoints.
-    // Path polyline should use SDPG_Foreground and AccentColor.
-}
-#endif
-```
-
-Routing: `FComposableCameraViewportDebug::TickDraw` �?`PCM->GetContextStack()->GetActiveDirector()->GetEvaluationTree()->DrawTransitionsDebug(World, bViewerIsOutsideCamera)` �?recursive DFS �?per-transition override. The `bViewerIsOutsideCamera` flag is the same `bDrawFrustum` the camera-level pass already computed via `ShouldDrawFrustumThisFrame()`, so the two draw passes agree about whether the user is possessing the camera.
-
-### 3.21 Camera Patches: Director-scoped overlay system
-
-Patches are time-bounded, additively-composable overlays managed at the Director level (parallel to the EvaluationTree). DesignDoc §11 covers the conceptual model; this section covers the implementation patterns.
-
-**Construction (cold path, AddPatch):**
-- `UComposableCameraPatchManager::AddPatch` validates the asset (Duration channel enabled requires `Duration > 0`), resolves layer / schedule / envelope from per-asset defaults + per-call overrides (sentinels: `EnterDuration == 0` / `ExitDuration == 0` / `LayerIndexOverride == MIN_int32` / `ExpirationType == 0` all defer to asset).
-- Spawns the evaluator via the same `UE::ComposableCameras::ConstructCameraFromTypeAsset` spine the LS Component path uses (§3.14). Calls `Initialize(nullptr)` �?PCM-independent, skips `BindCameraActionsForNewCamera` by construction, so Patch evaluators carry no PCM Action delegates / arrays.
-- `Evaluator->SetActorTickEnabled(false)` �?the manager drives ticks via `Apply`; the actor's own tick scheduler visit would be wasted.
-- Sorted-insert into `ActivePatches` by `(LayerIndex asc, PushSequence asc)`. Linear scan; �? typical entries, `Reserve(8)` at PatchManager init keeps it alloc-free.
-- Returns `UComposableCameraPatchHandle` (UObject with weak ptr to instance). Caller MUST hold it via UPROPERTY in C++ (BP holds strong refs automatically). A handle GC'd before `ExpirePatch` fires for a Manual-only patch leaks the patch �?documented caveat in `ComposableCameraPatchHandle.h`.
-
-**Per-frame Apply (hot path):**
-- Resolve `OwningDirector` once via `GetTypedOuter<UComposableCameraDirector>()` and cache its `RunningCamera` for the OnCameraChange channel (single outer-walk per Apply, not per-patch).
-- For each Patch:
-  1. `AdvancePatchEnvelope(Instance, DeltaTime)` �?phase machine. `Entering`: `t = ElapsedInPhase / EnterDuration`, `alpha = ease(t)`. `Active`: `alpha = 1`, `ElapsedTimeActive += DeltaTime`. `Exiting`: `alpha = ExitStartAlpha · (1 - ease(t))`. `Expired`: no-op. `EnterDuration / ExitDuration <= 0` short-circuits to the destination phase on the same call.
-  2. `CheckPatchScheduleExpiration(Instance, DeltaTime, Result, CurrentRunningCamera)` �?Active-only. Channels checked in first-fire order: Duration (`ElapsedTimeActive >= Duration`) �?Condition (`Asset->CanRemain(DeltaTime, UpstreamPose)` returns false) �?OnCameraChange (`Instance->RunningCameraAtAdd != Director->RunningCamera`). First fire calls shared `TransitionPatchToExiting(Instance)` helper.
-  3. If still alive, `Evaluator->TickWithInputPose(DeltaTime, Result)` produces `Evaluated`; `Result.BlendBy(Evaluated, CurrentAlpha)` chains it (existing pose-blender path, no new code).
-- **End-of-pass reverse-iter sweep**: walks `ActivePatches` from `Num()-1` down, removes Expired entries with `RemoveAt`, calls `Evaluator->Destroy()` + `Evaluator = nullptr`. Reverse iteration keeps indices valid through removal. Doing this AFTER the iteration (not mid-loop) is what makes `ExpirePatch` reentrancy-safe �?`ExpirePatch` only flips Phase to Exiting, never mutates the array.
-
-**TickWithInputPose contract:**
-```cpp
-FComposableCameraPose AComposableCameraCameraBase::TickWithInputPose(
-    float DeltaTime, const FComposableCameraPose& InputPose)
-{
-    CameraPose = InputPose;
-    return TickCamera(DeltaTime);  // existing per-node loop, end-of-tick swaps LastFrameCameraPose = CameraPose
-}
-```
-Because `TickCamera` snapshots `CameraPose` (= the upstream we just stored) into `LastFrameCameraPose` at end-of-tick, next frame's delta-style nodes (PivotDamping etc.) inside the Patch see "upstream change between frames" �?correct semantic for damping the upstream's motion.
-
-**Phase transition with alpha snapshot (`TransitionPatchToExiting`):**
-Both manual `ExpirePatch` and schedule-driven exit go through one helper. It snapshots `CurrentAlpha �?ExitStartAlpha` so a Patch retired mid-Entering fades out from where it had reached, not from 1. Short-circuits to Expired when `ExitStartAlpha <= 0` or `ExitDuration <= 0` �?no wasted invisible frames. Idempotent: a second `ExpirePatch` on a Patch already in Exiting / Expired is a no-op.
-
-**Compatibility validation hook:**
-`UComposableCameraTypeAsset::Build()` calls a new `virtual void ValidateAdditional(TArray<FComposableCameraBuildMessage>& OutMessages) const` at its tail. Default empty; `UComposableCameraPatchTypeAsset` overrides to walk NodeTemplates and emit Build messages for nodes whose `GetPatchCompatibility()` returns `Incompatible` (Error severity) or `CompatibleWithCaveat` (Warning). Messages flow through the existing per-node inline badge infrastructure; appended messages roll `BuildStatus` up toward `Failed` / `SuccessWithWarnings` per severity.
-
-**Hot-path discipline:**
-- `STAT_CCS_PatchManager_Apply` cycle counter wraps the whole Apply pass; `STAT_CCS_Patch_TickEvaluator` per evaluator tick. Both in `STATGROUP_CCS`.
-- `TRACE_CPUPROFILER_EVENT_SCOPE_STR(asset name)` per evaluator tick �?Insights timeline groups by Patch asset class.
-- `BlendBy` reuses the existing transition path; no new code, no new allocations.
-- Sorted-insert at AddPatch is O(N) but cold path. End-of-pass sweep is O(N) but typically removes 0-1 entries.
-
-**Outer chain assumptions:**
-- `PatchManager.Outer == Director`; `Director.Outer == PCM (AActor)`. `GetTypedOuter<AActor>()` returns the PCM (or nullptr in test paths). `GetWorld()` walks the chain to the PCM's world.
-- Test paths that create `NewObject<UComposableCameraDirector>()` with no outer get `World == nullptr` and `AddPatch` rejects with a warning �?acceptable; tests should construct via the ContextStack to get a real outer chain.
-
-See `PatchSystemProposal.md` for the full design rationale and rejected alternatives.
-
-### 3.22 Camera Patch Sequencer integration
-
-Sequencer authoring of patches is delivered through a dedicated track triple, modelled on engine `UMovieSceneCVarSection` + `UMovieSceneCVarTrackInstance` (root track with per-section TrackInstance dispatch through `FMovieSceneTrackInstanceComponent`):
-
-```
-UMovieSceneComposableCameraPatchTrack         �?root track, no object binding
-  �?  stores TArray<TObjectPtr<UMovieSceneSection>>; SupportsType filters to
-  �?  UMovieSceneComposableCameraPatchSection only; SupportsMultipleRows = true;
-  �?  SupportsEasing = All (each section's ease folds into the patch envelope).
-  �?  └── UMovieSceneComposableCameraPatchSection �?IMovieSceneEntityProvider
-       �?PatchAsset       : UComposableCameraPatchTypeAsset*
-       �?PlayerIndex      : int32   (default 0; mirrors BP AddCameraPatch pin)
-       �?ContextName      : FName   (None = active context)
-       �?Params           : FComposableCameraPatchActivateParams (envelope/lifetime)
-       �?Parameters       : FInstancedPropertyBag  �?from PatchAsset.ExposedParameters
-       �?Variables        : FInstancedPropertyBag  �?from PatchAsset.ExposedVariables
-
-UMovieSceneComposableCameraPatchTrackInstance �?engine UMovieSceneTrackInstanceSystem
-  TMap<FMovieSceneTrackInstanceInput, TObjectPtr<UComposableCameraPatchHandle>> ActiveHandles;
-
-  OnInputAdded(input)   �?ResolvePCM(World, PlayerIndex) �?ResolvePatchManager(PCM, ContextName)
-                        �?ResolveActivateParams(section)  // folds section easing into envelope
-                        �?section.BuildParameterBlock(Block)
-                        �?handle = Manager->AddPatch(asset, params, block)
-                        �?ActiveHandles[input] = handle
-  OnAnimate()           �?for each ActiveHandles entry:
-                            section.BuildParameterBlock(Block)
-                            Manager->ApplyParameterBlockToActivePatch(Handle, Block)
-  OnInputRemoved(input) �?Manager->ExpirePatch(handle, sectionEaseOutSeconds)
-                        �?ActiveHandles.Remove(input)
-  OnDestroyed()         �?for each handle: Manager->ExpirePatch(handle, 0.f)  // hard cut
-```
-
-**Section enter/exit �?Patch lifecycle.** ImportEntityImpl emits one entity per non-empty section (PatchAsset == nullptr �?no entity, no per-frame visit). The engine's UMovieSceneTrackInstanceSystem dispatches per-input callbacks: section enters its TrueRange �?`OnInputAdded` fires AddCameraPatch; exits �?`OnInputRemoved` fires ExpirePatch. The TrackInstance is shared across every section on the track (and across every track in the same Linker), keyed by `(Section, InstanceHandle)` to keep per-section state without aliasing between sequence instances.
-
-**Section easing �?patch envelope.** When the user has not explicitly set `Params.bOverrideEnterDuration`, `OnInputAdded` reads `Section->Easing.GetEaseInDuration()` (frame ticks), converts to seconds via `Section->GetTypedOuter<UMovieScene>()->GetTickResolution().AsSeconds(FFrameTime(ticks))`, and forwards as `bOverrideEnterDuration = true` + `EnterDuration = seconds`. Same path for ExitDuration via `GetEaseOutDuration()`. Already-overridden values are left alone �?designer can pin a specific envelope without losing it to whatever section ease was authored. Section ease handles in Sequencer thus directly reshape the live patch envelope.
-
-**Per-frame parameter keying.** Section subclasses `UMovieSceneParameterSection` so each ExposedParameter / ExposedVariable can be promoted to a keyable named curve via the right-click "Camera Parameters �?X" menu (which calls the matching `Section->Add<X>ParameterKey(Name, currentTime, bagDefault)`). `OnAnimate` walks `ActiveHandles`, resolves each input's current evaluation frame via `Linker->GetInstanceRegistry()->GetInstance(handle).GetContext().GetTime().FloorToFrame()`, and calls `Section->BuildParameterBlock(CurrentFrame, Block)`. `BuildParameterBlock` walks the asset's exposed surface and per-name: (1) tries to sample a matching curve via `Curve.Evaluate(FFrameTime, Value)`; (2) falls back to bag value via `ExposedBag::CopyBagValueIntoBlock`. Block is pushed through `PatchManager::ApplyParameterBlockToActivePatch(Handle, Block)` which re-applies via the asset's `ApplyParameterBlock`. Channel kinds supported: Scalar (Float/Double), Bool, Vector2D, Vector3D + Rotator (3-channel via X/Y/Z = Pitch/Yaw/Roll), Vector4 (RGBA via Color curves). Int32 / Enum / Object / Name / Struct / Transform / Delegate stay bag-only �?no channel keying in V1.x. Cost: O(active patches) outer × O(exposed-parameter count) inner per frame; both bounded by single digits.
-
-**Why we don't use `Sequencer->KeyProperty` here.** `KeyProperty` walks the object-binding system (`FindOrCreateHandleToObject`) to attach property tracks to a binding GUID. Patch sections aren't bindings (they're root-track sections, no actor host) so KeyProperty can't find a place to put the track and silently no-ops. The named-channel pattern from `UMovieSceneParameterSection` is the engine's canonical answer for "animate values on a non-binding section" �?same model `UMaterialParameterCollection` / `UMovieSceneCustomPrimitiveDataSection` use.
-
-**Sequencer overlay path - single path for all worlds.** Section's `TargetActorBinding` (FMovieSceneObjectBindingID) points at an `AComposableCameraLevelSequenceActor` Spawnable / Possessable in the same Sequencer. `TrackInstance::OnAnimate` walks every input, resolves the binding via the linker's instance registry (`Section.TargetActorBinding.ResolveBoundObjects(SequenceInstance)`), then:
-
-```cpp
-LSComp = bound LS Actor's UComposableCameraLevelSequenceComponent;
-params = section->BuildParameterBlock(currentFrame);  // channel sample
-alpha  = PatchEnvelope::ComputeStatelessAlpha(currentFrame, sectionStart, sectionEnd, enterSec, exitSec, ease, tickRate);
-LSComp->SetSequencerPatchOverlay(section, params, alpha);
-```
-
-This same code runs in **all worlds** (Editor / EditorPreview / PIE / Game / Standalone). There is no separate PCM/Director path for Sequencer-driven patches �?that path was removed when PlayerIndex / ContextName were dropped from the section. Patches added via the BP library `AddCameraPatch(PlayerIndex, ContextName, �?` continue through the orthogonal gameplay PCM/Director path; the two surfaces are intentionally decoupled.
-
-LS Component caches a `TMap<TObjectPtr<Section>, FComposableCameraSequencerPatchOverlay>` (UPROPERTY) keyed on the section pointer. Each entry holds a lazy-spawned `AComposableCameraCameraBase` evaluator + the latest parameter block + alpha. In LS Component's `TickComponent`:
-
-1. `InternalCamera->TickCamera(dt)` �?base pose.
-2. If any overlays registered �?walk sorted by `Section->Params.LayerIndex` (or asset default), apply parameter block to evaluator's runtime data block, `Evaluator->TickWithInputPose(dt, Pose)`, `Pose.BlendBy(eval, alpha)`.
-3. Write `Pose.GetEffectiveFieldOfView()` directly to CineCamera (so DollyZoom previews �?normal `ProjectPoseToCineCamera` skips optics).
-4. `ProjectPoseToCineCamera(Pose)` �?writes Position + Rotation.
-
-`OnInputRemoved`: tells LS Component to remove the overlay (which destroys the cached evaluator). `OnDestroyed`: walks all inputs and removes each overlay �?defensive against Sequencer hot-reload / linker shutdown without a paired OnInputRemoved.
-
-**Spawn Tracks handle LS Component lifetime.** Sequencer patches apply only while their host LS Actor exists and its component ticks; no extra CameraCut gate participates.
-
-**1-frame lag.** `TrackInstance::OnAnimate` and LS Component's `TickComponent` both run per-frame but their order isn't guaranteed by the engine. If TrackInstance fires AFTER TickComponent in frame N, the overlay state pushed in frame N applies to frame N+1's tick. Visually imperceptible during scrub / playback; intentional trade-off vs. a more invasive ordering hack.
-
-**Stateless envelope on the Sequencer side.** Runtime PatchManager (BP path) uses a stateful `Phase` + `ElapsedInPhase` + `ExitStartAlpha` machine because Manual / Condition / OnCameraChange channels need persistent state. Sequencer-driven patches don't have those channels �?alpha is purely a function of playhead vs section range, so `PatchEnvelope::ComputeStatelessAlpha` recomputes from scratch every frame. Same `ApplyEase` curve in both paths so the BP and Sequencer surfaces look identical at every t.
-
-**Bag layout sync.** Section's `RebuildBagsFromPatchAsset()` mirrors `FComposableCameraTypeAssetReference::RebuildBagsFromTypeAsset()` and is fired on `PostLoad` + `PostEditChangeProperty` (when PatchAsset changes). Both surfaces use shared helpers in `LevelSequence/ComposableCameraExposedBagUtils.{h,cpp}` (`AddDescIfSupported` and `CopyBagValueIntoBlock`) �?extracted from the LS Component path during this work so any future pin-type addition flows through both surfaces uniformly. The CPF_Edit | CPF_Interp flag pair on bag leaves is what makes them keyable; without CPF_Interp Sequencer's `FindPropertySetter` rejects them and the parameter menu silently collapses (TechDoc §7.2 gotcha).
-
-**Editor side.** `FComposableCameraPatchTrackEditor` (Source/ComposableCameraSystemEditor/Private/Sequencer/):
-- `BuildAddTrackMenu` �?"Composable Camera Patch Track" entry on the root context menu; click adds a new track + one empty section.
-- `MakeSectionInterface` returns `FComposableCameraPatchSectionInterface` which paints the section title as the patch asset name and overrides `BuildSectionContextMenu` to surface "Camera Parameters" / "Camera Variables" submenus listing keyable bag leaves. Click �?`Sequencer->KeyProperty` materialises a stock property track on the path `Parameters.Value.{LeafName}`. Same flat layout as `FComposableCameraLevelSequenceComponentTrackEditor`.
-- `BuildOutlinerEditWidget` �?standard `+ Section` button via `FSequencerUtilities::CreateNewSection`.
-- `SupportsType` returns true ONLY for `UMovieSceneComposableCameraPatchTrack` �?we own the track type (unlike the LS Component editor which is a pure menu extender).
-
-**Root track binding (no object binding).** Patches are not bound to a specific actor �?they live on the Director resolved through the section's `(PlayerIndex, ContextName)` pair, mirroring the BP `AddCameraPatch` library entry. Designer never needs to bind the track to the PCM; the section's properties carry all addressing info. The TrackInstance's `GetWorld()` (inherited from the linker) feeds `UGameplayStatics::GetPlayerController(World, PlayerIndex)` to resolve the PCM.
-
-**Defensive teardown.** `OnDestroyed` force-expires every still-live handle with `ExitDurationOverride = 0.f` so a Sequencer hot-reload / linker shutdown doesn't leave dangling patches on the Director (the Director has no link back to the TrackInstance, so its own destruction wouldn't notice them).
-
-**No gate path needed.** Patches are not Spawnables and do not drive viewport lifetime. They attach to the already-spawned LS Component and follow that component's normal tick.
-
-**Invariants:**
-- Section's `ImportEntityImpl` skips when `PatchAsset == nullptr` (don't pay per-frame cost for empty sections).
-- TrackInstance handle map is GC-tracked via `UPROPERTY` so handles survive the gap between OnInputAdded and OnInputRemoved even when the TrackInstance is the only strong ref.
-- `ApplyParameterBlockToActivePatch` short-circuits on Patches in Exiting / Expired phase �?pushing parameters into a fade-out evaluator just flickers the last visible alpha frames.
-
-### 3.23 Closed-form screen-target rotation solve
-
-`ScreenSpacePivotNode` and `ScreenSpaceConstraintsNode` both need to solve "find (Pitch, Yaw) such that a world-space pivot ray projects onto a desired screen coord". V1.4 replaced the iterative Newton solver (10-iter cap, 4 trig per iter, formerly duplicated in both nodes) with a single closed-form helper at `Public/Math/ComposableCameraMath.h::SolveCameraRotationForScreenTarget`.
-
-The system decouples because the Z-component equation contains only Pitch �?one `arcsin` solves it, then a 2×2 linear system in (cos Yaw, sin Yaw) reduces to one `atan2`. Roughly an order of magnitude cheaper than Newton, no convergence-failure modes, deterministic to within double precision. Edge cases: out-of-FOV pivots clamp the `arcsin` argument so it stays in real domain; gimbal lock (Direction parallel to world ±Z) returns Yaw = 0 stably. Full derivation �?including the geometric reformulation that turns the screen-projection constraint into a unit-vector mapping problem �?lives in the function's docstring. Read it before extending the helper or porting it into the future Composition Solver (multi-target framing).
-
-### 3.24 `FComposableCameraTargetInfo`: shared "pivot point on an actor" struct
-
-Sequencer ShotAsset references now use a snapshot template model: `UComposableCameraShotAsset` seeds the section once, while each `UMovieSceneComposableCameraShotSection` owns the editable `ShotOverrides` copy. `bShotOverridesInitialized` lets old sections migrate once on PostLoad without re-copying over saved section edits later. `BuildEffectiveShotWithoutBindings` returns that section-local shot; `BuildEffectiveShot` then applies `TargetActorOverrides` for Actor identity. Editor entry `OpenForShotSection` binds the Shot Editor to the Section-owned editable shot, never to the shared ShotAsset.
-
-`EditorPreviewMesh` is wrapped in `WITH_EDITORONLY_DATA` and exists only
-for authoring reusable ShotAsset templates before they have a LevelSequence
-binding. Runtime resolution (`ResolveWorldPoint`, `ResolveBasisQuat`, and
-LS evaluation) deliberately ignores it; editor surfaces use it only after
-Section `TargetActorOverrides` and the runtime `Actor` field fail to resolve.
-This keeps preview meshes / bone lists available without baking level-specific
-actors into the runtime shot.
-
-`Public/DataAssets/ComposableCameraTargetInfo.h` introduces a small `USTRUCT` that consolidates the "find a world-space point on (or near) an Actor" pattern that pivot-using camera nodes need. Fields: `Actor: TSoftObjectPtr<AActor>` (soft so the Details-panel actor picker can span level actors from any world �?UAssets are not Level-bound; hard `TObjectPtr<AActor>` would only allow persistent / package-scoped actors), `bUseBoneAsPivot`, `BoneName`, `Offset` (FVector), `bOffsetInLocalSpace`, `bUseSkeletalMeshForwardAsBasis`. The struct has two resolve methods: `ResolveWorldPoint(FVector& Out, bool* OutUsedBone = nullptr) const` returns the pivot world point (Actor.Get(), PIE remap, optional bone path with `ActorLocation` fallback, Offset applied in world or local space); `ResolveBasisQuat(FQuat& Out) const` returns the basis quaternion the Composition Solver uses for `LocalCameraDirection` interpretation �?driven by `bUseSkeletalMeshForwardAsBasis`. Both share the same `Actor.Get()` + PIE-remap path.
-
-**Why `bUseSkeletalMeshForwardAsBasis` exists**: UE's `ACharacter` puts the `Mesh` SkeletalMeshComponent at `RelativeRotation = (0, -90, 0)` to compensate for the DCC-tool +Y-forward authoring convention (Maya / Max default rigs face +Y) vs. UE's gameplay-forward +X axis (used by `GetActorForwardVector`, MovementComponent, AI). Without this flag, `ResolveBasisQuat` returns `Actor->GetActorQuat()` �?the capsule's quat, which represents *gameplay* forward but is 90° off the *visible* mesh forward. With the flag on, it returns `SkelMeshComp->GetComponentQuat()` instead �?the world-space mesh quat, which IS the visible forward. Default `false` preserves V1.x behavior; toggle on for Character-style targets when authoring Shots so `LocalCameraDirection=(0, 0)` puts the camera in front of what the designer SEES, not in front of where the gameplay-forward arrow points. Silent fallback to actor quat when the actor has no SkelMesh (degraded but non-broken �?same behavior as if the flag were off).
-
-**PIE remap detail**: when a soft-ref to a Level Actor is captured at asset-authoring time, the stored path points at the **persistent editor world**. UE auto-fixes-up soft paths for **asset references** during PIE, but NOT for **Level-Actor references** �?the editor world stays loaded alongside the PIE world, and `Actor.Get()` resolves to the editor copy by default. The editor copy stays at its design-time placement regardless of PIE gameplay, so live positions don't reach the solver / debug gizmos. Inside `ResolveWorldPoint`, a `WITH_EDITOR`-gated `RemapToPIECounterpartIfNeeded` walks `GEngine->GetWorldContexts()` looking for a PIE world that contains a same-named actor (UE preserves FName when duplicating the level into PIE) and substitutes that. Cooked / packaged builds compile out the entire block �?there's only one world in those configs, no remap needed. Standalone editor and non-PIE states early-out via the `WorldType == EWorldType::Editor` guard. Cost: ~2 hash lookups per `ResolveWorldPoint` call in PIE; negligible vs. the math elsewhere in the solver.
-
-V1.x adopters: `FocusPullNode::ResolveTargetPoint` and `OcclusionFadeNode::ResolveTargetPoint`. Both used to inline an identical bone-walk-and-Z-offset block; their bodies are now ~15 lines each, constructing a transient struct, delegating to `ResolveWorldPoint(OutPoint, &bUsedBone)`, and adding `PivotZOffset` along world Z post-resolve only when `bUsedBone == false`. **Migrated zero behavior change** �?Docs/ShotBasedKeyframing.md §6.3-6.4 has the full pattern. The legacy semantic ("Z offset applies on the actor branch AND on the bone-failed-fallback branch, but NOT when the bone path resolves cleanly") is bit-exact preserved across all three cases by deferring the Z bump to the call site rather than baking it into the struct's `Offset` field.
-
-The `OutUsedBone` out-parameter on `ResolveWorldPoint` is optional (default `nullptr`) and exists solely for this legacy preservation. Composition Solver / Shot data callers pass `nullptr` and use the cleaner contract: `Offset` is always applied regardless of which path resolves.
-
-`CollisionPushNode` and `ScreenSpacePivotNode` are NOT migrated in V1.x. The first caches `SkeletalMeshComponentForPivotActor` on activation for hot-path speed (migrating loses the cache); the second has no bone path at all (`ActorPosition` mode is just `ActorLocation + WorldUpOffset` �?nothing duplicated to consolidate).
-
-The struct is also the data carrier for the Composition Solver / Shot system (Docs/ShotBasedKeyframing.md): `FShotTarget` embeds an `FComposableCameraTargetInfo` and the solver consumes its broader semantics directly (3D `Offset`, `bOffsetInLocalSpace`). All three layers (TargetInfo / ShotTarget / Shot + AnchorSpec) are in place as of Phase B (§3.25).
-
-Properties are `BlueprintReadOnly` per the Shot system's design principle "no runtime BP API for mutating Shot data" (Docs/ShotBasedKeyframing.md §1.4). The struct is `BlueprintType` for editor / Sequencer / Details panel reflection only.
-
-### 3.25 Composition Solver: 3-layer Shot �?camera pose pipeline (V2)
-
-```
-┌─ FComposableCameraShot ────────────────────────────�? ┌─ FShotSolveContext ─────�?�? Targets[]              (world-space anchors)      �? �? ViewportAspectRatio    �?�? Placement              (Position-deciding layer)  �? �? PreviousFrameFOV       �?�? Aim                    (Rotation-deciding layer)  �? └──────────┬──────────────�?�? Lens                   (FOV / Aperture)           �?            �?�? Focus                  (FocusDistance, indep.)    �?            �?�? Roll                   (composed onto Rotation)   �?            �?└──────────────────────┬─────────────────────────────�?            �?                       �?                                          �?                       �?                                          �?                ┌───────────────────  SolveShot(Shot, Context)  ───────────────�?                �?                                                             �?                �?  ┌─ SolvePlacement ─�? (Position)                           �?                �?  �? AnchorOrbit:    �?  CamPos = Anchor + Distance·Basis    �?                �?  �?  ResolveBasis �?�?          ·UnitDir(Yaw,Pitch) + ΔLatU �?                �?  �?  spherical +    �?                                      �?                �?  �?  ΔLat shift     �?                                      �?                �?  �? AnchorAtScreen: �?  decoupled (V2.2): SolveAnchorAt-   �?                �?  �?                 �?  ScreenPos under AssumedRot, then    �?                �?  �?                 �?  SolveAim �?drift O(rot Δ) per frame �?                �?  �? FixedWorldPos:  �?  CamPos = Placement.FixedWorldPos    �?                �?  └─────────┬────────�?                                      �?                �?            �?                                               �?                �?            �?                                               �?                �?  ┌─ SolveAim ───────�? (Rotation)                           �?                �?  �? LookAtAnchor:   �?  pre-rot ScreenPos by -Roll �?       �?                �?  �?                 �?  closed-form Pitch/Yaw �?+Roll       �?                �?  �? NoOp:           �?  identity + Roll (no anchor read)    �?                �?  └─────────┬────────�?                                      �?                �?            �?                                               �?                �?            �?                                               �?                �?  ┌─ SolveLens ──────�? (FOV)                                �?                �?  �? Manual:         �?  Shot.Lens.ManualFOV passthrough     �?                �?  �? SolvedFromBoundsFit: per-target BB project + perceptual �?                �?  �?                      union �?atan FOV inversion         �?                �?  └─────────┬────────�?                                      �?                �?            �?                                               �?                �?            �?                                               �?                �?  ┌─ SolveFocus ─────�? (FocusDistance �?independent of pose)�?                �?  �? Manual / FollowPlacement / FollowAim / FollowCustom     �?                �?  �? �?on-axis depth from CamPos to anchor                   �?                �?  └─────────┬────────�?                                      �?                └─────────────┼────────────────────────────────────────────────�?                              �?                              �?                ┌─ FShotSolveResult ─────────────────────────�?                �? bValid (false �?caller preserves upstream)�?                �? CameraPosition / CameraRotation           �?                �? FieldOfView / FocusDistance / Aperture    �?                └────────────────────────────────────────────�?```
-
-The Composition Solver consumes a `FComposableCameraShot` and produces a camera pose + lens parameters per frame. Lives header-inline at `Public/Math/ComposableCameraShotSolver.h` under namespace `ComposableCameraSystem::ShotSolver`. Headers split: small, generic primitives (`SolveCameraRotationForScreenTarget`, `ProjectWorldPointToScreen`) live in `Math/ComposableCameraMath.h`; Shot-specific orchestration lives in `Math/ComposableCameraShotSolver.h`.
-
-**V2 architecture**: 4 independent passes, each consuming its own sub-struct of `FComposableCameraShot` (`Placement` / `Aim` / `Lens` / `Focus`) and any of the three `FComposableCameraAnchorSpec` instances (PlacementAnchor / AimAnchor / FocusAnchor). Each pass returns false when its inputs can't resolve �?caller preserves upstream pose for the frame.
-
-**Pipeline** (acyclic �?see Docs/ShotBasedKeyframing.md §4.2 for the full diagram):
-
-1. **Placement** (`SolvePlacement`) �?camera Position. Two modes:
-   - `AnchorOrbit`: `ResolvePlacementBasis` �?BasisQuat (World identity unless `Placement.BasisFrame == InheritFromActor`, in which case it routes through `Targets[Placement.BasisActorIndex].ResolveBasisQuat()`). Then `SolveAnchorOrbitPosition`: `CamPos = PlacementAnchor + Distance · BasisQuat · UnitDir(Yaw, Pitch)` followed by lateral shift along basis-derived `CamRight` / `CamUp` to realize `Placement.ScreenPosition` (`DRight = -ScreenPos.X · 2·TanH · Distance`, `DUp = -ScreenPos.Y · 2·TanV · Distance`). The lateral shift uses tentative look-at-PlacementAnchor forward �?independent of Aim's eventual rotation. Distance is Euclidean (= camera-frame depth in the typical AimAnchor==PlacementAnchor case).
-   - `FixedWorldPosition`: `CamPos = Placement.FixedWorldPosition`. PlacementAnchor / Distance / Direction / ScreenPosition are unused.
-
-2. **Aim** (`SolveAim` �?`SolveLookAtAnchorRotation`) �?camera Rotation. Two modes:
-   - **`LookAtAnchor`**: pre-rotate `Aim.ScreenPosition` by `-Roll` via `PreRotateScreenForRoll` (anisotropic transform �?see Roll handling below); `(Pitch, Yaw) = SolveCameraRotationForScreenTarget(TanHalfHOR, Aspect, AimAnchor - CamPos, PreRotated.X, PreRotated.Y)` �?closed-form, lands AimAnchor at the post-Roll-corrected screen target. Compose `Roll = Shot.Roll` as the final operation.
-   - **`NoOp`**: short-circuits BEFORE AimAnchor resolution. Output rotation = `FRotator(0, 0, Shot.Roll)` (identity + Roll). `Aim.AimAnchor` / `Aim.ScreenPosition` unread, so an invalid AimAnchor index doesn't fail the pipeline. Editor renders the cyan Aim handle greyed-out + non-interactive in this mode. Use for FixedWorldPosition placements where rotation is owned by upstream nodes.
-   - **No Step B refinement** �?V1.x per-target gradient micro-refinement is gone. Per-target screen positions don't exist in V2; soft constraints are expressed through the layered architecture (different anchors for Placement and Aim).
-
-3. **Lens** (`SolveLens`) �?FOV. Two modes:
-   - `Manual`: `Shot.Lens.ManualFOV` passthrough.
-   - `SolvedFromBoundsFit`: `SolvePerceptualUnionBoxFOV` �?for each target with `BoundsShape != None`, project 8 BB vertices via `ProjectWorldPointToScreen` �?2D AABB; build a "perceptual box" (each per-target AABB pulled toward weighted centroid + extents scaled by `Importance = Weight / MaxWeight`), then closed-form FOV inversion `2 · atan(tan(CurrentFOV/2) · ApparentSize / DesiredViewportFillRatio)` clamped to `Shot.Lens.FOVClamp`. Direct port of BlackEyeCameras' `ULookAtComponent::GetTargetGroupViewportBoundingBox`.
-
-4. **Focus** (`SolveFocus`) �?focus distance. Independent of pose. Four modes:
-   - `Manual` �?`Shot.Focus.ManualDistance`.
-   - `FollowPlacementAnchor` �?on-axis depth from camera to PlacementAnchor.
-   - `FollowAimAnchor` �?on-axis depth from camera to AimAnchor.
-   - `FollowCustomAnchor` �?on-axis depth from camera to `Focus.FocusAnchor`'s resolved world point �?independent third anchor lets focus track a different point than placement / aim.
-   - On-axis depth = `(WorldPoint - CameraPos) · CameraForward`, same convention as `FocusPullNode`.
-
-**Top-level orchestrator**: `SolveShot(Shot, Context) �?FShotSolveResult { bValid, CameraPos, Rotation, FOV, FocusDistance, Aperture }`. `bValid == false` when Placement OR Aim fails to resolve (spec §5.3) �?caller preserves upstream pose for the frame.
-
-**Lens / Focus pre-fill on pose-failure paths** (V2.1 hot-fix): `SolveShot` writes `R.FieldOfView` and `R.FocusDistance` *before* the pose dispatch so the pose-failure early-returns (anchor unresolvable, `Distance < 1cm`, degenerate anchor seed) still carry a usable Lens value rather than the `FShotSolveResult` defaults. Manual FOV �?`Shot.Lens.ManualFOV` exactly (designer-authored); `SolvedFromBoundsFit` on pose-fail �?`Context.PreviousFrameFOV` (best-effort fallback �?bounds projection needs a valid pose, can't recompute without one). `FocusDistance �?Shot.Focus.ManualDistance` regardless of mode (the Manual fallback value the designer authored). `Aperture` was already passthrough. `bValid` semantics unchanged �?`false` still means "pose not trustworthy"; only the Lens fields are now decoupled from the pose-solve outcome. Editor viewport client honors this by applying `ViewFOV` BEFORE the `bValid` early-return so the Manual FOV slider stays live in unsolvable Shot states; runtime `CompositionFramingNode` ignores `R` entirely on `bValid=false` (preserves entire upstream pose, including FOV) so this change is observable only in the editor preview.
-
-**Roll handling**: `SolveShot` reads `Shot.Roll` and passes `DegreesToRadians(Shot.Roll)` to `SolveLookAtAnchorRotation`, which pre-rotates `Aim.ScreenPosition` through `PreRotateScreenForRoll`. The pre-rotation is the *inverse* of the screen transform a camera roll induces (`Sx_0 = Sx · cosR + (Sy / AR) · sinR`, `Sy_0 = -AR · Sx · sinR + Sy · cosR` �?anisotropic because `TanHalfHOR �?TanHalfVOR`). After the closed-form rotation solve, `CameraRot.Roll = Shot.Roll` is the final composition. Net effect: AimAnchor projects to `Aim.ScreenPosition` exactly under any Roll. Placement.ScreenPosition is realized via Translate (Position-changing), so the Roll pre-rotation doesn't apply there. See spec §4.8.
-
-**Design constraints**:
-- Header-inline. Same convention as `Math/ComposableCameraMath.h`.
-- No Blueprint surface (per spec §1.4). Solver consumers are C++ only �?`UComposableCameraCompositionFramingNode` and unit tests.
-- Chicken-and-egg with FOV in `SolvedFromBoundsFit` mode: projection uses previous-frame FOV (`Context.PreviousFrameFOV`). Manual mode uses authored value (exact one-frame solve). Solved mode converges in 1-2 frames after a Shot transition.
-
-**Test coverage**: `Private/Tests/ComposableCameraShotSolverTests.cpp` �?anchor-spec resolution (3 modes), placement basis resolution (World / InheritFromActor / out-of-range fallback), `SolveAnchorOrbitPosition` math (Yaw 0/90/180, screen-pos lateral shift), `SolveLookAtAnchorRotation` (centered + off-center), `SolvePlacement` dispatch (AnchorOrbit + FixedWorldPosition + unresolvable), `SolveAim` Roll composition, `SolveFocus` (4 modes + unresolvable Custom fallback), end-to-end `SolveShot` for single-anchor case + dual-anchor (PlacementAnchor != AimAnchor �?OTS-style framing) + Roll-preserves-AimScreenPosition sweep over `{0°, 15°, -30°, 75°}` at aspect 16:9 + V2.1 `AnchorAtScreen` hardening (degenerate-anchor �?bValid=false; authored screen pos outside envelope �?clamped + projects to clamp; damped Picard converges on stressful OTS �?short-Distance + corner ScreenPos + Roll).
-
-**V2.2 �?joint Picard removed, decoupled Cinemachine-style pipeline**:
-
-The V1 `AnchorAtScreen + LookAtAnchor` joint solver �?a 5-on-5 closed-form Picard fixed-point with damping �?has been deleted. `SolveShot` now runs the same closed-form Position + Rotation pipeline used by other Placement modes, with one twist: the Position pass needs an *assumed* rotation to evaluate `Placement.ScreenPosition`'s lateral offset in cam frame, so the AnchorAtScreen branch threads in either the Aim NoOp identity (`(0, 0, Shot.Roll)`), the prior frame's rotation (when `PriorPose != nullptr`), or a first-frame seed built from the `(PlacementAnchor �?AimAnchor)` direction.
-
-Trade-off: the position pass commits to its `AssumedRot`, then the Aim pass produces a (possibly different) final rotation, so PlacementAnchor's projected screen position drifts O(rotation delta) from `Placement.ScreenPosition`. With the prior frame's rotation seeding the assumption, drift is per-frame, washes out completely once framing zones are enabled (zones explicitly tolerate this drift), and is small enough to be invisible at typical character scale even without zones. Designers needing the V1 strict joint constraint should compose with `AnchorOrbit + LookAtAnchor` instead �?that mode has no decoupling at all (Position doesn't read `ScreenPosition`).
-
-API surface after the change: a single closed-form helper `SolveAnchorAtScreenPos(PlacementAnchorPos, ScreenPos, Distance, TanHalfHOR, AspectRatio, AssumedRot, OutCamPos)` covers both Aim NoOp and Aim LookAtAnchor; the V1 `SolveAnchorAtScreen` (Picard) and `SolveAnchorAtScreenIdentityRot` (algebraic NoOp) functions are gone. `UComposableCameraProjectSettings::Picard{MaxIterations, ConvergenceTolerance, Relaxation}` are removed too �?closed-form has nothing to tune.
-
-Pre-flight contract preserved: `Distance < 1cm` �?`bValid=false` (same fail-loud behavior); authored `ScreenPosition` outside `[-0.49, +0.49]²` is clamped with a one-shot warning; first-frame seed with `PlacementAnchor == AimAnchor` returns `bValid=false` (same degenerate-anchor fail). The "soft frustum-envelope clamp" warning text changed slightly (`"AnchorAtScreen ScreenPosition clamped"`, no longer distinguishing Aim/Placement source) �?tests use a `Contains` substring match on `"ScreenPosition clamped"` to remain compatible. `Roll` no longer needs to pre-rotate `Placement.ScreenPosition` because `AssumedRot` already includes Shot.Roll, so the cam-frame target lands correctly in the rolled view directly.
-
-**V2.2 hardening �?Cinemachine-style screen-space framing zones** (`FShotScreenZones`):
-
-- The solver entry point gained two **optional** parameters: `const FShotPriorPose* PriorPose = nullptr` + `float DeltaTime = 0.f`. When both are supplied AND the per-anchor `bEnabled` flag is set (`Aim.AimZones.bEnabled` for the rotation constraint, `Placement.PlacementZones.bEnabled` for the AnchorAtScreen position constraint), the solver pre-projects the corresponding anchor through `*PriorPose` and substitutes a zone-derived effective screen target for the V1 hard `ScreenPosition` read. When either is absent OR zones are disabled, the V1 hard-constraint behavior is preserved exactly �?every existing call site with default arguments keeps working.
-- `ApplyScreenZones(CurrentScreen, AuthoredScreen, Zones, dt) �?FVector2D` is the pure-math primitive (header-inline). Three steps per axis: (1) per-side dead-zone residual �?`err > +Right �?eff = err - Right`; `err < -Left �?eff = err + Left`; else `eff = 0` (asymmetric paddings �?anchor inside dead rect �?0 residual �?camera holds), (2) damp residual toward 0 via `FMath::FInterpTo` (`FInterpTo` Speed semantics �?`Speed = 0` snaps to dead-edge in one frame), (3) clamp the residual to the soft-padding rectangle (`new_err.x �?[-SoftLeft, +SoftRight]`, `new_err.y �?[-SoftBottom, +SoftTop]`) as a no-damping hard limit. Soft sides are defensively `>=` the matching dead sides �?drag handler enforces on author, solver clamps inside the math too. Convention chosen so `Speed` is the Cinemachine-equivalent damping knob and matches `UComposableCameraIIRInterpolator::Speed` for cross-plugin consistency. Unit tests live in `Private/Tests/ComposableCameraShotSolverTests.cpp` under the `Zones.*` namespace (interior holds, edge holds, soft damps, zero-Speed snap, hard clamp, disabled passthrough).
-- `ResolveEffectiveScreenTarget(Anchor, Targets, Authored, Zones, Prior, TanH, AR, dt) �?FVector2D` is the convenience wrapper that does the projection + zone application + handles the no-op fallbacks (zones disabled / anchor unresolvable / projection degenerate). All three fallbacks return `Authored` unchanged so the V1 path receives sensible input regardless.
-- Anchor unresolvable when the prior pose is supplied returns `Authored` instead of failing �?the solver will fail downstream on the same anchor anyway, but a one-frame "fall back to V1 target" is preferable to a NaN'd zone math chain when an anchor flickers in/out of resolvability mid-blend.
-- `SolveAim` was rewritten to take the effective screen target as an explicit parameter (`EffectiveAimScreenPos`) rather than reading `Shot.Aim.ScreenPosition` directly. Callers that don't use zones pass the authored value verbatim. The change is source-compatible at every call site �?`SolveShot` does the substitution at the entry point.
-- `SolveAnchorAtScreenPos` (the V2.2 unified closed-form Position helper) takes `ScreenPos` as a parameter directly; the V2.2 zone-derived effective screen target is forwarded unchanged.
-
-
-### 3.26 `UComposableCameraCompositionFramingNode`: solver consumer (Phase C + Phase F two-Shot blend)
-
-```
-                     LSComponent (per frame, override active)
-                                  �?                                  �?       SetActiveShotsFromSequencer(Primary, Secondary?, Transition?, Alpha, bPrimaryChanged, bPrimaryWasPreviousSecondary, bSecondaryChanged)
-       SetExternalAspectRatioOverride(EffectiveAspect)
-                                  �? writes Shot, SecondaryShot,
-                                  �? ActiveBlendTransition, ActiveBlendAlpha,
-                                  �? ExternalAspectRatioOverride
-                                  �?       ┌─ OnTickNode_Implementation(DeltaTime, CurrentPose, OutPose) ────────�?       �?                                                                   �?       �? 1. Refresh AutoFromComponentBounds caches per BoundsCachePolicy    �?       �?    (Live / Periodic / StaticSnapshot �?frame counter snapshot      �?       �?     shared between primary + secondary so phases align)            �?       �?                                                                   �?       �? 2. Build FShotSolveContext                                         �?       �?      ViewportAspectRatio  �?Override > 0 ? Override                �?       �?                             : GetEffectiveViewportAspectRatio(PCM) �?       �?      PreviousFrameFOV    �?upstream pose's effective FOV           �?       �?                                                                   �?       �? 3. PrimaryResult = SolveShot(Shot, Context)                        �?       �?      bValid=false �?OutPose = CurrentPose; return                  �?       �?      bValid=true  �?ApplySolverResultToPose �?PrimaryPose          �?       �?                                                                   �?       �? 4. (Phase F) if bHasSecondaryShot && ActiveBlendTransition:        �?       �?      SecondaryResult = SolveShot(SecondaryShot, Context)           �?       �?      SecondaryResult.bValid=false �?OutPose = PrimaryPose          �?       �?      else:                                                         �?       �?        EasedAlpha = ActiveBlendTransition->Transition              �?       �?                      ->GetBlendWeightAt(ActiveBlendAlpha)          �?       �?        OutPose = PrimaryPose                                       �?       �?        OutPose.BlendBy(SecondaryPose, EasedAlpha)                  �?       �?                                                                   �?       �?    else: OutPose = PrimaryPose                                     �?       �?                                                                   �?       �? 5. ++LocalFrameCounter                                             �?       └────────────────────────────────────────────────────────────────────�?
-         ApplySolverResultToPose writes:
-           Position / Rotation / FieldOfView / Aperture / FocusDistance
-           FocalLength = -1 (FOV-authoritative sentinel)
-           PhysicalCameraBlendWeight = 1 (renderer DoF routing)
-```
-
-The camera node that wraps the Composition Solver (§3.25) and connects it to the camera evaluation pipeline. Lives at `Public/Nodes/ComposableCameraCompositionFramingNode.h`. Palette category `"Framing"`.
-
-**Authoring shape**: One UPROPERTY `Shot: FComposableCameraShot`, edited fully in the node's Details panel inside the camera type asset. **No pin declarations** �?`FComposableCameraShot` contains `TArray<FShotTarget>` which violates the pin data block's POD-only contract (§3.2). LS Shot Sections push Shot updates via the `SetActiveShotsFromSequencer` runtime API, not through pin wiring.
-
-**Phase F runtime API** �?`SetActiveShotsFromSequencer(Primary, Secondary?, Transition?, Alpha, bPrimaryChanged, bPrimaryWasPreviousSecondary, bSecondaryChanged)`. Called by the LSComponent's blender (§3.27) every frame an override is active. Writes `Primary` into the existing `Shot` UPROPERTY, and stores `Secondary` / `Transition` / `Alpha` in transient `bHasSecondaryShot` / `SecondaryShot` (UPROPERTY Transient) / `ActiveBlendTransition` (UPROPERTY Transient TObjectPtr) / `ActiveBlendAlpha` fields. Secondary state is active iff BOTH a secondary Shot AND a non-null transition asset are provided �?null transition collapses to V1 single-Shot behavior (the secondary is ignored), preserving the V1 top-row-winner semantic for the no-transition case. The identity bools let the node distinguish a true hard cut from the authored-overlap handoff A+B -> B and reseed a changed secondary participant for A+B -> A+C.
-
-**Tick behavior** (pose-overwriting):
-- Snapshot `LocalFrameCounter` so primary + secondary bounds-cache refreshes share the same "this tick is N" decision (no phase drift between two shots).
-- Per target on `Shot.Targets` with `BoundsShape == AutoFromComponentBounds`, refresh cache per `BoundsCachePolicy`: `Live` every frame, `Periodic` when `Snapshot % BoundsRefreshIntervalFrames == 0`, `StaticSnapshot` never (cache seeded once in `OnInitialize`).
-- Build `FShotSolveContext` �?`ViewportAspectRatio` from `UE::ComposableCameras::GetEffectiveViewportAspectRatio` (PCM-optional, LS-compatible per §3.18); `PreviousFrameFOV` from upstream `CurrentCameraPose.GetEffectiveFieldOfView()` with fallback to `Shot.ManualFOV` / 79° on first-tick edge case. The same context is shared between both solver passes when secondary is active �?the previous-frame FOV reference is the prior blended output (implicit in the upstream pose).
-- **Primary pass**: `SolveShot(Shot, Context)` �?`FShotSolveResult`. On `bValid=false` (anchor unresolvable), pass-through upstream pose (`OutCameraPose = CurrentCameraPose`); secondary is intentionally NOT attempted in this fallback so the V1 "hold last frame" semantic is preserved when the active framing breaks.
-- On primary `bValid=true`, apply solver result to a `PrimaryPose` snapshot via the static helper `ApplySolverResultToPose` (writes `Position` / `Rotation` / `FieldOfView` / `Aperture` / `FocusDistance` from the result; forces `FocalLength = -1` for FOV-authoritative mode, `PhysicalCameraBlendWeight = 1` for renderer DoF routing).
-- **Secondary pass** (Phase F): when `bHasSecondaryShot && ActiveBlendTransition->Transition` are both present, also refresh `SecondaryShot.Targets` bounds caches (using the same snapshot for phase alignment), call `SolveShot(SecondaryShot, Context)`, and on `bValid=true` apply the result to a `SecondaryPose` snapshot. Sample the eased blend weight via `Transition->GetBlendWeightAt(ActiveBlendAlpha)` �?pure-math read of the transition's ease curve at the overlap-window-driven NormalizedTime; the transition's own time-based state (`RemainingTime` / `Percentage`) is intentionally bypassed because the Section overlap window is the authoritative duration source. Output: `OutCameraPose = PrimaryPose; OutCameraPose.BlendBy(SecondaryPose, EasedAlpha)`.
-- Secondary unresolvable (primary still valid) falls through to primary-only output �?avoids visible pop on transient Spawnable / per-target binding-override gaps.
-- Increment `LocalFrameCounter` once at the end of every tick (advance per-tick, regardless of which output path was taken).
-
-**Phase F transition compatibility**: only the transition asset's *ease curve* is consumed via `GetBlendWeightAt`. Pure ease-style transitions (`Linear`, `Cubic`, `Smooth`, `Ease`, `BlendCamera`) work as authored. Stateful transitions (`Inertialized`, `Spline`, `Cylindrical`, `PathGuided`) degrade to a linear pose interpolation shaped by their ease-curve sample only �?they lose their polynomial / path-based trajectory shaping. Acceptable for V1 (designers expect ease shaping at a Shot boundary, not full re-trajectoried paths).
-
-**Patch compatibility**: `EComposableCameraNodePatchCompatibility::Incompatible`. The node OWNS the pose by design; layering a Patch on top has no defined semantics. Same classification as `RelativeFixedPoseNode` / `MixingCameraNode` / `ViewTargetProxyNode`.
-
-**Recommended composition**: Place this node FIRST in the camera's chain. Upstream nodes (if any) are wasted because the solver writes a fresh pose every tick. Downstream nodes (`LensNode` / `FocusPullNode` / `CollisionPushNode`) can post-modify the solver output if you want to layer additional behavior (e.g. extra DoF tweaks via downstream LensNode, runtime focus drift via FocusPullNode).
-
-**Debug visualization**: `CCS.Debug.Viewport.CompositionFraming 1` (requires `CCS.Debug.Viewport 1`) �?orange sphere at the resolved anchor world position; small white spheres at each tracked Target pivot. Currently visualizes the primary Shot only �?the secondary's anchor / targets are not drawn.
-
-**LS path compatibility**: works without a PCM (the only PCM-touching API is `GetEffectiveViewportAspectRatio` which has the LS / GameViewport / sentinel fallback chain). No `RequiresPCM` classification needed.
-
-**Framing-zone prior-pose state (V2.2)**. When the consumed Shot has any `bEnabled` framing zone (Aim or Placement), the solver becomes pose-state-aware (§3.25 V2.2 hardening). The state lives here:
-- `bHasLastPrimaryOutputPose` + `LastPrimaryOutputPosition` + `LastPrimaryOutputRotation` �?primary Shot's last solved pose. Read into a stack-local `FShotPriorPose` and handed to `SolveShot` as the `PriorPose*` argument when `bHas...` is true (`nullptr` otherwise �?V1 hard-seed path).
-- `bHasLastSecondaryOutputPose` + analogous fields �?Phase F secondary Shot's prior pose. Independent IIR per shot; the two damped poses are blended via `FComposableCameraPose::BlendBy` (the Phase F decision was option B over option A �?zones-during-blend with stacked IIR responses, accepted by designers).
-- Cache writeback happens unconditionally on any successful solve (`Result.bValid == true`) so future authoring changes that flip `bEnabled` from off �?on have a usable prior pose immediately, without a one-frame seed.
-- `OnInitialize` clears both `bHas*` flags (camera reactivation context shift would otherwise project anchors through a stale pose).
-
-- AnchorAtScreen + LookAtAnchor hard seeds (PriorPose == nullptr) run a bounded joint Picard pass before any zone state is cached. This makes Shot activation / Section transitions / Shot Editor context swaps pin both authored screen positions on frame 0; the cheaper prior-pose decoupled path still owns steady-state zone damping.
-- LS Shot re-entry reset: `RemoveSequencerShotOverride` clears `LastActivePrimarySection` / `LastActiveSecondarySection` when it removes either tracked Section or empties `SequencerShotOverrides`. `TickComponent` skips `ApplyActiveSequencerShotOverride` while the map is empty, so removal must own this reset; otherwise the same Section can re-enter after a gap with stale zone prior state and the first frame lands on the Dead/SoftZone path instead of the authored ScreenPosition.
-- `SetActiveShotsFromSequencer` detects primary and secondary identity changes. If the new primary was the previous secondary (`bPrimaryWasPreviousSecondary`), the node promotes `LastSecondaryOutput*` into `LastPrimaryOutput*` so authored overlap exits A+B -> B keep zone / damping continuity. Otherwise a changed primary is a true hard cut and clears the primary cache. A changed active secondary (`bSecondaryChanged`) clears the secondary cache so A+B -> A+C does not reuse B's prior pose for C. Any non-blend tick still clears the secondary cache because the next blend's secondary Shot will likely have different anchors.
-- Scrub / reverse playback (`DeltaTime <= 0`) is *not* detected as a state-reset trigger by design �?`FInterpTo` with non-positive `dt` is a no-op (returns Current), so a backward-scrubbed frame produces "anchor doesn't move" rather than "anchor snaps to V1 target". Designer-visible: scrubbing backward through a damped section will not bit-exactly reproduce the forward-play trajectory; documented as a scrub-determinism trade-off.
-
-### 3.27 LSComponent inter-Shot blender (Phase F)
-
-`UComposableCameraLevelSequenceComponent::ApplyActiveSequencerShotOverride` �?picks the active Shot pair from the per-section override map and pushes it to the framing node every tick the override map is non-empty.
-
-**Algorithm**:
-1. Walk `SequencerShotOverrides` (TMap keyed by Section weak pointer). Prune entries whose section weak pointer no longer resolves; collect the rest into a `TArray<const FShotEntry*, TInlineAllocator<4>>` (typical N is 1-3, inline alloc avoids heap touch).
-2. Sort ascending by `RowIndex`. Lowest row = primary (V1 top-row winner stays primary throughout the overlap); next-lowest row = secondary (incoming side of the blend, owns the `EnterTransition`). Third+ entries silently dropped (handoff §F decision Q3 �?V1 only blends the lowest two by row).
-3. Find the first `UComposableCameraCompositionFramingNode` on `InternalCamera->CameraNodes` (Phase E.5's default ShotTypeAsset bootstrap guarantees exactly one).
-4. Compare current primary against `LastActivePrimarySection`; compare current primary against `LastActiveSecondarySection` to detect the authored handoff A+B -> B; compare current secondary against `LastActiveSecondarySection` to detect A+B -> A+C secondary swaps. Then update both trackers for the next frame.
-5. Dispatch:
-   - 1 entry �?`Framing->SetActiveShotsFromSequencer(Primary->Shot, nullptr, nullptr, 0.0f, bPrimaryChanged, bPrimaryWasPreviousSecondary, bSecondaryChanged)` �?single-Shot path (clears any previous secondary state, but can promote the old secondary prior when this is an authored overlap exit).
-   - 2+ entries �?`Framing->SetActiveShotsFromSequencer(Primary->Shot, &Secondary->Shot, Secondary->EnterTransition, Secondary->BlendAlpha, bPrimaryChanged, bPrimaryWasPreviousSecondary, bSecondaryChanged)`. Null `EnterTransition` collapses inside the framing node to single-Shot V1 behavior.
-
-**BlendAlpha source**: precomputed in `UMovieSceneComposableCameraShotTrackInstance::OnAnimate` (§3.28) as `(CurrentFrame - overlap_start) / overlap_ticks` for the higher-row entry of an overlap pair, against its immediately-below-row in-range overlapping peer. Lower-row entries always have `BlendAlpha = 1.0` (the blender doesn't read it from them).
-
-**Persistence semantics**: when `SequencerShotOverrides` empties (gap between sections / past the final section), no Apply call fires, so the framing node's last-written state persists �?camera holds its last framing. Same gap-fill behavior Phase E established; F preserves it.
-
-### 3.28 Shot TrackInstance two-pass overlap analysis (Phase F)
-
-`UMovieSceneComposableCameraShotTrackInstance::OnAnimate` rewritten as two passes so per-entry BlendAlpha can be computed against cross-section visibility (each section's alpha is computed against its lower-row peer �?needs to know about ALL active inputs, not one at a time).
-
-**Pass 1 �?collect**: for each in-range input, resolve `(Section, LSComp, EffectiveShot via Section->BuildEffectiveShot, RowIndex, Range, CurrentFrame via Instance.GetContext().GetTime().FloorToFrame, EnterTransition via TSoftObjectPtr::Get with LoadSynchronous only as the not-yet-resident fallback)`. Push to a local `TArray<FResolvedShotInput>`.
-
-**Pass 2 �?compute alpha + push**: for each entry, find the *immediately-below-row* in-range overlapping peer with the SAME LSComp (largest RowIndex strictly below this entry's, with non-empty `TRange::Intersection`). If found, alpha = `saturate( (CurrentFrame - overlap_start) / overlap_ticks )`; else alpha = 1.0. Push (Shot, RowIndex, EnterTransition, BlendAlpha) as a single `FShotEntry` struct via `LSComp->SetSequencerShotOverride(Section, Entry)`.
-
-Same-LSComp scoping matters when one Sequencer drives multiple LS Actors via separate parent bindings �?each LSActor's Shot Track has its own row layout, and rows on different cameras must NOT cross-blend. Hot path: O(N²) overlap pair search but N is the number of currently-active sections on the same track (typically 1-3); the cost is negligible compared to `BuildEffectiveShot`.
-
-Touching ranges (zero-width intersection) are treated as hard cuts �?`OverlapTicks <= 0` returns `BlendAlpha = 1.0` so the higher-row entry is fully active at the boundary.
-
----
-
-## 4. Data flow summary
-
-```
-Caller (BP / C++)
-    �?    �? ActivateNewCameraFromTypeAsset(Context, TypeAsset, Params, Transition)
-PCM ────────�?ContextStack::EnsureContext ────�?Director::ActivateNewCamera
-                                                    �?                                                    �?                                        spawn AComposableCameraCameraBase
-                                                    �?                                        (OnPreBeginplayEvent)
-                                                    �?                                        OnTypeAssetCameraConstructed
-                                             ├─ Duplicate NodeTemplates �?CameraNodes
-                                             ├─ Duplicate ComputeNodeTemplates �?ComputeNodes
-                                             ├─ Build RuntimeDataBlock (offsets)
-                                             ├─ Apply exposed parameters (Params �?block)
-                                             ├─ Apply per-instance overrides
-                                             └─ InitializeNodes (Node::OnInitialize each)
-                                                    �?                                        PCM::ApplyModifiers(Camera, bNew=true)
-                                                    �?                                        FinishSpawning �?BeginPlay
-                                                    �?                                        BeginPlayCamera �?ExecuteBeginPlay on each ComputeNode
-                                                    �?                                        Director::EvalTree::OnActivateNewCamera
-                                             └─ wrap root in [Inner: Transition]
-                                                     with (prev root, new leaf)
-
-=== Per frame ===
-PCM::UpdateCamera(dt)
-    ├─ ContextStack::Evaluate(dt)          �?only the active director gets Evaluate called
-    �?    └─ Director::Evaluate(dt)
-    �?          └─ EvaluationTree::Evaluate(dt)
-    �?                ├─ Leaf::Evaluate    �?Camera::TickCamera(dt)
-    �?                �?                        ├─ early-out if LastTickedFrameCounter == GFrameCounter
-    �?                �?                        ├─ ResolveAllInputPins (auto)
-    �?                �?                        └─ for each CameraNode: OnTickNode(pose, dt)
-    �?                ├─ RefLeaf::Evaluate �?SnapshotRoot->Evaluate(dt)
-    �?                �?                        (walks captured subtree; does NOT call Director::Evaluate)
-    �?                └─ Inner::Evaluate   �?early-out if cached this frame
-    �?                                        Transition::Evaluate(dt, left, right)
-    �?                                        �?collapse if bFinished
-    ├─ ApplyModifiers(Camera, bNew=false)
-    └─ set ViewTarget pose
-```
-
----
-
-## 5. Built-in node / transition / modifier catalog
-
-Authoritative lists live in the headers; this table is a pointer map. Consult the header when in doubt.
-
-**Camera nodes** (`Nodes/` �?per-frame):
-
-| Class | Header |
-|---|---|
-| `UComposableCameraFieldOfViewNode` | `Nodes/ComposableCameraFieldOfViewNode.h` |
-| `UComposableCameraLensNode` | `Nodes/ComposableCameraLensNode.h` |
-| `UComposableCameraExposureNode` | `Nodes/ComposableCameraExposureNode.h` |
-| `UComposableCameraFilmbackNode` | `Nodes/ComposableCameraFilmbackNode.h` |
-| `UComposableCameraOrthographicNode` | `Nodes/ComposableCameraOrthographicNode.h` |
-| `UComposableCameraLookAtNode` | `Nodes/ComposableCameraLookAtNode.h` |
-| `UComposableCameraControlRotateNode` | `Nodes/ComposableCameraControlRotateNode.h` |
-| `UComposableCameraAutoRotateNode` | `Nodes/ComposableCameraAutoRotateNode.h` |
-| `UComposableCameraPivotRotateNode` | `Nodes/ComposableCameraPivotRotateNode.h` |
-| `UComposableCameraCameraOffsetNode` | `Nodes/ComposableCameraCameraOffsetNode.h` |
-| `UComposableCameraPivotOffsetNode` | `Nodes/ComposableCameraPivotOffsetNode.h` |
-| `UComposableCameraPivotDampingNode` | `Nodes/ComposableCameraPivotDampingNode.h` |
-| `UComposableCameraPivotLookAheadNode` | `Nodes/ComposableCameraPivotLookAheadNode.h` |
-| `UComposableCameraLockOnAimPointNode` | `Nodes/ComposableCameraLockOnAimPointNode.h` |
-| `UComposableCameraReceivePivotActorNode` | `Nodes/ComposableCameraReceivePivotActorNode.h` |
-| `UComposableCameraRelativeFixedPoseNode` | `Nodes/ComposableCameraRelativeFixedPoseNode.h` |
-| `UComposableCameraScreenSpaceConstraintsNode` | `Nodes/ComposableCameraScreenSpaceConstraintsNode.h` |
-| `UComposableCameraScreenSpacePivotNode` | `Nodes/ComposableCameraScreenSpacePivotNode.h` |
-| `UComposableCameraCompositionFramingNode` | `Nodes/ComposableCameraCompositionFramingNode.h` (Phase C �?wraps the Composition Solver, owns the camera pose) |
-| `UComposableCameraDirectionalMoveNode` | `Nodes/ComposableCameraDirectionalMoveNode.h` |
-| `UComposableCameraTwoPointMoveNode` | `Nodes/ComposableCameraTwoPointMoveNode.h` |
-| `UComposableCameraSplineNode` | `Nodes/ComposableCameraSplineNode.h` |
-| `UComposableCameraSpiralNode` | `Nodes/ComposableCameraSpiralNode.h` |
-| `UComposableCameraCollisionPushNode` | `Nodes/ComposableCameraCollisionPushNode.h` |
-| `UComposableCameraOcclusionFadeNode` | `Nodes/ComposableCameraOcclusionFadeNode.h` |
-| `UComposableCameraVolumeConstraintNode` | `Nodes/ComposableCameraVolumeConstraintNode.h` |
-| `UComposableCameraFocusPullNode` | `Nodes/ComposableCameraFocusPullNode.h` |
-| `UComposableCameraHitchcockZoomNode` | `Nodes/ComposableCameraHitchcockZoomNode.h` |
-| `UComposableCameraPostProcessNode` | `Nodes/ComposableCameraPostProcessNode.h` |
-| `UComposableCameraImpulseResolutionNode` | `Nodes/ComposableCameraImpulseResolutionNode.h` |
-| `UComposableCameraMixingCameraNode` | `Nodes/ComposableCameraMixingCameraNode.h` |
-| `UComposableCameraViewTargetProxyNode` | `Nodes/ComposableCameraViewTargetProxyNode.h` |
-| `UComposableCameraBlueprintCameraNode` | `Nodes/ComposableCameraBlueprintCameraNode.h` |
-| `UComposableCameraRotationConstraints` | `Nodes/ComposableCameraRotationConstraints.h` (helper, not a standalone graph node) |
-
-**Compute nodes** (`Nodes/` �?one-shot at BeginPlay):
-
-| Class | Header |
-|---|---|
-| `UComposableCameraComputeDistanceToActorNode` | `Nodes/ComposableCameraComputeDistanceToActorNode.h` |
-
-**Transitions** (`Transitions/`):
-
-| Class | Header |
-|---|---|
-| `UComposableCameraLinearTransition` | `Transitions/ComposableCameraLinearTransition.h` |
-| `UComposableCameraSmoothTransition` | `Transitions/ComposableCameraSmoothTransition.h` |
-| `UComposableCameraCubicTransition` | `Transitions/ComposableCameraCubicTransition.h` |
-| `UComposableCameraEaseTransition` | `Transitions/ComposableCameraEaseTransition.h` |
-| `UComposableCameraCylindricalTransition` | `Transitions/ComposableCameraCylindricalTransition.h` |
-| `UComposableCameraInertializedTransition` | `Transitions/ComposableCameraInertializedTransition.h` |
-| `UComposableCameraPathGuidedTransition` | `Transitions/ComposableCameraPathGuidedTransition.h` |
-| `UComposableCameraSplineTransition` | `Transitions/ComposableCameraSplineTransition.h` |
-| `UComposableCameraDynamicDeocclusionTransition` | `Transitions/ComposableCameraDynamicDeocclusionTransition.h` |
-| `UComposableCameraViewTargetTransition` | `Transitions/ComposableCameraViewTargetTransition.h` (bridges engine `FViewTargetTransitionParams`) |
-
-**Modifiers** (`Modifiers/`):
-
-Only `UComposableCameraModifierBase` ships in the plugin. Concrete modifiers are project-owned.
-
-**Camera Patch System** (`Patches/` + `DataAssets/`):
-
-| Class / Header | Role |
-|---|---|
-| `UComposableCameraPatchTypeAsset` (`DataAssets/ComposableCameraPatchTypeAsset.h`) | Subclass of `UComposableCameraTypeAsset`. Reuses graph editor unchanged. Adds Patch-default fields (EnterDuration / ExitDuration / EaseType / LayerIndex / ExpirationType / Duration) and the `CanRemain` BlueprintNativeEvent for the Condition channel. |
-| `UComposableCameraPatchManager` (`Patches/ComposableCameraPatchManager.h`) | Director subobject. Owns `ActivePatches`, performs `AddPatch` / `ExpirePatch` / `ExpireAll` (soft sweep �?each patch runs its own exit ramp) / `Apply` / `DestroyAll` (hard sync teardown) / `BuildDebugSnapshot`. |
-| `UComposableCameraPatchInstance` (`Patches/ComposableCameraPatchInstance.h`) | Per-Patch runtime state: Evaluator actor, LayerIndex / PushSequence, Phase / CurrentAlpha / ExitStartAlpha / ElapsedInPhase / ElapsedTimeActive, Schedule fields, RunningCameraAtAdd snapshot, CachedParameters. |
-| `UComposableCameraPatchHandle` (`Patches/ComposableCameraPatchHandle.h`) | Caller-facing weak wrapper; getters for IsActive / GetPhase / GetAlpha / GetElapsedTime. |
-| Enums (`Patches/ComposableCameraPatchTypes.h`) | `EComposableCameraPatchExpirationType` (bitmask: Duration / Manual / Condition), `EComposableCameraPatchEase` (Linear / EaseIn / EaseOut / EaseInOut / Smooth), `EComposableCameraPatchPhase` (Entering / Active / Exiting / Expired). |
-| `FComposableCameraPatchActivateParams` (`Patches/ComposableCameraPatchTypes.h`) | Every overridable field uses paired `bOverride*` + value idiom (`InlineEditConditionToggle` + `EditCondition`, same shape as `FPostProcessSettings::bOverride_*`): `bOverrideEnterDuration` / `bOverrideExitDuration` / `bOverrideExpirationType` / `bOverrideDuration` / `bOverrideLayerIndex`. **Two distinct authoring surfaces**: in details panels the bool is an inline checkbox next to the value (unchecked �?asset default, checked �?override); in BP MakeStruct the bool is *not* a separate pin and its runtime value is the per-pin "Show as Pin" state of the gated value (shown �?override, hidden �?asset default). See §7.2 for the full failure-mode write-up. `bExpireOnCameraChange` has no asset default and stays as a plain bool. Exposed parameter / exposed variable values flow through a separate `FComposableCameraParameterBlock` argument to `AddPatch`; the K2 node `UK2Node_AddCameraPatch` builds that block from typed dynamic pins. |
-| `EComposableCameraNodePatchCompatibility` + `GetPatchCompatibility()` BP event (`Nodes/ComposableCameraCameraNodeBase.h`) | Compatible / Incompatible / CompatibleWithCaveat. Default Compatible; overrides on `RelativeFixedPose` / `MixingCameraNode` / `ViewTargetProxyNode` (Incompatible) and `ReceivePivotActorNode` (CompatibleWithCaveat). |
-| `UMovieSceneComposableCameraPatchTrack` (`MovieScene/MovieSceneComposableCameraPatchTrack.h`) | Root-level Sequencer track (no object binding); stores `TArray<TObjectPtr<UMovieSceneSection>>`. SupportsType filters to `UMovieSceneComposableCameraPatchSection`. SupportsMultipleRows = true; SupportsEasing = All. |
-| `UMovieSceneComposableCameraPatchSection` (`MovieScene/MovieSceneComposableCameraPatchSection.h`) | Subclass of `UMovieSceneParameterSection`. Properties: PatchAsset, TargetActorBinding (FMovieSceneObjectBindingID �?sole addressing for Sequencer-driven patches), Params, Parameters / Variables FInstancedPropertyBag (static defaults). Inherited Scalar/Bool/Vector2D/Vector/Color curve arrays carry keyed channels. `ImportEntityImpl` overrides parent to emit `FMovieSceneTrackInstanceComponent`. `BuildParameterBlock(FFrameNumber, OutBlock)` samples channels at the given frame, falls back to bag. |
-| `UMovieSceneComposableCameraPatchTrackInstance` (`MovieScene/MovieSceneComposableCameraPatchTrackInstance.h`, private) | Pure forwarder to LS Component overlay API. OnAnimate per-frame �?resolve TargetActorBinding �?LS Component �?SetSequencerPatchOverlay(section, params, alpha). OnInputRemoved �?RemoveSequencerPatchOverlay. OnDestroyed �?walk inputs and Remove each. No PCM/Director path here �?that lives in the BP `AddCameraPatch` library entry instead. |
-| `FComposableCameraSequencerPatchOverlay` + `SetSequencerPatchOverlay` / `RemoveSequencerPatchOverlay` / `ApplySequencerPatchOverlays` (`LevelSequence/ComposableCameraLevelSequenceComponent.h`) | LS Component's overlay registry + per-tick application. Lazy-spawns evaluator on first push, applies overlays sorted by Section's resolved LayerIndex in TickComponent (after InternalCamera tick, before projection), writes Position + Rotation + FOV to CineCamera. Runs in all worlds while the host LS Actor exists. |
-| `UComposableCameraPatchManager::ApplyParameterBlockToActivePatch` (`Patches/ComposableCameraPatchManager.h`) | Mid-life parameter mutation. Re-applies a parameter block to a live evaluator's runtime data block via `Asset->ApplyParameterBlock` (same path the LS Component uses). No-op on null/stale handles or Patches in Exiting/Expired phase. Drives Sequencer per-frame parameter keying. |
-
-The Patch evaluator is just an `AComposableCameraCameraBase` constructed via `ConstructCameraFromTypeAsset` (PCM-independent path, same as LS); no new actor class.
-
----
-
-## 6. Editor technique notes
-
-- **Graph backbone:** `UComposableCameraNodeGraph` (extends `UEdGraph`) with schema `UComposableCameraNodeGraphSchema`. Graph is serialized **inside** the type asset as an instanced subobject.
-- **Palette categorization (CDO-driven):** `UComposableCameraCameraNodeBase::PaletteCategory` (FName, `EditDefaultsOnly`, `meta = (NoPinExposure)`, default `"Misc"`) carries each node class's palette subcategory. C++ nodes set it in their constructor (one-line inline ctor in the header �?`UComposableCameraXyzNode() { PaletteCategory = TEXT("Rotation"); }`); Blueprint subclasses of `UComposableCameraBlueprintCameraNode` set it via the Class Defaults panel �?symmetric for both authoring paths. `BuildCameraNodePaletteActions` / `BuildComputeNodePaletteActions` read `Class->GetDefaultObject<UComposableCameraCameraNodeBase>()->PaletteCategory` per iteration and format `"Camera Nodes|<SubCategory>"` (or `"Compute Nodes|<SubCategory>"`) �?UE's `FEdGraphSchemaAction::Category` honors `|` as a path delimiter so the menu nests automatically. Adding a new subcategory requires the node author to set a new string in their constructor; the schema picks it up unmodified, no per-action logic. Why not `UCLASS(meta = (PaletteCategory = "..."))`: meta is C++-only, BP subclasses would have no way to set it �?same reason Niagara / Cascade / GameplayAbility put their palette / category info on a CDO `UPROPERTY` rather than UCLASS meta. Built-in V1 categories listed in EditorDesignDoc § Node Palette.
-- **Graph node base:** `UComposableCameraGraphNodeBase`. Subclasses: `StartGraphNode` (camera chain start), `BeginPlayStartGraphNode` (compute chain start), `OutputGraphNode` (final pose output), `NodeGraphNode` (wraps a camera/compute node template), `VariableGraphNode` (Get/Set variable, tracked by GUID for rename stability).
-- **Pin rendering:** `EComposableCameraPinType` �?`FEdGraphPinType` is converted by `ComposableCameraEdGraphPinTypeUtils` (in `ComposableCameraSystemUncookedOnly`). Slate widgets come from `SComposableCameraGraphNode`, `SComposableCameraExposedPin`, `SComposableCameraGraphPinFactory`. Wire drawing: `UComposableCameraConnectionDrawingPolicy`.
-- **Pin factories:** `UComposableCameraNodeGraphPinFactory` handles graph-side pin construction; `SGraphPinComposableContextName`, `SGraphPinComposableRowName`, and `SGraphPinComposableDataTable` (all in `ComposableCameraSystemUncookedOnly`) are specialized picker widgets for the activation K2 nodes.
-- **Toolkit:** `FComposableCameraTypeAssetEditor`, `FComposableCameraTransitionAssetEditor`, `FComposableCameraModifierAssetEditor` host the editor tabs, expose `SyncToTypeAsset` / `RebuildFromTypeAsset` as toolbar actions, and manage undo transactions.
-- **Asset plumbing:** `UComposableCameraTypeAssetFactory`, `UComposableCameraModifierFactory`, `UComposableCameraTransitionFactory`, `UComposableCameraTransitionTableFactory` create assets; `UAssetDefinition_ComposableCameraTypeAsset` (+ siblings) register them with the Content Browser.
-- **Details customizations:** `FComposableCameraNodeGraphNodeDetails` renders per-pin overrides (`DefaultValue` + `bAsPin`) on a graph node; `FComposableCameraInternalVariableCustomization` handles variable rows; `FComposableCameraParameterTableRowCustomization` handles DataTable rows for parameter tables; `FComposableCameraTypeAssetReferenceCustomization` shows a yellow `SWarningOrErrorBox` above the reference struct's children when the bound TypeAsset contains `RequiresPCM` or `ComputeOnly` nodes (queries `GetLevelSequenceCompatibility()` on each node's CDO, unions across multi-select).
-- **Cross-graph paste auto-associate:** when pasting variable-get/set nodes from another graph, the editor matches by cached variable metadata on `UComposableCameraVariableGraphNode` and offers a "Create Variable" action on unresolved references.
-- **Patch Sequencer track editor:** `FComposableCameraPatchTrackEditor` + `FComposableCameraPatchSectionInterface` (`ComposableCameraSystemEditor/Private/Sequencer/ComposableCameraPatchTrackEditor.{h,cpp}`) �?owns the `UMovieSceneComposableCameraPatchTrack` type. `BuildAddTrackMenu` adds the root-menu entry; `BuildOutlinerEditWidget` returns a stock `+ Section` button via `FSequencerUtilities::CreateNewSection`; `MakeSectionInterface` produces a section interface that paints the title as the patch asset name and overrides `BuildSectionContextMenu` to surface "Camera Parameters" / "Camera Variables" submenus listing keyable bag leaves (one click �?`Sequencer->KeyProperty` materialises a stock property track on `Parameters.Value.{LeafName}`). Same flat layout as the LS Component menu extender. Registered alongside the LS Component editor in `FComposableCameraSystemEditorModule::RegisterSequencerTrackEditor`.
-- **Bag �?menu shared helpers:** `LevelSequence/ComposableCameraExposedBagUtils.{h,cpp}` exports `AddDescIfSupported` / `CopyBagValueIntoBlock` so both `FComposableCameraTypeAssetReference` and `UMovieSceneComposableCameraPatchSection` use one canonical pin-type �?bag-descriptor pipeline. Adding a new pin type requires updating only this one file; both Sequencer surfaces (LS Component + Patch Section) pick up the new type uniformly.
-- **Shot Editor viewport handles (V2 dual anchor):** `FComposableCameraShotEditorViewportClient` renders TWO anchor handles in Drag mode �?yellow circle for `Placement.ScreenPosition`, cyan circle for `Aim.ScreenPosition`. Both use the same `FCanvas` overlay + cached pixel hit-test pattern; per-target screen-pos handles dropped in V2 (Targets are pure world-space). LMB-drag writes the corresponding anchor's `ScreenPosition` (with `SaveToTransactionBuffer(Host, false)` bypass to avoid Sequencer eval-cache invalidation A-pose flash �?see §7.2). RMB on a handle has no context menu in V2 �?the V1.x Method submenu was removed (Method is fixed per layer: Placement = Translate, Aim = Rotate); the in-viewport bone-picker entry was removed because anchors don't carry bones (bone authoring lives on the per-target Details combo `FComposableCameraTargetInfoCustomization`). RMB falls through to base class viewport behavior.
-- **Sequencer track editor:** `FComposableCameraLevelSequenceComponentTrackEditor` (in `ComposableCameraSystemEditor/Private/Sequencer/`) �?pure menu extender, `SupportsType()` returns false. Hooks `ExtendObjectBindingTrackMenu` for `UComposableCameraLevelSequenceComponent` bindings; walks the bound component's `Parameters` / `Variables` bags, builds property paths `TypeAssetReference.[Parameters|Variables].Value.{Leaf}` for every keyable leaf (validated via `Sequencer->CanKeyProperty`), and emits flat `Camera Parameters` / `Camera Variables` sections into the `+Track` menu. Entries call `Sequencer->KeyProperty(FKeyPropertyParams(...))` which materializes stock `UMovieSceneFloatTrack` / `UMovieSceneDoubleVectorTrack` / `UMovieSceneObjectPropertyTrack` / etc. �?no custom `UMovieSceneTrack` subclass involved. Registered by the editor module's `RegisterSequencerTrackEditor` via `ISequencerModule::RegisterTrackEditor`.
-
-- **Viewport Transform keying target shape:** `FComposableCameraViewportTransformClipboard` keys selected `UMovieSceneTransformTrack` rows (exposed `FTransform` properties such as `SourceTransform`) and `UMovieScene3DTransformTrack` rows (actor/component Transform) whose binding is `UComposableCameraLevelSequenceComponent`, `AComposableCameraLevelSequenceActor`, or a descendant of the actor binding. The direct component case is required for exposed `FTransform` parameters because the LS Component menu extender creates those rows on the component binding, not by drilling through the actor binding.
-
-For the full editor contract, see [EditorDesignDoc.md](EditorDesignDoc.md).
-
----
-
-## 7. Conventions and gotchas
-
-### 7.1 Code conventions
-
-| Rule | Enforcement |
-|---|---|
-| `UObject` refs in `UPROPERTY` fields must use `TObjectPtr<T>`. | New code only; migrate legacy on touch. |
-| Runtime logs use `LogComposableCameraSystem`; editor logs use `LogComposableCameraSystemEditor`. | No `LogTemp`, no new categories without discussion. Both are defined in each module's root `.cpp`. |
-| No allocations on tick / eval / PCM update. | See §3.13. Preallocate and reuse. |
-| New nodes/transitions/modifiers go in their dedicated subfolder. | Not in `Core/`, `Utils/`, or a top-level location. |
-
-### 7.2 Recurring failure modes
-
-**`GENERATED_BODY()` leaves access mode unchanged �?inline ctors land in `private:`.** UE 5's `GENERATED_BODY()` macro does NOT reset access mode after expansion (unlike the legacy `GENERATED_UCLASS_BODY()` which forced public). A class body that opens with the C++ default `private:` access stays private after `GENERATED_BODY()`, so any inline constructor written immediately after it ends up private. For **leaf** nodes this compiles silently because UE's reflection-driven `NewObject<T>` constructs the CDO via the UHT-generated `Z_Construct_UClass_*_Statics` friend struct �?that path bypasses the access check. For **base** classes it breaks: any subclass calling the base ctor (implicit or explicit) hits a hard "cannot access private member" error from the compiler. Repro: adding inline ctors to `UComposableCameraComputeNodeBase` + `UComposableCameraBlueprintCameraNode` �?the leaves compiled, but every concrete compute node (e.g. `UComposableCameraComputeDistanceToActorNode`) failed because the implicitly-called base ctor was private. Fix: always put `public:` immediately before the inline ctor, even when the surrounding code "looks public" (the next line down often is �?irrelevant, only what's at the ctor's line counts). Same rule applies to inline `~Dtor()` and any user-defined member function placed adjacent to `GENERATED_BODY()`.
-
-**TVariant additions must be handled everywhere.** Adding a new alternative to the eval tree variant (or any other TVariant in the codebase) requires updating every `IsType<�?()`, `GetIndex()`, and hand-rolled dispatch �?not just `Visit` sites. Grep before compiling.
-
-**Serialized enum additions should append or use explicit values.** Node UPROPERTY enum values are serialized into camera type assets, so inserting a new enumerator before existing values can silently reinterpret saved assets. Concrete case: `EComposableCameraSpiralReferenceDirection` declares `PivotActorInitialForward` before `Custom` for Details-panel order, but assigns explicit numeric values so existing `CameraInitialForward` and `Custom` assets keep their serialized meanings.
-
-**Stack `EnsureContext` semantics.** "Exists on the stack" is not the same as "is at the top". Any new stack operation must be explicit about which guarantee it provides, and callers must not assume one when they got the other.
-
-**Parameter-block name mismatch is silent.** If a caller puts a parameter key into `FComposableCameraParameterBlock` that does not match the type asset's `ExposedParameters`, the value is silently ignored. Validate on the caller side when authoring new activation code.
-
-**Enum-backed pins need CustomThunk.** If a new enum pin bypasses the CustomThunk wrappers, Blueprint binding breaks silently (type mismatch in the BP editor). Always route enum access through `Get/SetInputPinValueEnum` and friends.
-
-**Pin-matched UPROPERTYs should be read from the member inside node logic.** `TickNode` calls `ResolveAllInputPins()` before `OnTickNode_Implementation`, so C++ nodes with declared input pins matching UPROPERTY names should read `PivotActor`, `PivotWorldUpOffset`, etc. directly. Calling `GetInputPinValue<T>()` again bypasses the already-resolved member and can miss Details-only authored defaults when the pin is not promoted or has no resolved data-block source. Concrete bite: `ScreenSpacePivotNode::GetCurrentPivot()` read `PivotActor` / `PivotWorldUpOffset` through `GetInputPinValue`, so `ActorPosition` mode ignored the authored world-up offset; it now reads the resolved UPROPERTYs like `ScreenSpaceConstraintsNode`.
-
-**Pre-tick corrections must write the in-flight pose.** `AComposableCameraCameraBase::TickCamera` copies `CameraPose` into a local `NewCameraPose` before it broadcasts node `OnPreTick`. A node that only mutates `OwningCamera->CameraPose` during pre-tick is too late for the current frame: the node chain will still consume the already-copied, previous-frame value. Concrete bite: `CollisionPushNode` tried to remove its previous-frame collision offset by writing `CameraPose.Position` only; `ScreenSpacePivotNode` then solved from the old collision-pushed position, fed that correction back into rotation, and could orbit / pitch toward vertical. CollisionPush now records the unpushed position during tick, guards the first pre-tick with `bHasOriginalCameraPosition`, and restores both `OutCameraPose.Position` and `OwningCamera->CameraPose.Position`.
-
-**Look-at targets must not solve a zero-length direction.** Any node chain can place the camera exactly on its look-at target; the common authoring path is `SpiralNode -> LookAtNode` with a null/zero RadiusCurve or a curve endpoint at radius 0. `FindLookAtRotation(CameraPos, TargetPos)` has no meaningful answer when both points match, and forcing its result into the pose creates visible snaps / jitter. `LookAtNode` treats this singularity as "no rotation change" and preserves the upstream rotation for both Hard and Soft modes.
-
-**Use `PivotActorInitialForward` when Spiral's pivot actor may follow ControlRotation.** `PivotActorForward` is sampled live every frame. In a `SpiralNode -> LookAtNode` chain, LookAt can drive the PCM output rotation; with `bSyncToControlRotation`, that rotation can update the controller, and common Pawn settings can then rotate the controlled pawn. If Spiral also reads that pawn's live forward, the path becomes a feedback loop. `PivotActorInitialForward` captures the first valid pivot actor forward once, preserving the actor-authored basis without letting later camera-driven pawn yaw move the spiral plane.
-
-**Transient cameras skip modifiers.** Modifiers only apply to persistent cameras. Transient (auto-popping) cameras must be authored with their behavior baked in or via internal variables.
-
-**Pin declaration order does not drive execution order.** Execution order comes from `FullExecChain` on the type asset, built from exec-pin wiring in the editor. Do not use declaration order as a tick-order signal.
-
-**Subobject pins use dotted names.** Instanced subobject properties pin as `"Settings.FieldName"`. If the subobject's class changes structure, orphaned wires must be caught by `SyncToTypeAsset`; otherwise they silently dangle.
-
-**Reference leaf is a SNAPSHOT, not a live director pointer.** `FComposableCameraEvaluationTreeReferenceLeafNodeWrapper` holds `TSharedPtr<FComposableCameraEvaluationTreeNode> SnapshotRoot` �?the source director's tree root captured at RefLeaf creation time. It does **not** call back into `SourceDirector->Evaluate()`; it walks the captured subtree directly. Consequence: if the source director's tree is later swapped (e.g. it gets popped and gets its own pop Inner at its root), the RefLeaf keeps referring to the ORIGINAL captured shape �?never the mutated one. This is what keeps the evaluation graph a DAG with no cycles during pop-while-push-still-active, and it's why pop does **not** need to freeze the source.
-
-**Push vs. pop: different APIs, same snapshot semantics.** An inter-context *push* uses `ActivateNewCameraWithReferenceSource` �?spawns a fresh target camera, wraps the current tree with a new Inner whose Left is a RefLeaf capturing the source director's root. An inter-context *pop* uses `ResumeCurrentCameraWithReferenceSource` �?preserves the target's existing running camera in place (all per-node state continues) and wraps the current root as the Right of a new Inner, whose Left is a RefLeaf capturing the popped source's root. Both RefLeaves default to `bFrozen = false`; that flag is a semantic option for transition authors who explicitly want "hold last pose" behaviour, not a cycle-breaking mechanism. The two APIs are NOT interchangeable: using the push API on a pop resets every node on the resumed side (snaps on first post-pop frame).
-
-**Per-frame tick memoization is load-bearing.** Because the snapshot DAG can reach the same underlying leaf via two paths (pop-Right and pop-Left-RefLeaf �?push-Left-RefLeaf both bottom out at the same original A leaf), `AComposableCameraCameraBase::TickCamera` compares `GFrameCounter` against `LastTickedFrameCounter` at entry and returns the cached `CameraPose` if they match. Without this, per-node state (damping, interpolators, spline progress, noise seeds) advances twice per frame, and transient cameras' `RemainingLifeTime` decrements twice as fast. The same principle applies to `FComposableCameraEvaluationTreeInnerNodeWrapper::Evaluate` (transition `RemainingTime` must not decrement twice) �?both caches are gated on `GFrameCounter`, which monotonically increases, so no cross-frame collision is possible.
-
-**Do not call `Director::Evaluate` yourself from an evaluation path.** With snapshot RefLeaves, `Director::Evaluate` is only legitimately called once per director per frame, by `ContextStack::Evaluate` on the single active director. Pending-destroy directors are NOT ticked via `Evaluate` �?their cameras are reached only through snapshot TSharedPtrs held by the active tree. If you're tempted to add a code path that calls `SomeDirector->Evaluate()` from inside a leaf or a custom node, you're probably reintroducing the cycle bug that the snapshot architecture exists to prevent.
-
-**Debug panels register TWO `UDebugDrawService` channels, with per-(frame, `FCanvas*`) dedup.** `UDebugDrawService::Register(TEXT("Game"), ...)` only fires while the active viewport has `FEngineShowFlags.Game == true` (PIE Selected Viewport / packaged game). When the user presses **F8** to eject in PIE, the viewport swaps to an editor-style viewport whose ShowFlags have `Game = false` and `Editor = true`, and the "Game" channel delegate silently stops firing. Each panel's draw delegate is therefore registered on BOTH `"Game"` and `"Editor"` channels in `FComposableCameraDebugPanel::Initialize`, routed through a dedup wrapper keyed on `(GFrameCounter, UCanvas::Canvas)`.
-
-**The dedup key must be `UCanvas::Canvas` (the underlying `FCanvas*`), NOT the `UCanvas*` pointer itself.** `UDebugDrawService` reuses a single transient `UCanvas` singleton for every draw call (`FindObject<UCanvas>(GetTransientPackage(), TEXT("DebugCanvasObject"))`) �?it just re-`Init`s the singleton with the current viewport's `FCanvas*` and `FSceneView*` every call. So `UCanvas*` is identical across every viewport's draw in the same frame, and a `UCanvas*`-keyed dedup treats all viewports as "the same canvas" and skips every call after the first. The underlying `FCanvas*` (exposed as `UCanvas::Canvas`) is the per-viewport render pass and does differ correctly. The flicker-on-mouse-move bug this fixed: in F8-ejected PIE, the hidden game viewport and visible editor viewport each issue a `Draw` call per frame; a `UCanvas*`-keyed dedup let whichever call fired first "claim" the frame and skipped every subsequent call, so if the Game-channel call fired first (drawing on the invisible canvas) the user saw nothing that frame. Slate mouse-driven invalidation re-ordered the viewport draws irregularly �?alternating visible / invisible frames �?flicker synchronized with cursor motion.
-
-Same-frame + same-FCanvas hits (both ShowFlags on for one viewport in a transient state) are the legitimate dedup case �?two channels firing for one viewport produces a double-rendered panel with offset text metrics without the skip. Pattern lives in `Private/Debug/ComposableCameraDebugPanel.cpp` right above `Initialize`; any future panel added there should follow the same template.
-
-**`DrawPanel` must stay silent in editor-idle state.** The `"Editor"` channel fires our delegate every frame even when no PIE / Game world is running �?that's how the F8-ejected flow is supposed to work (both flags are legitimate). But it also means a naive "no PCM found �?draw a red banner" diagnostic gets painted all over the editor viewport whenever the plugin is loaded, because no PCM exists outside PIE. `DrawPanel` gates the banner on `HasPIEOrGameWorld()` so the banner only surfaces when a PIE/Game world actually exists but is missing a CCS PCM (a real setup bug worth flagging). Pose-history panel has no banner �?it silently returns when the PCM can't be resolved.
-
-**Debug panel mouse hover uses `FSlateApplication`, not `PlayerController::GetMousePosition`.** Engine code in `UDebugDrawService::Draw` broadcasts every delegate with `PC = nullptr` �?the `APlayerController*` parameter declared on `FDebugDrawDelegate` is never populated in practice. Even if you resolve a PC via the PCM, `GetMousePosition` returns false whenever the cursor is captured (the default for in-game focus), so the PC path doesn't help. `Private/Debug/ComposableCameraDebugPanel.cpp`'s `ResolveMouseCanvasPos` uses `FSlateApplication::Get().GetCursorPos()` to get the absolute screen position, then `GetGameViewportWidget()->GetCachedGeometry().AbsoluteToLocal()` to convert to viewport-local space, with a final `Canvas->SizeX / WidgetSize.X` scale factor to handle DPI. Works in possessed PIE (when the user releases the cursor via Shift+F1 or UI-mode input) and in F8-ejected PIE (cursor is released by default). The `Slate` / `SlateCore` dependencies in `ComposableCameraSystem.Build.cs` exist specifically for this helper.
-
-**Pose history ring-buffer freeze is capture-side, not render-side.** The `CCS.Debug.Panel.PoseHistory.Freeze` CVar (defined in `ComposableCameraPlayerCameraManager.cpp`) is consulted at the **start** of `CaptureCurrentFrameToPoseHistory` �?when on, the function early-outs and no new entries are written to the ring. The draw path reads the ring normally, so the panel "freezes" simply because the data it reads stopped changing. Intentional trade-off: when the CVar is toggled back off, capture resumes writing at the current head without clearing the ring, so the first 2 seconds after unfreezing mix pre- and post-freeze entries (the x-axis is index-based, not time-based, so this manifests as a time discontinuity in the `GameTime` field but no visual glitch in the sparkline shape). Do not "improve" this by clearing on unfreeze �?losing the pre-freeze context is worse than the brief mixed window.
-
-**`FInstancedPropertyBag` leaves need `CPF_Interp` to be keyable.** Sequencer's `FindPropertySetter` (`SequencerObjectChangeListener.cpp`) accepts a property as keyable only if `CPF_Interp` is set, OR a `Set<PropertyName>` function exists, OR a native setter exists. Dynamic bag properties have none of those by default. Always pass `CPF_Edit | CPF_Interp` in the `FPropertyBagPropertyDesc` you hand to `UPropertyBag::GetOrCreateFromDescs`. Without this, `CanKeyProperty` returns false on every bag leaf and the Sequencer track-editor menu silently collapses to "no entries". (See `AddDescIfSupported` in `ComposableCameraTypeAssetReference.cpp`.)
-
-**`FInstancedPropertyBag` is not BlueprintType.** A `USTRUCT(BlueprintType)` that contains an `FInstancedPropertyBag` UPROPERTY fails UHT with "Type 'FInstancedPropertyBag' is not supported by blueprint". Drop `BlueprintType` from the containing struct and `BlueprintReadWrite` from the bag's UPROPERTY. `EditAnywhere` is still fine and gives designers Details-panel editing.
-
-**Spawnable Details-panel edits are transient.** When a designer edits a property on a Spawnable's **instance** (the actor Sequencer spawned during scrub/PIE), the change lives only on that instance. On section exit / PIE stop / save, the instance is destroyed and the change is gone. To persist a value, edit the **template** �?selected via Sequencer's own outliner row, not the World Outliner / viewport �?or (preferred) drive the value through a Sequencer property track so it's keyed into the LS asset.
-
-**LS path leaves CineCamera optics alone on purpose.** `UComposableCameraLevelSequenceComponent::ProjectPoseToCineCamera` writes position + rotation only. Physical optics (FocalLength / Aperture / Filmback / FocusDistance / PostProcess) are owned by the child `UCineCameraComponent` and are expected to be keyed directly on it via Sequencer's stock property tracks. Nodes that write those fields into the pose will see their output silently ignored in the LS path. The PCM-driven path still projects the full pose (no change there).
-
-**`FPostProcessUtils::BlendPostProcessSettings` forgets to flip four `bOverride_*` flags.** Most fields in the engine helper go through `UE_LERP_PP` / `UE_SET_PP` macros that correctly promote `bOverride_X = true` on the result whenever either side had it, so a one-sided override fades in/out naturally during a pose blend. **Four fields are hand-rolled outside those macros and read `OtherTo.bOverride_X` without ever writing `ThisFrom.bOverride_X = true`**: `DepthOfFieldFocalDistance`, `DepthOfFieldMatteBoxFlags`, `LensFlareTints`, `MobileHQGaussian`. The value gets copied / lerped; the flag stays at whatever `ThisFrom` started with. Hit most visibly during Gameplay �?LS transitions �?the proxy pose has `bOverride_DepthOfFieldFocalDistance = true` (baked by `UCineCameraComponent::UpdateCameraLens`), the gameplay pose has it `false`. Blend result: FocalDistance snaps to the CineCamera's value on frame 0 (the engine's special-case "if either side is 0, snap" branch fires), but `bOverride_DepthOfFieldFocalDistance` stays `false` for the entire blend. Renderer ignores FocalDistance, no DoF. Only when `CollapseFinishedTransitions` replaces the blended pose with the proxy pose directly does the override flag finally appear �?DoF "snaps on" exactly at transition end. Workaround lives in `FComposableCameraPose::BlendBy`: after calling the engine helper, `|=` the `Other` side's three *value-already-written* flags (`DepthOfFieldFocalDistance` float, `DepthOfFieldMatteBoxFlags` uint8 array, `LensFlareTints` linear-color array) into our result �?the value math is untouched, we only fix the flag. The fourth field, `bMobileHQGaussian`, is a **bool**, so it follows our "target wins at `OtherWeight > 0`" convention for bool/enum pose fields (see the Projection & aspect block: `ProjectionMode` / `ConstrainAspectRatio` / `OverrideAspectRatioAxisConstraint` / `AspectRatioAxisConstraint` all snap immediately on the first blend frame, not at 50 %). We overwrite both its value and its override flag together at `OtherWeight > 0`, intentionally diverging from the engine helper's mid-blend `bShouldFlip` snap �?mid-blend snaps on booleans produce a visible discontinuity with no numeric companion; start-of-blend snaps are hidden by the Transition's accompanying numeric ramp. Any future pose field the engine helper treats asymmetrically must be added to that patch block, and any bool among them must use the "target wins at > 0" branch, not the flag-OR branch.
-
-**ScreenSpace nodes use 16:9 fallback in editor preview.** `UE::ComposableCameras::TryGetEffectiveViewportSize` tries PCM �?`GEngine->GameViewport` �?fallback. Pure editor-world preview (no PIE, no GameViewport) hits the fallback. Aspect-sensitive screen-space math will look slightly off if the editor viewport isn't 16:9. PIE / Standalone / Packaged are pixel-exact. Documented trade-off; not a bug.
-
-**Editor-world Spawnable teardown skips `EndPlay`.** Sequencer preview / Save / Spawn section re-import all run in an editor world that never invokes BeginPlay lifecycle �?`UActorComponent::EndPlay` is never called. If cleanup logic that owns transient Actors sits only in `EndPlay`, each teardown leaks the Actors. `UComposableCameraLevelSequenceComponent` pairs `OnRegister` (which spawns / prepares) with `OnUnregister` (which calls `DestroyInternalCamera`) so editor and runtime paths both clean up. `EndPlay` stays as belt-and-braces for runtime. New components that own transient spawned Actors should follow the same pairing.
-
-**`InternalCamera` (LS Component / Patch overlay evaluator) lives outside the snapshot DAG, so `InvalidateTickCache` is safe.** `AComposableCameraCameraBase::TickCamera`'s per-frame memoization (`LastTickedFrameCounter == GFrameCounter` short-circuit) exists to keep DAG-reachable cameras from double-ticking when the snapshot graph reaches the same underlying leaf via two RefLeaf paths. LSComp-owned and Patch-overlay evaluators are spawned with `Initialize(/*Manager=*/nullptr)`, never enter a director's tree, and have exactly one driver each �?so the cache is never load-bearing for them, only ever incidental. The new `AComposableCameraCameraBase::InvalidateTickCache` (sets `LastTickedFrameCounter = 0`, the documented "always-tick" sentinel) is the legitimate way for those non-DAG owners to force a re-tick when they push fresh inputs mid-frame. Do **not** call it on a camera that's reachable from any director / RefLeaf �?it re-introduces the double-advance bug the cache was designed to prevent.
-
-**Canvas translucent tiles compound.** Two `FCanvasTileItem`s with `SE_BLEND_Translucent` stacked over the same pixel do **not** blend as "single layer at average alpha" �?each layer applies `final = src.rgba * src.a + dst.rgb * (1-src.a)` against the previous result, so two 0.85-alpha fills produce `1 - (1-0.85)² �?0.9775` effective coverage, which reads as opaque. The debug panel fixed this by collapsing to a single outer panel BG fill (the content area has exactly one translucent layer), with extra small fills only where they actually matter (the title bar, compounding to ~0.80). If you ever need "region inside a panel" with nested backdrops, either flatten the layers or keep inner-layer alpha �?0.3 so the compound stays visually translucent.
-
-**`ContextStack::Evaluate`'s auto-pop is top-only; non-top transient contexts need explicit demotion.** The auto-pop loop at the tail of `Evaluate` consults `ActiveDirector->GetRunningCamera()` �?i.e. only the TOP context. A transient camera that was on top at push time and later got shoved below by `EnsureContext` move-to-top behaviour never gets auto-popped: its `IsTransient() && IsFinished()` is only tested for the top entry, and the top entry is now a different context. To close the gap, `PCM::ActivateNewCamera` calls `ContextStack::DemoteNonTopTransientContextsToPending(ActivatingTransition)` after any `bContextSwitched` activation. That method moves every non-top transient entry from `Entries` into `PendingDestroyEntries` and binds `DestroyAllCameras` to the activating transition's `OnTransitionFinishesDelegate` �?matching the explicit-pop semantics. Non-transient entries below the top are designer-managed and left alone. Implementation detail: the demotion has to run AFTER `ActivateNewCameraWithReferenceSource` constructs the new tree (so the activating transition exists and the tree's RefLeaf snapshot captures the demoted context's tree before the entry moves). Running it earlier would snapshot a context that's already in `PendingDestroyEntries`, which works structurally but obscures the cleanup flow.
-
-**`IPropertyHandle::GetChildHandle()` returns fresh `TSharedPtr` each call; the property tree does NOT retain a parallel reference.** Stowing a child handle in a `TWeakPtr<IPropertyHandle>` member from inside `IPropertyTypeCustomization::CustomizeChildren` is silently broken �?the local `Child` SharedPtr falls out of scope at the loop's end, the strong ref count drops to zero, and `WeakPtr.Pin()` returns null forever after. Failure mode is silent: nothing crashes, the customization just behaves as if the property didn't exist. Hit while wiring `FComposableCameraTargetInfoCustomization`'s bone combo �?the customization captured `WeakActorHandle` to lazily resolve the SkelMesh, every `Pin()` returned null, and the combo defaulted to the "(no skeletal mesh found)" hint even with a valid actor in the property. Fix: hold child handles as `TSharedPtr<IPropertyHandle>` member fields. The strong ref keeps the wrapper alive past the local scope; lambdas in widget callbacks capture the SharedPtr by value to extend lifetime past the customization itself if Slate dispatches a deferred event. Always `IsValidHandle()`-check before deref since the underlying `FPropertyNode` can still be torn down externally even while the IPropertyHandle wrapper is held.
-
-**Inter-context activation must NOT eagerly destroy its old RootNode.** `UComposableCameraEvaluationTree::OnActivateNewCameraWithReferenceSource` used to call `DestroySubtreeCameras(RootNode)` as the last step before installing the new Inner. That is unsafe whenever the `SourceDirector` was previously PUSHED onto this director �?at push time, the SourceDirector's RefLeaf captured OUR then-current RootNode as a `TSharedPtr`, so OldRoot is still reachable from SourceDirector's tree. Eagerly destroying the leaf cameras leaves SourceDirector's tick walking into now-`PendingKill` Leaf actors during the blend; the symptoms are `[leaf] (destroyed)` rows in both contexts' trees in the Debug Panel plus `"RunningCamera is null or destroyed when evaluating leaf node."` errors spamming the log from `FComposableCameraEvaluationTreeLeafNodeWrapper::Evaluate`. Fix: stash OldRoot in `PendingDestroyOldRoots` and destroy it from a `AddWeakLambda` on the new transition's `OnTransitionFinishesDelegate` �?at that point `CollapseFinishedTransitions` has dropped the RefLeaf branch of our new root and OldRoot is unreachable from our tree. Backstop cleanup in `DestroyAll()` handles transitions that never complete (context torn down mid-blend, transition replaced by another activation). `AddReferencedObjects` walks the stash so GC can't collect actors out from under the deferred destroy. Minimum reproducer: (1) activate A in context X, (2) push Y/B over X with a slow transition, (3) mid-step-2-transition, activate A in X again �?fires the error without the fix.
-
-**Don't `CreateDefaultSubobject` from inside a component's constructor.** If you need a child/sibling UObject on an Actor-owned component, create it in the **Actor's** constructor and hand the reference to the component, or resolve it lazily in `OnRegister` via `GetOwner()->FindComponentByClass<T>()`. A `CreateDefaultSubobject` call from inside another component's constructor registers the new subobject as a sub-subobject of that component, not as a DefaultSubobject of the owning Actor. The Actor's component tree (`USceneComponent::GetChildrenComponents`, `AActor::FindComponentByClass`) does NOT see sub-subobjects �?so things like `PCM::SetViewTarget`'s implicit-activation filter silently bail, with no crash and no warning. This bit us during Phase F (blended Camera Cut �?second camera never activated): `OutputCineCameraComponent` was created inside the LS component's constructor, the Actor's root-children walk returned zero, and the PCM filter returned without creating a proxy. Fix was to make the CineCamera a RootComponent-level DefaultSubobject in the Actor's constructor, with the LS component holding a back-reference.
-
-**K2Node pin notifications must short-circuit during `ReallocatePinsDuringReconstruction`.** UE's base `Super::ReallocatePinsDuringReconstruction` runs `RewireOldPinsToNewPins`, which transfers OldPin `DefaultObject` / `LinkedTo` state onto freshly-created new pins. On an object pin (e.g. a type-asset picker) the new pin is born with `DefaultObject == nullptr` and only gets the real asset written back mid-rewire �?during that window, any `PinDefaultValueChanged` override that reads `DefaultObject` observes a transient null and, if it treats "null here means the user cleared the asset", silently wipes node state the next pass depends on. The same re-entrancy window applies to external subscribers: `FCoreUObjectDelegates::OnObjectPropertyChanged` can fire on the bound asset during load-time / save-time side-effects and, if unguarded, will call back into `ReconstructNode()` recursively. Both paths manifest as the saved override pin "no longer existing on node" on every editor restart despite the type asset and the override list looking correct on disk. Pattern: every K2Node that (a) owns a dynamic-pin set keyed off another pin's `DefaultObject` and (b) subscribes to `OnObjectPropertyChanged` to auto-refresh must carry a transient `bool bIsReconstructing` flag, set via `TGuardValue` at the top of `ReallocatePinsDuringReconstruction`, and early-return from `PinDefaultValueChanged`, `PinConnectionListChanged`, and the property-change handler whenever it's set. `UK2Node_ActivateComposableCamera` is the reference implementation.
-
-**Three failure modes converge on "orphan pin X no longer exists" �?the per-Reallocate self-heal alone is not sufficient.** All three surface as the same red warning at editor restart but require different fixes layered on top of each other:
-
-- *Legacy on-disk corruption.* A blueprint saved before the re-entrancy guard landed can have a `CachedTypeAsset`/pin desync committed to disk: the cached field is `nullptr`, the saved asset pin still carries the reference. `OnCameraTypeAssetChanged` is the only writer of the cached field and it only fires from `PinDefaultValueChanged`, which is not re-issued on plain blueprint load �?so the desync never self-corrects.
-- *EDL load-order race.* Even on a freshly-saved blueprint, the type asset's PostLoad may not have completed by the time blueprint compilation triggers reconstruction. In that window the K2 node's `CachedTypeAsset` reads as `nullptr` AND `OldPin->DefaultObject` (also a hard reference) reads as `nullptr`, while `OldPin->DefaultValue` still carries the serialized asset path string. The pin renders the asset name to the user via that string, so the picker looks fine, but the pointer side is null. Across cold restarts the same blueprint+asset pair lands on either side of EDL ordering �?the symptom appears intermittent.
-- *Disk-baked orphan from past failure.* Once either of the modes above ran reconstruction with a null asset and the user saved the blueprint at that point, the engine-substituted orphan pin sits in the `Pins[]` array on disk. On every subsequent plain load the orphan is just deserialized �?*no reconstruction runs at all*, so the per-Reallocate self-heal never gets a chance to fire. Manual Refresh fixes it (because Refresh forces reconstruction after the asset has fully PostLoaded), but the next cold restart re-loads the same disk state and the warning is back. Diagnostic for this mode: nothing in the self-heal log fires at startup despite the node clearly being red.
-
-Recovery is layered, top-down:
-
-1. **Inside `ReallocatePinsDuringReconstruction`, recover `CachedTypeAsset` if null.** Prefer `OldPin->DefaultObject` (linker already resolved); fall back to `FSoftObjectPath(OldPin->DefaultValue).ResolveObject()` then `TryLoad()` when DefaultObject is null but DefaultValue carries the path. Synchronous load is correct �?the K2 node has a hard UPROPERTY dependency on this asset, so pulling its preload forward by one synchronous load is in spec, not a workaround. After recovery, call `CachedTypeAsset->ConditionalPostLoad()` so its arrays have completed PostLoad migration before the dynamic-pin builder reads them.
-2. **Inside `PostLoad`, detect any pin with `bOrphanedPin == true` and trigger a deferred reconstruction.** Without this, baked-in orphans sit on disk forever. Reconstruction must NOT be called directly from `PostLoad` �?it touches related objects (the blueprint, the cached asset, sibling nodes) that may still have `RF_NeedLoad` set, which trips ZenLoader's `ensureAlwaysMsgf` at `Obj.cpp:1314` (`Object '%s' does not have RF_NeedLoad cleared in PostLoad!`). Defer one tick via `FTSTicker::GetCoreTicker().AddTicker(..., 0.0f)`, capturing `this` by `TWeakObjectPtr` so a destroyed node no-ops; by the time the ticker fires the load batch has completed for every object in the cascade. Once reconstruction runs it goes through the per-Reallocate self-heal pattern above and recovers normally. Reconstruction does not dirty the package by itself; the user's next save persists the cleaned layout naturally.
-
-Diagnostics that distinguish the three modes on a live broken node, before changing code:
-- Right-click the node �?if the "Add Override Pin" submenu is **missing entirely** (not just empty �?gone), `CachedTypeAsset` is null at right-click time �?mode 1 or 2.
-- Whether the orphan recurs on **cold restart with no blueprint changes**: deterministic per blueprint = mode 1 (legacy corruption); intermittent across cold restarts = mode 2 (EDL race).
-- Whether the per-Reallocate self-heal log fires at all on startup: silent at startup but the node is red = mode 3 (disk-baked orphan); reconstruction never ran on plain load.
-
-The three-layer fix is now in place on every K2 node in this codebase that owns a dynamic-pin set keyed off another asset reference: `UK2Node_ActivateComposableCamera`, `UK2Node_AddCameraPatch`, and `UK2Node_ActivateComposableCameraFromDataTable`. The DataTable variant's self-heal is two-step (DataTable pin �?row name pin �?`Row->CameraType.LoadSynchronous()`) instead of single-step, but the layering is identical otherwise. Any future K2 node that fits the same profile must adopt the same three layers from day one �?the cost in lines is small, the cost in user-visible "node mysteriously red after restart" bugs is enormous.
-
-**`UComposableCameraPatchTypeAsset` is-a TypeAsset �?activation paths must filter.** Patch asset subclasses TypeAsset for the type-safe `AddPatch(UComposableCameraPatchTypeAsset*)` API (and a separate Content Browser factory). But anywhere that takes a `UComposableCameraTypeAsset*` accepts a Patch by inheritance �?the standard `ActivateComposableCameraFromTypeAsset` path, the K2 activation node's asset picker, DataTable rows, etc. would silently spawn a Patch as a regular camera (envelope / duration / layer fields ignored, Director.RunningCamera incorrectly populated with a Patch evaluator). Currently no production callsite accepts arbitrary user input via these paths so the gap is latent; the right time to add a class filter (`DoesObjectHaveClassFilter`-style or a runtime cast guard in `ActivateNewCameraFromTypeAsset`) is when the K2 picker first lets a designer browse to a Patch asset.
-
-**Patch `bExpireOnCameraChange` snapshots `RunningCamera` AT AddPatch time, per-patch.** Storing the comparison baseline on each `UComposableCameraPatchInstance::RunningCameraAtAdd` (TWeakObjectPtr) avoids the "first Apply sees null→non-null and spuriously expires every flag-on patch" race. The Director's current `RunningCamera` is read once per Apply pass and compared per-instance against the snapshot. A patch added before any camera activation captures a null baseline and treats the FIRST RunningCamera assignment as a change �?which is the correct semantic when the user opts into the flag.
-
-**Patch removal happens at end of Apply, never inside the per-patch loop.** `ExpirePatch` (manual) and `CheckPatchScheduleExpiration` (Duration / Condition / OnCameraChange) only flip Phase to Exiting / Expired. The actual `ActivePatches.RemoveAt(i)` + `Evaluator->Destroy()` happens in a reverse-iter sweep at the tail of `Apply`. This makes `ExpirePatch` reentrancy-safe �?a Patch's node tick calling `ExpirePatch(otherHandle)` does NOT invalidate the for-loop iterator. The remaining latent footgun is `AddPatch` during `Apply`: `Insert` may reallocate `ActivePatches` mid-iteration. No production callsite triggers this currently; will be addressed alongside any future deferred-add queue.
-
-**Custom pin widgets need explicit registration in `FComposableCameraGraphPanelPinFactory` �?adding a new K2 node with a ContextName / DataTable / RowName pin won't auto-pick up the dropdown.** The factory in `ComposableCameraGraphPanelPinFactory.cpp` switches on the K2 node's class (`Cast<UK2Node_�?(InPin->GetOuter())`) and the pin's identity (well-known FName + type category) before returning the custom Slate widget (`SGraphPinComposableCameraContextName` for ContextName pins; the DataTable / RowName pair for the DataTable activation node). Forgetting this registration step is silent: the node's pin still works, but it falls back to the engine's default text-input widget �?the user types the FName by hand instead of picking from a dropdown populated from `UComposableCameraProjectSettings::GetContextNames`. Concrete bite: when `UK2Node_AddCameraPatch` shipped its ContextName pin, the factory wasn't updated; the pin rendered as a plain text box until a user spotted it. **Rule when adding a new K2 node with one of these well-known pins**: (1) declare the pin name as a public `static const FName` on the K2 node so the factory can name-match it, (2) add a `Cast<NewNode>` branch in `FComposableCameraGraphPanelPinFactory::CreatePin` returning the appropriate Slate widget, (3) add the new node's header to the factory's includes. The factory is registered at module startup (`ComposableCameraSystemUncookedOnly.cpp`), so the registration only needs to happen once per node class.
-
-**Cinemachine-style framing zones make the Composition Solver pose-state-aware �?every zone consumer needs a prior-pose cache.** The V1 solver was a pure function of Shot data; with `FShotScreenZones`, `SolveShot`'s `PriorPose*` parameter feeds the zone preprocessor's anchor projection. The runtime caller (`UComposableCameraCompositionFramingNode`) holds **two** independent caches �?`LastPrimaryOutputPose` + `LastSecondaryOutputPose` �?so Phase F's two-Shot blend has per-shot IIR state. The editor preview (`FComposableCameraShotEditorViewportClient::CachedPriorPos/Rot`) holds an analogous single cache. Four lifecycle pitfalls that have actually bitten the design discussion:
-- (a) Forgetting to promote the secondary cache when an authored overlap exits A+B -> B �?the first post-blend primary solve hard-seeds even though it represents the same incoming Shot that was secondary one frame earlier. Fix: LSComponent tracks `LastActiveSecondarySection` and passes `bPrimaryWasPreviousSecondary`; `SetActiveShotsFromSequencer` copies `LastSecondaryOutput*` to `LastPrimaryOutput*` before clearing secondary state.
-- (b) Forgetting to clear the primary cache on a true hard cut �?new primary's anchors get projected through the previous primary's pose �?first-frame visible glitch, sometimes NaN'd zone math when the new primary's anchors are behind the old camera. Fix: when `bPrimaryChanged && !bPrimaryWasPreviousSecondary`, explicitly `bHasLastPrimaryOutputPose = false`.
-- (c) Forgetting to clear the secondary cache when leaving a blend �?next blend ingests a new secondary Shot but projects through the previous blend's secondary pose. Same NaN risk. Fix: clear `bHasLastSecondaryOutputPose = false` whenever `bHasSecondaryShot` flips false, and also when `bSecondaryChanged` indicates A+B -> A+C.
-- (d) Forgetting to invalidate the editor cache on `SetActiveShot` (Shot Editor binds a new Shot via the toolkit's selection sync) �?preview viewport projects the new Shot's anchors through the old Shot's pose. Same fix in `FComposableCameraShotEditorViewportClient::SetActiveShot`.
-
-All four are silent failures (no warning, no crash) �?they manifest as a one-frame visible snap or a transient NaN in the displayed pose. The unit-test surface for the zone math (`Private/Tests/ComposableCameraShotSolverTests.cpp` `Zones.*`) covers `ApplyScreenZones` purity but does NOT cover state-lifecycle correctness �?that lives in design rigor, the doc, and the section-boundary promote / clear logic in `SetActiveShotsFromSequencer`. When adding any new zone consumer (e.g. a pose-feedback loop, a future "preview snapshot" tool), the same prior-pose lifecycle discipline applies.
-
-**`InlineEditConditionToggle` has DIFFERENT semantics in details panels vs. BP MakeStruct �?author both surfaces deliberately.** In a details panel (asset properties, struct customization), the meta collapses the bool into an inline checkbox next to the gated value: unchecked = use default, checked = override. In a BP `Make MyStruct` node UE's `K2Node_MakeStruct` / `MakeStructHandler` instead treats it as an *implicit* override flag �?the bool's runtime value is forced to `true` for every value pin whose `bShowPin` is `true`, and `false` otherwise. Path: `K2Node_MakeStruct.cpp:117` (`CanBeExposed` returns false for `InlineEditConditionToggle` properties so they're never separate pins) and `MakeStructHandler.cpp:189-232` (the `OverrideProperties` map gets `KCST_Assignment` of `bool = true` injected only when `PropertyEntry.bShowPin` is true). **The user-visible control for `bShowPin` is the node's details-panel "Show Pin For �? checkboxes �?NOT the per-pin eye icon visible on the node body.** The eye icon toggles a different visual state (advanced/collapse) and does NOT update `bShowPin`, so a designer clicking the eye to "tidy up" the node still ends up with `bOverride*=true` for that field. Concrete bite that surfaced this: a designer placed a fresh `Make FComposableCameraPatchActivateParams` with all defaults; every value pin had `bShowPin=true` (default state), so every `bOverride*` was implicitly `true` with value `0` �?patches got `ExpirationType=0` and lived forever. Clicking the eye icon visually hid the pin but did not change `bShowPin`, so it didn't help. **Authoring rule going forward**: in MakeStruct nodes, **uncheck the corresponding "Show Pin For �? checkbox in the node's details panel** to fall back to asset defaults. Tagging the bools with `InlineEditConditionToggle` is correct because (1) it keeps the details-panel rendering compact and (2) it matches `FPostProcessSettings::bOverride_*`, which BP authors are already trained on. Removing the meta would add N extra bool pins per struct without solving the underlying "Show Pin For = on by default" UX gap.
-
-**Custom `SEditorViewport` subclasses owning an `FPreviewScene` need explicit drain-before-destroy.** The base `SEditorViewport` keeps its own `TSharedPtr<FEditorViewportClient> Client` member alongside any TSharedPtr the subclass keeps. Member destruction is reverse declaration order, AFTER the subclass destructor body but BEFORE the base destructor. So if the subclass declares the FPreviewScene as a member, the order on widget release is: (1) subclass dtor body; (2) subclass member destruction �?subclass's TSharedPtr to client released, then `FPreviewScene` torn down �?preview world dies; (3) base `~SEditorViewport`; (4) base member destruction �?base's `Client` ref released, eventual `~FEditorViewportClient` finally fires �?but the preview world it expects to call `Proxy->Destroy()` against is already gone, so any scene-touching cleanup in the client's destructor is a use-after-free. **Fix**: in the subclass destructor body (step 1, before any member destruction), call an explicit cleanup method on the client that drains scene-bound resources (proxy actors, registered components, ticker callbacks, etc.) WHILE the FPreviewScene is still alive. By the time the eventual `~Client` runs in step 4, that state is already empty and there's nothing left to clean up. Same destructor body should also clear `Client->Viewport = nullptr` to defend against the parallel hazard where the `FSceneViewport` (owned through `SEditorViewport`'s SViewport child) is destroyed before the client and a paint between dies dereferences a freed FViewport. Concrete instance in this codebase: `SShotEditorViewport::~SShotEditorViewport` calls `ViewportClient->ReleaseSceneResources()` and clears `ViewportClient->Viewport`. Generic enough that any second preview-viewport subclass added to the editor module should follow the same pattern.
-
-**Cross-context blends do NOT preserve source-side patches (V1 limitation).** Patches live on the Director; the cutscene Director's RefLeaf walks the gameplay tree's snapshot directly without invoking `gameplay.Director.Evaluate()`, so `gameplay.PatchManager.Apply` is skipped during the inter-context blend. Source-side patches "vanish" for the duration of the blend window, then the blend completes and the user is in the cutscene context (whose own Patches start fresh). V2 path is to promote Patch overlay into the tree as a new wrapper variant �?see `PatchSystemProposal.md` §10. In practice the loss is rarely user-visible because (a) cross-context blends are short, (b) the user's attention pivots away from the source. Do not surprise-fix this without engaging with the V2 design discussion first; it touches the TVariant fan-out and the collapse pass.
-
-**`Host->Modify()` during interactive Sequencer-section editing flashes Spawnables to ref pose.** Path: any UMovieSceneSection edit (Section host) calls `UObject::Modify(true)` (default) which broadcasts `FCoreUObjectDelegates::OnObjectModified` UNCONDITIONALLY (Obj.cpp:1544 �?does not check `bAlwaysMarkDirty`). On top of that, `UMovieSceneSignedObject::Modify` invokes `MarkAsChanged()` which fires `OnSignatureChangedEvent.Broadcast()` up the parent chain (Section �?Track �?MovieScene �?Sequence). Sequencer listens to BOTH events and invalidates its evaluation cache; on the next eval tick, any Spawnable bound through that sequence is destroyed and re-spawned. The fresh actor sits at ref pose for one tick until its AnimBP catches up �?visible to anything watching the Spawnable's bones in real time. Concrete bite: the Shot Editor preview's per-frame `GetComponentSpaceTransforms()` copy from the Spawnable to a proxy SK reads ref pose mid-drag, so the preview character flashes to A-pose for the entire duration of an interactive drag (handle drag in viewport OR Details-panel slider drag) and recovers only on commit. **Even `Modify(false)` is not enough �?the `OnObjectModified` broadcast is unconditional.** Fix: bypass `UObject::Modify` entirely and call `SaveToTransactionBuffer(Host, /*bMarkDirty=*/false)` directly. That records the undo snapshot via the same path Modify would have, but skips the package-dirty flag, the `OnObjectModified` broadcast, AND `MarkAsChanged`. The final commit (`PostEditChangeProperty(ValueSet)` or `Host->Modify()` on EndDrag) triggers the broadcasts once, which is the correct time for downstream listeners (graph-node refresh, Build pipeline, runtime debug). Same fix applies to **`FNotifyHook::NotifyPreChange`** when bridging an `IStructureDetailsView` edit to a Sequencer-tracked host �?replace `Host->Modify()` with `SaveToTransactionBuffer(Host, false)`. And skip the per-frame `EPropertyChangeType::Interactive` `PostEditChangeProperty` calls entirely; only the `ValueSet` notification on commit is needed. Concrete instance: `FComposableCameraShotEditorViewportClient::InputKey` (LMB-press start of handle drag) and `SShotEditorRoot::NotifyPreChange` (Details slider drag) both went through the bypass after this footgun was hunted down via `git grep` for `Host->Modify` callsites that touch Section data. Generic rule: **any code path that mutates `UMovieSceneSignedObject` data during interactive editing must use `SaveToTransactionBuffer` not `Modify`.**
-
-**ParameterBlock and RuntimeDataBlock split storage by POD-ness; the dispatch lives in `if constexpr (TModels_V<CStaticStructProvider, T>)` plus a runtime offset-magnitude check.** The two storage pools coexist and the call-site templates stay unified -- `ReadValue<T>` / `WriteValue<T>` / `TryResolveInputPin<T>` work for both POD and non-POD T without two separate APIs. The cost is one runtime branch per templated read / write (negligible on POD, cache-friendly on non-POD), and one extra `if constexpr` block per template instantiation.
-
-Storage layer (`FComposableCameraRuntimeDataBlock`):
-
-- `TArray<uint8> Storage` -- contiguous byte buffer for POD pin values, indexed by real byte offset that advances during `BuildRuntimeDataLayout`'s allocation pass.
-- `TArray<FInstancedStruct> StructSlots` -- typed slots for non-POD struct values (any USTRUCT containing `FString` / `FText` / `TArray` / `TMap` / `TSet` / object refs / interfaces / delegates anywhere in the property graph). Each slot is `InitializeAs(StructType)` once at activation and reused across writes via `CopyScriptStruct`.
-- `static constexpr int32 StructSlotsOffsetBase = INT32_MAX / 2;` -- offsets in the per-role lookup maps (`OutputPinOffsets`, `ExposedParameterOffsets`, `InternalVariableOffsets`, `ExposedInputPinOffsets`, `DefaultValueOffsets`, `InputPinSourceOffsets`) that are `>= base` index into `StructSlots[Offset - base]`; smaller offsets are real byte offsets in `Storage`. The base is INT32_MAX/2 (well outside any plausible Storage size, well below any plausible struct slot count) so the discrimination cannot collide.
-- `IsStructSlotOffset(int32) const`, `GetStructSlotIndex(int32) const`, `RegisterStructSlot(UScriptStruct*) -> int32` -- the helpers `BuildRuntimeDataLayout` and the dispatch paths use to allocate / classify offsets.
-
-ParameterBlock layer (`FComposableCameraParameterBlock`):
-
-- `TMap<FName, FComposableCameraParameterValue> Values` -- POD byte-array entries (delegates excluded; they live in DelegateValues).
-- `TMap<FName, FInstancedStruct> StructValues` -- non-POD struct entries set via `SetStruct(FName, UScriptStruct*, void*)`. `SetStruct` clears any same-name entry in the parallel `Values` / `ActorValues` / `ObjectValues` / `DelegateValues` maps so a name is only ever live in one pool at a time.
-
-The dispatch at every consumer is one of:
-
-- *Templated read / write* in `RuntimeDataBlock::ReadValue<T>` / `WriteValue<T>`: `if constexpr (TModels_V<CStaticStructProvider, T>)` opens the struct branch (compiler discards it for non-USTRUCT T like `float`); inside the branch a runtime `IsStructSlotOffset` check picks between `Storage` memcpy and `StructSlots[i]` `CopyScriptStruct`. POD struct (`FVector` etc.) takes the runtime memcpy fall-through.
-- *Non-templated dispatch* in the auto-resolve loop's Struct case (and the analogous subobject-pin case): looks up the offset via `RuntimeDataBlock::ResolveInputPinOffset` (the three-tier wired -> exposed -> default scan, without copying the value), then branches on `IsStructSlotOffset`. POD path uses `FMemory::Memcpy` from `Storage` into the UPROPERTY field; non-POD path calls `Property->CopyCompleteValue(FieldPtr, Slot.GetMemory())` so each embedded property's `operator=` runs (FString reuses its allocator, TArray reuses its inline buffer, object pointers update cleanly).
-- *Layout allocation* in `BuildRuntimeDataLayout`: a single `AllocateSlot(PinType, StructType)` lambda dispatches once per role -- if the pin is `Struct` and `!IsBytewiseSafeStruct(StructType)`, allocate a struct slot; otherwise advance `CurrentOffset` by `GetPinTypeSize`. The same lambda is used at all 7 allocation sites (camera output pins, compute output pins, exposed parameters, per-instance default overrides x2 for camera + compute, internal variables, exposed variables) so the dispatch story stays uniform.
-- *Set-from-string* in `FComposableCameraParameterBlock::ApplyStringValue`: forks at the Struct case on `IsBytewiseSafeStruct`. POD does in-place `InitializeStruct` + `ImportText` into `Entry.Data` (the byte path). Non-POD does `FInstancedStruct::InitializeAs(StructType)` + `ImportText` into the slot's mutable memory, then `OutBlock.SetStruct(...)`.
-- *Bag round-trip* in `CopyBagValueIntoBlock`: same fork. POD copies `View.GetMemory()` into `Entry.Data` via `CopyScriptStruct` then routes through `StoreValue`. Non-POD skips the byte allocation entirely and routes through `SetStruct`.
-- *K2 setter CustomThunk* (`SetParameterBlockValue`): the `bMemcpySafe` gate uses `IsBytewiseSafeStruct(StructProp->Struct)` for struct properties. Non-POD struct properties skip the byte path and route through `SetStruct(ParameterName, StructProp->Struct, ValuePtr)`.
-
-`ApplyParameterBlock` dispatches via two helper lambdas (`CopyParamIntoSlot` and `SeedFromInitialValue`) that hide the POD / non-POD branching from the three role loops (ExposedParameter, InternalVariable, ExposedVariable). The InitialValueString path for non-POD struct goes through the central `ApplyStringValue` parser, which produces an `FInstancedStruct` in a scratch ParameterBlock; the seed helper then `CopyScriptStruct`s into the destination runtime slot.
-
-Hot-path characteristics:
-
-- POD path: zero behavioural change. `ReadValue<float>` is one `FMemory::Memcpy(sizeof(float))` -- the `if constexpr` branch is discarded by the compiler.
-- POD struct path (`FVector` etc.): one runtime `>= base` branch (cache-resident; trivially predicted) before the existing memcpy. Negligible.
-- Non-POD struct activation: one `InitializeAs` per slot per camera lifetime (allocates the FInstancedStruct's typed memory + runs the struct's default ctor). Bounded by the count of non-POD struct slots in the type asset.
-- Non-POD struct per-frame copy-in (ApplyParameterBlock during reactivation, WriteOutputPin during pin-to-pin transfer, auto-resolve into UPROPERTY): `CopyScriptStruct` walks the struct's properties and invokes each property's `operator=`. For `FString`, that's allocator reuse if `Capacity >= NewLen` (no alloc) or one realloc if the source string grew. For `TArray<T>`, same -- inline buffer reused, realloc only on grow. Steady state for a stable exposed value is no-alloc.
-- GC: `RuntimeDataBlock::AddReferencedObjects` walks `StructSlots` via `FReferenceCollector::AddPropertyReferencesWithStructARO`, which surfaces every reflected UObject reference inside each struct slot. ParameterBlock's `StructValues` is a UPROPERTY TMap so reflection-based GC traversal handles it automatically; the manual `AddPropertyReferencesWithStructARO` walk is redundant-but-safe insurance for non-UPROPERTY copies.
-
-Authoring-time validation in `UComposableCameraTypeAsset::Build()` is reduced to "Struct pin type with no `StructType` set" -- the prior "non-POD struct is silent-drop" Error message no longer applies because non-POD structs are now first-class. Any USTRUCT, POD or not, is accepted as ExposedParameter / ExposedVariable / InternalVariable type.
-
-What's still scope-out:
-
-- *Templated `GetInputPinValue<T>` for non-POD T returning by value*: works through the same dispatch (returns a properly copy-constructed T via the `if constexpr` branch's CopyScriptStruct). No special API needed.
-- *MakeLiteralStruct for non-POD struct K2 pin defaults*: the K2 ExpandNode falls through to setting `SetterValuePin->DefaultValue = DynamicPin->DefaultValue` for struct types without a dedicated MakeLiteral helper, identical to the POD `FFloatInterval` path. Connected struct pins (LinkedTo > 0) flow through `MovePinLinksToIntermediate` and don't need MakeLiteral. If a non-POD struct unconnected-default ever needs MakeLiteralStruct, add one alongside the existing math-type literals; not required for the current set of struct types in production assets.
-
-**UE 5.6 BP wildcard bug, sidestepped via typed-setter dispatch in K2 ExpandNode.** Historical context: when a K2 Override Pin of struct type (e.g. Vector3D) carries a literal default (typed into the pin's default-value field instead of wired from a `Make Vector` node), the K2 ExpandNode inserts a `MakeLiteralVector` intermediate. The resulting bytecode for a `CustomStructureParam` wildcard arg ends up with the wrong FProperty type at runtime: `Stack.MostRecentProperty` after `Stack.StepCompiledIn<FProperty>(nullptr)` reports the function's FIRST parameter type (`FComposableCameraParameterBlock`) instead of the actually-wired type (`FVector`). Calling `FInstancedStruct::InitializeAs(FComposableCameraParameterBlock::StaticStruct(), &FVectorBytes)` would then crash inside `CopyScriptStruct` -- the destination struct expects a `TMap` at offset 0 but the source bytes are 24-byte FVector data, so the copy reads garbage stack memory as TSet internals (access violation in `TSet::operator=`).
-
-The fix is in K2 ExpandNode (all three K2 nodes that emit ParameterBlock setters: `UK2Node_ActivateComposableCamera`, `UK2Node_AddCameraPatch`, `UK2Node_ActivateComposableCameraFromDataTable`). Instead of routing every override pin through one wildcard `SetParameterBlockValue(Block, Name, /*CustomStructureParam*/Wildcard)`, the dispatch picks a typed BP setter via `ComposableCameraEdGraphPinTypeUtils::ResolveTypedSetterFunctionName(PinType)`:
-
-- `SetParameterBlockBool` / `SetParameterBlockInt32` / `SetParameterBlockFloat` / `SetParameterBlockDouble` / `SetParameterBlockName` for POD primitive pins
-- `SetParameterBlockVector2D` / `SetParameterBlockVector` / `SetParameterBlockVector4` / `SetParameterBlockRotator` / `SetParameterBlockTransform` / `SetParameterBlockFloatInterval` for engine math structs
-- `SetParameterBlockActor` / `SetParameterBlockObject` for Object pins
-- The wildcard `SetParameterBlockValue` is reserved as fallback for Enum (width normalization needs runtime FProperty inspection), arbitrary user-defined non-POD `Struct`, and Delegate.
-
-Each typed setter is a thin wrapper on `UComposableCameraBlueprintLibrary` over the matching `FComposableCameraParameterBlock::SetXxx` method. Because the function signature declares a concrete-typed parameter (no `meta=(CustomStructureParam=...)`), the BP compiler's bytecode generation for the call argument is unambiguous and the wildcard mis-typing bug doesn't apply.
-
-`FComposableCameraParameterBlock::SetStruct` retains a defensive guard for the case where the wildcard fallback hits the same bug pattern (the realistic trigger -- pin-default struct literal -- now bypasses the wildcard, but the guard remains for the rare Enum / non-POD-struct case). When the guard fires, it logs at `Verbose` level (no longer noisy) and refuses the call, leaving `ApplyParameterBlock`'s InitialValueString fallback to supply the type asset's authored default.
-
-**`IsBytewiseSafeStruct` cannot be implemented via reflection-walk heuristics �?non-UPROPERTY native C++ members are invisible to the iterator.** UE allows arbitrary native members in a USTRUCT body that are not UPROPERTY-tagged: an `FString`, `TArray`, `UObject*`, custom destructor, etc. These members occupy real bytes in the struct's layout but never surface through `TFieldIterator<FProperty>`. A walk-and-validate implementation that rejects on FStrProperty / FObjectProperty / etc. correctly catches REFLECTED non-POD members but is structurally blind to hidden members. Trailing-padding sanity (compare struct size against last reflected property end + alignment slack) catches the "hidden member appended after the last UPROPERTY" case but misses both hidden-leading and hidden-interior cases �?the compiler-generated layout shifts visible-member offsets to accommodate them, so reflection sees consistent offsets without obvious gaps; and it can miss the trailing case when the hidden member's size happens to be absorbed by alignment slack. Consequence: a struct that passes the heuristic but contains hidden heap-owned storage gets memcpy'd into the byte-array storage path �?shallow copy of the hidden FString shares an FString allocator slot across two destinations, the destructors race to free, the GC never sees the hidden UObject* member. Crash class: use-after-free on the next FString operation, or GC sweep walking a freed object.
-
-The only safe rule is the strict opt-in: hardcode the engine math whitelist (FVector / FRotator / FTransform / FFloatInterval / FVector2D / FVector4 �?these are guaranteed POD by construction, even when their `STRUCT_IsPlainOldData` flag isn't set on UE 5.6 LWC builds), accept anything with `STRUCT_IsPlainOldData` set (caller explicitly opted in via `template<> struct TStructOpsTypeTraits<MyStruct> : TStructOpsTypeTraitsBase2<MyStruct> { enum { WithIsPlainOldData = true }; };`), reject everything else. The `FInstancedStruct` path handles every other USTRUCT correctly via `CopyScriptStruct` (per-property `operator=`); the per-frame cost is one heap allocation at activation + the struct's own `operator=` chain, both negligible for typical camera pin counts. Authors who need bytewise transport for performance reasons can opt in with one line of trait code that also documents their POD claim under their own responsibility. Generic rule for any future "is this struct safe to memcpy?" check: do not invent reflection heuristics; require explicit opt-in via STRUCT_IsPlainOldData or a hardcoded whitelist of known-POD types.
-
-**`SetVariable` exec entries need activation-time validation of BOTH type compatibility AND serialized SlotSize �?type-only validation has a stale-size hole.** The runtime SetVariable handlers in both `AComposableCameraCameraBase::TickCamera` (camera chain via `FullExecChain`) and `ExecuteBeginPlay` (compute chain via `ComputeFullExecChain`) call `RuntimeDataBlock::CopySlot(SourceOffset, VarOffset, VariableSlotSize)` to copy a source pin's value into a variable slot. The POD branch of `CopySlot` does `FMemory::Memcpy(dst, src, NumBytes)` and reads `NumBytes` bytes from the source offset regardless of how many bytes actually live in the source slot. Two stale-asset failure modes both produce cross-slot reads:
-
-1. **Type mismatch** �?source pin and variable type disagree. E.g., Float source (4B) wired to an Actor variable (8B target slot, VariableSlotSize=8 from variable type) memcpy's 4 bytes past the float source slot, then `RefreshReferenceSlot` reinterprets the resulting 8 bytes as `AActor*` and registers the garbage pointer with the `ActorReferenceSlots` GC mirror. Next GC sweep walks the mirror, dereferences the bogus pointer, crashes.
-2. **Stale SlotSize** �?types currently match, but the entry's serialized `VariableSlotSize` was recorded back when the variable had a different type. E.g., variable was Transform (SlotSize=48), the editor recorded an entry with VariableSlotSize=48; user later retypes the variable to Float without re-syncing the asset. Both source pin and variable are now Float (type check passes!), but Entry.VariableSlotSize=48 still. Memcpy reads 48 bytes from a 4-byte Float source slot �?overflows into adjacent storage and corrupts whatever lives there. If an `ActorReferenceSlots` / `ObjectReferenceSlots` mirror lives in the corrupted region, GC walks garbage on next sweep.
-
-The existing `if (Entry.VariableSlotSize <= 0) break;` early-out doesn't help in either case because the entry has a legitimate-looking positive size �?just for the wrong type or wrong width. Fix: validate at activation. `BuildRuntimeDataLayout` Phase 2 walks both exec chains, looks up each SetVariable entry's source pin declaration (via the same `FindPinDecl` cache used by the connection passes) and target variable record (by name in `InternalVariables` then `ExposedVariables`), and runs **two** checks: `ArePinTypesCompatible` on (source pin, variable) AND `Entry.VariableSlotSize == GetVariableSlotSize(Var->VariableType, Var->StructType)`. Either check failing �?invalidate. Failing entries' indices land in two new sets on the data block: `InvalidSetVariableExecEntries` and `InvalidSetVariableComputeExecEntries`. Runtime handlers walk the chains by index (range-based form was discarded �?it loses the index the set is keyed on) and skip any entry whose index is in the matching set. Cost: one `TSet::Contains` per SetVariable entry per tick on top of the existing checks; empty sets (typical case for clean assets) hash to a fast empty-bucket lookup. Generic rule for any future "exec chain entry" type: the editor records the entry, but a stale or mistyped entry can survive across saves. Validate at activation, not at edit time, so the gate fires for legacy assets too �?validate **every** size / type / shape field the runtime trusts, not just the obvious ones �?and propagate the result via a side-channel set on the data block rather than mutating the entry itself (the entry lives in serialized type-asset state).
-
-**`BuildRuntimeDataLayout` Phase 2 invariant: every Add into `InputPinSourceOffsets` / `ExposedInputPinOffsets` must validate source AND target pin types �?and if you cache pin declarations in a `TMap`, wrap them in `TUniquePtr` for stable addresses across Adds.** Phase 2 of `BuildRuntimeDataLayout` translates author-time graph state (`PinConnections` / `ComputePinConnections` / `ExposedParameters` / `VariableNodes`) into the runtime offset tables that drive per-frame pin reads. The original validation only checked that the source pin's slot existed in `OutputPinOffsets`; a stale asset (saved before a pin was renamed / retyped in C++), a hand-edited asset, or any future schema-bypass code path could route bytes of one shape into a slot of another shape �?runtime then reads `sizeof(AActor*)` bytes from a 4-byte float slot and dereferences garbage as a UObject pointer, with the symptom landing on either CopySlot's storage-class assert or the first AActor::* call. Fix: every Add into `InputPinSourceOffsets` / `ExposedInputPinOffsets` looks up BOTH endpoints' current `FComposableCameraNodePinDeclaration` (source via OutputPinOffsets's owning node, target via the wired/exposed/variable target) and compares (PinType, StructType, EnumType) for an exact match. Mismatches log + skip; the runtime then falls through to the pin's class-level default rather than reading garbage. Special-cases that need the same validation: ExposedParameters carry their own (PinType, StructType, EnumType) mirrored from the original pin �?validate against the target's CURRENT declaration, since the underlying pin may have been retyped after exposure; VariableNodes records similarly carry the target consumer pin and the variable's metadata, with a name-based fallback for legacy records whose VariableGuid was lost. Performance note: per-node `GatherAllPinDeclarations` is cached because the same target node typically receives multiple wired/exposed/variable inputs. **Cache must use `TMap<int32, TUniquePtr<TArray<...>>>`, not `TMap<int32, TArray<...>>`** �?TMap::Add can rehash and move its values, so a `const FComposableCameraNodePinDeclaration*` returned from a TArray stored directly in the map gets invalidated by a subsequent Add for a different node. The TUniquePtr indirection puts the TArray on the heap; the TUniquePtr itself moves when the map rehashes, but the pointed-to TArray's address is stable. Pointers FindByPredicate returns into the cached TArray then survive across all subsequent Adds. Generic rule for any future cache built during a multi-step layout pass: if callers will hold pointers into cached values across cache-growing operations, the values must live in heap-stable storage (TUniquePtr / TSharedPtr / pre-sized TArray), not directly in the map.
-
-**`FComposableCameraParameterBlock` invariant: every Set must clear all five parallel maps under the same name.** The block stores values across five parallel `TMap<FName, ...>` pools �?`Values` (POD bytes, including object/actor mirror bytes), `ActorValues` (GC-tracked Actor mirrors), `ObjectValues` (GC-tracked Object mirrors), `StructValues` (FInstancedStruct for non-POD USTRUCTs), `DelegateValues` (FScriptDelegate). A given name may legitimately exist in only ONE pool at a time �?the storage class is determined by the most recent Set call. Routes that bypass the typed setters (`SetBool` / `SetActor` / `SetStruct` / `SetDelegate` / etc.) and write directly to a single map (e.g. `Params.DelegateValues.Add(Name, ...)` or `Params.ActorValues.Add(Name, ...)`) violate this invariant: the prior storage-class entry under the same name remains live, and downstream `HasValue(Name)` / `Get<T>(Name)` may return the stale value depending on which map gets queried first. Symptom is silent: writes "succeed" but the wrong value flows into the runtime data block at activation time. Concrete bites that have shipped: (a) DataTable activation's override merge raw-Added delegates instead of `SetDelegate`, leaving any same-name POD value the row's text-parsed `ApplyStringValue` had populated still live; (b) `SetStruct` early-return paths (null caller args + the CCS-infrastructure-type defense against UE 5.6's BP wildcard mis-typing bug) preserved stale entries instead of clearing on rejection �?the contract should be "failed setter = no value here", not "failed setter = old value preserved". Fix uses a public `RemoveValue(FName)` helper that drops every parallel-map entry under a name in one place. Every typed setter (`SetActor` / `SetObject` / `SetStruct` / `SetDelegate` / `StoreValue`) already clears the four parallel maps inline before writing its own pool �?`RemoveValue` consolidates that pattern for failure paths and for callers that want an explicit "drop everything under this name" affordance. Generic rule for any future code that writes to a `FComposableCameraParameterBlock`: route through a typed setter, never through a raw `.Add` on one of the five maps.
-
-**`FComposableCameraExecEntry::VariableSlotSize` needs a `StructSlotSentinel` for non-POD struct variables �?the byte-size 0 silently swallows every Set.** SetVariable exec entries are dispatched at runtime via `RuntimeDataBlock::CopySlot(SrcOffset, DstOffset, NumBytes)`, which routes on the source/target offsets' storage class (`IsStructSlotOffset`) and ignores `NumBytes` when both endpoints land in `StructSlots`. The runtime handlers (`AComposableCameraCameraBase::TickCamera` and the compute-chain mirror) gate the dispatch on `Entry.VariableSlotSize <= 0` as a defense against editor bugs that miscompute size for POD slots. Without special handling, a non-POD struct variable returns `GetPinTypeSize == 0` (the documented "size unknown for non-POD struct" sentinel inherited from the POD path) �?`Entry.VariableSlotSize = 0` is written �?the `<= 0` gate trips �?every SetVariable on a non-POD struct variable silently no-ops. Symptom is silent: writes don't propagate, the variable holds its default value forever, and downstream Get nodes read stale state. Fix uses a positive sentinel: `FComposableCameraExecEntry::StructSlotSentinel = TNumericLimits<int32>::Max()` written by editor-side `GetVariableSlotSize(PinType, StructType)` next to `GetPinTypeSize`. The sentinel passes the `<= 0` early-out; CopySlot then dispatches by offset class and ignores the byte size for the struct branch. POD pin types still get their real byte size �?`GetVariableSlotSize` only swaps in the sentinel when `PinType == Struct && !IsBytewiseSafeStruct(StructType)`. Source/target storage-class mismatch (a non-POD struct source wired into a POD variable, or vice versa) is caught by CopySlot's `check(bSourceIsStruct == bTargetIsStruct)` �?the editor schema should prevent this; the runtime assert is a backstop. Generic rule for any future "slot byte size" field: a positive sentinel is preferable to 0 when 0 already has the meaning "no byte size �?use a different storage path", because downstream `<= 0` defenses against editor errors are common and would otherwise eat the legitimate non-byte case.
-
-**`TObjectPtr<T>` UPROPERTY fields must be written via `FObjectPropertyBase::SetObjectPropertyValue` AND verified against the property's class constraint before assignment.** UE 5's `TObjectPtr` is a wrapper whose memory layout MAY differ from a raw `T*` in some engine configurations (notably `UE_OBJECT_PTR_TRACKING` builds, where each TObjectPtr carries a debug GC integrity token alongside the resolved pointer). A naked `static_cast<T**>` write addresses the field as a raw pointer and skips both the TObjectPtr's storage convention AND the GC-token bookkeeping that `SetObjectPropertyValue` updates. Symptom in instrumented builds: false-positive "GC integrity violation" warnings and (rarely) corrupted stored bytes when the field is later read through TObjectPtr. The auto-pin-resolve loop in `UComposableCameraCameraNodeBase` (top-level `ResolveAllInputPins` and `ApplySubobjectPinValues`) used to do `*static_cast<AActor**>(ValuePtr) = V` directly; both paths now route through the new `AssignObjectPropertyChecked(...)` helper, which (a) calls `FObjectPropertyBase::SetObjectPropertyValue` for TObjectPtr / GC-token correctness, AND (b) verifies the resolved value's class is compatible with the target property's `PropertyClass` (FObjectProperty `IsA` check) or `MetaClass` (FClassProperty `IsChildOf` check) before writing. The class check is load-bearing because the auto-resolve pipeline collapses every object-class pin into the generic `Actor`/`Object` `EComposableCameraPinType` for storage �?the runtime data block has no record of the original property class. Without the IsA guard, a stale asset / hand-edited connection / BP wildcard could deliver a wrong-class instance (`UCurveVector` to a `TObjectPtr<UCurveFloat>` field, etc.); the typed C++ access on the receiving node would then read bytes interpreting the wrong vtable / member layout and crash. Mismatch �?log + write `nullptr` (the field's documented unset state). Generic rule: any code that takes a `void* ValuePtr + FProperty* Property` and writes a UObject reference must (a) use the property's typed setter, not a raw cast, AND (b) verify the value satisfies the property's class constraint when the constraint isn't already enforced upstream. The same applies on the read side (`GetObjectPropertyValue`); resolved pointers should not be reinterpreted from raw bytes.
-
-The data-block storage layer has a parallel guard for the same class-erasure problem at a deeper layer: `RuntimeDataBlock::ReadValue<T>` runs an `IsA(T::StaticClass())` check on the resolved pointer for UObject-derived `T` before returning, so node authors calling `GetInputPinValue<UCurveFloat*>` directly (which goes through `ReadValue<UCurveFloat*>`, NOT through the FObjectPropertyBase setter path) are also protected. The `if constexpr` gate keeps the branch a compile-time no-op for non-UObject `T` (float / FVector / FName / int64), so primitive reads pay zero overhead.
-
-**Delegate parameters need signature verification before assignment.** `FScriptDelegate` carries only `(UObject* BoundObj, FName FunctionName)` �?no signature record. A stale BP / mistyped C++ caller can install a delegate whose `UFunction` has a different parameter layout than the target `FDelegateProperty::SignatureFunction`. The eventual `Execute` call walks the wrong parameter frame: `ProcessEvent` reads garbage args, corrupts the callee's stack, asserts on size mismatch, or �?in optimized builds �?silently delivers wrong values. `UComposableCameraTypeAsset::ApplyDelegateBindings` now runs `SourceDelegate.GetUObject()->FindFunction(SourceDelegate.GetFunctionName())` and compares the resolved `UFunction` against `DelegateProp->SignatureFunction` via `IsSignatureCompatibleWith` (the same predicate UE itself uses for delegate-binding validation). Mismatch �?log + leave the target unbound (also unbinds any stale binding from a previous activation so the rejected new binding doesn't leave the previous one live). Empty source delegates pass through (the documented "unbind" idiom). Generic rule: anywhere the system stores a delegate value type-erased and later replays it into a typed `FDelegateProperty`, the assignment must verify signature compatibility �?`FScriptDelegate` itself does not carry the contract.
-
-**Cached struct values with embedded UObject references need explicit `AddPropertyReferencesWithStructARO` walking when they live outside a UPROPERTY chain.** `FComposableCameraPose` is a USTRUCT whose `FPostProcessSettings PostProcessSettings;` UPROPERTY field carries TObjectPtr references to materials / textures / WeightedBlendables. When a pose lives as a UPROPERTY field on a UObject, normal reflection-based GC walks reach those refs; when it lives in a non-UPROPERTY field �?leaf wrappers held via TSharedPtr from a UObject's `RootNode`, director's `LastEvaluatedPose` / `PreviousEvaluatedPose` raw struct members, context-stack entry's `LastPose` �?reflection cannot reach them and a material referenced ONLY through that cached pose can be GC'd mid-frame, leaving a dangling TObjectPtr. Three places now walk explicitly: `UComposableCameraEvaluationTree::AddTreeReferencedObjects` (RefLeaf CachedPose, Inner CachedBlendedPose), new `UComposableCameraDirector::AddReferencedObjects` (both Director poses), `UComposableCameraContextStack::AddReferencedObjects` (each Entry.LastPose). Implementation pattern: `Collector.AddPropertyReferencesWithStructARO(FComposableCameraPose::StaticStruct(), &PoseRef)`. Generic rule: every USTRUCT cached in a non-UPROPERTY location must either (a) be GC-walked via this API in the containing UObject's `AddReferencedObjects`, or (b) be cached as a "lightweight" variant that strips UObject-bearing fields. The same rule extends to non-UPROPERTY-tagged TMaps whose entries' inner UPROPERTYs would otherwise be invisible to reflection �?see the SequencerPatchOverlays gotcha below.
-
-**Non-UPROPERTY scratch containers holding raw `UObject*` must be empty whenever control is outside their owning function �?otherwise GC walks see invisible cross-frame holds.** Several reuse-across-frames patterns (PCM `UpdateActions`'s `CameraActionsRemovalScratch`, CollisionPushNode's `ResolvedActorsToIgnore`, DynamicDeocclusionTransition's `ResolvedActorsToIgnore`) live as UCLASS members but are deliberately NOT UPROPERTY-tagged: the goal is "preallocated heap capacity that amortizes across frames" without paying GC reflection cost on a non-load-bearing container. The trade-off is that GC cannot see raw `UObject*` entries inside the container, so any reference left live across frames is invisible to the GC sweep �?if the actor / action / etc. would otherwise be collectible (no other refs), the container holds a dangling pointer the next time the function reads it. Lifetime contract: every such container must `Reset()` (preserves capacity) before any code path returns control to the caller, AND the entry-point must `Reset()` defensively in case the previous return path was missed. The `UpdateActions` scratch establishes this pattern (Reset at function entry + exit, with a header comment recording the invariant); CollisionPushNode and DynamicDeocclusion now follow the same shape. Generic rule: prefer `TArray<TWeakObjectPtr<T>>` if cross-frame holds are actually wanted; the raw-pointer container is only correct as a strictly-function-local scratch with eager Reset.
-
-**`TMap<TObjectPtr<T>, V>` keeps every key alive �?use `TMap<TWeakObjectPtr<T>, V>` when stale-prune semantics are wanted.** A `TObjectPtr` map key is a strong reference; even when the underlying UObject becomes logically dead (Sequencer rebuild, asset reimport, undo across creation, etc.), the GC cannot reclaim it because the map still holds a strong ref. Any prune-on-tick path that gates on `IsValid(Key)` becomes dead code �?the key never goes stale. `LSComponent::SequencerPatchOverlays` had this exact bug: the documented prune in `ApplySequencerPatchOverlays` could not fire, so an overlay/evaluator pair survived past its source section's logical removal and kept applying the old patch. Fix: change the key to `TWeakObjectPtr<T>` and walk inner UObject refs manually via a custom `AddReferencedObjects` (TMap with `TWeakObjectPtr` keys is not UPROPERTY-reflectable, so the inner-struct UPROPERTYs become invisible to reflection �?they need explicit `Collector.AddReferencedObject` / `AddPropertyReferencesWithStructARO` calls). Implementation gotcha: when iterating the prune list, work in `TWeakObjectPtr` space end-to-end. Pushing `Pair.Key.Get()` (raw nullptr for stale) and then `Find(nullptr)` constructs a different-hash key (TWeakObjectPtr's hash is stable on the original UObject's serial number, not on the dereferenced pointer), so stale entries get missed entirely. Sort comparators that need to read fields from the section dereference once with `Get()` and treat null as "sort last so the walk prunes them after live entries". Generic rule: any TMap whose keys come from a system that owns its own object lifetimes (Sequencer, asset registry, plugin manifest, etc.) should hold weak keys unless the map is itself the owner of the keyed object's lifetime.
-
-**Spawned-actor cleanup must pair `OnTransitionFinishesDelegate` registration with a `BeginDestroy` backstop.** Transitions that spawn world Actors at `OnBeginPlay` (currently only `UComposableCameraPathGuidedTransition` �?`IntermediateCamera` for `Type=Inertialized`, `DebugSplineActor` for `Type=Auto`) cannot rely on UPROPERTY GC to remove them �?UObject GC does not call `AActor::Destroy`, it only releases the reference, leaving the actor live in the World. Two destroy paths must both exist: (a) register a cleanup lambda on `OnTransitionFinishesDelegate` in `OnBeginPlay` immediately after spawn �?fires once via `TransitionFinished`'s broadcast on the normal completion path, regardless of which lazy sub-transition (`EnterTransition` / `ExitTransition`) was actually constructed mid-blend; (b) override `BeginDestroy` to call the same cleanup as a backstop for the interrupted-mid-blend path (camera destroyed, eval tree pruned, transition replaced before completion) where the delegate never fires. The cleanup helper itself must be idempotent (`IsValid()`-guarded `Destroy()` is sufficient �?both `IsValid` and `AActor::Destroy` are no-ops on a pending-kill actor) so the two paths can both fire on the normal completion order without harm. Hard precondition before any spawn: validate the input data (`PathGuidedTransition::ResolveAndValidateRail` checks `RailActor` resolves, `RailSplineComponent` exists, and `GetNumberOfSplinePoints() >= 1`) and bail before allocating any actor �?the previous behavior was to `SpawnActor` first then crash inside `BuildInternalSpline`'s `Points[0]` access on empty splines, leaving the half-constructed actor in the level. Generic rule for any future transition that spawns world objects: validate first, register the cleanup lambda once at spawn time, override `BeginDestroy` for the interrupt path, keep the cleanup helper idempotent.
-
-**`SetUpdateAnimationInEditor(false)` is silently ignored in `WorldType::EditorPreview`.** `USkeletalMeshComponent::ShouldTickPose` (SkeletalMeshComponent.cpp:1817) gates the `bUpdateAnimationInEditor` short-circuit on `GetWorld()->WorldType == EWorldType::Editor` only �?not `EditorPreview`. `FAdvancedPreviewScene` and `FPreviewScene` both create `EditorPreview` worlds, so the function falls through to its visibility-based path (default `AlwaysTickPose` �?returns true). The proxy's anim graph keeps ticking every frame, outputting whatever its `AnimSingleNode` / AnimBP produces (typically ref pose for a freshly-spawned proxy without an animation set), which **overwrites any manual CST writes from `GetEditableComponentSpaceTransforms` + `ApplyEditedComponentSpaceTransforms`**. Concrete bite: the Shot Editor preview proxy's per-frame "copy source's component-space bones" pose-mirror was being clobbered by the proxy's own anim tick output, manifesting as A-pose during interactive Section edits (when Sequencer's tick order changed). Fix: call `SetComponentTickEnabled(false)` on the SK component AND `SetActorTickEnabled(false)` on the actor �?both are unconditional gates that block the anim tick chain regardless of WorldType. With proxy-side ticks killed, our manual CST writes from the viewport client's own `Tick` are the sole source of pose. Generic rule: **for an editor preview SK that you drive externally (LeaderPose-by-hand, CopyPoseFromMesh-by-hand, direct CST poke), disable component + actor tick rather than rely on `SetUpdateAnimationInEditor(false)` �?that flag is `WorldType::Editor`-only.**
-
-**Manager-side UObject containers must add their own `AddReferencedObjects` when the entries live in non-reflected types �?and the entry fields must be `TObjectPtr`, not raw `UObject*`.** `UComposableCameraModifierManager` stores its modifier table in `FComposableCameraModifierData` �?a plain C++ struct (NOT `USTRUCT`) holding nested `TMap`s of a plain C++ entry type (`FModifierEntry`). Because the field isn't `UPROPERTY` and the entry isn't reflected, the GC sees zero references to either pointer through the manager. As long as a designer assigns the data asset somewhere reflected (BP variable, static asset reference) it stays alive incidentally �?the moment a caller passes a transiently-rooted asset to `AddModifier` and lets its only other rooted reference drop, the next GC pass collects the asset, the instanced modifier sub-objects go with it, and the next `UpdateEffectiveModifiers` / `ApplyModifiers` / Debug Panel pass dereferences a dangling pointer. Fix: (1) declare the entry's UObject fields as `TObjectPtr<�?` even though the surrounding type is non-reflected �?`FReferenceCollector::AddReferencedObject(UObject*&)` is now deprecated under incremental GC (emits C4996 telling you to "Pass TObjectPtr<�? instead of UObject* �?otherwise your project will no longer compile"); the new templated `AddReferencedObject(TObjectPtr<T>&)` overload is the only forward-compatible path. (2) override `static AddReferencedObjects(UObject* InThis, FReferenceCollector& Collector)` on the manager and walk both `ModifierData.ModifierData` (TagPair �?NodeClassPair �?Array<Entry>) and `ModifierData.EffectiveModifiers` (NodeClassPair �?Entry), passing `Entry.Modifier` / `Entry.Asset` directly to the collector (no `reinterpret_cast` needed �?the templated overload accepts `TObjectPtr<UComposableCameraModifierBase>&` etc. by reference), then chain to `Super::AddReferencedObjects`. Pattern applies to any UObject manager / cache that stores its working set in a non-reflected nested container �?modifier table, action queue, future patch overlay registry, etc. The alternative (promote the entry to a `USTRUCT` with reflected fields) is heavier because it forces every transitive map alias into a reflected form; the field-modernization + override combination is the smaller surface change.
-
-**`OnInitialize` runs BEFORE pin auto-resolution �?never cache pin-driven external bindings there. And NEVER store `FEnhancedInputActionValueBinding*` across ticks.** `UComposableCameraCameraNodeBase::OnInitialize`'s docstring is explicit: "Input pin values are NOT yet resolved when this is called. Do not read pin-backed UPROPERTYs here to seed per-frame state �?use OnFirstTickNode instead, which runs after the first ResolveAllInputPins()." A node that ignored that contract was `UComposableCameraControlRotateNode`: it read `RotationInputActor` (declared as both a UPROPERTY and an Actor input pin) inside `OnInitialize`, so it always saw the editor-time default �?never the wired pin value �?then cached `UEnhancedInputComponent*` and `FEnhancedInputActionValueBinding*` off that wrong actor for the camera's entire lifetime. Four layered failures: (a) wrong-actor binding from frame 1 if the pin is wired to anything other than the default; (b) stale binding if the pin's value changes mid-life (legitimate use case for context-parameter-driven input owners that swap pawns); (c) dangling component pointer if the actor or its EnhancedInputComponent is destroyed before the camera is; (d) **dangling binding pointer even when the component is alive** �?`BindActionValue` returns `FEnhancedInputActionValueBinding&` aliased into `UEnhancedInputComponent::EnhancedActionValueBindings`, declared as plain `TArray<FEnhancedInputActionValueBinding>` (by value, NOT `TArray<TUniquePtr<�?>`). Any other site calling `BindActionValue` on the same component (BP node, gameplay code, another camera node sharing the same actor) hits `Add_GetRef` which can reallocate the array, silently invalidating every previously-returned reference. The component being `IsValid()` proves nothing �?the address inside it can already be free memory. Fix template for any node that owns a per-tick external binding driven by an input pin: (1) leave `OnInitialize` doing nothing more than zeroing local accumulator state; (2) hold the binding owner as `TWeakObjectPtr<TOwner>` plus per-driver `TWeakObjectPtr` snapshots (`LastBoundInputActor`, `LastBoundAction`, �?; (3) call an `EnsureInputBinding()` helper at the top of `OnTickNode` that compares the current pin-resolved values against the snapshot and re-runs the registration call whenever any of {actor changed, action changed, owner became invalid} are true; (4) **discard the reference returned by `BindActionValue`** �?the call only exists to ensure EnhancedInput tracks the action value for this component; do not store a pointer or reference into the bindings array; (5) at tick time read the live value via `EIC->GetBoundActionValue(Action)` �?that path does a linear search over the bindings array each frame, which is cheap (handful of bindings on a typical InputComponent) and is safe across array reallocations. The same rule applies to `FEnhancedInputActionEventBinding&` returned by `BindAction` / `BindActionLambda`: never persist the reference past the call site if the corresponding `EnhancedActionEventBindings` array could grow elsewhere on the same component.
-
-**`FTickableGameObject::IsTickable` must guard against CDO / template / half-constructed / pending-kill instances.** `FTickableGameObject` registers every constructed instance �?including the CDO and archetype templates �?with the global tickable list and calls `IsTickable` on each one every frame. A naive `return bShouldTick;` lets the CDO tick: its `Curve == nullptr` branch fires `OnComplete.Broadcast()` against whatever delegates the CDO holds (usually none, but BP authoring or hot-reload can leave residue) and then calls `SetReadyToDestroy()` on a class default object, which is undefined behaviour. The `UAsyncFloatCurveEvaluator` / `UAsyncVectorCurveEvaluator` async actions hit exactly this �?both inherit `FTickableGameObject` for their per-frame curve sampling. Two-layer fix is required, applied to both: (1) `IsTickable` returns `bShouldTick && !IsTemplate() && !HasAnyFlags(RF_BeginDestroyed | RF_FinishDestroyed) && !IsUnreachable()` �?`IsTemplate` covers both `RF_ClassDefaultObject` and `RF_ArchetypeObject`; the destruction flag check covers the window between `BeginDestroy` and full GC; the unreachable check covers the window between mark and sweep. (2) `bShouldTick` defaults to `false` in the header and the factory flips it to `true` only after `Curve` / `Duration` are assigned and `RegisterWithGameInstance` has run �?so a half-initialised instance constructed earlier in the frame cannot tick before its dependent state is wired. The same template applies to any future `UObject` deriving from `FTickableGameObject` in this codebase.
-
-**`FComposableCameraParameterValue::Get<T>` must validate `PinType`, not just `Data.Num()`.** The original implementation checked only `Data.Num() == sizeof(T)` and `memcpy`'d. That accepts every same-size cross-type read: `Get<float>` on an `Int32` entry (both 4 bytes), `Get<UCurveFloat*>` on any `UObject` entry (both 8 bytes for the pointer payload), and so on �?values are silently misinterpreted as the requested type. The runtime hot path is already guarded by `FComposableCameraParameterBlock::CopyRawTo`'s strict `PinType + size` check (see the rationale block on that function �?same review pass that caught the float-into-Actor-slot crash). The deprecation gap was the public C++ template entry point, used by manual callers and by the dispatch in `FComposableCameraParameterBlock::Get<T>(Name, OutValue)`. Fix: add a compile-time `EComposableCameraPinType ExpectedType` derived from `T` (mirroring `UE::ComposableCameras::Private::ExpectedPinTypeFor` from `ComposableCameraRuntimeDataBlock.h` �?reproduced inline rather than included so the header doesn't pull in the heavier RuntimeDataBlock graph), refuse on `PinType != ExpectedType`, and refuse for any unknown `T` rather than degrading to a Float fallback. For `UObject` pointers, also `IsA<std::remove_pointer_t<T>>` the stored pointer before returning it �?the byte slot only carries `EComposableCameraPinType::Object` (or `Actor`) information, not the actual class, so a `Get<UCurveFloat*>` on an entry storing `UTexture*` must miss instead of returning a downcast to a wrong class. Struct values are stored in the parallel `StructValues` map (`FInstancedStruct`) and are not reachable from this byte-array `Get`, so the Struct branch is omitted on purpose.
-
-**`FScriptDelegate` is a WEAK reference holder �?`AddReferencedObjects` must walk delegate maps separately to keep bound objects alive.** `FScriptDelegate` (and the multicast variant `FMulticastScriptDelegate`) stores its target as `TScriptDelegate<FWeakObjectPtr>::Object` �?a `FWeakObjectPtr` under the hood. The GC's reflected-property walk does not promote that to a strong reference; nothing in `UPROPERTY`-driven ARO catches it. Containers that hold delegates and want their targets to stay alive while the delegate sits unconsumed must do the work themselves. `FComposableCameraParameterBlock` hits this: `DelegateValues` (a non-`UPROPERTY` `TMap<FName, FScriptDelegate>`) holds delegates that are later consumed by `ApplyDelegateBindings` to write into a destination node's `FDelegateProperty`. The vulnerable window is between `SetDelegate(...)` (caller hands over the delegate, drops their own reference to the target) and `ApplyDelegateBindings(...)` (target is now reachable through the destination node's reflected delegate property). If GC runs in that window with no other rooted reference to the target, `GetUObject()` flips to null and the delegate applies as "unbound" �?silent no-op at activation time, no crash, no warning. Walk `DelegateValues` in `AddReferencedObjects` and `Collector.AddReferencedObject(...)` the resolved `GetUObject()` (wrap in a `TObjectPtr<UObject>` local since the `UObject*&` overload is the C4996 deprecated path under incremental GC). The local-variable pattern is fine �?the goal is to mark the object reachable for the mark phase; the FScriptDelegate's internal weak ptr still cleanly nulls if the target is explicitly destroyed. Same rule applies to any other TMap/TArray of `FScriptDelegate` / `FMulticastScriptDelegate` you add: ActorValues/ObjectValues alone are not sufficient, the delegate map needs its own walk.
-
-**Struct-slot dispatch must check shape BEFORE `CopyScriptStruct`, not after �?`check()` macros are NOT a safety boundary.** `FComposableCameraRuntimeDataBlock::ReadValue<T>` / `WriteValue<T>` previously took an early-return into the `IsStructSlotOffset(Offset)` branch and ran `T::StaticStruct()->CopyScriptStruct(...)` against the slot's typed memory, with only `check(Slot.IsValid() && Slot.GetScriptStruct() == T::StaticStruct())` standing between the call and the copy. `check()` strips in Shipping (and may not abort cleanly under crash-handler configurations even in Debug). A stale offset table �?type asset edited and saved before the validation pass landed, hand-edited connection, asset round-trip race that left an entry pointing at the wrong struct slot index �?would silently send a wrong-shape T into `CopyScriptStruct`, which walks T's property layout (every FString operator=, every UObject ref overwrite, every embedded TArray copy) against bytes belonging to a different USTRUCT. That is heap corruption / GC-mirror pollution territory under any non-POD struct field. The `SlotShapes` strict-shape gate that already covered the byte-storage path was bypassed entirely on the struct-slot path because the early-return fired before the lookup. Fix is symmetric to the earlier slot-shape work: extend `FSlotShape` with a `TObjectPtr<UScriptStruct> StructType` recorded at `AllocateSlot` time for both struct-slot synthetic offsets AND POD byte-storage struct slots, and gate the struct-slot branch on `Shape && Shape.PinType == Struct && Shape.StructType == T::StaticStruct()` BEFORE the `IsValidIndex` / `Slot.IsValid()` reads. Mirror the same `StructType` check in the byte-storage path so a same-size cross-USTRUCT read (e.g., `ReadValue<FCustom12B>` against an `FVector` slot �?both 12 bytes, both `PinType == Struct`) is refused too. The `check()`s become redundant once these gates are in place; they stay as cheap debug-build sanity checks but are no longer the only barrier. Generic rule: in any templated dispatch that lands on `CopyScriptStruct` / `InitializeStruct` / `DestroyStruct`, the struct identity check must be a real `if`-with-return in every build, not a `check()`. The same principle applies to `Cast<T>` of UObject pointers from a class-erased slot �?already in force via the `IsA` guard documented in `ReadValue<T>`.
-
-**Hot-path scratch buffers must be member-scoped + reset twice (entry AND exit), not function-local + Reserve.** The CCS hot-path rule (§3.13) bans per-tick allocation. A common-but-broken pattern is a function-local `TArray<T>` / `TSet<T>` with `Reserve(N)` at the top �?`Reserve` hits the allocator on the first call regardless of how small N is, and "first call" repeats every tick because the local goes out of scope. `UComposableCameraOcclusionFadeNode::OnTickNode` shipped this pattern: `TSet<UPrimitiveComponent*> DesiredFaded; DesiredFaded.Reserve(16);` plus a `TArray<FOverlapResult> Overlaps; Overlaps.Reserve(8);` in the proximity-query helper. Once the node is enabled, those are per-frame allocations on the eval hot path. Two complementary fixes, applied to OcclusionFade as the reference template: (a) **Member-scope the buffer** when the engine API forces a default-allocator TArray (e.g., `UWorld::OverlapMultiByObjectType(TArray<FOverlapResult>&, �?` �?no allocator template, can't substitute `TInlineAllocator`). The buffer's heap allocation amortises across activations; `Reset()` (not `Empty`) keeps the existing capacity hot. (b) **`TInlineAllocator<N>` on a function-local TArray** when the engine API accepts an allocator template (`AActor::GetComponents<T>(TArray<T*, AllocatorType>&)` since UE 4.18). Inline storage on the stack covers the common-case size with zero heap touches; only oversized cases spill. **Lifetime contract for member-scoped scratches** (mirrors `PCM::CameraActionsRemovalScratch`): scratches that hold raw `UObject*` entries are intentionally NOT `UPROPERTY` and NOT `TWeakObjectPtr` so they have zero per-tick GC cost, which means they MUST be empty whenever control is outside the owning function. `Reset()` therefore runs at BOTH the top and the bottom of `OnTickNode` so a GC sweep between frames cannot encounter stale raw pointers. Scratches that hold value-types holding internal weak refs (e.g., `FOverlapResult` whose `Component`/`Actor` fields are `TWeakObjectPtr`) are GC-safe by construction; the entry `Reset` is still required because the engine query function APPENDS rather than overwrites. Generic rule: any new node that wants to gather "this frame's set of UObjects to act on" must use the same template �?member scratch + Reset(entry) + Reset(exit) �?and never `Reserve()` on a function-local container in the hot path.
-
-**Wildcard CustomThunks must pass `nullptr` to `Stack.StepCompiledIn<FProperty>(...)` and refuse literal operands �?fixed-size buffers just push the explosion point further out.** Engine bytecode for a literal struct operand is "`StructConst <UScriptStruct*> <bytes...>`" �?`StepCompiledIn` reads `<bytes>` and writes them into the supplied buffer regardless of the buffer's actual size. UE5 LWC `FTransform` already exceeds 64 B (TQuat<double> + two TVector<double> �?96 B with alignment), and `CustomStructureParam` will accept any user POD USTRUCT with `ValueProperty->GetSize()` unbounded. A literal of N>buffer bytes overruns and corrupts the surrounding stack frame (locals, then the return address). Bumping the buffer (64 B �?1 KiB �?4 KiB) only delays the crash; user POD USTRUCTs can always be larger, and any post-step size check is post-mortem because the write already happened inside `StepCompiledIn` before our code runs. The right pattern is "no buffer at all": pass `nullptr` so the bytecode interpreter only resolves property addresses (variable / temp / member references), then refuse with a `FBlueprintExceptionInfo(EBlueprintExceptionType::AbortExecution)` when `MostRecentPropertyAddress == nullptr` after the step (which means the operand was a literal). The K2 ExpandNode side already wires every supported type through a typed setter (`SetParameterBlockBool`, `SetParameterBlockFloat`, �? or a `MakeLiteral*` helper; only arbitrary user struct pins with an authored default would otherwise emit a literal, and the runtime exception surfaces that as a deterministic "wire via Make Struct" error. Generic rule: ANY CustomThunk in this codebase that uses `StepCompiledIn` with a non-typed property parameter must pass `nullptr` and refuse on null `MostRecentPropertyAddress` �?fixed-size scratches are a smell, not a fix.
-
-**Wildcard CustomThunks must derive `EComposableCameraPinType` from the resolved `FProperty`, not leave `Entry.PinType` at its default.** The `bMemcpySafe` branch of `SetParameterBlockValue` previously only filled `Entry.Data` and called `StoreValue`, leaving `Entry.PinType` at the struct default `Float`. Every type-checked downstream read (`Get<int32>`, `CopyRawTo` with `ExpectedPinType=Int32`, the byte-storage shape gate in RuntimeDataBlock) then refused the read because the recorded PinType didn't match the requested T, and the parameter silently fell back to the type asset's authored default �?the user's wildcard-routed Int32 / Double / FName / POD-struct literal effectively did nothing. Cascade: GC bookkeeping in `StoreValue` also dispatches on `Entry.PinType` to split Actor / Object entries into the GC-tracked parallel maps, so a wrong PinType on Actor / Object would silently bypass GC tracking too (Actor / Object are caught upstream by an explicit branch, but the principle is the same). Fix: derive `DerivedPinType` from `ValueProperty` (FIntProperty �?Int32, FDoubleProperty �?Double, FStructProperty �?match `TBaseStructure<FVector / FRotator / FTransform / �?`, fall through to Struct for arbitrary user POD USTRUCT) and assign it to `Entry.PinType` BEFORE `StoreValue`. Generic rule: any CustomThunk that constructs an `FComposableCameraParameterValue` from a runtime-resolved property must populate `PinType` from the property's reflection metadata; never rely on the struct default.
-
-**`CopySlot`'s shape / index / bounds checks must be real `if`-with-return, not `check()` �?Shipping strips `check()` and a stale exec entry corrupts adjacent storage.** `FComposableCameraRuntimeDataBlock::CopySlot` is the layout-anonymous workhorse for `SetVariable` exec entries �?it transfers a source pin's bytes into a target variable slot without knowing the C++ type at compile time. The previous `void CopySlot(int32 Src, int32 Dst, int32 N)` implementation guarded mismatches with `check()` only: `check(bSourceIsStruct == bTargetIsStruct)`, `check(Src.GetScriptStruct() == Dst.GetScriptStruct())`, `check(Src+N <= Storage.Num())`, etc. Shipping strips those, leaving a stale exec entry (variable retyped after the `Set` node was wired but the asset saved before validation existed; an entry that escaped Phase 2's `InvalidSetVariableExecEntries` set; an asset round-trip race) free to drive `CopyScriptStruct` into a wrong-type struct slot (heap corruption under embedded FString / TArray / object refs, GC pollution via the trailing `RefreshReferenceSlot`) or `memcpy` past a POD slot's end (clobbering adjacent storage; if a clobbered adjacent slot is a ref slot the next read registers garbage with the GC mirror �?same crash class the eleventh-pass review fixed for direct `WriteValue` calls). Fix is the symmetric `bool TryCopySlot(...)` that consults `SlotShapes` for both endpoints up-front (recorded `PinType` + `Size` + `StructType` from `AllocateSlot` time), refuses on any of {unknown offset, storage-class mismatch, struct-type mismatch, POD shape mismatch, NumBytes-vs-recorded-size mismatch, bounds violation}, logs a runtime warning, and returns `false`. The void `CopySlot` becomes a backwards-compatible wrapper that discards the bool �?new code should call `TryCopySlot` directly and react to `false`. Generic rule: any runtime layout-anonymous copy / dispatch that touches typed memory must validate via real branching, not `check()`. `check()` is a debug-build sanity probe, not a safety boundary.
-
-**Editor lambdas attached to long-lived widgets must capture weak refs, never `this`.** `IPropertyTypeCustomization` instances are owned by the property tree and rebuilt whenever the underlying property's type changes (e.g., `FComposableCameraInternalVariableCustomization` rebuilds when `VariableType` is edited). Slate's deferred deletion plus `IStructureDetailsView`'s internally retained widget tree mean the embedded struct-view widget can survive at least one tick past the customization's destruction, and an `OnFinishedChangingProperties` lambda holding `[this, …]` will crash dereferencing the dead `this` on the next edit. Fix: capture weak refs to the specific objects the lambda needs �?`TWeakPtr<FStructOnScope>` to the struct memory, plus the property handle `TSharedPtr` (intentionally strong �?see the IPropertyHandle gotcha) �?and pin them inside the lambda body with an early-return on null. Same rule applies to any other `IPropertyTypeCustomization` / `IDetailCustomization` that subscribes to long-lived delegates: never capture `this`; capture `TWeakPtr` / `TSharedPtr` of the specific resources, plus weak object-property references where applicable.
-
-**Hot-path `Evaluate` must not contain debug `PrintString` / `GEngine->GetWorld()` / FString-concat scaffolding.** A debug `UKismetSystemLibrary::PrintString(GEngine->GetWorld(), "_InitialLength is: " + FString::SanitizeFloat(...) + ...)` line was found inside `ComposableCameraPositionalInertializer::Evaluate` �?called once per active inertialized transition per tick. Three independent failure modes from a single line: (1) per-frame heap allocation (`FString::operator+` allocates), busting the no-alloc hot-path rule (§3.13); (2) on-screen log spam during transitions, useless to designers and impossible to disable without touching code; (3) `GEngine->GetWorld()` returns null in non-game / commandlet / pre-init contexts, so any non-PIE call path crashes. Fix is to delete the line. Generic rule: any transient `PrintString` / `UE_LOG` added to a hot-path function during local debugging must be removed before merge OR gated behind a CVar AND `WITH_EDITOR` AND a `GEngine && World` null guard; never let bare `GEngine->…` calls into transition / node / PCM tick paths.
-
-**Lazy-created sub-objects in `OnEvaluate` follow the same null-check discipline as `OnBeginPlay` spawns �?a guard added to one site does not exempt the other.** PathGuidedTransition shipped null-checks on its `OnBeginPlay` Inertialized / Auto branches (IntermediateCamera, SplineNode, EnterTransition, DebugSplineActor, BuildInternalSpline) but missed the lazy-created `ExitTransition` in `OnEvaluate` �?`ExitTransition = NewObject<�?(this, �?; ExitTransition->TransitionEnabled(�?;` back-to-back. Same crash class. The OnEvaluate site needs the same `if (!ExitTransition) { log; DestroySpawnedActors(); return CurrentTargetPose; }` rollback, with the additional discipline that `DestroySpawnedActors()` is now load-bearing for the steady-state path: it nulls `IntermediateCamera`, which causes the next frame's `if (!IntermediateCamera) return CurrentTargetPose;` early-return at the top of the Inertialized branch to permanently latch the hard cut. Without that, a transient `NewObject` failure would retry every subsequent frame past `GuideRange.Y` �?every retry log-spamming, every retry potentially re-failing. Generic rule extends from earlier: when fixing "NewObject result deref" bugs in OnBeginPlay, audit OnEvaluate (and any other lazy-create site) in the same file at the same time �?partial coverage is the same bug class wearing a different hat.
-
-**`SpawnActorDeferred` / `SpawnActor` / `NewObject` / `DuplicateObject` returns must be null-checked before any deref �?engine APIs legitimately return null.** `World->SpawnActorDeferred<T>(...)` returns nullptr on class-load failure, world teardown (PIE shutdown, level streaming), blocked spawn collision queries, and a handful of late-init-time conditions. `NewObject<T>(...)` returns nullptr on GC pressure / archetype lookup failure. `DuplicateObject(...)` returns nullptr on archetype resolution failure. Every Director activation path (`CreateNewCamera`, `ActivateNewCamera` x2, `ActivateNewCameraWithReferenceSource` x2, `ReactivateCurrentCamera`) and the `PathGuidedTransition::OnBeginPlay` `Inertialized` / `Auto` branches used to dereference the result immediately �?`NewCamera->bIsTransient = true;` on a null pointer crashes instead of falling through to the PCM's outer fallback. Two-pattern fix applied across the codebase: (a) **Director: a single private `SpawnCameraCheckedOrNull(World, CameraClass, Transform, CallSiteName)` helper** that null-checks World / CameraClass / spawn result, logs once with the call-site name and CameraClass, and returns nullptr. Every `World->SpawnActorDeferred<AComposableCameraCameraBase>(...)` site routes through it and bails to the function's natural failure return (`return nullptr;` for CreateNewCamera, `return RunningCamera;` for the Activate variants �?preserving the previous camera). (b) **PathGuidedTransition: per-step null-check + DestroySpawnedActors() rollback**. Each spawn / NewObject / DuplicateObject step in the Inertialized and Auto branches checks its return; on null it logs, calls `DestroySpawnedActors()` (idempotent �?covers any half-built state), and `break`s out of the switch. The transition's `OnEvaluate` already has `if (!IntermediateCamera) return CurrentTargetPose;` and `if (!Rail) return CurrentTargetPose;` guards, so a half-built transition cleanly degrades to a hard cut on the next tick. Generic rule: any spawn / new / duplicate engine call followed by an immediate member access is a crash bug �?wrap with a null check, log the call-site, and have a documented fallback (return nullptr, return prior state, hard cut, etc.) ready to take over.
-
-**`ExpectedPinTypeFor<T>` must `static_assert` on unsupported T, not silently return `Float`.** The previous Float fallback let any 4-byte T pass the downstream `Shape->Size` check against a `Float` slot �?`ReadValue<uint32>(FloatOffset)` would silently reinterpret the float bytes as `uint32`, same class of type-pun the slot-shape work was meant to close. The shape gate was only effective for the explicit listed types (bool / int32 / float / double / vectors / FRotator / FTransform / FName / int64 / Actor / Object / USTRUCT) �?anything else (`uint32`, raw `enum class`, custom 4-byte POD without `TModels_V<CStaticStructProvider>`) reduced to "Float fallback + sizeof match = false positive". Fix: replace the `else return Float` with a dependent `static_assert(always_false_v<T>, "...")` that fires at template instantiation time when the unsupported branch is selected. The dependent form (`always_false_v<T>` parameterised on T) is required because plain `static_assert(false, "...")` in a discarded `if constexpr` branch fires unconditionally on some compilers (DR2518's per-instantiation rule was only mandated in C++23). Caller behaviour change: `ReadValue<uint32>(...)` now refuses to compile; consumers must pick a supported T (`int32` for signed 32-bit, `int64` for any enum �?which is the canonical enum storage width �?and narrow at the call site). Generic rule: any compile-time mapping from T to a runtime tag MUST `static_assert` on unknown T; "fallback" is a footgun that survives until someone hits it in production.
-
-**`DuplicateObject<UComposableCameraTransitionBase>` results must be null-checked before `TransitionEnabled` / `ResetTransitionState` �?`DuplicateObject` legitimately returns null.** Director paths (`ResumeCamera`, both `ActivateNewCamera` overloads, both `ActivateNewCameraWithReferenceSource` overloads, `ReactivateCurrentCamera`) used to call `Transition = DuplicateObject(SourceTransition, this); Transition->TransitionEnabled(...);` back-to-back. `DuplicateObject` returns nullptr on archetype lookup failure, RF_NeedLoad-during-PostLoad collisions, GC interference, the source object being mid-destruction, and a handful of other late-init edge cases. The immediate `TransitionEnabled` deref crashed instead of falling through to a hard cut. Same template as `SpawnCameraCheckedOrNull`: a private `DuplicateTransitionOrNull(SourceTransition, Outer, CallSite)` helper in the director's anonymous namespace that null-checks and logs once with the call-site name. Every site routes through it; on null the caller skips the `TransitionEnabled` / `ResetTransitionState` block and proceeds with `Transition = nullptr`, which `EvaluationTree::OnActivateNewCamera` already handles as a hard cut on the next eval frame. Generic rule: any `DuplicateObject` / `NewObject` / `SpawnActor*` followed by an immediate member access in the next statement is a crash bug �?wrap with a null check, log the call site, and let the caller's documented degradation path (hard cut, return prior state, etc.) take over.
-
-**`IStructureDetailsView::GetOnFinishedChangingPropertiesDelegate` lambdas must NEVER capture `this` �?apply the same weak-capture template to every IStructureDetailsView site, not just one.** The first occurrence of this bug class was fixed in `FComposableCameraInternalVariableCustomization::BuildStructDefaultValueRows` (TechDoc §7.2 "Editor lambdas attached to long-lived widgets must capture weak refs, never `this`"). The same pattern surfaced again in `FComposableCameraParameterTableRowCustomization::BuildStructValueWidget` �?the inline struct view's `OnFinishedChangingPropertiesDelegate` lambda captured `[this, ParameterName, StructScope, InStructType]` and called `SetParameterString(ParameterName, �?`, which reaches back through `this->GetWrapperPtr()` (touching `WrapperPropertyHandle`) and `this->ValuesHandle`. Slate's deferred deletion plus the IStructureDetailsView's retained widget tree mean the embedded view widget can outlive a customization that's been rebuilt (parameter list shape change, parent details refresh, row re-import) and the next user edit dereferences freed members. Fix template, applied to BOTH sites and required for any future IStructureDetailsView consumer: capture `TWeakPtr<FStructOnScope>` for the struct memory and `TSharedPtr<IPropertyHandle>` for every handle the operation actually needs (`WrapperPropertyHandle`, `ValuesHandle`, �? �?strong captures on IPropertyHandle per the GetChildHandle gotcha, weak on FStructOnScope. Inline the equivalent of any helper that would normally reach back through `this` (here: GetWrapperPtr �?AccessRawData inline; SetParameterString �?NotifyPreChange / FindOrAdd / NotifyPostChange inline). Pin and validate every captured weak ref at the top of the lambda body, early-return on null. Generic rule: in the editor module, the first `[this, …]` in a long-lived delegate lambda is a smell; assume it generalises to every other delegate-bound surface and audit them at the same time.
-
-**Overlap-driven actor registries must use weak refs + interface-implements check at Add-time + Tick-time prune, not strong `TScriptInterface`.** `UComposableCameraImpulseResolutionNode::ImpulseShapes` shipped as `UPROPERTY() TArray<TScriptInterface<IComposableCameraImpulseShapeInterface>>` populated from `OnComponentBeginOverlap` and pruned on `OnComponentEndOverlap`. Three independent failure modes from this combination: (a) `AddImpulseShape(AActor*)` never validated that the actor actually implemented the interface �?a C++ caller passing the wrong actor stored a `TScriptInterface` with a null `Interface` pointer and `Shape->GetForce(...)` at Tick crashed on a null vtable dispatch; (b) `EndOverlap` is not guaranteed to fire for every BeginOverlap �?actor `Destroy()` mid-overlap, level streaming-out, world transition, and component-destroyed-before-broadcasting all skip the End event, and the strong `TScriptInterface` then kept the dead actor pinned in the array forever; (c) on the next Tick, `Shape->GetForce(...)` dispatched against the destroyed actor's stale memory. Fix template: store `TArray<TWeakObjectPtr<AActor>>` instead, validate at `Add` (`IsValid` + `Class->ImplementsInterface(UFooInterface::StaticClass())`, reject and log otherwise), and at Tick walk the array backwards with `RemoveAtSwap` for any entry whose weak resolves null OR whose class no longer implements the interface (catches hot-reload class reinstancing). Actor->Interface dispatch uses `Cast<IFooInterface>(Actor)`. Generic rule: any registry populated by overlap / collision / proximity events must be weak-referenced �?`EndOverlap` is best-effort, not guaranteed, and a strong reference turns "missed event" into "GC-blind dangling pointer".
-
-**Public mutators (both Add AND Remove) on a container being range-iterated must defer membership changes to a post-loop sweep when invoked re-entrantly �?and a deferred-add scratch holds GC-orphan objects that MUST be `UPROPERTY(Transient) TArray<TObjectPtr<�?>`, not raw.** `AComposableCameraPlayerCameraManager::RemoveCameraAction(Action)` was named like a public API but only called the unbind half �?leaving the action zombie-bound on the next camera switch via `BindCameraActionsForNewCamera`. The naive fix (append `CameraActions.Remove(Action)` to the public path) immediately introduced re-entrancy: `UpdateActions` range-iterates `CameraActions` and calls `Action->OnCanExecute(...)`, and a C++ Action's `OnCanExecute` can legitimately call `PCM->RemoveCameraAction(this)` (or a sibling, or spawn a new action via `PCM->AddCameraAction(...)`). With the membership-drop now in the public path, that re-entrant call mutates the very TSet we're iterating �?iterator invalidation �?crash. Same hazard exists symmetrically on `AddCameraAction`. Final shape, applied to BOTH sides: (1) **private `UnbindCameraActionFromCamera` / `BindCameraActionToRunningCamera`** helpers �?pure delegate / node-hook side, no TSet mutation. (2) **`bIsUpdatingActions` guard flag** set via `TGuardValue<bool>` for the duration of `UpdateActions`'s range-for. (3) **public `RemoveCameraAction`** �?always unbinds, then either drops from `CameraActions` directly OR queues into `CameraActionsRemovalScratch` via `AddUnique` (re-entrant path). (4) **public `AddCameraAction`** �?always `NewObject`s + populates fields, then either `Add` + bind directly OR queues into `CameraActionsPendingAddScratch` (re-entrant path; new Action takes effect next frame, NOT retroactively in the current iteration). (5) **post-loop sweep** drains the removal scratch first (so a re-entrant remove-then-add of the same class doesn't no-op against a still-present pre-remove entry), then the pending-add scratch.
-
-Two GC / ordering refinements that the simple form gets wrong:
-
-- **Pending-add scratch must be UPROPERTY-tracked, removal scratch can be raw.** Removal-scratch entries are also members of the GC-visible `CameraActions` TSet for the entire function (the post-loop `CameraActions.Remove` is what drops them), so they're root-reachable through reflection and a non-`UPROPERTY` raw `TArray<UObject*>` is doubly safe. Pending-add entries are *fresh* �?`NewObject`-only, not yet registered anywhere reflected. A GC sweep triggered re-entrantly from inside `OnCanExecute` (sync `LoadObject`, BP exception during eval, slow Blueprint that yields, async-load completion that fires `FinishLoad`) would reclaim the half-constructed action mid-window, and the post-loop drain would read a dangling pointer on `IsValid(Action)` / `CameraActions.Add(Action)` / `BindCameraActionToRunningCamera(Action)`. Fix: declare the pending-add scratch as `UPROPERTY(Transient) TArray<TObjectPtr<UComposableCameraActionBase>>` so the TObjectPtr keeps each pending entry root-reachable for the whole gap.
-
-- **Same-frame Add-then-Remove of the SAME action must withdraw from the pending-add scratch, not just queue another removal.** A callback that does `Action* New = PCM->AddCameraAction(...); PCM->RemoveCameraAction(New);` in the re-entrant path otherwise hits a hole: `New` lives only in the pending-add scratch (never reached `CameraActions`), so the post-loop removal sweep `CameraActions.Remove(New)` no-ops, and the pending-add sweep then `CameraActions.Add(New)` + binds it �?defying the user's "remove" semantic. `RemoveCameraAction`'s re-entrant branch must `RemoveSingleSwap` from the pending-add scratch first; if found there, return immediately (no removal-scratch entry needed, the action never existed in `CameraActions`).
-
-Generic rule: any public mutator on a container that can be range-iterated must consult an in-iteration flag and defer membership changes to a post-loop sweep �?symmetrically for Add and Remove, with the deferred-add scratch holding GC-orphan objects via `UPROPERTY(Transient) TObjectPtr` storage and the deferred-remove path explicitly checking the deferred-add list before queuing a deferred removal. Splitting into partial helpers alone is insufficient because external callers don't know which form to call, and a deferred-add scratch that uses raw pointers is one re-entrant `LoadObject` away from a use-after-free.
-
-**`UScriptStruct` itself must be GC-tracked when the runtime keeps `FInstancedStruct` slots, because `UserDefinedStruct` types are GC-eligible.** `FComposableCameraRuntimeDataBlock::AddReferencedObjects` walked `FInstancedStruct::GetMutableMemory()` via `AddPropertyReferencesWithStructARO` to cover embedded UObject refs inside the user's struct, but never marked the `UScriptStruct*` itself. Native USTRUCTs (`FVector`, `FRotator`, etc.) are immortal �?they live in the type registry forever and don't care. `UserDefinedStruct` (the Blueprint-authored struct asset class) is a regular UObject that GC reclaims when no rooted reference exists. The runtime DataBlock is not a `UPROPERTY`-tracked container, the camera's `SourceTypeAsset` was previously weak, and nothing else on the runtime side held the type �?a GC pass mid-blend reclaimed the user's struct type and the next `Slot.GetScriptStruct()` / `CopyScriptStruct(...)` dereferenced freed type memory inside the property walk. Fix is to mark BOTH directions in `AddReferencedObjects`: walk `StructSlots` and `Collector.AddReferencedObject(TObjectPtr<UScriptStruct>(const_cast<UScriptStruct*>(Slot.GetScriptStruct())))` for each populated slot, AND walk `SlotShapes` and mark `Pair.Value.StructType` so the type stays alive even for shape-recorded slots that aren't currently populated in `StructSlots` (e.g. an exposed-parameter slot whose value hasn't been assigned this activation). Generic rule: any container that holds `FInstancedStruct` / `UScriptStruct*` outside of a UPROPERTY-walked field must explicitly track both the storage AND the type identity in its `AddReferencedObjects`; the property-graph ARO walks members, not the type itself.
-
-**`SourceTypeAsset` / `SourcePatchAsset` and other "asset that's needed for re-construction" refs must be STRONG, not weak.** The pattern: a runtime instance caches a reference to its source asset so a later operation (modifier-triggered `Reactivate`, schedule's `Condition` check, etc.) can re-read the asset's authoring data. A weak ref makes the cache fragile against transient load patterns �?the asset was loaded via soft path / DataTable row / BP local that already fell out of scope, the runtime instance now holds the only live ref, and the next GC pass reclaims the asset. Two distinct symptoms, one bug class:
-
-- **`AComposableCameraCameraBase::SourceTypeAsset` was `TWeakObjectPtr`.** Modifier-triggered `Reactivate` calls `OnTypeAssetCameraConstructed`, which dereferences the cached asset to walk `NodeTemplates` / `ExposedParameters` / `FullExecChain`. Weak ref nullifying meant the new camera was built as an empty shell �?no nodes, no data block, no exec chain. Silent regression, no crash. Fix: `UPROPERTY(Transient) TObjectPtr<UComposableCameraTypeAsset>`. All `.Get()` callers compile unchanged because TObjectPtr supports the same accessor.
-
-- **`UComposableCameraPatchInstance::SourcePatchAsset` was `TWeakObjectPtr`.** The Condition expiration channel calls `Asset->CanRemain(...)` every Apply tick. Weak ref nullifying short-circuited the entire Condition check �?for any Patch whose ONLY exit channel is Condition (no Duration, no Manual, no OnCameraChange), the instance lived forever and the spawned Evaluator actor with it. Same fix: `UPROPERTY() TObjectPtr<UComposableCameraPatchTypeAsset>`. The instance was already going to read the asset every tick (Layer / Duration / envelope shape), so a strong ref doesn't change the steady-state cost �?it just guarantees the read finds something live.
-
-Generic rule: when a runtime instance caches an asset reference for "re-construct from this" or "ask this every tick", the cache must be a strong reference. Weak makes sense only when the runtime explicitly tolerates the asset being gone (e.g. the back-link from a `UComposableCameraPatchInstance` to its user-facing `UComposableCameraPatchHandle` is correctly weak �?the handle is just a debugging affordance and the instance keeps running fine without it). For asset �?runtime cache fields, "I'll deal with null" is almost always a euphemism for a silent regression that triggers under load patterns the developer didn't test.
-
-**Reflection-driven GC walks reach a USTRUCT's manual `AddReferencedObjects` ONLY if the struct opts in via `TStructOpsTypeTraits<�?::WithAddStructReferencedObjects`.** `FComposableCameraParameterBlock::AddReferencedObjects` was reachable only when an explicit owner (PCM, type asset, etc.) called it directly. Reflection-driven walks �?`UPROPERTY FComposableCameraParameterBlock CachedParameters` on `UComposableCameraPatchInstance`, `Collector.AddPropertyReferencesWithStructARO(FComposableCameraParameterBlock::StaticStruct(), �?` calls in LS overlay surfaces, and any future field-level embed �?would only walk reflected fields. `ActorValues` / `ObjectValues` / `StructValues` are `UPROPERTY` so reflection sees them; `DelegateValues` (a `TMap<FName, FScriptDelegate>` deliberately non-`UPROPERTY` because the engine can't reflect `FScriptDelegate` value types) was therefore unreachable from every reflection-driven owner, and the `FScriptDelegate` bound-target strong-mark step we added previously fired only on the explicit-owner path. The `StructValues`-side `UScriptStruct*` mark added in the same revision had the same hole. Fix: declare `void AddStructReferencedObjects(FReferenceCollector&) const` (delegating through `const_cast` to the existing non-const `AddReferencedObjects`), then specialise `template<> struct TStructOpsTypeTraits<FComposableCameraParameterBlock> : public TStructOpsTypeTraitsBase2<�? { enum { WithAddStructReferencedObjects = true }; };` so every reflection-driven walk that reaches the struct routes through the manual marker. Generic rule: any USTRUCT whose `AddReferencedObjects` covers state that reflection cannot see (non-UPROPERTY containers, FScriptDelegate targets, raw `UScriptStruct*` type identity, non-reflected nested maps) MUST opt in via `WithAddStructReferencedObjects`. "External owner remembers to call AddReferencedObjects" is not a substitute for the trait; the trait is what makes embeds and ARO-walks correct without the embed-author having to know about every gap in the embedded struct's reflection coverage.
-
-**Camera-side node-action arrays need their own re-entrancy protection �?the PCM's `bIsUpdatingActions` gate doesn't reach them �?and the snapshot must hold weak ptrs, not raw `UObject*`.** `BroadcastNodeActions` ranges over `PreNodeTickActions` / `PostNodeTickActions` (camera-owned `TArray<UComposableCameraActionBase*>`), calling `Action->OnExecute(...)`. If the action's body calls `PCM->AddCameraAction(...)` or `PCM->RemoveCameraAction(...)`, those route through the camera's `RegisterNodeAction` / `UnregisterNodeAction` which `AddUnique` / `RemoveSingleSwap` directly into the very arrays we're iterating. The PCM-level `bIsUpdatingActions` gate guards the PCM `CameraActions` TSet but does not extend to the camera's per-broadcast TArrays �?Register / Unregister run unconditionally. AddUnique-induced reallocation or RemoveSingleSwap-induced re-ordering during `OnExecute` invalidates the range-for iterator �?crash on the next advance. Fix: iterate a stable snapshot. `TArray<TWeakObjectPtr<UComposableCameraActionBase>, TInlineAllocator<8>> Snapshot;` keeps the typical "0�? actions targeting this node class" case heap-free; oversized cases spill once. Re-entrant Register / Unregister calls now mutate the underlying camera array without touching the snapshot �?new node-scoped registrations take effect on the NEXT broadcast, matching the PCM-side pending-add semantics.
-
-**Why weak ptrs, not raw, in the snapshot:** `Action->OnExecute` is a `BlueprintNativeEvent`, so the body can run arbitrary Blueprint that triggers GC mid-loop �?sync `LoadObject`, async-load completion callbacks, BP exception unwind, slow BP that yields a tick to the engine, all legitimate paths. A re-entrant `RemoveCameraAction(SiblingAction)` from inside one `OnExecute` drops the sibling from the PCM `CameraActions` TSet AND from the camera's NodeActions arrays �?so the next GC pass legitimately reclaims the sibling, and any later raw-snapshot deref against `Action->TargetNodeClass` reads freed memory. Weak ptr survives the reclaim cleanly: per-iteration `Action = Weak.Get(); if (!IsValid(Action)) continue;` skips reclaimed entries. The earlier "GC can't run inside a single function" assumption was wrong �?it holds for purely-native call chains, but BlueprintNativeEvent callbacks invalidate that guarantee. Generic rule: any function-local snapshot that survives an arbitrary BP callback must hold weak ptrs and `Pin() + IsValid` per access; raw `UObject*` snapshots are only safe for pure-native call chains where every transitive call is also pure-native. Generic rule: any range-for over a container whose mutators are reachable from a callback inside the loop body must iterate a snapshot, even when a higher-level reentrancy gate exists for a parent container �?the gate's scope must be checked against the actual mutated container's scope, not assumed to extend.
-
-**`OnEvaluate` fallback for missing `DrivingTransition` must return `CurrentTargetPose`, not `FComposableCameraPose{}`.** `UComposableCameraDynamicDeocclusionTransition::OnEvaluate` returned a default-constructed pose when its `DrivingTransition` was null �?zero position, identity rotation, default 90° FOV, default projection. To the renderer that looks like asset corruption / init failure / black-frame error art, hard-snapping the camera to world origin during what was supposed to be a degraded transition. The right fallback for "transition can't run, can't decide blend" is the standard CCS hard-cut behaviour: `return CurrentTargetPose;` �?the same shape `PathGuidedTransition::OnEvaluate` already uses on its own missing-DrivingTransition guard. Generic rule: a transition's "can't compute" fallback path should never construct a fresh pose; pick whichever of the input poses (`CurrentSourcePose` / `CurrentTargetPose`) matches the transition's "ineffective" semantics �?for activation-time transitions that's the target, for hold/freeze transitions that's the source. Default-constructed `FComposableCameraPose{}` is never the right answer.
-
-**`Storage` byte-bounds checks before every memcpy must be real `if`-with-return, not `check()` �?the shape gates do not subsume bounds checking.** `FComposableCameraRuntimeDataBlock::ReadValue<T>` / `WriteValue<T>` ran a `check(Offset >= 0 && Offset + sizeof(T) <= Storage.Num())` immediately before the `FMemory::Memcpy` on the POD path. The `SlotShapes` strict-shape gate above the memcpy refuses cross-shape access �?the shape match is normally implied by the bounds match �?but `check()` strips in Shipping, leaving an out-of-range access free to walk past `Storage`'s end. Three legitimate ways the shape could pass while the bounds fail: a stale runtime layout from an asset edited to shrink a slot without rebuilding `SlotShapes`, a future code path that mutates `Storage` without updating shapes (test fixture, future trimmer pass), or public-member mutation by a debug tool that touches one of the two parallel structures. WriteValue is the more dangerous side: the trailing `RefreshReferenceSlot` re-reads polluted bytes from any over-write and re-registers them as `AActor*` / `UObject*` with the GC mirror �?same crash class the eleventh-pass review fixed for cross-shape access. Fix is symmetric to the struct-slot gate: real `if (Offset < 0 || Offset + sizeof(T) > Storage.Num()) { return T{} / no-op; }` before the memcpy. Generic rule: any byte-pool access that ends in `memcpy` or any pointer-typed re-registration (the GC-mirror hazard) must validate bounds in every build, not rely on `check()` alone �?the shape gates and bounds checks are independent invariants and both must hold.
-
-**Editor-toolkit `IDetailsView::OnFinishedChangingProperties().AddRaw(this, �?` bindings MUST be unbound in the toolkit destructor �?Slate's deferred deletion can keep the details widget alive past the toolkit.** `FComposableCameraTypeAssetEditorToolkit` shipped a destructor that cleaned up tickers (PendingSelection, Debug), `FEditorDelegates::PostPIEStarted` / `PrePIEEnded`, and `NodeGraph`'s graph-changed handler �?but missed `NodeDetailsView->OnFinishedChangingProperties()`'s `AddRaw(this, �?` hook. The details view is a Slate widget held by the property tree; Slate's deferred-deletion path runs at end of frame, so a tab close �?toolkit `~dtor` sequence can leave the widget alive at least one tick after the toolkit is gone. A property edit on that surviving widget then fires the delegate against a freed `this` and crashes (or, worse, walks the freed memory and silently corrupts the next-frame paint). Two-piece fix: (1) save the `FDelegateHandle` returned by `AddRaw` into a member when the binding is set up (so the destructor has a concrete handle to remove), (2) in `~dtor`, after validating the details view is still alive, call both `Remove(savedHandle)` AND `RemoveAll(this)` as belt-and-braces (the second covers a lost-handle case where the details view was reset and re-created without us re-saving). Generic rule: any `AddRaw(this, �?` on a delegate owned by a Slate widget OR any external object that can outlive the binder must be paired with an explicit `Remove`/`RemoveAll(this)` in the binder's destructor �?`AddRaw` provides no automatic lifetime tracking, and "the widget is mine, surely it dies first" is a wrong assumption under Slate's frame-end deferred deletion.
-
-**Public wrappers around `ReadValue` / `WriteValue` (`ReadOutputPin` / `WriteOutputPin` / `ReadInternalVariable` / `WriteInternalVariable`) must hard-guard the `Find` lookup �?the low-level guard does not subsume the wrapper guard.** The low-level `ReadValue<T>` / `WriteValue<T>` were promoted to real `if`-with-return on shape AND bounds, but their public wrappers still did `const int32* Offset = OutputPinOffsets.Find(...); check(Offset); return ReadValue<T>(*Offset);`. `check()` strips in Shipping. A typo in a custom C++ node's pin name, or a stale output-pin reference (asset edited to remove the pin but the C++ node still references it by name), null-derefs the missing offset before the low-level path even runs. Same pattern applies to the InternalVariable variants. Fix at the wrapper boundary: `if (!Offset) { return T{}; }` for reads, `if (!Offset) { return; }` for writes �?node authors call the wrappers, so the failure must surface there. Generic rule: when a low-level primitive gets hardened with real bounds checks, every wrapper that calls into it must also harden its OWN preconditions in every build, even if those preconditions normally hold whenever the low-level guard is unnecessary. Layered safety only works if every layer has the guard at its own boundary; "the inner call will catch it" assumes the inner call gets reached, which `check()`-on-the-outer breaks in Shipping.
-
-**Stale comments about hot-path I/O behavior are a future-perf-review trap �?keep them in lockstep with the cached-resolution refactor.** `MovieSceneComposableCameraShotSection.h` once described `ResolveActiveShot` as "loads `ShotAssetRef` (synchronous; soft-pointer `LoadSynchronous`)" and `EnterTransition` as "resolution happens lazily inside the TrackInstance per-frame". The implementation later moved to a cached-pointer model �?`CachedShotAsset` / `CachedEnterTransition` populated via `RefreshCachedAssets()` at `PostLoad` / `PostEditChangeProperty` only, with eval-path `ResolveCachedShotAsset()` / `ResolveCachedEnterTransition()` returning null on not-yet-loaded rather than blocking. Runtime is correct; the stale comments only hurt the next person doing a perf or GC review who reads "synchronous LoadSynchronous on the hot path" and either (a) duplicates the fix that already exists or (b) deprioritises the section assuming there's nothing else to look at. Generic rule: when a hot-path I/O contract changes (sync→async, eager→lazy, blocking→cached), grep the file's API doc comments for the old contract's keywords (`LoadSynchronous`, `synchronously`, `per-frame`, `blocking`) and update them in the same patch as the implementation. Doc drift on perf characteristics is silently expensive on every future review.
-
-**`UEnhancedInputLocalPlayerSubsystem*` and any `LocalPlayer`-owned subsystem cached cross-frame must be `TWeakObjectPtr`, not raw �?the resolution chain (PCM �?PC �?LocalPlayer �?Subsystem) needs per-link `IsValid` guards �?and "still valid" is NOT the same as "still belongs to the current player".** `UComposableCameraResetPitchAction` and `UComposableCameraRotateToAction` both shipped a raw `UEnhancedInputLocalPlayerSubsystem* Subsystem` member resolved once and reused every frame, plus a single chained `PlayerCameraManager->GetOwningPlayerController()->GetLocalPlayer()` with no per-link null check.
-
-Three independent failure modes for the SUBSYSTEM cache:
-
-- **Cache dangles on subsystem destruction.** `LocalPlayer` is destroyed on PIE stop / level streaming-out / player kicked, taking its owned subsystems with it. A raw cross-frame cache then reads freed memory.
-- **Cache is valid but stale (controller-swap-without-destruction).** `APlayerController` re-points `GetLocalPlayer()` to a DIFFERENT live LocalPlayer (re-possess, AI takeover, splitscreen reshuffle); the previous LocalPlayer + its subsystem can both stay alive in isolation, so a `IsValid(CachedSubsystem)` check passes against a stale-player cache and the action keeps reading the wrong player's input. This is the trap the simple weak-ptr fix doesn't catch �?validity is necessary but not sufficient.
-- **Chain crashes on null link.** Any of `PCM` / `PC` / `LocalPlayer` returning null mid-link, with an immediate `->` deref following.
-
-Three-piece fix template: (1) **`TWeakObjectPtr<TSubsystem> CachedSubsystem`** member that nullifies cleanly on subsystem destruction. (2) **`TWeakObjectPtr<ULocalPlayer> CachedLocalPlayer`** identity guard �?`ResolveInputSubsystem` compares the chain's current LocalPlayer against this and clears the subsystem cache when the identity drifts, even if the previous subsystem is still alive. (3) **Always go through `ResolveInputSubsystem()` from the consumer** �?never `CachedSubsystem.Get()` directly. The helper does the chain walk every frame (three null checks + one map lookup on miss), which is negligible vs the cost of reading a stale player's input every tick; on the steady-state path (LocalPlayer unchanged) it returns the cache hit and there's no GetSubsystem call. Generic rule: any cross-frame cache of a UObject* not owned by `this` must be `TWeakObjectPtr` AND have an identity guard for its parent (the UObject whose lifetime determines the cache's correctness). "I cached it once, it'll stay valid" is wrong; "I checked it's still alive" is also wrong when the parent can rebind without destroying. Both must be checked.
-
-**`*Checked` accessors that gate on `check()` only must be hardened (or replaced with a `Try*` Form) �?`check()` strips in Shipping and turns precondition violations into silent out-of-bounds reads.** `FComposableCameraRuntimeDataBlock::GetStructSlotChecked` / `GetStructSlotMutableChecked` guarded `IsStructSlotOffset(Offset)` and `StructSlots.IsValidIndex(Index)` with `check()` only, then returned the struct slot by reference. Shipping strips both checks, so a stale offset (asset edited, layout rebuild missed, debug tool mutating offsets) reads `StructSlots[Index]` past the array end into adjacent heap; the immediate `Slot.GetScriptStruct() == StructProp->Struct` test in the call site then either rejects (silent miss) or accidentally passes against garbage and `CopyScriptStruct` walks the wrong layout against random bytes �?heap corruption / GC pollution under non-POD struct fields. Two-piece fix template: (1) **add a `Try*` form** �?`TryGetStructSlot(Offset, ExpectedStruct)` returns `const FInstancedStruct*` (nullptr on bad offset / bad index / shape mismatch) �?and switch the high-risk consumers (auto-resolve / subobject-pin paths whose offset comes from a runtime resolution) to it. (2) **harden the `*Checked` form** with real `LowLevelFatalError` instead of `check()` so the precondition violation surfaces as a deterministic crash in every build, not as silent corruption in Shipping. New code should default to the `Try*` form unless the precondition is provably enforced upstream. Generic rule: any `*Checked` API whose name implies "I crash on bad input" must do so in EVERY build �?`check()` is a debug-only sanity probe, not a contract enforcement primitive. Shipping behavior must be a real `if`-with-`LowLevelFatalError` (or a `Try*` companion that fails-skip).
-
-**`GetWorld()->GetDeltaSeconds()` (and any chained `GetWorld()->...` access) needs an explicit null-World guard everywhere �?even in code paths the outer caller "always" provides a World.** `UComposableCameraDirector` had six unguarded `TransInitParams.DeltaTime = GetWorld()->GetDeltaSeconds();` sites across `ResumeCamera` / both `ActivateNewCamera` overloads / both `ActivateNewCameraWithReferenceSource` overloads / `ReactivateCurrentCamera`, plus one site that already had the inline ternary guard. Most paths run during normal play with a valid World; the unguarded sites crash under three legitimate conditions: (a) test-only Director construction (automation tests / mock harnesses spawn a Director without a full PIE world), (b) commandlet runs that build transition states off-line (asset cooker / validator), (c) late teardown where `GetWorld()` returns null between actor `EndPlay` and full destruction. A `World ? World->GetDeltaSeconds() : 0.f` ternary at every site works but invites drift �?one author writes the guard, the next author copy-pastes the line and forgets it, the third author edits the guarded site and removes the ternary because "it's redundant in this path". Fix: a single `SafeDeltaSeconds(UWorld*)` helper in the file's anonymous namespace, every site routes through it, the ternary lives in exactly one place. The 0.f fallback is well-defined: every `Transition::TransitionEnabled` already tolerates a zero-duration init (the first real frame supplies a non-zero delta and recovers normal behavior). Generic rule: when the same null-guarded pattern appears at three or more sites in a file, a single helper is correct; copy-pasted ternaries decay because each site has its own local context that makes "this one doesn't need the guard" plausible.
-
-**Level Editor global commands need two registrations.** A keyboard chord alone is not enough for discoverability, and a ToolMenus entry alone does not make the chord fire. Use a `TCommands` class for the command/chord, map it into `FLevelEditorModule::GetGlobalLevelEditorActions()`, then add a ToolMenus entry with `InitMenuEntryWithCommandList` against the same command list. Concrete instance: `FComposableCameraViewportTransformClipboard` registers `Ctrl+Alt+C` plus Tools -> Composable Camera System -> Copy Viewport Camera Transform. It also registers `Ctrl+Alt+K` / Key Viewport Camera Transform, which writes the active viewport pose into selected `UMovieScene3DTransformTrack` rows whose MovieScene binding belongs to, or descends from, an `AComposableCameraLevelSequenceActor` binding. `FComposableCameraLevelSequenceSpawnTrackTool` follows the same command/menu pattern for Key Spawn Tracks From Camera Cuts, with no default chord because it is a deliberate batch operation. The viewport command searches all tracked open Sequencer instances and accepts selection through MVVM outliner selection, selected tracks, track rows, sections, key areas, or selected bindings because clicking an expanded Transform parameter row can report only through `FSequencerSelection::Outliner`, not through the legacy `GetSelectedTracks()` / `GetSelectedTrackRows()` getters. Track acceptance is structural: first require `UMovieScene3DTransformTrack`, then resolve `UMovieScene::FindTrackBinding`, then walk Possessable parent links / Spawnable templates until the CCS Level Sequence Actor binding is found. Its menu action stays enabled whenever a Level Editor viewport exists; Sequencer selection validation happens during execution so ToolMenus does not gray the action out from stale/partial selection state. The clipboard text is generated through `TBaseStructure<FTransform>::ExportText` rather than hand-formatting, so pasted Details values use UE's own import grammar; the keying path uses `UMovieScene3DTransformTrack` / `MovieSceneToolHelpers::AddTransformKeys` so native Transform Track channels stay Sequencer-compatible.
-
-Current Transform-keying acceptance is component-aware and supports both UE Transform track classes: direct `UComposableCameraLevelSequenceComponent` bindings, `AComposableCameraLevelSequenceActor` bindings, and descendants of the actor binding are valid; `UMovieSceneTransformTrack` handles exposed `FTransform` properties and `UMovieScene3DTransformTrack` handles actor/component Transform rows. The direct component case is not optional; `FComposableCameraLevelSequenceComponentTrackEditor` creates `Camera Parameters` rows by keying component property paths, so exposed `FTransform` parameters do not have to prove an actor-parent chain.
-
-**`IPropertyHandle::SetOnPropertyValueChanged` listeners that call `ForceRefresh` will tear down their own SpinBox after the first drag tick - gate the refresh on `ChangeType != EPropertyChangeType::Interactive`.** Stock `SPropertyEditorNumeric` (the value widget the property editor builds for numeric UPROPERTYs) writes per-tick during a SpinBox drag with `EPropertyValueSetFlags::InteractiveChange | NotTransactable`. Each interactive `SetValue` fires `PostEditChangeProperty` on the owning UObject, which fires the property node's `PropertyValueChangedEvent` -> any `IPropertyHandle::SetOnPropertyValueChanged` listener on that property. If the listener calls `IPropertyUtilities::ForceRefresh()` unconditionally, the entire Details panel layout rebuilds inside the drag tick - the SNumericEntryBox the user is dragging is one of the widgets destroyed - and the gesture wedges. User-visible symptom: value changes by one tick of motion (the first `OnValueChanged` does land before the rebuild) then refuses to budge further. Repro is silent: no error, no log, the drag just looks broken. Hit by `FComposableCameraNodeGraphNodeDetails` which attaches a refresh callback to every NodeTemplate UPROPERTY so sibling `meta=EditCondition` evaluations stay current after the user changes a gating bool/enum (e.g. `Method` flipping `RelativeActor`'s visibility on `FilmbackNode`).
-
-Fix template: use `SetOnPropertyValueChangedWithData` instead of the no-arg `SetOnPropertyValueChanged`, and early-return when `FPropertyChangedEvent::ChangeType == EPropertyChangeType::Interactive`:
-
-```cpp
-Handle->SetOnPropertyValueChangedWithData(
-    TDelegate<void(const FPropertyChangedEvent&)>::CreateLambda(
-        [WeakUtils](const FPropertyChangedEvent& ChangeEvent)
-        {
-            if (ChangeEvent.ChangeType == EPropertyChangeType::Interactive)
-            {
-                return;
-            }
-            if (TSharedPtr<IPropertyUtilities> Utils = WeakUtils.Pin())
-            {
-                Utils->ForceRefresh();
-            }
-        }));
-```
-
-The same gesture's final mouse-up fires the same delegate with `ChangeType == ValueSet` (no Interactive flag), which is when the EditCondition cascade actually needs to re-evaluate. Concrete instances live in `FComposableCameraNodeGraphNodeDetails::CustomizeDetails` (top-level UPROPERTY refresh callback, instanced-subobject class-picker callback, and subobject child-property callback). Any future detail customization that attaches a refresh-on-change callback to a UPROPERTY must follow this gating, or every numeric child of that UPROPERTY's row becomes undraggable.
-
-Related but separate failure mode: a `Value_Lambda` that reads a typed value via FString round-trip through an `IPropertyHandle` (e.g. `FComposableCameraInternalVariableCustomization` storing typed defaults in `InitialValueString`) still needs an `OnValueChanged` binding to echo the live drag value back so the SpinBox display reads through to the source. The two valid strategies are (a) per-tick `SetValue(..., InteractiveChange | NotTransactable)` (matches stock behavior; combine with the gating fix above so listeners don't trash the widget) or (b) route the live drag through a per-widget `TSharedRef<TOptional<T>>` cache - `Value_Lambda` returns the cache when set, `OnValueChanged` updates it, `OnValueCommitted` clears it and writes the handle once. Strategy (b) is what the InternalVariable / ParameterTableRow customizations use because their value type is FString and per-tick string serialization through the property tree is wasteful regardless of the listener cascade.
-
-### 7.3 Build / Live Coding
-
-- Compile only inside Rider / Visual Studio. No `UBT` or `Build.bat` from the shell.
-- Header changes, reflection changes (`UCLASS` / `USTRUCT` / `UPROPERTY` / `UFUNCTION`), and module layout changes require a full editor restart �?Live Coding cannot hot-apply these.
-- After any non-trivial change, hand off to the user for an IDE compile and wait for error output before claiming the change is done.
-
-### 7.4 Asset round-trip
-
-- The graph is the source of truth while an asset editor is open; the asset arrays are the source of truth on disk.
-- Any new editor-side state must implement **both** sides of `SyncToTypeAsset` / `RebuildFromTypeAsset`, and must preserve `FGuid` identity across save/load. Untested round-trip is the most common source of silent reshuffles on reload.
-
-### 7.5 Known limitations (deferred fixes)
-
-- **Object/Actor pin class constraint propagation is runtime-only.** Both sides of the typed-pointer flow now have runtime guards: the auto-resolve write path verifies `V->IsA(PropertyClass)` before `SetObjectPropertyValue` (eighth-pass P0), and `ReadValue<T>` verifies the resolved pointer satisfies `T::StaticClass()` for UObject-derived T before returning (ninth-pass P1). The deeper improvement �?propagating `PropertyClass` / `MetaClass` through pin / parameter / variable metadata so the layout phase in `BuildRuntimeDataLayout` can reject incompatible wires up-front �?is not implemented. Without it, an incompatible Object/Actor wire still appears in `InputPinSourceOffsets` until the per-tick read fails the class check and returns nullptr. The runtime guards prevent corruption either way; the layout-phase guard would just surface the bad wiring earlier as a clearer warning at activation.
-
-
----
-
-## 8. Maintaining this document
-
-This doc is **living**. It must be updated in the same turn as any code change that:
-
-- Introduces a new technique worth teaching (new TVariant, new CustomThunk pattern, new hot-path idiom).
-- Alters an existing technique (e.g., pin resolution adds a fifth tier, compute-node execution model changes).
-- Adds or removes a concrete node / transition / modifier (update the tables in §5).
-- Changes a convention or gotcha (§7) �?either because a past pitfall is now prevented by the compiler, or because a new one has bitten us.
-
-If a statement here contradicts the current code, **this file is wrong** and should be updated alongside the change that caused the drift. Do not leave stale techniques in place "for history"; that is what git is for.
-
-Cross-doc consistency:
-
-- Runtime architectural changes �?update [DesignDoc.md](DesignDoc.md) **and** this doc.
-- Editor changes �?update [EditorDesignDoc.md](EditorDesignDoc.md) **and** this doc if they introduce a new technique or gotcha.
-- Worked control-flow examples �?update [ExecutionFlowExamples.md](ExecutionFlowExamples.md).
-
-See `.claude/skills/composable-camera-dev/SKILL.md` and `.claude/skills/editor-design-doc/SKILL.md` for the order-of-operations that gate doc updates on code changes.
-
-Actor-source resolution accepts an optional World context. `ResolveActorInput(ControllerControlledPawn, ..., PCM, WorldContext)` first walks `PCM->GetOwningPlayerController()->GetPawn()`, then falls back to `WorldContext->GetWorld()->GetFirstPlayerController()->GetPawn()`. The World lookup itself walks `WorldContextObject->GetWorld()`, then `WorldContextObject->GetTypedOuter<AActor>()->GetWorld()`, then `PCM->GetWorld()` — required for Patch evaluators (which call `Evaluator->Initialize(nullptr)` and own nodes as subobjects of a transient camera actor) and for UObject node subobjects whose direct World is null. Every built-in node that calls `ResolveActorInput` passes `this`, so LS-owned PIE evaluators without a PCM still resolve the gameplay pawn; when neither path resolves the node keeps its existing pass-through / no-op behavior.
-
-## 2026-05-13 DoF Focus-Distance Sentinel Gotcha
-
-Unreal initializes FPostProcessSettings::DepthOfFieldFocalDistance to 0 and treats 0 as invalid/disabled DoF. Do not use a generic weighted lerp from 0 to a valid focus distance when applying Lens/FocusPull physical settings. During transitions into a LensNode with partial PhysicalCameraBlendWeight, Lerp(0, TargetFocus, smallWeight) produces a focal plane only a few centimeters from the camera and causes a temporary full-screen blur. Match Unreal's post-process blend rule for this field: if either side is 0, copy the target focus distance; otherwise lerp. Keep the normal weighted lerp for DoF fields such as FStop, SensorWidth, and SqueezeFactor.
-
-## 2026-05-13 DoF Strength Fade Gotcha
-
-DepthOfFieldFocalDistance cannot be used as the DoF fade control because 0 is the disabled/invalid sentinel and lerping from 0 creates a near-camera focus plane. Use DepthOfFieldScale for visible DoF intensity instead: ApplyPhysicalCameraSettings writes DepthOfFieldScale toward 1 using PhysicalCameraBlendWeight, while focal distance snaps from the 0 sentinel to the valid focus target. Result: valid focus immediately, blur amount fades over the transition.
-
-## 2026-05-13 Physical Exposure Ownership Gotcha
-
-Renderer physical exposure computes EV100 from DepthOfFieldFstop, CameraShutterSpeed, and CameraISO when AutoExposureApplyPhysicalCameraExposure is true. DepthOfFieldFstop is also the DoF aperture field. Matching GameplayCameras, ApplyPhysicalCameraSettings must not toggle AutoExposureApplyPhysicalCameraExposure and must not compensate ISO. That flag belongs to the camera component, PostProcessNode, or baseline post-process stack. If physical exposure is enabled, changing LensNode aperture can change brightness by UE design. If the value is false, Lens-only cameras write DoF fields only and leave ISO/Shutter untouched.
-
-## 2026-05-14 Aperture-Brightness Coupling Diagnostic
-
-Symptom: configuring LensNode Aperture (or running a transition into a Lens-using camera) shifts scene brightness, often during the transition's blend ramp. The same Camera Rig / type asset may behave correctly in one level and wrongly in another.
-
-Root cause: UE renderer's CalculateManualAutoExposure (Engine/Source/Runtime/Renderer/Private/PostProcess/PostProcessEyeAdaptation.cpp:370) computes EV100 = log2(DepthOfFieldFstop^2 * CameraShutterSpeed * 100 / CameraISO) when AutoExposureMethod = AEM_Manual AND AutoExposureApplyPhysicalCameraExposure = true. DepthOfFieldFstop is the DoF aperture field, but the manual-exposure path reads it as the physical aperture. Every code path that writes DepthOfFieldFstop is therefore exposure-coupled in that mode:
-
-- CCS LensNode -> FComposableCameraPose::ApplyPhysicalCameraSettings (CCS_LERP_PP into DepthOfFieldFstop).
-- GameplayCameras LensParametersCameraNode -> GameplayCameraComponentBase pushes pose Aperture to OutputCineCamera.CurrentAperture (Engine/Plugins/Cameras/GameplayCameras/Source/GameplayCameras/Private/GameFramework/GameplayCameraComponentBase.cpp around the OutputCameraComponent->CurrentAperture assignment), then UCineCameraComponent.UpdateCameraLens writes DepthOfFieldFstop.
-- Stock UCineCameraComponent.UpdateCameraLens (Engine/Source/Runtime/CinematicCamera/Private/CineCameraComponent.cpp:702-704) always overrides, comment cites "Given that aperture impacts exposure, we always override it."
-
-All three trigger the same renderer coupling. The level's exposure configuration is what determines whether the coupling fires.
-
-Diagnostic recipe (run in PIE):
-
-1. `showflag.VisualizeHDR 1` - reads on-screen Metering Mode that the renderer actually resolved to. Manual = this gotcha applies. Histogram / Basic = investigate elsewhere (auto-exposure adapting to scene luminance redistribution from DoF, or a pose-level AutoExposureBias being lerped during BlendBy).
-
-2. `r.AutoExposure.MethodOverride 2` (force Histogram). If brightness shift disappears, Metering Mode = Manual is the cause.
-
-3. `r.AutoExposure.ApplyPhysicalCameraExposure 0`. If brightness shift disappears, Apply Physical Camera Exposure = true is the cause.
-
-4. Locate the Manual / Apply Physical override source. The Outliner with default filters hides relevant entities; use console object listing instead:
-
-   - `obj list class=PostProcessVolume` (unbounded volumes are easy to miss visually)
-   - `obj list class=PostProcessComponent` (PP Components on otherwise-mundane actors)
-   - `obj list class=LevelSequenceActor` (auto-play Sequences whose Camera Cuts reference a CineCameraActor with Manual PP)
-
-   Open the Level Blueprint and inspect Event BeginPlay for `SetSettings` / `Set Post Process Settings` / `OverridePostProcessSettings` calls.
-
-   With GameplayCameraComponent, inspect the OutputCineCamera subcomponent's PostProcessSettings (it is the rendering camera even though the Pawn has no separate CameraComponent).
-
-Resolution: configure the level so either Metering Mode != Manual or AutoExposureApplyPhysicalCameraExposure = false. CCS does not enforce this from the LensNode side because the coupling is engine-side and identical across all UE camera systems (DesignDoc "Physical Exposure Ownership"). Forcing the flag from a LensNode would silently overwrite a user's intentional physical-realism configuration and break the symmetry with Epic's plugin.
-
-## 2026-05-14 Patch / TypeAsset Node Order Comes From Canvas Position (Not Creation Order)
-
-Symptom: a designer authors a Patch asset (or Camera Type Asset) by dropping two order-sensitive nodes - FocusPull then Lens, say - and visually drags the second-added one above the first to fix the intended tick order. At runtime, the chain still executes in creation order. The workaround that "works" - delete both and re-add in the desired order - is hostile and obscures the actual contract.
-
-Root cause: pre-fix, `UComposableCameraNodeGraph::SyncPhase_CollectGraphNodes` sorted the camera and compute graph-node buckets by `NodeIndex`, which is the index a graph node received when its `NodeTemplate` was first `Add()`ed to `UComposableCameraTypeAsset::NodeTemplates` inside `UComposableCameraNodeGraphSchema::AddNodeToGraph`. `SyncPhase_RebuildNodeTemplatesAndPositions` then wrote `NodeTemplates` in that order. Visual drag on the canvas only mutates the EdGraphNode's `NodePosX/Y` (snapshotted into the parallel `NodeTemplatePositions` array) - it never touched `NodeIndex`, so the underlying `NodeTemplates` array stayed in addition order regardless of where the boxes landed on the canvas.
-
-Runtime impact lives in two paths in `AComposableCameraCameraBase::TickCamera`:
-
-- *Wired-chain path* (`FullExecChain.Num() > 0`): tick order follows the exec wires walked by `SyncPhase_RebuildExecutionChain`. Unaffected by canvas position by design - the exec chain is the authoritative ordering surface for any author who wires Start `->` ... `->` Output.
-- *Unwired-chain fallback* (`FullExecChain.Num() == 0`): tick order is a linear walk of `CameraNodes`, which is parallel to `NodeTemplates`. Pre-fix, this walked in creation order; post-fix, it walks in canvas order. Patches in the wild routinely live in this regime because they hold one or two nodes and authors skip the exec-wire ritual.
-
-Fix lives in `SyncPhase_CollectGraphNodes`: sort the camera and compute buckets by `(NodePosY ascending, NodePosX ascending, NodeIndex ascending)`. `NodeIndex` is retained only as a final stable tiebreaker for nodes that share a canvas position (typical for a cluster spawned from the same right-click menu before the user drags them apart). The phase 3 `SyncPhase_RebuildNodeTemplatesAndPositions` then reassigns each graph node a fresh 0-based `NodeIndex` matching the canvas sort, and writes `NodeTemplates` / `NodeTemplatePositions` in lock-step. Exposed parameters, pin overrides, and exec chain entries that key on `NodeIndex` migrate through their existing identity-based phases (phases 7 / 8 / 5) because those phases rely on `NodeTemplate*` pointer identity or a snapshotted old `NodeIndex` -> template map, not on stable absolute indices across syncs.
-
-Wired graphs are unaffected by the runtime: `FullExecChain` still drives `TickCamera`. But the wired-but-orphan case - the designer wires `Start -> A -> Output` and forgets to wire `B` - used to silently null `CameraNodes[B]` during `ConstructCameraFromTypeAsset` and never tick `B`. `Build()` now emits a `Severity = 1` warning for every camera node template not reachable from Start via `FullExecChain` (and the parallel `ComputeFullExecChain` warning for compute orphans), surfaced through the existing inline-badge pipeline so the orphaned node lights up in the editor. The warning is gated on `FullExecChain.Num() > 0` so the fully-unwired Patch path (now relying on the canvas-order fallback) doesn't spam warnings - that path is the legitimate "no exec chain, fallback is the design" regime.
-
-Apply this rule to new code:
-
-- Any sync phase that orders graph-node buckets must use canvas position first, identity / `NodeIndex` only as a tiebreaker. Pre-fix code that sorted by `NodeIndex` for "preserves previous order" is a tell that the author forgot canvas position exists; correct intent is "preserves canvas order".
-- Any new fallback-tick path (or new `FullExecChain`-style chain) that wants to honor canvas layout must consume `NodeTemplates` order, not `FullExecChain`, because the former is now canvas-sorted by construction and the latter is exec-wire-driven.
-- Any new validation rule that flags "node not in chain" should emit a Warning (not an Error) and gate on `FullExecChain.Num() > 0` - the user's mental model when they leave the chain unwired is "I'm in the fallback regime on purpose", and a hard error would punish that.
+The solver is mostly closed-form. Screen-space zones use prior pose/state for
+damping. Keep target, placement, aim, lens, focus, and roll ownership separate.
+
+## 14. Editor Round Trip
+
+Graph source of truth in editor:
+
+- Designers edit `UComposableCameraNodeGraph`.
+- Save/build calls `SyncToTypeAsset`.
+- Asset open/load calls `RebuildFromTypeAsset`.
+- `EditorGraph` is transient.
+- Runtime data lives on `UComposableCameraTypeAsset`.
+
+Any new editor-side state needs both directions:
+
+- Graph -> TypeAsset.
+- TypeAsset -> Graph.
+
+GUID stability matters. Never regenerate node identity unless the node truly is
+new.
+
+## 15. Debug
+
+Runtime debug:
+
+- `FComposableCameraContextStackSnapshot`.
+- flattened DFS tree snapshots.
+- patch snapshots from PCM path and Sequencer path.
+- runtime panel and pose history panel.
+- `CCS.Dump.*`.
+- viewport debug draw CVars.
+
+Editor debug:
+
+- selected runtime instance picker in type asset editor.
+- graph overlay of live node data.
+- runtime previewer tab showing visible-subject-local camera relation.
+- `CCS.Editor.Dump.*`.
+
+Snapshot rule: resolve runtime pointers to names and value copies early.
+
+Runtime Previewer technique:
+
+- The Camera Type Asset editor registers `RuntimePreviewerTabId`, but does not
+  include it in the default layout.
+- `SComposableCameraRuntimePreviewer` follows the Shot Editor viewport lifetime
+  pattern: widget owns `FAdvancedPreviewScene`, viewport client borrows it, and
+  widget destruction clears `ViewportClient->Viewport` before draining scene
+  resources.
+- Toolkit `DebugTick` pushes slim `FComposableCameraRuntimePreviewData` after a
+  valid `SnapshotDebugState()` call. It copies only pawn weak pointer, pawn
+  velocity, visual subject transform, camera position/rotation/FOV, context,
+  and active-state; it does not store full `FComposableCameraPose` in Slate
+  because that pose owns post-process settings with UObject references.
+- `SetPreviewData` actively refreshes proxy pose, camera markers, floor offset,
+  and viewport invalidation on the same Slate/game-thread handoff. Do not make
+  runtime sync depend only on `FEditorViewportClient::Tick`; docked editor
+  viewports may otherwise sleep between invalidations.
+- Pawn proxy transforms are translation-relative via
+  `MakeTranslationRelativeTransform`: subtract the visual subject translation
+  but preserve each source transform's world rotation and scale.
+  Subject transform selection prefers the skeletal root bone world transform,
+  then a valid static mesh component, then the pawn actor transform. The
+  skeletal root-bone anchor supplies the origin location for the copied pose.
+  Do not apply the subject inverse rotation to proxy transforms; doing so eats
+  the character's real runtime rotation.
+- Runtime camera markers use `MakeCameraPreviewTransform`: subtract subject
+  translation only and preserve the runtime camera rotation from
+  `Snapshot.FinalPose`. Do not transform camera rotation through the subject
+  rotation; character facing, root motion, or strafe pose changes must not
+  create fake camera rotation.
+- The preview floor offset is derived from proxy bounds with
+  `ComputeFloorOffsetForBounds`, so a Character mesh whose root sits below the
+  capsule/pawn origin is not clipped by the default `FAdvancedPreviewScene`
+  floor.
+- Skeletal pawn proxies use `ASkeletalMeshActor` plus direct
+  component-space-transform copy:
+  source `GetComponentSpaceTransforms()` -> proxy
+  `GetEditableComponentSpaceTransforms()` ->
+  `ApplyEditedComponentSpaceTransforms()`.
+- If the source/proxy transform arrays are empty or have different counts, the
+  previewer destroys the skeletal proxy, switches to the static fallback marker,
+  and tracks the failed skeletal mesh so it does not rebuild into the same bad
+  proxy every tick.
+- Proxy animation and component ticking stay disabled so the copied pose is not
+  overwritten by an editor-preview animation tick.
+- The observer camera is the normal `FEditorViewportClient` camera. It is not
+  coupled to runtime camera data.
+
+## 16. Built-In Camera Nodes
+
+Current node classes:
+
+- `UComposableCameraAutoRotateNode`
+- `UComposableCameraBeginPlaySetRotationNode`
+- `UComposableCameraBlueprintCameraNode`
+- `UComposableCameraCameraOffsetNode`
+- `UComposableCameraCollisionPushNode`
+- `UComposableCameraCompositionFramingNode`
+- `UComposableCameraComputeDistanceToActorNode`
+- `UComposableCameraControlRotateNode`
+- `UComposableCameraDirectionalMoveNode`
+- `UComposableCameraExposureNode`
+- `UComposableCameraFieldOfViewNode`
+- `UComposableCameraFilmbackNode`
+- `UComposableCameraFocusPullNode`
+- `UComposableCameraHitchcockZoomNode`
+- `UComposableCameraImpulseResolutionNode`
+- `UComposableCameraLensNode`
+- `UComposableCameraLockOnAimPointNode`
+- `UComposableCameraLookAtNode`
+- `UComposableCameraMixingCameraNode`
+- `UComposableCameraOcclusionFadeNode`
+- `UComposableCameraOrthographicNode`
+- `UComposableCameraPivotDampingNode`
+- `UComposableCameraPivotLookAheadNode`
+- `UComposableCameraPivotOffsetNode`
+- `UComposableCameraPivotRotateNode`
+- `UComposableCameraPostProcessNode`
+- `UComposableCameraReceivePivotActorNode`
+- `UComposableCameraRelativeFixedPoseNode`
+- `UComposableCameraRotationConstraints`
+- `UComposableCameraScreenSpaceConstraintsNode`
+- `UComposableCameraScreenSpacePivotNode`
+- `UComposableCameraSetRotationNode`
+- `UComposableCameraSplineNode`
+- `UComposableCameraSpiralNode`
+- `UComposableCameraTwoPointMoveNode`
+- `UComposableCameraViewTargetProxyNode`
+- `UComposableCameraVolumeConstraintNode`
+
+Node notes:
+
+- `UComposableCameraCameraOffsetNode` applies `CameraOffset` in camera-local
+  space (`X=forward, Y=right, Z=up`). Its inline
+  `ForwardOffsetDeltaByPitchCurve` samples X as current pitch in degrees and
+  adds Y as a camera-forward delta in cm before building the final position.
+
+Base classes:
+
+- `UComposableCameraCameraNodeBase`
+- `UComposableCameraComputeNodeBase`
+
+## 17. Built-In Transitions
+
+- `UComposableCameraLinearTransition`
+- `UComposableCameraSmoothTransition`
+- `UComposableCameraEaseTransition`
+- `UComposableCameraCubicTransition`
+- `UComposableCameraInertializedTransition`
+- `UComposableCameraCylindricalTransition`
+- `UComposableCameraSplineTransition`
+- `UComposableCameraPathGuidedTransition`
+- `UComposableCameraDynamicDeocclusionTransition`
+- `UComposableCameraCompositionPreservingTransition`
+- `UComposableCameraViewTargetTransition`
+
+## 18. Built-In Actions and Interpolators
+
+Actions:
+
+- `UComposableCameraMoveToAction`
+- `UComposableCameraResetPitchAction`
+- `UComposableCameraRotateToAction`
+
+Interpolators:
+
+- `UComposableCameraInterpolatorBase`
+- `UComposableCameraIIRInterpolator`
+- `UComposableCameraSimpleSpringInterpolator`
+- `UComposableCameraSpringDamperInterpolator`
+
+## 19. Current Automation Tests
+
+Existing test files include:
+
+- `ComposableCameraBugFixTests.cpp`
+- `ComposableCameraCompositionPreservingTransitionTests.cpp`
+- `ComposableCameraShotSolverTests.cpp`
+- `ComposableCameraPivotLookAheadNodeTests.cpp`
+- `ComposableCameraLockOnAimPointNodeTests.cpp`
+- `ComposableCameraNodeGraphSyncTests.cpp`
+
+Codex must not invoke Unreal automation from shell in this project. Run tests
+inside Rider or Visual Studio / Unreal Editor.
+
+## 20. Hot-Path Rules
+
+Assume these are hot:
+
+- PCM update.
+- context stack evaluation.
+- director evaluation.
+- evaluation tree walk.
+- camera node tick.
+- patch apply.
+- Sequencer component tick.
+- shot solver.
+
+Rules:
+
+- No heap allocation unless pre-reserved or justified.
+- No `LoadSynchronous`.
+- No FString formatting in per-frame loops.
+- No container mutation that can reallocate during iteration.
+- Snapshot mutable callback lists before invoking Blueprint callbacks.
+- Use weak pointers in snapshots that can survive arbitrary Blueprint work.
+- Cache soft object resolution outside the eval path.
+
+## 21. Gotchas
+
+- `EnsureContext` means "exists and top", not merely "exists".
+- `ReferenceLeaf` captures tree topology. It is not a live director pointer.
+- Same camera UObject can be reached twice in one frame through snapshots.
+- A patch evaluator is a transient camera actor, not a node grafted into the
+  main camera.
+- Patch activation override booleans are semantic. Zero is a valid value.
+- Sequencer shot override can arrive after component tick; first-entry path must
+  invalidate tick cache and evaluate at zero delta.
+- `AddRaw` delegates owned by Slate widgets must be explicitly unbound in the
+  toolkit destructor.
+- Runtime data-block shape checks and byte-bounds checks are independent.
+- Object/Actor pin class constraints still need earlier layout-time diagnostics;
+  runtime guards prevent corruption but do not give the best authoring message.
+- Local-player subsystem caches need weak pointers plus parent identity checks.
+- FOV may be stored as FieldOfView or FocalLength. Use pose helper methods for
+  effective FOV.
+- Focus distance uses sentinel behavior. Do not blend invalid focus distance as
+  a real distance.
+- Interpolator `Run()` returns an absolute value, not a delta. If a scalar
+  damping helper computes only `Target - Current` progress, add it back to the
+  current value before returning; Spline, FocusPull, and VolumeConstraint reset
+  double interpolators from their last smoothed output each frame.
+
+## 22. Build and Verification
+
+For this project:
+
+- Do not invoke UBT, Build.bat, RunUBT.bat, dotnet, msbuild, Unreal Editor, or
+  automation tests from Codex shell.
+- Compile inside Rider or Visual Studio.
+- Header/reflection/module changes require full editor restart, not Live Coding.
+- Docs-only changes do not need a compile, but a non-trivial code-adjacent doc
+  sweep should still be reviewed against source.
+
+## 23. Maintenance Rule
+
+Update this document when:
+
+- adding/removing node, transition, patch, modifier, action, or interpolator.
+- changing runtime data layout.
+- changing graph sync/rebuild mechanics.
+- changing hot-path behavior.
+- discovering a new recurring gotcha.
+- making stale comments or docs materially wrong.

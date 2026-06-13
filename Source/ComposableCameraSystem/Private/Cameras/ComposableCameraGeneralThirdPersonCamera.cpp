@@ -1,4 +1,4 @@
-// Copyright Sulley. All rights reserved.
+// Copyright 2026 Sulley. All Rights Reserved.
 
 #include "Cameras/ComposableCameraGeneralThirdPersonCamera.h"
 #include "ComposableCameraSystemModule.h"

@@ -1,4 +1,4 @@
-// Copyright Sulley. All rights reserved.
+// Copyright 2026 Sulley. All Rights Reserved.
 
 #pragma once
 
@@ -31,12 +31,6 @@ public:
 	 */
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Context Stack")
 	TArray<FName> ContextNames;
-
-	// (V2.2: the AnchorAtScreen Picard tuning fields - PicardMaxIterations,
-	// PicardConvergenceTolerance, PicardRelaxation - were removed when the
-	// joint solver was replaced with a Cinemachine-style decoupled
-	// Position+Rotation pipeline. The decoupled pipeline is closed-form,
-	// has no iteration to tune.)
 
 	/** Returns true if the given name is a registered context. */
 	bool IsValidContextName(FName ContextName) const

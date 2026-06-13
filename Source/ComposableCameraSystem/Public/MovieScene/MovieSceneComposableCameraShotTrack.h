@@ -1,4 +1,4 @@
-// Copyright Sulley. All rights reserved.
+// Copyright 2026 Sulley. All Rights Reserved.
 
 #pragma once
 
@@ -9,8 +9,7 @@
 class UMovieSceneSection;
 
 /**
- * Sequencer track that drives Composable Camera Shots -Phase E of
- * Shot-Based Keyframing.
+ * Sequencer track that drives Composable Camera Shots.
  *
  * Each section on the track represents one Shot activation window in the
  * timeline. The active Shot's data (`FComposableCameraShot`) is pushed every
@@ -22,25 +21,19 @@ class UMovieSceneSection;
  *
  * Track binding model
  * -------------------
- * Bound under an `AComposableCameraLevelSequenceActor` (or subclass - notably the Phase E `AComposableCameraLevelSequenceShotActor`) binding row,
+ * Bound under an `AComposableCameraLevelSequenceActor` (or subclass, notably
+ * `AComposableCameraLevelSequenceShotActor`) binding row,
  * NOT root-level. The track has no `TargetActorBinding` field. Its parent in
- * the outliner is the binding it drives. The track editor (Phase E.4)
- * surfaces the menu entry only when the binding's class matches.
+ * the outliner is the binding it drives. The track editor surfaces the menu
+ * entry only when the binding's class matches.
  *
- * Multi-row + overlap semantics (V1)
- * ----------------------------------
- * Rows enabled. When multiple sections overlap on different rows the **top
- * row wins** (lowest row index ->highest priority -Sequencer's standard
- * ordering, mirrors Camera Cut). Phase F will reinterpret overlap as a
- * transition zone with multi-Shot blending at the CompositionFramingNode
- * level; the LSComponent's shot-override map is already designed to hold
- * multiple active entries to support this.
- *
- * Phase F outlook
- * ---------------
- * Easing is currently disabled -Phase F adds inter-Shot CCS Transitions on
- * the section level, at which point easing handles drive the transition's
- * blend window. V1 sections are hard-cut.
+ * Multi-row + overlap semantics
+ * -----------------------------
+ * Rows enabled. The lowest RowIndex active section is primary / outgoing.
+ * The next-lowest overlapping section is secondary / incoming. The incoming
+ * section's EnterTransition and computed BlendAlpha drive the two-Shot blend
+ * in `UComposableCameraCompositionFramingNode`. Null EnterTransition means
+ * hard cut.
  *
  * Section exit semantics
  * ----------------------
@@ -53,7 +46,7 @@ class UMovieSceneSection;
  * Modeled on `UMovieSceneComposableCameraPatchTrack` for layout consistency.
  * Shot-track-specific divergences:
  *   - Bound (under a binding row), not root.
- *   - No easing in V1.
+ *   - Section overlap, not easing handles, defines Shot transition duration.
  *   - No `TargetActorBinding` (the bound actor IS the parent binding).
  */
 UCLASS(MinimalAPI)

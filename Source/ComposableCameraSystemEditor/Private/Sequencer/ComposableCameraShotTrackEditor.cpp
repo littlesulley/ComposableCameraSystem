@@ -1,4 +1,4 @@
-// Copyright Sulley. All rights reserved.
+// Copyright 2026 Sulley. All Rights Reserved.
 
 #include "Sequencer/ComposableCameraShotTrackEditor.h"
 
@@ -178,8 +178,7 @@ bool FComposableCameraShotTrackEditor::SupportsSequence(UMovieSceneSequence* InS
 const FSlateBrush* FComposableCameraShotTrackEditor::GetIconBrush() const
 {
 	// No registered ShotAsset class icon yet - borrow the generic CameraCut
-	// brush so the row has *something* readable. Replace with a registered
-	// ShotAsset thumbnail when one is added (out of scope for Phase E).
+	// brush so the row has something readable.
 	return FAppStyle::GetBrush("Sequencer.Tracks.CinematicShot");
 }
 
@@ -433,7 +432,6 @@ int32 FComposableCameraShotSectionInterface::OnPaintSection(FSequencerSectionPai
 {
 	int32 LayerId = Painter.PaintSectionBackground();
 
-	// Phase F overlap visualization 
 	// For every other section on this Track that overlaps the painted
 	// section in time, paint an amber tint band over the overlap window.
 	// Conveys "this is a transition zone - both Shots' solvers run and
@@ -444,8 +442,7 @@ int32 FComposableCameraShotSectionInterface::OnPaintSection(FSequencerSectionPai
 	// so the band visibility is symmetric (designer sees the cue from
 	// either section's perspective). The "owner" of the transition
 	// (incoming side, higher RowIndex) is conveyed by which section's
-	// EnterTransition is set in Details - no need to encode it visually
-	// in V1.
+	// EnterTransition is set in Details.
 	const UMovieSceneComposableCameraShotSection* This =
 		Cast<UMovieSceneComposableCameraShotSection>(&Section);
 	if (!This)
@@ -675,7 +672,7 @@ namespace
 		}
 	}
 
-	/** Build the "Set Enter Transition" submenu (Phase F). Top "Clear" entry
+	/** Build the "Set Enter Transition" submenu. Top "Clear" entry
 	 * removes the current selection; embedded `FAssetPickerConfig` picker
 	 * below lets the designer pick any `UComposableCameraTransitionDataAsset`
 	 * in the project. Same shape as the LSComponent track editor's Camera
@@ -696,9 +693,8 @@ namespace
 		MenuBuilder.AddMenuEntry(LOCTEXT("ClearEnterTransition", "Clear"),
 			LOCTEXT("ClearEnterTransitionTooltip",
 				"Remove the EnterTransition assignment on this Shot Section. The "
-				"section becomes a hard cut - when it overlaps with a lower-row "
-				"section, the lower-row section's framing wins (V1 top-row "
-				"semantics) instead of pose-blending."),
+				"section becomes a hard cut instead of pose-blending across "
+				"the overlap window."),
 			FSlateIcon(),
 			FUIAction(FExecuteAction::CreateLambda([ShotSection]()
 				{
@@ -880,16 +876,16 @@ void FComposableCameraShotSectionInterface::BuildSectionContextMenu(FMenuBuilder
 			BuildBindTargetActorsSubmenu(SubMenuBuilder, ShotSection);
 		}));
 
-	// Phase F: EnterTransition picker. Label includes the current selection
-	// so the parent menu reads "Set Enter Transition: <name>" without forcing
-	// the user to expand the submenu just to check what's set.
+	// EnterTransition picker. Label includes the current selection so the
+	// parent menu reads "Set Enter Transition: <name>" without forcing the
+	// user to expand the submenu just to check what's set.
 	MenuBuilder.AddSubMenu(FText::Format(LOCTEXT("SetEnterTransitionEntryFmt", "Set Enter Transition: {0}"),
 			GetEnterTransitionLabel(*ShotSection)),
 		LOCTEXT("SetEnterTransitionTooltip",
 			"Pick the transition asset that drives the inter-Shot blend when the playhead "
 			"enters this Section from a previous overlapping Section on the same Shot Track. "
 			"The overlap window itself defines blend duration; the transition asset contributes "
-			"only its ease curve. Null = hard cut (V1 top-row-winner semantics)."),
+			"only its ease curve. Null = hard cut."),
 		FNewMenuDelegate::CreateLambda([ShotSection](FMenuBuilder& SubMenuBuilder)
 		{
 			BuildSetEnterTransitionSubmenu(SubMenuBuilder, ShotSection);

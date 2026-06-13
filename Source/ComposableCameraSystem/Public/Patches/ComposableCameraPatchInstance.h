@@ -1,4 +1,4 @@
-// Copyright Sulley. All rights reserved.
+// Copyright 2026 Sulley. All Rights Reserved.
 
 #pragma once
 
@@ -15,15 +15,9 @@ class UComposableCameraPatchHandle;
 /**
  * Runtime per-Patch state, owned by UComposableCameraPatchManager.
  *
- * Holds the source asset reference, the Patch evaluator camera actor (Stage 2+),
- * resolved layer / push-sequence for ordering, schedule fields, envelope state,
- * cached parameter block for evaluator (re)construction, and a back-link to the
- * user-facing handle.
- *
- * Stage 1 note: Evaluator stays nullptr; PatchManager::Apply does not tick anything
- * yet. The envelope state is populated to "Entering, alpha 0" at construction but
- * is not advanced -Stage 3 adds AdvanceEnvelope. All bookkeeping fields are valid
- * as soon as AddPatch returns so debug HUD / introspection work end-to-end.
+ * Holds the source asset reference, evaluator camera actor, layer / push
+ * sequence ordering, schedule fields, envelope state, cached parameter block,
+ * and back-link to the user-facing handle.
  */
 UCLASS()
 class COMPOSABLECAMERASYSTEM_API UComposableCameraPatchInstance : public UObject
@@ -57,8 +51,7 @@ public:
 	 *  compute it once when the instance is constructed. */
 	FString PatchAssetTraceName;
 
-	/** The Patch's own camera-actor evaluator. Stage 2+: spawned by AddPatch via
-	 *  UE::ComposableCameras::ConstructCameraFromTypeAsset. Stage 1: always nullptr. */
+	/** Patch evaluator camera spawned by AddPatch and built from the patch asset. */
 	UPROPERTY()
 	TObjectPtr<AComposableCameraCameraBase> Evaluator;
 
@@ -117,9 +110,7 @@ public:
 
 	// --- Construction Inputs -----------------------------------------------
 
-	/** Cached parameter block from AddPatch. Used by Stage 2's
-	 *  ConstructCameraFromTypeAsset call and any future re-construction
-	 *  (e.g. in response to modifier changes). */
+	/** Latest parameter block applied to the evaluator. */
 	UPROPERTY()
 	FComposableCameraParameterBlock CachedParameters;
 

@@ -1,4 +1,4 @@
-// Copyright Sulley. All rights reserved.
+// Copyright 2026 Sulley. All Rights Reserved.
 
 #include "Core/ComposableCameraParameterBlock.h"
 
@@ -70,7 +70,8 @@ void FComposableCameraParameterBlock::AddReferencedObjects(FReferenceCollector& 
 	//
 	// In addition to the property-graph walk, mark the `UScriptStruct*` itself
 	// for each slot. `UserDefinedStruct` (Blueprint-authored struct asset) is
-	// a regular UObject that GC reclaims when no rooted reference exists -	// `SourceParameterBlock` / `PendingParameterBlock` are non-reflected
+	// a regular UObject that GC reclaims when no rooted reference exists.
+	// `SourceParameterBlock` / `PendingParameterBlock` are non-reflected
 	// owners that only call this manual walker, and `CachedParameters` is
 	// reached via the same path through ARO. Without an explicit mark on
 	// the type, a UserDefinedStruct value's type can be reclaimed mid-frame
@@ -90,7 +91,7 @@ void FComposableCameraParameterBlock::AddReferencedObjects(FReferenceCollector& 
 			}
 		}
 	}
-	// FScriptDelegate stores its bound target in a TWeakObjectPtr -GC does not
+	// FScriptDelegate stores its bound target in a TWeakObjectPtr. GC does not
 	// keep that object alive on its own. Without this walk, a delegate whose
 	// target is only kept alive transitively through ParameterBlock would see
 	// the target collected between SetDelegate(...) and ApplyDelegateBindings,
@@ -243,7 +244,8 @@ bool FComposableCameraParameterBlock::ApplyStringValue(
 	{
 		// FName construction from an arbitrary string is lossy for Unicode
 		// (FName tables are 8-bit + comparison-hash). Names authored through the
-		// editor should be ASCII. We accept any string here without rejection -		// if the user writes garbage we still produce a valid (garbage) FName.
+		// editor should be ASCII. We accept any string here without rejection;
+		// if the user writes garbage we still produce a valid (garbage) FName.
 		FComposableCameraParameterValue Entry;
 		Entry.Set<FName>(PinType, FName(*ValueString));
 		OutBlock.StoreValue(ParameterName, MoveTemp(Entry));

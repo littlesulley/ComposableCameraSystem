@@ -1,4 +1,4 @@
-// Copyright Sulley. All rights reserved.
+// Copyright 2026 Sulley. All Rights Reserved.
 
 #include "Nodes/ComposableCameraReceivePivotActorNode.h"
 
@@ -52,7 +52,7 @@ void UComposableCameraReceivePivotActorNode::OnInitialize_Implementation()
 {
 	Super::OnInitialize_Implementation();
 
-	// Don't resolve the SkelMesh component here -PivotActor can be driven
+	// Don't resolve the SkelMesh component here. PivotActor can be driven
 	// by an input pin and change every frame. Resolution happens lazily in
 	// Tick when the active PivotActor differs from `LastResolvedPivotActor`.
 	SkeletalMeshComponentForPivotActor.Reset();

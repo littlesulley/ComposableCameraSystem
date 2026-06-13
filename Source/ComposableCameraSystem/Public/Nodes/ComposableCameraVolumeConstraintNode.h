@@ -1,4 +1,4 @@
-// Copyright Sulley. All rights reserved.
+// Copyright 2026 Sulley. All Rights Reserved.
 
 #pragma once
 
@@ -13,11 +13,11 @@ class UComposableCameraInterpolatorBase;
 /**
  * How the constraint volume is sourced.
  *
- * FromActor -Pull the shape from the first `UShapeComponent` on VolumeActor.
+ * FromActor: Pull the shape from the first `UShapeComponent` on VolumeActor.
  *             UBoxComponent and USphereComponent are supported; the component's
  *             world transform + scaled extents drive the volume. Capsule and
  *             other shape subclasses are rejected with a warning.
- * Inline    -The node carries its own world-space volume definition via
+ * Inline: The node carries its own world-space volume definition via
  *             VolumeCenter / VolumeRotation / BoxExtents / SphereRadius.
  */
 UENUM()

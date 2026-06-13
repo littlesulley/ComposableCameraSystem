@@ -1,4 +1,4 @@
-// Copyright Sulley. All rights reserved.
+// Copyright 2026 Sulley. All Rights Reserved.
 
 #pragma once
 
@@ -12,6 +12,10 @@ class UComposableCameraTypeAsset;
 class UComposableCameraNodeGraph;
 class UAssetEditor;
 class AComposableCameraCameraBase;
+class AActor;
+class SComposableCameraRuntimePreviewer;
+struct FComposableCameraDebugSnapshot;
+enum class ERuntimePreviewerStatus : uint8;
 
 /**
  * FBaseAssetToolkit subclass that provides the visual node graph editor
@@ -146,6 +150,7 @@ private:
 	TSharedRef<SDockTab> SpawnTab_GraphEditor(const FSpawnTabArgs& Args);
 	TSharedRef<SDockTab> SpawnTab_Details(const FSpawnTabArgs& Args);
 	TSharedRef<SDockTab> SpawnTab_BuildMessages(const FSpawnTabArgs& Args);
+	TSharedRef<SDockTab> SpawnTab_RuntimePreviewer(const FSpawnTabArgs& Args);
 
 	// Toolbar Actions 
 
@@ -219,6 +224,15 @@ private:
 	/** Clear debug state from all graph nodes. */
 	void ClearGraphNodeDebugState();
 
+	/** Push the selected runtime camera + controlled pawn relation into the previewer tab. */
+	void PushRuntimePreviewData(const FComposableCameraDebugSnapshot& Snapshot);
+
+	/** Clear the previewer tab while preserving its local observer camera. */
+	void ClearRuntimePreviewer(ERuntimePreviewerStatus Status);
+
+	/** Resolve the pawn controlled by the debugged camera's owning player controller. */
+	AActor* ResolveDebuggedControlledPawn() const;
+
 	/** Build the instance picker dropdown content for the toolbar. */
 	TSharedRef<SWidget> BuildDebugInstancePickerWidget();
 
@@ -228,7 +242,7 @@ private:
 	 * bug where the last editor to register overwrites all others. */
 	static TSharedRef<SWidget> MakeDebugInstancePickerWidget(const FToolMenuContext& Context, const FToolMenuCustomWidgetContext& WidgetContext);
 
-	// Shot Editor toolbar entry (Phase D.1) 
+	// Shot Editor toolbar entry.
 	//
 	// Adjacent to the Debug button. Routes to the Shot Editor (in the
 	// editor module) for the currently selected `UComposableCameraCompositionFramingNode`
@@ -260,6 +274,9 @@ private:
 	/** The camera instance currently being debugged. */
 	TWeakObjectPtr<AComposableCameraCameraBase> DebuggedCamera;
 
+	/** Optional Runtime Previewer dock tab content. Created only when the user opens it. */
+	TSharedPtr<SComposableCameraRuntimePreviewer> RuntimePreviewerWidget;
+
 	/** Whether we're actively in a PIE/SIE session. */
 	bool bIsPIEActive = false;
 
@@ -276,6 +293,7 @@ private:
 	static const FName GraphEditorTabId;
 	static const FName DetailsTabId;
 	static const FName BuildMessagesTabId;
+	static const FName RuntimePreviewerTabId;
 };
 
 UCLASS(Experimental)

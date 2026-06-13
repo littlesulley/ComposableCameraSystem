@@ -1,4 +1,4 @@
-﻿// Copyright Sulley. All rights reserved.
+// Copyright 2026 Sulley. All Rights Reserved.
 
 #pragma once
 
@@ -30,7 +30,7 @@ namespace UE::ComposableCameras::PatchEnvelope
 	 * applies the result onto its InternalCamera's pose before projecting to
 	 * the CineCamera). The runtime PIE path keeps the stateful machine on
 	 * UComposableCameraPatchInstance because it needs to handle real-time
-	 * Manual / Condition / OnCameraChange channels -Sequencer editor scrub
+	 * Manual / Condition / OnCameraChange channels. Sequencer editor scrub
 	 * doesn't have those. Computing alpha as a pure function of time also
 	 * makes scrub-backwards correct: dragging the playhead to the section's
 	 * exit window shows the fade-out, no matter how the user got there.

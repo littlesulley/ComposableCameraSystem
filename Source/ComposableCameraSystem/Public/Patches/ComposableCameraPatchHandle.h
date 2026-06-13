@@ -1,4 +1,4 @@
-﻿// Copyright Sulley. All rights reserved.
+// Copyright 2026 Sulley. All Rights Reserved.
 
 #pragma once
 
@@ -21,7 +21,7 @@ class UComposableCameraPatchInstance;
  *
  * GC lifetime caveat: the handle UObject itself has only a weak back-reference
  * from the instance, so callers MUST keep the handle alive through their own
- * strong reference. Blueprint usage is automatic -BP variables hold strong
+ * strong reference. Blueprint usage is automatic: BP variables hold strong
  * refs. C++ usage requires storing the handle in a UPROPERTY (or other
  * GC-tracked location) on the owning class; a raw local pointer that goes out
  * of scope will be collected, after which Manual-channel ExpirePatch becomes

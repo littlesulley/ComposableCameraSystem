@@ -1,4 +1,4 @@
-// Copyright Sulley. All Rights Reserved.
+// Copyright 2026 Sulley. All Rights Reserved.
 
 #include "ComposableCameraSystemEditorModule.h"
 
@@ -133,7 +133,7 @@ void FComposableCameraSystemEditorModule::StartupModule()
  FComposableCameraLevelSequenceSpawnTrackTool::Register();
  FComposableCameraViewportTransformClipboard::Register();
 
- // Shot Editor (Phase D.1+) - registers the nomad tab spawner with
+ // Shot Editor - registers the nomad tab spawner with
  // FGlobalTabmanager + binds the runtime-side FOpenShotEditor delegate
  // so node CallInEditor buttons route into OpenForShot.
  FComposableCameraShotEditor::RegisterTabSpawner();

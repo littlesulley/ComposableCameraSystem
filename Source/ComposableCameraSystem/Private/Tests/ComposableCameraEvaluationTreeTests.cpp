@@ -1,4 +1,4 @@
-// Copyright Sulley. All rights reserved.
+// Copyright 2026 Sulley. All Rights Reserved.
 
 #include "Core/ComposableCameraEvaluationTree.h"
 #include "Core/ComposableCameraDirector.h"

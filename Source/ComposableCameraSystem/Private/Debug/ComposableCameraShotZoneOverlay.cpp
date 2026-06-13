@@ -1,4 +1,4 @@
-// Copyright Sulley. All rights reserved.
+// Copyright 2026 Sulley. All Rights Reserved.
 
 #include "Debug/ComposableCameraShotZoneOverlay.h"
 
@@ -138,8 +138,8 @@ namespace
 		const FLinearColor& DeadFill,
 		const FLinearColor& SoftFill)
 	{
-		// V2.2: the main disc represents the AUTHORED ScreenPosition
-		// (the designer's "I want the anchor here" target). The anchor's
+		// The main disc represents the AUTHORED ScreenPosition (the designer's
+		// "I want the anchor here" target). The anchor's
 		// LIVE projected position is shown as a smaller, read-only
 		// marker, only when zones are enabled (zones-off keeps projection
 		// <=SP and the marker would just double-stamp the disc).
@@ -264,7 +264,7 @@ namespace
 		return Anchor.ResolveWorldPosition(Targets, OutWorld);
 	}
 
-	/** Per-FramingNode draw entry. Emits at most two overlays -Placement
+	/** Per-FramingNode draw entry. Emits at most two overlays: Placement
 	 *  (yellow) and Aim (cyan). But only the ones whose mode actually
 	 *  reads the corresponding screen position. */
 	void DrawShotOverlay(

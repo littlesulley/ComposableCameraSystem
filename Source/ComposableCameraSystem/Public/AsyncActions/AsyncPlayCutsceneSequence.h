@@ -1,4 +1,4 @@
-﻿// Copyright Sulley. All rights reserved.
+// Copyright 2026 Sulley. All Rights Reserved.
 
 #pragma once
 
@@ -99,7 +99,7 @@ private:
 	UPROPERTY(Transient)
 	TWeakObjectPtr<AComposableCameraPlayerCameraManager> CachedPCM;
 
-	/** Cached from the WorldContextObject in the factory -GetWorld() on the base class is unreliable. */
+	/** Cached from the WorldContextObject in the factory. GetWorld() on the base class is unreliable. */
 	TWeakObjectPtr<UWorld> CachedWorld;
 
 	FName CutsceneContextName;

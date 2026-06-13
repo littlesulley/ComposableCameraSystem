@@ -1,4 +1,4 @@
-// Copyright Sulley. All Rights Reserved.
+// Copyright 2026 Sulley. All Rights Reserved.
 
 #pragma once
 
@@ -19,13 +19,11 @@ struct FComposableCameraShot;
 class FComposableCameraShotEditorViewportClient;
 
 /**
- * Tri-state mode the Shot Editor's viewport can be in. Replaces the V1.x
- * boolean Manual Mode toggle.
+ * Tri-state mode the Shot Editor's viewport can be in.
  *
  * - Drag (default): Solver drives camera every frame. Handles (Anchor +
  * per-target screen positions) are interactive - LMB drag updates the
- * authored Shot fields, RMB pops a context menu (Phase D.4.4) for
- * Method (Rotate / Translate). Mouse-only-on-handles policy: clicking
+ * authored Shot fields, RMB pops the handle context menu. Mouse-only-on-handles policy: clicking
  * empty viewport area does NOT orbit the camera (solver would just
  * overwrite anyway).
  *
@@ -34,8 +32,8 @@ class FComposableCameraShotEditorViewportClient;
  * camera stays where the user moves it. Handles are drawn at LIVE
  * projected positions of the world anchor / target points (so they
  * visually track those world points as the camera moves around) but
- * are NON-interactive. Toggling back to Drag pops a "save current
- * camera framing as Shot params?" dialog (Phase D.4.3).
+ * are NON-interactive. Toggling back to Drag pops the "save current
+ * camera framing as Shot params?" dialog.
  *
  * - Lock: Solver drives camera (same as Drag) but ALL user input is
  * consumed - no handle interaction, no camera control. Read-only
@@ -82,8 +80,8 @@ COMPOSABLECAMERASYSTEMEDITOR_API FText ShotEditorReverseSolveStatusToText(EShotE
 
 /**
  * SEditorViewport subclass that fills the Shot Editor's middle splitter
- * region (Phase D.2). Owns the FPreviewScene + FEditorViewportClient that
- * render the camera-framing preview.
+ * region. Owns the FPreviewScene + FEditorViewportClient that render the
+ * camera-framing preview.
  *
  * Composition (research Q1 - engine canonical pattern):
  * SShotEditorRoot
@@ -120,8 +118,8 @@ public:
 	void SetMode(EShotEditorMode InMode);
 	EShotEditorMode GetMode() const;
 
-	/** Forwarded reverse-solve API for the Free -> Drag transition dialog
-	 * (Phase D.4.3). `DiagnoseReverseSolveCurrentCamera` returns the
+	/** Forwarded reverse-solve API for the Free -> Drag transition dialog.
+	 * `DiagnoseReverseSolveCurrentCamera` returns the
 	 * precheck status - `Ok` when reverse-solve will succeed, otherwise
 	 * the first failing check (see `EShotEditorReverseSolveStatus`).
 	 * `CanReverseSolveCurrentCamera` is the boolean shortcut, kept for
@@ -141,11 +139,6 @@ protected:
 	/** Factory hook - returns our FEditorViewportClient subclass. Called once
 	 * during SEditorViewport::Construct, after PreviewScene is built. */
 	virtual TSharedRef<FEditorViewportClient> MakeEditorViewportClient() override;
-
-	/** SEditorViewport calls this to populate any toolbar overlay; we return
-	 * no overlay in Phase D.2 (no toolbar, just the rendered scene). D.3+
-	 * may add one (free-look toggle, view mode switcher). */
-	virtual TSharedPtr<SWidget> MakeViewportToolbar() override { return nullptr; }
 
 private:
 	/** PreviewScene owned by this widget (NOT by the client - the client

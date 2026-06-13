@@ -1,4 +1,4 @@
-// Copyright Sulley. All rights reserved.
+// Copyright 2026 Sulley. All Rights Reserved.
 
 #include "Utils/ComposableCameraImpulseBox.h"
 #include "Components/BoxComponent.h"

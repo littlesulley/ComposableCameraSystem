@@ -1,8 +1,9 @@
-// Copyright Sulley. All rights reserved.
+// Copyright 2026 Sulley. All Rights Reserved.
 
 #include "Transitions/ComposableCameraTransitionBase.h"
 
 #include "ComposableCameraSystemModule.h"   // STATGROUP_CCS
+#include "Core/ComposableCameraPlayerCameraManager.h"
 
 #if !UE_BUILD_SHIPPING
 #include "Debug/ComposableCameraViewportDebug.h"
@@ -56,6 +57,7 @@ void UComposableCameraTransitionBase::TransitionEnabled(const FComposableCameraT
 {
 	InitParams = InInitParams;
 	bFinished = false;
+	CachedPlayerCameraManager = GetTypedOuter<AComposableCameraPlayerCameraManager>();
 }
 
 void UComposableCameraTransitionBase::TransitionFinished()

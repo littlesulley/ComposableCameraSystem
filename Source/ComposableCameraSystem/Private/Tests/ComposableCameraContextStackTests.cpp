@@ -1,4 +1,4 @@
-// Copyright Sulley. All rights reserved.
+// Copyright 2026 Sulley. All Rights Reserved.
 
 #include "Core/ComposableCameraContextStack.h"
 #include "Core/ComposableCameraDirector.h"
@@ -134,7 +134,7 @@ bool FContextStackLIFOTest::RunTest(const FString& Parameters)
 	UTEST_EQUAL("Stack depth is 3", TestWorld.ContextStack->GetStackDepth(), 3);
 	UTEST_TRUE("Active is LevelSequence (last pushed)", TestWorld.ContextStack->GetActiveContextName() == Setup.LevelSequenceName);
 
-	// Pop LevelSequence -UI should become active.
+	// Pop LevelSequence. UI should become active.
 	TestWorld.ContextStack->PopActiveContext();
 	UTEST_EQUAL("Stack depth is 2 after pop", TestWorld.ContextStack->GetStackDepth(), 2);
 	UTEST_TRUE("Active is UI after pop", TestWorld.ContextStack->GetActiveContextName() == Setup.UIName);

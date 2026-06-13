@@ -1,4 +1,4 @@
-// Copyright Sulley. All rights reserved.
+// Copyright 2026 Sulley. All Rights Reserved.
 
 #include "MovieScene/MovieSceneComposableCameraShotTrackInstance.h"
 
@@ -23,7 +23,7 @@ namespace
 	 *  bound actor. Returns null on any miss (track is root / not under a
 	 *  binding, binding not yet spawned, bound object isn't an actor, actor
 	 *  has no LS Component). */
-	UComposableCameraLevelSequenceComponent* ResolveLSComponent(
+	UComposableCameraLevelSequenceComponent* ResolveShotTrackLSComponent(
 		const UMovieSceneEntitySystemLinker* Linker,
 		const FMovieSceneTrackInstanceInput& Input,
 		const UMovieSceneComposableCameraShotSection& Section)
@@ -50,7 +50,8 @@ namespace
 		}
 		const UE::MovieScene::FSequenceInstance& Instance = Registry->GetInstance(Input.InstanceHandle);
 
-		// Resolve the binding GUID against the input's sequence instance -		// FMovieSceneObjectBindingID's relative-binding ctor defaults SequenceID
+		// Resolve the binding GUID against the input's sequence instance.
+		// FMovieSceneObjectBindingID's relative-binding ctor defaults SequenceID
 		// to the input's owning sequence so cross-sequence sub-sections also
 		// resolve correctly.
 		const FMovieSceneObjectBindingID Binding = UE::MovieScene::FRelativeObjectBindingID(BindingGuid);
@@ -67,7 +68,7 @@ namespace
 namespace
 {
 	/** Per-input resolved state. Built in pass 1 of OnAnimate, consumed in
-	 *  pass 2 for cross-section overlap analysis (Phase F BlendAlpha). */
+	 *  pass 2 for cross-section overlap analysis. */
 	struct FResolvedShotInput
 	{
 		UMovieSceneComposableCameraShotSection*    Section            { nullptr };
@@ -79,7 +80,7 @@ namespace
 		UComposableCameraTransitionDataAsset*      EnterTransition    { nullptr };
 	};
 
-	/** Compute the Phase F BlendAlpha for `Entry` against its immediately-
+	/** Compute BlendAlpha for `Entry` against its immediately-
 	 *  below-row in-range overlapping peer (same LSComp). Returns 1.0 when
 	 *  there is no such peer (entry is standalone / lower-row of a pair).
 	 *
@@ -149,7 +150,7 @@ void UMovieSceneComposableCameraShotTrackInstance::OnAnimate()
 
 	// --- Pass 1: resolve every input to (Section, LSComp, EffectiveShot,
 	// RowIndex, Range, CurrentFrame, EnterTransition). Two-pass instead of
-	// inline-push because Phase F's BlendAlpha needs cross-section visibility
+	// inline-push because BlendAlpha needs cross-section visibility
 	// (each section's alpha is computed against its lower-row peer).
 	const UE::MovieScene::FInstanceRegistry* Registry =
 		Linker ? Linker->GetInstanceRegistry() : nullptr;
@@ -167,7 +168,7 @@ void UMovieSceneComposableCameraShotTrackInstance::OnAnimate()
 		}
 
 		UComposableCameraLevelSequenceComponent* LSComp =
-			ResolveLSComponent(Linker, Input, *Section);
+			ResolveShotTrackLSComponent(Linker, Input, *Section);
 		if (!LSComp)
 		{
 			UE_LOG(LogComposableCameraSystem, Verbose,
@@ -186,7 +187,7 @@ void UMovieSceneComposableCameraShotTrackInstance::OnAnimate()
 		// Build the effective Shot: source Shot (Inline / AssetReference)
 		// overlaid with per-target binding overrides. The override path
 		// resolves Sequencer bindings to live actors via the running
-		// sequence instance -Spawnables, Possessables, sub-bindings.
+		// sequence instance: Spawnables, Possessables, sub-bindings.
 		FComposableCameraShot EffectiveShot;
 		if (!Section->BuildEffectiveShot(Instance, EffectiveShot))
 		{
@@ -209,8 +210,7 @@ void UMovieSceneComposableCameraShotTrackInstance::OnAnimate()
 		// Read the cached resolved transition. Populated off the eval path
 		// at the section's PostLoad / PostEditChangeProperty. The eval path
 		// must NOT call LoadSynchronous; an unloaded asset degrades to
-		// null and the Phase F blender treats null as a hard cut (decision
-		// recorded in Section.h's EnterTransition doc-comment).
+		// null and the Shot blender treats null as a hard cut.
 		E.EnterTransition = Section->ResolveCachedEnterTransition();
 	}
 
@@ -244,7 +244,7 @@ void UMovieSceneComposableCameraShotTrackInstance::OnInputRemoved(const FMovieSc
 	{
 		return;
 	}
-	if (UComposableCameraLevelSequenceComponent* LSComp = ResolveLSComponent(GetLinker(), InInput, *Section))
+	if (UComposableCameraLevelSequenceComponent* LSComp = ResolveShotTrackLSComponent(GetLinker(), InInput, *Section))
 	{
 		LSComp->RemoveSequencerShotOverride(Section);
 	}
@@ -260,7 +260,7 @@ void UMovieSceneComposableCameraShotTrackInstance::OnDestroyed()
 		{
 			continue;
 		}
-		if (UComposableCameraLevelSequenceComponent* LSComp = ResolveLSComponent(Linker, Input, *Section))
+		if (UComposableCameraLevelSequenceComponent* LSComp = ResolveShotTrackLSComponent(Linker, Input, *Section))
 		{
 			LSComp->RemoveSequencerShotOverride(Section);
 		}
