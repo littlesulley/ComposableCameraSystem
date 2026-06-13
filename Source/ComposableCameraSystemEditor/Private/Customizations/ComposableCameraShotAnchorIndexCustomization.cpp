@@ -2,11 +2,13 @@
 
 #include "Customizations/ComposableCameraShotAnchorIndexCustomization.h"
 
+#include "Customizations/ComposableCameraShotModeVisibility.h"
 #include "Customizations/ComposableCameraShotTargetIndexCombo.h"
 #include "DataAssets/ComposableCameraShot.h"
 
 #include "DetailWidgetRow.h"
 #include "IDetailChildrenBuilder.h"
+#include "IDetailPropertyRow.h"
 #include "IPropertyTypeCustomization.h"
 #include "Layout/Visibility.h"
 #include "Misc/Attribute.h"
@@ -90,12 +92,8 @@ void FShotAnchorIndexCustomization::CustomizeChildren(TSharedRef<IPropertyHandle
 		{
 			TWeakPtr<IPropertyHandle> WeakStruct = StructHandle;
 			TAttribute<EVisibility> VisAttr = bIsAnchorSpec
-				? TAttribute<EVisibility>::CreateLambda([WeakStruct]() -> EVisibility
+				? TAttribute<EVisibility>::CreateLambda([WeakStruct, PropName]() -> EVisibility
 				{
-					// AnchorSpec gates: only SingleTarget reads TargetIndex.
-					// WeightedWorldCentroid uses WeightedTargets; FixedWorldPosition
-					// uses WorldPosition. Hide the field outside SingleTarget so
-					// the Anchor category isn't cluttered with unused rows.
 					TSharedPtr<IPropertyHandle> Pin = WeakStruct.Pin();
 					if (!Pin.IsValid())
 					{
@@ -111,7 +109,9 @@ void FShotAnchorIndexCustomization::CustomizeChildren(TSharedRef<IPropertyHandle
 					{
 						return EVisibility::Collapsed;
 					}
-					return ModeVal == static_cast<uint8>(EShotAnchorMode::SingleTarget)
+					return ComposableCameraSystem::ShotDetailsVisibility::IsAnchorFieldVisible(
+							static_cast<EShotAnchorMode>(ModeVal),
+							PropName)
 						? EVisibility::Visible: EVisibility::Collapsed;
 				})
 				: TAttribute<EVisibility>(EVisibility::Visible);
@@ -126,7 +126,34 @@ void FShotAnchorIndexCustomization::CustomizeChildren(TSharedRef<IPropertyHandle
 		}
 		else
 		{
-			StructBuilder.AddProperty(ChildHandle.ToSharedRef());
+			IDetailPropertyRow& Row = StructBuilder.AddProperty(ChildHandle.ToSharedRef());
+			if (bIsAnchorSpec)
+			{
+				TWeakPtr<IPropertyHandle> WeakStruct = StructHandle;
+				Row.Visibility(TAttribute<EVisibility>::CreateLambda([WeakStruct, PropName]() -> EVisibility
+				{
+					TSharedPtr<IPropertyHandle> Pin = WeakStruct.Pin();
+					if (!Pin.IsValid())
+					{
+						return EVisibility::Collapsed;
+					}
+					TSharedPtr<IPropertyHandle> ModeHnd =
+						Pin->GetChildHandle(GET_MEMBER_NAME_CHECKED(FComposableCameraAnchorSpec, Mode));
+					if (!ModeHnd.IsValid())
+					{
+						return EVisibility::Collapsed;
+					}
+					uint8 ModeVal = 0;
+					if (ModeHnd->GetValue(ModeVal) != FPropertyAccess::Success)
+					{
+						return EVisibility::Collapsed;
+					}
+					return ComposableCameraSystem::ShotDetailsVisibility::IsAnchorFieldVisible(
+							static_cast<EShotAnchorMode>(ModeVal),
+							PropName)
+						? EVisibility::Visible: EVisibility::Collapsed;
+				}));
+			}
 		}
 	}
 }

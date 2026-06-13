@@ -2,11 +2,13 @@
 
 #include "Customizations/ComposableCameraShotPlacementCustomization.h"
 
+#include "Customizations/ComposableCameraShotModeVisibility.h"
 #include "Customizations/ComposableCameraShotTargetIndexCombo.h"
 #include "DataAssets/ComposableCameraShot.h"
 
 #include "DetailWidgetRow.h"
 #include "IDetailChildrenBuilder.h"
+#include "IDetailPropertyRow.h"
 #include "IPropertyTypeCustomization.h"
 #include "Layout/Visibility.h"
 #include "Misc/Attribute.h"
@@ -77,7 +79,7 @@ void FShotPlacementCustomization::CustomizeChildren(TSharedRef<IPropertyHandle> 
 			// effect at all.
 			TWeakPtr<IPropertyHandle> WeakStruct = StructHandle;
 			TAttribute<EVisibility> VisAttr =
-				TAttribute<EVisibility>::CreateLambda([WeakStruct]() -> EVisibility
+				TAttribute<EVisibility>::CreateLambda([WeakStruct, PropName]() -> EVisibility
 				{
 					TSharedPtr<IPropertyHandle> Pin = WeakStruct.Pin();
 					if (!Pin.IsValid())
@@ -97,8 +99,10 @@ void FShotPlacementCustomization::CustomizeChildren(TSharedRef<IPropertyHandle> 
 					{
 						return EVisibility::Collapsed;
 					}
-					return (ModeVal == static_cast<uint8>(EShotPlacementMode::AnchorOrbit)
-							&& BasisVal == static_cast<uint8>(EShotPlacementBasisFrame::InheritFromActor))
+					return ComposableCameraSystem::ShotDetailsVisibility::IsPlacementFieldVisible(
+							static_cast<EShotPlacementMode>(ModeVal),
+							static_cast<EShotPlacementBasisFrame>(BasisVal),
+							PropName)
 						? EVisibility::Visible: EVisibility::Collapsed;
 				});
 
@@ -112,7 +116,36 @@ void FShotPlacementCustomization::CustomizeChildren(TSharedRef<IPropertyHandle> 
 		}
 		else
 		{
-			StructBuilder.AddProperty(ChildHandle.ToSharedRef());
+			IDetailPropertyRow& Row = StructBuilder.AddProperty(ChildHandle.ToSharedRef());
+			TWeakPtr<IPropertyHandle> WeakStruct = StructHandle;
+			Row.Visibility(TAttribute<EVisibility>::CreateLambda([WeakStruct, PropName]() -> EVisibility
+			{
+				TSharedPtr<IPropertyHandle> Pin = WeakStruct.Pin();
+				if (!Pin.IsValid())
+				{
+					return EVisibility::Collapsed;
+				}
+				TSharedPtr<IPropertyHandle> ModeHnd =
+					Pin->GetChildHandle(GET_MEMBER_NAME_CHECKED(FShotPlacement, Mode));
+				TSharedPtr<IPropertyHandle> BasisHnd =
+					Pin->GetChildHandle(GET_MEMBER_NAME_CHECKED(FShotPlacement, BasisFrame));
+				if (!ModeHnd.IsValid() || !BasisHnd.IsValid())
+				{
+					return EVisibility::Collapsed;
+				}
+				uint8 ModeVal = 0;
+				uint8 BasisVal = 0;
+				if (ModeHnd->GetValue(ModeVal) != FPropertyAccess::Success
+					|| BasisHnd->GetValue(BasisVal) != FPropertyAccess::Success)
+				{
+					return EVisibility::Collapsed;
+				}
+				return ComposableCameraSystem::ShotDetailsVisibility::IsPlacementFieldVisible(
+						static_cast<EShotPlacementMode>(ModeVal),
+						static_cast<EShotPlacementBasisFrame>(BasisVal),
+						PropName)
+					? EVisibility::Visible: EVisibility::Collapsed;
+			}));
 		}
 	}
 }

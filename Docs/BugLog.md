@@ -1,5 +1,36 @@
 # Bug Log
 
+## 2026-06-13 - Shot Editor status bar could prioritize Free-exit actions over stale host state
+
+- Symptom: the unified Shot Editor status bar could keep showing Free-exit
+  Save / Discard / Stay actions even when the active host UObject had gone
+  stale.
+- Trigger / repro: enter Free mode, request Drag / Lock to queue a Free-exit
+  status, then let the active Shot host be destroyed before the root widget's
+  tick clears the context.
+- Why it happens: the first status-bar priority draft checked pending Free-exit
+  state before validating the active Shot / host pair.
+- Root cause: Free-exit action visibility was treated as higher priority than
+  host liveness, even though Save needs a live host to safely write Shot data.
+- Touched files:
+  - `Source/ComposableCameraSystemEditor/Private/Widgets/ComposableCameraShotEditorStatusBarUtils.h`
+  - `Source/ComposableCameraSystemEditor/Private/Widgets/SShotEditorRoot.cpp`
+  - `Source/ComposableCameraSystemEditor/Private/Tests/ComposableCameraShotEditorTests.cpp`
+  - `Docs/TechDoc.md`
+  - `Docs/BugLog.md`
+- Fix: status resolution now checks stale-host and no-Shot states before
+  pending Free-exit state. `CanSaveFreeExitStatus` also requires an active Shot
+  and valid host.
+- Regression-test name:
+  `ComposableCameraSystem.ShotEditor.StatusBarState`.
+- Test blocker: automation test added, but project rules prohibit Codex from
+  invoking Unreal Editor automation from shell. User must run it from IDE /
+  Unreal Editor.
+- Avoid next time: any editor action row that writes data must gate on object
+  liveness before checking action-specific pending state.
+- Possible conflicts: only Shot Editor status-bar action visibility changes.
+  Normal Free-exit Save / Discard / Stay behavior with a live host is unchanged.
+
 ## 2026-06-12 - CompositionPreserving snaps on final collapse frame
 
 - Symptom: a CompositionPreserving transition keeps the subject framed during
@@ -434,3 +465,117 @@
   Spline, FocusPull, and VolumeConstraint, now continue toward the target
   instead of treating the damped delta as the final value. Vector SimpleSpring
   behavior is intended to remain unchanged.
+
+## 2026-06-13 - Shot Editor viewport toolbar uses wrong SOverlay include
+
+- Symptom: ComposableCameraSystemEditor compile fails with
+  `C1083: Cannot open include file: 'Widgets/Layout/SOverlay.h'`.
+- Trigger / repro: compile the editor module after adding the Shot Editor
+  viewport floating toolbar.
+- Why it happens: the new `SShotEditorRoot.cpp` include used the wrong Slate
+  header path for `SOverlay`.
+- Root cause: `SOverlay` lives at `Widgets/SOverlay.h`; `Widgets/Layout/`
+  contains layout widgets like boxes and splitters, not this overlay header.
+- Touched files:
+  - `Source/ComposableCameraSystemEditor/Private/Widgets/SShotEditorRoot.cpp`
+  - `Docs/BugLog.md`
+- Fix: replace `#include "Widgets/Layout/SOverlay.h"` with
+  `#include "Widgets/SOverlay.h"`.
+- Regression-test name: `ComposableCameraSystemEditor IDE compile`.
+- Test blocker: no focused automation test can catch a missing C++ include
+  without compiling the module, and project rules prohibit Codex from invoking
+  UBT / IDE compilation from shell. User must compile in Rider or Visual Studio.
+- Avoid next time: for Slate widgets whose path is uncertain, grep a known UE
+  source/include reference or prefer the canonical engine header path before
+  committing.
+- Possible conflicts: none expected; only include path changed.
+
+## 2026-06-13 - Shot Editor Reset toolbar action enabled outside Free mode
+
+- Symptom: Shot Editor viewport `Reset` button stays clickable in Drag and
+  Lock even though those modes already reassert the solved Shot camera every
+  tick.
+- Trigger / repro: open Shot Editor, bind any Shot, stay in Drag or Lock mode,
+  observe the floating viewport toolbar.
+- Why it happens: the toolbar action-state helper treated `ResetView` like a
+  generic active-Shot command instead of a Free-camera recovery command.
+- Root cause: `ResetView` was grouped with HUD / Guides toggles in
+  `IsToolbarActionEnabled`, while `FrameTargets` alone carried the Free-mode
+  gate.
+- Touched files:
+  - `Source/ComposableCameraSystemEditor/Private/Widgets/ComposableCameraShotViewportToolbarUtils.h`
+  - `Source/ComposableCameraSystemEditor/Private/Widgets/SShotEditorRoot.cpp`
+  - `Source/ComposableCameraSystemEditor/Private/Tests/ComposableCameraShotEditorTests.cpp`
+  - `Docs/EditorDesignDoc.md`
+  - `Docs/BugLog.md`
+- Fix: remove the visible `Copy` toolbar action and gate both `FrameTargets`
+  and `ResetView` on active Shot plus `EShotEditorMode::Free`.
+- Regression-test name:
+  `ComposableCameraSystem.ShotEditor.ViewportToolbarActionState`.
+- Test blocker: automation test updated, but project rules prohibit Codex from
+  invoking Unreal Editor automation from shell. User must run it from IDE /
+  Unreal Editor.
+- Avoid next time: model toolbar actions by user intent first. View-recovery
+  actions belong to Free mode; always-on debug toggles should be separate.
+- Possible conflicts: Ctrl+Alt+C still copies the viewport camera transform as
+  a hidden/debug shortcut, but the floating toolbar no longer exposes Copy.
+
+## 2026-06-13 - Shot Editor reverse-solve local shadows viewport AspectRatio member
+
+- Symptom: ComposableCameraSystemEditor compile fails with
+  `C4458: declaration of 'AspectRatio' hides class member` in
+  `ComposableCameraShotEditorViewportClient.cpp`.
+- Trigger / repro: compile the editor module after restoring the Shot Editor
+  Free-mode reverse-solve path.
+- Why it happens: `FComposableCameraShotEditorViewportClient` inherits from
+  `FEditorViewportClient`, which already has an `AspectRatio` member. The new
+  reverse-solve code declared a local variable with the same name inside a
+  member function.
+- Root cause: the local variable used a generic viewport-math name instead of a
+  specific one, and MSVC warning C4458 is treated as an error in this build.
+- Touched files:
+  - `Source/ComposableCameraSystemEditor/Private/Editors/ComposableCameraShotEditorViewportClient.cpp`
+  - `Docs/BugLog.md`
+- Fix: rename the local to `ViewportAspectRatio` and update all uses in the
+  reverse-solve projection math.
+- Regression-test name: `ComposableCameraSystemEditor IDE compile`.
+- Test blocker: no focused automation test can catch this C++ warning-as-error
+  without compiling the module, and project rules prohibit Codex from invoking
+  UBT / IDE compilation from shell. User must compile in Rider or Visual Studio.
+- Avoid next time: inside `FEditorViewportClient` subclasses, use
+  domain-specific local names such as `ViewportAspectRatio` instead of broad
+  names that may collide with inherited engine members.
+- Possible conflicts: none expected; the rename does not change projection
+  math.
+
+## 2026-06-13 - Shot Editor floating toolbar covers diagnostic HUD
+
+- Symptom: Shot Editor viewport floating toolbar appears in the top-left corner
+  and covers the diagnostic HUD text.
+- Trigger / repro: open Shot Editor with diagnostic HUD enabled and observe the
+  floating Reset / HUD / Guides toolbar in the same corner as the HUD readout.
+- Why it happens: both overlays were anchored to `HAlign_Left` /
+  `VAlign_Top`.
+- Root cause: the toolbar was introduced as a viewport-local overlay without
+  considering the existing top-left diagnostic overlay owned by the viewport
+  client.
+- Touched files:
+  - `Source/ComposableCameraSystemEditor/Private/Widgets/SShotEditorRoot.cpp`
+  - `Source/ComposableCameraSystemEditor/Public/Widgets/SShotEditorRoot.h`
+  - `Source/ComposableCameraSystemEditor/Private/Widgets/ComposableCameraShotViewportToolbarUtils.h`
+  - `Source/ComposableCameraSystemEditor/Private/Tests/ComposableCameraShotEditorTests.cpp`
+  - `Docs/EditorDesignDoc.md`
+  - `Docs/BugLog.md`
+- Fix: move the floating toolbar to the top-right corner and add a collapsible
+  `Tools +/-` control that hides Reset / HUD / Guides when collapsed.
+- Regression-test name:
+  `ComposableCameraSystem.ShotEditor.ViewportToolbarActionState`.
+- Test blocker: automation test updated, but project rules prohibit Codex from
+  invoking Unreal Editor automation from shell. User must run it from IDE /
+  Unreal Editor.
+- Avoid next time: place new viewport overlays against existing paint-time
+  overlays first; top-left belongs to diagnostic text unless the design doc
+  explicitly changes that.
+- Possible conflicts: on very narrow viewport widths, the top-right toolbar may
+  overlap scene content, but it no longer competes with the diagnostic HUD and
+  can be collapsed to the small Tools button.

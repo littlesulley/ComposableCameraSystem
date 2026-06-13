@@ -17,8 +17,9 @@ class IPropertyHandle;
  * index reference because the dropdown reads the live array each time it's
  * opened - the displayed indices always match the current Targets layout.
  *
- * All other `FShotPlacement` fields are default-rendered. The customization
- * only intercepts the row whose property name is `"BasisActorIndex"`.
+ * All other `FShotPlacement` fields are default-rendered, but still receive
+ * mode-sensitive visibility gates so Details shows only rows consumed by the
+ * active `Mode`.
  *
  * Visibility gating: `AddCustomRow` does not auto-evaluate the field's
  * UPROPERTY `EditCondition` meta the way `AddProperty` does, so the

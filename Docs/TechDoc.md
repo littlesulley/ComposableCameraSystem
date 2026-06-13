@@ -1,6 +1,6 @@
 # ComposableCameraSystem Tech Notes
 
-Updated: 2026-06-12
+Updated: 2026-06-13
 
 Purpose: compact implementation reference. Keep this file current when code
 patterns, public APIs, hot-path rules, node catalogs, or gotchas change.
@@ -439,6 +439,72 @@ Runtime Previewer technique:
   overwritten by an editor-preview animation tick.
 - The observer camera is the normal `FEditorViewportClient` camera. It is not
   coupled to runtime camera data.
+
+Shot Editor quick-control technique:
+
+- `SShotEditorRoot` keeps Quick controls in a collapsed-by-default strip as a
+  mirror of selected `FComposableCameraShot` fields, not a parallel data model.
+- Quick collapsed state and the viewport toolbar collapsed state are persisted
+  in `GEditorPerProjectIni` under `ComposableCameraSystem.ShotEditorLayout`;
+  defaults are Quick collapsed and viewport toolbar expanded.
+- Quick numeric widgets use a per-widget `TOptional<float>` drag cache. The
+  cache updates while editing; the Shot writes once on text commit or slider
+  release through `FScopedTransaction`, host `Modify()`, and
+  `PostEditChangeProperty(ValueSet)`.
+- Quick controls must resolve the active Shot property the same way the Details
+  bridge does: section inline shots post `InlineShot`, asset-reference override
+  shots post `ShotOverrides`, and ShotAsset / node hosts post `Shot`.
+- Do not fire per-tick `PostEditChangeProperty(Interactive)` from Quick
+  controls. Sequencer-backed shot sections can respawn preview actors during
+  those broadcasts.
+
+Shot Editor status bar technique:
+
+- `SShotEditorRoot::TrySetMode` classifies mode requests through
+  `Widgets/ComposableCameraShotEditorModeSwitchUtils.h`; Free -> Drag / Lock
+  does not apply immediately.
+- `Widgets/ComposableCameraShotEditorStatusBarUtils.h` keeps status-bar
+  priority and action mapping pure and testable. Clean active shots hide the
+  bar, no-shot states show info, stale hosts show warning, and active Free-exit
+  requests show warning plus Free-exit actions.
+- Liveness states win over pending actions. A stale host or missing Shot must
+  suppress Save / Discard / Stay, because Save writes through the active host.
+- Free-exit requests cache the target mode and reverse-solve status, then show
+  Save / Discard / Stay in the unified status bar below the top bar. Save
+  calls `ReverseSolveCurrentCameraToShot()` before applying the pending mode;
+  Discard applies the pending mode without writing Shot data; Stay clears the
+  pending request and remains in Free.
+- Free-exit actions are hidden when no pending request exists or the viewport
+  has already left Free. Active Shot context swaps clear pending requests to
+  avoid applying a stale Free camera pose to a different host.
+
+Shot Editor mode-sensitive Details technique:
+
+- Shot Details keeps the runtime structs unchanged and applies editor-only
+  `IPropertyTypeCustomization` visibility gates for `FShotPlacement`,
+  `FShotAim`, `FShotLens`, `FShotFocus`, and `FComposableCameraAnchorSpec`.
+- Visibility rules live in `ComposableCameraShotModeVisibility.h` so Slate
+  customizations and automation tests share the same mapping. Unknown fields
+  default to visible; explicit mode branches only collapse rows that the solver
+  ignores for the active mode.
+- Keep cross-layer anchor dependencies visible. `Focus.FollowPlacementAnchor`
+  can consume `Placement.PlacementAnchor`, and `Focus.FollowAimAnchor` can
+  consume `Aim.AimAnchor` even when the corresponding Placement / Aim mode
+  does not use that anchor locally.
+- Hidden rows are not reset or rewritten. The values stay serialized and
+  become editable again when the relevant mode is selected.
+
+Shot Editor Sequencer-shot menu technique:
+
+- The `Shots` dropdown is custom Slate content, not a plain `FMenuBuilder`
+  list. It uses `SSearchBox` plus `SScrollBox` so filtering happens in place
+  without closing the combo menu.
+- Search matching lives in `Widgets/ComposableCameraShotMenuUtils.h` and is
+  covered by automation tests. It tokenizes the user filter and requires every
+  token to match the combined track label, shot title, or time/row suffix.
+- The menu walks object-binding tracks and root tracks, de-duplicates sections,
+  groups visible rows by track label, marks the active section with a check
+  icon, and shows the same time/row suffix used by the Shot Editor breadcrumb.
 
 ## 16. Built-In Camera Nodes
 

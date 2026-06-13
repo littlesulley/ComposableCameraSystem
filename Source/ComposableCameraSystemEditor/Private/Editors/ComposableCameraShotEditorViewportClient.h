@@ -61,7 +61,8 @@ class USkeletalMesh;
  * solver writes are suspended until release.
  * - User releases -> `TrackingStopped` clears the flag, solver takes over again
  * on the next tick. So the camera "snaps back" to the solved pose immediately
- * after a free-look gesture, matching the "see what the solver decides" intent.
+ * after a camera-track gesture, matching the "see what the solver decides"
+ * intent.
  *
  * Proxy lifecycle:
  * - Proxies are spawned in the editor's `FPreviewScene`'s world (NOT the user's
@@ -103,45 +104,22 @@ public:
 	/** Diagnostic accessor. Returns nullptr while no Shot is bound. */
 	FComposableCameraShot* GetActiveShot() const { return ActiveShot; }
 
-	/** Tri-state mode (Drag / Free / Lock - see EShotEditorMode in
-	 * SShotEditorViewport.h for semantics). Cancels any in-flight bone-picking
-	 * sub-mode when the user leaves Drag. */
+	/** Viewport mode (Drag / Free / Lock - see EShotEditorMode in
+	 * SShotEditorViewport.h for semantics). */
 	void SetMode(EShotEditorMode InMode);
 	EShotEditorMode GetMode() const { return CurrentMode; }
 
-	/** Diagnose-with-reason precheck. Runs the same pre-flight checks as
-	 * `ReverseSolveCurrentCameraToShot` and returns the first failing
-	 * status (or `Ok` when all checks pass). The Free -> Drag dialog calls
-	 * this to render an actionable reason ("Placement anchor is
-	 * unresolvable") instead of a silent grey button when Save is
-	 * unavailable. Includes the AnchorAtScreen-only "PlacementAnchor at
-	 * or behind camera" check so the failure surfaces in the dialog body
-	 * rather than after the user clicks Save. */
 	EShotEditorReverseSolveStatus DiagnoseReverseSolveCurrentCamera() const;
-
-	/** Boolean shortcut - `DiagnoseReverseSolveCurrentCamera() == Ok`. Kept
-	 * for call sites that just need the gate without a reason. */
 	bool CanReverseSolveCurrentCamera() const;
-
-	/** Reverse-solve: take the current camera pose (location, rotation,
-	 * ViewFOV) and write Shot params that would produce it. The Placement /
-	 * Aim / Lens model writes:
-	 *
-	 * Placement.Distance = |CameraPos - PlacementAnchorPos|
-	 * Placement.LocalCameraDirection = inverse spherical of
-	 * (CameraPos - PlacementAnchorPos)
-	 * through Placement basis
-	 * Placement.ScreenPosition = projected PlacementAnchor
-	 * Aim.ScreenPosition = projected AimAnchor
-	 * Lens.ManualFOV = ViewFOV (only when FOVMode == Manual)
-	 * Roll = CamRot.Roll
-	 *
-	 * Targets are pure world-space, so there are no per-target screen
-	 * positions. Wraps the writes in a host transaction
-	 * (Modify + PostEditChangeProperty ValueSet) so the whole reverse-solve
-	 * is one undo entry. Returns true iff PlacementAnchor + AimAnchor both
-	 * resolved AND Distance > 1cm; false (no-op) otherwise. */
 	bool ReverseSolveCurrentCameraToShot();
+
+	void ResetViewToShot();
+
+	bool GetShowDiagnosticHud() const { return bShowDiagnosticHud; }
+	void SetShowDiagnosticHud(bool bInShowDiagnosticHud);
+
+	bool GetShowCompositionGuides() const { return bShowCompositionGuides; }
+	void SetShowCompositionGuides(bool bInShowCompositionGuides);
 
 	/** Drain all scene-bound resources (currently: proxy actors) immediately.
 	 * Called by the owning `SShotEditorViewport` from its destructor BEFORE
@@ -196,8 +174,8 @@ public:
 	// screen-position field on the Shot (Interactive change type).
 	//
 	// In Free / Lock modes, handles are drawn but greyed out and hit-test
-	// is skipped - LMB falls through to base class (orbit / pan in Free,
-	// consumed in Lock). Only Drag mode allows handle interaction.
+	// is skipped - LMB falls through to base class in Free and is consumed
+	// in Lock. Only Drag mode allows handle interaction.
 	virtual bool InputKey(const FInputKeyEventArgs& EventArgs) override;
 	virtual void CapturedMouseMove(FViewport* InViewport, int32 InMouseX, int32 InMouseY) override;
 	virtual void MouseMove(FViewport* InViewport, int32 X, int32 Y) override;
@@ -325,11 +303,17 @@ private:
 	mutable bool bEffectiveShotCacheValid = false;
 	mutable bool bEffectiveShotCacheBuiltOk = false;
 
-	/** Tri-state mode set by the Shot Editor toolbar. Drag (default) =
-	 * solver-driven + interactive handles; Free = user-camera + handles
-	 * follow live world projection (non-interactive); Lock = solver-driven
-	 * + all input consumed (read-only preview). */
+	/** Mode set by the Shot Editor toolbar. Drag (default) = solver-driven
+	 * + interactive handles; Free = user-camera + handles follow live world
+	 * projection (non-interactive); Lock = solver-driven + all input consumed
+	 * (read-only preview). */
 	EShotEditorMode CurrentMode = EShotEditorMode::Drag;
+
+	/** Top-left camera / aspect / focus text overlay. */
+	bool bShowDiagnosticHud = true;
+
+	/** Screen handles, framing zones, and target bounds wireframes. */
+	bool bShowCompositionGuides = true;
 
 	// D.4 Handle drag state 
 
@@ -410,15 +394,14 @@ private:
 	bool HoveredZoneIsSoft = false;
 	int32 HoveredZoneEdgeIndex = -1;
 
-	// Alt+RMB Roll drag state (Drag + Free modes) 
+	// Alt+RMB Roll drag state (Drag + Free modes)
 	//
 	// Alt+RMB-drag rotates `Shot.Roll` (NOT view-rotation Roll) so the
 	// gesture round-trips through Modify / PostEditChangeProperty (ValueSet)
 	// - Ctrl+Z restores the prior Roll. Drag mode picks up the change via
 	// the per-tick solver (which composes `Shot.Roll` into the camera
 	// rotation); Free mode picks it up via the per-tick "view.Roll =
-	// Shot.Roll" sync at the bottom of `RunSolverAndDriveCamera`. Both
-	// modes therefore see the same gesture-output observable.
+	// Shot.Roll" sync at the bottom of `RunSolverAndDriveCamera`.
 	//
 	// Anchor / target screen-position handle drags (LMB) and Roll drags
 	// (Alt+RMB) use disjoint state and disjoint mouse buttons, so they
@@ -508,8 +491,7 @@ private:
 	// No RMB context menu on anchor handles. Anchors do not carry bones; bone
 	// authoring lives on the per-target Details combo
 	// (`FComposableCameraTargetInfoCustomization`). RMB on the viewport falls
-	// through to base class behavior (camera-look in Free mode, eaten in
-	// Drag/Lock).
+	// through to base class behavior in Free mode and is eaten in Drag/Lock.
 
 	/** Cached solver-output focus distance (cm). Pushed into the SceneView's
 	 * `FinalPostProcessSettings.DepthOfFieldFocalDistance` each frame in

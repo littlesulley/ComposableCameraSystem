@@ -204,6 +204,26 @@ void FComposableCameraShotEditorViewportClient::SetMode(EShotEditorMode InMode)
 	CurrentMode = InMode;
 }
 
+void FComposableCameraShotEditorViewportClient::SetShowDiagnosticHud(bool bInShowDiagnosticHud)
+{
+	bShowDiagnosticHud = bInShowDiagnosticHud;
+	Invalidate(false, false);
+}
+
+void FComposableCameraShotEditorViewportClient::SetShowCompositionGuides(bool bInShowCompositionGuides)
+{
+	bShowCompositionGuides = bInShowCompositionGuides;
+	if (!bShowCompositionGuides)
+	{
+		CachedHandles.Reset();
+		HoveredHandleType = EHandleType::None;
+		bHoveredIsZoneEdge = false;
+		HoveredZoneIsSoft = false;
+		HoveredZoneEdgeIndex = -1;
+	}
+	Invalidate(false, false);
+}
+
 void FComposableCameraShotEditorViewportClient::SetActiveShot(FComposableCameraShot* InShot, UObject* InHost)
 {
 	ActiveShot = InShot;
@@ -300,11 +320,10 @@ void FComposableCameraShotEditorViewportClient::Tick(float DeltaSeconds)
 
 	SyncProxyTransforms();
 
-	// Solver runs in ALL modes - lens parameters (FOV / Aperture /
+	// Solver runs in all modes - lens parameters (FOV / Aperture /
 	// FocusDistance) are always Shot-data-driven so designer's lens edits in
-	// the Details panel take effect regardless of mode. Camera POSE is mode-
-	// specific: Drag/Lock honor solver pose; Free preserves user mouse-driven
-	// pose. RunSolverAndDriveCamera handles the per-mode dispatch internally.
+	// the Details panel take effect regardless of mode. Camera pose is mode-
+	// specific: Drag / Lock honor solver pose; Free preserves user camera pose.
 	RunSolverAndDriveCamera(DeltaSeconds);
 }
 
@@ -320,14 +339,15 @@ void FComposableCameraShotEditorViewportClient::DrawCanvas(FViewport& InViewport
 	// `Aim.ScreenPosition * 2`, the bug is in our wiring.
 	if (!ActiveShot)
 	{
+		CachedHandles.Reset();
 		return;
 	}
 
-	UFont* Font = GEngine ? GEngine->GetSmallFont() : nullptr;
-	if (!Font)
+	if (bShowDiagnosticHud)
 	{
-		return;
-	}
+		UFont* Font = GEngine ? GEngine->GetSmallFont() : nullptr;
+		if (Font)
+		{
 
 	const FIntPoint VPSize = InViewport.GetSizeXY();
 	const float LiveAspect = (VPSize.Y > 0)
@@ -437,10 +457,9 @@ void FComposableCameraShotEditorViewportClient::DrawCanvas(FViewport& InViewport
 			CurrentMode == EShotEditorMode::Free ? TEXT("Free") :
 			TEXT("Lock");
 
-		// Distance is mode-relevant only in modes that read it; FixedWorldPosition
-		// ignores the field, so showing a number there would be misleading. The
-		// wheel handler (Section 23.13) and reverse-solve already gate on the same
-		// condition.
+		// Distance is mode-relevant only in modes that read it;
+		// FixedWorldPosition ignores the field, so showing a number there
+		// would be misleading. The wheel handler gates on the same condition.
 		const bool bDistanceUsed =
 			ActiveShot->Placement.Mode != EShotPlacementMode::FixedWorldPosition;
 
@@ -503,16 +522,25 @@ void FComposableCameraShotEditorViewportClient::DrawCanvas(FViewport& InViewport
 		Strip.EnableShadow(FLinearColor::Black);
 		Canvas.DrawItem(Strip);
 	}
+		}
+	}
 
 	// D.4: draw screen-position handles on top of the HUD overlay.
-	DrawHandles(InViewport, Canvas);
+	if (bShowCompositionGuides)
+	{
+		DrawHandles(InViewport, Canvas);
+	}
+	else
+	{
+		CachedHandles.Reset();
+	}
 }
 
 void FComposableCameraShotEditorViewportClient::Draw(const FSceneView* View, FPrimitiveDrawInterface* PDI)
 {
 	FEditorViewportClient::Draw(View, PDI);
 
-	if (!ActiveShot || !PDI || !Viewport)
+	if (!bShowCompositionGuides || !ActiveShot || !PDI || !Viewport)
 	{
 		return;
 	}
@@ -1568,19 +1596,18 @@ bool FComposableCameraShotEditorViewportClient::InputKey(const FInputKeyEventArg
 				|| Viewport->KeyState(EKeys::RightAlt));
 	};
 
-	// Alt+RMB Roll drag - supported in BOTH Drag and Free modes (Lock
-	// eats all mouse input below). Detected at the top so it preempts
-	// the mode-specific mouse-handling branches below: in Drag mode it
-	// runs before the catch-all "eat all mouse buttons" guard; in Free
-	// mode it runs before the fall-through to base-class RMB-look. The
+	// Alt+RMB Roll drag - supported in Drag and Free modes (Lock eats all
+	// mouse input above). Detected at the top so it preempts the
+	// mode-specific mouse-handling branches below: in Drag mode it runs
+	// before the catch-all "eat all mouse buttons" guard; in Free mode it
+	// runs before the fall-through to base-class RMB-look. The
 	// gesture writes `Shot.Roll` (NOT view-rotation Roll) inside a
 	// transaction so Ctrl+Z restores the prior value - Drag mode picks
 	// up the change via the next-tick solver, Free mode via the
-	// view.Roll = Shot.Roll sync at the bottom of
-	// RunSolverAndDriveCamera. Returning `true` on the press makes
-	// Slate capture the mouse for us (same path the LMB handle drag
-	// uses), so CapturedMouseMove fires for the gesture's motion
-	// regardless of which mode we're in.
+	// view.Roll = Shot.Roll sync at the bottom of RunSolverAndDriveCamera.
+	// Returning `true` on the press makes Slate capture the mouse for us
+	// (same path the LMB handle drag uses), so CapturedMouseMove fires for
+	// the gesture's motion regardless of which mode we're in.
 	if (CurrentMode != EShotEditorMode::Lock
 		&& EventArgs.Key == EKeys::RightMouseButton
 		&& Viewport)
@@ -1600,8 +1627,8 @@ bool FComposableCameraShotEditorViewportClient::InputKey(const FInputKeyEventArg
 	// Drag mode: solver drives the camera, designer interacts only through
 	// the on-screen anchor handles. LMB-on-handle starts a drag; every
 	// other mouse input is **eaten** so the base class can't engage its
-	// orbit / pan / dolly camera-track behavior. Free camera movement
-	// is the Free mode's job - Drag stays solver-authoritative.
+	// orbit / pan / dolly camera-track behavior. Free camera movement is
+	// the Free mode's job - Drag stays solver-authoritative.
 	if (CurrentMode == EShotEditorMode::Drag)
 	{
 		if (EventArgs.Key == EKeys::LeftMouseButton && Viewport)
@@ -1742,17 +1769,13 @@ void FComposableCameraShotEditorViewportClient::MouseMove(FViewport* InViewport,
 	}
 }
 
-// (Alt+RMB Roll handling lives in InputKey + CapturedMouseMove, NOT
-// InputAxis. Earlier prototype routed through InputAxis to preempt base
-// RMB-look's yaw/pitch - but that approach only worked in Free mode
-// (where base RMB-look engages capture); Drag mode eats RMB at InputKey
-// before base ever sees it, so capture never starts and InputAxis never
-// fires. Switching to InputKey-consumes-RMB-press lets Slate capture for
-// us regardless of mode and routes mouse motion through CapturedMouseMove,
-// which works uniformly across Drag and Free.)
-
-
-// 4.3 Reverse solve (Free -> Drag dialog) 
+void FComposableCameraShotEditorViewportClient::ResetViewToShot()
+{
+	const EShotEditorMode SavedMode = CurrentMode;
+	CurrentMode = EShotEditorMode::Drag;
+	RunSolverAndDriveCamera(/*DeltaSeconds=*/0.f);
+	CurrentMode = SavedMode;
+}
 
 EShotEditorReverseSolveStatus FComposableCameraShotEditorViewportClient::DiagnoseReverseSolveCurrentCamera() const
 {
@@ -1760,39 +1783,32 @@ EShotEditorReverseSolveStatus FComposableCameraShotEditorViewportClient::Diagnos
 	{
 		return EShotEditorReverseSolveStatus::NoActiveShot;
 	}
-	// Apply override resolution so reverse-solve availability tracks the
-	// effective (override-resolved) shot, not the raw placeholder. A Section
-	// with `Targets[0].Actor=None` + a binding override should still be
-	// reverse-solvable.
+
 	FComposableCameraShot EffectiveShot;
 	if (!BuildEffectiveShotForPreview(EffectiveShot))
 	{
 		return EShotEditorReverseSolveStatus::EffectiveShotInvalid;
 	}
+
 	FVector PlacementAnchorWorld;
 	if (!EffectiveShot.Placement.PlacementAnchor.ResolveWorldPosition(EffectiveShot.Targets, PlacementAnchorWorld))
 	{
 		return EShotEditorReverseSolveStatus::PlacementAnchorUnresolvable;
 	}
+
 	FVector AimAnchorWorld;
 	if (!EffectiveShot.Aim.AimAnchor.ResolveWorldPosition(EffectiveShot.Targets, AimAnchorWorld))
 	{
 		return EShotEditorReverseSolveStatus::AimAnchorUnresolvable;
 	}
 
-	// AnchorAtScreen-only: the joint solve writes Distance as cam-frame
-	// depth (X coord of PlacementAnchor under user's free-flown rotation).
-	// When PlacementAnchor is at or behind the camera, that depth is <= 0
-	// and the reverse path can't recover a valid Distance - the actual
-	// runtime check lives in ReverseSolveCurrentCameraToShot but mirroring
-	// it here surfaces the failure in the dialog body before the user
-	// clicks Save (rather than silently no-oping after the click).
 	if (EffectiveShot.Placement.Mode == EShotPlacementMode::AnchorAtScreen)
 	{
-		const FVector CamPos = GetViewLocation();
-		const FRotator CamRot = GetViewRotation();
-		const FVector PCam = CamRot.UnrotateVector(PlacementAnchorWorld - CamPos);
-		if (PCam.X <= UE_KINDA_SMALL_NUMBER)
+		const FVector CameraPosition = GetViewLocation();
+		const FRotator CameraRotation = GetViewRotation();
+		const FVector PlacementAnchorCameraSpace =
+			CameraRotation.UnrotateVector(PlacementAnchorWorld - CameraPosition);
+		if (PlacementAnchorCameraSpace.X <= UE_KINDA_SMALL_NUMBER)
 		{
 			return EShotEditorReverseSolveStatus::PlacementAnchorBehindCamera;
 		}
@@ -1840,11 +1856,6 @@ bool FComposableCameraShotEditorViewportClient::ReverseSolveCurrentCameraToShot(
 		return false;
 	}
 
-	// Single pre-flight via Diagnose so the failure log line names the
-	// specific reason instead of the generic "returned false". Mirrors what
-	// the dialog body shows the designer - useful in cases where the user
-	// bypasses the dialog (future Save-current-Shot toolbar action) and
-	// relies on the log to understand why nothing happened.
 	const EShotEditorReverseSolveStatus Status = DiagnoseReverseSolveCurrentCamera();
 	if (Status != EShotEditorReverseSolveStatus::Ok)
 	{
@@ -1854,125 +1865,91 @@ bool FComposableCameraShotEditorViewportClient::ReverseSolveCurrentCameraToShot(
 		return false;
 	}
 
-	// Diagnose already validated these; re-resolve for the write path.
-	// (Keeping the recompute here rather than threading state out of
-	// Diagnose - the cost is one extra ResolveWorldPosition per commit,
-	// which is dwarfed by the FScopedTransaction below.)
 	FComposableCameraShot EffectiveShot;
 	BuildEffectiveShotForPreview(EffectiveShot);
+
 	FVector PlacementAnchorWorld;
 	FVector AimAnchorWorld;
 	EffectiveShot.Placement.PlacementAnchor.ResolveWorldPosition(EffectiveShot.Targets, PlacementAnchorWorld);
 	EffectiveShot.Aim.AimAnchor.ResolveWorldPosition(EffectiveShot.Targets, AimAnchorWorld);
 
-	const FVector CamPos = GetViewLocation();
-	const FRotator CamRot = GetViewRotation();
-	const float FOV = ViewFOV;
-	const FIntPoint VPSize = Viewport->GetSizeXY();
-	const float Aspect = (VPSize.Y > 0)
-		? static_cast<float>(VPSize.X) / static_cast<float>(VPSize.Y)
+	const FVector CameraPosition = GetViewLocation();
+	const FRotator CameraRotation = GetViewRotation();
+	const float FieldOfView = ViewFOV;
+	const FIntPoint ViewportSize = Viewport->GetSizeXY();
+	const float ViewportAspectRatio = (ViewportSize.Y > 0)
+		? static_cast<float>(ViewportSize.X) / static_cast<float>(ViewportSize.Y)
 		: 16.f / 9.f;
-	const float TanHalfHOR = FMath::Tan(FMath::DegreesToRadians(FOV * 0.5f));
-	const float TanHalfVOR = TanHalfHOR / Aspect;
+	const float TanHalfHorizontalFOV = FMath::Tan(FMath::DegreesToRadians(FieldOfView * 0.5f));
+	const float TanHalfVerticalFOV = TanHalfHorizontalFOV / ViewportAspectRatio;
 
-	// Per-mode reverse-solve. Each Placement mode reads a disjoint subset of
-	// fields in the forward solver (see DataAssets/ComposableCameraShot.h
-	// EShotPlacementMode docs); the reverse must write the same subset, so a
-	// freely-flown camera in Free mode round-trips back to the same pose
-	// when forward-solved with the committed values.
 	const EShotPlacementMode PlacementMode = EffectiveShot.Placement.Mode;
 
 	float NewDistance = ActiveShot->Placement.Distance;
-	FVector2D NewLocalCameraDir = ActiveShot->Placement.LocalCameraDirection;
-	FVector2D NewPlacementScreen = ActiveShot->Placement.ScreenPosition;
-	FVector NewFixedWorldPos = ActiveShot->Placement.FixedWorldPosition;
+	FVector2D NewLocalCameraDirection = ActiveShot->Placement.LocalCameraDirection;
+	FVector2D NewPlacementScreenPosition = ActiveShot->Placement.ScreenPosition;
+	FVector NewFixedWorldPosition = ActiveShot->Placement.FixedWorldPosition;
 
 	switch (PlacementMode)
 	{
 	case EShotPlacementMode::AnchorOrbit:
 		{
-			// Pure spherical placement: Distance is Euclidean,
-			// LocalCameraDirection is the (Yaw, Pitch) of the cam-from-anchor
-			// unit vector in basis-frame coords. Placement.ScreenPosition is
-			// unread by the forward solver in this mode (see
-			// SolvePlacement -> SolveAnchorOrbitPosition with ScreenPos forced
-			// to ZeroVector), so leave it untouched.
-			const FVector AnchorToCam = CamPos - PlacementAnchorWorld;
-			NewDistance = FMath::Clamp(static_cast<float>(AnchorToCam.Length()),
+			const FVector AnchorToCamera = CameraPosition - PlacementAnchorWorld;
+			NewDistance = FMath::Clamp(static_cast<float>(AnchorToCamera.Length()),
 				FShotPlacement::MinDistance, FShotPlacement::MaxDistance);
-			const FVector DirWorld = (NewDistance > UE_KINDA_SMALL_NUMBER)
-				? AnchorToCam / NewDistance: FVector(1.f, 0.f, 0.f);
+			const FVector DirectionWorld = (NewDistance > UE_KINDA_SMALL_NUMBER)
+				? AnchorToCamera / NewDistance
+				: FVector(1.f, 0.f, 0.f);
 
-			// Resolve basis from EffectiveShot so a Sequencer-bound override
-			// actor's quat is honored (matches the basis the solver would use
-			// in RunSolverAndDriveCamera, which also goes through the
-			// effective shot).
 			const FQuat Basis = ResolvePlacementBasis(EffectiveShot);
-			const FVector DirLocal = Basis.Inverse().RotateVector(DirWorld);
+			const FVector DirectionLocal = Basis.Inverse().RotateVector(DirectionWorld);
 
-			NewLocalCameraDir.X = FMath::RadiansToDegrees(FMath::Atan2(DirLocal.Y, DirLocal.X));
-			NewLocalCameraDir.Y = FMath::RadiansToDegrees(FMath::Asin(FMath::Clamp(DirLocal.Z, -1.f, 1.f)));
+			NewLocalCameraDirection.X =
+				FMath::RadiansToDegrees(FMath::Atan2(DirectionLocal.Y, DirectionLocal.X));
+			NewLocalCameraDirection.Y =
+				FMath::RadiansToDegrees(FMath::Asin(FMath::Clamp(DirectionLocal.Z, -1.f, 1.f)));
 			break;
 		}
 
 	case EShotPlacementMode::AnchorAtScreen:
 		{
-			// Joint-solve placement: Distance is cam-frame depth (X coord of
-			// PlacementAnchor under the joint-solve camera rotation), and
-			// Placement.ScreenPosition is PlacementAnchor's projected screen
-			// coords. Round-trip rationale: the forward solver pre-rotates
-			// authored Placement.ScreenPosition by -Roll (anisotropic), runs
-			// the iteration in the Roll=0 frame, then composes Roll onto the
-			// output rotation. Projecting PlacementAnchor through the user's
-			// FULL rotation here recovers exactly the post-Roll authored
-			// value the solver will reproduce.
-			//
-			// LocalCameraDirection / FixedWorldPosition are unread in this
-			// mode; leave their fields untouched so toggling back to
-			// AnchorOrbit later doesn't lose the prior orbital authoring.
-			// Pre-flight already gated PCam.X > 0 via
-			// DiagnoseReverseSolveCurrentCamera (PlacementAnchorBehindCamera
-			// status). No defensive recheck here - divergence between
-			// Diagnose and this branch would only happen across an inter-
-			// frame view-rotation change, which the Free -> Drag dialog
-			// doesn't permit (modal blocks input).
-			const FVector PCam = CamRot.UnrotateVector(PlacementAnchorWorld - CamPos);
-			NewDistance = FMath::Clamp(static_cast<float>(PCam.X),
+			const FVector PlacementAnchorCameraSpace =
+				CameraRotation.UnrotateVector(PlacementAnchorWorld - CameraPosition);
+			NewDistance = FMath::Clamp(static_cast<float>(PlacementAnchorCameraSpace.X),
 				FShotPlacement::MinDistance, FShotPlacement::MaxDistance);
-			NewPlacementScreen.X = FMath::Clamp(static_cast<float>(PCam.Y / (2.f * TanHalfHOR * PCam.X)), -0.5f, 0.5f);
-			NewPlacementScreen.Y = FMath::Clamp(static_cast<float>(PCam.Z / (2.f * TanHalfVOR * PCam.X)), -0.5f, 0.5f);
+			NewPlacementScreenPosition.X =
+				FMath::Clamp(static_cast<float>(PlacementAnchorCameraSpace.Y
+					/ (2.f * TanHalfHorizontalFOV * PlacementAnchorCameraSpace.X)), -0.5f, 0.5f);
+			NewPlacementScreenPosition.Y =
+				FMath::Clamp(static_cast<float>(PlacementAnchorCameraSpace.Z
+					/ (2.f * TanHalfVerticalFOV * PlacementAnchorCameraSpace.X)), -0.5f, 0.5f);
 			break;
 		}
 
 	case EShotPlacementMode::FixedWorldPosition:
-		{
-			// Camera lives at an explicit world point - Distance / direction
-			// / screen-pos are all unread in forward solve. Capture the user's
-			// freely-flown world position; rotation comes from the Aim layer
-			// path below.
-			NewFixedWorldPos = CamPos;
-			break;
-		}
+		NewFixedWorldPosition = CameraPosition;
+		break;
 	}
 
-	// Aim->Aim.ScreenPosition. Only LookAtAnchor reads this field; NoOp
-	// short-circuits before AimAnchor resolution and ignores ScreenPosition,
-	// so don't overwrite the authored value when the mode isn't using it.
-	FVector2D NewAimScreen = ActiveShot->Aim.ScreenPosition;
+	FVector2D NewAimScreenPosition = ActiveShot->Aim.ScreenPosition;
 	if (EffectiveShot.Aim.Mode == EShotAimMode::LookAtAnchor)
 	{
-		FVector2D Projected;
-		if (ComposableCameraSystem::ProjectWorldPointToScreen(AimAnchorWorld, CamPos, CamRot, TanHalfHOR, Aspect, Projected))
+		FVector2D ProjectedAimScreenPosition;
+		if (ComposableCameraSystem::ProjectWorldPointToScreen(AimAnchorWorld,
+			CameraPosition,
+			CameraRotation,
+			TanHalfHorizontalFOV,
+			ViewportAspectRatio,
+			ProjectedAimScreenPosition))
 		{
-			NewAimScreen.X = FMath::Clamp(Projected.X, -0.5f, 0.5f);
-			NewAimScreen.Y = FMath::Clamp(Projected.Y, -0.5f, 0.5f);
+			NewAimScreenPosition.X = FMath::Clamp(ProjectedAimScreenPosition.X, -0.5f, 0.5f);
+			NewAimScreenPosition.Y = FMath::Clamp(ProjectedAimScreenPosition.Y, -0.5f, 0.5f);
 		}
 	}
 
-	// Commit - wrapped in a transaction so undo reverts the whole
-	// reverse-solve as one entry.
 	{
-		FScopedTransaction ReverseSolveTransaction(LOCTEXT("ReverseSolveCamera", "Save Camera Framing as Shot Params"));
+		FScopedTransaction ReverseSolveTransaction(
+			LOCTEXT("ReverseSolveCamera", "Save Camera Framing as Shot Params"));
 
 		UObject* Host = ActiveHost.Get();
 		if (Host)
@@ -1980,43 +1957,29 @@ bool FComposableCameraShotEditorViewportClient::ReverseSolveCurrentCameraToShot(
 			Host->Modify();
 		}
 
-		// Mode-scoped writes - only fields the forward solver reads in this
-		// Placement mode are committed. Other Placement fields keep their
-		// prior authored values so mode-toggling preserves the alternate
-		// authoring (e.g. designer flipping AnchorOrbit AnchorAtScreen
-		// retains the orbital direction across the round-trip).
 		switch (PlacementMode)
 		{
 		case EShotPlacementMode::AnchorOrbit:
 			ActiveShot->Placement.Distance = NewDistance;
-			ActiveShot->Placement.LocalCameraDirection = NewLocalCameraDir;
+			ActiveShot->Placement.LocalCameraDirection = NewLocalCameraDirection;
 			break;
 		case EShotPlacementMode::AnchorAtScreen:
 			ActiveShot->Placement.Distance = NewDistance;
-			ActiveShot->Placement.ScreenPosition = NewPlacementScreen;
+			ActiveShot->Placement.ScreenPosition = NewPlacementScreenPosition;
 			break;
 		case EShotPlacementMode::FixedWorldPosition:
-			ActiveShot->Placement.FixedWorldPosition = NewFixedWorldPos;
+			ActiveShot->Placement.FixedWorldPosition = NewFixedWorldPosition;
 			break;
 		}
 
-		ActiveShot->Aim.ScreenPosition = NewAimScreen;
-		// Capture user-authored Roll from the freely-flown camera so the
-		// forward solver re-applies it on next tick. Roll is consumed by
-		// every (Placement, Aim) mode pair, so always commit it.
-		// `FMath::UnwindDegrees` normalizes to [-180, 180] - matches the
-		// `Shot.Roll` UPROPERTY clamp meta, so reverse-solve doesn't
-		// commit a value the Details panel would later truncate (FRotator
-		// stores raw values; arbitrary view-roll on entry to Free mode
-		// could land outside that range).
-		ActiveShot->Roll = FMath::UnwindDegrees(CamRot.Roll);
+		ActiveShot->Aim.ScreenPosition = NewAimScreenPosition;
+		ActiveShot->Roll = FMath::UnwindDegrees(CameraRotation.Roll);
 
 		if (ActiveShot->Lens.FOVMode == EShotFOVMode::Manual)
 		{
-			ActiveShot->Lens.ManualFOV = FOV;
+			ActiveShot->Lens.ManualFOV = FieldOfView;
 		}
 
-		// Final notify so Details panel refreshes + listeners react.
 		if (Host)
 		{
 			if (FProperty* ShotProp = ResolveShotEditorProperty(Host, ActiveShot))
@@ -2265,10 +2228,7 @@ void FComposableCameraShotEditorViewportClient::RunSolverAndDriveCamera(float De
 
 	// Cache the solved pose for next-frame zone preprocessing. Done
 	// regardless of mode so that switching from Free -> Drag still has
-	// a usable prior. (Free mode's user-driven pose isn't what the
-	// solver produced - but the solver-side cache should track *the
-	// solver's* output, not the user's live drag, so the zone math
-	// stays self-consistent across mode swaps.)
+	// a usable prior.
 	CachedPriorPos = Result.CameraPosition;
 	CachedPriorRot = Result.CameraRotation;
 	CachedPriorDistance = Result.EffectiveDistance;
@@ -2276,9 +2236,6 @@ void FComposableCameraShotEditorViewportClient::RunSolverAndDriveCamera(float De
 	CachedPriorRoll = Result.CameraRotation.Roll;
 	bHasCachedPriorPose = true;
 
-	// POSE (location / rotation) - only in Drag and Lock. In Free, the
-	// camera location/rotation come from the user's mouse drags through
-	// the base FEditorViewportClient input handling; we don't overwrite.
 	if (CurrentMode != EShotEditorMode::Free)
 	{
 		SetViewLocation(Result.CameraPosition);
@@ -2286,23 +2243,6 @@ void FComposableCameraShotEditorViewportClient::RunSolverAndDriveCamera(float De
 	}
 	else
 	{
-		// Free mode Roll is owned by `Shot.Roll` (authored via
-		// Alt+RMB-drag inside a transaction so Ctrl+Z restores it).
-		// Base `FEditorViewportClient` only writes Yaw/Pitch during
-		// RMB-look - view-rotation Roll is unmanaged by base, so
-		// re-asserting it from `Shot.Roll` each tick gives:
-		//
-		// - Immediate visual feedback during the drag (Roll cursor
-		// samples write `Shot.Roll`; this sync mirrors them onto
-		// view rotation on the next tick).
-		// - Undo recovery: on Ctrl+Z, `Shot.Roll` reverts via the
-		// transaction; the next tick syncs view-rotation Roll to
-		// match. Without this, view-rotation would stay at the
-		// post-drag value and Ctrl+Z would silently disagree with
-		// the data.
-		// - Mode-entry consistency: switching into Free mode while
-		// `Shot.Roll != 0` shows the authored Roll immediately
-		// instead of resetting to 0.
 		FRotator FreeRot = GetViewRotation();
 		const float TargetRoll = ActiveShot ? ActiveShot->Roll: 0.f;
 		if (!FMath::IsNearlyEqual(FreeRot.Roll, TargetRoll, 1e-3f))
@@ -2312,16 +2252,9 @@ void FComposableCameraShotEditorViewportClient::RunSolverAndDriveCamera(float De
 		}
 	}
 
-	// FOCUS recomputation in Free mode: the solver's Focus pass reports
-	// depth from the SOLVER's camera pose (which we just discarded in Free
-	// mode). Recompute using the USER's actual camera pose so DoF focuses
-	// on the right depth.
 	float EffectiveFocusDistance = Result.FocusDistance;
 	if (CurrentMode == EShotEditorMode::Free)
 	{
-		// SolveFocus is independent of placement / aim - feed it the user's
-		// live camera pose and the existing Shot data so any FollowAnchor
-		// mode (Placement / Aim / Custom) re-evaluates correctly.
 		EffectiveFocusDistance = SolveFocus(
 			*ActiveShot, GetViewLocation(), GetViewRotation());
 	}

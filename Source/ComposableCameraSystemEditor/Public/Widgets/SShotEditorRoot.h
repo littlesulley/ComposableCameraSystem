@@ -4,29 +4,27 @@
 
 #include "CoreMinimal.h"
 #include "Misc/NotifyHook.h"
+#include "Styling/SlateColor.h"
+#include "Types/SlateEnums.h"
 #include "Widgets/SCompoundWidget.h"
 #include "UObject/WeakObjectPtr.h"
 
 struct FComposableCameraShot;
-struct FShotEditorListEntry;
 class STextBlock;
 class SShotEditorViewport;
 class IStructureDetailsView;
 class FStructOnScope;
 class SComboButton;
 class SWidget;
-class ITableRow;
-class STableViewBase;
-template<typename ItemType> class SListView;
 
 // Forward decl must match the definition's base type (`: uint8`) - C++
 // rejects mismatched underlying types between fwd-decl and definition.
 enum class EShotEditorMode: uint8;
+enum class EShotEditorReverseSolveStatus: uint8;
 
 /**
- * Root widget for the Shot Editor. Owns the multi-region layout (left Shot
- * outliner, center 3D viewport, right Details panel) and tracks the currently
- * active Shot context.
+ * Root widget for the Shot Editor. Owns the compact top bar, 3D preview
+ * viewport, right Details panel, and active Shot context.
  *
  * Lifetime: held by the Shot Editor's SDockTab. Construct() runs once
  * when the tab is spawned; the widget persists across SetActiveShot()
@@ -86,6 +84,17 @@ public:
 		FProperty* PropertyThatChanged) override;
 
 private:
+	enum class EQuickControlField : uint8
+	{
+		Distance,
+		FOV,
+		Roll,
+		PlacementX,
+		PlacementY,
+		AimX,
+		AimY
+	};
+
 	/** Shot data being edited. NOT owned - host UObject's UPROPERTY owns
 	 * it. nullptr when no Shot is bound (e.g. tab restored from saved
 	 * layout before any node has triggered the open flow). */
@@ -105,7 +114,7 @@ private:
 	 * `UMovieSceneComposableCameraShotSection`. Lists every Shot section in
 	 * the host's parent LevelSequence so the designer can jump between them
 	 * without round-tripping through Sequencer. Hidden in the
-	 * CameraTypeAsset / standalone-ShotAsset case. See Section 23.12 of EditorDesignDoc. */
+	 * CameraTypeAsset / standalone-ShotAsset case. See Section 14 of EditorDesignDoc. */
 	TSharedPtr<SComboButton> LSShotsCombo;
 
 	/** "Recent" dropdown - module-lifetime history of the last 20 hosts the
@@ -116,6 +125,19 @@ private:
 	/** The 3D preview viewport. Forwarded SetActiveShot calls drive proxy
 	 * rebuilds + solver-driven camera updates inside this widget. */
 	TSharedPtr<SShotEditorViewport> Viewport;
+
+	/** Collapses the viewport-local command strip down to a small Tools
+	 * button so it does not cover diagnostic HUD text. */
+	bool bViewportToolbarCollapsed = false;
+
+	/** Collapses the compact Quick strip above the full Details panel. */
+	bool bQuickControlsCollapsed = true;
+
+	/** Pending target mode requested while leaving Free mode. Applied only
+	 * after the status-bar Save / Discard action is resolved. */
+	EShotEditorMode PendingFreeExitMode {};
+	bool bHasPendingFreeExitMode = false;
+	EShotEditorReverseSolveStatus PendingFreeExitStatus {};
 
 	/** Right-pane structure details view. Bound to the active Shot via
 	 * FStructOnScope wrapping the raw `FComposableCameraShot*`
@@ -134,6 +156,34 @@ private:
 	 * or ActiveHost changes. */
 	void OnActiveShotChanged();
 
+	/** Build the right pane: optional quick controls above the full
+	 * structure Details view. */
+	TSharedRef<SWidget> BuildDetailsPane();
+
+	/** Build the middle viewport pane plus its floating view-command strip. */
+	TSharedRef<SWidget> BuildViewportPane();
+	TSharedRef<SWidget> BuildViewportFloatingToolbar();
+	EVisibility GetViewportToolbarControlsVisibility() const;
+	FReply OnViewportToolbarToggleCollapsedClicked();
+	void OnQuickControlsExpansionChanged(bool bExpanded);
+	void LoadPersistedLayoutState();
+	void SavePersistedLayoutState() const;
+
+	/** Compact, experimental mirror of the most-used Shot fields. Writes
+	 * through the same host transaction / PostEditChangeProperty path as
+	 * Details commits. */
+	TSharedRef<SWidget> BuildQuickControls();
+	TSharedRef<SWidget> BuildQuickFloatControl(EQuickControlField Field,
+		const FText& Label,
+		const FText& ToolTip,
+		float MinValue,
+		float MaxValue);
+	TOptional<float> GetQuickControlValue(EQuickControlField Field) const;
+	bool IsQuickControlEnabled(EQuickControlField Field) const;
+	void CommitQuickControlValue(EQuickControlField Field, float NewValue);
+	FProperty* ResolveActiveShotProperty() const;
+	void PostActiveShotValueSet();
+
 	/**
 	 * Compose the host-context chain shown in the header label:
 	 * - Section host -> "{LS} -> {Track} -> {Section}"
@@ -147,8 +197,9 @@ private:
 	 */
 	FText BuildHostContextChain() const;
 
-	/** Build the dropdown menu listing every Shot section in the active
-	 * host's parent LevelSequence. Each entry routes through
+	/** Build the dropdown panel listing every Shot section in the active
+	 * host's parent LevelSequence. The panel supports search, track grouping,
+	 * current-shot marking, and time/row suffixes. Row clicks route through
 	 * `FComposableCameraShotEditor::OpenForShotSection` so the standard
 	 * context-swap path runs (Section->ResolveShotEditorHost). Returns an
 	 * empty placeholder when the host isn't a Section or its LS is
@@ -164,13 +215,15 @@ private:
 	 * when ActiveHost resolves to a `UMovieSceneComposableCameraShotSection`. */
 	EVisibility GetLSShotsComboVisibility() const;
 
-	/** Apply a mode change with the standard Free-leaving reverse-solve
-	 * dialog. Shared between SSegmentedControl's OnValueChanged and the
-	 * hotkey handler so both paths produce identical UX. No-op when
+	/** Apply a mode change. Shared between SSegmentedControl's OnValueChanged
+	 * and the hotkey handler so both paths produce identical UX. No-op when
 	 * Viewport is invalid or NewMode == current mode. */
 	void TrySetMode(EShotEditorMode NewMode);
+	void ClearPendingFreeExitMode();
+	void QueueFreeExitStatus(EShotEditorMode NewMode);
+	void ApplyPendingFreeExitMode(bool bSaveCurrentCamera);
 
-	// Asset toolbar (Save / Browse / Refresh) 
+	// Top bar commands and navigation
 	//
 	// Standard `FAssetEditorToolkit`-style chrome built inside the nomad
 	// tab to give the Shot Editor the visual + functional feel of an asset
@@ -179,9 +232,25 @@ private:
 	// - see EditorDesignDoc Section 23.1). The toolbar walks the active host's
 	// outer chain to act on its containing asset / package.
 
-	/** Build the top-of-window asset toolbar (Save / Browse to Asset /
-	 * Refresh). Wrapped in `FToolBarBuilder` so the look matches the
-	 * engine's standard asset-editor toolbars. */
+	/** Build the single-row top bar: asset commands, active host breadcrumb,
+	 * Sequencer Shot dropdown, recents, and viewport mode selector. */
+	TSharedRef<class SWidget> BuildHeaderArea();
+	TSharedRef<class SWidget> BuildTopBar();
+	TSharedRef<class SWidget> BuildStatusBar();
+	EVisibility GetStatusBarVisibility() const;
+	EVisibility GetStatusBarFreeExitActionsVisibility() const;
+	FSlateColor GetStatusBarBackgroundColor() const;
+	FSlateColor GetStatusBarTextColor() const;
+	FText GetStatusBarText() const;
+	FText GetFreeExitStatusSaveTooltip() const;
+	bool CanSaveFreeExitStatus() const;
+	FReply OnFreeExitStatusSaveClicked();
+	FReply OnFreeExitStatusDiscardClicked();
+	FReply OnFreeExitStatusStayClicked();
+
+	/** Build the compact asset command group (Save / Browse to Asset /
+	 * Refresh). Wrapped in `FToolBarBuilder` so the command
+	 * styling stays close to standard engine asset-editor chrome. */
 	TSharedRef<class SWidget> BuildAssetToolbar();
 
 	/** Save the package containing `ActiveHost` (CameraTypeAsset for
@@ -203,61 +272,18 @@ private:
 	 * propagate cleanly to the panel. */
 	void OnRefreshClicked();
 
+	FReply OnResetViewportCameraClicked();
+	bool CanResetViewportCamera() const;
+
 	void OnCopyViewportCameraTransformClicked();
 	bool CanCopyViewportCameraTransform() const;
 
-	// Shot outliner (Polish E.4) 
-	//
-	// Always-visible left-pane list of Shot sections in the active host's
-	// LevelSequence - single-click an entry to swap context. Faster than
-	// menu-traversing the header's "Shots" dropdown for multi-Shot
-	// authoring sessions, and the "Current" entry is visually distinct
-	// instead of being prefixed with `"Current - "` plain text.
-	//
-	// Empty / non-Section host context: the pane shows a placeholder
-	// `(no Shot sections in scope)` row - splitter geometry stays stable
-	// rather than collapsing the slot, so layout doesn't jitter when the
-	// designer swaps between Section and CompositionFramingNode hosts.
+	ECheckBoxState GetViewportDiagnosticHudCheckState() const;
+	void OnViewportDiagnosticHudToggled(ECheckBoxState NewState);
+	bool CanToggleViewportDiagnosticHud() const;
 
-	/** Build the left-pane Shot outliner (header + SListView). */
-	TSharedRef<SWidget> BuildShotOutliner();
+	ECheckBoxState GetViewportCompositionGuidesCheckState() const;
+	void OnViewportCompositionGuidesToggled(ECheckBoxState NewState);
+	bool CanToggleViewportCompositionGuides() const;
 
-	/** Walk the active LS for Shot sections and rebuild `ShotListItems`.
-	 * Called from `OnActiveShotChanged()` (covers context swap) and from
-	 * Tick() on a `~0.5s` throttle (covers external LS edits - section
-	 * add / remove / reorder via Sequencer). */
-	void RefreshShotListItems();
-
-	/** SListView's OnGenerateRow - renders one outliner row. */
-	TSharedRef<ITableRow> MakeShotListRow(TSharedPtr<FShotEditorListEntry> Entry,
-		const TSharedRef<STableViewBase>& OwnerTable);
-
-	/** SListView's `OnMouseButtonClick` - fires on every item click
-	 * independently of selection state, so the swap path never races
-	 * with Slate's selection machinery. Picks the standard
-	 * `OpenForShotSection` route to swap context.
-	 *
-	 * Going through `OnMouseButtonClick` rather than `OnSelectionChanged`:
-	 * the latter has multi-source signal noise (user clicks, programmatic
-	 * Direct sets, keyboard navigation) and Slate's internal
-	 * `Private_SetItemSelection` from the click commits BEFORE our handler
-	 * runs - any subsequent programmatic set in the same frame wins
-	 * unpredictably depending on engine version. `OnMouseButtonClick`
-	 * only fires on actual mouse clicks, fully decoupling the swap
-	 * decision from the selection visual. */
-	void OnShotListMouseButtonClick(TSharedPtr<FShotEditorListEntry> ClickedEntry);
-
-	/** List items, refreshed via `RefreshShotListItems`. Strong refs so
-	 * the SListView can sample row data without re-walking the LS. */
-	TArray<TSharedPtr<FShotEditorListEntry>> ShotListItems;
-
-	/** The list widget itself - kept as a member so we can call
-	 * `RequestListRefresh()` after rebuilding `ShotListItems` and
-	 * `SetItemSelection` to highlight the current Shot. */
-	TSharedPtr<SListView<TSharedPtr<FShotEditorListEntry>>> ShotListView;
-
-	/** Time accumulator for Tick-based list refresh throttle. The walk
-	 * is cheap (handful of sections in a typical LS) but doing it 60x
-	 * per second is wasteful when nothing's changed. */
-	float ShotListRefreshAccum { 0.f };
 };

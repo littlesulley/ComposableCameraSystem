@@ -4,7 +4,8 @@
 //
 // Scope: pure-logic helpers and constants that the recent polish
 // items (E.5 wheel-Distance modifier-key acceleration, F.1 / F.2
-// Roll / Distance clamps, E.3 reverse-solve diagnose-and-report)
+// Roll / Distance clamps, reverse-solve status text, and viewport toolbar
+// action gating)
 // depend on. The full Slate-viewport interaction surface (drag
 // transactions, pose drift across resizes, mode-switch UX) needs
 // real `SApp` + tab manager mocking and is intentionally excluded
@@ -16,15 +17,30 @@
 // 1.5 Shift, 1.02 Ctrl, 1.1 Shift+Ctrl).
 // 2. `FShotPlacement::MinDistance` / `MaxDistance` (F.2) - invariants
 // against accidental drift (1cm floor, 100m soft cap, floor < ceil).
-// 3. `ShotEditorReverseSolveStatusToText` (E.3) - exhaustive enum
-// coverage. `Ok` returns empty; every other enum value returns
-// non-empty designer-actionable text; no two failure cases share
-// the same text (catches "I added a status but forgot the
-// switch arm" regressions).
+// 3. `ShotEditorReverseSolveStatusToText` - exhaustive enum coverage.
+// 4. Shot Details mode visibility - pure mapping used by the Details
+// customizations so inactive Shot rows collapse instead of lingering as
+// disabled clutter.
+// 5. Shot dropdown search filtering - pure string matching used by the
+// custom menu widget.
+// 6. Viewport floating toolbar action gates - pure action-state mapping
+// used by the overlay controls.
+// 7. Shot Editor layout collapse-state defaults - pure state resolution used
+// by persisted viewport toolbar / Quick strip layout.
+// 8. Shot Editor mode-switch prompts - pure mode-request classification used
+// by the Free-mode exit status bar.
+// 9. Shot Editor status bar - pure status priority / action mapping used by
+// the top-bar-adjacent unified status strip.
 
 #include "DataAssets/ComposableCameraShot.h"
+#include "Customizations/ComposableCameraShotModeVisibility.h"
 #include "Editors/ComposableCameraShotEditorViewportClient.h"
 #include "Misc/AutomationTest.h"
+#include "Widgets/ComposableCameraShotEditorLayoutState.h"
+#include "Widgets/ComposableCameraShotEditorModeSwitchUtils.h"
+#include "Widgets/ComposableCameraShotMenuUtils.h"
+#include "Widgets/ComposableCameraShotEditorStatusBarUtils.h"
+#include "Widgets/ComposableCameraShotViewportToolbarUtils.h"
 #include "Widgets/SShotEditorViewport.h"
 
 #define LOCTEXT_NAMESPACE "ComposableCameraShotEditorTests"
@@ -103,7 +119,7 @@ bool FShotPlacementDistanceClampInvariantsTest::RunTest(const FString& /*Paramet
 	return true;
 }
 
-// 3. ShotEditorReverseSolveStatusToText exhaustiveness (E.3) 
+// 3. ShotEditorReverseSolveStatusToText exhaustiveness
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FShotEditorReverseSolveStatusToTextTest,
 	"ComposableCameraSystem.ShotEditor.ReverseSolveStatusToText",
@@ -111,16 +127,9 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FShotEditorReverseSolveStatusToTextTest,
 
 bool FShotEditorReverseSolveStatusToTextTest::RunTest(const FString& /*Parameters*/)
 {
-	// Ok is the success state - designer never sees the text rendered;
-	// the function returns empty so the caller can pick a separate
-	// success-path body.
 	TestTrue(TEXT("Ok returns empty FText"),
 		ShotEditorReverseSolveStatusToText(EShotEditorReverseSolveStatus::Ok).IsEmpty());
 
-	// Every failure case must produce non-empty designer-actionable
-	// text - empty here would render the dialog body's "Reason: " line
-	// blank. The exhaustive list catches "I added a status but forgot
-	// to extend the switch in `ShotEditorReverseSolveStatusToText`".
 	const EShotEditorReverseSolveStatus FailureCases[] = {
 		EShotEditorReverseSolveStatus::NoActiveShot,
 		EShotEditorReverseSolveStatus::EffectiveShotInvalid,
@@ -137,14 +146,347 @@ bool FShotEditorReverseSolveStatusToTextTest::RunTest(const FString& /*Parameter
 				static_cast<int32>(Status)),
 			AsText.IsEmpty());
 
-		// Uniqueness check - same text across two different statuses
-		// would defeat the whole point of having separate enum values.
 		const FString AsString = AsText.ToString();
 		TestFalse(FString::Printf(TEXT("Status %d text is unique among failure cases"),
 				static_cast<int32>(Status)),
 			SeenTexts.Contains(AsString));
 		SeenTexts.Add(AsString);
 	}
+
+	return true;
+}
+
+// 4. Shot Details mode-sensitive visibility mapping
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FShotDetailsModeVisibilityTest,
+	"ComposableCameraSystem.ShotEditor.DetailsModeVisibility",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FShotDetailsModeVisibilityTest::RunTest(const FString& /*Parameters*/)
+{
+	using namespace ComposableCameraSystem::ShotDetailsVisibility;
+
+	TestTrue(TEXT("Placement Mode is always visible"),
+		IsPlacementFieldVisible(EShotPlacementMode::FixedWorldPosition,
+			EShotPlacementBasisFrame::World,
+			GET_MEMBER_NAME_CHECKED(FShotPlacement, Mode)));
+	TestTrue(TEXT("Placement anchor visible in AnchorOrbit"),
+		IsPlacementFieldVisible(EShotPlacementMode::AnchorOrbit,
+			EShotPlacementBasisFrame::World,
+			GET_MEMBER_NAME_CHECKED(FShotPlacement, PlacementAnchor)));
+	TestTrue(TEXT("Placement anchor remains visible in FixedWorldPosition for focus follow modes"),
+		IsPlacementFieldVisible(EShotPlacementMode::FixedWorldPosition,
+			EShotPlacementBasisFrame::World,
+			GET_MEMBER_NAME_CHECKED(FShotPlacement, PlacementAnchor)));
+	TestTrue(TEXT("Basis actor visible only when basis inherits from actor"),
+		IsPlacementFieldVisible(EShotPlacementMode::AnchorOrbit,
+			EShotPlacementBasisFrame::InheritFromActor,
+			GET_MEMBER_NAME_CHECKED(FShotPlacement, BasisActorIndex)));
+	TestFalse(TEXT("Basis actor hidden for world basis"),
+		IsPlacementFieldVisible(EShotPlacementMode::AnchorOrbit,
+			EShotPlacementBasisFrame::World,
+			GET_MEMBER_NAME_CHECKED(FShotPlacement, BasisActorIndex)));
+	TestTrue(TEXT("Placement screen position visible in AnchorAtScreen"),
+		IsPlacementFieldVisible(EShotPlacementMode::AnchorAtScreen,
+			EShotPlacementBasisFrame::World,
+			GET_MEMBER_NAME_CHECKED(FShotPlacement, ScreenPosition)));
+	TestFalse(TEXT("Placement screen position hidden in AnchorOrbit"),
+		IsPlacementFieldVisible(EShotPlacementMode::AnchorOrbit,
+			EShotPlacementBasisFrame::World,
+			GET_MEMBER_NAME_CHECKED(FShotPlacement, ScreenPosition)));
+	TestTrue(TEXT("Distance remains visible in AnchorAtScreen"),
+		IsPlacementFieldVisible(EShotPlacementMode::AnchorAtScreen,
+			EShotPlacementBasisFrame::World,
+			GET_MEMBER_NAME_CHECKED(FShotPlacement, Distance)));
+	TestTrue(TEXT("Distance speed remains visible in AnchorAtScreen"),
+		IsPlacementFieldVisible(EShotPlacementMode::AnchorAtScreen,
+			EShotPlacementBasisFrame::World,
+			GET_MEMBER_NAME_CHECKED(FShotPlacement, DistanceSpeed)));
+	TestTrue(TEXT("Placement zones visible in AnchorAtScreen"),
+		IsPlacementFieldVisible(EShotPlacementMode::AnchorAtScreen,
+			EShotPlacementBasisFrame::World,
+			GET_MEMBER_NAME_CHECKED(FShotPlacement, PlacementZones)));
+	TestTrue(TEXT("Fixed world position visible in FixedWorldPosition"),
+		IsPlacementFieldVisible(EShotPlacementMode::FixedWorldPosition,
+			EShotPlacementBasisFrame::World,
+			GET_MEMBER_NAME_CHECKED(FShotPlacement, FixedWorldPosition)));
+	TestFalse(TEXT("Distance hidden in FixedWorldPosition"),
+		IsPlacementFieldVisible(EShotPlacementMode::FixedWorldPosition,
+			EShotPlacementBasisFrame::World,
+			GET_MEMBER_NAME_CHECKED(FShotPlacement, Distance)));
+
+	TestTrue(TEXT("Aim mode is always visible"),
+		IsAimFieldVisible(EShotAimMode::NoOp,
+			GET_MEMBER_NAME_CHECKED(FShotAim, Mode)));
+	TestTrue(TEXT("Aim anchor remains visible in NoOp for focus follow modes"),
+		IsAimFieldVisible(EShotAimMode::NoOp,
+			GET_MEMBER_NAME_CHECKED(FShotAim, AimAnchor)));
+	TestFalse(TEXT("Aim screen position hidden in NoOp"),
+		IsAimFieldVisible(EShotAimMode::NoOp,
+			GET_MEMBER_NAME_CHECKED(FShotAim, ScreenPosition)));
+	TestTrue(TEXT("Aim screen position visible in LookAtAnchor"),
+		IsAimFieldVisible(EShotAimMode::LookAtAnchor,
+			GET_MEMBER_NAME_CHECKED(FShotAim, ScreenPosition)));
+	TestTrue(TEXT("Aim zones visible in LookAtAnchor"),
+		IsAimFieldVisible(EShotAimMode::LookAtAnchor,
+			GET_MEMBER_NAME_CHECKED(FShotAim, AimZones)));
+	TestFalse(TEXT("Aim zones hidden in NoOp"),
+		IsAimFieldVisible(EShotAimMode::NoOp,
+			GET_MEMBER_NAME_CHECKED(FShotAim, AimZones)));
+
+	TestTrue(TEXT("Manual FOV visible in manual mode"),
+		IsLensFieldVisible(EShotFOVMode::Manual,
+			GET_MEMBER_NAME_CHECKED(FShotLens, ManualFOV)));
+	TestFalse(TEXT("Desired viewport fill hidden in manual mode"),
+		IsLensFieldVisible(EShotFOVMode::Manual,
+			GET_MEMBER_NAME_CHECKED(FShotLens, DesiredViewportFillRatio)));
+	TestFalse(TEXT("Manual FOV hidden in solved mode"),
+		IsLensFieldVisible(EShotFOVMode::SolvedFromBoundsFit,
+			GET_MEMBER_NAME_CHECKED(FShotLens, ManualFOV)));
+	TestTrue(TEXT("Desired viewport fill visible in solved mode"),
+		IsLensFieldVisible(EShotFOVMode::SolvedFromBoundsFit,
+			GET_MEMBER_NAME_CHECKED(FShotLens, DesiredViewportFillRatio)));
+	TestTrue(TEXT("FOV clamp visible in solved mode"),
+		IsLensFieldVisible(EShotFOVMode::SolvedFromBoundsFit,
+			GET_MEMBER_NAME_CHECKED(FShotLens, FOVClamp)));
+	TestTrue(TEXT("Aperture always visible"),
+		IsLensFieldVisible(EShotFOVMode::SolvedFromBoundsFit,
+			GET_MEMBER_NAME_CHECKED(FShotLens, Aperture)));
+	TestTrue(TEXT("FOV speed always visible"),
+		IsLensFieldVisible(EShotFOVMode::Manual,
+			GET_MEMBER_NAME_CHECKED(FShotLens, FOVSpeed)));
+
+	TestTrue(TEXT("Manual focus distance visible in manual mode"),
+		IsFocusFieldVisible(EShotFocusMode::Manual,
+			GET_MEMBER_NAME_CHECKED(FShotFocus, ManualDistance)));
+	TestFalse(TEXT("Focus anchor hidden in manual mode"),
+		IsFocusFieldVisible(EShotFocusMode::Manual,
+			GET_MEMBER_NAME_CHECKED(FShotFocus, FocusAnchor)));
+	TestFalse(TEXT("Manual focus distance hidden when following aim anchor"),
+		IsFocusFieldVisible(EShotFocusMode::FollowAimAnchor,
+			GET_MEMBER_NAME_CHECKED(FShotFocus, ManualDistance)));
+	TestTrue(TEXT("Custom focus anchor visible in custom-anchor mode"),
+		IsFocusFieldVisible(EShotFocusMode::FollowCustomAnchor,
+			GET_MEMBER_NAME_CHECKED(FShotFocus, FocusAnchor)));
+
+	TestTrue(TEXT("Anchor target index visible in SingleTarget"),
+		IsAnchorFieldVisible(EShotAnchorMode::SingleTarget,
+			GET_MEMBER_NAME_CHECKED(FComposableCameraAnchorSpec, TargetIndex)));
+	TestFalse(TEXT("Anchor target index hidden in WeightedWorldCentroid"),
+		IsAnchorFieldVisible(EShotAnchorMode::WeightedWorldCentroid,
+			GET_MEMBER_NAME_CHECKED(FComposableCameraAnchorSpec, TargetIndex)));
+	TestTrue(TEXT("Weighted targets visible in WeightedWorldCentroid"),
+		IsAnchorFieldVisible(EShotAnchorMode::WeightedWorldCentroid,
+			GET_MEMBER_NAME_CHECKED(FComposableCameraAnchorSpec, WeightedTargets)));
+	TestTrue(TEXT("World position visible in FixedWorldPosition"),
+		IsAnchorFieldVisible(EShotAnchorMode::FixedWorldPosition,
+			GET_MEMBER_NAME_CHECKED(FComposableCameraAnchorSpec, WorldPosition)));
+
+	return true;
+}
+
+// 5. Shot dropdown search filtering
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FShotEditorMenuSearchFilterTest,
+	"ComposableCameraSystem.ShotEditor.MenuSearchFilter",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FShotEditorMenuSearchFilterTest::RunTest(const FString& /*Parameters*/)
+{
+	using namespace ComposableCameraSystem::ShotEditorMenu;
+
+	TestTrue(TEXT("Empty filter matches"),
+		MatchesSearchFilter(TEXT("Camera Track"), TEXT("CloseUp"), TEXT("(1.00s - 2.00s, Row 0)"), TEXT("")));
+	TestTrue(TEXT("Title match is case-insensitive"),
+		MatchesSearchFilter(TEXT("Camera Track"), TEXT("CloseUp"), TEXT("(1.00s - 2.00s, Row 0)"), TEXT("close")));
+	TestTrue(TEXT("Track match works"),
+		MatchesSearchFilter(TEXT("Boss Track"), TEXT("Inline (2)"), TEXT("(1.00s - 2.00s, Row 0)"), TEXT("boss")));
+	TestTrue(TEXT("Time suffix match works"),
+		MatchesSearchFilter(TEXT("Camera Track"), TEXT("Inline (2)"), TEXT("(12.50s - 14.00s, Row 3)"), TEXT("row 3")));
+	TestTrue(TEXT("Multiple tokens can match different fields"),
+		MatchesSearchFilter(TEXT("Boss Track"), TEXT("CloseUp"), TEXT("(12.50s - 14.00s, Row 3)"), TEXT("boss close")));
+	TestFalse(TEXT("Missing token rejects entry"),
+		MatchesSearchFilter(TEXT("Boss Track"), TEXT("CloseUp"), TEXT("(12.50s - 14.00s, Row 3)"), TEXT("boss wide")));
+
+	return true;
+}
+
+// 6. Viewport floating toolbar action-state mapping
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FShotEditorViewportToolbarActionStateTest,
+	"ComposableCameraSystem.ShotEditor.ViewportToolbarActionState",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FShotEditorViewportToolbarActionStateTest::RunTest(const FString& /*Parameters*/)
+{
+	using namespace ComposableCameraSystem::ShotEditorViewportToolbar;
+
+	TestTrue(TEXT("HUD toggle enabled with active Shot"),
+		IsToolbarActionEnabled(EViewportToolbarAction::ToggleDiagnosticHud,
+			/*ViewportAvailable=*/true,
+			/*HasActiveShot=*/true,
+			EShotEditorMode::Drag));
+	TestFalse(TEXT("Guides toggle disabled without viewport"),
+		IsToolbarActionEnabled(EViewportToolbarAction::ToggleCompositionGuides,
+			/*ViewportAvailable=*/false,
+			/*HasActiveShot=*/true,
+			EShotEditorMode::Free));
+	TestTrue(TEXT("Reset enabled only in Free mode"),
+		IsToolbarActionEnabled(EViewportToolbarAction::ResetView,
+			/*ViewportAvailable=*/true,
+			/*HasActiveShot=*/true,
+			EShotEditorMode::Free));
+	TestFalse(TEXT("Reset disabled in Drag mode"),
+		IsToolbarActionEnabled(EViewportToolbarAction::ResetView,
+			/*ViewportAvailable=*/true,
+			/*HasActiveShot=*/true,
+			EShotEditorMode::Drag));
+	TestTrue(TEXT("Expanded toolbar controls are visible when not collapsed"),
+		ShouldShowToolbarExpandedControls(/*ToolbarCollapsed=*/false));
+	TestFalse(TEXT("Expanded toolbar controls are hidden when collapsed"),
+		ShouldShowToolbarExpandedControls(/*ToolbarCollapsed=*/true));
+
+	return true;
+}
+
+// 7. Shot Editor layout collapse-state defaults
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FShotEditorLayoutStateTest,
+	"ComposableCameraSystem.ShotEditor.LayoutState",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FShotEditorLayoutStateTest::RunTest(const FString& /*Parameters*/)
+{
+	using namespace ComposableCameraSystem::ShotEditorLayout;
+
+	const FShotEditorLayoutState DefaultState =
+		ResolveLayoutState(TOptional<bool>(), TOptional<bool>());
+	TestFalse(TEXT("Toolbar defaults to expanded"),
+		DefaultState.bViewportToolbarCollapsed);
+	TestTrue(TEXT("Quick controls default to collapsed"),
+		DefaultState.bQuickControlsCollapsed);
+
+	const FShotEditorLayoutState PersistedState =
+		ResolveLayoutState(TOptional<bool>(true), TOptional<bool>(false));
+	TestTrue(TEXT("Persisted toolbar collapse state overrides default"),
+		PersistedState.bViewportToolbarCollapsed);
+	TestFalse(TEXT("Persisted Quick collapse state overrides default"),
+		PersistedState.bQuickControlsCollapsed);
+
+	return true;
+}
+
+// 8. Shot Editor mode-switch prompts
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FShotEditorModeSwitchPromptTest,
+	"ComposableCameraSystem.ShotEditor.ModeSwitchPrompt",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FShotEditorModeSwitchPromptTest::RunTest(const FString& /*Parameters*/)
+{
+	using namespace ComposableCameraSystem::ShotEditorModeSwitch;
+
+	TestEqual(TEXT("Free to Drag opens Free-exit status"),
+		ClassifyModeRequest(EShotEditorMode::Free, EShotEditorMode::Drag),
+		EModeRequestHandling::ShowFreeExitStatus);
+	TestEqual(TEXT("Free to Lock opens Free-exit status"),
+		ClassifyModeRequest(EShotEditorMode::Free, EShotEditorMode::Lock),
+		EModeRequestHandling::ShowFreeExitStatus);
+	TestEqual(TEXT("Drag to Lock applies immediately"),
+		ClassifyModeRequest(EShotEditorMode::Drag, EShotEditorMode::Lock),
+		EModeRequestHandling::ApplyImmediately);
+	TestEqual(TEXT("Same mode ignored"),
+		ClassifyModeRequest(EShotEditorMode::Free, EShotEditorMode::Free),
+		EModeRequestHandling::Ignore);
+	TestTrue(TEXT("Pending Free-exit status is visible only while viewport remains in Free"),
+		ShouldShowFreeExitStatus(/*HasPendingFreeExitMode=*/true, EShotEditorMode::Free));
+	TestFalse(TEXT("Pending status hides after viewport leaves Free"),
+		ShouldShowFreeExitStatus(/*HasPendingFreeExitMode=*/true, EShotEditorMode::Drag));
+	TestFalse(TEXT("Status hides when no pending request exists"),
+		ShouldShowFreeExitStatus(/*HasPendingFreeExitMode=*/false, EShotEditorMode::Free));
+
+	return true;
+}
+
+// 9. Shot Editor status bar
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FShotEditorStatusBarStateTest,
+	"ComposableCameraSystem.ShotEditor.StatusBarState",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FShotEditorStatusBarStateTest::RunTest(const FString& /*Parameters*/)
+{
+	using namespace ComposableCameraSystem::ShotEditorStatusBar;
+
+	const FShotEditorStatusBarState CleanActiveShot =
+		ResolveStatusBarState(/*bHasActiveShot=*/true,
+			/*bHostValid=*/true,
+			/*bHasPendingFreeExitMode=*/false,
+			EShotEditorMode::Drag);
+	TestEqual(TEXT("Clean active Shot hides status bar"),
+		CleanActiveShot.Kind, EShotEditorStatusBarKind::Hidden);
+	TestEqual(TEXT("Clean active Shot exposes no status actions"),
+		CleanActiveShot.Actions, EShotEditorStatusBarActions::None);
+
+	const FShotEditorStatusBarState NoActiveShot =
+		ResolveStatusBarState(/*bHasActiveShot=*/false,
+			/*bHostValid=*/false,
+			/*bHasPendingFreeExitMode=*/false,
+			EShotEditorMode::Drag);
+	TestEqual(TEXT("No active Shot shows info status"),
+		NoActiveShot.Kind, EShotEditorStatusBarKind::Info);
+	TestEqual(TEXT("No active Shot exposes no status actions"),
+		NoActiveShot.Actions, EShotEditorStatusBarActions::None);
+
+	const FShotEditorStatusBarState StaleHost =
+		ResolveStatusBarState(/*bHasActiveShot=*/true,
+			/*bHostValid=*/false,
+			/*bHasPendingFreeExitMode=*/false,
+			EShotEditorMode::Drag);
+	TestEqual(TEXT("Stale host shows warning status"),
+		StaleHost.Kind, EShotEditorStatusBarKind::Warning);
+	TestEqual(TEXT("Stale host exposes no status actions"),
+		StaleHost.Actions, EShotEditorStatusBarActions::None);
+
+	const FShotEditorStatusBarState PendingFreeExit =
+		ResolveStatusBarState(/*bHasActiveShot=*/true,
+			/*bHostValid=*/true,
+			/*bHasPendingFreeExitMode=*/true,
+			EShotEditorMode::Free);
+	TestEqual(TEXT("Pending Free exit shows warning status"),
+		PendingFreeExit.Kind, EShotEditorStatusBarKind::Warning);
+	TestEqual(TEXT("Pending Free exit exposes Free-exit actions"),
+		PendingFreeExit.Actions, EShotEditorStatusBarActions::FreeExit);
+
+	const FShotEditorStatusBarState PendingFreeExitWithStaleHost =
+		ResolveStatusBarState(/*bHasActiveShot=*/true,
+			/*bHostValid=*/false,
+			/*bHasPendingFreeExitMode=*/true,
+			EShotEditorMode::Free);
+	TestEqual(TEXT("Stale host has priority over pending Free exit"),
+		PendingFreeExitWithStaleHost.Kind, EShotEditorStatusBarKind::Warning);
+	TestEqual(TEXT("Stale host suppresses Free-exit actions"),
+		PendingFreeExitWithStaleHost.Actions, EShotEditorStatusBarActions::None);
+
+	const FShotEditorStatusBarState PendingFreeExitWithoutShot =
+		ResolveStatusBarState(/*bHasActiveShot=*/false,
+			/*bHostValid=*/false,
+			/*bHasPendingFreeExitMode=*/true,
+			EShotEditorMode::Free);
+	TestEqual(TEXT("No active Shot has priority over pending Free exit"),
+		PendingFreeExitWithoutShot.Kind, EShotEditorStatusBarKind::Info);
+	TestEqual(TEXT("No active Shot suppresses Free-exit actions"),
+		PendingFreeExitWithoutShot.Actions, EShotEditorStatusBarActions::None);
+
+	const FShotEditorStatusBarState PendingAfterLeavingFree =
+		ResolveStatusBarState(/*bHasActiveShot=*/true,
+			/*bHostValid=*/true,
+			/*bHasPendingFreeExitMode=*/true,
+			EShotEditorMode::Drag);
+	TestEqual(TEXT("Pending Free exit hides after viewport leaves Free"),
+		PendingAfterLeavingFree.Kind, EShotEditorStatusBarKind::Hidden);
+	TestEqual(TEXT("Hidden pending state exposes no status actions"),
+		PendingAfterLeavingFree.Actions, EShotEditorStatusBarActions::None);
 
 	return true;
 }

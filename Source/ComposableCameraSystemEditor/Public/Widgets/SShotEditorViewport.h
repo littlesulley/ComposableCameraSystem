@@ -9,10 +9,9 @@
 // (synthesized for any TU that instantiates the widget's ctor / dtor)
 // must call `delete` on the type, which requires the complete type to be
 // visible. Forward-declaration would compile only if we explicit-defined
-// the ctor + dtor in the.cpp; including the header here is simpler and
-// the blast radius is small (only `SShotEditorViewport.cpp` and
-// `SShotEditorRoot.cpp` include this header, and both are already in the
-// editor module that has the `AdvancedPreviewScene` dep).
+// the ctor + dtor in the.cpp; including the header here is simpler and the
+// blast radius is confined to the editor module that already has the
+// `AdvancedPreviewScene` dep.
 #include "AdvancedPreviewScene.h"
 
 struct FComposableCameraShot;
@@ -28,13 +27,12 @@ class FComposableCameraShotEditorViewportClient;
  * overwrite anyway).
  *
  * - Free: User has full mouse-driven camera control (orbit / pan /
- * dolly via base `FEditorViewportClient` defaults). Solver pauses - 
+ * dolly via base `FEditorViewportClient` defaults). Solver pauses -
  * camera stays where the user moves it. Handles are drawn at LIVE
  * projected positions of the world anchor / target points (so they
  * visually track those world points as the camera moves around) but
- * are NON-interactive. Toggling back to Drag pops the "save current
- * camera framing as Shot params?" dialog.
- *
+ * are NON-interactive. Toggling back to Drag / Lock asks the root widget
+ * to show Save / Discard / Stay in the status bar.
  * - Lock: Solver drives camera (same as Drag) but ALL user input is
  * consumed - no handle interaction, no camera control. Read-only
  * preview state for screenshots / demos / "show me what runtime
@@ -52,30 +50,20 @@ enum class EShotEditorMode: uint8
 
 /**
  * Outcome of a reverse-solve precheck (or a completed reverse-solve attempt).
- * Lets the Free -> Drag transition dialog tell designers *why* "Save
- * composition" is unavailable instead of greying it out silently. Order of
- * checks is fixed: ActiveShot->EffectiveShot ->PlacementAnchor->AimAnchor
- * -> camera-frame depth (AnchorAtScreen-only). The first failing check
- * determines the status - later failures are not surfaced because the
- * earlier one already tells the designer what to fix first.
+ * Lets the Free -> Drag / Lock status bar tell designers why "Save
+ * composition" is unavailable instead of greying it out silently.
  */
 enum class EShotEditorReverseSolveStatus: uint8
 {
 	Ok,
-	NoActiveShot, // engine teardown / no Shot bound - shouldn't surface in normal UX
-	EffectiveShotInvalid, // BuildEffectiveShotForPreview failed (override resolution stalled)
-	PlacementAnchorUnresolvable, // Placement.PlacementAnchor.ResolveWorldPosition returned false
-	AimAnchorUnresolvable, // Aim.AimAnchor.ResolveWorldPosition returned false
-	PlacementAnchorBehindCamera, // AnchorAtScreen-only: PCam.X <= under user's free-flown rotation
+	NoActiveShot,
+	EffectiveShotInvalid,
+	PlacementAnchorUnresolvable,
+	AimAnchorUnresolvable,
+	PlacementAnchorBehindCamera,
 };
 
-/**
- * Per-status reason text shown in the Free -> Drag dialog body when
- * `Save composition` is unavailable. `Ok` returns empty text (caller picks
- * the success-path body instead). One sentence each - designer-actionable
- * ("assign a target", "move the camera in front of the anchor"), not
- * developer-facing ("BuildEffectiveShotForPreview failed").
- */
+/** Per-status reason text shown in the Free -> Drag / Lock status bar. */
 COMPOSABLECAMERASYSTEMEDITOR_API FText ShotEditorReverseSolveStatusToText(EShotEditorReverseSolveStatus Status);
 
 /**
@@ -118,20 +106,26 @@ public:
 	void SetMode(EShotEditorMode InMode);
 	EShotEditorMode GetMode() const;
 
-	/** Forwarded reverse-solve API for the Free -> Drag transition dialog.
-	 * `DiagnoseReverseSolveCurrentCamera` returns the
-	 * precheck status - `Ok` when reverse-solve will succeed, otherwise
-	 * the first failing check (see `EShotEditorReverseSolveStatus`).
-	 * `CanReverseSolveCurrentCamera` is the boolean shortcut, kept for
-	 * call sites that don't need a reason. `ReverseSolveCurrentCameraToShot`
-	 * performs the actual write (wrapped in a transaction internally). */
+	/** Reverse-solve API for the Free -> Drag / Lock status-bar action. */
 	EShotEditorReverseSolveStatus DiagnoseReverseSolveCurrentCamera() const;
 	bool CanReverseSolveCurrentCamera() const;
 	bool ReverseSolveCurrentCameraToShot();
 
+	/** Snap the preview camera back to the current solved Shot pose without
+	 * changing Shot data or leaving Free mode. */
+	void ResetViewToShot();
+
 	/** Copy this preview viewport's current camera transform to the system
 	 * clipboard as FTransform text that UE property rows can paste. */
 	bool CopyCurrentCameraTransformToClipboard() const;
+
+	/** Diagnostic HUD toggle (camera pose / aspect / focus text). */
+	bool GetShowDiagnosticHud() const;
+	void SetShowDiagnosticHud(bool bInShowDiagnosticHud);
+
+	/** Composition guides toggle (handles, zones, bounds wireframes). */
+	bool GetShowCompositionGuides() const;
+	void SetShowCompositionGuides(bool bInShowCompositionGuides);
 
 protected:
 	// SEditorViewport overrides 

@@ -1,6 +1,6 @@
 # ComposableCameraSystem Editor Design
 
-Updated: 2026-06-03
+Updated: 2026-06-13
 
 This document describes the current editor module. It replaces the old
 phase-by-phase implementation plan. Runtime architecture lives in
@@ -303,9 +303,43 @@ Current behavior:
 - edits write directly to the host object inside transactions.
 - preview viewport resolves target actors, meshes, bounds, anchors, zones, and
   framing overlays.
-- shot outliner exposes shot targets.
-- viewport tools can adjust distance, roll, anchors, and reverse-solve some
-  shot fields.
+- compact top bar combines asset commands, active host breadcrumb, Sequencer
+  Shot dropdown, Recent dropdown, and the Drag / Free / Lock viewport mode
+  selector.
+- a unified status bar appears below the top bar only when the editor has
+  something actionable or diagnostic to report. It currently owns Free-exit
+  Save / Discard / Stay actions, reverse-solve unavailable reasons, no-Shot
+  guidance, and stale-host guidance.
+- viewport-local floating toolbar owns Reset, HUD, and Guides. It is anchored
+  at the top-right of the viewport so the top-left diagnostic HUD remains
+  readable, and it can collapse down to a small Tools button. That collapsed
+  state persists per project. Reset is Free-mode-only and snaps the preview
+  camera back to the current solved Shot pose without writing Shot data. HUD
+  toggles diagnostic text; Guides toggles handles, framing zones, and bounds
+  wireframes. The toolbar deliberately does not expose a separate Frame
+  command.
+- Shot dropdown is the primary sibling-shot navigator for Sequencer-backed
+  contexts. It lists sibling Shot sections for the active LevelSequence in a
+  searchable, track-grouped panel with current-shot checkmark and time/row
+  suffixes; the editor does not keep a persistent left-side Shot outliner.
+- main body is a two-pane splitter: large preview viewport plus a right-side
+  pane containing a compact Quick strip above the full structure Details
+  panel. Quick starts collapsed by default, then remembers its expanded /
+  collapsed state per project.
+- Quick strip mirrors common authoring fields only: distance, manual FOV, roll,
+  placement screen position, and aim screen position. It writes to the same
+  `FComposableCameraShot` data and remains a removable experiment, not a new
+  data model. Labels use full readable field names rather than abbreviations.
+- The full Details panel is mode-sensitive: Placement, Aim, Lens, Focus, and
+  AnchorSpec rows that are ignored by the current mode collapse out of view
+  instead of remaining as disabled clutter. Hidden values stay serialized and
+  reappear when the user switches back to the relevant mode. Placement and Aim
+  anchor specs remain visible because Focus follow modes can still consume them.
+- viewport tools can adjust distance, roll, and anchor / zone handles in Drag;
+  Free allows mouse camera inspection and can reverse-solve that pose back into
+  Shot data when leaving the mode. Leaving Free for Drag / Lock queues the
+  target mode and shows Save / Discard / Stay in the status bar instead of
+  opening a modal dialog.
 
 The editor must not write back to a shared shot asset when editing a Sequencer
 asset-reference section. It edits the section-local override copy.

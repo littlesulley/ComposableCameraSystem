@@ -21,6 +21,7 @@
 #include "Customizations/ComposableCameraPatchTypeAssetCustomization.h"
 #include "Customizations/ComposableCameraParameterTableRowCustomization.h"
 #include "Customizations/ComposableCameraShotAnchorIndexCustomization.h"
+#include "Customizations/ComposableCameraShotLayerModeCustomization.h"
 #include "Customizations/ComposableCameraShotPlacementCustomization.h"
 #include "Customizations/ComposableCameraShotSectionDetails.h"
 #include "Customizations/ComposableCameraTargetInfoCustomization.h"
@@ -265,6 +266,7 @@ void FComposableCameraSystemEditorModule::RegisterDetailsCustomizations()
  FComposableCameraShotSectionDetails::Register(PropertyEditorModule);
  FComposableCameraTargetInfoCustomization::Register(PropertyEditorModule);
  FShotPlacementCustomization::Register(PropertyEditorModule);
+ FShotLayerModeCustomization::Register(PropertyEditorModule);
  FShotAnchorIndexCustomization::Register(PropertyEditorModule);
 }
 
@@ -283,6 +285,7 @@ void FComposableCameraSystemEditorModule::UnregisterDetailsCustomizations()
  FComposableCameraShotSectionDetails::Unregister(*PropertyEditorModule);
  FComposableCameraTargetInfoCustomization::Unregister(*PropertyEditorModule);
  FShotPlacementCustomization::Unregister(*PropertyEditorModule);
+ FShotLayerModeCustomization::Unregister(*PropertyEditorModule);
  FShotAnchorIndexCustomization::Unregister(*PropertyEditorModule);
  }
 }
