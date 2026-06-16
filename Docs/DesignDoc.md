@@ -1,6 +1,6 @@
 # ComposableCameraSystem Design
 
-Updated: 2026-06-12
+Updated: 2026-06-16
 
 This document describes the current runtime architecture of the UE 5.6
 ComposableCameraSystem plugin. It is intentionally compact. Implementation
@@ -185,6 +185,15 @@ input pose
 
 Compute nodes run in the camera BeginPlay path. They seed data before normal
 per-frame camera nodes run.
+
+Built-in compute nodes cover activation-time helpers such as actor distance /
+direction, actor-between world positions with height offsets, and initial
+camera rotation setup.
+
+Set Rotation nodes can resolve a base rotation from an actor forward vector,
+an explicit vector, a literal rotator, or the direction from one resolved actor
+to another, then apply a final rotation offset. That offset keeps yaw in world
+space around Z, while pitch and roll apply in the resolved camera local space.
 
 Node pin categories currently include:
 

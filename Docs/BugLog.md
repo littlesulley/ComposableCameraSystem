@@ -1,5 +1,41 @@
 # Bug Log
 
+## 2026-06-16 - SetRotation RotationOffset applied pitch in world space
+
+- Symptom: `SetRotation` / `Compute: Set Rotation` `RotationOffset` produced
+  the wrong result when the base rotation already had non-zero pitch / roll and
+  the offset included pitch. Yaw needed world-space behavior, while pitch needed
+  local-space behavior.
+- Trigger / repro: configure a SetRotation node with `RotationSource =
+  FromRotator`, a non-trivial base rotation such as `(Pitch=25, Yaw=70,
+  Roll=15)`, and `RotationOffset = (Pitch=20, Yaw=45, Roll=0)`.
+- Why it happens: the resolver used
+  `UKismetMathLibrary::ComposeRotators(Base, Offset)`, which applies the whole
+  offset in one composition space instead of splitting yaw and pitch semantics.
+- Root cause: `RotationOffset` was implemented as a generic rotator
+  composition, but the intended camera-control convention is mixed-space:
+  yaw around world Z, then pitch / roll in the resolved camera local frame.
+- Touched files:
+  - `Source/ComposableCameraSystem/Public/Nodes/ComposableCameraSetRotationNode.h`
+  - `Source/ComposableCameraSystem/Private/Nodes/ComposableCameraSetRotationNode.cpp`
+  - `Source/ComposableCameraSystem/Private/Tests/ComposableCameraSetRotationNodeTests.cpp`
+  - `Docs/DesignDoc.md`
+  - `Docs/TechDoc.md`
+  - `Docs/BugLog.md`
+- Fix: replace generic `ComposeRotators` with explicit quaternion composition
+  `WorldYaw * Base * LocalPitchRoll`, matching `ControlRotate`'s world-yaw /
+  local-pitch rule.
+- Regression-test name:
+  `System.Engine.ComposableCameraSystem.Nodes.SetRotation.OffsetYawWorldPitchLocal`.
+- Test blocker: automation test added, but project rules prohibit Codex from
+  invoking Unreal Editor automation from shell. User must run it from Rider /
+  Visual Studio / Unreal Editor.
+- Avoid next time: when a rotator offset mixes camera-control axes, document
+  each axis's space and test with a non-trivial base rotation. Do not assume
+  `FRotator` composition gives the desired per-axis frame.
+- Possible conflicts: `SetRotation` and `Compute: Set Rotation` now differ from
+  `PivotRotate`, whose `RotationOffset` remains fully local-space by design.
+
 ## 2026-06-13 - Shot Editor status bar could prioritize Free-exit actions over stale host state
 
 - Symptom: the unified Shot Editor status bar could keep showing Free-exit

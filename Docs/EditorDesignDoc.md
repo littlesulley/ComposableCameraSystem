@@ -1,6 +1,6 @@
 # ComposableCameraSystem Editor Design
 
-Updated: 2026-06-13
+Updated: 2026-06-16
 
 This document describes the current editor module. It replaces the old
 phase-by-phase implementation plan. Runtime architecture lives in
@@ -120,6 +120,8 @@ Execution chains:
 
 - Main chain starts at Start and ends at Output.
 - Compute chain starts at BeginPlayStart.
+- Concrete compute node titles use `Begin Play:` in the graph / palette to
+  make activation-time behavior explicit.
 - Set-variable nodes belong to the chain they are wired into.
 - Compute nodes do not run in the main per-frame camera chain.
 - Camera nodes do not run in the compute chain.

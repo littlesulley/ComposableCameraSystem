@@ -13,14 +13,15 @@ enum class EComposableCameraSetRotationSource : uint8
 {
 	FromActor,
 	FromVector,
-	FromRotator
+	FromRotator,
+	FromTwoActors UMETA(DisplayName = "From Two Actors")
 };
 
 /**
  * Node for replacing the current camera rotation from an actor forward vector,
- * an explicit forward vector, or a literal rotator.
+ * an explicit forward vector, a literal rotator, or the direction between two actors.
  */
-UCLASS(NotBlueprintable, ClassGroup = ComposableCameraSystem, meta = (DisplayName = "Set Rotation", ToolTip = "Sets camera rotation from an actor, vector, or rotator."))
+UCLASS(NotBlueprintable, ClassGroup = ComposableCameraSystem, meta = (DisplayName = "Set Rotation", ToolTip = "Sets camera rotation from an actor, vector, rotator, or two-actor direction."))
 class COMPOSABLECAMERASYSTEM_API UComposableCameraSetRotationNode : public UComposableCameraCameraNodeBase
 {
 	GENERATED_BODY()
@@ -45,6 +46,22 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters, meta = (EditCondition = "RotationSource == EComposableCameraSetRotationSource::FromActor && RotationActorSource == EComposableCameraActorInputSource::ExplicitActor", EditConditionHides))
 	TObjectPtr<AActor> RotationActor { nullptr };
 
+	// Selects whether FirstActor comes from an explicit actor or the controller's controlled pawn.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters, meta = (EditCondition = "RotationSource == EComposableCameraSetRotationSource::FromTwoActors", EditConditionHides))
+	EComposableCameraActorInputSource FirstActorSource { EComposableCameraActorInputSource::ExplicitActor };
+
+	// First endpoint for FromTwoActors.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters, meta = (EditCondition = "RotationSource == EComposableCameraSetRotationSource::FromTwoActors && FirstActorSource == EComposableCameraActorInputSource::ExplicitActor", EditConditionHides))
+	TObjectPtr<AActor> FirstActor { nullptr };
+
+	// Selects whether SecondActor comes from an explicit actor or the controller's controlled pawn.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters, meta = (EditCondition = "RotationSource == EComposableCameraSetRotationSource::FromTwoActors", EditConditionHides))
+	EComposableCameraActorInputSource SecondActorSource { EComposableCameraActorInputSource::ExplicitActor };
+
+	// Second endpoint for FromTwoActors.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters, meta = (EditCondition = "RotationSource == EComposableCameraSetRotationSource::FromTwoActors && SecondActorSource == EComposableCameraActorInputSource::ExplicitActor", EditConditionHides))
+	TObjectPtr<AActor> SecondActor { nullptr };
+
 	// Forward vector used to build the replacement rotation.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters, meta = (EditCondition = "RotationSource == EComposableCameraSetRotationSource::FromVector", EditConditionHides))
 	FVector RotationVector { FVector::ForwardVector };
@@ -52,9 +69,14 @@ public:
 	// Literal replacement rotation.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters, meta = (EditCondition = "RotationSource == EComposableCameraSetRotationSource::FromRotator", EditConditionHides))
 	FRotator Rotation { FRotator::ZeroRotator };
+
+	// Offset applied after the base rotation is resolved. Yaw is world-space;
+	// pitch and roll are local-space.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters)
+	FRotator RotationOffset { FRotator::ZeroRotator };
 };
 
-UCLASS(NotBlueprintable, ClassGroup = ComposableCameraSystem, meta = (DisplayName = "Set Rotation", ToolTip = "Sets the initial camera rotation from an actor, vector, or rotator during BeginPlay."))
+UCLASS(NotBlueprintable, ClassGroup = ComposableCameraSystem, meta = (DisplayName = "Begin Play: Set Rotation", ToolTip = "Sets the initial camera rotation from an actor, vector, rotator, or two-actor direction during BeginPlay."))
 class COMPOSABLECAMERASYSTEM_API UComposableCameraBeginPlaySetRotationNode : public UComposableCameraComputeNodeBase
 {
 	GENERATED_BODY()
@@ -79,6 +101,22 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters, meta = (EditCondition = "RotationSource == EComposableCameraSetRotationSource::FromActor && RotationActorSource == EComposableCameraActorInputSource::ExplicitActor", EditConditionHides))
 	TObjectPtr<AActor> RotationActor { nullptr };
 
+	// Selects whether FirstActor comes from an explicit actor or the controller's controlled pawn.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters, meta = (EditCondition = "RotationSource == EComposableCameraSetRotationSource::FromTwoActors", EditConditionHides))
+	EComposableCameraActorInputSource FirstActorSource { EComposableCameraActorInputSource::ExplicitActor };
+
+	// First endpoint for FromTwoActors.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters, meta = (EditCondition = "RotationSource == EComposableCameraSetRotationSource::FromTwoActors && FirstActorSource == EComposableCameraActorInputSource::ExplicitActor", EditConditionHides))
+	TObjectPtr<AActor> FirstActor { nullptr };
+
+	// Selects whether SecondActor comes from an explicit actor or the controller's controlled pawn.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters, meta = (EditCondition = "RotationSource == EComposableCameraSetRotationSource::FromTwoActors", EditConditionHides))
+	EComposableCameraActorInputSource SecondActorSource { EComposableCameraActorInputSource::ExplicitActor };
+
+	// Second endpoint for FromTwoActors.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters, meta = (EditCondition = "RotationSource == EComposableCameraSetRotationSource::FromTwoActors && SecondActorSource == EComposableCameraActorInputSource::ExplicitActor", EditConditionHides))
+	TObjectPtr<AActor> SecondActor { nullptr };
+
 	// Forward vector used to build the replacement rotation.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters, meta = (EditCondition = "RotationSource == EComposableCameraSetRotationSource::FromVector", EditConditionHides))
 	FVector RotationVector { FVector::ForwardVector };
@@ -86,4 +124,9 @@ public:
 	// Literal replacement rotation.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters, meta = (EditCondition = "RotationSource == EComposableCameraSetRotationSource::FromRotator", EditConditionHides))
 	FRotator Rotation { FRotator::ZeroRotator };
+
+	// Offset applied after the base rotation is resolved. Yaw is world-space;
+	// pitch and roll are local-space.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = InputParameters)
+	FRotator RotationOffset { FRotator::ZeroRotator };
 };

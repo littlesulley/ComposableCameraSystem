@@ -1,6 +1,6 @@
 # ComposableCameraSystem Tech Notes
 
-Updated: 2026-06-13
+Updated: 2026-06-16
 
 Purpose: compact implementation reference. Keep this file current when code
 patterns, public APIs, hot-path rules, node catalogs, or gotchas change.
@@ -170,6 +170,9 @@ Compute nodes derive from `UComposableCameraComputeNodeBase`.
 Rules:
 
 - Run on the camera BeginPlay/initialization chain.
+- Concrete compute node display names use `Begin Play:` as the editor-facing
+  prefix so they stay distinct from per-frame camera nodes without implying
+  they tick every frame.
 - Write data into the runtime data block.
 - Do not run per frame.
 - Level Sequence compatibility defaults to compute-only; LS internal camera
@@ -517,6 +520,7 @@ Current node classes:
 - `UComposableCameraCollisionPushNode`
 - `UComposableCameraCompositionFramingNode`
 - `UComposableCameraComputeDistanceToActorNode`
+- `UComposableCameraComputePositionBetweenActorsNode`
 - `UComposableCameraControlRotateNode`
 - `UComposableCameraDirectionalMoveNode`
 - `UComposableCameraExposureNode`
@@ -554,6 +558,20 @@ Node notes:
   space (`X=forward, Y=right, Z=up`). Its inline
   `ForwardOffsetDeltaByPitchCurve` samples X as current pitch in degrees and
   adds Y as a camera-forward delta in cm before building the final position.
+- `UComposableCameraComputePositionBetweenActorsNode` runs on the BeginPlay
+  compute chain. It resolves both actor endpoints through
+  `EComposableCameraActorInputSource`, clamps `Alpha` to `[0, 1]`, linearly
+  interpolates world locations, then adds `HeightOffset` on world Z before
+  publishing `Position`.
+- `UComposableCameraSetRotationNode` and
+  `UComposableCameraBeginPlaySetRotationNode` share the same resolver. Rotation
+  source values are `FromActor`, `FromVector`, `FromRotator`, and
+  `FromTwoActors`. `FromTwoActors` resolves both endpoints through
+  `EComposableCameraActorInputSource`, builds a rotation from first actor to
+  second actor, then all source modes apply `RotationOffset` as
+  `WorldYaw * Base * LocalPitchRoll`. This matches `ControlRotate` semantics:
+  yaw is around world Z, while pitch / roll are authored in the resolved local
+  camera frame.
 
 Base classes:
 
@@ -595,10 +613,12 @@ Existing test files include:
 
 - `ComposableCameraBugFixTests.cpp`
 - `ComposableCameraCompositionPreservingTransitionTests.cpp`
+- `ComposableCameraComputePositionBetweenActorsNodeTests.cpp`
 - `ComposableCameraShotSolverTests.cpp`
 - `ComposableCameraPivotLookAheadNodeTests.cpp`
 - `ComposableCameraLockOnAimPointNodeTests.cpp`
 - `ComposableCameraNodeGraphSyncTests.cpp`
+- `ComposableCameraSetRotationNodeTests.cpp`
 
 Codex must not invoke Unreal automation from shell in this project. Run tests
 inside Rider or Visual Studio / Unreal Editor.

@@ -23,7 +23,7 @@
  *   - Distance (Float): Euclidean distance between the two actors
  *   - Direction (Vector3D): unit direction from ActorA to ActorB
  */
-UCLASS(ClassGroup = ComposableCameraSystem, meta = (DisplayName = "Compute: Distance To Actor", ToolTip = "Measures distance and direction between two actors at camera activation."))
+UCLASS(ClassGroup = ComposableCameraSystem, meta = (DisplayName = "Begin Play: Distance To Actor", ToolTip = "Measures distance and direction between two actors at camera activation."))
 class COMPOSABLECAMERASYSTEM_API UComposableCameraComputeDistanceToActorNode
 	: public UComposableCameraComputeNodeBase
 {
