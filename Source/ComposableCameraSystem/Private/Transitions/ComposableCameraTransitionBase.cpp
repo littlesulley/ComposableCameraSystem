@@ -172,8 +172,8 @@ void UComposableCameraTransitionBase::DrawStandardTransitionDebug(
 	// Inertialized, authored curve for Spline, rail for PathGuided). Each
 	// concrete override draws its own path polyline in the same AccentColor
 	// on top of this helper's markers. See Section 3.20.4 in TechDoc.
-	static const FColor SourceColor { 80, 220, 120 };
-	static const FColor TargetColor { 80, 170, 255 };
+	const FColor SourceColor = FComposableCameraViewportDebugColors::SourcePose();
+	const FColor TargetColor = FComposableCameraViewportDebugColors::TargetPose();
 
 	const FVector SrcPos   = LastDebugSource.Position;
 	const FVector TgtPos   = LastDebugTarget.Position;
@@ -189,13 +189,13 @@ void UComposableCameraTransitionBase::DrawStandardTransitionDebug(
 	// in a character), same rule as the retired wireframe path.
 	FComposableCameraViewportDebug::DrawSolidDebugSphere(
 		World, SrcPos, /*Radius=*/7.5f, SourceColor,
-		/*Alpha=*/100, /*Segments=*/12, /*DepthPriority=*/SDPG_Foreground);
+		/*Alpha=*/100, /*Segments=*/12, /*DepthPriority=*/SDPG_Foreground, TEXT("Transition source"));
 	FComposableCameraViewportDebug::DrawSolidDebugSphere(
 		World, TgtPos, 7.5f, TargetColor,
-		100, 12, SDPG_Foreground);
+		100, 12, SDPG_Foreground, TEXT("Transition target"));
 	FComposableCameraViewportDebug::DrawSolidDebugSphere(
 		World, BlendPos, 10.f, AccentColor,
-		/*Alpha=*/130, 12, SDPG_Foreground);
+		/*Alpha=*/130, 12, SDPG_Foreground, TEXT("Transition progress"));
 
 	// Frustums only outside possess. The blended frustum is already painted
 	// by the camera-level pass (AComposableCameraCameraBase::DrawCameraDebug

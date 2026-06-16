@@ -51,7 +51,7 @@ void UComposableCameraLinearTransition::DrawTransitionDebug(UWorld* World, bool 
 
 	// Light grey accent -"neutral" progress color to match the linear
 	// blend's unremarkable nature. Distinct from every node gizmo color.
-	static const FColor AccentColor { 200, 200, 200 };
+	const FColor AccentColor = FComposableCameraViewportDebugColors::TransitionLinear();
 
 	DrawStandardTransitionDebug(World, bViewerIsOutsideCamera, AccentColor);
 

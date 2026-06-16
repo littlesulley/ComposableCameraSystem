@@ -50,7 +50,7 @@ void UComposableCameraCubicTransition::DrawTransitionDebug(UWorld* World, bool b
 
 	// Lavender. Still in the cool family but well clear of LookAt cyan
 	// and SplineNode violet.
-	static const FColor AccentColor { 180, 130, 255 };
+	const FColor AccentColor = FComposableCameraViewportDebugColors::TransitionCubic();
 
 	DrawStandardTransitionDebug(World, bViewerIsOutsideCamera, AccentColor);
 

@@ -125,8 +125,8 @@ void UComposableCameraRelativeFixedPoseNode::DrawNodeDebug(UWorld* World, bool /
 	if (bHasOrigin)
 	{
 		FComposableCameraViewportDebug::DrawSolidDebugSphere(
-			World, OriginPos, /*Radius=*/8.f, FColor(255, 140, 0),
-			/*Alpha=*/100, /*Segments=*/12, KForeground);
+			World, OriginPos, /*Radius=*/8.f, FComposableCameraViewportDebugColors::RelativeFixedPose(),
+			/*Alpha=*/100, /*Segments=*/12, KForeground, TEXT("RelativeFixedPose"));
 	}
 }
 #endif

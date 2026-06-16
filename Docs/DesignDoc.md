@@ -346,6 +346,13 @@ Available debug surfaces include:
 Snapshots resolve pointers to display data early so UI consumers do not deref
 runtime-owned objects later.
 
+Viewport gizmo colors are centralized in the runtime debug palette. The bottom
+Legend panel reads the same metadata as the 3D draw sites, so swatches match the
+spheres and transition markers. Sphere markers can also carry short world-space
+labels for node / marker-role identification when many gizmos overlap. Those
+labels are frame-local debug strings and are redrawn at the sphere's current
+world position each viewport debug tick.
+
 ## 15. Hard Invariants
 
 - Context stack position matters. `EnsureContext` may reorder entries.

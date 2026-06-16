@@ -195,7 +195,7 @@ void UComposableCameraDynamicDeocclusionTransition::DrawTransitionDebug(
 		&& !FComposableCameraViewportDebug::ShouldShowAllTransitionGizmos()) { return; }
 
 	// Red accent reinforces the "danger / avoid" intent of deocclusion.
-	static const FColor AccentColor { 255, 90, 90 };
+	const FColor AccentColor = FComposableCameraViewportDebugColors::TransitionDynamicDeocclusion();
 
 	DrawStandardTransitionDebug(World, bViewerIsOutsideCamera, AccentColor);
 
@@ -226,7 +226,8 @@ void UComposableCameraDynamicDeocclusionTransition::DrawTransitionDebug(
 		{
 			FComposableCameraViewportDebug::DrawSolidDebugSphere(
 				World, RayEnd, Feeler.Radius, AccentColor,
-				/*Alpha=*/70, /*Segments=*/10, /*DepthPriority=*/SDPG_Foreground);
+				/*Alpha=*/70, /*Segments=*/10, /*DepthPriority=*/SDPG_Foreground,
+				TEXT("DynamicDeocclusion feeler"));
 		}
 	}
 }

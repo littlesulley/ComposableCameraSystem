@@ -101,8 +101,8 @@ void UComposableCameraPivotLookAheadNode::DrawNodeDebug(UWorld* World, bool /*bV
 
 	constexpr uint8 KForeground = 1;
 	FComposableCameraViewportDebug::DrawSolidDebugSphere(
-		World, LastOutputPivotPosition, /*Radius=*/9.f, FColor(255, 128, 0),
-		/*Alpha=*/105, /*Segments=*/12, KForeground);
+		World, LastOutputPivotPosition, /*Radius=*/9.f, FComposableCameraViewportDebugColors::PivotLookAhead(),
+		/*Alpha=*/105, /*Segments=*/12, KForeground, TEXT("PivotLookAhead"));
 }
 #endif
 

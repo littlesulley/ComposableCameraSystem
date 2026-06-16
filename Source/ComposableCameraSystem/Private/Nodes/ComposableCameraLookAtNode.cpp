@@ -176,10 +176,10 @@ void UComposableCameraLookAtNode::DrawNodeDebug(UWorld* World, bool bViewerIsOut
 	// DepthPriority=1 (SDPG_Foreground) draws above scene geometry - without
 	// it, a target anchored on a bone socket would be occluded by the mesh.
 	constexpr uint8 KForeground = 1;
-	const FColor TargetColor(30, 200, 255);
+	const FColor TargetColor = FComposableCameraViewportDebugColors::LookAt();
 	FComposableCameraViewportDebug::DrawSolidDebugSphere(
 		World, TargetPosition, /*Radius=*/7.5f, TargetColor,
-		/*Alpha=*/110, /*Segments=*/12, KForeground);
+		/*Alpha=*/110, /*Segments=*/12, KForeground, TEXT("LookAt"));
 
 	if (bViewerIsOutsideCamera && OwningCamera)
 	{

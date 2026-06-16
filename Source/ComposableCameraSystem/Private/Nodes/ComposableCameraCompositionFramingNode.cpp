@@ -530,15 +530,17 @@ void UComposableCameraCompositionFramingNode::DrawNodeDebug(UWorld* World, bool 
 	if (Shot.Placement.PlacementAnchor.ResolveWorldPosition(Shot.Targets, PlacementAnchorPos))
 	{
 		FComposableCameraViewportDebug::DrawSolidDebugSphere(
-			World, PlacementAnchorPos, /*Radius=*/12.f, FColor(255, 130, 30),
-			/*Alpha=*/120, /*Segments=*/16, KForeground);
+			World, PlacementAnchorPos, /*Radius=*/12.f,
+			FComposableCameraViewportDebugColors::CompositionFramingPlacement(),
+			/*Alpha=*/120, /*Segments=*/16, KForeground, TEXT("CompositionFraming place"));
 	}
 	FVector AimAnchorPos;
 	if (Shot.Aim.AimAnchor.ResolveWorldPosition(Shot.Targets, AimAnchorPos))
 	{
 		FComposableCameraViewportDebug::DrawSolidDebugSphere(
-			World, AimAnchorPos, /*Radius=*/10.f, FColor(80, 200, 255),
-			/*Alpha=*/120, /*Segments=*/16, KForeground);
+			World, AimAnchorPos, /*Radius=*/10.f,
+			FComposableCameraViewportDebugColors::CompositionFramingAim(),
+			/*Alpha=*/120, /*Segments=*/16, KForeground, TEXT("CompositionFraming aim"));
 	}
 
 	// Smaller white spheres at each tracked Target's pivot. Useful for
@@ -550,8 +552,9 @@ void UComposableCameraCompositionFramingNode::DrawNodeDebug(UWorld* World, bool 
 		if (T.Target.ResolveWorldPoint(Pivot))
 		{
 			FComposableCameraViewportDebug::DrawSolidDebugSphere(
-				World, Pivot, /*Radius=*/6.f, FColor::White,
-				/*Alpha=*/100, /*Segments=*/12, KForeground);
+				World, Pivot, /*Radius=*/6.f,
+				FComposableCameraViewportDebugColors::CompositionFramingTarget(),
+				/*Alpha=*/100, /*Segments=*/12, KForeground, TEXT("CompositionFraming target"));
 		}
 	}
 }

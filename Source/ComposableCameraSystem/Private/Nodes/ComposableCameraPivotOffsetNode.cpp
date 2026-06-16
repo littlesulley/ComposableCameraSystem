@@ -98,8 +98,8 @@ void UComposableCameraPivotOffsetNode::DrawNodeDebug(UWorld* World, bool /*bView
 	// Pivot is out at the character / world target. Never sits on top of
 	// the camera, so the occlusion gate doesn't apply here.
 	FComposableCameraViewportDebug::DrawSolidDebugSphere(
-		World, LastComputedPivot, /*Radius=*/10.f, FColor::Yellow,
-		/*Alpha=*/100, /*Segments=*/12, /*DepthPriority=*/0);
+		World, LastComputedPivot, /*Radius=*/10.f, FComposableCameraViewportDebugColors::PivotOffset(),
+		/*Alpha=*/100, /*Segments=*/12, /*DepthPriority=*/0, TEXT("PivotOffset"));
 }
 #endif
 

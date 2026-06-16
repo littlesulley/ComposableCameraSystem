@@ -413,7 +413,7 @@ void UComposableCameraSpiralNode::DrawNodeDebug(UWorld* World, bool /*bViewerIsO
 	// rarely coincides with the camera's own position, so no F8 gate is
 	// needed; same reasoning as SplineNode's polyline.
 
-	const FColor SpiralColor(255, 150, 60);  // warm orange, distinct from SplineNode violet and PivotOffset yellow
+	const FColor SpiralColor = FComposableCameraViewportDebugColors::SpiralNode();
 
 	// Sample the helical path across [0,1] normalized time. Each sample is an
 	// O(1) direct read of the three curves; no integration, no dependence on
@@ -446,8 +446,8 @@ void UComposableCameraSpiralNode::DrawNodeDebug(UWorld* World, bool /*bViewerIsO
 	// Small sphere at the effective pivot, so the reader can see where the
 	// spiral is anchored (post PivotOffset).
 	FComposableCameraViewportDebug::DrawSolidDebugSphere(
-		World, DebugEffectivePivot, /*Radius=*/8.f, FColor::Yellow,
-		/*Alpha=*/120, /*Segments=*/12, /*DepthPriority=*/0);
+		World, DebugEffectivePivot, /*Radius=*/8.f, FComposableCameraViewportDebugColors::SpiralPivot(),
+		/*Alpha=*/120, /*Segments=*/12, /*DepthPriority=*/0, TEXT("Spiral pivot"));
 
 	// Short line along the rotation axis at the pivot, so the axis is unambiguous.
 	DrawDebugLine(World, DebugEffectivePivot, DebugEffectivePivot + DebugAxis * 40.f,
@@ -457,6 +457,6 @@ void UComposableCameraSpiralNode::DrawNodeDebug(UWorld* World, bool /*bViewerIsO
 	// Highlighted sphere at the current evaluation position.
 	FComposableCameraViewportDebug::DrawSolidDebugSphere(
 		World, DebugCurrentPosition, /*Radius=*/9.f, SpiralColor,
-		/*Alpha=*/160, /*Segments=*/12, /*DepthPriority=*/0);
+		/*Alpha=*/160, /*Segments=*/12, /*DepthPriority=*/0, TEXT("Spiral"));
 }
 #endif

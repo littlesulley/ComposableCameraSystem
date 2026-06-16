@@ -320,14 +320,15 @@ void UComposableCameraLockOnAimPointNode::DrawNodeDebug(UWorld* World, bool bVie
 		&& !FComposableCameraViewportDebug::ShouldShowAllNodeGizmos()) { return; }
 
 	constexpr uint8 KForeground = 1;
+	const FColor AimPointColor = FComposableCameraViewportDebugColors::LockOnAimPoint();
 	FComposableCameraViewportDebug::DrawSolidDebugSphere(
-		World, LastOutputPivotPosition, /*Radius=*/8.f, FColor(80, 160, 255),
-		/*Alpha=*/100, /*Segments=*/12, KForeground);
+		World, LastOutputPivotPosition, /*Radius=*/8.f, AimPointColor,
+		/*Alpha=*/100, /*Segments=*/12, KForeground, TEXT("LockOnAimPoint"));
 
 	if (bViewerIsOutsideCamera && bLastAppliedCorrection)
 	{
 		DrawDebugLine(World, LastRawAimPosition, LastOutputPivotPosition,
-			FColor(80, 160, 255), /*bPersistentLines=*/false, /*LifeTime=*/-1.f, KForeground, /*Thickness=*/0.f);
+			AimPointColor, /*bPersistentLines=*/false, /*LifeTime=*/-1.f, KForeground, /*Thickness=*/0.f);
 	}
 }
 #endif

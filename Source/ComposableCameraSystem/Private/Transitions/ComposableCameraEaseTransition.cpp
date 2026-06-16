@@ -51,7 +51,7 @@ void UComposableCameraEaseTransition::DrawTransitionDebug(UWorld* World, bool bV
 
 	// Burnt orange. Reads as "easing", also distinct from the
 	// RelativeFixedPose node's orange (which sits on a different subsystem).
-	static const FColor AccentColor { 255, 160, 80 };
+	const FColor AccentColor = FComposableCameraViewportDebugColors::TransitionEase();
 
 	DrawStandardTransitionDebug(World, bViewerIsOutsideCamera, AccentColor);
 

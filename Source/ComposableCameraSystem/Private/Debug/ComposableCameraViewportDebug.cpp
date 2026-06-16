@@ -32,6 +32,43 @@ bool FComposableCameraViewportDebug::ShouldShowAllTransitionGizmos()
 	return false;
 }
 #endif
+
+TConstArrayView<FComposableCameraViewportDebugLegendEntry> FComposableCameraViewportDebug::GetLegendEntries()
+{
+	static const FComposableCameraViewportDebugLegendEntry Entries[] = {
+		{ TEXT("Linear"),             FComposableCameraViewportDebugColors::TransitionLinear(),                 TEXT("CCS.Debug.Viewport.Transitions.Linear"),             true },
+		{ TEXT("Smooth"),             FComposableCameraViewportDebugColors::TransitionSmooth(),                 TEXT("CCS.Debug.Viewport.Transitions.Smooth"),             true },
+		{ TEXT("Ease"),               FComposableCameraViewportDebugColors::TransitionEase(),                   TEXT("CCS.Debug.Viewport.Transitions.Ease"),               true },
+		{ TEXT("Cubic"),              FComposableCameraViewportDebugColors::TransitionCubic(),                  TEXT("CCS.Debug.Viewport.Transitions.Cubic"),              true },
+		{ TEXT("Inertialized"),       FComposableCameraViewportDebugColors::TransitionInertialized(),          TEXT("CCS.Debug.Viewport.Transitions.Inertialized"),       true },
+		{ TEXT("Cylindrical"),        FComposableCameraViewportDebugColors::TransitionCylindrical(),           TEXT("CCS.Debug.Viewport.Transitions.Cylindrical"),        true },
+		{ TEXT("Spline (trans.)"),    FComposableCameraViewportDebugColors::TransitionSpline(),                 TEXT("CCS.Debug.Viewport.Transitions.Spline"),             true },
+		{ TEXT("PathGuided"),         FComposableCameraViewportDebugColors::TransitionPathGuided(),             TEXT("CCS.Debug.Viewport.Transitions.PathGuided"),         true },
+		{ TEXT("DynamicDeocclusion"), FComposableCameraViewportDebugColors::TransitionDynamicDeocclusion(),    TEXT("CCS.Debug.Viewport.Transitions.DynamicDeocclusion"), true },
+		{ TEXT("CompositionPres."),   FComposableCameraViewportDebugColors::TransitionCompositionPreserving(),  TEXT("CCS.Debug.Viewport.Transitions.CompositionPreserving"), true },
+
+		{ TEXT("PivotOffset"),             FComposableCameraViewportDebugColors::PivotOffset(),                 TEXT("CCS.Debug.Viewport.PivotOffset"),             false },
+		{ TEXT("LockOnAimPoint"),          FComposableCameraViewportDebugColors::LockOnAimPoint(),              TEXT("CCS.Debug.Viewport.LockOnAimPoint"),          false },
+		{ TEXT("PivotDamping"),            FComposableCameraViewportDebugColors::PivotDamping(),                TEXT("CCS.Debug.Viewport.PivotDamping"),            false },
+		{ TEXT("LookAt"),                  FComposableCameraViewportDebugColors::LookAt(),                      TEXT("CCS.Debug.Viewport.LookAt"),                  false },
+		{ TEXT("CollisionPush"),           FComposableCameraViewportDebugColors::CollisionPushClear(),          TEXT("CCS.Debug.Viewport.CollisionPush"),           false },
+		{ TEXT("OcclusionFade"),           FComposableCameraViewportDebugColors::OcclusionFadeSweep(),          TEXT("CCS.Debug.Viewport.OcclusionFade"),           false },
+		{ TEXT("VolumeConstraint"),        FComposableCameraViewportDebugColors::VolumeConstraintClear(),       TEXT("CCS.Debug.Viewport.VolumeConstraint"),        false },
+		{ TEXT("FocusPull"),               FComposableCameraViewportDebugColors::FocusPull(),                   TEXT("CCS.Debug.Viewport.FocusPull"),               false },
+		{ TEXT("HitchcockZoom"),           FComposableCameraViewportDebugColors::HitchcockZoom(),               TEXT("CCS.Debug.Viewport.HitchcockZoom"),           false },
+		{ TEXT("Spline (node)"),           FComposableCameraViewportDebugColors::SplineNode(),                  TEXT("CCS.Debug.Viewport.Spline"),                  false },
+		{ TEXT("Spiral"),                  FComposableCameraViewportDebugColors::SpiralNode(),                  TEXT("CCS.Debug.Viewport.Spiral"),                  false },
+		{ TEXT("ReceivePivotActor"),       FComposableCameraViewportDebugColors::ReceivePivotActor(),           TEXT("CCS.Debug.Viewport.ReceivePivotActor"),       false },
+		{ TEXT("RelativeFixedPose"),       FComposableCameraViewportDebugColors::RelativeFixedPose(),           TEXT("CCS.Debug.Viewport.RelativeFixedPose"),       false },
+		{ TEXT("ScreenSpacePivot"),        FComposableCameraViewportDebugColors::ScreenSpacePivot(),            TEXT("CCS.Debug.Viewport.ScreenSpacePivot"),        false },
+		{ TEXT("ScreenSpaceConstr."),      FComposableCameraViewportDebugColors::ScreenSpaceConstraints(),      TEXT("CCS.Debug.Viewport.ScreenSpaceConstraints"),  false },
+		{ TEXT("PivotLookAhead"),          FComposableCameraViewportDebugColors::PivotLookAhead(),              TEXT("CCS.Debug.Viewport.PivotLookAhead"),          false },
+		{ TEXT("CompositionFrame place"),  FComposableCameraViewportDebugColors::CompositionFramingPlacement(), TEXT("CCS.Debug.Viewport.CompositionFraming"),      false },
+		{ TEXT("CompositionFrame aim"),    FComposableCameraViewportDebugColors::CompositionFramingAim(),       TEXT("CCS.Debug.Viewport.CompositionFraming"),      false },
+		{ TEXT("CompositionFrame target"), FComposableCameraViewportDebugColors::CompositionFramingTarget(),    TEXT("CCS.Debug.Viewport.CompositionFraming"),      false },
+	};
+	return TConstArrayView<FComposableCameraViewportDebugLegendEntry>(Entries, UE_ARRAY_COUNT(Entries));
+}
 // ---------------------------------------------------------------------
 // Viewport 3D debug. Private implementation.
 //
@@ -330,6 +367,11 @@ bool FComposableCameraViewportDebug::ShouldShowAllTransitionGizmos()
 	return GAllTransitionGizmosThisFrame;
 }
 
+float FComposableCameraViewportDebug::GetSphereLabelDurationSeconds()
+{
+	return 0.f;
+}
+
 void FComposableCameraViewportDebug::DrawSolidDebugSphere(
 	UWorld* World,
 	const FVector& Center,
@@ -337,7 +379,8 @@ void FComposableCameraViewportDebug::DrawSolidDebugSphere(
 	const FColor& Color,
 	uint8 Alpha,
 	int32 Segments,
-	uint8 DepthPriority)
+	uint8 DepthPriority,
+	const TCHAR* Label)
 {
 	if (!World)  { return; }
 	if (Radius <= 0.f) { return; }
@@ -385,5 +428,13 @@ void FComposableCameraViewportDebug::DrawSolidDebugSphere(
 		/*Segments=*/Segments, Final,
 		/*bPersistentLines=*/false, /*LifeTime=*/-1.f,
 		/*DepthPriority=*/DepthPriority, /*Thickness=*/0.f);
+
+	if (Label && Label[0] != TCHAR('\0'))
+	{
+		const FVector LabelLocation = Center + FVector(0.f, 0.f, Radius + 8.f);
+		DrawDebugString(World, LabelLocation, FString(Label), nullptr,
+			FColor(Color.R, Color.G, Color.B, 255),
+			/*Duration=*/GetSphereLabelDurationSeconds(), /*bDrawShadow=*/true, /*FontScale=*/1.f);
+	}
 }
 #endif

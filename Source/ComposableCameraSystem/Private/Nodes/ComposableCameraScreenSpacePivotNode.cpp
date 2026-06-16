@@ -419,8 +419,8 @@ void UComposableCameraScreenSpacePivotNode::DrawNodeDebug(UWorld* World, bool /*
 	constexpr uint8 KForeground = 1;
 	const FVector Pivot = GetCurrentPivot();
 	FComposableCameraViewportDebug::DrawSolidDebugSphere(
-		World, Pivot, /*Radius=*/8.f, FColor(80, 200, 180),
-		/*Alpha=*/100, /*Segments=*/12, KForeground);
+		World, Pivot, /*Radius=*/8.f, FComposableCameraViewportDebugColors::ScreenSpacePivot(),
+		/*Alpha=*/100, /*Segments=*/12, KForeground, TEXT("ScreenSpacePivot"));
 }
 
 namespace

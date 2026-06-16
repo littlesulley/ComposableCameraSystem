@@ -1,5 +1,80 @@
 # Bug Log
 
+## 2026-06-16 - Viewport sphere labels stayed at stale positions
+
+- Symptom: viewport debug labels appeared after the sphere label pass, but the
+  text stayed at its first generated world position instead of following the
+  moving sphere.
+- Trigger / repro: enable `CCS.Debug.Viewport` plus any moving node gizmo such
+  as LookAt, ScreenSpacePivot, CollisionPush, or a transition marker. Move the
+  target / camera; the sphere updates, while the label remains behind.
+- Why it happens: `DrawDebugString` stores text through `AHUD::AddDebugText`.
+  The sphere line primitive is redrawn every frame, but the label was submitted
+  with persistent duration.
+- Root cause: `DrawSolidDebugSphere` used `DrawDebugString(...,
+  Duration=-1.f)` for labels, so HUD debug text kept the original absolute
+  location instead of expiring and being replaced at the next frame's location.
+- Touched files:
+  - `Source/ComposableCameraSystem/Public/Debug/ComposableCameraViewportDebug.h`
+  - `Source/ComposableCameraSystem/Private/Debug/ComposableCameraViewportDebug.cpp`
+  - `Source/ComposableCameraSystem/Private/Tests/ComposableCameraBugFixTests.cpp`
+  - `Docs/DesignDoc.md`
+  - `Docs/TechDoc.md`
+  - `Docs/BugLog.md`
+- Fix: expose `GetSphereLabelDurationSeconds()`, use its frame-local `0.f`
+  lifetime for sphere labels, and document that labels must not be persistent.
+- Regression-test name:
+  `System.Engine.ComposableCameraSystem.Debug.ViewportSphereLabels.UseFrameLifetime`.
+- Test blocker: automation test added, but project rules prohibit Codex from
+  invoking Unreal Editor automation or UBT from shell. User must compile and
+  run it from Rider / Visual Studio / Unreal Editor.
+- Avoid next time: when a viewport gizmo draws every tick, any attached text
+  must expire every tick too. Do not use persistent HUD debug text for moving
+  world markers.
+- Possible conflicts: `FComposableCameraViewportDebug` gained another public
+  helper in the runtime header. Header/API change means full editor restart is
+  safer than Live Coding.
+
+## 2026-06-16 - Viewport Legend colors drifted from 3D sphere colors
+
+- Symptom: the debug panel's bottom Legend could show a color that did not
+  match the matching 3D sphere, and dense sphere overlays were hard to map back
+  to nodes.
+- Trigger / repro: enable `CCS.Debug.Viewport`, enable node gizmos such as
+  `CCS.Debug.Viewport.LookAt`, `CCS.Debug.Viewport.CollisionPush`, or
+  `CCS.Debug.Viewport.Spline`, then compare the panel Legend swatch with the
+  drawn sphere. Enable several node gizmos together to see unlabeled spheres
+  pile up.
+- Why it happens: the Legend owned a duplicated static color table while node
+  and transition draw sites owned separate hard-coded `FColor` values.
+- Root cause: no shared debug palette / legend metadata existed, so values such
+  as LookAt cyan vs. blue and Spline violet values could drift silently.
+- Touched files:
+  - `Source/ComposableCameraSystem/Public/Debug/ComposableCameraViewportDebug.h`
+  - `Source/ComposableCameraSystem/Private/Debug/ComposableCameraViewportDebug.cpp`
+  - `Source/ComposableCameraSystem/Private/Debug/ComposableCameraDebugPanel.cpp`
+  - `Source/ComposableCameraSystem/Private/Nodes/*`
+  - `Source/ComposableCameraSystem/Private/Transitions/*`
+  - `Source/ComposableCameraSystem/Private/Tests/ComposableCameraBugFixTests.cpp`
+  - `Docs/DesignDoc.md`
+  - `Docs/TechDoc.md`
+  - `Docs/BugLog.md`
+- Fix: add `FComposableCameraViewportDebugColors` and
+  `FComposableCameraViewportDebug::GetLegendEntries()`, wire the Legend and 3D
+  debug draw sites to the shared palette, and add optional text labels to
+  `DrawSolidDebugSphere` call sites.
+- Regression-test name:
+  `System.Engine.ComposableCameraSystem.Debug.ViewportLegend.UsesSharedGizmoColors`.
+- Test blocker: automation test added, but project rules prohibit Codex from
+  invoking Unreal Editor automation or UBT from shell. User must compile and
+  run it from Rider / Visual Studio / Unreal Editor.
+- Avoid next time: never add a viewport gizmo color only inside a draw site or
+  only inside the Legend. Add it to `FComposableCameraViewportDebugColors` and
+  expose it through `GetLegendEntries()` when it needs a panel row.
+- Possible conflicts: `DrawSolidDebugSphere` gained an optional `Label`
+  parameter in a public runtime header. Header/API change means full editor
+  restart is safer than Live Coding.
+
 ## 2026-06-16 - NodeGraphSync test local Candidate variables shadow each other
 
 - Symptom: `ComposableCameraSystemEditor` compile fails with

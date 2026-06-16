@@ -118,8 +118,8 @@ void UComposableCameraReceivePivotActorNode::DrawNodeDebug(UWorld* World, bool /
 		return; // no valid anchor to draw
 	}
 	FComposableCameraViewportDebug::DrawSolidDebugSphere(
-		World, PivotPos, /*Radius=*/9.f, FColor::White,
-		/*Alpha=*/100, /*Segments=*/12, KForeground);
+		World, PivotPos, /*Radius=*/9.f, FComposableCameraViewportDebugColors::ReceivePivotActor(),
+		/*Alpha=*/100, /*Segments=*/12, KForeground, TEXT("ReceivePivotActor"));
 }
 #endif
 

@@ -516,11 +516,11 @@ void UComposableCameraOcclusionFadeNode::DrawNodeDebug(UWorld* World, bool bView
 	//    length; see TechDoc Section 3.20.2 "view-aligned lines".
 	if (bFadeOccluders && bDebugSweepSubmittedThisTick)
 	{
-		const FColor SweepColor(255, 80, 80);  // red
+		const FColor SweepColor = FComposableCameraViewportDebugColors::OcclusionFadeSweep();
 
 		FComposableCameraViewportDebug::DrawSolidDebugSphere(
 			World, DebugSweepEnd, /*Radius=*/FMath::Max(OcclusionSphereRadius, 4.f),
-			SweepColor, /*Alpha=*/80, /*Segments=*/12, /*DepthPriority=*/0);
+			SweepColor, /*Alpha=*/80, /*Segments=*/12, /*DepthPriority=*/0, TEXT("OcclusionFade sweep"));
 
 		if (bViewerIsOutsideCamera)
 		{
@@ -534,10 +534,10 @@ void UComposableCameraOcclusionFadeNode::DrawNodeDebug(UWorld* World, bool bView
 	// around the camera, not a line, so it reads from either viewpoint.
 	if (bFadeNearbyActors)
 	{
-		const FColor ProximityColor(80, 200, 255);  // cyan
+		const FColor ProximityColor = FComposableCameraViewportDebugColors::OcclusionFadeProximity();
 		FComposableCameraViewportDebug::DrawSolidDebugSphere(
 			World, LastCameraPosition, FMath::Max(ProximityRadius, 4.f),
-			ProximityColor, /*Alpha=*/50, /*Segments=*/16, /*DepthPriority=*/0);
+			ProximityColor, /*Alpha=*/50, /*Segments=*/16, /*DepthPriority=*/0, TEXT("OcclusionFade proximity"));
 	}
 }
 #endif

@@ -135,7 +135,7 @@ void UComposableCameraCylindricalTransition::DrawTransitionDebug(UWorld* World, 
 
 	// Aqua. Vivid enough to stand out against the curved path, separate
 	// from LookAt's pure cyan.
-	static const FColor AccentColor { 100, 230, 200 };
+	const FColor AccentColor = FComposableCameraViewportDebugColors::TransitionCylindrical();
 
 	DrawStandardTransitionDebug(World, bViewerIsOutsideCamera, AccentColor);
 

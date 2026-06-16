@@ -146,7 +146,7 @@ void UComposableCameraCompositionPreservingTransition::DrawTransitionDebug(
 	if (CVarShowCompositionPreservingTransitionGizmo.GetValueOnGameThread() == 0
 		&& !FComposableCameraViewportDebug::ShouldShowAllTransitionGizmos()) { return; }
 
-	static const FColor AccentColor { 80, 220, 210 };
+	const FColor AccentColor = FComposableCameraViewportDebugColors::TransitionCompositionPreserving();
 	DrawStandardTransitionDebug(World, bViewerIsOutsideCamera, AccentColor);
 
 	AActor* Subject = ResolveSubjectActor();

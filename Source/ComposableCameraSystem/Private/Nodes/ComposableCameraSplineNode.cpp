@@ -390,7 +390,7 @@ void UComposableCameraSplineNode::DrawNodeDebug(UWorld* World, bool /*bViewerIsO
 	const float TotalLength = SplineInterface->GetSplineLength();
 	if (TotalLength <= SMALL_NUMBER) { return; }
 
-	const FColor SplineColor(170, 120, 255); // violet, distinct from every other gizmo hue
+	const FColor SplineColor = FComposableCameraViewportDebugColors::SplineNode();
 	FVector PrevPoint = SplineInterface->GetWorldSpacePositionByDistanceOnSpline(0.f);
 	for (int32 i = 1; i <= SampleCount; ++i)
 	{
@@ -408,7 +408,7 @@ void UComposableCameraSplineNode::DrawNodeDebug(UWorld* World, bool /*bViewerIsO
 		FComposableCameraViewportDebug::DrawSolidDebugSphere(
 			World, OwningCamera->GetCameraPose().Position,
 			/*Radius=*/9.f, SplineColor,
-			/*Alpha=*/120, /*Segments=*/12, /*DepthPriority=*/0);
+			/*Alpha=*/120, /*Segments=*/12, /*DepthPriority=*/0, TEXT("Spline"));
 	}
 }
 #endif

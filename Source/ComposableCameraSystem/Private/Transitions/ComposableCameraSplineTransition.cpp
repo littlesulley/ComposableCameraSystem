@@ -320,7 +320,7 @@ void UComposableCameraSplineTransition::DrawTransitionDebug(UWorld* World, bool 
 	// Sky-blue accent for this transition type. Same blue family as the
 	// target-pose marker (which is blue) but noticeably lighter so the
 	// progress sphere is still distinguishable against the target sphere.
-	static const FColor AccentColor { 140, 200, 255 };
+	const FColor AccentColor = FComposableCameraViewportDebugColors::TransitionSpline();
 
 	// Standard source/target/progress draw first.
 	DrawStandardTransitionDebug(World, bViewerIsOutsideCamera, AccentColor);
@@ -343,4 +343,3 @@ void UComposableCameraSplineTransition::DrawTransitionDebug(UWorld* World, bool 
 	}
 }
 #endif // !UE_BUILD_SHIPPING
-

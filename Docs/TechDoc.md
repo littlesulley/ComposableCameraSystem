@@ -387,6 +387,15 @@ Runtime debug:
 - runtime panel and pose history panel.
 - `CCS.Dump.*`.
 - viewport debug draw CVars.
+- viewport gizmo colors live in `FComposableCameraViewportDebugColors`; the
+  panel Legend reads `FComposableCameraViewportDebug::GetLegendEntries()` so
+  swatches and 3D markers share one source of truth.
+- `FComposableCameraViewportDebug::DrawSolidDebugSphere` accepts an optional
+  short `Label`. Node draw calls should pass the node name, or `Node role` when
+  one node draws multiple spheres. Keep labels literal and compact; they are
+  debug-only world-space text, not user UI. Labels use
+  `GetSphereLabelDurationSeconds() == 0.f`; do not make them persistent, or HUD
+  debug text will remain at stale world positions while the sphere moves.
 
 Editor debug:
 

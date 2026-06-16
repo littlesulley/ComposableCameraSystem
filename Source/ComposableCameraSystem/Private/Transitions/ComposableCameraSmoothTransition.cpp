@@ -56,7 +56,7 @@ void UComposableCameraSmoothTransition::DrawTransitionDebug(UWorld* World, bool 
 		&& !FComposableCameraViewportDebug::ShouldShowAllTransitionGizmos()) { return; }
 
 	// Gold accent. Warm, rich, distinct from Linear's neutral grey.
-	static const FColor AccentColor { 255, 220, 100 };
+	const FColor AccentColor = FComposableCameraViewportDebugColors::TransitionSmooth();
 
 	DrawStandardTransitionDebug(World, bViewerIsOutsideCamera, AccentColor);
 

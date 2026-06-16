@@ -162,7 +162,7 @@ void UComposableCameraInertializedTransition::DrawTransitionDebug(UWorld* World,
 
 	// Hot pink. Strongly distinct accent because inertialization's overshoot
 	// is the most visually interesting thing the debug draw reveals.
-	static const FColor AccentColor { 255, 100, 200 };
+	const FColor AccentColor = FComposableCameraViewportDebugColors::TransitionInertialized();
 
 	DrawStandardTransitionDebug(World, bViewerIsOutsideCamera, AccentColor);
 

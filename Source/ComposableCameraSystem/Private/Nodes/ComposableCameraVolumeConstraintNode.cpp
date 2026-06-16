@@ -295,7 +295,9 @@ void UComposableCameraVolumeConstraintNode::DrawNodeDebug(UWorld* World, bool /*
 	// Green wireframe when the camera is happily inside; red when we had to
 	// clamp this tick. Volume edges sit out in the world around the player,
 	// not at the camera itself, no F8 gate needed.
-	const FColor VolumeColor = DebugIsClamping ? FColor(255, 90, 90) : FColor(90, 255, 120);
+	const FColor VolumeColor = DebugIsClamping
+		? FComposableCameraViewportDebugColors::VolumeConstraintClamping()
+		: FComposableCameraViewportDebugColors::VolumeConstraintClear();
 
 	switch (DebugResolvedVolume.Shape)
 	{
@@ -323,7 +325,7 @@ void UComposableCameraVolumeConstraintNode::DrawNodeDebug(UWorld* World, bool /*
 	{
 		FComposableCameraViewportDebug::DrawSolidDebugSphere(
 			World, DebugClampedPosition, /*Radius=*/8.f, VolumeColor,
-			/*Alpha=*/160, /*Segments=*/12, /*DepthPriority=*/0);
+			/*Alpha=*/160, /*Segments=*/12, /*DepthPriority=*/0, TEXT("VolumeConstraint clamp"));
 	}
 }
 #endif

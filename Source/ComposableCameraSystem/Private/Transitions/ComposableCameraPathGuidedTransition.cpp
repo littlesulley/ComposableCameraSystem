@@ -463,7 +463,7 @@ void UComposableCameraPathGuidedTransition::DrawTransitionDebug(UWorld* World, b
 
 	// Coral accent. Warm but clearly distinct from Ease orange and
 	// DynamicDeocclusion red.
-	static const FColor AccentColor { 255, 130, 130 };
+	const FColor AccentColor = FComposableCameraViewportDebugColors::TransitionPathGuided();
 
 	DrawStandardTransitionDebug(World, bViewerIsOutsideCamera, AccentColor);
 

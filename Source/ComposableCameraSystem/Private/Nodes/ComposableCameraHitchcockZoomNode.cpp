@@ -458,17 +458,17 @@ void UComposableCameraHitchcockZoomNode::DrawNodeDebug(UWorld* World, bool bView
 		&& !FComposableCameraViewportDebug::ShouldShowAllNodeGizmos()) { return; }
 	if (!bDebugDrivenThisTick) { return; }
 
-	const FColor HitchcockColor(180, 80, 220);  // purple
+	const FColor HitchcockColor = FComposableCameraViewportDebugColors::HitchcockZoom();
 
 	// Sphere at the target point. The "lock subject".
 	FComposableCameraViewportDebug::DrawSolidDebugSphere(
 		World, DebugTargetPoint, /*Radius=*/8.f, HitchcockColor,
-		/*Alpha=*/160, /*Segments=*/12, /*DepthPriority=*/0);
+		/*Alpha=*/160, /*Segments=*/12, /*DepthPriority=*/0, TEXT("HitchcockZoom target"));
 
 	// Sphere at the current camera position. The "dolly endpoint".
 	FComposableCameraViewportDebug::DrawSolidDebugSphere(
 		World, DebugCameraPosition, /*Radius=*/8.f, HitchcockColor,
-		/*Alpha=*/120, /*Segments=*/12, /*DepthPriority=*/0);
+		/*Alpha=*/120, /*Segments=*/12, /*DepthPriority=*/0, TEXT("HitchcockZoom camera"));
 
 	if (bViewerIsOutsideCamera)
 	{

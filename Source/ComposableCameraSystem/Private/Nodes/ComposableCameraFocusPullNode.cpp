@@ -348,14 +348,14 @@ void UComposableCameraFocusPullNode::DrawNodeDebug(UWorld* World, bool bViewerIs
 		&& !FComposableCameraViewportDebug::ShouldShowAllNodeGizmos()) { return; }
 	if (!bDebugWasDrivenThisTick) { return; }
 
-	const FColor FocusColor(255, 200, 60);  // amber
+	const FColor FocusColor = FComposableCameraViewportDebugColors::FocusPull();
 
 	// Small sphere at the resolved target point (the "what we're focused
 	// on" marker). Always visible; it lives out in the world, not at the
 	// camera. Matches CollisionPush's pivot-sphere pattern.
 	FComposableCameraViewportDebug::DrawSolidDebugSphere(
 		World, DebugTargetPoint, /*Radius=*/8.f, FocusColor,
-		/*Alpha=*/160, /*Segments=*/12, /*DepthPriority=*/0);
+		/*Alpha=*/160, /*Segments=*/12, /*DepthPriority=*/0, TEXT("FocusPull"));
 
 	// Translucent plane at the current focus distance, perpendicular to
 	// the camera's forward vector. Answers "where on the view axis is DoF
