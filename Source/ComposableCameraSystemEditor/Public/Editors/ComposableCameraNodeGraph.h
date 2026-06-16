@@ -254,13 +254,10 @@ private:
 	void SyncPhase_RebuildExecutionChain(const UComposableCameraStartGraphNode* StartNode);
 
 	/** Compute analogue of step 6: rebuild OwningTypeAsset->ComputeExecutionOrder
-	 * by walking from BeginPlayStartNode->ExecOut. The compute chain is
-	 * compute-nodes-only in v1 - variable Set interleave is not supported, so
-	 * there is no FullExecChain-style parallel array for compute, just the
-	 * flat int32 ExecutionOrder. The walk terminates when it runs out of exec
-	 * wires, hits a non-compute node, or revisits a compute node (cycle
-	 * guard). Each traversed node's NodeIndex (which indexes
-	 * ComputeNodeTemplates, not NodeTemplates) is appended in order. */
+	 * and ComputeFullExecChain by walking from BeginPlayStartNode->ExecOut.
+	 * Compute nodes contribute to both arrays; Set-variable nodes contribute
+	 * only to ComputeFullExecChain, preserving their exact graph-node GUID so
+	 * save/load can restore interleaved exec wires. */
 	void SyncPhase_RebuildComputeExecutionChain(const UComposableCameraBeginPlayStartGraphNode* BeginPlayStartNode);
 
 	/** Sync Step 6b (numbered after exec for parity with the original step
@@ -298,7 +295,7 @@ private:
 	// Mirror image of the Sync phases. Each one creates or wires a piece of
 	// the live graph from the durable asset state. The orchestrator owns the
 	// CreatedGraphNodes array (parallel to NodeTemplates by index) and the
-	// VariableGuidToGraphNode lookup, and threads them through the phases.
+	// variable-node lookups, and threads them through the phases.
 
 	/** Rebuild Step 1: drain every existing UEdGraphNode from this graph via
 	 * RemoveNode. Snapshots Nodes into a local array first so the iteration
@@ -375,13 +372,15 @@ private:
 	 * position, and Value-pin wires to the appropriate chain's nodes. Uses
 	 * each connection's bIsComputeChain flag to choose between
 	 * CreatedGraphNodes (camera chain) and CreatedComputeGraphNodes (compute
-	 * chain) for endpoint lookup. Also populates the VariableGuid ->
-	 * graph-node lookup so phases 7/7b can wire SetVariable exec entries by
-	 * GUID without rescanning. Variable nodes whose GUID can't be resolved
-	 * are still added to the graph but excluded from the lookup. */
+	 * chain) for endpoint lookup. Also populates exact NodeGuid -> graph-node
+	 * and legacy VariableGuid -> Set-node lookups so phases 7/7b can wire
+	 * SetVariable exec entries without confusing same-variable Get nodes.
+	 * Variable nodes whose GUID can't be resolved are still added to the graph
+	 * but excluded from the legacy lookup. */
 	void RebuildPhase_RestoreVariableGraphNodes(const TArray<UComposableCameraNodeGraphNode*>& CreatedGraphNodes,
 		const TArray<UComposableCameraNodeGraphNode*>& CreatedComputeGraphNodes,
-		TMap<FGuid, UComposableCameraVariableGraphNode*>& OutVariableGuidToGraphNode);
+		TMap<FGuid, UComposableCameraVariableGraphNode*>& OutVariableNodeGuidToGraphNode,
+		TMap<FGuid, UComposableCameraVariableGraphNode*>& OutVariableGuidToSetGraphNode);
 
 	/** Rebuild Step 7: replay the execution chain. Prefers
 	 * OwningTypeAsset->FullExecChain (which interleaves camera nodes and Set
@@ -392,7 +391,8 @@ private:
 	void RebuildPhase_RestoreExecutionChain(UComposableCameraStartGraphNode* StartNode,
 		UComposableCameraOutputGraphNode* OutputNode,
 		const TArray<UComposableCameraNodeGraphNode*>& CreatedGraphNodes,
-		const TMap<FGuid, UComposableCameraVariableGraphNode*>& VariableGuidToGraphNode);
+		const TMap<FGuid, UComposableCameraVariableGraphNode*>& VariableNodeGuidToGraphNode,
+		const TMap<FGuid, UComposableCameraVariableGraphNode*>& VariableGuidToSetGraphNode);
 
 	/** Compute analogue of step 7: replay the compute execution chain.
 	 * Prefers OwningTypeAsset->ComputeFullExecChain (which interleaves
@@ -402,7 +402,8 @@ private:
 	 * Out-of-range indices are silently skipped. */
 	void RebuildPhase_RestoreComputeExecutionChain(UComposableCameraBeginPlayStartGraphNode* BeginPlayStartNode,
 		const TArray<UComposableCameraNodeGraphNode*>& CreatedComputeGraphNodes,
-		const TMap<FGuid, UComposableCameraVariableGraphNode*>& VariableGuidToGraphNode);
+		const TMap<FGuid, UComposableCameraVariableGraphNode*>& VariableNodeGuidToGraphNode,
+		const TMap<FGuid, UComposableCameraVariableGraphNode*>& VariableGuidToSetGraphNode);
 };
 
 /**

@@ -82,6 +82,8 @@ Editor graph edit
        -> Connections
        -> ExecutionOrder
        -> FullExecChain
+       -> ComputeExecutionOrder
+       -> ComputeFullExecChain
        -> VariableNodes
        -> editor positions
 
@@ -173,6 +175,9 @@ Editor responsibilities:
 - graph nodes for get/set variable.
 - DataTable row string conversion metadata.
 - stable sync/rebuild for variable nodes and connections.
+- exec-chain `SetVariable` entries must preserve the exact variable graph-node
+  GUID; variable GUID alone is not enough because multiple Get/Set nodes can
+  point at the same variable.
 - generated K2 pins for activation nodes.
 
 Removed system:

@@ -1,5 +1,69 @@
 # Bug Log
 
+## 2026-06-16 - NodeGraphSync test local Candidate variables shadow each other
+
+- Symptom: `ComposableCameraSystemEditor` compile fails with
+  `C4456: declaration of 'Candidate' hides previous local declaration` in
+  `ComposableCameraNodeGraphSyncTests.cpp`.
+- Trigger / repro: compile after adding
+  `ComposableCameraSystem.Editor.NodeGraphSync.BeginPlaySetVariableExecRoundTripWithGetNode`.
+- Why it happens: MSVC treats reused local names inside the same `if / else if`
+  chain as shadowing, and the project treats that warning as an error.
+- Root cause: the new test used the generic local name `Candidate` for three
+  different cast variables in one control-flow chain.
+- Touched files:
+  - `Source/ComposableCameraSystemEditor/Private/Tests/ComposableCameraNodeGraphSyncTests.cpp`
+  - `Docs/BugLog.md`
+- Fix: rename the locals to `BeginPlayCandidate`, `VariableCandidate`, and
+  `GraphNodeCandidate`.
+- Regression-test name: `ComposableCameraSystemEditor IDE compile`.
+- Test blocker: no focused automation test can catch a C++ warning-as-error
+  without compiling the module, and project rules prohibit Codex from invoking
+  UBT / IDE compilation from shell. User must compile in Rider or Visual Studio.
+- Avoid next time: avoid broad reused local names in chained `if / else if`
+  declarations; use role-specific names, especially in test scans over mixed
+  graph-node types.
+- Possible conflicts: none expected; only test local variable names changed.
+
+## 2026-06-16 - BeginPlay Set-variable exec wires break after editor reopen
+
+- Symptom: BeginPlay compute-chain exec wires that pass through a variable
+  `Set` node can disappear after closing and reopening the engine.
+- Trigger / repro: create a BeginPlay chain such as `BeginPlay -> Begin Play:
+  Position Between Actors -> Set PivotPosition -> Begin Play: Set Rotation`,
+  and also keep a same-variable `Get PivotPosition` node elsewhere in the
+  graph. Save, close, and reopen the editor.
+- Why it happens: `ComputeFullExecChain` serialized a `SetVariable` step by
+  variable GUID only. During `RebuildFromTypeAsset`, variable graph nodes were
+  also looked up by variable GUID only.
+- Root cause: one runtime variable can have multiple graph nodes. A same-variable
+  `Get` node could overwrite the GUID lookup used to restore the `Set` node's
+  exec pins, so the rebuild tried to find exec pins on the wrong graph node and
+  skipped the links.
+- Touched files:
+  - `Source/ComposableCameraSystem/Public/Nodes/ComposableCameraNodePinTypes.h`
+  - `Source/ComposableCameraSystemEditor/Public/Editors/ComposableCameraNodeGraph.h`
+  - `Source/ComposableCameraSystemEditor/Private/Editors/ComposableCameraNodeGraph.cpp`
+  - `Source/ComposableCameraSystemEditor/Private/Tests/ComposableCameraNodeGraphSyncTests.cpp`
+  - `Docs/EditorDesignDoc.md`
+  - `Docs/TechDoc.md`
+  - `Docs/BugLog.md`
+- Fix: `FComposableCameraExecEntry` now stores the exact variable graph-node
+  GUID for `SetVariable` entries. Graph rebuild resolves Set exec wires by node
+  GUID first, then falls back to a Set-only variable GUID lookup for old assets.
+- Regression-test name:
+  `ComposableCameraSystem.Editor.NodeGraphSync.BeginPlaySetVariableExecRoundTripWithGetNode`.
+- Test blocker: automation test added, but project rules prohibit Codex from
+  invoking Unreal Editor automation from shell. User must compile and run the
+  test from Rider / Visual Studio / Unreal Editor.
+- Avoid next time: whenever serialized graph state can contain several nodes
+  for one runtime object, persist graph-node identity separately from runtime
+  object identity.
+- Possible conflicts: this adds one reflected field to
+  `FComposableCameraExecEntry`, so the editor needs a full restart. Runtime
+  dispatch still uses variable name / slot data; the new GUID is editor rebuild
+  metadata.
+
 ## 2026-06-16 - SetRotation RotationOffset applied pitch in world space
 
 - Symptom: `SetRotation` / `Compute: Set Rotation` `RotationOffset` produced

@@ -170,6 +170,8 @@ Compute nodes derive from `UComposableCameraComputeNodeBase`.
 Rules:
 
 - Run on the camera BeginPlay/initialization chain.
+- Editor sync serializes the BeginPlay exec path into `ComputeFullExecChain`,
+  with `ComputeExecutionOrder` kept as a compute-node-only projection.
 - Concrete compute node display names use `Begin Play:` as the editor-facing
   prefix so they stay distinct from per-frame camera nodes without implying
   they tick every frame.
@@ -681,6 +683,11 @@ For this project:
 - Header/reflection/module changes require full editor restart, not Live Coding.
 - Docs-only changes do not need a compile, but a non-trivial code-adjacent doc
   sweep should still be reviewed against source.
+- For graph exec-chain serialization, variable identity and variable-node
+  identity are different. `SetVariable` entries must store the exact graph
+  node GUID and use variable GUID only as legacy fallback; otherwise a
+  same-variable Get node can capture the rebuild lookup and drop exec wires
+  after save/reopen.
 
 ## 23. Maintenance Rule
 
