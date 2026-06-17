@@ -31,12 +31,22 @@ public:
 		const FColor& Color,
 		uint8 Alpha,
 		uint8 DepthPriority,
-		bool bSolid) = 0;
+		bool bSolid,
+		int32 Segments = 12,
+		float Thickness = 0.0f) = 0;
 
 	virtual void DrawBox(
 		const FVector& Center,
 		const FVector& Extent,
 		const FQuat& Rotation,
+		const FColor& Color,
+		uint8 DepthPriority,
+		float Thickness = 0.0f) = 0;
+
+	virtual void DrawPlane(
+		const FVector& Center,
+		const FVector& Normal,
+		const FVector2D& Extents,
 		const FColor& Color,
 		uint8 DepthPriority) = 0;
 
@@ -71,12 +81,22 @@ public:
 		const FColor& Color,
 		uint8 Alpha,
 		uint8 DepthPriority,
-		bool bSolid) override;
+		bool bSolid,
+		int32 Segments = 12,
+		float Thickness = 0.0f) override;
 
 	virtual void DrawBox(
 		const FVector& Center,
 		const FVector& Extent,
 		const FQuat& Rotation,
+		const FColor& Color,
+		uint8 DepthPriority,
+		float Thickness = 0.0f) override;
+
+	virtual void DrawPlane(
+		const FVector& Center,
+		const FVector& Normal,
+		const FVector2D& Extents,
 		const FColor& Color,
 		uint8 DepthPriority) override;
 
@@ -114,12 +134,22 @@ public:
 		const FColor& Color,
 		uint8 Alpha,
 		uint8 DepthPriority,
-		bool bSolid) override;
+		bool bSolid,
+		int32 Segments = 12,
+		float Thickness = 0.0f) override;
 
 	virtual void DrawBox(
 		const FVector& Center,
 		const FVector& Extent,
 		const FQuat& Rotation,
+		const FColor& Color,
+		uint8 DepthPriority,
+		float Thickness = 0.0f) override;
+
+	virtual void DrawPlane(
+		const FVector& Center,
+		const FVector& Normal,
+		const FVector2D& Extents,
 		const FColor& Color,
 		uint8 DepthPriority) override;
 

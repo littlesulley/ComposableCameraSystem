@@ -369,10 +369,10 @@ void UComposableCameraFocusPullNode::DrawNodeDebug(FComposableCameraDebugDrawSin
 		// keeps it as a hint, not a wall.
 		FColor PlaneColor = FocusColor;
 		PlaneColor.A = 40;
-		Draw.DrawBox(
+		Draw.DrawPlane(
 			FocusPlaneCenter,
-			FVector(0.5f, 60.f, 60.f),
-			DebugCameraRotation.Quaternion(),
+			CameraForward.GetSafeNormal(),
+			FVector2D(60.f, 60.f),
 			PlaneColor,
 			/*DepthPriority=*/0);
 	}

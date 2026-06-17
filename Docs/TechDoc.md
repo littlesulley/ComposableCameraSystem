@@ -391,14 +391,19 @@ Runtime debug:
   panel Legend reads `FComposableCameraViewportDebug::GetLegendEntries()` so
   swatches and 3D markers share one source of truth.
 - `FComposableCameraDebugDrawSink` is the primitive emission adapter. The live
-  sink sends line / point / sphere / box / frustum calls to Unreal debug draw
-  helpers and keeps solid spheres routed through
+  sink sends line / point / sphere / box / plane / frustum calls to Unreal debug
+  draw helpers and keeps solid spheres routed through
   `FComposableCameraViewportDebug::DrawSolidDebugSphere` in non-shipping builds.
   The capture sink records the same calls as `FComposableCameraDebugPrimitive`
   values for rewind trace serialization. It is a transient C++ adapter; its
-  non-owning `UWorld*` is not a `UPROPERTY`. For `CameraFrustum` primitives,
-  `Radius` stores FOV, `Size` stores ortho width, and `Thickness` stores debug
-  frustum scale.
+  non-owning `UWorld*` is not a `UPROPERTY`. Sphere / solid-sphere primitives
+  store segment count in `Size` and line thickness in `Thickness`; box
+  primitives store line thickness in `Thickness`; plane primitives store center
+  in `A`, normalized normal in `B`, and two-dimensional extents in `Extent.X/Y`.
+  For `CameraFrustum` primitives only, `Radius` stores FOV, `Size` stores ortho
+  width, and `Thickness` stores debug frustum scale. Raw default constructed
+  primitives are not valid frustums; use `MakeCameraFrustum`, whose scale
+  default is 1.0.
 - `FComposableCameraViewportDebug::DrawSolidDebugSphere` accepts an optional
   short `Label` for direct live-only draw sites. Sink-routed node / transition
   gizmos do not carry labels; rewind primitives currently have no text payload.

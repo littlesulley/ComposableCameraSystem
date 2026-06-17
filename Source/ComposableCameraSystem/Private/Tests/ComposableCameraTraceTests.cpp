@@ -26,7 +26,9 @@ bool FComposableCameraTracePrimitiveRoundTripTest::RunTest(const FString& Parame
 		FColor::Green,
 		96,
 		SDPG_Foreground,
-		/*bSolid=*/true));
+		/*bSolid=*/true,
+		/*InSegments=*/16,
+		/*InThickness=*/1.5f));
 	Input.Add(FComposableCameraDebugPrimitive::MakePoint(
 		FVector(7.0, 8.0, 9.0),
 		FColor::Blue,
@@ -37,7 +39,8 @@ bool FComposableCameraTracePrimitiveRoundTripTest::RunTest(const FString& Parame
 		FVector(14.0, 15.0, 16.0),
 		FQuat::Identity,
 		FColor::White,
-		SDPG_Foreground));
+		SDPG_Foreground,
+		/*InThickness=*/2.5f));
 
 	FComposableCameraTracePose FrustumPose;
 	FrustumPose.Location = FVector(100.0, 200.0, 300.0);
@@ -49,6 +52,12 @@ bool FComposableCameraTracePrimitiveRoundTripTest::RunTest(const FString& Parame
 		FColor::Yellow,
 		SDPG_Foreground,
 		/*InScale=*/50.0f));
+	Input.Add(FComposableCameraDebugPrimitive::MakePlane(
+		FVector(21.0, 22.0, 23.0),
+		FVector::UpVector,
+		FVector2D(60.0f, 70.0f),
+		FColor::Cyan,
+		SDPG_World));
 
 	TArray<uint8> Bytes;
 	UTEST_TRUE("Serialize primitives", SerializeComposableCameraDebugPrimitives(Input, Bytes));
@@ -56,7 +65,7 @@ bool FComposableCameraTracePrimitiveRoundTripTest::RunTest(const FString& Parame
 	TArray<FComposableCameraDebugPrimitive> Output;
 	UTEST_TRUE("Deserialize primitives", DeserializeComposableCameraDebugPrimitives(Bytes, Output));
 
-	UTEST_EQUAL("Primitive count survives", Output.Num(), 5);
+	UTEST_EQUAL("Primitive count survives", Output.Num(), 6);
 	UTEST_EQUAL("First primitive kind survives", Output[0].Kind, EComposableCameraDebugPrimitiveKind::Line);
 	UTEST_EQUAL("Line start survives", Output[0].A, FVector(1.0, 2.0, 3.0));
 	UTEST_EQUAL("Line end survives", Output[0].B, FVector(4.0, 5.0, 6.0));
@@ -64,18 +73,25 @@ bool FComposableCameraTracePrimitiveRoundTripTest::RunTest(const FString& Parame
 	UTEST_EQUAL("Sphere kind survives", Output[1].Kind, EComposableCameraDebugPrimitiveKind::SolidSphere);
 	UTEST_EQUAL("Sphere radius survives", Output[1].Radius, 42.0f);
 	UTEST_EQUAL("Sphere alpha survives", Output[1].Alpha, static_cast<uint8>(96));
+	UTEST_EQUAL("Sphere segments survive", Output[1].Size, 16.0f);
+	UTEST_EQUAL("Sphere thickness survives", Output[1].Thickness, 1.5f);
 	UTEST_EQUAL("Point kind survives", Output[2].Kind, EComposableCameraDebugPrimitiveKind::Point);
 	UTEST_EQUAL("Point location survives", Output[2].A, FVector(7.0, 8.0, 9.0));
 	UTEST_EQUAL("Point size survives", Output[2].Size, 3.0f);
 	UTEST_EQUAL("Box kind survives", Output[3].Kind, EComposableCameraDebugPrimitiveKind::Box);
 	UTEST_EQUAL("Box center survives", Output[3].A, FVector(11.0, 12.0, 13.0));
 	UTEST_EQUAL("Box extent survives", Output[3].Extent, FVector(14.0, 15.0, 16.0));
+	UTEST_EQUAL("Box thickness survives", Output[3].Thickness, 2.5f);
 	UTEST_EQUAL("Frustum kind survives", Output[4].Kind, EComposableCameraDebugPrimitiveKind::CameraFrustum);
 	UTEST_EQUAL("Frustum location survives", Output[4].A, FVector(100.0, 200.0, 300.0));
 	UTEST_EQUAL("Frustum rotation survives", Output[4].Rotation, FRotator(10.0, 20.0, 30.0));
 	UTEST_EQUAL("Frustum FOV survives", Output[4].Radius, 55.0f);
 	UTEST_EQUAL("Frustum ortho width survives", Output[4].Size, 777.0f);
 	UTEST_EQUAL("Frustum scale survives", Output[4].Thickness, 50.0f);
+	UTEST_EQUAL("Plane kind survives", Output[5].Kind, EComposableCameraDebugPrimitiveKind::Plane);
+	UTEST_EQUAL("Plane center survives", Output[5].A, FVector(21.0, 22.0, 23.0));
+	UTEST_EQUAL("Plane normal survives", Output[5].B, FVector::UpVector);
+	UTEST_EQUAL("Plane extents survive", Output[5].Extent, FVector(60.0f, 70.0f, 0.0f));
 
 	return true;
 }
@@ -255,17 +271,21 @@ bool FComposableCameraTraceCaptureSinkRecordsPrimitivesTest::RunTest(const FStri
 
 	Sink.DrawLine(FVector::ZeroVector, FVector(1.0, 0.0, 0.0), FColor::Blue, 3.0f, SDPG_Foreground);
 	Sink.DrawPoint(FVector(2.0, 0.0, 0.0), FColor::Red, 5.0f, SDPG_World);
-	Sink.DrawSphere(FVector(3.0, 0.0, 0.0), 9.0f, FColor::Green, 80, SDPG_Foreground, true);
+	Sink.DrawSphere(FVector(3.0, 0.0, 0.0), 9.0f, FColor::Green, 80, SDPG_Foreground, true, 16, 2.0f);
 	FComposableCameraTracePose FrustumPose;
 	FrustumPose.Location = FVector(4.0, 0.0, 0.0);
 	Sink.DrawCameraFrustum(FrustumPose, FColor::Yellow, SDPG_Foreground, 12.0f);
+	Sink.DrawPlane(FVector(5.0, 0.0, 0.0), FVector::ForwardVector, FVector2D(10.0f, 20.0f), FColor::Cyan, SDPG_World);
 
-	UTEST_EQUAL("Capture sink recorded four primitives", Primitives.Num(), 4);
+	UTEST_EQUAL("Capture sink recorded five primitives", Primitives.Num(), 5);
 	UTEST_EQUAL("First primitive line", Primitives[0].Kind, EComposableCameraDebugPrimitiveKind::Line);
 	UTEST_EQUAL("Second primitive point", Primitives[1].Kind, EComposableCameraDebugPrimitiveKind::Point);
 	UTEST_EQUAL("Third primitive solid sphere", Primitives[2].Kind, EComposableCameraDebugPrimitiveKind::SolidSphere);
+	UTEST_EQUAL("Capture sink preserved sphere segments", Primitives[2].Size, 16.0f);
+	UTEST_EQUAL("Capture sink preserved sphere thickness", Primitives[2].Thickness, 2.0f);
 	UTEST_EQUAL("Fourth primitive frustum", Primitives[3].Kind, EComposableCameraDebugPrimitiveKind::CameraFrustum);
 	UTEST_EQUAL("Capture sink preserved frustum scale", Primitives[3].Thickness, 12.0f);
+	UTEST_EQUAL("Fifth primitive plane", Primitives[4].Kind, EComposableCameraDebugPrimitiveKind::Plane);
 	return true;
 }
 

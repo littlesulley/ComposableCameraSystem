@@ -31,6 +31,7 @@ enum class EComposableCameraDebugPrimitiveKind : uint8
 	SolidSphere,
 	Box,
 	CameraFrustum,
+	Plane,
 };
 
 struct COMPOSABLECAMERASYSTEM_API FComposableCameraTracePose
@@ -81,20 +82,30 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraDebugPrimitive
 		const FColor& InColor,
 		uint8 InAlpha,
 		uint8 InDepthPriority,
-		bool bSolid);
+		bool bSolid,
+		int32 InSegments = 12,
+		float InThickness = 0.0f);
 
 	static FComposableCameraDebugPrimitive MakeBox(
 		const FVector& Center,
 		const FVector& InExtent,
 		const FQuat& InRotation,
 		const FColor& InColor,
-		uint8 InDepthPriority);
+		uint8 InDepthPriority,
+		float InThickness = 0.0f);
 
 	static FComposableCameraDebugPrimitive MakeCameraFrustum(
 		const FComposableCameraTracePose& Pose,
 		const FColor& InColor,
 		uint8 InDepthPriority,
 		float InScale = 1.0f);
+
+	static FComposableCameraDebugPrimitive MakePlane(
+		const FVector& Center,
+		const FVector& Normal,
+		const FVector2D& Extents,
+		const FColor& InColor,
+		uint8 InDepthPriority);
 
 	void Serialize(FArchive& Ar);
 };

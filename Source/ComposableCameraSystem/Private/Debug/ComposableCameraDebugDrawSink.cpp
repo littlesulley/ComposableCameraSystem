@@ -50,7 +50,9 @@ void FComposableCameraLiveDebugDrawSink::DrawSphere(
 	const FColor& Color,
 	uint8 Alpha,
 	uint8 DepthPriority,
-	bool bSolid)
+	bool bSolid,
+	int32 Segments,
+	float Thickness)
 {
 	if (!World)
 	{
@@ -60,7 +62,7 @@ void FComposableCameraLiveDebugDrawSink::DrawSphere(
 #if !UE_BUILD_SHIPPING
 	if (bSolid)
 	{
-		FComposableCameraViewportDebug::DrawSolidDebugSphere(World, Center, Radius, Color, Alpha, 12, DepthPriority);
+		FComposableCameraViewportDebug::DrawSolidDebugSphere(World, Center, Radius, Color, Alpha, Segments, DepthPriority);
 		return;
 	}
 
@@ -68,11 +70,12 @@ void FComposableCameraLiveDebugDrawSink::DrawSphere(
 		World,
 		Center,
 		Radius,
-		12,
+		Segments,
 		FColor(Color.R, Color.G, Color.B, Alpha),
 		false,
 		-1.0f,
-		DepthPriority);
+		DepthPriority,
+		Thickness);
 #endif
 }
 
@@ -80,6 +83,24 @@ void FComposableCameraLiveDebugDrawSink::DrawBox(
 	const FVector& Center,
 	const FVector& Extent,
 	const FQuat& Rotation,
+	const FColor& Color,
+	uint8 DepthPriority,
+	float Thickness)
+{
+	if (!World)
+	{
+		return;
+	}
+
+#if !UE_BUILD_SHIPPING
+	DrawDebugBox(World, Center, Extent, Rotation, Color, false, -1.0f, DepthPriority, Thickness);
+#endif
+}
+
+void FComposableCameraLiveDebugDrawSink::DrawPlane(
+	const FVector& Center,
+	const FVector& Normal,
+	const FVector2D& Extents,
 	const FColor& Color,
 	uint8 DepthPriority)
 {
@@ -89,7 +110,13 @@ void FComposableCameraLiveDebugDrawSink::DrawBox(
 	}
 
 #if !UE_BUILD_SHIPPING
-	DrawDebugBox(World, Center, Extent, Rotation, Color, false, -1.0f, DepthPriority);
+	if (Normal.IsNearlyZero())
+	{
+		return;
+	}
+
+	const FPlane Plane(Center, Normal.GetSafeNormal());
+	DrawDebugSolidPlane(World, Plane, Center, Extents, Color, false, -1.0f, DepthPriority);
 #endif
 }
 
@@ -140,9 +167,11 @@ void FComposableCameraPrimitiveCaptureSink::DrawSphere(
 	const FColor& Color,
 	uint8 Alpha,
 	uint8 DepthPriority,
-	bool bSolid)
+	bool bSolid,
+	int32 Segments,
+	float Thickness)
 {
-	Primitives.Add(FComposableCameraDebugPrimitive::MakeSphere(Center, Radius, Color, Alpha, DepthPriority, bSolid));
+	Primitives.Add(FComposableCameraDebugPrimitive::MakeSphere(Center, Radius, Color, Alpha, DepthPriority, bSolid, Segments, Thickness));
 }
 
 void FComposableCameraPrimitiveCaptureSink::DrawBox(
@@ -150,9 +179,20 @@ void FComposableCameraPrimitiveCaptureSink::DrawBox(
 	const FVector& Extent,
 	const FQuat& Rotation,
 	const FColor& Color,
+	uint8 DepthPriority,
+	float Thickness)
+{
+	Primitives.Add(FComposableCameraDebugPrimitive::MakeBox(Center, Extent, Rotation, Color, DepthPriority, Thickness));
+}
+
+void FComposableCameraPrimitiveCaptureSink::DrawPlane(
+	const FVector& Center,
+	const FVector& Normal,
+	const FVector2D& Extents,
+	const FColor& Color,
 	uint8 DepthPriority)
 {
-	Primitives.Add(FComposableCameraDebugPrimitive::MakeBox(Center, Extent, Rotation, Color, DepthPriority));
+	Primitives.Add(FComposableCameraDebugPrimitive::MakePlane(Center, Normal, Extents, Color, DepthPriority));
 }
 
 void FComposableCameraPrimitiveCaptureSink::DrawCameraFrustum(

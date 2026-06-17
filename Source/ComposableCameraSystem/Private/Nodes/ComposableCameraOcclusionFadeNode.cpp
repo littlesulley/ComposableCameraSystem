@@ -536,7 +536,8 @@ void UComposableCameraOcclusionFadeNode::DrawNodeDebug(FComposableCameraDebugDra
 		const FColor ProximityColor = FComposableCameraViewportDebugColors::OcclusionFadeProximity();
 		Draw.DrawSphere(
 			LastCameraPosition, FMath::Max(ProximityRadius, 4.f),
-			ProximityColor, /*Alpha=*/50, /*DepthPriority=*/0, /*bSolid=*/true);
+			ProximityColor, /*Alpha=*/50, /*DepthPriority=*/0, /*bSolid=*/true,
+			/*Segments=*/16);
 	}
 }
 #endif

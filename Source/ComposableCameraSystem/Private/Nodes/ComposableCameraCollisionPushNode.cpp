@@ -462,7 +462,8 @@ void UComposableCameraCollisionPushNode::DrawNodeDebug(FComposableCameraDebugDra
 	{
 		Draw.DrawSphere(
 			LastTraceStart, static_cast<float>(TraceSphereRadius),
-			TraceColor, /*Alpha=*/90, KForeground, /*bSolid=*/true);
+			TraceColor, /*Alpha=*/90, KForeground, /*bSolid=*/true,
+			/*Segments=*/16);
 	}
 	else
 	{
@@ -489,7 +490,8 @@ void UComposableCameraCollisionPushNode::DrawNodeDebug(FComposableCameraDebugDra
 		Draw.DrawSphere(
 			LastSelfSphereCenter, static_cast<float>(SelfSphereRadius),
 			FComposableCameraViewportDebugColors::CollisionPushSelf(),
-			/*Alpha=*/60, KForeground, /*bSolid=*/true);
+			/*Alpha=*/60, KForeground, /*bSolid=*/true,
+			/*Segments=*/16);
 	}
 }
 #endif

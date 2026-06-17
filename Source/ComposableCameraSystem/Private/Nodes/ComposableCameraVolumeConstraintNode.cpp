@@ -306,13 +306,15 @@ void UComposableCameraVolumeConstraintNode::DrawNodeDebug(FComposableCameraDebug
 			DebugResolvedVolume.BoxExtents,
 			DebugResolvedVolume.Rotation.Quaternion(),
 			VolumeColor,
-			/*DepthPriority=*/0);
+			/*DepthPriority=*/0,
+			/*Thickness=*/1.5f);
 		break;
 
 	case EComposableCameraVolumeShape::Sphere:
 		Draw.DrawSphere(DebugResolvedVolume.Center,
 			DebugResolvedVolume.SphereRadius,
-			VolumeColor, VolumeColor.A, /*DepthPriority=*/0, /*bSolid=*/false);
+			VolumeColor, VolumeColor.A, /*DepthPriority=*/0, /*bSolid=*/false,
+			/*Segments=*/24, /*Thickness=*/1.5f);
 		break;
 	}
 

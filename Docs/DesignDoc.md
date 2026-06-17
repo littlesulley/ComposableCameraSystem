@@ -357,8 +357,13 @@ Debug primitive emission goes through a draw sink abstraction when it needs to
 target either live viewport drawing or rewind trace capture. The live sink
 adapts to `DrawDebug*` / `FComposableCameraViewportDebug`; the capture sink
 appends immutable `FComposableCameraDebugPrimitive` snapshots for trace writers.
-Camera-frustum primitives store FOV in `Radius`, ortho width in `Size`, and the
-debug frustum draw scale in `Thickness`.
+The primitive stream supports line, point, sphere / solid-sphere, box, plane,
+and camera-frustum records. Sphere records preserve optional segment count in
+`Size` and line thickness in `Thickness`; box records preserve line thickness
+in `Thickness`. For `CameraFrustum` records only, `Radius` stores FOV, `Size`
+stores ortho width, and `Thickness` stores debug frustum draw scale. Raw default
+constructed primitives are not valid frustums; the `MakeCameraFrustum` factory
+defaults scale to 1.0.
 
 ## 15. Hard Invariants
 

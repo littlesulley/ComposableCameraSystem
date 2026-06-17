@@ -532,7 +532,8 @@ void UComposableCameraCompositionFramingNode::DrawNodeDebug(FComposableCameraDeb
 		Draw.DrawSphere(
 			PlacementAnchorPos, /*Radius=*/12.f,
 			FComposableCameraViewportDebugColors::CompositionFramingPlacement(),
-			/*Alpha=*/120, KForeground, /*bSolid=*/true);
+			/*Alpha=*/120, KForeground, /*bSolid=*/true,
+			/*Segments=*/16);
 	}
 	FVector AimAnchorPos;
 	if (Shot.Aim.AimAnchor.ResolveWorldPosition(Shot.Targets, AimAnchorPos))
@@ -540,7 +541,8 @@ void UComposableCameraCompositionFramingNode::DrawNodeDebug(FComposableCameraDeb
 		Draw.DrawSphere(
 			AimAnchorPos, /*Radius=*/10.f,
 			FComposableCameraViewportDebugColors::CompositionFramingAim(),
-			/*Alpha=*/120, KForeground, /*bSolid=*/true);
+			/*Alpha=*/120, KForeground, /*bSolid=*/true,
+			/*Segments=*/16);
 	}
 
 	// Smaller white spheres at each tracked Target's pivot. Useful for

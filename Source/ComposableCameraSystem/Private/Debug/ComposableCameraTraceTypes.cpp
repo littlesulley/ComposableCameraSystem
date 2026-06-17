@@ -14,7 +14,7 @@ namespace
 
 	static bool IsValidComposableCameraDebugPrimitiveKind(uint8 Value)
 	{
-		return Value <= static_cast<uint8>(EComposableCameraDebugPrimitiveKind::CameraFrustum);
+		return Value <= static_cast<uint8>(EComposableCameraDebugPrimitiveKind::Plane);
 	}
 }
 
@@ -68,7 +68,9 @@ FComposableCameraDebugPrimitive FComposableCameraDebugPrimitive::MakeSphere(
 	const FColor& InColor,
 	uint8 InAlpha,
 	uint8 InDepthPriority,
-	bool bSolid)
+	bool bSolid,
+	int32 InSegments,
+	float InThickness)
 {
 	FComposableCameraDebugPrimitive Primitive;
 	Primitive.Kind = bSolid
@@ -76,6 +78,8 @@ FComposableCameraDebugPrimitive FComposableCameraDebugPrimitive::MakeSphere(
 		: EComposableCameraDebugPrimitiveKind::Sphere;
 	Primitive.A = Center;
 	Primitive.Radius = InRadius;
+	Primitive.Size = static_cast<float>(InSegments);
+	Primitive.Thickness = InThickness;
 	Primitive.Color = InColor;
 	Primitive.Alpha = InAlpha;
 	Primitive.DepthPriority = InDepthPriority;
@@ -87,7 +91,8 @@ FComposableCameraDebugPrimitive FComposableCameraDebugPrimitive::MakeBox(
 	const FVector& InExtent,
 	const FQuat& InRotation,
 	const FColor& InColor,
-	uint8 InDepthPriority)
+	uint8 InDepthPriority,
+	float InThickness)
 {
 	FComposableCameraDebugPrimitive Primitive;
 	Primitive.Kind = EComposableCameraDebugPrimitiveKind::Box;
@@ -95,6 +100,7 @@ FComposableCameraDebugPrimitive FComposableCameraDebugPrimitive::MakeBox(
 	Primitive.Extent = InExtent;
 	Primitive.Rotation = InRotation.Rotator();
 	Primitive.Color = InColor;
+	Primitive.Thickness = InThickness;
 	Primitive.DepthPriority = InDepthPriority;
 	return Primitive;
 }
@@ -112,6 +118,23 @@ FComposableCameraDebugPrimitive FComposableCameraDebugPrimitive::MakeCameraFrust
 	Primitive.Radius = Pose.FieldOfView;
 	Primitive.Size = Pose.OrthoWidth;
 	Primitive.Thickness = InScale;
+	Primitive.Color = InColor;
+	Primitive.DepthPriority = InDepthPriority;
+	return Primitive;
+}
+
+FComposableCameraDebugPrimitive FComposableCameraDebugPrimitive::MakePlane(
+	const FVector& Center,
+	const FVector& Normal,
+	const FVector2D& Extents,
+	const FColor& InColor,
+	uint8 InDepthPriority)
+{
+	FComposableCameraDebugPrimitive Primitive;
+	Primitive.Kind = EComposableCameraDebugPrimitiveKind::Plane;
+	Primitive.A = Center;
+	Primitive.B = Normal.GetSafeNormal();
+	Primitive.Extent = FVector(Extents.X, Extents.Y, 0.0f);
 	Primitive.Color = InColor;
 	Primitive.DepthPriority = InDepthPriority;
 	return Primitive;
