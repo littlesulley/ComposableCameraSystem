@@ -7,6 +7,7 @@
 #include "Kismet/KismetMathLibrary.h"
 
 #if !UE_BUILD_SHIPPING
+#include "Debug/ComposableCameraDebugDrawSink.h"
 #include "Debug/ComposableCameraViewportDebug.h"
 #include "DrawDebugHelpers.h"
 #include "HAL/IConsoleManager.h"
@@ -132,9 +133,8 @@ void UComposableCameraLookAtNode::OnTickNode_Implementation(float DeltaTime,
 }
 
 #if !UE_BUILD_SHIPPING
-void UComposableCameraLookAtNode::DrawNodeDebug(UWorld* World, bool bViewerIsOutsideCamera) const
+void UComposableCameraLookAtNode::DrawNodeDebug(FComposableCameraDebugDrawSink& Draw, bool bViewerIsOutsideCamera) const
 {
-	if (!World) { return; }
 	if (CVarShowLookAtGizmo.GetValueOnGameThread() == 0
 		&& !FComposableCameraViewportDebug::ShouldShowAllNodeGizmos()) { return; }
 	// Possessed play: target sphere only. A line from camera to target is
@@ -177,14 +177,12 @@ void UComposableCameraLookAtNode::DrawNodeDebug(UWorld* World, bool bViewerIsOut
 	// it, a target anchored on a bone socket would be occluded by the mesh.
 	constexpr uint8 KForeground = 1;
 	const FColor TargetColor = FComposableCameraViewportDebugColors::LookAt();
-	FComposableCameraViewportDebug::DrawSolidDebugSphere(
-		World, TargetPosition, /*Radius=*/7.5f, TargetColor,
-		/*Alpha=*/110, /*Segments=*/12, KForeground, TEXT("LookAt"));
+	Draw.DrawSphere(TargetPosition, /*Radius=*/7.5f, TargetColor,
+		/*Alpha=*/110, KForeground, /*bSolid=*/true);
 
 	if (bViewerIsOutsideCamera && OwningCamera)
 	{
-		DrawDebugLine(World, OwningCamera->GetCameraPose().Position, TargetPosition,
-			TargetColor, /*bPersistentLines=*/false, /*LifeTime=*/-1.f, KForeground, /*Thickness=*/0.f);
+		Draw.DrawLine(OwningCamera->GetCameraPose().Position, TargetPosition, TargetColor, /*Thickness=*/0.f, KForeground);
 	}
 }
 #endif

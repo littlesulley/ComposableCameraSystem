@@ -93,7 +93,8 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraDebugPrimitive
 	static FComposableCameraDebugPrimitive MakeCameraFrustum(
 		const FComposableCameraTracePose& Pose,
 		const FColor& InColor,
-		uint8 InDepthPriority);
+		uint8 InDepthPriority,
+		float InScale = 1.0f);
 
 	void Serialize(FArchive& Ar);
 };

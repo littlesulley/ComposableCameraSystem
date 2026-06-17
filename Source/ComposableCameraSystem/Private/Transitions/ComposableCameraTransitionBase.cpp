@@ -6,9 +6,8 @@
 #include "Core/ComposableCameraPlayerCameraManager.h"
 
 #if !UE_BUILD_SHIPPING
+#include "Debug/ComposableCameraDebugDrawSink.h"
 #include "Debug/ComposableCameraViewportDebug.h"
-#include "DrawDebugHelpers.h"
-#include "Engine/World.h"
 #include "SceneManagement.h"   // SDPG_Foreground
 #endif
 
@@ -154,10 +153,8 @@ void UComposableCameraTransitionBase::UpdateLockedRotationPathState(
 
 #if !UE_BUILD_SHIPPING
 void UComposableCameraTransitionBase::DrawStandardTransitionDebug(
-	UWorld* World, bool bViewerIsOutsideCamera, const FColor& AccentColor) const
+	FComposableCameraDebugDrawSink& Draw, bool bViewerIsOutsideCamera, const FColor& AccentColor) const
 {
-	if (!World) { return; }
-
 	// Color legend (fixed across every transition type):
 	//   Source->green . Where the blend is coming FROM this frame
 	//   Target->blue  . Where the blend is going TO this frame
@@ -179,7 +176,7 @@ void UComposableCameraTransitionBase::DrawStandardTransitionDebug(
 	const FVector TgtPos   = LastDebugTarget.Position;
 	const FVector BlendPos = LastDebugBlended.Position;
 
-	// Sphere markers. Solid translucent via DrawSolidDebugSphere so the
+	// Sphere markers. Solid translucent via the draw sink so the
 	// gizmo reads as a filled VOLUME rather than a busy wireframe. The
 	// source/target endpoint spheres stay subtle (alpha 100 = ~39 %)
 	// while the accent progress sphere is bumped up a touch (alpha 130)
@@ -187,15 +184,9 @@ void UComposableCameraTransitionBase::DrawStandardTransitionDebug(
 	// DepthPriority=SDPG_Foreground so the ball draws above scene
 	// geometry even when sitting inside a mesh (e.g. camera embedded
 	// in a character), same rule as the retired wireframe path.
-	FComposableCameraViewportDebug::DrawSolidDebugSphere(
-		World, SrcPos, /*Radius=*/7.5f, SourceColor,
-		/*Alpha=*/100, /*Segments=*/12, /*DepthPriority=*/SDPG_Foreground, TEXT("Transition source"));
-	FComposableCameraViewportDebug::DrawSolidDebugSphere(
-		World, TgtPos, 7.5f, TargetColor,
-		100, 12, SDPG_Foreground, TEXT("Transition target"));
-	FComposableCameraViewportDebug::DrawSolidDebugSphere(
-		World, BlendPos, 10.f, AccentColor,
-		/*Alpha=*/130, 12, SDPG_Foreground, TEXT("Transition progress"));
+	Draw.DrawSphere(SrcPos, /*Radius=*/7.5f, SourceColor, /*Alpha=*/100, /*DepthPriority=*/SDPG_Foreground, /*bSolid=*/true);
+	Draw.DrawSphere(TgtPos, 7.5f, TargetColor, 100, SDPG_Foreground, true);
+	Draw.DrawSphere(BlendPos, 10.f, AccentColor, /*Alpha=*/130, SDPG_Foreground, true);
 
 	// Frustums only outside possess. The blended frustum is already painted
 	// by the camera-level pass (AComposableCameraCameraBase::DrawCameraDebug
@@ -204,11 +195,17 @@ void UComposableCameraTransitionBase::DrawStandardTransitionDebug(
 	// plane even at half scale, so they're gated out.
 	if (bViewerIsOutsideCamera)
 	{
-		DrawDebugCamera(World, SrcPos, LastDebugSource.Rotation, LastDebugSource.FOVDegrees,
-			/*Scale=*/0.5f, SourceColor, /*bPersistent=*/false, /*LifeTime=*/-1.f,
-			/*DepthPriority=*/0);
-		DrawDebugCamera(World, TgtPos, LastDebugTarget.Rotation, LastDebugTarget.FOVDegrees,
-			0.5f, TargetColor, false, -1.f, 0);
+		FComposableCameraTracePose SourcePose;
+		SourcePose.Location = SrcPos;
+		SourcePose.Rotation = LastDebugSource.Rotation;
+		SourcePose.FieldOfView = LastDebugSource.FOVDegrees;
+		Draw.DrawCameraFrustum(SourcePose, SourceColor, /*DepthPriority=*/0, /*Scale=*/0.5f);
+
+		FComposableCameraTracePose TargetPose;
+		TargetPose.Location = TgtPos;
+		TargetPose.Rotation = LastDebugTarget.Rotation;
+		TargetPose.FieldOfView = LastDebugTarget.FOVDegrees;
+		Draw.DrawCameraFrustum(TargetPose, TargetColor, /*DepthPriority=*/0, /*Scale=*/0.5f);
 	}
 }
 #endif // !UE_BUILD_SHIPPING

@@ -178,7 +178,7 @@ public:
 	// source/target/progress markers in aqua accent. The curved path is
 	// not explicitly polylined. Users can read the curvature off the
 	// progress sphere's deviation from the white lerp baseline.
-	virtual void DrawTransitionDebug(UWorld* World, bool bViewerIsOutsideCamera) const override;
+	virtual void DrawTransitionDebug(FComposableCameraDebugDrawSink& Draw, bool bViewerIsOutsideCamera) const override;
 #endif
 
 public:

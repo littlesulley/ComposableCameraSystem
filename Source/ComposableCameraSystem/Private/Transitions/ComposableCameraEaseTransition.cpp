@@ -3,6 +3,7 @@
 #include "Transitions/ComposableCameraEaseTransition.h"
 
 #if !UE_BUILD_SHIPPING
+#include "Debug/ComposableCameraDebugDrawSink.h"
 #include "Debug/ComposableCameraViewportDebug.h"
 #include "DrawDebugHelpers.h"
 #include "Engine/World.h"
@@ -43,9 +44,8 @@ float UComposableCameraEaseTransition::GetBlendWeightAt(float NormalizedTime) co
 }
 
 #if !UE_BUILD_SHIPPING
-void UComposableCameraEaseTransition::DrawTransitionDebug(UWorld* World, bool bViewerIsOutsideCamera) const
+void UComposableCameraEaseTransition::DrawTransitionDebug(FComposableCameraDebugDrawSink& Draw, bool bViewerIsOutsideCamera) const
 {
-	if (!World) { return; }
 	if (CVarShowEaseTransitionGizmo.GetValueOnGameThread() == 0
 		&& !FComposableCameraViewportDebug::ShouldShowAllTransitionGizmos()) { return; }
 
@@ -53,11 +53,11 @@ void UComposableCameraEaseTransition::DrawTransitionDebug(UWorld* World, bool bV
 	// RelativeFixedPose node's orange (which sits on a different subsystem).
 	const FColor AccentColor = FComposableCameraViewportDebugColors::TransitionEase();
 
-	DrawStandardTransitionDebug(World, bViewerIsOutsideCamera, AccentColor);
+	DrawStandardTransitionDebug(Draw, bViewerIsOutsideCamera, AccentColor);
 
 	// Path is a straight line. Position lerps linearly in space. Only the
 	// ease-in-out timing curve (driven by Exp) differs from Linear.
-	DrawDebugLine(World, LastDebugSource.Position, LastDebugTarget.Position, AccentColor,
-		false, -1.f, SDPG_Foreground, /*Thickness=*/0.f);
+	Draw.DrawLine(LastDebugSource.Position, LastDebugTarget.Position, AccentColor,
+		/*Thickness=*/0.f, /*DepthPriority=*/SDPG_Foreground);
 }
 #endif

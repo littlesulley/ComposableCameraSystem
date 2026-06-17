@@ -8,6 +8,7 @@
 #include "Utils/ComposableCameraBlueprintLibrary.h"
 
 #if !UE_BUILD_SHIPPING
+#include "Debug/ComposableCameraDebugDrawSink.h"
 #include "Debug/ComposableCameraViewportDebug.h"
 #include "DrawDebugHelpers.h"
 #include "Engine/World.h"
@@ -311,9 +312,8 @@ FVector UComposableCameraSplineTransition::EvaluatePositionOnCurve(
 	return FMath::Lerp(StartPos, EndPos, t);
 }
 
-void UComposableCameraSplineTransition::DrawTransitionDebug(UWorld* World, bool bViewerIsOutsideCamera) const
+void UComposableCameraSplineTransition::DrawTransitionDebug(FComposableCameraDebugDrawSink& Draw, bool bViewerIsOutsideCamera) const
 {
-	if (!World) { return; }
 	if (CVarShowSplineTransitionGizmo.GetValueOnGameThread() == 0
 		&& !FComposableCameraViewportDebug::ShouldShowAllTransitionGizmos()) { return; }
 
@@ -323,7 +323,7 @@ void UComposableCameraSplineTransition::DrawTransitionDebug(UWorld* World, bool 
 	const FColor AccentColor = FComposableCameraViewportDebugColors::TransitionSpline();
 
 	// Standard source/target/progress draw first.
-	DrawStandardTransitionDebug(World, bViewerIsOutsideCamera, AccentColor);
+	DrawStandardTransitionDebug(Draw, bViewerIsOutsideCamera, AccentColor);
 
 	// Then the full authored curve - this is why SplineTransition warrants
 	// its own gizmo. Sampled 32 times; cheap (pure math, no allocation).
@@ -336,9 +336,8 @@ void UComposableCameraSplineTransition::DrawTransitionDebug(UWorld* World, bool 
 	{
 		const float t = static_cast<float>(i) / static_cast<float>(NumSamples);
 		const FVector NextPoint = EvaluatePositionOnCurve(t, StartPos, EndPos);
-		DrawDebugLine(World, PrevPoint, NextPoint, AccentColor,
-			/*bPersistent=*/false, /*LifeTime=*/-1.f,
-			/*DepthPriority=*/SDPG_Foreground, /*Thickness=*/1.f);
+		Draw.DrawLine(PrevPoint, NextPoint, AccentColor,
+			/*Thickness=*/1.f, /*DepthPriority=*/SDPG_Foreground);
 		PrevPoint = NextPoint;
 	}
 }

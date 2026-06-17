@@ -11,6 +11,7 @@
 #include "Kismet/KismetSystemLibrary.h"
 
 #if !UE_BUILD_SHIPPING
+#include "Debug/ComposableCameraDebugDrawSink.h"
 #include "Debug/ComposableCameraViewportDebug.h"
 #include "DrawDebugHelpers.h"
 #include "HAL/IConsoleManager.h"
@@ -374,9 +375,9 @@ void UComposableCameraSplineNode::UpdateCameraPoseByNURBSpline(FVector& OutPosit
 }
 
 #if !UE_BUILD_SHIPPING
-void UComposableCameraSplineNode::DrawNodeDebug(UWorld* World, bool /*bViewerIsOutsideCamera*/) const
+void UComposableCameraSplineNode::DrawNodeDebug(FComposableCameraDebugDrawSink& Draw, bool /*bViewerIsOutsideCamera*/) const
 {
-	if (!World || !SplineInterface) { return; }
+	if (!SplineInterface) { return; }
 	if (CVarShowSplineGizmo.GetValueOnGameThread() == 0
 		&& !FComposableCameraViewportDebug::ShouldShowAllNodeGizmos()) { return; }
 	// The spline polyline is laid out in the world where the camera travels;
@@ -396,8 +397,7 @@ void UComposableCameraSplineNode::DrawNodeDebug(UWorld* World, bool /*bViewerIsO
 	{
 		const float Distance = TotalLength * (static_cast<float>(i) / static_cast<float>(SampleCount));
 		const FVector NextPoint = SplineInterface->GetWorldSpacePositionByDistanceOnSpline(Distance);
-		DrawDebugLine(World, PrevPoint, NextPoint, SplineColor,
-			/*bPersistentLines=*/false, /*LifeTime=*/-1.f, /*DepthPriority=*/0, /*Thickness=*/1.5f);
+		Draw.DrawLine(PrevPoint, NextPoint, SplineColor, /*Thickness=*/1.5f, /*DepthPriority=*/0);
 		PrevPoint = NextPoint;
 	}
 
@@ -405,10 +405,10 @@ void UComposableCameraSplineNode::DrawNodeDebug(UWorld* World, bool /*bViewerIsO
 	// see where along the path evaluation currently is.
 	if (OwningCamera)
 	{
-		FComposableCameraViewportDebug::DrawSolidDebugSphere(
-			World, OwningCamera->GetCameraPose().Position,
+		Draw.DrawSphere(
+			OwningCamera->GetCameraPose().Position,
 			/*Radius=*/9.f, SplineColor,
-			/*Alpha=*/120, /*Segments=*/12, /*DepthPriority=*/0, TEXT("Spline"));
+			/*Alpha=*/120, /*DepthPriority=*/0, /*bSolid=*/true);
 	}
 }
 #endif

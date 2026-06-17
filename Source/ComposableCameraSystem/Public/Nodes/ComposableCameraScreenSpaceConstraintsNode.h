@@ -26,7 +26,7 @@ public:
 
 #if !UE_BUILD_SHIPPING
 	// 3D: pink sphere at the constrained actor's world position.
-	virtual void DrawNodeDebug(UWorld* World, bool bViewerIsOutsideCamera) const override;
+	virtual void DrawNodeDebug(FComposableCameraDebugDrawSink& Draw, bool bViewerIsOutsideCamera) const override;
 
 	// 2D: safe-zone rectangle + center marker + projected pivot marker on
 	// the HUD - same two-branch math as ScreenSpacePivotNode (handles both

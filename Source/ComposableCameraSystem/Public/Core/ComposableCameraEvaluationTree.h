@@ -11,6 +11,7 @@
 class UComposableCameraTransitionBase;
 class AComposableCameraCameraBase;
 class UComposableCameraDirector;
+class FComposableCameraDebugDrawSink;
 
 // Forward declaration: inner nodes hold TSharedPtr to tree nodes.
 struct FComposableCameraEvaluationTreeNode;
@@ -308,6 +309,7 @@ public:
 	 * Compiled out in shipping builds.
 	 */
 	void DrawTransitionsDebug(class UWorld* World, bool bViewerIsOutsideCamera) const;
+	void DrawTransitionsDebug(FComposableCameraDebugDrawSink& Draw, bool bViewerIsOutsideCamera) const;
 #endif
 
 	// UObject interface.
@@ -429,7 +431,7 @@ private:
 	 *  from drawing its gizmos twice per frame. */
 	static void DrawTransitionsNodeDebug(
 		const TSharedPtr<FComposableCameraEvaluationTreeNode>& Node,
-		class UWorld* World,
+		FComposableCameraDebugDrawSink& Draw,
 		bool bViewerIsOutsideCamera,
 		TSet<const FComposableCameraEvaluationTreeNode*>& VisitedNodes);
 #endif

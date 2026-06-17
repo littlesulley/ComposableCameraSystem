@@ -5,6 +5,7 @@
 #include "GameFramework/Actor.h"
 
 #if !UE_BUILD_SHIPPING
+#include "Debug/ComposableCameraDebugDrawSink.h"
 #include "Debug/ComposableCameraViewportDebug.h"
 #include "DrawDebugHelpers.h"
 #include "HAL/IConsoleManager.h"
@@ -313,22 +314,19 @@ void UComposableCameraLockOnAimPointNode::GetPinDeclarations_Implementation(
 }
 
 #if !UE_BUILD_SHIPPING
-void UComposableCameraLockOnAimPointNode::DrawNodeDebug(UWorld* World, bool bViewerIsOutsideCamera) const
+void UComposableCameraLockOnAimPointNode::DrawNodeDebug(FComposableCameraDebugDrawSink& Draw, bool bViewerIsOutsideCamera) const
 {
-	if (!World) { return; }
 	if (CVarShowLockOnAimPointGizmo.GetValueOnGameThread() == 0
 		&& !FComposableCameraViewportDebug::ShouldShowAllNodeGizmos()) { return; }
 
 	constexpr uint8 KForeground = 1;
 	const FColor AimPointColor = FComposableCameraViewportDebugColors::LockOnAimPoint();
-	FComposableCameraViewportDebug::DrawSolidDebugSphere(
-		World, LastOutputPivotPosition, /*Radius=*/8.f, AimPointColor,
-		/*Alpha=*/100, /*Segments=*/12, KForeground, TEXT("LockOnAimPoint"));
+	Draw.DrawSphere(LastOutputPivotPosition, /*Radius=*/8.f, AimPointColor,
+		/*Alpha=*/100, KForeground, /*bSolid=*/true);
 
 	if (bViewerIsOutsideCamera && bLastAppliedCorrection)
 	{
-		DrawDebugLine(World, LastRawAimPosition, LastOutputPivotPosition,
-			AimPointColor, /*bPersistentLines=*/false, /*LifeTime=*/-1.f, KForeground, /*Thickness=*/0.f);
+		Draw.DrawLine(LastRawAimPosition, LastOutputPivotPosition, AimPointColor, /*Thickness=*/0.f, KForeground);
 	}
 }
 #endif

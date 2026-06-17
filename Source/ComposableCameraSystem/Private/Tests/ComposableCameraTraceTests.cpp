@@ -47,7 +47,8 @@ bool FComposableCameraTracePrimitiveRoundTripTest::RunTest(const FString& Parame
 	Input.Add(FComposableCameraDebugPrimitive::MakeCameraFrustum(
 		FrustumPose,
 		FColor::Yellow,
-		SDPG_Foreground));
+		SDPG_Foreground,
+		/*InScale=*/50.0f));
 
 	TArray<uint8> Bytes;
 	UTEST_TRUE("Serialize primitives", SerializeComposableCameraDebugPrimitives(Input, Bytes));
@@ -74,6 +75,7 @@ bool FComposableCameraTracePrimitiveRoundTripTest::RunTest(const FString& Parame
 	UTEST_EQUAL("Frustum rotation survives", Output[4].Rotation, FRotator(10.0, 20.0, 30.0));
 	UTEST_EQUAL("Frustum FOV survives", Output[4].Radius, 55.0f);
 	UTEST_EQUAL("Frustum ortho width survives", Output[4].Size, 777.0f);
+	UTEST_EQUAL("Frustum scale survives", Output[4].Thickness, 50.0f);
 
 	return true;
 }
@@ -254,11 +256,16 @@ bool FComposableCameraTraceCaptureSinkRecordsPrimitivesTest::RunTest(const FStri
 	Sink.DrawLine(FVector::ZeroVector, FVector(1.0, 0.0, 0.0), FColor::Blue, 3.0f, SDPG_Foreground);
 	Sink.DrawPoint(FVector(2.0, 0.0, 0.0), FColor::Red, 5.0f, SDPG_World);
 	Sink.DrawSphere(FVector(3.0, 0.0, 0.0), 9.0f, FColor::Green, 80, SDPG_Foreground, true);
+	FComposableCameraTracePose FrustumPose;
+	FrustumPose.Location = FVector(4.0, 0.0, 0.0);
+	Sink.DrawCameraFrustum(FrustumPose, FColor::Yellow, SDPG_Foreground, 12.0f);
 
-	UTEST_EQUAL("Capture sink recorded three primitives", Primitives.Num(), 3);
+	UTEST_EQUAL("Capture sink recorded four primitives", Primitives.Num(), 4);
 	UTEST_EQUAL("First primitive line", Primitives[0].Kind, EComposableCameraDebugPrimitiveKind::Line);
 	UTEST_EQUAL("Second primitive point", Primitives[1].Kind, EComposableCameraDebugPrimitiveKind::Point);
 	UTEST_EQUAL("Third primitive solid sphere", Primitives[2].Kind, EComposableCameraDebugPrimitiveKind::SolidSphere);
+	UTEST_EQUAL("Fourth primitive frustum", Primitives[3].Kind, EComposableCameraDebugPrimitiveKind::CameraFrustum);
+	UTEST_EQUAL("Capture sink preserved frustum scale", Primitives[3].Thickness, 12.0f);
 	return true;
 }
 

@@ -8,6 +8,7 @@
 #include "GameFramework/Actor.h"
 
 #if !UE_BUILD_SHIPPING
+#include "Debug/ComposableCameraDebugDrawSink.h"
 #include "Debug/ComposableCameraViewportDebug.h"
 #include "DrawDebugHelpers.h"
 #include "HAL/IConsoleManager.h"
@@ -451,9 +452,8 @@ void UComposableCameraHitchcockZoomNode::GetPinDeclarations_Implementation(
 }
 
 #if !UE_BUILD_SHIPPING
-void UComposableCameraHitchcockZoomNode::DrawNodeDebug(UWorld* World, bool bViewerIsOutsideCamera) const
+void UComposableCameraHitchcockZoomNode::DrawNodeDebug(FComposableCameraDebugDrawSink& Draw, bool bViewerIsOutsideCamera) const
 {
-	if (!World) { return; }
 	if (CVarShowHitchcockZoomGizmo.GetValueOnGameThread() == 0
 		&& !FComposableCameraViewportDebug::ShouldShowAllNodeGizmos()) { return; }
 	if (!bDebugDrivenThisTick) { return; }
@@ -461,30 +461,29 @@ void UComposableCameraHitchcockZoomNode::DrawNodeDebug(UWorld* World, bool bView
 	const FColor HitchcockColor = FComposableCameraViewportDebugColors::HitchcockZoom();
 
 	// Sphere at the target point. The "lock subject".
-	FComposableCameraViewportDebug::DrawSolidDebugSphere(
-		World, DebugTargetPoint, /*Radius=*/8.f, HitchcockColor,
-		/*Alpha=*/160, /*Segments=*/12, /*DepthPriority=*/0, TEXT("HitchcockZoom target"));
+	Draw.DrawSphere(DebugTargetPoint, /*Radius=*/8.f, HitchcockColor,
+		/*Alpha=*/160, /*DepthPriority=*/0, /*bSolid=*/true);
 
 	// Sphere at the current camera position. The "dolly endpoint".
-	FComposableCameraViewportDebug::DrawSolidDebugSphere(
-		World, DebugCameraPosition, /*Radius=*/8.f, HitchcockColor,
-		/*Alpha=*/120, /*Segments=*/12, /*DepthPriority=*/0, TEXT("HitchcockZoom camera"));
+	Draw.DrawSphere(DebugCameraPosition, /*Radius=*/8.f, HitchcockColor,
+		/*Alpha=*/120, /*DepthPriority=*/0, /*bSolid=*/true);
 
 	if (bViewerIsOutsideCamera)
 	{
 		// Dolly axis. Line from target out to camera. View-aligned in
 		// possessed play, only useful from F8 / SIE (matches LookAt /
 		// CollisionPush / FocusPull precedent).
-		DrawDebugLine(World, DebugTargetPoint, DebugCameraPosition, HitchcockColor,
-			/*bPersistentLines=*/false, /*LifeTime=*/-1.f, /*DepthPriority=*/0, /*Thickness=*/1.0f);
+		Draw.DrawLine(DebugTargetPoint, DebugCameraPosition, HitchcockColor, /*Thickness=*/1.0f, /*DepthPriority=*/0);
 
 		// Small frustum at the current FOV. Makes the zoom-change visible
 		// from outside the camera. Aspect 16:9 is a cosmetic default; the
 		// subject-size lock is invariant to aspect anyway.
 		constexpr float FrustumScale = 50.f;
-		DrawDebugCamera(World, DebugCameraPosition, DebugCameraRotation,
-			static_cast<float>(DebugCurrentFOV), FrustumScale,
-			HitchcockColor, /*bPersistentLines=*/false, /*LifeTime=*/-1.f, /*DepthPriority=*/0);
+		FComposableCameraTracePose Pose;
+		Pose.Location = DebugCameraPosition;
+		Pose.Rotation = DebugCameraRotation;
+		Pose.FieldOfView = static_cast<float>(DebugCurrentFOV);
+		Draw.DrawCameraFrustum(Pose, HitchcockColor, /*DepthPriority=*/0, FrustumScale);
 	}
 }
 #endif

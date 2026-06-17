@@ -6,6 +6,7 @@
 #include "Kismet/KismetMathLibrary.h"
 
 #if !UE_BUILD_SHIPPING
+#include "Debug/ComposableCameraDebugDrawSink.h"
 #include "Debug/ComposableCameraViewportDebug.h"
 #include "DrawDebugHelpers.h"
 #include "HAL/IConsoleManager.h"
@@ -140,18 +141,16 @@ void UComposableCameraPivotDampingNode::OnTickNode_Implementation(float DeltaTim
 }
 
 #if !UE_BUILD_SHIPPING
-void UComposableCameraPivotDampingNode::DrawNodeDebug(UWorld* World, bool /*bViewerIsOutsideCamera*/) const
+void UComposableCameraPivotDampingNode::DrawNodeDebug(FComposableCameraDebugDrawSink& Draw, bool /*bViewerIsOutsideCamera*/) const
 {
-	if (!World) { return; }
 	if (CVarShowPivotDampingGizmo.GetValueOnGameThread() == 0
 		&& !FComposableCameraViewportDebug::ShouldShowAllNodeGizmos()) { return; }
 	// Damped pivot sits at the same character / world target location as the
 	// raw pivot. Not on the camera. Occlusion gate doesn't apply.
 	// Magenta to stay distinct from the green CollisionPush trace (same hue
 	// family would blur together when both nodes are enabled at once).
-	FComposableCameraViewportDebug::DrawSolidDebugSphere(
-		World, LastPivotPosition, /*Radius=*/10.f, FComposableCameraViewportDebugColors::PivotDamping(),
-		/*Alpha=*/100, /*Segments=*/12, /*DepthPriority=*/0, TEXT("PivotDamping"));
+	Draw.DrawSphere(LastPivotPosition, /*Radius=*/10.f, FComposableCameraViewportDebugColors::PivotDamping(),
+		/*Alpha=*/100, /*DepthPriority=*/0, /*bSolid=*/true);
 }
 #endif
 

@@ -7,6 +7,7 @@
 #include "Kismet/KismetMathLibrary.h"
 
 #if !UE_BUILD_SHIPPING
+#include "Debug/ComposableCameraDebugDrawSink.h"
 #include "Debug/ComposableCameraViewportDebug.h"
 #include "DrawDebugHelpers.h"
 #include "HAL/IConsoleManager.h"
@@ -86,9 +87,8 @@ void UComposableCameraRelativeFixedPoseNode::OnTickNode_Implementation(float Del
 }
 
 #if !UE_BUILD_SHIPPING
-void UComposableCameraRelativeFixedPoseNode::DrawNodeDebug(UWorld* World, bool /*bViewerIsOutsideCamera*/) const
+void UComposableCameraRelativeFixedPoseNode::DrawNodeDebug(FComposableCameraDebugDrawSink& Draw, bool /*bViewerIsOutsideCamera*/) const
 {
-	if (!World) { return; }
 	if (CVarShowRelativeFixedPoseGizmo.GetValueOnGameThread() == 0
 		&& !FComposableCameraViewportDebug::ShouldShowAllNodeGizmos()) { return; }
 
@@ -124,9 +124,8 @@ void UComposableCameraRelativeFixedPoseNode::DrawNodeDebug(UWorld* World, bool /
 
 	if (bHasOrigin)
 	{
-		FComposableCameraViewportDebug::DrawSolidDebugSphere(
-			World, OriginPos, /*Radius=*/8.f, FComposableCameraViewportDebugColors::RelativeFixedPose(),
-			/*Alpha=*/100, /*Segments=*/12, KForeground, TEXT("RelativeFixedPose"));
+		Draw.DrawSphere(OriginPos, /*Radius=*/8.f, FComposableCameraViewportDebugColors::RelativeFixedPose(),
+			/*Alpha=*/100, KForeground, /*bSolid=*/true);
 	}
 }
 #endif

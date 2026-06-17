@@ -23,6 +23,7 @@ class UComposableCameraCameraNodeBase;
 class UComposableCameraTypeAsset;
 class UComposableCameraComputeNodeBase;
 class AComposableCameraPlayerCameraManager;
+class FComposableCameraDebugDrawSink;
 
 using namespace ComposableCameraModifier;
 
@@ -506,6 +507,7 @@ public:
 	 * Compiled out in shipping builds.
 	 */
 	void DrawCameraDebug(class UWorld* World, bool bDrawFrustum) const;
+	void DrawCameraDebug(FComposableCameraDebugDrawSink& Draw, bool bDrawFrustum) const;
 
 	/**
 	 * 2D counterpart to DrawCameraDebug. Walks `CameraNodes` and invokes

@@ -19,6 +19,7 @@
 
 #if !UE_BUILD_SHIPPING
 #include "Cameras/ComposableCameraCameraBase.h"
+#include "Debug/ComposableCameraDebugDrawSink.h"
 #include "Debug/ComposableCameraViewportDebug.h"
 #include "DrawDebugHelpers.h"
 #include "HAL/IConsoleManager.h"
@@ -498,9 +499,8 @@ void UComposableCameraOcclusionFadeNode::GetPinDeclarations_Implementation(
 }
 
 #if !UE_BUILD_SHIPPING
-void UComposableCameraOcclusionFadeNode::DrawNodeDebug(UWorld* World, bool bViewerIsOutsideCamera) const
+void UComposableCameraOcclusionFadeNode::DrawNodeDebug(FComposableCameraDebugDrawSink& Draw, bool bViewerIsOutsideCamera) const
 {
-	if (!World) { return; }
 	if (CVarShowOcclusionFadeGizmo.GetValueOnGameThread() == 0
 		&& !FComposableCameraViewportDebug::ShouldShowAllNodeGizmos()) { return; }
 
@@ -518,14 +518,13 @@ void UComposableCameraOcclusionFadeNode::DrawNodeDebug(UWorld* World, bool bView
 	{
 		const FColor SweepColor = FComposableCameraViewportDebugColors::OcclusionFadeSweep();
 
-		FComposableCameraViewportDebug::DrawSolidDebugSphere(
-			World, DebugSweepEnd, /*Radius=*/FMath::Max(OcclusionSphereRadius, 4.f),
-			SweepColor, /*Alpha=*/80, /*Segments=*/12, /*DepthPriority=*/0, TEXT("OcclusionFade sweep"));
+		Draw.DrawSphere(
+			DebugSweepEnd, /*Radius=*/FMath::Max(OcclusionSphereRadius, 4.f),
+			SweepColor, /*Alpha=*/80, /*DepthPriority=*/0, /*bSolid=*/true);
 
 		if (bViewerIsOutsideCamera)
 		{
-			DrawDebugLine(World, DebugSweepStart, DebugSweepEnd, SweepColor,
-				/*bPersistentLines=*/false, /*LifeTime=*/-1.f, /*DepthPriority=*/0, /*Thickness=*/1.0f);
+			Draw.DrawLine(DebugSweepStart, DebugSweepEnd, SweepColor, /*Thickness=*/1.0f, /*DepthPriority=*/0);
 		}
 	}
 
@@ -535,9 +534,9 @@ void UComposableCameraOcclusionFadeNode::DrawNodeDebug(UWorld* World, bool bView
 	if (bFadeNearbyActors)
 	{
 		const FColor ProximityColor = FComposableCameraViewportDebugColors::OcclusionFadeProximity();
-		FComposableCameraViewportDebug::DrawSolidDebugSphere(
-			World, LastCameraPosition, FMath::Max(ProximityRadius, 4.f),
-			ProximityColor, /*Alpha=*/50, /*Segments=*/16, /*DepthPriority=*/0, TEXT("OcclusionFade proximity"));
+		Draw.DrawSphere(
+			LastCameraPosition, FMath::Max(ProximityRadius, 4.f),
+			ProximityColor, /*Alpha=*/50, /*DepthPriority=*/0, /*bSolid=*/true);
 	}
 }
 #endif

@@ -102,7 +102,8 @@ FComposableCameraDebugPrimitive FComposableCameraDebugPrimitive::MakeBox(
 FComposableCameraDebugPrimitive FComposableCameraDebugPrimitive::MakeCameraFrustum(
 	const FComposableCameraTracePose& Pose,
 	const FColor& InColor,
-	uint8 InDepthPriority)
+	uint8 InDepthPriority,
+	float InScale)
 {
 	FComposableCameraDebugPrimitive Primitive;
 	Primitive.Kind = EComposableCameraDebugPrimitiveKind::CameraFrustum;
@@ -110,6 +111,7 @@ FComposableCameraDebugPrimitive FComposableCameraDebugPrimitive::MakeCameraFrust
 	Primitive.Rotation = Pose.Rotation;
 	Primitive.Radius = Pose.FieldOfView;
 	Primitive.Size = Pose.OrthoWidth;
+	Primitive.Thickness = InScale;
 	Primitive.Color = InColor;
 	Primitive.DepthPriority = InDepthPriority;
 	return Primitive;

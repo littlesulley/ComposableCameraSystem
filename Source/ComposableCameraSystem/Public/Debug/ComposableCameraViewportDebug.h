@@ -97,7 +97,7 @@ struct FComposableCameraViewportDebugColors
  * most wanted draws to appear.
  *
  * Adding a new per-node gizmo is a localised ~15-line job:
- *  1. Override `UComposableCameraCameraNodeBase::DrawNodeDebug(UWorld*, bool)`
+ *  1. Override `UComposableCameraCameraNodeBase::DrawNodeDebug(FComposableCameraDebugDrawSink&, bool)`
  *     in the concrete node, guarded `#if !UE_BUILD_SHIPPING`. The second
  *     parameter is `bViewerIsOutsideCamera`. Use it to gate any gizmo that
  *     sits AT the camera's own position (see `CollisionPushNode`'s self-
@@ -105,9 +105,9 @@ struct FComposableCameraViewportDebugColors
  *  2. Declare a static `TAutoConsoleVariable<int32>` in the node's .cpp
  *     under `CCS.Debug.Viewport.<NodeName>`, default 0.
  *  3. Early-out on that CVar at the top of `DrawNodeDebug`.
- *  4. Call `DrawDebug*` via `DrawDebugHelpers.h` with the node's resolved
- *     runtime state. Use `FComposableCameraViewportDebugColors` for any
- *     shared legend color, and pass a short label for sphere markers.
+ *  4. Emit primitives through `FComposableCameraDebugDrawSink` with the
+ *     node's resolved runtime state. Use
+ *     `FComposableCameraViewportDebugColors` for any shared legend color.
  *
  * This is distinct from `FComposableCameraDebugPanel` (2D HUD overlay,
  * `CCS.Debug.Panel` CVar). They are independent and can be enabled in

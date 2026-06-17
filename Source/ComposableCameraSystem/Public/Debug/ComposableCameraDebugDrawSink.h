@@ -43,7 +43,8 @@ public:
 	virtual void DrawCameraFrustum(
 		const FComposableCameraTracePose& Pose,
 		const FColor& Color,
-		uint8 DepthPriority) = 0;
+		uint8 DepthPriority,
+		float Scale = 1.0f) = 0;
 };
 
 class COMPOSABLECAMERASYSTEM_API FComposableCameraLiveDebugDrawSink final : public FComposableCameraDebugDrawSink
@@ -82,7 +83,8 @@ public:
 	virtual void DrawCameraFrustum(
 		const FComposableCameraTracePose& Pose,
 		const FColor& Color,
-		uint8 DepthPriority) override;
+		uint8 DepthPriority,
+		float Scale) override;
 
 private:
 	UWorld* World = nullptr;
@@ -124,7 +126,8 @@ public:
 	virtual void DrawCameraFrustum(
 		const FComposableCameraTracePose& Pose,
 		const FColor& Color,
-		uint8 DepthPriority) override;
+		uint8 DepthPriority,
+		float Scale) override;
 
 private:
 	TArray<FComposableCameraDebugPrimitive>& Primitives;

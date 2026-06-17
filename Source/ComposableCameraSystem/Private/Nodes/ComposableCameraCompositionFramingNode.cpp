@@ -13,6 +13,7 @@
 #include "Utils/ComposableCameraViewportUtils.h"
 
 #if !UE_BUILD_SHIPPING
+#include "Debug/ComposableCameraDebugDrawSink.h"
 #include "Debug/ComposableCameraViewportDebug.h"
 #include "DrawDebugHelpers.h"
 #include "HAL/IConsoleManager.h"
@@ -511,9 +512,8 @@ void UComposableCameraCompositionFramingNode::SetActiveShotsFromSequencer(
 }
 
 #if !UE_BUILD_SHIPPING
-void UComposableCameraCompositionFramingNode::DrawNodeDebug(UWorld* World, bool /*bViewerIsOutsideCamera*/) const
+void UComposableCameraCompositionFramingNode::DrawNodeDebug(FComposableCameraDebugDrawSink& Draw, bool /*bViewerIsOutsideCamera*/) const
 {
-	if (!World) { return; }
 	if (CVarShowCompositionFramingGizmo.GetValueOnGameThread() == 0
 		&& !FComposableCameraViewportDebug::ShouldShowAllNodeGizmos())
 	{
@@ -529,18 +529,18 @@ void UComposableCameraCompositionFramingNode::DrawNodeDebug(UWorld* World, bool 
 	FVector PlacementAnchorPos;
 	if (Shot.Placement.PlacementAnchor.ResolveWorldPosition(Shot.Targets, PlacementAnchorPos))
 	{
-		FComposableCameraViewportDebug::DrawSolidDebugSphere(
-			World, PlacementAnchorPos, /*Radius=*/12.f,
+		Draw.DrawSphere(
+			PlacementAnchorPos, /*Radius=*/12.f,
 			FComposableCameraViewportDebugColors::CompositionFramingPlacement(),
-			/*Alpha=*/120, /*Segments=*/16, KForeground, TEXT("CompositionFraming place"));
+			/*Alpha=*/120, KForeground, /*bSolid=*/true);
 	}
 	FVector AimAnchorPos;
 	if (Shot.Aim.AimAnchor.ResolveWorldPosition(Shot.Targets, AimAnchorPos))
 	{
-		FComposableCameraViewportDebug::DrawSolidDebugSphere(
-			World, AimAnchorPos, /*Radius=*/10.f,
+		Draw.DrawSphere(
+			AimAnchorPos, /*Radius=*/10.f,
 			FComposableCameraViewportDebugColors::CompositionFramingAim(),
-			/*Alpha=*/120, /*Segments=*/16, KForeground, TEXT("CompositionFraming aim"));
+			/*Alpha=*/120, KForeground, /*bSolid=*/true);
 	}
 
 	// Smaller white spheres at each tracked Target's pivot. Useful for
@@ -551,10 +551,10 @@ void UComposableCameraCompositionFramingNode::DrawNodeDebug(UWorld* World, bool 
 		FVector Pivot;
 		if (T.Target.ResolveWorldPoint(Pivot))
 		{
-			FComposableCameraViewportDebug::DrawSolidDebugSphere(
-				World, Pivot, /*Radius=*/6.f,
+			Draw.DrawSphere(
+				Pivot, /*Radius=*/6.f,
 				FComposableCameraViewportDebugColors::CompositionFramingTarget(),
-				/*Alpha=*/100, /*Segments=*/12, KForeground, TEXT("CompositionFraming target"));
+				/*Alpha=*/100, KForeground, /*bSolid=*/true);
 		}
 	}
 }

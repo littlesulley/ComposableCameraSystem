@@ -44,7 +44,7 @@ public:
 	}
 
 #if !UE_BUILD_SHIPPING
-	virtual void DrawNodeDebug(UWorld* World, bool bViewerIsOutsideCamera) const override;
+	virtual void DrawNodeDebug(FComposableCameraDebugDrawSink& Draw, bool bViewerIsOutsideCamera) const override;
 #endif
 
 protected:

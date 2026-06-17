@@ -348,15 +348,17 @@ runtime-owned objects later.
 
 Viewport gizmo colors are centralized in the runtime debug palette. The bottom
 Legend panel reads the same metadata as the 3D draw sites, so swatches match the
-spheres and transition markers. Sphere markers can also carry short world-space
-labels for node / marker-role identification when many gizmos overlap. Those
-labels are frame-local debug strings and are redrawn at the sphere's current
-world position each viewport debug tick.
+spheres and transition markers. The low-level live sphere helper still supports
+short frame-local world-space labels, but sink-routed camera / node / transition
+gizmos intentionally emit label-free primitives so the same draw calls can feed
+live viewport drawing and rewind trace capture.
 
 Debug primitive emission goes through a draw sink abstraction when it needs to
 target either live viewport drawing or rewind trace capture. The live sink
 adapts to `DrawDebug*` / `FComposableCameraViewportDebug`; the capture sink
 appends immutable `FComposableCameraDebugPrimitive` snapshots for trace writers.
+Camera-frustum primitives store FOV in `Radius`, ortho width in `Size`, and the
+debug frustum draw scale in `Thickness`.
 
 ## 15. Hard Invariants
 

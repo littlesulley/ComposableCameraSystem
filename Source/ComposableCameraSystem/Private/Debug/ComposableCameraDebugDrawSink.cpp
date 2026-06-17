@@ -96,7 +96,8 @@ void FComposableCameraLiveDebugDrawSink::DrawBox(
 void FComposableCameraLiveDebugDrawSink::DrawCameraFrustum(
 	const FComposableCameraTracePose& Pose,
 	const FColor& Color,
-	uint8 DepthPriority)
+	uint8 DepthPriority,
+	float Scale)
 {
 	if (!World)
 	{
@@ -104,7 +105,7 @@ void FComposableCameraLiveDebugDrawSink::DrawCameraFrustum(
 	}
 
 #if !UE_BUILD_SHIPPING
-	DrawDebugCamera(World, Pose.Location, Pose.Rotation, Pose.FieldOfView, 1.0f, Color, false, -1.0f, DepthPriority);
+	DrawDebugCamera(World, Pose.Location, Pose.Rotation, Pose.FieldOfView, Scale, Color, false, -1.0f, DepthPriority);
 #endif
 }
 
@@ -157,7 +158,8 @@ void FComposableCameraPrimitiveCaptureSink::DrawBox(
 void FComposableCameraPrimitiveCaptureSink::DrawCameraFrustum(
 	const FComposableCameraTracePose& Pose,
 	const FColor& Color,
-	uint8 DepthPriority)
+	uint8 DepthPriority,
+	float Scale)
 {
-	Primitives.Add(FComposableCameraDebugPrimitive::MakeCameraFrustum(Pose, Color, DepthPriority));
+	Primitives.Add(FComposableCameraDebugPrimitive::MakeCameraFrustum(Pose, Color, DepthPriority, Scale));
 }

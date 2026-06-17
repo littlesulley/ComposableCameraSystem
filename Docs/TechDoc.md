@@ -396,13 +396,15 @@ Runtime debug:
   `FComposableCameraViewportDebug::DrawSolidDebugSphere` in non-shipping builds.
   The capture sink records the same calls as `FComposableCameraDebugPrimitive`
   values for rewind trace serialization. It is a transient C++ adapter; its
-  non-owning `UWorld*` is not a `UPROPERTY`.
+  non-owning `UWorld*` is not a `UPROPERTY`. For `CameraFrustum` primitives,
+  `Radius` stores FOV, `Size` stores ortho width, and `Thickness` stores debug
+  frustum scale.
 - `FComposableCameraViewportDebug::DrawSolidDebugSphere` accepts an optional
-  short `Label`. Node draw calls should pass the node name, or `Node role` when
-  one node draws multiple spheres. Keep labels literal and compact; they are
-  debug-only world-space text, not user UI. Labels use
-  `GetSphereLabelDurationSeconds() == 0.f`; do not make them persistent, or HUD
-  debug text will remain at stale world positions while the sphere moves.
+  short `Label` for direct live-only draw sites. Sink-routed node / transition
+  gizmos do not carry labels; rewind primitives currently have no text payload.
+  Labels use `GetSphereLabelDurationSeconds() == 0.f`; do not make them
+  persistent, or HUD debug text will remain at stale world positions while the
+  sphere moves.
 
 Editor debug:
 

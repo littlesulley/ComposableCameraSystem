@@ -24,7 +24,7 @@ public:
 
 #if !UE_BUILD_SHIPPING
 	// Gated on `CCS.Debug.Viewport.Transitions.Ease`.
-	virtual void DrawTransitionDebug(UWorld* World, bool bViewerIsOutsideCamera) const override;
+	virtual void DrawTransitionDebug(FComposableCameraDebugDrawSink& Draw, bool bViewerIsOutsideCamera) const override;
 #endif
 
 public:

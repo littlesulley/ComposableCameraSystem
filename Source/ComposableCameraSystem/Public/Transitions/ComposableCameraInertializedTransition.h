@@ -292,7 +292,7 @@ public:
 	// Gated on `CCS.Debug.Viewport.Transitions.Inertialized`. Pure standard
 	// visualization. The inertialized path deviates substantially from
 	// the white lerp baseline, which is exactly the point of watching it.
-	virtual void DrawTransitionDebug(UWorld* World, bool bViewerIsOutsideCamera) const override;
+	virtual void DrawTransitionDebug(FComposableCameraDebugDrawSink& Draw, bool bViewerIsOutsideCamera) const override;
 #endif
 
 public:

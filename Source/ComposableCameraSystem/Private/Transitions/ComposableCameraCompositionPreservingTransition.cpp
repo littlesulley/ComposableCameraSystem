@@ -7,6 +7,7 @@
 #include "Utils/ComposableCameraActorInputSource.h"
 
 #if !UE_BUILD_SHIPPING
+#include "Debug/ComposableCameraDebugDrawSink.h"
 #include "Debug/ComposableCameraViewportDebug.h"
 #include "DrawDebugHelpers.h"
 #include "Engine/World.h"
@@ -140,21 +141,19 @@ FComposableCameraPose UComposableCameraCompositionPreservingTransition::BuildCom
 
 #if !UE_BUILD_SHIPPING
 void UComposableCameraCompositionPreservingTransition::DrawTransitionDebug(
-	UWorld* World, bool bViewerIsOutsideCamera) const
+	FComposableCameraDebugDrawSink& Draw, bool bViewerIsOutsideCamera) const
 {
-	if (!World) { return; }
 	if (CVarShowCompositionPreservingTransitionGizmo.GetValueOnGameThread() == 0
 		&& !FComposableCameraViewportDebug::ShouldShowAllTransitionGizmos()) { return; }
 
 	const FColor AccentColor = FComposableCameraViewportDebugColors::TransitionCompositionPreserving();
-	DrawStandardTransitionDebug(World, bViewerIsOutsideCamera, AccentColor);
+	DrawStandardTransitionDebug(Draw, bViewerIsOutsideCamera, AccentColor);
 
 	AActor* Subject = ResolveSubjectActor();
 	if (IsValid(Subject))
 	{
-		DrawDebugLine(World, LastDebugSource.Position, Subject->GetActorLocation(), AccentColor,
-			/*bPersistent=*/false, /*LifeTime=*/-1.f,
-			/*DepthPriority=*/SDPG_Foreground, /*Thickness=*/0.f);
+		Draw.DrawLine(LastDebugSource.Position, Subject->GetActorLocation(), AccentColor,
+			/*Thickness=*/0.f, /*DepthPriority=*/SDPG_Foreground);
 	}
 }
 #endif

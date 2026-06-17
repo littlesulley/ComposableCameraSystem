@@ -3,6 +3,7 @@
 #include "Transitions/ComposableCameraLinearTransition.h"
 
 #if !UE_BUILD_SHIPPING
+#include "Debug/ComposableCameraDebugDrawSink.h"
 #include "Debug/ComposableCameraViewportDebug.h"
 #include "DrawDebugHelpers.h"
 #include "Engine/World.h"
@@ -43,9 +44,8 @@ FComposableCameraPose UComposableCameraLinearTransition::OnEvaluate_Implementati
 }
 
 #if !UE_BUILD_SHIPPING
-void UComposableCameraLinearTransition::DrawTransitionDebug(UWorld* World, bool bViewerIsOutsideCamera) const
+void UComposableCameraLinearTransition::DrawTransitionDebug(FComposableCameraDebugDrawSink& Draw, bool bViewerIsOutsideCamera) const
 {
-	if (!World) { return; }
 	if (CVarShowLinearTransitionGizmo.GetValueOnGameThread() == 0
 		&& !FComposableCameraViewportDebug::ShouldShowAllTransitionGizmos()) { return; }
 
@@ -53,12 +53,11 @@ void UComposableCameraLinearTransition::DrawTransitionDebug(UWorld* World, bool 
 	// blend's unremarkable nature. Distinct from every node gizmo color.
 	const FColor AccentColor = FComposableCameraViewportDebugColors::TransitionLinear();
 
-	DrawStandardTransitionDebug(World, bViewerIsOutsideCamera, AccentColor);
+	DrawStandardTransitionDebug(Draw, bViewerIsOutsideCamera, AccentColor);
 
 	// Path is a straight line. Position blends linearly in space (only
 	// the timing curve would differ for Smooth/Ease/Cubic siblings).
-	DrawDebugLine(World, LastDebugSource.Position, LastDebugTarget.Position, AccentColor,
-		/*bPersistent=*/false, /*LifeTime=*/-1.f,
-		/*DepthPriority=*/SDPG_Foreground, /*Thickness=*/0.f);
+	Draw.DrawLine(LastDebugSource.Position, LastDebugTarget.Position, AccentColor,
+		/*Thickness=*/0.f, /*DepthPriority=*/SDPG_Foreground);
 }
 #endif

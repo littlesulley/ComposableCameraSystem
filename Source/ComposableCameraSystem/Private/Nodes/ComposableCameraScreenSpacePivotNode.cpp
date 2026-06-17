@@ -12,6 +12,7 @@
 
 #if !UE_BUILD_SHIPPING
 #include "CanvasItem.h"
+#include "Debug/ComposableCameraDebugDrawSink.h"
 #include "Debug/ComposableCameraViewportDebug.h"
 #include "DrawDebugHelpers.h"
 #include "Engine/Canvas.h"
@@ -408,9 +409,8 @@ FVector UComposableCameraScreenSpacePivotNode::GetCurrentPivot() const
 }
 
 #if !UE_BUILD_SHIPPING
-void UComposableCameraScreenSpacePivotNode::DrawNodeDebug(UWorld* World, bool /*bViewerIsOutsideCamera*/) const
+void UComposableCameraScreenSpacePivotNode::DrawNodeDebug(FComposableCameraDebugDrawSink& Draw, bool /*bViewerIsOutsideCamera*/) const
 {
-	if (!World) { return; }
 	if (CVarShowScreenSpacePivotGizmo.GetValueOnGameThread() == 0
 		&& !FComposableCameraViewportDebug::ShouldShowAllNodeGizmos()) { return; }
 	// Sphere at the resolved world pivot. `GetCurrentPivot()` returns either
@@ -418,9 +418,8 @@ void UComposableCameraScreenSpacePivotNode::DrawNodeDebug(UWorld* World, bool /*
 	// depending on `PivotSource` - same resolution the tick path uses.
 	constexpr uint8 KForeground = 1;
 	const FVector Pivot = GetCurrentPivot();
-	FComposableCameraViewportDebug::DrawSolidDebugSphere(
-		World, Pivot, /*Radius=*/8.f, FComposableCameraViewportDebugColors::ScreenSpacePivot(),
-		/*Alpha=*/100, /*Segments=*/12, KForeground, TEXT("ScreenSpacePivot"));
+	Draw.DrawSphere(Pivot, /*Radius=*/8.f, FComposableCameraViewportDebugColors::ScreenSpacePivot(),
+		/*Alpha=*/100, KForeground, /*bSolid=*/true);
 }
 
 namespace

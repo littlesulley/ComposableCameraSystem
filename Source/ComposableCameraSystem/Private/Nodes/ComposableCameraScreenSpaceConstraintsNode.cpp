@@ -12,6 +12,7 @@
 
 #if !UE_BUILD_SHIPPING
 #include "CanvasItem.h"
+#include "Debug/ComposableCameraDebugDrawSink.h"
 #include "Debug/ComposableCameraViewportDebug.h"
 #include "DrawDebugHelpers.h"
 #include "Engine/Canvas.h"
@@ -254,9 +255,8 @@ FVector UComposableCameraScreenSpaceConstraintsNode::GetCurrentPivot() const
 }
 
 #if !UE_BUILD_SHIPPING
-void UComposableCameraScreenSpaceConstraintsNode::DrawNodeDebug(UWorld* World, bool /*bViewerIsOutsideCamera*/) const
+void UComposableCameraScreenSpaceConstraintsNode::DrawNodeDebug(FComposableCameraDebugDrawSink& Draw, bool /*bViewerIsOutsideCamera*/) const
 {
-	if (!World) { return; }
 	if (CVarShowScreenSpaceConstraintsGizmo.GetValueOnGameThread() == 0
 		&& !FComposableCameraViewportDebug::ShouldShowAllNodeGizmos()) { return; }
 	// Sphere at the constrained actor's location (same resolution the tick
@@ -264,9 +264,8 @@ void UComposableCameraScreenSpaceConstraintsNode::DrawNodeDebug(UWorld* World, b
 	// other gizmo hue in the palette.
 	constexpr uint8 KForeground = 1;
 	const FVector Pivot = GetCurrentPivot();
-	FComposableCameraViewportDebug::DrawSolidDebugSphere(
-		World, Pivot, /*Radius=*/8.f, FComposableCameraViewportDebugColors::ScreenSpaceConstraints(),
-		/*Alpha=*/100, /*Segments=*/12, KForeground, TEXT("ScreenSpaceConstraints"));
+	Draw.DrawSphere(Pivot, /*Radius=*/8.f, FComposableCameraViewportDebugColors::ScreenSpaceConstraints(),
+		/*Alpha=*/100, KForeground, /*bSolid=*/true);
 }
 
 namespace

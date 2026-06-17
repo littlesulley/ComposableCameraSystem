@@ -4,6 +4,7 @@
 #include "Math/ComposableCameraMath.h"
 
 #if !UE_BUILD_SHIPPING
+#include "Debug/ComposableCameraDebugDrawSink.h"
 #include "Debug/ComposableCameraViewportDebug.h"
 #include "DrawDebugHelpers.h"
 #include "Engine/World.h"
@@ -49,20 +50,19 @@ float UComposableCameraSmoothTransition::GetBlendWeightAt(float NormalizedTime) 
 }
 
 #if !UE_BUILD_SHIPPING
-void UComposableCameraSmoothTransition::DrawTransitionDebug(UWorld* World, bool bViewerIsOutsideCamera) const
+void UComposableCameraSmoothTransition::DrawTransitionDebug(FComposableCameraDebugDrawSink& Draw, bool bViewerIsOutsideCamera) const
 {
-	if (!World) { return; }
 	if (CVarShowSmoothTransitionGizmo.GetValueOnGameThread() == 0
 		&& !FComposableCameraViewportDebug::ShouldShowAllTransitionGizmos()) { return; }
 
 	// Gold accent. Warm, rich, distinct from Linear's neutral grey.
 	const FColor AccentColor = FComposableCameraViewportDebugColors::TransitionSmooth();
 
-	DrawStandardTransitionDebug(World, bViewerIsOutsideCamera, AccentColor);
+	DrawStandardTransitionDebug(Draw, bViewerIsOutsideCamera, AccentColor);
 
 	// Path is a straight line. Position lerps linearly in space; only the
 	// smooth-step / smoother-step timing curve differs from Linear.
-	DrawDebugLine(World, LastDebugSource.Position, LastDebugTarget.Position, AccentColor,
-		false, -1.f, SDPG_Foreground, /*Thickness=*/0.f);
+	Draw.DrawLine(LastDebugSource.Position, LastDebugTarget.Position, AccentColor,
+		/*Thickness=*/0.f, /*DepthPriority=*/SDPG_Foreground);
 }
 #endif

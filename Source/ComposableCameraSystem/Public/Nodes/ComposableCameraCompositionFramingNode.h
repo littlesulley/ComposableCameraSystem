@@ -84,7 +84,7 @@ public:
 	virtual EComposableCameraNodePatchCompatibility GetPatchCompatibility_Implementation() const override;
 
 #if !UE_BUILD_SHIPPING
-	virtual void DrawNodeDebug(UWorld* World, bool bViewerIsOutsideCamera) const override;
+	virtual void DrawNodeDebug(FComposableCameraDebugDrawSink& Draw, bool bViewerIsOutsideCamera) const override;
 
 	/**
 	 * Per-process registry of all currently-initialized framing nodes - read by `FComposableCameraShotZoneOverlay` (the LS / PIE viewport

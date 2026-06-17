@@ -6,6 +6,7 @@
 #include "Cameras/ComposableCameraCameraBase.h"
 #include "Core/ComposableCameraDirector.h"
 #include "DataAssets/ComposableCameraTypeAsset.h"
+#include "Debug/ComposableCameraDebugDrawSink.h"
 #include "Transitions/ComposableCameraTransitionBase.h"
 
 // -------------------------------------------------------
@@ -857,6 +858,14 @@ void UComposableCameraEvaluationTree::BuildNodeDebugSnapshot(
 #if !UE_BUILD_SHIPPING
 void UComposableCameraEvaluationTree::DrawTransitionsDebug(UWorld* World, bool bViewerIsOutsideCamera) const
 {
+	FComposableCameraLiveDebugDrawSink Draw(World);
+	DrawTransitionsDebug(Draw, bViewerIsOutsideCamera);
+}
+
+void UComposableCameraEvaluationTree::DrawTransitionsDebug(
+	FComposableCameraDebugDrawSink& Draw,
+	bool bViewerIsOutsideCamera) const
+{
 	// Track snapshot subtree nodes already walked on this call. With the
 	// new RefLeaf snapshot semantics the whole reachable graph is a DAG
 	// (no Director cross-references), but two RefLeaves can still share
@@ -864,12 +873,12 @@ void UComposableCameraEvaluationTree::DrawTransitionsDebug(UWorld* World, bool b
 	// reachable via two paths through the DAG. Deduplicate on node
 	// identity so we don't redraw the same transition twice per frame.
 	TSet<const FComposableCameraEvaluationTreeNode*> VisitedNodes;
-	DrawTransitionsNodeDebug(RootNode, World, bViewerIsOutsideCamera, VisitedNodes);
+	DrawTransitionsNodeDebug(RootNode, Draw, bViewerIsOutsideCamera, VisitedNodes);
 }
 
 void UComposableCameraEvaluationTree::DrawTransitionsNodeDebug(
 	const TSharedPtr<FComposableCameraEvaluationTreeNode>& Node,
-	UWorld* World,
+	FComposableCameraDebugDrawSink& Draw,
 	bool bViewerIsOutsideCamera,
 	TSet<const FComposableCameraEvaluationTreeNode*>& VisitedNodes)
 {
@@ -895,10 +904,10 @@ void UComposableCameraEvaluationTree::DrawTransitionsNodeDebug(
 		{
 			// Transition self-gates on its own CVar. We always invoke the
 			// virtual; the override returns immediately if its CVar is off.
-			Inner.Transition->DrawTransitionDebug(World, bViewerIsOutsideCamera);
+			Inner.Transition->DrawTransitionDebug(Draw, bViewerIsOutsideCamera);
 		}
-		DrawTransitionsNodeDebug(Inner.LeftNode,  World, bViewerIsOutsideCamera, VisitedNodes);
-		DrawTransitionsNodeDebug(Inner.RightNode, World, bViewerIsOutsideCamera, VisitedNodes);
+		DrawTransitionsNodeDebug(Inner.LeftNode,  Draw, bViewerIsOutsideCamera, VisitedNodes);
+		DrawTransitionsNodeDebug(Inner.RightNode, Draw, bViewerIsOutsideCamera, VisitedNodes);
 	}
 	else if (Node->IsReferenceLeaf())
 	{
@@ -906,7 +915,7 @@ void UComposableCameraEvaluationTree::DrawTransitionsNodeDebug(
 		// inside the RefLeaf's subtree still participate in debug draw.
 		// Snapshot is a TSharedPtr. No cross-director traversal needed.
 		const FComposableCameraEvaluationTreeReferenceLeafNodeWrapper& RefLeaf = Node->AsReferenceLeaf();
-		DrawTransitionsNodeDebug(RefLeaf.SnapshotRoot, World, bViewerIsOutsideCamera, VisitedNodes);
+		DrawTransitionsNodeDebug(RefLeaf.SnapshotRoot, Draw, bViewerIsOutsideCamera, VisitedNodes);
 	}
 	// Leaf: nothing to do. Leaves don't hold transitions.
 }

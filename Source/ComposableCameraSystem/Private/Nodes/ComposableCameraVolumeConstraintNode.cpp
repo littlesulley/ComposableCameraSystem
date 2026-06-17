@@ -10,6 +10,7 @@
 #include "Interpolator/ComposableCameraInterpolatorBase.h"
 
 #if !UE_BUILD_SHIPPING
+#include "Debug/ComposableCameraDebugDrawSink.h"
 #include "Debug/ComposableCameraViewportDebug.h"
 #include "DrawDebugHelpers.h"
 #include "HAL/IConsoleManager.h"
@@ -284,9 +285,8 @@ void UComposableCameraVolumeConstraintNode::GetPinDeclarations_Implementation(
 }
 
 #if !UE_BUILD_SHIPPING
-void UComposableCameraVolumeConstraintNode::DrawNodeDebug(UWorld* World, bool /*bViewerIsOutsideCamera*/) const
+void UComposableCameraVolumeConstraintNode::DrawNodeDebug(FComposableCameraDebugDrawSink& Draw, bool /*bViewerIsOutsideCamera*/) const
 {
-	if (!World) { return; }
 	if (CVarShowVolumeConstraintGizmo.GetValueOnGameThread() == 0
 		&& !FComposableCameraViewportDebug::ShouldShowAllNodeGizmos()) { return; }
 
@@ -302,20 +302,17 @@ void UComposableCameraVolumeConstraintNode::DrawNodeDebug(UWorld* World, bool /*
 	switch (DebugResolvedVolume.Shape)
 	{
 	case EComposableCameraVolumeShape::Box:
-		DrawDebugBox(World, DebugResolvedVolume.Center,
+		Draw.DrawBox(DebugResolvedVolume.Center,
 			DebugResolvedVolume.BoxExtents,
 			DebugResolvedVolume.Rotation.Quaternion(),
 			VolumeColor,
-			/*bPersistentLines=*/false, /*LifeTime=*/-1.f,
-			/*DepthPriority=*/0, /*Thickness=*/1.5f);
+			/*DepthPriority=*/0);
 		break;
 
 	case EComposableCameraVolumeShape::Sphere:
-		DrawDebugSphere(World, DebugResolvedVolume.Center,
+		Draw.DrawSphere(DebugResolvedVolume.Center,
 			DebugResolvedVolume.SphereRadius,
-			/*Segments=*/24, VolumeColor,
-			/*bPersistentLines=*/false, /*LifeTime=*/-1.f,
-			/*DepthPriority=*/0, /*Thickness=*/1.5f);
+			VolumeColor, VolumeColor.A, /*DepthPriority=*/0, /*bSolid=*/false);
 		break;
 	}
 
@@ -323,9 +320,8 @@ void UComposableCameraVolumeConstraintNode::DrawNodeDebug(UWorld* World, bool /*
 	// the author can see exactly where the camera got pulled to.
 	if (DebugIsClamping)
 	{
-		FComposableCameraViewportDebug::DrawSolidDebugSphere(
-			World, DebugClampedPosition, /*Radius=*/8.f, VolumeColor,
-			/*Alpha=*/160, /*Segments=*/12, /*DepthPriority=*/0, TEXT("VolumeConstraint clamp"));
+		Draw.DrawSphere(DebugClampedPosition, /*Radius=*/8.f, VolumeColor,
+			/*Alpha=*/160, /*DepthPriority=*/0, /*bSolid=*/true);
 	}
 }
 #endif
