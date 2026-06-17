@@ -47,7 +47,8 @@ float UComposableCameraEaseTransition::GetBlendWeightAt(float NormalizedTime) co
 void UComposableCameraEaseTransition::DrawTransitionDebug(FComposableCameraDebugDrawSink& Draw, bool bViewerIsOutsideCamera) const
 {
 	if (CVarShowEaseTransitionGizmo.GetValueOnGameThread() == 0
-		&& !FComposableCameraViewportDebug::ShouldShowAllTransitionGizmos()) { return; }
+		&& !FComposableCameraViewportDebug::ShouldShowAllTransitionGizmos()
+		&& !Draw.ShouldForceDrawAllTransitionGizmos()) { return; }
 
 	// Burnt orange. Reads as "easing", also distinct from the
 	// RelativeFixedPose node's orange (which sits on a different subsystem).

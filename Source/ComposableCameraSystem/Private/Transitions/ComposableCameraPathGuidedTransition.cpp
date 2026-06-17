@@ -459,7 +459,8 @@ float UComposableCameraPathGuidedTransition::GetBlendWeightAt(float NormalizedTi
 void UComposableCameraPathGuidedTransition::DrawTransitionDebug(FComposableCameraDebugDrawSink& Draw, bool bViewerIsOutsideCamera) const
 {
 	if (CVarShowPathGuidedTransitionGizmo.GetValueOnGameThread() == 0
-		&& !FComposableCameraViewportDebug::ShouldShowAllTransitionGizmos()) { return; }
+		&& !FComposableCameraViewportDebug::ShouldShowAllTransitionGizmos()
+		&& !Draw.ShouldForceDrawAllTransitionGizmos()) { return; }
 
 	// Coral accent. Warm but clearly distinct from Ease orange and
 	// DynamicDeocclusion red.

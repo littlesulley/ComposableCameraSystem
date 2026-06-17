@@ -258,7 +258,8 @@ FVector UComposableCameraScreenSpaceConstraintsNode::GetCurrentPivot() const
 void UComposableCameraScreenSpaceConstraintsNode::DrawNodeDebug(FComposableCameraDebugDrawSink& Draw, bool /*bViewerIsOutsideCamera*/) const
 {
 	if (CVarShowScreenSpaceConstraintsGizmo.GetValueOnGameThread() == 0
-		&& !FComposableCameraViewportDebug::ShouldShowAllNodeGizmos()) { return; }
+		&& !FComposableCameraViewportDebug::ShouldShowAllNodeGizmos()
+		&& !Draw.ShouldForceDrawAllNodeGizmos()) { return; }
 	// Sphere at the constrained actor's location (same resolution the tick
 	// path uses via `GetCurrentPivot()`). Pink keeps it distinct from every
 	// other gizmo hue in the palette.

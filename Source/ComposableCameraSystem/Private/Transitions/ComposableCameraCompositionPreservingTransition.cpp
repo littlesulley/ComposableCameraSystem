@@ -144,7 +144,8 @@ void UComposableCameraCompositionPreservingTransition::DrawTransitionDebug(
 	FComposableCameraDebugDrawSink& Draw, bool bViewerIsOutsideCamera) const
 {
 	if (CVarShowCompositionPreservingTransitionGizmo.GetValueOnGameThread() == 0
-		&& !FComposableCameraViewportDebug::ShouldShowAllTransitionGizmos()) { return; }
+		&& !FComposableCameraViewportDebug::ShouldShowAllTransitionGizmos()
+		&& !Draw.ShouldForceDrawAllTransitionGizmos()) { return; }
 
 	const FColor AccentColor = FComposableCameraViewportDebugColors::TransitionCompositionPreserving();
 	DrawStandardTransitionDebug(Draw, bViewerIsOutsideCamera, AccentColor);

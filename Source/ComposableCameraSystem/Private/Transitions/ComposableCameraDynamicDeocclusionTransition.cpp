@@ -192,7 +192,8 @@ void UComposableCameraDynamicDeocclusionTransition::DrawTransitionDebug(
 	FComposableCameraDebugDrawSink& Draw, bool bViewerIsOutsideCamera) const
 {
 	if (CVarShowDynamicDeocclusionTransitionGizmo.GetValueOnGameThread() == 0
-		&& !FComposableCameraViewportDebug::ShouldShowAllTransitionGizmos()) { return; }
+		&& !FComposableCameraViewportDebug::ShouldShowAllTransitionGizmos()
+		&& !Draw.ShouldForceDrawAllTransitionGizmos()) { return; }
 
 	// Red accent reinforces the "danger / avoid" intent of deocclusion.
 	const FColor AccentColor = FComposableCameraViewportDebugColors::TransitionDynamicDeocclusion();

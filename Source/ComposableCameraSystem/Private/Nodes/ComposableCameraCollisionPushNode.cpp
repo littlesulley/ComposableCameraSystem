@@ -435,7 +435,8 @@ FComposableCameraHitResult UComposableCameraCollisionPushNode::FindCollisionPoin
 void UComposableCameraCollisionPushNode::DrawNodeDebug(FComposableCameraDebugDrawSink& Draw, bool bViewerIsOutsideCamera) const
 {
 	if (CVarShowCollisionPushGizmo.GetValueOnGameThread() == 0
-		&& !FComposableCameraViewportDebug::ShouldShowAllNodeGizmos()) { return; }
+		&& !FComposableCameraViewportDebug::ShouldShowAllNodeGizmos()
+		&& !Draw.ShouldForceDrawAllNodeGizmos()) { return; }
 
 	// DepthPriority=1 (SDPG_Foreground) on every piece so the gizmos aren't
 	// occluded by the character mesh or world geometry they sit on/inside.

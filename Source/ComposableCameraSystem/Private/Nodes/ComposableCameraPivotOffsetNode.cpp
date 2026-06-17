@@ -94,7 +94,8 @@ void UComposableCameraPivotOffsetNode::UpdatePivotOffset(const FVector& InPivot,
 void UComposableCameraPivotOffsetNode::DrawNodeDebug(FComposableCameraDebugDrawSink& Draw, bool /*bViewerIsOutsideCamera*/) const
 {
 	if (CVarShowPivotOffsetGizmo.GetValueOnGameThread() == 0
-		&& !FComposableCameraViewportDebug::ShouldShowAllNodeGizmos()) { return; }
+		&& !FComposableCameraViewportDebug::ShouldShowAllNodeGizmos()
+		&& !Draw.ShouldForceDrawAllNodeGizmos()) { return; }
 	// Pivot is out at the character / world target. Never sits on top of
 	// the camera, so the occlusion gate doesn't apply here.
 	Draw.DrawSphere(LastComputedPivot, /*Radius=*/10.f, FComposableCameraViewportDebugColors::PivotOffset(),

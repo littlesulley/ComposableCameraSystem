@@ -94,7 +94,8 @@ void UComposableCameraReceivePivotActorNode::OnTickNode_Implementation(
 void UComposableCameraReceivePivotActorNode::DrawNodeDebug(FComposableCameraDebugDrawSink& Draw, bool /*bViewerIsOutsideCamera*/) const
 {
 	if (CVarShowReceivePivotActorGizmo.GetValueOnGameThread() == 0
-		&& !FComposableCameraViewportDebug::ShouldShowAllNodeGizmos()) { return; }
+		&& !FComposableCameraViewportDebug::ShouldShowAllNodeGizmos()
+		&& !Draw.ShouldForceDrawAllNodeGizmos()) { return; }
 
 	// Resolve pivot position the same way OnTickNode does. Sphere at the
 	// bone socket if configured, otherwise at the actor origin. White sphere

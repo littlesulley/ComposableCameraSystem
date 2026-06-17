@@ -47,7 +47,8 @@ FComposableCameraPose UComposableCameraLinearTransition::OnEvaluate_Implementati
 void UComposableCameraLinearTransition::DrawTransitionDebug(FComposableCameraDebugDrawSink& Draw, bool bViewerIsOutsideCamera) const
 {
 	if (CVarShowLinearTransitionGizmo.GetValueOnGameThread() == 0
-		&& !FComposableCameraViewportDebug::ShouldShowAllTransitionGizmos()) { return; }
+		&& !FComposableCameraViewportDebug::ShouldShowAllTransitionGizmos()
+		&& !Draw.ShouldForceDrawAllTransitionGizmos()) { return; }
 
 	// Light grey accent -"neutral" progress color to match the linear
 	// blend's unremarkable nature. Distinct from every node gizmo color.

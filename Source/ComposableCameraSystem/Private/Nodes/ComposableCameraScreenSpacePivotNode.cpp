@@ -412,7 +412,8 @@ FVector UComposableCameraScreenSpacePivotNode::GetCurrentPivot() const
 void UComposableCameraScreenSpacePivotNode::DrawNodeDebug(FComposableCameraDebugDrawSink& Draw, bool /*bViewerIsOutsideCamera*/) const
 {
 	if (CVarShowScreenSpacePivotGizmo.GetValueOnGameThread() == 0
-		&& !FComposableCameraViewportDebug::ShouldShowAllNodeGizmos()) { return; }
+		&& !FComposableCameraViewportDebug::ShouldShowAllNodeGizmos()
+		&& !Draw.ShouldForceDrawAllNodeGizmos()) { return; }
 	// Sphere at the resolved world pivot. `GetCurrentPivot()` returns either
 	// `PivotWorldPosition` or `PivotActor->GetActorLocation() + up-offset`
 	// depending on `PivotSource` - same resolution the tick path uses.

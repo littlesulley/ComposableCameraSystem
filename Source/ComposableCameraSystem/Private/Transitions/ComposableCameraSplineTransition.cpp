@@ -315,7 +315,8 @@ FVector UComposableCameraSplineTransition::EvaluatePositionOnCurve(
 void UComposableCameraSplineTransition::DrawTransitionDebug(FComposableCameraDebugDrawSink& Draw, bool bViewerIsOutsideCamera) const
 {
 	if (CVarShowSplineTransitionGizmo.GetValueOnGameThread() == 0
-		&& !FComposableCameraViewportDebug::ShouldShowAllTransitionGizmos()) { return; }
+		&& !FComposableCameraViewportDebug::ShouldShowAllTransitionGizmos()
+		&& !Draw.ShouldForceDrawAllTransitionGizmos()) { return; }
 
 	// Sky-blue accent for this transition type. Same blue family as the
 	// target-pose marker (which is blue) but noticeably lighter so the

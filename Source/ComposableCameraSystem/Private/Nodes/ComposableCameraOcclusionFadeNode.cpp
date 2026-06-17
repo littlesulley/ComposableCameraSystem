@@ -502,7 +502,8 @@ void UComposableCameraOcclusionFadeNode::GetPinDeclarations_Implementation(
 void UComposableCameraOcclusionFadeNode::DrawNodeDebug(FComposableCameraDebugDrawSink& Draw, bool bViewerIsOutsideCamera) const
 {
 	if (CVarShowOcclusionFadeGizmo.GetValueOnGameThread() == 0
-		&& !FComposableCameraViewportDebug::ShouldShowAllNodeGizmos()) { return; }
+		&& !FComposableCameraViewportDebug::ShouldShowAllNodeGizmos()
+		&& !Draw.ShouldForceDrawAllNodeGizmos()) { return; }
 
 	// Sweep visualisation, split into two pieces that gate independently.
 	// Same pattern as CollisionPushNode's pivot-sphere + trace-line split:

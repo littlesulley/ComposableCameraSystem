@@ -90,7 +90,8 @@ void UComposableCameraRelativeFixedPoseNode::OnTickNode_Implementation(float Del
 void UComposableCameraRelativeFixedPoseNode::DrawNodeDebug(FComposableCameraDebugDrawSink& Draw, bool /*bViewerIsOutsideCamera*/) const
 {
 	if (CVarShowRelativeFixedPoseGizmo.GetValueOnGameThread() == 0
-		&& !FComposableCameraViewportDebug::ShouldShowAllNodeGizmos()) { return; }
+		&& !FComposableCameraViewportDebug::ShouldShowAllNodeGizmos()
+		&& !Draw.ShouldForceDrawAllNodeGizmos()) { return; }
 
 	// Resolve the reference transform origin the same way OnTickNode does -
 	// a sphere at that origin is the "what am I relative TO?" marker.

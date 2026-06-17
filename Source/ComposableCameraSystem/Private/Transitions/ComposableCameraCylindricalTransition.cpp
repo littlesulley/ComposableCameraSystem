@@ -131,7 +131,8 @@ float UComposableCameraCylindricalTransition::GetBlendWeightAt(float NormalizedT
 void UComposableCameraCylindricalTransition::DrawTransitionDebug(FComposableCameraDebugDrawSink& Draw, bool bViewerIsOutsideCamera) const
 {
 	if (CVarShowCylindricalTransitionGizmo.GetValueOnGameThread() == 0
-		&& !FComposableCameraViewportDebug::ShouldShowAllTransitionGizmos()) { return; }
+		&& !FComposableCameraViewportDebug::ShouldShowAllTransitionGizmos()
+		&& !Draw.ShouldForceDrawAllTransitionGizmos()) { return; }
 
 	// Aqua. Vivid enough to stand out against the curved path, separate
 	// from LookAt's pure cyan.

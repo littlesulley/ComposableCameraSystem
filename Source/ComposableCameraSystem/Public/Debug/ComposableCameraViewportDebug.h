@@ -139,21 +139,24 @@ public:
 	 * Callsite idiom:
 	 *
 	 *     if (CVarShowMyNodeGizmo.GetValueOnGameThread() == 0 &&
-	 *         !FComposableCameraViewportDebug::ShouldShowAllNodeGizmos())
+	 *         !FComposableCameraViewportDebug::ShouldShowAllNodeGizmos() &&
+	 *         !Draw.ShouldForceDrawAllNodeGizmos())
 	 *     {
 	 *         return;
 	 *     }
 	 *
 	 * OR semantics: if either the per-node CVar OR the All CVar is on,
-	 * the gizmo draws. No "except" subtraction; users wanting granularity
-	 * should leave All off and enable per-node CVars individually.
+	 * the gizmo draws. 3D draw-sink capture may also force all node gizmos
+	 * for Rewind trace recording. No "except" subtraction; users wanting
+	 * granularity should leave All off and enable per-node CVars individually.
 	 */
 	static bool ShouldShowAllNodeGizmos();
 
 	/**
 	 * True when `CCS.Debug.Viewport.Transitions.All` is non-zero. Every
 	 * per-transition gizmo draws regardless of its own CVar. Same OR
-	 * semantics as ShouldShowAllNodeGizmos.
+	 * semantics as ShouldShowAllNodeGizmos, with Rewind capture allowed
+	 * to force all transition gizmos through its draw sink.
 	 */
 	static bool ShouldShowAllTransitionGizmos();
 

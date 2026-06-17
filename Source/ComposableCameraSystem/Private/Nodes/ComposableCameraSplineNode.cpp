@@ -379,7 +379,8 @@ void UComposableCameraSplineNode::DrawNodeDebug(FComposableCameraDebugDrawSink& 
 {
 	if (!SplineInterface) { return; }
 	if (CVarShowSplineGizmo.GetValueOnGameThread() == 0
-		&& !FComposableCameraViewportDebug::ShouldShowAllNodeGizmos()) { return; }
+		&& !FComposableCameraViewportDebug::ShouldShowAllNodeGizmos()
+		&& !Draw.ShouldForceDrawAllNodeGizmos()) { return; }
 	// The spline polyline is laid out in the world where the camera travels;
 	// the small current-position sphere is ~18 units (a dot at typical FOV).
 	// Neither piece occludes the view meaningfully, so no gate.

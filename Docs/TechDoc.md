@@ -395,8 +395,12 @@ Runtime debug:
   draw helpers and keeps solid spheres routed through
   `FComposableCameraViewportDebug::DrawSolidDebugSphere` in non-shipping builds.
   The capture sink records the same calls as `FComposableCameraDebugPrimitive`
-  values for rewind trace serialization. It is a transient C++ adapter; its
-  non-owning `UWorld*` is not a `UPROPERTY`. Sphere / solid-sphere primitives
+  values for rewind trace serialization. It also returns true from
+  `ShouldForceDrawAllNodeGizmos` and
+  `ShouldForceDrawAllTransitionGizmos`, so trace writers capture all 3D gizmos
+  without enabling or refreshing live viewport CVars. The live sink keeps the
+  default false values. It is a transient C++ adapter; its non-owning `UWorld*`
+  is not a `UPROPERTY`. Sphere / solid-sphere primitives
   store segment count in `Size` and line thickness in `Thickness`; box
   primitives store line thickness in `Thickness`; plane primitives store center
   in `A`, normalized normal in `B`, and two-dimensional extents in `Extent.X/Y`.

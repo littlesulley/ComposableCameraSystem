@@ -515,7 +515,8 @@ void UComposableCameraCompositionFramingNode::SetActiveShotsFromSequencer(
 void UComposableCameraCompositionFramingNode::DrawNodeDebug(FComposableCameraDebugDrawSink& Draw, bool /*bViewerIsOutsideCamera*/) const
 {
 	if (CVarShowCompositionFramingGizmo.GetValueOnGameThread() == 0
-		&& !FComposableCameraViewportDebug::ShouldShowAllNodeGizmos())
+		&& !FComposableCameraViewportDebug::ShouldShowAllNodeGizmos()
+		&& !Draw.ShouldForceDrawAllNodeGizmos())
 	{
 		return;
 	}

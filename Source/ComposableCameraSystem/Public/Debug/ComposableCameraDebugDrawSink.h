@@ -12,6 +12,9 @@ class COMPOSABLECAMERASYSTEM_API FComposableCameraDebugDrawSink
 public:
 	virtual ~FComposableCameraDebugDrawSink() = default;
 
+	virtual bool ShouldForceDrawAllNodeGizmos() const { return false; }
+	virtual bool ShouldForceDrawAllTransitionGizmos() const { return false; }
+
 	virtual void DrawLine(
 		const FVector& Start,
 		const FVector& End,
@@ -114,6 +117,9 @@ class COMPOSABLECAMERASYSTEM_API FComposableCameraPrimitiveCaptureSink final : p
 {
 public:
 	explicit FComposableCameraPrimitiveCaptureSink(TArray<FComposableCameraDebugPrimitive>& InPrimitives);
+
+	virtual bool ShouldForceDrawAllNodeGizmos() const override { return true; }
+	virtual bool ShouldForceDrawAllTransitionGizmos() const override { return true; }
 
 	virtual void DrawLine(
 		const FVector& Start,

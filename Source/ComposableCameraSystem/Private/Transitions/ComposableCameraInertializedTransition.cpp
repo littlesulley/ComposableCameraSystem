@@ -158,7 +158,8 @@ float UComposableCameraInertializedTransition::GetActualBlendTime(float InDeltaT
 void UComposableCameraInertializedTransition::DrawTransitionDebug(FComposableCameraDebugDrawSink& Draw, bool bViewerIsOutsideCamera) const
 {
 	if (CVarShowInertializedTransitionGizmo.GetValueOnGameThread() == 0
-		&& !FComposableCameraViewportDebug::ShouldShowAllTransitionGizmos()) { return; }
+		&& !FComposableCameraViewportDebug::ShouldShowAllTransitionGizmos()
+		&& !Draw.ShouldForceDrawAllTransitionGizmos()) { return; }
 
 	// Hot pink. Strongly distinct accent because inertialization's overshoot
 	// is the most visually interesting thing the debug draw reveals.

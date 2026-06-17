@@ -136,7 +136,8 @@ void UComposableCameraLookAtNode::OnTickNode_Implementation(float DeltaTime,
 void UComposableCameraLookAtNode::DrawNodeDebug(FComposableCameraDebugDrawSink& Draw, bool bViewerIsOutsideCamera) const
 {
 	if (CVarShowLookAtGizmo.GetValueOnGameThread() == 0
-		&& !FComposableCameraViewportDebug::ShouldShowAllNodeGizmos()) { return; }
+		&& !FComposableCameraViewportDebug::ShouldShowAllNodeGizmos()
+		&& !Draw.ShouldForceDrawAllNodeGizmos()) { return; }
 	// Possessed play: target sphere only. A line from camera to target is
 	// by definition along the view axis and all variants tried (thin line,
 	// thick line, arrow, manual arrow, line+box) either vanish via view

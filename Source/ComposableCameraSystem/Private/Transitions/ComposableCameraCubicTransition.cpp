@@ -46,7 +46,8 @@ float UComposableCameraCubicTransition::GetBlendWeightAt(float NormalizedTime) c
 void UComposableCameraCubicTransition::DrawTransitionDebug(FComposableCameraDebugDrawSink& Draw, bool bViewerIsOutsideCamera) const
 {
 	if (CVarShowCubicTransitionGizmo.GetValueOnGameThread() == 0
-		&& !FComposableCameraViewportDebug::ShouldShowAllTransitionGizmos()) { return; }
+		&& !FComposableCameraViewportDebug::ShouldShowAllTransitionGizmos()
+		&& !Draw.ShouldForceDrawAllTransitionGizmos()) { return; }
 
 	// Lavender. Still in the cool family but well clear of LookAt cyan
 	// and SplineNode violet.

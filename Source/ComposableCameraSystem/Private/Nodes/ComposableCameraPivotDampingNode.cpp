@@ -144,7 +144,8 @@ void UComposableCameraPivotDampingNode::OnTickNode_Implementation(float DeltaTim
 void UComposableCameraPivotDampingNode::DrawNodeDebug(FComposableCameraDebugDrawSink& Draw, bool /*bViewerIsOutsideCamera*/) const
 {
 	if (CVarShowPivotDampingGizmo.GetValueOnGameThread() == 0
-		&& !FComposableCameraViewportDebug::ShouldShowAllNodeGizmos()) { return; }
+		&& !FComposableCameraViewportDebug::ShouldShowAllNodeGizmos()
+		&& !Draw.ShouldForceDrawAllNodeGizmos()) { return; }
 	// Damped pivot sits at the same character / world target location as the
 	// raw pivot. Not on the camera. Occlusion gate doesn't apply.
 	// Magenta to stay distinct from the green CollisionPush trace (same hue

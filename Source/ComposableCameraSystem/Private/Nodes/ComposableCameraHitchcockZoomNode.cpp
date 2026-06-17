@@ -455,7 +455,8 @@ void UComposableCameraHitchcockZoomNode::GetPinDeclarations_Implementation(
 void UComposableCameraHitchcockZoomNode::DrawNodeDebug(FComposableCameraDebugDrawSink& Draw, bool bViewerIsOutsideCamera) const
 {
 	if (CVarShowHitchcockZoomGizmo.GetValueOnGameThread() == 0
-		&& !FComposableCameraViewportDebug::ShouldShowAllNodeGizmos()) { return; }
+		&& !FComposableCameraViewportDebug::ShouldShowAllNodeGizmos()
+		&& !Draw.ShouldForceDrawAllNodeGizmos()) { return; }
 	if (!bDebugDrivenThisTick) { return; }
 
 	const FColor HitchcockColor = FComposableCameraViewportDebugColors::HitchcockZoom();

@@ -407,7 +407,8 @@ void UComposableCameraSpiralNode::GetPinDeclarations_Implementation(
 void UComposableCameraSpiralNode::DrawNodeDebug(FComposableCameraDebugDrawSink& Draw, bool /*bViewerIsOutsideCamera*/) const
 {
 	if (CVarShowSpiralGizmo.GetValueOnGameThread() == 0
-		&& !FComposableCameraViewportDebug::ShouldShowAllNodeGizmos()) { return; }
+		&& !FComposableCameraViewportDebug::ShouldShowAllNodeGizmos()
+		&& !Draw.ShouldForceDrawAllNodeGizmos()) { return; }
 
 	// The spiral polyline is laid out in the world around the pivot and
 	// rarely coincides with the camera's own position, so no F8 gate is

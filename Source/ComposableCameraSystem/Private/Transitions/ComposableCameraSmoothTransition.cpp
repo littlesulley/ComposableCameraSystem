@@ -53,7 +53,8 @@ float UComposableCameraSmoothTransition::GetBlendWeightAt(float NormalizedTime) 
 void UComposableCameraSmoothTransition::DrawTransitionDebug(FComposableCameraDebugDrawSink& Draw, bool bViewerIsOutsideCamera) const
 {
 	if (CVarShowSmoothTransitionGizmo.GetValueOnGameThread() == 0
-		&& !FComposableCameraViewportDebug::ShouldShowAllTransitionGizmos()) { return; }
+		&& !FComposableCameraViewportDebug::ShouldShowAllTransitionGizmos()
+		&& !Draw.ShouldForceDrawAllTransitionGizmos()) { return; }
 
 	// Gold accent. Warm, rich, distinct from Linear's neutral grey.
 	const FColor AccentColor = FComposableCameraViewportDebugColors::TransitionSmooth();

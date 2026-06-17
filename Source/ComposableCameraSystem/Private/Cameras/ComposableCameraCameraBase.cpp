@@ -895,7 +895,8 @@ void AComposableCameraCameraBase::DrawCameraDebug(FComposableCameraDebugDrawSink
 
 	// Per-node gizmos are always walked. Each override consults its own
 	// `CCS.Debug.Viewport.<NodeName>` CVar and early-outs when zero, so
-	// node-level gizmos show in both possessed play and F8 eject.
+	// node-level gizmos show in both possessed play and F8 eject. Rewind
+	// capture sinks force these gates open without changing live viewport CVars.
 	// `bDrawFrustum` doubles as "viewer is outside the camera": nodes that
 	// have a gizmo sitting at the camera's own position (e.g. the self-
 	// collision sphere on CollisionPushNode) use this to skip their

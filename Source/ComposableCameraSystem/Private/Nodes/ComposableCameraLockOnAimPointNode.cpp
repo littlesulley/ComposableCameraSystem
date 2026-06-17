@@ -317,7 +317,8 @@ void UComposableCameraLockOnAimPointNode::GetPinDeclarations_Implementation(
 void UComposableCameraLockOnAimPointNode::DrawNodeDebug(FComposableCameraDebugDrawSink& Draw, bool bViewerIsOutsideCamera) const
 {
 	if (CVarShowLockOnAimPointGizmo.GetValueOnGameThread() == 0
-		&& !FComposableCameraViewportDebug::ShouldShowAllNodeGizmos()) { return; }
+		&& !FComposableCameraViewportDebug::ShouldShowAllNodeGizmos()
+		&& !Draw.ShouldForceDrawAllNodeGizmos()) { return; }
 
 	constexpr uint8 KForeground = 1;
 	const FColor AimPointColor = FComposableCameraViewportDebugColors::LockOnAimPoint();

@@ -97,7 +97,8 @@ void UComposableCameraPivotLookAheadNode::OnTickNode_Implementation(float DeltaT
 void UComposableCameraPivotLookAheadNode::DrawNodeDebug(FComposableCameraDebugDrawSink& Draw, bool /*bViewerIsOutsideCamera*/) const
 {
 	if (CVarShowPivotLookAheadGizmo.GetValueOnGameThread() == 0
-		&& !FComposableCameraViewportDebug::ShouldShowAllNodeGizmos()) { return; }
+		&& !FComposableCameraViewportDebug::ShouldShowAllNodeGizmos()
+		&& !Draw.ShouldForceDrawAllNodeGizmos()) { return; }
 
 	constexpr uint8 KForeground = 1;
 	Draw.DrawSphere(LastOutputPivotPosition, /*Radius=*/9.f, FComposableCameraViewportDebugColors::PivotLookAhead(),

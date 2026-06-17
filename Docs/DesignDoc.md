@@ -357,6 +357,10 @@ Debug primitive emission goes through a draw sink abstraction when it needs to
 target either live viewport drawing or rewind trace capture. The live sink
 adapts to `DrawDebug*` / `FComposableCameraViewportDebug`; the capture sink
 appends immutable `FComposableCameraDebugPrimitive` snapshots for trace writers.
+The capture sink explicitly forces all 3D node / transition gizmo gates open,
+so `CCS.Debug.Trace 1` records Rewind primitives without depending on live
+viewport CVars or cached `Nodes.All` / `Transitions.All` state. Live viewport
+draws still obey the per-gizmo and All CVars.
 The primitive stream supports line, point, sphere / solid-sphere, box, plane,
 and camera-frustum records. Sphere records preserve optional segment count in
 `Size` and line thickness in `Thickness`; box records preserve line thickness

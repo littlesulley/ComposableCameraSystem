@@ -288,7 +288,8 @@ void UComposableCameraVolumeConstraintNode::GetPinDeclarations_Implementation(
 void UComposableCameraVolumeConstraintNode::DrawNodeDebug(FComposableCameraDebugDrawSink& Draw, bool /*bViewerIsOutsideCamera*/) const
 {
 	if (CVarShowVolumeConstraintGizmo.GetValueOnGameThread() == 0
-		&& !FComposableCameraViewportDebug::ShouldShowAllNodeGizmos()) { return; }
+		&& !FComposableCameraViewportDebug::ShouldShowAllNodeGizmos()
+		&& !Draw.ShouldForceDrawAllNodeGizmos()) { return; }
 
 	if (!DebugHasResolvedVolume) { return; }
 

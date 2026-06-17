@@ -289,4 +289,24 @@ bool FComposableCameraTraceCaptureSinkRecordsPrimitivesTest::RunTest(const FStri
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FComposableCameraTraceCaptureSinkForcesGizmosTest,
+	"ComposableCameraSystem.RewindTrace.CaptureSinkForcesGizmos",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FComposableCameraTraceCaptureSinkForcesGizmosTest::RunTest(const FString& Parameters)
+{
+	TArray<FComposableCameraDebugPrimitive> Primitives;
+	FComposableCameraPrimitiveCaptureSink CaptureSink(Primitives);
+
+	UTEST_TRUE("Capture sink forces node gizmos independent of viewport CVars", CaptureSink.ShouldForceDrawAllNodeGizmos());
+	UTEST_TRUE("Capture sink forces transition gizmos independent of viewport CVars", CaptureSink.ShouldForceDrawAllTransitionGizmos());
+
+	FComposableCameraLiveDebugDrawSink LiveSink(nullptr);
+	UTEST_FALSE("Live sink does not bypass node gizmo CVars", LiveSink.ShouldForceDrawAllNodeGizmos());
+	UTEST_FALSE("Live sink does not bypass transition gizmo CVars", LiveSink.ShouldForceDrawAllTransitionGizmos());
+
+	return true;
+}
+
 #endif // WITH_DEV_AUTOMATION_TESTS

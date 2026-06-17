@@ -345,7 +345,8 @@ void UComposableCameraFocusPullNode::GetPinDeclarations_Implementation(
 void UComposableCameraFocusPullNode::DrawNodeDebug(FComposableCameraDebugDrawSink& Draw, bool bViewerIsOutsideCamera) const
 {
 	if (CVarShowFocusPullGizmo.GetValueOnGameThread() == 0
-		&& !FComposableCameraViewportDebug::ShouldShowAllNodeGizmos()) { return; }
+		&& !FComposableCameraViewportDebug::ShouldShowAllNodeGizmos()
+		&& !Draw.ShouldForceDrawAllNodeGizmos()) { return; }
 	if (!bDebugWasDrivenThisTick) { return; }
 
 	const FColor FocusColor = FComposableCameraViewportDebugColors::FocusPull();

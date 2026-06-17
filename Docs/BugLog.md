@@ -1,5 +1,46 @@
 # Bug Log
 
+## 2026-06-17 - Rewind trace skipped node gizmos unless live viewport CVars were on
+
+- Symptom: enabling `CCS.Debug.Trace 1` could record only the CCS camera
+  frustum and omit node / transition gizmos in Rewind Debugger.
+- Trigger / repro: start Rewind recording with CCS trace enabled, leave
+  `CCS.Debug.Viewport.Nodes.All`, `CCS.Debug.Viewport.Transitions.All`, and
+  per-node / per-transition viewport CVars off, then play a CCS gameplay or
+  Level Sequence camera that owns 3D node gizmos.
+- Why it happens: PCM and Level Sequence trace writers captured primitives by
+  calling `DrawCameraDebug` with a capture sink, but each node / transition
+  override still self-gated on live viewport CVars or cached `All` state before
+  emitting anything into the sink.
+- Root cause: the draw-sink abstraction carried draw primitive operations but
+  did not carry the intent that trace capture needs all 3D gizmos independent
+  of live viewport UI state.
+- Touched files:
+  - `Source/ComposableCameraSystem/Public/Debug/ComposableCameraDebugDrawSink.h`
+  - `Source/ComposableCameraSystem/Public/Debug/ComposableCameraViewportDebug.h`
+  - `Source/ComposableCameraSystem/Private/Cameras/ComposableCameraCameraBase.cpp`
+  - `Source/ComposableCameraSystem/Private/Nodes/*`
+  - `Source/ComposableCameraSystem/Private/Transitions/*`
+  - `Source/ComposableCameraSystem/Private/Tests/ComposableCameraTraceTests.cpp`
+  - `Docs/DesignDoc.md`
+  - `Docs/TechDoc.md`
+  - `Docs/BugLog.md`
+- Fix: add force-all gizmo queries to `FComposableCameraDebugDrawSink`, make
+  `FComposableCameraPrimitiveCaptureSink` return true for node and transition
+  gizmos, and include that sink intent in every 3D node / transition CVar gate.
+  Live draw sinks keep the default false value, so viewport CVar behavior is
+  unchanged.
+- Regression-test name:
+  `ComposableCameraSystem.RewindTrace.CaptureSinkForcesGizmos`.
+- Test blocker: automation test added, but project rules prohibit Codex from
+  invoking Unreal Editor automation or UBT from shell. User must compile and
+  run it from Rider / Visual Studio / Unreal Editor.
+- Avoid next time: when a debug API is reused for capture, pass capture intent
+  through the API itself instead of depending on viewport-global cached state.
+- Possible conflicts: any future 3D node or transition gizmo must include the
+  draw sink force check in its CVar early-out. 2D HUD-only gizmos still use
+  live viewport CVars only and are not part of Rewind primitive capture.
+
 ## 2026-06-16 - Viewport sphere labels stayed at stale positions
 
 - Symptom: viewport debug labels appeared after the sphere label pass, but the
