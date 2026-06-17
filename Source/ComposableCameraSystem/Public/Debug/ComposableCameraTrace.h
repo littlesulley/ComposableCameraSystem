@@ -4,9 +4,13 @@
 
 #include "CoreMinimal.h"
 #include "Debug/ComposableCameraTraceTypes.h"
-#include "Trace/Config.h"
 
+#if WITH_EDITOR
+#include "Trace/Config.h"
 #define UE_COMPOSABLE_CAMERA_TRACE (UE_TRACE_ENABLED && !IS_PROGRAM && !UE_BUILD_SHIPPING && !UE_BUILD_TEST)
+#else
+#define UE_COMPOSABLE_CAMERA_TRACE 0
+#endif
 
 #if UE_COMPOSABLE_CAMERA_TRACE
 

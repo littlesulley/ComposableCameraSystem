@@ -1,5 +1,49 @@
 # Bug Log
 
+## 2026-06-17 - Rewind trace writers compiled into non-editor runtime builds
+
+- Symptom: CCS Rewind support was intended to be editor-only, but the runtime
+  module always depended on `TraceLog` and compiled the trace writer code in
+  non-editor Development / DebugGame targets. Shipping already stripped the
+  writer functions through `!UE_BUILD_SHIPPING`, but packaged non-shipping
+  targets still carried the trace channel / CVar path.
+- Trigger / repro: inspect `ComposableCameraSystem.Build.cs` and
+  `Debug/ComposableCameraTrace.h` after the Rewind Debugger integration.
+- Why it happens: `UE_COMPOSABLE_CAMERA_TRACE` checked `UE_TRACE_ENABLED`,
+  `!IS_PROGRAM`, `!UE_BUILD_SHIPPING`, and `!UE_BUILD_TEST`, but did not also
+  require `WITH_EDITOR`. The public runtime Build.cs therefore had to list
+  `TraceLog` unconditionally so the public trace header could include
+  `Trace/Config.h`.
+- Root cause: editor-only Rewind instrumentation lived in the runtime module
+  without an editor build gate. The editor module owned Rewind playback /
+  TraceServices ingestion correctly, but the runtime emission side was too
+  broadly compiled.
+- Touched files:
+  - `Source/ComposableCameraSystem/ComposableCameraSystem.Build.cs`
+  - `Source/ComposableCameraSystem/Public/Debug/ComposableCameraTrace.h`
+  - `Source/ComposableCameraSystem/Private/Debug/ComposableCameraTrace.cpp`
+  - `Source/ComposableCameraSystem/Private/Core/ComposableCameraPlayerCameraManager.cpp`
+  - `Source/ComposableCameraSystem/Private/LevelSequence/ComposableCameraLevelSequenceComponent.cpp`
+  - `Docs/DesignDoc.md`
+  - `Docs/TechDoc.md`
+  - `Docs/BugLog.md`
+- Fix: add `WITH_EDITOR` to `UE_COMPOSABLE_CAMERA_TRACE`, include TraceLog /
+  ObjectTrace headers only when that macro is enabled, and move the runtime
+  module's `TraceLog` dependency into the editor-target branch.
+- Regression-test name: non-editor package dependency audit for CCS Rewind
+  trace. The static check is that `TraceLog` appears in the runtime Build.cs
+  only under `Target.bBuildEditor`, and non-editor builds see
+  `UE_COMPOSABLE_CAMERA_TRACE == 0`.
+- Test blocker: project rules prohibit Codex from running UBT, packaging, or
+  automation from shell. User must compile a packaged/non-editor target in
+  Rider / Visual Studio to validate link output.
+- Avoid next time: editor tooling that needs runtime instrumentation must use a
+  runtime shim gated by `WITH_EDITOR`; do not rely on `!UE_BUILD_SHIPPING` when
+  the feature is editor-only.
+- Possible conflicts: Rewind recording in PIE/editor remains enabled because
+  editor targets define `WITH_EDITOR`. Packaged Development builds no longer
+  expose `CCS.Debug.Trace` or emit CCS Rewind trace events.
+
 ## 2026-06-17 - Rewind sphere labels were invisible and 3D primitives jittered while scrubbing
 
 - Symptom: Rewind playback showed correctly sized CCS camera / node gizmos, but

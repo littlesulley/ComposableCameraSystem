@@ -29,8 +29,7 @@ public class ComposableCameraSystem : ModuleRules
                 "SlateCore",
                 // FPlatformApplicationMisc::ClipboardCopy — used by the
                 // CCS.Dump.* console commands to make bug-report pastes trivial.
-                "ApplicationCore",
-                "TraceLog"
+                "ApplicationCore"
             }
 			);
 
@@ -42,6 +41,9 @@ public class ComposableCameraSystem : ModuleRules
 
 		if (Target.bBuildEditor)
 		{
+			// Editor-only Rewind Debugger trace emission. Non-editor runtime /
+			// packaged targets compile the trace writers out and do not need TraceLog.
+			PublicDependencyModuleNames.Add("TraceLog");
 			PrivateDependencyModuleNames.Add("UnrealEd");
 		}
 	}

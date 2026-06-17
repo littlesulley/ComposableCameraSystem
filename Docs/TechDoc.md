@@ -408,6 +408,12 @@ Runtime debug:
   `Radius` stores FOV, `Size` stores ortho width, and `Thickness` stores debug
   frustum scale. Raw default constructed primitives are not valid frustums; use
   `MakeCameraFrustum`, whose scale default is 1.0.
+- Rewind trace emission is editor-only even though the frame data is produced
+  by runtime classes. `UE_COMPOSABLE_CAMERA_TRACE` must include `WITH_EDITOR`,
+  and `ComposableCameraSystem.Build.cs` must add `TraceLog` only when
+  `Target.bBuildEditor` is true. Non-editor packaged targets should not compile
+  `FComposableCameraTrace`, `CCS.Debug.Trace`, ObjectTrace includes, or
+  PCM / LS trace writer bodies.
 - Gameplay PCM trace capture lives in `AComposableCameraPlayerCameraManager`.
   `TraceCCSEvaluationFrame` must early-return on
   `FComposableCameraTrace::IsTraceEnabled()` before reserving primitive storage.

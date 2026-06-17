@@ -9,7 +9,6 @@
 #include "Core/ComposableCameraTypeAssetInstantiator.h"
 #include "DataAssets/ComposableCameraPatchTypeAsset.h"
 #include "DataAssets/ComposableCameraTypeAsset.h"
-#include "Debug/ComposableCameraDebugDrawSink.h"
 #include "Debug/ComposableCameraDebugPanelData.h"
 #include "Debug/ComposableCameraTrace.h"
 #include "Engine/World.h"
@@ -26,8 +25,12 @@
 #include "MovieSceneSpawnableAnnotation.h"
 #include "MovieSceneSpawnRegister.h"
 #include "Nodes/ComposableCameraCompositionFramingNode.h"
-#include "ObjectTrace.h"
 #include "Utils/ComposableCameraViewportUtils.h"
+
+#if UE_COMPOSABLE_CAMERA_TRACE
+#include "Debug/ComposableCameraDebugDrawSink.h"
+#include "ObjectTrace.h"
+#endif
 
 namespace
 {

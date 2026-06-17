@@ -15,7 +15,6 @@
 #include "DataAssets/ComposableCameraTransitionDataAsset.h"
 #include "DataAssets/ComposableCameraTransitionTableDataAsset.h"
 #include "DataAssets/ComposableCameraTypeAsset.h"
-#include "Debug/ComposableCameraDebugDrawSink.h"
 #include "Debug/ComposableCameraTrace.h"
 #include "Utils/ComposableCameraProjectSettings.h"
 #include "Engine/Canvas.h"
@@ -30,9 +29,11 @@
 #include "Transitions/ComposableCameraViewTargetTransition.h"
 #include "Utils/ComposableCameraDebugFormatUtils.h"
 #include "Core/ComposableCameraTypeAssetInstantiator.h"
-#include "ObjectTrace.h"
 
 #if UE_COMPOSABLE_CAMERA_TRACE
+#include "Debug/ComposableCameraDebugDrawSink.h"
+#include "ObjectTrace.h"
+
 static uint64 GetComposableCameraTraceObjectId(const UObject* Object)
 {
 	return IsValid(Object) ? FObjectTrace::GetObjectId(Object) : 0;

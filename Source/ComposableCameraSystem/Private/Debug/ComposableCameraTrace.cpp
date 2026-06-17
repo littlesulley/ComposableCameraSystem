@@ -2,11 +2,11 @@
 
 #include "Debug/ComposableCameraTrace.h"
 
+#if UE_COMPOSABLE_CAMERA_TRACE
+
 #include "HAL/IConsoleManager.h"
 #include "ObjectTrace.h"
 #include "Trace/Trace.h"
-
-#if UE_COMPOSABLE_CAMERA_TRACE
 
 bool GComposableCameraDebugTrace = false;
 static FAutoConsoleVariableRef CVarComposableCameraDebugTrace(
