@@ -1,5 +1,36 @@
 # Bug Log
 
+## 2026-06-17 - Trace provider returned TSharedRef values as timeline pointers
+
+- Symptom: `ComposableCameraSystemEditor` compile fails in
+  `ComposableCameraTraceProvider.cpp` with `C2440: 'return': cannot convert
+  from TraceServices::TPointTimeline<...> to const ITimeline<...>*`.
+- Trigger / repro: compile after adding the CCS Rewind trace provider that
+  stores active-camera and CCS-evaluation timelines as `TSharedRef<TPointTimeline>`.
+- Why it happens: `TSharedRef::Get()` returns an object reference, unlike
+  `TSharedPtr::Get()` which returns a pointer.
+- Root cause: provider getters returned `ActiveTimeline.Get()` and
+  `EvaluationTimeline.Get()` directly from functions whose return types are
+  `const ITimeline<...>*`.
+- Touched files:
+  - `Source/ComposableCameraSystemEditor/Private/Trace/ComposableCameraTraceProvider.cpp`
+  - `Docs/TechDoc.md`
+  - `Docs/BugLog.md`
+- Fix: return the address of the shared reference's object,
+  `&ActiveTimeline.Get()` and `&EvaluationTimeline.Get()`. `TPointTimeline`
+  derives from `ITimeline`, so the address converts to the getter's interface
+  pointer type.
+- Regression-test name: `ComposableCameraSystemEditor IDE compile`.
+- Test blocker: no focused automation test can catch this C++ type error
+  without compiling the editor module, and project rules prohibit Codex from
+  invoking UBT / IDE compilation from shell. User must compile in Rider or
+  Visual Studio.
+- Avoid next time: when exposing a `TSharedRef<T>` as a raw pointer, remember
+  `Get()` returns `T&`; take its address, or store `TSharedPtr<T>` if pointer
+  semantics are needed.
+- Possible conflicts: none expected; provider ownership and timeline storage
+  remain unchanged.
+
 ## 2026-06-17 - Rewind trace skipped node gizmos unless live viewport CVars were on
 
 - Symptom: enabling `CCS.Debug.Trace 1` could record only the CCS camera

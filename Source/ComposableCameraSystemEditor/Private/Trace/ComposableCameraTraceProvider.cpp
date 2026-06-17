@@ -33,11 +33,11 @@ void FComposableCameraTraceProvider::AppendEvaluationFrame(
 const FComposableCameraTraceProvider::FActiveCameraTimeline* FComposableCameraTraceProvider::GetActiveTimeline() const
 {
 	Session.ReadAccessCheck();
-	return ActiveTimeline.Get();
+	return &ActiveTimeline.Get();
 }
 
 const FComposableCameraTraceProvider::FEvaluationTimeline* FComposableCameraTraceProvider::GetEvaluationTimeline() const
 {
 	Session.ReadAccessCheck();
-	return EvaluationTimeline.Get();
+	return &EvaluationTimeline.Get();
 }

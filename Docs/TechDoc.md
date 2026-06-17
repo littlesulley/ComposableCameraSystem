@@ -456,6 +456,9 @@ Rewind provider technique:
   `Session.WriteAccessCheck()`.
 - Timeline reads must run under a session read scope and call
   `Session.ReadAccessCheck()`.
+- Provider timeline getters store timelines as `TSharedRef<TPointTimeline<...>>`;
+  `TSharedRef::Get()` returns a reference, so return `&Timeline.Get()` when the
+  getter exposes `const ITimeline<...>*`.
 - Event time comes from `Context.EventTime.AsSeconds(Cycle)` so active and
   evaluation frames with the same runtime cycle align in Rewind playback.
 - Serialized primitive arrays are copied out of trace event storage, decoded
