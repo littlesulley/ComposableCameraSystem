@@ -77,7 +77,7 @@ bool FComposableCameraTracePrimitiveRoundTripTest::RunTest(const FString& Parame
 	UTEST_EQUAL("Sphere alpha survives", Output[1].Alpha, static_cast<uint8>(96));
 	UTEST_EQUAL("Sphere segments survive", Output[1].Size, 16.0f);
 	UTEST_EQUAL("Sphere thickness survives", Output[1].Thickness, 1.5f);
-	UTEST_EQUAL("Sphere label survives", Output[1].Label, FName(TEXT("Test Sphere")));
+	UTEST_TRUE("Sphere label survives", Output[1].Label == FName(TEXT("Test Sphere")));
 	UTEST_EQUAL("Point kind survives", Output[2].Kind, EComposableCameraDebugPrimitiveKind::Point);
 	UTEST_EQUAL("Point location survives", Output[2].A, FVector(7.0, 8.0, 9.0));
 	UTEST_EQUAL("Point size survives", Output[2].Size, 3.0f);
@@ -132,7 +132,7 @@ bool FComposableCameraTracePrimitiveV1CompatibilityTest::RunTest(const FString& 
 	UTEST_TRUE("Deserialize v1 primitive stream", DeserializeComposableCameraDebugPrimitives(Bytes, Output));
 	UTEST_EQUAL("V1 primitive count survives", Output.Num(), 1);
 	UTEST_EQUAL("V1 sphere kind survives", Output[0].Kind, EComposableCameraDebugPrimitiveKind::SolidSphere);
-	UTEST_EQUAL("V1 sphere label defaults empty", Output[0].Label, NAME_None);
+	UTEST_TRUE("V1 sphere label defaults empty", Output[0].Label.IsNone());
 
 	return true;
 }
@@ -324,7 +324,7 @@ bool FComposableCameraTraceCaptureSinkRecordsPrimitivesTest::RunTest(const FStri
 	UTEST_EQUAL("Third primitive solid sphere", Primitives[2].Kind, EComposableCameraDebugPrimitiveKind::SolidSphere);
 	UTEST_EQUAL("Capture sink preserved sphere segments", Primitives[2].Size, 16.0f);
 	UTEST_EQUAL("Capture sink preserved sphere thickness", Primitives[2].Thickness, 2.0f);
-	UTEST_EQUAL("Capture sink preserved sphere label", Primitives[2].Label, FName(TEXT("Capture Sphere")));
+	UTEST_TRUE("Capture sink preserved sphere label", Primitives[2].Label == FName(TEXT("Capture Sphere")));
 	UTEST_EQUAL("Fourth primitive frustum", Primitives[3].Kind, EComposableCameraDebugPrimitiveKind::CameraFrustum);
 	UTEST_EQUAL("Capture sink preserved frustum scale", Primitives[3].Thickness, 12.0f);
 	UTEST_EQUAL("Fifth primitive plane", Primitives[4].Kind, EComposableCameraDebugPrimitiveKind::Plane);

@@ -1,5 +1,32 @@
 # Bug Log
 
+## 2026-06-17 - Rewind trace tests used unsupported FName UTEST_EQUAL overload
+
+- Symptom: compiling `ComposableCameraTraceTests.cpp` failed with
+  `C2665: 'FAutomationTestBase::TestEqual': no overloaded function could
+  convert all the argument types` at the `FName` label assertions.
+- Trigger / repro: compile the Rewind label fix in Rider / Visual Studio.
+- Why it happens: UE 5.6 automation `UTEST_EQUAL` has overloads for strings,
+  colors, numbers, and several engine types, but not for `FName`.
+- Root cause: the Rewind label tests asserted `FName` equality through
+  `UTEST_EQUAL`, so the macro expanded into `TestEqual` and overload resolution
+  could not choose a valid function.
+- Touched files:
+  - `Source/ComposableCameraSystem/Private/Tests/ComposableCameraTraceTests.cpp`
+  - `Docs/TechDoc.md`
+  - `Docs/BugLog.md`
+- Fix: assert label identity with `UTEST_TRUE` and explicit `FName` comparison
+  / `IsNone()` checks.
+- Regression-test name:
+  `ComposableCameraSystem.RewindTrace.PrimitiveRoundTrip`,
+  `ComposableCameraSystem.RewindTrace.PrimitiveV1Compatibility`, and
+  `ComposableCameraSystem.RewindTrace.CaptureSinkRecordsPrimitives`.
+- Test blocker: project rules prohibit Codex from running Unreal builds or
+  automation from shell. User must recompile in Rider / Visual Studio.
+- Avoid next time: use `UTEST_TRUE(NameA == NameB)` or convert both sides to
+  strings when testing `FName`; do not pass `FName` to `UTEST_EQUAL`.
+- Possible conflicts: none; this changes test assertions only.
+
 ## 2026-06-17 - Rewind playback drew oversized active frustum and dropped sphere labels
 
 - Symptom: Rewind Debugger playback drew a huge blue active-camera frustum that

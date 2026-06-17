@@ -753,6 +753,8 @@ Rules:
   effective FOV.
 - Focus distance uses sentinel behavior. Do not blend invalid focus distance as
   a real distance.
+- UE automation `UTEST_EQUAL` has no `FName` overload in UE 5.6. Use
+  `UTEST_TRUE(NameA == NameB)` or compare strings when testing `FName`.
 - Interpolator `Run()` returns an absolute value, not a delta. If a scalar
   damping helper computes only `Target - Current` progress, add it back to the
   current value before returning; Spline, FocusPull, and VolumeConstraint reset
