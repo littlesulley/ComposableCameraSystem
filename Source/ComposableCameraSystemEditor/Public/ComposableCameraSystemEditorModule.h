@@ -6,6 +6,7 @@
 #include "AssetTypeCategories.h"
 #include "Modules/ModuleManager.h"
 #include "Templates/SharedPointer.h"
+#include "Templates/UniquePtr.h"
 
 class ISequencer;
 class UMovieSceneSequence;
@@ -13,10 +14,14 @@ class UComposableCameraTypeAsset;
 class UComposableCameraTypeAssetEditor;
 class FComposableCameraNodeGraphPinFactory;
 class FComposableCameraGraphNodeFactory;
+class FComposableCameraTraceModule;
+class FComposableCameraRewindDebuggerExtension;
+class FComposableCameraRewindDebuggerTrackCreator;
 
 class FComposableCameraSystemEditorModule: public IModuleInterface
 {
 public:
+ virtual ~FComposableCameraSystemEditorModule() override;
  virtual void StartupModule() override;
  virtual void ShutdownModule() override;
  UComposableCameraTypeAssetEditor* CreateComposableCameraTypeAssetEditor(const EToolkitMode::Type Mode, const TSharedPtr<IToolkitHost>& InitToolkitHost, UComposableCameraTypeAsset* TypeAsset);
@@ -47,6 +52,9 @@ private:
  void RegisterGraphNodeFactory();
  void UnregisterGraphNodeFactory();
 
+ void RegisterRewindDebuggerSupport();
+ void UnregisterRewindDebuggerSupport();
+
  /** Kept alive for the lifetime of the module so FEdGraphUtilities' weak
  * reference stays resolvable. Reset in ShutdownModule after unregister. */
  TSharedPtr<FComposableCameraNodeGraphPinFactory> NodeGraphPinFactory;
@@ -54,6 +62,10 @@ private:
  /** Kept alive for the lifetime of the module so the node factory registration
  * stays valid. Reset in ShutdownModule after unregister. */
  TSharedPtr<FComposableCameraGraphNodeFactory> GraphNodeFactory;
+
+ TUniquePtr<FComposableCameraTraceModule> TraceModule;
+ TSharedPtr<FComposableCameraRewindDebuggerExtension> RewindDebuggerExtension;
+ TSharedPtr<FComposableCameraRewindDebuggerTrackCreator> RewindDebuggerTrackCreator;
 
  /** Registers two Sequencer track editors with ISequencerModule:
  *

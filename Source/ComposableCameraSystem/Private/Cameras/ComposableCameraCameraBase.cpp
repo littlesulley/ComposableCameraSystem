@@ -8,7 +8,7 @@
 #include "Core/ComposableCameraDebugSnapshot.h"
 #include "DataAssets/ComposableCameraTypeAsset.h"
 #include "Core/ComposableCameraPlayerCameraManager.h"
-#include "DrawDebugHelpers.h"
+#include "Debug/ComposableCameraDebugDrawSink.h"
 #include "Engine/PostProcessUtils.h"
 #include "Engine/Scene.h"
 #include "Modifiers/ComposableCameraModifierBase.h"
@@ -873,11 +873,12 @@ FComposableCameraDebugSnapshot AComposableCameraCameraBase::SnapshotDebugState()
 #if !UE_BUILD_SHIPPING
 void AComposableCameraCameraBase::DrawCameraDebug(UWorld* World, bool bDrawFrustum) const
 {
-	if (!World)
-	{
-		return;
-	}
+	FComposableCameraLiveDebugDrawSink Draw(World);
+	DrawCameraDebug(Draw, bDrawFrustum);
+}
 
+void AComposableCameraCameraBase::DrawCameraDebug(FComposableCameraDebugDrawSink& Draw, bool bDrawFrustum) const
+{
 	if (bDrawFrustum)
 	{
 		// Camera frustum at the pose this camera evaluated to this frame.
@@ -885,22 +886,17 @@ void AComposableCameraCameraBase::DrawCameraDebug(UWorld* World, bool bDrawFrust
 		// differ from the PCM's blended output pose, which is what the user
 		// wants to see (source vs target contributions). Only invoked when
 		// the caller determined the player isn't looking through this camera.
-		const float FOV = CameraPose.GetEffectiveFieldOfView();
-		DrawDebugCamera(
-			World,
-			CameraPose.Position,
-			CameraPose.Rotation,
-			FOV,
-			/*Scale=*/1.f,
-			/*Color=*/FColor::Yellow,
-			/*bPersistentLines=*/false,
-			/*LifeTime=*/-1.f,
-			/*DepthPriority=*/0);
+		FComposableCameraTracePose Pose;
+		Pose.Location = CameraPose.Position;
+		Pose.Rotation = CameraPose.Rotation;
+		Pose.FieldOfView = CameraPose.GetEffectiveFieldOfView();
+		Draw.DrawCameraFrustum(Pose, FColor::Yellow, /*DepthPriority=*/0, /*Scale=*/1.f);
 	}
 
 	// Per-node gizmos are always walked. Each override consults its own
 	// `CCS.Debug.Viewport.<NodeName>` CVar and early-outs when zero, so
-	// node-level gizmos show in both possessed play and F8 eject.
+	// node-level gizmos show in both possessed play and F8 eject. Rewind
+	// capture sinks force these gates open without changing live viewport CVars.
 	// `bDrawFrustum` doubles as "viewer is outside the camera": nodes that
 	// have a gizmo sitting at the camera's own position (e.g. the self-
 	// collision sphere on CollisionPushNode) use this to skip their
@@ -909,7 +905,7 @@ void AComposableCameraCameraBase::DrawCameraDebug(UWorld* World, bool bDrawFrust
 	{
 		if (Node)
 		{
-			Node->DrawNodeDebug(World, /*bViewerIsOutsideCamera=*/bDrawFrustum);
+			Node->DrawNodeDebug(Draw, /*bViewerIsOutsideCamera=*/bDrawFrustum);
 		}
 	}
 }

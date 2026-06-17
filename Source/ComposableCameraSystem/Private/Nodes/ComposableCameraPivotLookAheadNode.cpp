@@ -6,6 +6,7 @@
 #include "Utils/ComposableCameraActorInputSource.h"
 
 #if !UE_BUILD_SHIPPING
+#include "Debug/ComposableCameraDebugDrawSink.h"
 #include "Debug/ComposableCameraViewportDebug.h"
 #include "DrawDebugHelpers.h"
 #include "HAL/IConsoleManager.h"
@@ -93,16 +94,16 @@ void UComposableCameraPivotLookAheadNode::OnTickNode_Implementation(float DeltaT
 }
 
 #if !UE_BUILD_SHIPPING
-void UComposableCameraPivotLookAheadNode::DrawNodeDebug(UWorld* World, bool /*bViewerIsOutsideCamera*/) const
+void UComposableCameraPivotLookAheadNode::DrawNodeDebug(FComposableCameraDebugDrawSink& Draw, bool /*bViewerIsOutsideCamera*/) const
 {
-	if (!World) { return; }
 	if (CVarShowPivotLookAheadGizmo.GetValueOnGameThread() == 0
-		&& !FComposableCameraViewportDebug::ShouldShowAllNodeGizmos()) { return; }
+		&& !FComposableCameraViewportDebug::ShouldShowAllNodeGizmos()
+		&& !Draw.ShouldForceDrawAllNodeGizmos()) { return; }
 
 	constexpr uint8 KForeground = 1;
-	FComposableCameraViewportDebug::DrawSolidDebugSphere(
-		World, LastOutputPivotPosition, /*Radius=*/9.f, FColor(255, 128, 0),
-		/*Alpha=*/105, /*Segments=*/12, KForeground);
+	Draw.DrawSphere(LastOutputPivotPosition, /*Radius=*/9.f, FComposableCameraViewportDebugColors::PivotLookAhead(),
+		/*Alpha=*/105, KForeground, /*bSolid=*/true,
+		/*Segments=*/12, /*Thickness=*/0.0f, TEXT("Pivot LookAhead"));
 }
 #endif
 

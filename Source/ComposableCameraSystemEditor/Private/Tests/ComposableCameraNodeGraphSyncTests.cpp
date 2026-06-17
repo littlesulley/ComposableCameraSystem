@@ -34,6 +34,7 @@
 #include "Nodes/ComposableCameraCameraNodeBase.h"
 #include "Nodes/ComposableCameraCameraOffsetNode.h"
 #include "Nodes/ComposableCameraComputeDistanceToActorNode.h"
+#include "Nodes/ComposableCameraComputePositionBetweenActorsNode.h"
 #include "Nodes/ComposableCameraNodePinTypes.h"
 #include "Nodes/ComposableCameraPivotOffsetNode.h"
 #include "Nodes/ComposableCameraSetRotationNode.h"
@@ -154,6 +155,11 @@ namespace ComposableCameraNodeGraphSyncTest
 		VarNode->AllocateDefaultPins();
 		Graph->AddNode(VarNode, /*bFromUI=*/false, /*bSelectNewNode=*/false);
 		return VarNode;
+	}
+
+	bool ArePinsLinked(const UEdGraphPin* OutputPin, const UEdGraphPin* InputPin)
+	{
+		return OutputPin && InputPin && OutputPin->LinkedTo.Contains(InputPin);
 	}
 }
 
@@ -742,6 +748,152 @@ bool FComposableCameraComputeSetVariableRejectsCameraSourceTest::RunTest(const F
 		Entry.CameraNodeIndex, INDEX_NONE);
 	TestTrue(TEXT("Compute SetVariable keeps source pin empty when source is cross-chain"),
 		Entry.SourcePinName.IsNone());
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FComposableCameraBeginPlaySetVariableExecRoundTripWithGetNodeTest,
+	"ComposableCameraSystem.Editor.NodeGraphSync.BeginPlaySetVariableExecRoundTripWithGetNode",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FComposableCameraBeginPlaySetVariableExecRoundTripWithGetNodeTest::RunTest(const FString& /*Parameters*/)
+{
+	using namespace ComposableCameraNodeGraphSyncTest;
+
+	UComposableCameraTypeAsset* Asset =
+		NewObject<UComposableCameraTypeAsset>(GetTransientPackage());
+	UComposableCameraNodeGraph* Graph = NewObject<UComposableCameraNodeGraph>(Asset);
+	Graph->OwningTypeAsset = Asset;
+
+	FComposableCameraInternalVariable PivotVariable;
+	PivotVariable.VariableGuid = FGuid::NewGuid();
+	PivotVariable.VariableName = TEXT("PivotPosition");
+	PivotVariable.VariableType = EComposableCameraPinType::Vector3D;
+	Asset->InternalVariables.Add(PivotVariable);
+
+	UComposableCameraBeginPlayStartGraphNode* BeginPlayStart =
+		NewObject<UComposableCameraBeginPlayStartGraphNode>(Graph);
+	BeginPlayStart->CreateNewGuid();
+	BeginPlayStart->AllocateDefaultPins();
+	Graph->AddNode(BeginPlayStart, /*bFromUI=*/false, /*bSelectNewNode=*/false);
+
+	UComposableCameraNodeGraphNode* PositionNode = AddComputeNode(
+		Asset, Graph, NewObject<UComposableCameraComputePositionBetweenActorsNode>(Asset), FVector2D(300.0, 400.0));
+	UComposableCameraVariableGraphNode* SetPivotNode = AddSetVariableNode(
+		Graph, PivotVariable, FVector2D(600.0, 400.0));
+	UComposableCameraVariableGraphNode* GetPivotNode = AddGetVariableNode(
+		Graph, PivotVariable, FVector2D(600.0, 520.0));
+	UComposableCameraNodeGraphNode* RotationNode = AddComputeNode(
+		Asset, Graph, NewObject<UComposableCameraBeginPlaySetRotationNode>(Asset), FVector2D(900.0, 400.0));
+
+	UEdGraphPin* BeginExecOut =
+		BeginPlayStart->FindPin(UComposableCameraGraphNodeBase::PN_ExecOut, EGPD_Output);
+	UEdGraphPin* PositionExecIn =
+		PositionNode->FindPin(UComposableCameraNodeGraphNode::PN_ExecIn, EGPD_Input);
+	UEdGraphPin* PositionExecOut =
+		PositionNode->FindPin(UComposableCameraNodeGraphNode::PN_ExecOut, EGPD_Output);
+	UEdGraphPin* PositionOutput =
+		PositionNode->FindPin(TEXT("Position"), EGPD_Output);
+	UEdGraphPin* SetExecIn =
+		SetPivotNode->FindPin(UComposableCameraVariableGraphNode::PN_ExecIn, EGPD_Input);
+	UEdGraphPin* SetExecOut =
+		SetPivotNode->FindPin(UComposableCameraVariableGraphNode::PN_ExecOut, EGPD_Output);
+	UEdGraphPin* SetValue =
+		SetPivotNode->FindPin(UComposableCameraVariableGraphNode::PN_Value, EGPD_Input);
+	UEdGraphPin* RotationExecIn =
+		RotationNode->FindPin(UComposableCameraNodeGraphNode::PN_ExecIn, EGPD_Input);
+
+	if (!TestNotNull(TEXT("BeginPlay ExecOut exists"), BeginExecOut) ||
+		!TestNotNull(TEXT("Position ExecIn exists"), PositionExecIn) ||
+		!TestNotNull(TEXT("Position ExecOut exists"), PositionExecOut) ||
+		!TestNotNull(TEXT("Position output exists"), PositionOutput) ||
+		!TestNotNull(TEXT("Set ExecIn exists"), SetExecIn) ||
+		!TestNotNull(TEXT("Set ExecOut exists"), SetExecOut) ||
+		!TestNotNull(TEXT("Set Value exists"), SetValue) ||
+		!TestNotNull(TEXT("Rotation ExecIn exists"), RotationExecIn))
+	{
+		return false;
+	}
+
+	BeginExecOut->MakeLinkTo(PositionExecIn);
+	PositionExecOut->MakeLinkTo(SetExecIn);
+	SetExecOut->MakeLinkTo(RotationExecIn);
+	PositionOutput->MakeLinkTo(SetValue);
+
+	Graph->SyncToTypeAsset();
+
+	if (!TestEqual(TEXT("BeginPlay chain serialized compute, set, compute"),
+			Asset->ComputeFullExecChain.Num(), 3))
+	{
+		return false;
+	}
+	TestTrue(TEXT("Set entry keeps the exact Set node identity"),
+		Asset->ComputeFullExecChain[1].VariableNodeGuid == SetPivotNode->NodeGuid);
+
+	Graph->RebuildFromTypeAsset();
+
+	UComposableCameraBeginPlayStartGraphNode* RebuiltBeginPlayStart = nullptr;
+	UComposableCameraNodeGraphNode* RebuiltPositionNode = nullptr;
+	UComposableCameraVariableGraphNode* RebuiltSetPivotNode = nullptr;
+	UComposableCameraVariableGraphNode* RebuiltGetPivotNode = nullptr;
+	UComposableCameraNodeGraphNode* RebuiltRotationNode = nullptr;
+
+	for (UEdGraphNode* Node : Graph->Nodes)
+	{
+		if (UComposableCameraBeginPlayStartGraphNode* BeginPlayCandidate =
+			Cast<UComposableCameraBeginPlayStartGraphNode>(Node))
+		{
+			RebuiltBeginPlayStart = BeginPlayCandidate;
+		}
+		else if (UComposableCameraVariableGraphNode* VariableCandidate =
+			Cast<UComposableCameraVariableGraphNode>(Node))
+		{
+			if (VariableCandidate->NodeGuid == SetPivotNode->NodeGuid)
+			{
+				RebuiltSetPivotNode = VariableCandidate;
+			}
+			else if (VariableCandidate->NodeGuid == GetPivotNode->NodeGuid)
+			{
+				RebuiltGetPivotNode = VariableCandidate;
+			}
+		}
+		else if (UComposableCameraNodeGraphNode* GraphNodeCandidate =
+			Cast<UComposableCameraNodeGraphNode>(Node))
+		{
+			if (GraphNodeCandidate->NodeTemplate &&
+				GraphNodeCandidate->NodeTemplate->IsA<UComposableCameraComputePositionBetweenActorsNode>())
+			{
+				RebuiltPositionNode = GraphNodeCandidate;
+			}
+			else if (GraphNodeCandidate->NodeTemplate &&
+				GraphNodeCandidate->NodeTemplate->IsA<UComposableCameraBeginPlaySetRotationNode>())
+			{
+				RebuiltRotationNode = GraphNodeCandidate;
+			}
+		}
+	}
+
+	if (!TestNotNull(TEXT("Rebuilt BeginPlay start exists"), RebuiltBeginPlayStart) ||
+		!TestNotNull(TEXT("Rebuilt position compute node exists"), RebuiltPositionNode) ||
+		!TestNotNull(TEXT("Rebuilt Set PivotPosition node exists"), RebuiltSetPivotNode) ||
+		!TestNotNull(TEXT("Rebuilt Get PivotPosition node exists"), RebuiltGetPivotNode) ||
+		!TestNotNull(TEXT("Rebuilt rotation compute node exists"), RebuiltRotationNode))
+	{
+		return false;
+	}
+
+	TestTrue(TEXT("BeginPlay reconnects to first compute node"),
+		ArePinsLinked(
+			RebuiltBeginPlayStart->FindPin(UComposableCameraGraphNodeBase::PN_ExecOut, EGPD_Output),
+			RebuiltPositionNode->FindPin(UComposableCameraNodeGraphNode::PN_ExecIn, EGPD_Input)));
+	TestTrue(TEXT("First compute node reconnects to exact Set node, not the same-variable Get node"),
+		ArePinsLinked(
+			RebuiltPositionNode->FindPin(UComposableCameraNodeGraphNode::PN_ExecOut, EGPD_Output),
+			RebuiltSetPivotNode->FindPin(UComposableCameraVariableGraphNode::PN_ExecIn, EGPD_Input)));
+	TestTrue(TEXT("Set node reconnects to next BeginPlay compute node"),
+		ArePinsLinked(
+			RebuiltSetPivotNode->FindPin(UComposableCameraVariableGraphNode::PN_ExecOut, EGPD_Output),
+			RebuiltRotationNode->FindPin(UComposableCameraNodeGraphNode::PN_ExecIn, EGPD_Input)));
 
 	return true;
 }

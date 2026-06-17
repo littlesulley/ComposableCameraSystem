@@ -56,7 +56,7 @@ public:
 	// actually travelling along. For Type=Auto the internal spline is
 	// procedurally generated at OnBeginPlay; for Type=Inertialized the
 	// rail spline is what drives motion.
-	virtual void DrawTransitionDebug(UWorld* World, bool bViewerIsOutsideCamera) const override;
+	virtual void DrawTransitionDebug(FComposableCameraDebugDrawSink& Draw, bool bViewerIsOutsideCamera) const override;
 #endif
 
 public:

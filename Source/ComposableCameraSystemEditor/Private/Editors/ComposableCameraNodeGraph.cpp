@@ -193,20 +193,25 @@ void UComposableCameraNodeGraph::RebuildFromTypeAsset()
 	RebuildPhase_RestoreComputeNodePinConnections(CreatedComputeGraphNodes);
 
 	// Phase 6: re-create variable graph nodes and wire them to the appropriate
-	// chain's node pins. The lookup is consumed by phases 7/7b to wire
-	// Set-variable exec entries by GUID.
-	TMap<FGuid, UComposableCameraVariableGraphNode*> VariableGuidToGraphNode;
-	RebuildPhase_RestoreVariableGraphNodes(CreatedGraphNodes, CreatedComputeGraphNodes, VariableGuidToGraphNode);
+	// chain's node pins. The lookups are consumed by phases 7/7b to wire
+	// Set-variable exec entries by exact node GUID, with a variable-GUID
+	// fallback for assets saved before exec entries stored Set node identity.
+	TMap<FGuid, UComposableCameraVariableGraphNode*> VariableNodeGuidToGraphNode;
+	TMap<FGuid, UComposableCameraVariableGraphNode*> VariableGuidToSetGraphNode;
+	RebuildPhase_RestoreVariableGraphNodes(CreatedGraphNodes, CreatedComputeGraphNodes,
+		VariableNodeGuidToGraphNode, VariableGuidToSetGraphNode);
 
 	// Phase 7: replay the camera execution chain (FullExecChain preferred,
 	// ExecutionOrder as legacy fallback).
-	RebuildPhase_RestoreExecutionChain(StartNode, OutputNode, CreatedGraphNodes, VariableGuidToGraphNode);
+	RebuildPhase_RestoreExecutionChain(StartNode, OutputNode, CreatedGraphNodes,
+		VariableNodeGuidToGraphNode, VariableGuidToSetGraphNode);
 
 	// Phase 7b: replay the compute execution chain. Runs independently of
 	// the camera chain - the two chains never share nodes or wires by
 	// schema construction, so neither phase needs to know about the other.
-	// Needs the VariableGuidToGraphNode lookup for Set-variable exec entries.
-	RebuildPhase_RestoreComputeExecutionChain(BeginPlayStartNode, CreatedComputeGraphNodes, VariableGuidToGraphNode);
+	// Needs the variable-node lookups for Set-variable exec entries.
+	RebuildPhase_RestoreComputeExecutionChain(BeginPlayStartNode, CreatedComputeGraphNodes,
+		VariableNodeGuidToGraphNode, VariableGuidToSetGraphNode);
 
 	// Run a silent validation pass so the freshly-opened graph already shows
 	// its inline warning / error badges without the user having to edit or
@@ -806,11 +811,12 @@ void UComposableCameraNodeGraph::SyncPhase_RebuildExecutionChain(const UComposab
 			}
 
 			// Resolve the source (camera-node output pin) feeding this Set's
-			// Value input. A Set with no Value wire contributes nothing useful
-			// to the chain, so skip it but keep walking through its ExecOut.
+			// Value input. Unwired Value inputs still round-trip as Set entries;
+			// validation reports them without dropping the authored exec chain.
 			FComposableCameraExecEntry Entry;
 			Entry.EntryType = EComposableCameraExecEntryType::SetVariable;
 			Entry.VariableGuid = VarExecNode->VariableGuid;
+			Entry.VariableNodeGuid = VarExecNode->NodeGuid;
 			Entry.CameraNodeIndex = INDEX_NONE;
 
 			// Resolve variable name + slot size for runtime dispatch.
@@ -951,6 +957,7 @@ void UComposableCameraNodeGraph::SyncPhase_RebuildComputeExecutionChain(const UC
 			FComposableCameraExecEntry Entry;
 			Entry.EntryType = EComposableCameraExecEntryType::SetVariable;
 			Entry.VariableGuid = VarExecNode->VariableGuid;
+			Entry.VariableNodeGuid = VarExecNode->NodeGuid;
 			Entry.CameraNodeIndex = INDEX_NONE;
 
 			// Resolve variable name + slot size for runtime dispatch.
@@ -1398,7 +1405,8 @@ void UComposableCameraNodeGraph::RebuildPhase_RestoreComputeNodePinConnections(c
 
 void UComposableCameraNodeGraph::RebuildPhase_RestoreVariableGraphNodes(const TArray<UComposableCameraNodeGraphNode*>& CreatedGraphNodes,
 	const TArray<UComposableCameraNodeGraphNode*>& CreatedComputeGraphNodes,
-	TMap<FGuid, UComposableCameraVariableGraphNode*>& OutVariableGuidToGraphNode)
+	TMap<FGuid, UComposableCameraVariableGraphNode*>& OutVariableNodeGuidToGraphNode,
+	TMap<FGuid, UComposableCameraVariableGraphNode*>& OutVariableGuidToSetGraphNode)
 {
 	for (const FComposableCameraVariableNodeRecord& Record: OwningTypeAsset->VariableNodes)
 	{
@@ -1452,13 +1460,19 @@ void UComposableCameraNodeGraph::RebuildPhase_RestoreVariableGraphNodes(const TA
 		VarNode->AllocateDefaultPins();
 		AddNode(VarNode, /*bFromUI=*/false, /*bSelectNewNode=*/false);
 
-		// Key the lookup by the resolved GUID (after the legacy fallback above)
-		// so the exec-chain phase can wire Set-variable exec pins by GUID. Skip
-		// entries whose GUID is still invalid - those can't participate in exec
-		// chain restore until the user re-saves the asset.
+		// Prefer exact graph-node identity for exec-chain restore. The legacy
+		// variable-GUID map is limited to Set nodes so same-variable Get nodes
+		// cannot steal the lookup during save/load.
+		if (VarNode->NodeGuid.IsValid())
+		{
+			OutVariableNodeGuidToGraphNode.Add(VarNode->NodeGuid, VarNode);
+		}
 		if (VarNode->VariableGuid.IsValid())
 		{
-			OutVariableGuidToGraphNode.Add(VarNode->VariableGuid, VarNode);
+			if (VarNode->bIsSetter)
+			{
+				OutVariableGuidToSetGraphNode.Add(VarNode->VariableGuid, VarNode);
+			}
 		}
 
 		UEdGraphPin* ValuePin = VarNode->FindPin(UComposableCameraVariableGraphNode::PN_Value);
@@ -1493,7 +1507,8 @@ void UComposableCameraNodeGraph::RebuildPhase_RestoreVariableGraphNodes(const TA
 void UComposableCameraNodeGraph::RebuildPhase_RestoreExecutionChain(UComposableCameraStartGraphNode* StartNode,
 	UComposableCameraOutputGraphNode* OutputNode,
 	const TArray<UComposableCameraNodeGraphNode*>& CreatedGraphNodes,
-	const TMap<FGuid, UComposableCameraVariableGraphNode*>& VariableGuidToGraphNode)
+	const TMap<FGuid, UComposableCameraVariableGraphNode*>& VariableNodeGuidToGraphNode,
+	const TMap<FGuid, UComposableCameraVariableGraphNode*>& VariableGuidToSetGraphNode)
 {
 	// Prefer FullExecChain (which can interleave camera nodes with Set-variable
 	// nodes). Fall back to the legacy ExecutionOrder projection for assets
@@ -1525,12 +1540,32 @@ void UComposableCameraNodeGraph::RebuildPhase_RestoreExecutionChain(UComposableC
 		}
 		case EComposableCameraExecEntryType::SetVariable:
 		{
-			if (UComposableCameraVariableGraphNode* const* VarNodePtr =
-				VariableGuidToGraphNode.Find(Entry.VariableGuid))
+			UComposableCameraVariableGraphNode* VarNode = nullptr;
+			if (Entry.VariableNodeGuid.IsValid())
+			{
+				if (UComposableCameraVariableGraphNode* const* VarNodePtr =
+					VariableNodeGuidToGraphNode.Find(Entry.VariableNodeGuid))
+				{
+					VarNode = *VarNodePtr;
+				}
+			}
+			if (VarNode && !VarNode->bIsSetter)
+			{
+				VarNode = nullptr;
+			}
+			if (!VarNode)
+			{
+				if (UComposableCameraVariableGraphNode* const* VarNodePtr =
+					VariableGuidToSetGraphNode.Find(Entry.VariableGuid))
+				{
+					VarNode = *VarNodePtr;
+				}
+			}
+			if (VarNode && VarNode->bIsSetter)
 			{
 				const FName PinName = (Dir == EGPD_Input)
 					? UComposableCameraVariableGraphNode::PN_ExecIn: UComposableCameraVariableGraphNode::PN_ExecOut;
-				return (*VarNodePtr)->FindPin(PinName, Dir);
+				return VarNode->FindPin(PinName, Dir);
 			}
 			return nullptr;
 		}
@@ -1624,7 +1659,8 @@ void UComposableCameraNodeGraph::RebuildPhase_RestoreExecutionChain(UComposableC
 
 void UComposableCameraNodeGraph::RebuildPhase_RestoreComputeExecutionChain(UComposableCameraBeginPlayStartGraphNode* BeginPlayStartNode,
 	const TArray<UComposableCameraNodeGraphNode*>& CreatedComputeGraphNodes,
-	const TMap<FGuid, UComposableCameraVariableGraphNode*>& VariableGuidToGraphNode)
+	const TMap<FGuid, UComposableCameraVariableGraphNode*>& VariableNodeGuidToGraphNode,
+	const TMap<FGuid, UComposableCameraVariableGraphNode*>& VariableGuidToSetGraphNode)
 {
 	// Mirror of RebuildPhase_RestoreExecutionChain for the compute chain.
 	// Prefers ComputeFullExecChain (which interleaves compute nodes with
@@ -1662,12 +1698,32 @@ void UComposableCameraNodeGraph::RebuildPhase_RestoreComputeExecutionChain(UComp
 			}
 			case EComposableCameraExecEntryType::SetVariable:
 			{
-				if (UComposableCameraVariableGraphNode* const* VarNodePtr =
-					VariableGuidToGraphNode.Find(Entry.VariableGuid))
+				UComposableCameraVariableGraphNode* VarNode = nullptr;
+				if (Entry.VariableNodeGuid.IsValid())
+				{
+					if (UComposableCameraVariableGraphNode* const* VarNodePtr =
+						VariableNodeGuidToGraphNode.Find(Entry.VariableNodeGuid))
+					{
+						VarNode = *VarNodePtr;
+					}
+				}
+				if (VarNode && !VarNode->bIsSetter)
+				{
+					VarNode = nullptr;
+				}
+				if (!VarNode)
+				{
+					if (UComposableCameraVariableGraphNode* const* VarNodePtr =
+						VariableGuidToSetGraphNode.Find(Entry.VariableGuid))
+					{
+						VarNode = *VarNodePtr;
+					}
+				}
+				if (VarNode && VarNode->bIsSetter)
 				{
 					const FName PinName = (Dir == EGPD_Input)
 						? UComposableCameraVariableGraphNode::PN_ExecIn: UComposableCameraVariableGraphNode::PN_ExecOut;
-					return (*VarNodePtr)->FindPin(PinName, Dir);
+					return VarNode->FindPin(PinName, Dir);
 				}
 				return nullptr;
 			}

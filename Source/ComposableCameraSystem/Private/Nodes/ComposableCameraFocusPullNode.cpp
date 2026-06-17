@@ -12,6 +12,7 @@
 #include "Interpolator/ComposableCameraInterpolatorBase.h"
 
 #if !UE_BUILD_SHIPPING
+#include "Debug/ComposableCameraDebugDrawSink.h"
 #include "Debug/ComposableCameraViewportDebug.h"
 #include "DrawDebugHelpers.h"
 #include "HAL/IConsoleManager.h"
@@ -341,21 +342,21 @@ void UComposableCameraFocusPullNode::GetPinDeclarations_Implementation(
 }
 
 #if !UE_BUILD_SHIPPING
-void UComposableCameraFocusPullNode::DrawNodeDebug(UWorld* World, bool bViewerIsOutsideCamera) const
+void UComposableCameraFocusPullNode::DrawNodeDebug(FComposableCameraDebugDrawSink& Draw, bool bViewerIsOutsideCamera) const
 {
-	if (!World) { return; }
 	if (CVarShowFocusPullGizmo.GetValueOnGameThread() == 0
-		&& !FComposableCameraViewportDebug::ShouldShowAllNodeGizmos()) { return; }
+		&& !FComposableCameraViewportDebug::ShouldShowAllNodeGizmos()
+		&& !Draw.ShouldForceDrawAllNodeGizmos()) { return; }
 	if (!bDebugWasDrivenThisTick) { return; }
 
-	const FColor FocusColor(255, 200, 60);  // amber
+	const FColor FocusColor = FComposableCameraViewportDebugColors::FocusPull();
 
 	// Small sphere at the resolved target point (the "what we're focused
 	// on" marker). Always visible; it lives out in the world, not at the
 	// camera. Matches CollisionPush's pivot-sphere pattern.
-	FComposableCameraViewportDebug::DrawSolidDebugSphere(
-		World, DebugTargetPoint, /*Radius=*/8.f, FocusColor,
-		/*Alpha=*/160, /*Segments=*/12, /*DepthPriority=*/0);
+	Draw.DrawSphere(DebugTargetPoint, /*Radius=*/8.f, FocusColor,
+		/*Alpha=*/160, /*DepthPriority=*/0, /*bSolid=*/true,
+		/*Segments=*/12, /*Thickness=*/0.0f, TEXT("Focus Target"));
 
 	// Translucent plane at the current focus distance, perpendicular to
 	// the camera's forward vector. Answers "where on the view axis is DoF
@@ -366,23 +367,23 @@ void UComposableCameraFocusPullNode::DrawNodeDebug(UWorld* World, bool bViewerIs
 	if (!CameraForward.IsNearlyZero() && DebugResolvedFocusDistance > UE_KINDA_SMALL_NUMBER)
 	{
 		const FVector FocusPlaneCenter = DebugCameraPosition + CameraForward * DebugResolvedFocusDistance;
-		const FPlane FocusPlane(FocusPlaneCenter, CameraForward.GetSafeNormal());
-
 		// ~60-unit square is visible without dominating the view. Alpha 40
 		// keeps it as a hint, not a wall.
 		FColor PlaneColor = FocusColor;
 		PlaneColor.A = 40;
-		DrawDebugSolidPlane(World, FocusPlane, FocusPlaneCenter,
-			FVector2D(60.f, 60.f), PlaneColor,
-			/*bPersistentLines=*/false, /*LifeTime=*/-1.f, /*DepthPriority=*/0);
+		Draw.DrawPlane(
+			FocusPlaneCenter,
+			CameraForward.GetSafeNormal(),
+			FVector2D(60.f, 60.f),
+			PlaneColor,
+			/*DepthPriority=*/0);
 	}
 
 	// F8 / SIE only: line from camera to target. View-aligned in possessed
 	// play, invisible anyway. Same reasoning as LookAt / CollisionPush.
 	if (bViewerIsOutsideCamera)
 	{
-		DrawDebugLine(World, DebugCameraPosition, DebugTargetPoint, FocusColor,
-			/*bPersistentLines=*/false, /*LifeTime=*/-1.f, /*DepthPriority=*/0, /*Thickness=*/1.0f);
+		Draw.DrawLine(DebugCameraPosition, DebugTargetPoint, FocusColor, /*Thickness=*/1.0f, /*DepthPriority=*/0);
 	}
 }
 #endif

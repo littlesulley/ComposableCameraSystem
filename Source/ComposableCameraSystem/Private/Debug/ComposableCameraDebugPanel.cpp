@@ -2074,61 +2074,18 @@ namespace
 
 	// ---- Region: Legend -----------------------------------------------
 	//
-	// Matches screen colors to node/transition names. Populated from a
-	// static table of (label, color, CVar-name, is-transition) tuples. Entries
-	// whose CVar is zero (AND the corresponding `.All` CVar is
-	// zero) are filtered out, so the legend shrinks to the set of gizmos
-	// the user has actually enabled.
-	//
-	// Colors duplicated from each per-node / per-transition draw site.
-	// When a new gizmo is added elsewhere, add its entry here too.
-	// (No central color registry yet. If one gets built later, this
-	// table is the natural consumer.)
-	struct FLegendEntry
-	{
-		const TCHAR*  Label;
-		FLinearColor  Color;
-		const TCHAR*  CVarName;
-		bool          bIsTransition;
-	};
-
-	static const FLegendEntry KLegendEntries[] = {
-		// Transitions. Accent color used for both the progress sphere and
-		// the path polyline. See TechDoc.md Section 3.20.4 "Accent-color reservation policy".
-		{ TEXT("Linear"),             FLinearColor(200.f / 255.f, 200.f / 255.f, 200.f / 255.f, 1.f), TEXT("CCS.Debug.Viewport.Transitions.Linear"),             true },
-		{ TEXT("Smooth"),             FLinearColor(255.f / 255.f, 220.f / 255.f, 100.f / 255.f, 1.f), TEXT("CCS.Debug.Viewport.Transitions.Smooth"),             true },
-		{ TEXT("Ease"),               FLinearColor(255.f / 255.f, 160.f / 255.f,  80.f / 255.f, 1.f), TEXT("CCS.Debug.Viewport.Transitions.Ease"),               true },
-		{ TEXT("Cubic"),              FLinearColor(180.f / 255.f, 130.f / 255.f, 255.f / 255.f, 1.f), TEXT("CCS.Debug.Viewport.Transitions.Cubic"),              true },
-		{ TEXT("Inertialized"),       FLinearColor(255.f / 255.f, 100.f / 255.f, 200.f / 255.f, 1.f), TEXT("CCS.Debug.Viewport.Transitions.Inertialized"),       true },
-		{ TEXT("Cylindrical"),        FLinearColor(100.f / 255.f, 230.f / 255.f, 200.f / 255.f, 1.f), TEXT("CCS.Debug.Viewport.Transitions.Cylindrical"),        true },
-		{ TEXT("Spline (trans.)"),    FLinearColor(140.f / 255.f, 200.f / 255.f, 255.f / 255.f, 1.f), TEXT("CCS.Debug.Viewport.Transitions.Spline"),             true },
-		{ TEXT("PathGuided"),         FLinearColor(255.f / 255.f, 130.f / 255.f, 130.f / 255.f, 1.f), TEXT("CCS.Debug.Viewport.Transitions.PathGuided"),         true },
-		{ TEXT("DynamicDeocclusion"), FLinearColor(255.f / 255.f,  90.f / 255.f,  90.f / 255.f, 1.f), TEXT("CCS.Debug.Viewport.Transitions.DynamicDeocclusion"), true },
-
-		// Nodes. Colors taken from each node's DrawNodeDebug override.
-		{ TEXT("PivotOffset"),          FLinearColor(1.f,        1.f,        0.f,        1.f), TEXT("CCS.Debug.Viewport.PivotOffset"),          false },  // Yellow
-		{ TEXT("LockOnAimPoint"),       FLinearColor(80.f/255.f,160.f/255.f,255.f/255.f, 1.f), TEXT("CCS.Debug.Viewport.LockOnAimPoint"),       false },  // Blue
-		{ TEXT("PivotDamping"),         FLinearColor(1.f,        0.f,        1.f,        1.f), TEXT("CCS.Debug.Viewport.PivotDamping"),         false },  // Magenta
-		{ TEXT("LookAt"),               FLinearColor(0.f,        1.f,        1.f,        1.f), TEXT("CCS.Debug.Viewport.LookAt"),               false },  // Cyan
-		{ TEXT("CollisionPush"),        FLinearColor(0.3f,       0.85f,      0.3f,       1.f), TEXT("CCS.Debug.Viewport.CollisionPush"),        false },  // Green (clear state; red when blocked)
-		{ TEXT("OcclusionFade"),        FLinearColor(255.f/255.f, 80.f/255.f, 80.f/255.f, 1.f), TEXT("CCS.Debug.Viewport.OcclusionFade"),        false },  // Red (sweep endpoint + F8-only sweep line; cyan proximity sphere uses a secondary hue)
-		{ TEXT("VolumeConstraint"),     FLinearColor(90.f/255.f, 255.f/255.f,120.f/255.f, 1.f), TEXT("CCS.Debug.Viewport.VolumeConstraint"),     false },  // Green (clear state; red when clamping)
-		{ TEXT("FocusPull"),            FLinearColor(255.f/255.f,200.f/255.f, 60.f/255.f, 1.f), TEXT("CCS.Debug.Viewport.FocusPull"),            false },  // Amber (target sphere + focus plane)
-		{ TEXT("HitchcockZoom"),        FLinearColor(180.f/255.f, 80.f/255.f,220.f/255.f, 1.f), TEXT("CCS.Debug.Viewport.HitchcockZoom"),        false },  // Purple (target + camera spheres + F8 frustum)
-		{ TEXT("Spline (node)"),        FLinearColor(180.f/255.f,120.f/255.f,255.f/255.f, 1.f), TEXT("CCS.Debug.Viewport.Spline"),               false },  // Violet
-		{ TEXT("Spiral"),               FLinearColor(255.f/255.f,150.f/255.f, 60.f/255.f, 1.f), TEXT("CCS.Debug.Viewport.Spiral"),               false },  // Orange
-		{ TEXT("ReceivePivotActor"),    FLinearColor(1.f,        1.f,        1.f,        1.f), TEXT("CCS.Debug.Viewport.ReceivePivotActor"),    false },  // White
-		{ TEXT("RelativeFixedPose"),    FLinearColor(1.f,        0.55f,      0.1f,       1.f), TEXT("CCS.Debug.Viewport.RelativeFixedPose"),    false },  // Orange
-		{ TEXT("ScreenSpacePivot"),     FLinearColor(80.f/255.f, 200.f/255.f,180.f/255.f, 1.f), TEXT("CCS.Debug.Viewport.ScreenSpacePivot"),     false },  // Teal
-		{ TEXT("ScreenSpaceConstr."),   FLinearColor(255.f/255.f,180.f/255.f,220.f/255.f, 1.f), TEXT("CCS.Debug.Viewport.ScreenSpaceConstraints"),false },  // Pink
-	};
+	// Matches screen colors to node/transition names. The rows come from
+	// FComposableCameraViewportDebug's shared legend metadata so the panel
+	// swatches and 3D gizmos use one color source.
 
 	// Universal transition endpoint markers. Source/target colors painted
 	// by DrawStandardTransitionDebug. Only relevant when at least one
 	// transition CVar is on, so we gate these on ShouldShowAllTransitionGizmos()
 	// OR any per-transition entry being enabled.
-	static const FLinearColor CLegendSource  (80.f / 255.f, 220.f / 255.f, 120.f / 255.f, 1.f);
-	static const FLinearColor CLegendTarget  (80.f / 255.f, 170.f / 255.f, 255.f / 255.f, 1.f);
+	static const FLinearColor CLegendSource =
+		FComposableCameraViewportDebugColors::ToLinearColor(FComposableCameraViewportDebugColors::SourcePose());
+	static const FLinearColor CLegendTarget =
+		FComposableCameraViewportDebugColors::ToLinearColor(FComposableCameraViewportDebugColors::TargetPose());
 
 	/** Read an int32 CVar by name. Returns false if the CVar doesn't exist
 	 *  or is zero. String lookup is done fresh each call. Fine at legend
@@ -2148,7 +2105,7 @@ namespace
 		{
 			return true;
 		}
-		for (const FLegendEntry& E : KLegendEntries)
+		for (const FComposableCameraViewportDebugLegendEntry& E : FComposableCameraViewportDebug::GetLegendEntries())
 		{
 			if (E.bIsTransition && IsCVarEnabled(E.CVarName))
 			{
@@ -2186,7 +2143,7 @@ namespace
 			OutTransitionRows.Add({ TEXT("Target pose"), CLegendTarget });
 		}
 
-		for (const FLegendEntry& E : KLegendEntries)
+		for (const FComposableCameraViewportDebugLegendEntry& E : FComposableCameraViewportDebug::GetLegendEntries())
 		{
 			const bool bEnabled = E.bIsTransition
 				? (bShowAllTransitions || IsCVarEnabled(E.CVarName))
@@ -2194,7 +2151,7 @@ namespace
 			if (!bEnabled) { continue; }
 
 			auto& TargetList = E.bIsTransition ? OutTransitionRows : OutNodeRows;
-			TargetList.Add({ E.Label, E.Color });
+			TargetList.Add({ E.Label, FComposableCameraViewportDebugColors::ToLinearColor(E.Color) });
 		}
 	}
 

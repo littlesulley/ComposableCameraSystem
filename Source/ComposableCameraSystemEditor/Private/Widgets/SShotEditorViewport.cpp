@@ -95,12 +95,46 @@ bool SShotEditorViewport::ReverseSolveCurrentCameraToShot()
 	return ViewportClient.IsValid() && ViewportClient->ReverseSolveCurrentCameraToShot();
 }
 
+void SShotEditorViewport::ResetViewToShot()
+{
+	if (ViewportClient.IsValid())
+	{
+		ViewportClient->ResetViewToShot();
+	}
+}
+
 bool SShotEditorViewport::CopyCurrentCameraTransformToClipboard() const
 {
 	return ViewportClient.IsValid()
 		&& FComposableCameraViewportTransformClipboard::CopyViewportCameraTransform(
 			*ViewportClient,
 			NSLOCTEXT("SShotEditorViewport", "ShotEditorViewport", "Shot Editor viewport"));
+}
+
+bool SShotEditorViewport::GetShowDiagnosticHud() const
+{
+	return ViewportClient.IsValid() ? ViewportClient->GetShowDiagnosticHud() : true;
+}
+
+void SShotEditorViewport::SetShowDiagnosticHud(bool bInShowDiagnosticHud)
+{
+	if (ViewportClient.IsValid())
+	{
+		ViewportClient->SetShowDiagnosticHud(bInShowDiagnosticHud);
+	}
+}
+
+bool SShotEditorViewport::GetShowCompositionGuides() const
+{
+	return ViewportClient.IsValid() ? ViewportClient->GetShowCompositionGuides() : true;
+}
+
+void SShotEditorViewport::SetShowCompositionGuides(bool bInShowCompositionGuides)
+{
+	if (ViewportClient.IsValid())
+	{
+		ViewportClient->SetShowCompositionGuides(bInShowCompositionGuides);
+	}
 }
 
 TSharedRef<FEditorViewportClient> SShotEditorViewport::MakeEditorViewportClient()

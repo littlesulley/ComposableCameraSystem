@@ -20,9 +20,9 @@ class IPropertyHandle;
  * WeightedTargets[i] ->TargetIndex) uniformly.
  *
  * Per-struct visibility:
- * - `FComposableCameraAnchorSpec`: TargetIndex only applies when
- * `Mode == SingleTarget`. Mirror that with a manual Visibility attribute
- * (custom rows don't auto-honor UPROPERTY `EditCondition`).
+ * - `FComposableCameraAnchorSpec`: TargetIndex, WeightedTargets, and
+ * WorldPosition are shown only for the active Mode. TargetIndex is custom
+ * rendered, while the other rows stay native and receive Visibility gates.
  * - `FComposableCameraAnchorTargetWeight`: TargetIndex always applies
  * when the entry exists - no gate.
  *

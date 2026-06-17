@@ -37,7 +37,7 @@ struct FShotEditorHistoryEntry
 
 /**
  * Persistent recently-opened history for the Shot Editor, surfaced as a
- * dropdown on the editor's header bar (Section 23.12 of EditorDesignDoc).
+ * dropdown on the editor's top bar (Section 14 of EditorDesignDoc).
  * Capacity is hard-capped at `MaxEntries = 20`.
  *
  * Persistence: entries are mirrored into `GEditorPerProjectIni` under

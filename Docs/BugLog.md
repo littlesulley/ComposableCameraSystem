@@ -1,5 +1,475 @@
 # Bug Log
 
+## 2026-06-17 - Rewind trace writers compiled into non-editor runtime builds
+
+- Symptom: CCS Rewind support was intended to be editor-only, but the runtime
+  module always depended on `TraceLog` and compiled the trace writer code in
+  non-editor Development / DebugGame targets. Shipping already stripped the
+  writer functions through `!UE_BUILD_SHIPPING`, but packaged non-shipping
+  targets still carried the trace channel / CVar path.
+- Trigger / repro: inspect `ComposableCameraSystem.Build.cs` and
+  `Debug/ComposableCameraTrace.h` after the Rewind Debugger integration.
+- Why it happens: `UE_COMPOSABLE_CAMERA_TRACE` checked `UE_TRACE_ENABLED`,
+  `!IS_PROGRAM`, `!UE_BUILD_SHIPPING`, and `!UE_BUILD_TEST`, but did not also
+  require `WITH_EDITOR`. The public runtime Build.cs therefore had to list
+  `TraceLog` unconditionally so the public trace header could include
+  `Trace/Config.h`.
+- Root cause: editor-only Rewind instrumentation lived in the runtime module
+  without an editor build gate. The editor module owned Rewind playback /
+  TraceServices ingestion correctly, but the runtime emission side was too
+  broadly compiled.
+- Touched files:
+  - `Source/ComposableCameraSystem/ComposableCameraSystem.Build.cs`
+  - `Source/ComposableCameraSystem/Public/Debug/ComposableCameraTrace.h`
+  - `Source/ComposableCameraSystem/Private/Debug/ComposableCameraTrace.cpp`
+  - `Source/ComposableCameraSystem/Private/Core/ComposableCameraPlayerCameraManager.cpp`
+  - `Source/ComposableCameraSystem/Private/LevelSequence/ComposableCameraLevelSequenceComponent.cpp`
+  - `Docs/DesignDoc.md`
+  - `Docs/TechDoc.md`
+  - `Docs/BugLog.md`
+- Fix: add `WITH_EDITOR` to `UE_COMPOSABLE_CAMERA_TRACE`, include TraceLog /
+  ObjectTrace headers only when that macro is enabled, and move the runtime
+  module's `TraceLog` dependency into the editor-target branch.
+- Regression-test name: non-editor package dependency audit for CCS Rewind
+  trace. The static check is that `TraceLog` appears in the runtime Build.cs
+  only under `Target.bBuildEditor`, and non-editor builds see
+  `UE_COMPOSABLE_CAMERA_TRACE == 0`.
+- Test blocker: project rules prohibit Codex from running UBT, packaging, or
+  automation from shell. User must compile a packaged/non-editor target in
+  Rider / Visual Studio to validate link output.
+- Avoid next time: editor tooling that needs runtime instrumentation must use a
+  runtime shim gated by `WITH_EDITOR`; do not rely on `!UE_BUILD_SHIPPING` when
+  the feature is editor-only.
+- Possible conflicts: Rewind recording in PIE/editor remains enabled because
+  editor targets define `WITH_EDITOR`. Packaged Development builds no longer
+  expose `CCS.Debug.Trace` or emit CCS Rewind trace events.
+
+## 2026-06-17 - Rewind sphere labels were invisible and 3D primitives jittered while scrubbing
+
+- Symptom: Rewind playback showed correctly sized CCS camera / node gizmos, but
+  sphere text labels were absent. Dragging the Rewind timeline made 3D gizmos
+  such as spheres and lines twitch between positions.
+- Trigger / repro: record CCS playback, select the pawn in Rewind Debugger,
+  scrub / drag the timeline over frames with node or transition 3D gizmos.
+- Why it happens: Rewind label replay called `DrawDebugString`, which writes
+  through `AHUD::AddDebugText`; the Rewind visualized playback world is not
+  guaranteed to have a player-controller / HUD path for that text. The same
+  extension submitted 3D `DrawDebug*` primitives from a `UDebugDrawService`
+  callback. UE 5.6 game viewport rendering flushes temporary line batchers
+  before the debug-draw-service pass, so those 3D primitives render on the next
+  scene frame and can appear one scrub step behind the visualized actors.
+- Root cause: Rewind playback used HUD debug text and post-scene debug-draw
+  service timing for data that needed immediate Canvas text and current-frame
+  3D line-batcher submission.
+- Touched files:
+  - `Source/ComposableCameraSystemEditor/Private/Trace/ComposableCameraRewindDebuggerExtension.h`
+  - `Source/ComposableCameraSystemEditor/Private/Trace/ComposableCameraRewindDebuggerExtension.cpp`
+  - `Docs/DesignDoc.md`
+  - `Docs/EditorDesignDoc.md`
+  - `Docs/TechDoc.md`
+  - `Docs/BugLog.md`
+- Fix: split Rewind visualization into two paths. A core ticker submits 3D
+  active-frustum and primitive line-batcher draws before scene rendering. The
+  `UDebugDrawService` callback now draws only projected sphere labels with
+  `FCanvasTextItem`, so labels do not depend on HUD debug strings.
+- Regression-test name: Rewind Debugger selected-pawn playback smoke test.
+- Test blocker: this is an editor viewport rendering / scrub timing issue.
+  Project rules prohibit Codex from launching Unreal Editor or automation from
+  shell. User must verify by recording, selecting a pawn, scrubbing, and
+  checking that labels appear and 3D gizmos no longer twitch.
+- Avoid next time: do not submit Rewind 3D line-batcher primitives from
+  `UDebugDrawService`; use a pre-render ticker or a scene proxy. Do not use
+  `DrawDebugString` for Rewind labels; draw Canvas text directly.
+- Possible conflicts: live viewport debug still uses the existing ticker /
+  HUD-string helper path. This change only affects Rewind playback.
+
+## 2026-06-17 - Rewind trace tests used unsupported FName UTEST_EQUAL overload
+
+- Symptom: compiling `ComposableCameraTraceTests.cpp` failed with
+  `C2665: 'FAutomationTestBase::TestEqual': no overloaded function could
+  convert all the argument types` at the `FName` label assertions.
+- Trigger / repro: compile the Rewind label fix in Rider / Visual Studio.
+- Why it happens: UE 5.6 automation `UTEST_EQUAL` has overloads for strings,
+  colors, numbers, and several engine types, but not for `FName`.
+- Root cause: the Rewind label tests asserted `FName` equality through
+  `UTEST_EQUAL`, so the macro expanded into `TestEqual` and overload resolution
+  could not choose a valid function.
+- Touched files:
+  - `Source/ComposableCameraSystem/Private/Tests/ComposableCameraTraceTests.cpp`
+  - `Docs/TechDoc.md`
+  - `Docs/BugLog.md`
+- Fix: assert label identity with `UTEST_TRUE` and explicit `FName` comparison
+  / `IsNone()` checks.
+- Regression-test name:
+  `ComposableCameraSystem.RewindTrace.PrimitiveRoundTrip`,
+  `ComposableCameraSystem.RewindTrace.PrimitiveV1Compatibility`, and
+  `ComposableCameraSystem.RewindTrace.CaptureSinkRecordsPrimitives`.
+- Test blocker: project rules prohibit Codex from running Unreal builds or
+  automation from shell. User must recompile in Rider / Visual Studio.
+- Avoid next time: use `UTEST_TRUE(NameA == NameB)` or convert both sides to
+  strings when testing `FName`; do not pass `FName` to `UTEST_EQUAL`.
+- Possible conflicts: none; this changes test assertions only.
+
+## 2026-06-17 - Rewind playback drew oversized active frustum and dropped sphere labels
+
+- Symptom: Rewind Debugger playback drew a huge blue active-camera frustum that
+  dominated the viewport, and several recorded sphere gizmos had no text label.
+- Trigger / repro: record CCS camera playback, select the pawn in Rewind
+  Debugger, then scrub a frame that contains node / transition sphere gizmos.
+- Why it happens: the editor Rewind extension synthesized the active-camera
+  frustum with scale `100.0f`, unlike live CCS camera debug which uses scale
+  `1.0f`. Sphere label text also stopped at the live-only
+  `DrawSolidDebugSphere` helper because `FComposableCameraDebugDrawSink` and
+  `FComposableCameraDebugPrimitive` had no label payload.
+- Root cause: Rewind playback used a Blueprint-style camera debug scale for
+  active camera display, and primitive stream version 1 had no marker-name
+  field for sink-routed sphere gizmos.
+- Touched files:
+  - `Source/ComposableCameraSystem/Public/Debug/ComposableCameraDebugDrawSink.h`
+  - `Source/ComposableCameraSystem/Public/Debug/ComposableCameraTraceTypes.h`
+  - `Source/ComposableCameraSystem/Private/Debug/ComposableCameraDebugDrawSink.cpp`
+  - `Source/ComposableCameraSystem/Private/Debug/ComposableCameraTraceTypes.cpp`
+  - `Source/ComposableCameraSystem/Private/Nodes/*`
+  - `Source/ComposableCameraSystem/Private/Transitions/*`
+  - `Source/ComposableCameraSystem/Private/Tests/ComposableCameraTraceTests.cpp`
+  - `Source/ComposableCameraSystemEditor/Private/Trace/ComposableCameraRewindDebuggerExtension.cpp`
+  - `Docs/DesignDoc.md`
+  - `Docs/EditorDesignDoc.md`
+  - `Docs/TechDoc.md`
+  - `Docs/BugLog.md`
+- Fix: draw the synthesized active-camera frustum at scale `1.0f`, add an
+  optional `Label` through `DrawSphere`, serialize it in primitive stream
+  version 2, replay it for solid and wire spheres, and label the built-in node /
+  transition sphere call sites with short role names.
+- Regression-test name:
+  `ComposableCameraSystem.RewindTrace.PrimitiveRoundTrip` and
+  `ComposableCameraSystem.RewindTrace.CaptureSinkRecordsPrimitives` cover label
+  serialization / capture. `ComposableCameraSystem.RewindTrace.PrimitiveV1Compatibility`
+  covers old label-free primitive streams. The active-frustum scale requires a
+  Rewind Debugger selected-pawn playback smoke test.
+- Test blocker: automation tests were updated, but project rules prohibit
+  Codex from running Unreal automation or launching the editor from shell. User
+  must compile and verify Rewind playback in Rider / Visual Studio / Unreal
+  Editor.
+- Avoid next time: editor replay of a runtime debug primitive should preserve
+  the same scale and label contract as live CCS debug. Do not synthesize
+  Blueprint camera helper scales for CCS camera poses.
+- Possible conflicts: primitive stream version 2 adds label data but still
+  accepts version 1 streams; old recordings simply replay without labels.
+
+## 2026-06-17 - Rewind playback target lookup read GameplayProvider without session read scope
+
+- Symptom: Rewind Debugger playback can break into the debugger with exception
+  `0x80000003` at `TraceServices::FAnalysisSessionLock::ReadAccessCheck()`.
+  The stack shows `FGameplayProvider::EnumerateObjects`,
+  `FRewindDebugger::GetTargetActorId`, and
+  `FComposableCameraRewindDebuggerExtension::Update`.
+- Trigger / repro: compile the CCS Rewind support, open Rewind Debugger with a
+  selected actor, then let the CCS rewind extension tick during playback /
+  scrub.
+- Why it happens: UE 5.6 `FRewindDebugger::GetTargetActorId()` enumerates the
+  `GameplayProvider` but does not create its own
+  `FAnalysisSessionReadScope`. Callers must already hold the analysis session
+  read lock.
+- Root cause: `FComposableCameraRewindDebuggerExtension::Update` called
+  `RewindDebugger->GetTargetActorId()` before entering any analysis session
+  read scope, only to build its playback cache key.
+- Touched files:
+  - `Source/ComposableCameraSystemEditor/Private/Trace/ComposableCameraRewindDebuggerExtension.h`
+  - `Source/ComposableCameraSystemEditor/Private/Trace/ComposableCameraRewindDebuggerExtension.cpp`
+  - `Docs/TechDoc.md`
+  - `Docs/BugLog.md`
+- Fix: add `GetTargetActorIdForPlayback`, wrap the target lookup in
+  `FAnalysisSessionReadScope`, and pass the resulting actor id into
+  `FindPlaybackFrames` so frame lookup no longer performs an extra target query.
+- Regression-test name: Rewind Debugger selected-pawn playback smoke test.
+- Test blocker: this is an editor Rewind Debugger tick path and project rules
+  prohibit Codex from launching Unreal Editor or automation from shell. User
+  must verify by recording, selecting a pawn, and scrubbing in Rewind Debugger.
+- Avoid next time: every call into Rewind Debugger APIs that may read
+  `IGameplayProvider` must be audited for caller-owned
+  `FAnalysisSessionReadScope`; do not assume helper APIs create their own lock.
+- Possible conflicts: none expected. The cache key still includes target actor
+  id; only the lock ownership changed.
+
+## 2026-06-17 - Trace provider returned TSharedRef values as timeline pointers
+
+- Symptom: `ComposableCameraSystemEditor` compile fails in
+  `ComposableCameraTraceProvider.cpp` with `C2440: 'return': cannot convert
+  from TraceServices::TPointTimeline<...> to const ITimeline<...>*`.
+- Trigger / repro: compile after adding the CCS Rewind trace provider that
+  stores active-camera and CCS-evaluation timelines as `TSharedRef<TPointTimeline>`.
+- Why it happens: `TSharedRef::Get()` returns an object reference, unlike
+  `TSharedPtr::Get()` which returns a pointer.
+- Root cause: provider getters returned `ActiveTimeline.Get()` and
+  `EvaluationTimeline.Get()` directly from functions whose return types are
+  `const ITimeline<...>*`.
+- Touched files:
+  - `Source/ComposableCameraSystemEditor/Private/Trace/ComposableCameraTraceProvider.cpp`
+  - `Docs/TechDoc.md`
+  - `Docs/BugLog.md`
+- Fix: return the address of the shared reference's object,
+  `&ActiveTimeline.Get()` and `&EvaluationTimeline.Get()`. `TPointTimeline`
+  derives from `ITimeline`, so the address converts to the getter's interface
+  pointer type.
+- Regression-test name: `ComposableCameraSystemEditor IDE compile`.
+- Test blocker: no focused automation test can catch this C++ type error
+  without compiling the editor module, and project rules prohibit Codex from
+  invoking UBT / IDE compilation from shell. User must compile in Rider or
+  Visual Studio.
+- Avoid next time: when exposing a `TSharedRef<T>` as a raw pointer, remember
+  `Get()` returns `T&`; take its address, or store `TSharedPtr<T>` if pointer
+  semantics are needed.
+- Possible conflicts: none expected; provider ownership and timeline storage
+  remain unchanged.
+
+## 2026-06-17 - Rewind trace skipped node gizmos unless live viewport CVars were on
+
+- Symptom: enabling `CCS.Debug.Trace 1` could record only the CCS camera
+  frustum and omit node / transition gizmos in Rewind Debugger.
+- Trigger / repro: start Rewind recording with CCS trace enabled, leave
+  `CCS.Debug.Viewport.Nodes.All`, `CCS.Debug.Viewport.Transitions.All`, and
+  per-node / per-transition viewport CVars off, then play a CCS gameplay or
+  Level Sequence camera that owns 3D node gizmos.
+- Why it happens: PCM and Level Sequence trace writers captured primitives by
+  calling `DrawCameraDebug` with a capture sink, but each node / transition
+  override still self-gated on live viewport CVars or cached `All` state before
+  emitting anything into the sink.
+- Root cause: the draw-sink abstraction carried draw primitive operations but
+  did not carry the intent that trace capture needs all 3D gizmos independent
+  of live viewport UI state.
+- Touched files:
+  - `Source/ComposableCameraSystem/Public/Debug/ComposableCameraDebugDrawSink.h`
+  - `Source/ComposableCameraSystem/Public/Debug/ComposableCameraViewportDebug.h`
+  - `Source/ComposableCameraSystem/Private/Cameras/ComposableCameraCameraBase.cpp`
+  - `Source/ComposableCameraSystem/Private/Nodes/*`
+  - `Source/ComposableCameraSystem/Private/Transitions/*`
+  - `Source/ComposableCameraSystem/Private/Tests/ComposableCameraTraceTests.cpp`
+  - `Docs/DesignDoc.md`
+  - `Docs/TechDoc.md`
+  - `Docs/BugLog.md`
+- Fix: add force-all gizmo queries to `FComposableCameraDebugDrawSink`, make
+  `FComposableCameraPrimitiveCaptureSink` return true for node and transition
+  gizmos, and include that sink intent in every 3D node / transition CVar gate.
+  Live draw sinks keep the default false value, so viewport CVar behavior is
+  unchanged.
+- Regression-test name:
+  `ComposableCameraSystem.RewindTrace.CaptureSinkForcesGizmos`.
+- Test blocker: automation test added, but project rules prohibit Codex from
+  invoking Unreal Editor automation or UBT from shell. User must compile and
+  run it from Rider / Visual Studio / Unreal Editor.
+- Avoid next time: when a debug API is reused for capture, pass capture intent
+  through the API itself instead of depending on viewport-global cached state.
+- Possible conflicts: any future 3D node or transition gizmo must include the
+  draw sink force check in its CVar early-out. 2D HUD-only gizmos still use
+  live viewport CVars only and are not part of Rewind primitive capture.
+
+## 2026-06-16 - Viewport sphere labels stayed at stale positions
+
+- Symptom: viewport debug labels appeared after the sphere label pass, but the
+  text stayed at its first generated world position instead of following the
+  moving sphere.
+- Trigger / repro: enable `CCS.Debug.Viewport` plus any moving node gizmo such
+  as LookAt, ScreenSpacePivot, CollisionPush, or a transition marker. Move the
+  target / camera; the sphere updates, while the label remains behind.
+- Why it happens: `DrawDebugString` stores text through `AHUD::AddDebugText`.
+  The sphere line primitive is redrawn every frame, but the label was submitted
+  with persistent duration.
+- Root cause: `DrawSolidDebugSphere` used `DrawDebugString(...,
+  Duration=-1.f)` for labels, so HUD debug text kept the original absolute
+  location instead of expiring and being replaced at the next frame's location.
+- Touched files:
+  - `Source/ComposableCameraSystem/Public/Debug/ComposableCameraViewportDebug.h`
+  - `Source/ComposableCameraSystem/Private/Debug/ComposableCameraViewportDebug.cpp`
+  - `Source/ComposableCameraSystem/Private/Tests/ComposableCameraBugFixTests.cpp`
+  - `Docs/DesignDoc.md`
+  - `Docs/TechDoc.md`
+  - `Docs/BugLog.md`
+- Fix: expose `GetSphereLabelDurationSeconds()`, use its frame-local `0.f`
+  lifetime for sphere labels, and document that labels must not be persistent.
+- Regression-test name:
+  `System.Engine.ComposableCameraSystem.Debug.ViewportSphereLabels.UseFrameLifetime`.
+- Test blocker: automation test added, but project rules prohibit Codex from
+  invoking Unreal Editor automation or UBT from shell. User must compile and
+  run it from Rider / Visual Studio / Unreal Editor.
+- Avoid next time: when a viewport gizmo draws every tick, any attached text
+  must expire every tick too. Do not use persistent HUD debug text for moving
+  world markers.
+- Possible conflicts: `FComposableCameraViewportDebug` gained another public
+  helper in the runtime header. Header/API change means full editor restart is
+  safer than Live Coding.
+
+## 2026-06-16 - Viewport Legend colors drifted from 3D sphere colors
+
+- Symptom: the debug panel's bottom Legend could show a color that did not
+  match the matching 3D sphere, and dense sphere overlays were hard to map back
+  to nodes.
+- Trigger / repro: enable `CCS.Debug.Viewport`, enable node gizmos such as
+  `CCS.Debug.Viewport.LookAt`, `CCS.Debug.Viewport.CollisionPush`, or
+  `CCS.Debug.Viewport.Spline`, then compare the panel Legend swatch with the
+  drawn sphere. Enable several node gizmos together to see unlabeled spheres
+  pile up.
+- Why it happens: the Legend owned a duplicated static color table while node
+  and transition draw sites owned separate hard-coded `FColor` values.
+- Root cause: no shared debug palette / legend metadata existed, so values such
+  as LookAt cyan vs. blue and Spline violet values could drift silently.
+- Touched files:
+  - `Source/ComposableCameraSystem/Public/Debug/ComposableCameraViewportDebug.h`
+  - `Source/ComposableCameraSystem/Private/Debug/ComposableCameraViewportDebug.cpp`
+  - `Source/ComposableCameraSystem/Private/Debug/ComposableCameraDebugPanel.cpp`
+  - `Source/ComposableCameraSystem/Private/Nodes/*`
+  - `Source/ComposableCameraSystem/Private/Transitions/*`
+  - `Source/ComposableCameraSystem/Private/Tests/ComposableCameraBugFixTests.cpp`
+  - `Docs/DesignDoc.md`
+  - `Docs/TechDoc.md`
+  - `Docs/BugLog.md`
+- Fix: add `FComposableCameraViewportDebugColors` and
+  `FComposableCameraViewportDebug::GetLegendEntries()`, wire the Legend and 3D
+  debug draw sites to the shared palette, and add optional text labels to
+  `DrawSolidDebugSphere` call sites.
+- Regression-test name:
+  `System.Engine.ComposableCameraSystem.Debug.ViewportLegend.UsesSharedGizmoColors`.
+- Test blocker: automation test added, but project rules prohibit Codex from
+  invoking Unreal Editor automation or UBT from shell. User must compile and
+  run it from Rider / Visual Studio / Unreal Editor.
+- Avoid next time: never add a viewport gizmo color only inside a draw site or
+  only inside the Legend. Add it to `FComposableCameraViewportDebugColors` and
+  expose it through `GetLegendEntries()` when it needs a panel row.
+- Possible conflicts: `DrawSolidDebugSphere` gained an optional `Label`
+  parameter in a public runtime header. Header/API change means full editor
+  restart is safer than Live Coding.
+
+## 2026-06-16 - NodeGraphSync test local Candidate variables shadow each other
+
+- Symptom: `ComposableCameraSystemEditor` compile fails with
+  `C4456: declaration of 'Candidate' hides previous local declaration` in
+  `ComposableCameraNodeGraphSyncTests.cpp`.
+- Trigger / repro: compile after adding
+  `ComposableCameraSystem.Editor.NodeGraphSync.BeginPlaySetVariableExecRoundTripWithGetNode`.
+- Why it happens: MSVC treats reused local names inside the same `if / else if`
+  chain as shadowing, and the project treats that warning as an error.
+- Root cause: the new test used the generic local name `Candidate` for three
+  different cast variables in one control-flow chain.
+- Touched files:
+  - `Source/ComposableCameraSystemEditor/Private/Tests/ComposableCameraNodeGraphSyncTests.cpp`
+  - `Docs/BugLog.md`
+- Fix: rename the locals to `BeginPlayCandidate`, `VariableCandidate`, and
+  `GraphNodeCandidate`.
+- Regression-test name: `ComposableCameraSystemEditor IDE compile`.
+- Test blocker: no focused automation test can catch a C++ warning-as-error
+  without compiling the module, and project rules prohibit Codex from invoking
+  UBT / IDE compilation from shell. User must compile in Rider or Visual Studio.
+- Avoid next time: avoid broad reused local names in chained `if / else if`
+  declarations; use role-specific names, especially in test scans over mixed
+  graph-node types.
+- Possible conflicts: none expected; only test local variable names changed.
+
+## 2026-06-16 - BeginPlay Set-variable exec wires break after editor reopen
+
+- Symptom: BeginPlay compute-chain exec wires that pass through a variable
+  `Set` node can disappear after closing and reopening the engine.
+- Trigger / repro: create a BeginPlay chain such as `BeginPlay -> Begin Play:
+  Position Between Actors -> Set PivotPosition -> Begin Play: Set Rotation`,
+  and also keep a same-variable `Get PivotPosition` node elsewhere in the
+  graph. Save, close, and reopen the editor.
+- Why it happens: `ComputeFullExecChain` serialized a `SetVariable` step by
+  variable GUID only. During `RebuildFromTypeAsset`, variable graph nodes were
+  also looked up by variable GUID only.
+- Root cause: one runtime variable can have multiple graph nodes. A same-variable
+  `Get` node could overwrite the GUID lookup used to restore the `Set` node's
+  exec pins, so the rebuild tried to find exec pins on the wrong graph node and
+  skipped the links.
+- Touched files:
+  - `Source/ComposableCameraSystem/Public/Nodes/ComposableCameraNodePinTypes.h`
+  - `Source/ComposableCameraSystemEditor/Public/Editors/ComposableCameraNodeGraph.h`
+  - `Source/ComposableCameraSystemEditor/Private/Editors/ComposableCameraNodeGraph.cpp`
+  - `Source/ComposableCameraSystemEditor/Private/Tests/ComposableCameraNodeGraphSyncTests.cpp`
+  - `Docs/EditorDesignDoc.md`
+  - `Docs/TechDoc.md`
+  - `Docs/BugLog.md`
+- Fix: `FComposableCameraExecEntry` now stores the exact variable graph-node
+  GUID for `SetVariable` entries. Graph rebuild resolves Set exec wires by node
+  GUID first, then falls back to a Set-only variable GUID lookup for old assets.
+- Regression-test name:
+  `ComposableCameraSystem.Editor.NodeGraphSync.BeginPlaySetVariableExecRoundTripWithGetNode`.
+- Test blocker: automation test added, but project rules prohibit Codex from
+  invoking Unreal Editor automation from shell. User must compile and run the
+  test from Rider / Visual Studio / Unreal Editor.
+- Avoid next time: whenever serialized graph state can contain several nodes
+  for one runtime object, persist graph-node identity separately from runtime
+  object identity.
+- Possible conflicts: this adds one reflected field to
+  `FComposableCameraExecEntry`, so the editor needs a full restart. Runtime
+  dispatch still uses variable name / slot data; the new GUID is editor rebuild
+  metadata.
+
+## 2026-06-16 - SetRotation RotationOffset applied pitch in world space
+
+- Symptom: `SetRotation` / `Compute: Set Rotation` `RotationOffset` produced
+  the wrong result when the base rotation already had non-zero pitch / roll and
+  the offset included pitch. Yaw needed world-space behavior, while pitch needed
+  local-space behavior.
+- Trigger / repro: configure a SetRotation node with `RotationSource =
+  FromRotator`, a non-trivial base rotation such as `(Pitch=25, Yaw=70,
+  Roll=15)`, and `RotationOffset = (Pitch=20, Yaw=45, Roll=0)`.
+- Why it happens: the resolver used
+  `UKismetMathLibrary::ComposeRotators(Base, Offset)`, which applies the whole
+  offset in one composition space instead of splitting yaw and pitch semantics.
+- Root cause: `RotationOffset` was implemented as a generic rotator
+  composition, but the intended camera-control convention is mixed-space:
+  yaw around world Z, then pitch / roll in the resolved camera local frame.
+- Touched files:
+  - `Source/ComposableCameraSystem/Public/Nodes/ComposableCameraSetRotationNode.h`
+  - `Source/ComposableCameraSystem/Private/Nodes/ComposableCameraSetRotationNode.cpp`
+  - `Source/ComposableCameraSystem/Private/Tests/ComposableCameraSetRotationNodeTests.cpp`
+  - `Docs/DesignDoc.md`
+  - `Docs/TechDoc.md`
+  - `Docs/BugLog.md`
+- Fix: replace generic `ComposeRotators` with explicit quaternion composition
+  `WorldYaw * Base * LocalPitchRoll`, matching `ControlRotate`'s world-yaw /
+  local-pitch rule.
+- Regression-test name:
+  `System.Engine.ComposableCameraSystem.Nodes.SetRotation.OffsetYawWorldPitchLocal`.
+- Test blocker: automation test added, but project rules prohibit Codex from
+  invoking Unreal Editor automation from shell. User must run it from Rider /
+  Visual Studio / Unreal Editor.
+- Avoid next time: when a rotator offset mixes camera-control axes, document
+  each axis's space and test with a non-trivial base rotation. Do not assume
+  `FRotator` composition gives the desired per-axis frame.
+- Possible conflicts: `SetRotation` and `Compute: Set Rotation` now differ from
+  `PivotRotate`, whose `RotationOffset` remains fully local-space by design.
+
+## 2026-06-13 - Shot Editor status bar could prioritize Free-exit actions over stale host state
+
+- Symptom: the unified Shot Editor status bar could keep showing Free-exit
+  Save / Discard / Stay actions even when the active host UObject had gone
+  stale.
+- Trigger / repro: enter Free mode, request Drag / Lock to queue a Free-exit
+  status, then let the active Shot host be destroyed before the root widget's
+  tick clears the context.
+- Why it happens: the first status-bar priority draft checked pending Free-exit
+  state before validating the active Shot / host pair.
+- Root cause: Free-exit action visibility was treated as higher priority than
+  host liveness, even though Save needs a live host to safely write Shot data.
+- Touched files:
+  - `Source/ComposableCameraSystemEditor/Private/Widgets/ComposableCameraShotEditorStatusBarUtils.h`
+  - `Source/ComposableCameraSystemEditor/Private/Widgets/SShotEditorRoot.cpp`
+  - `Source/ComposableCameraSystemEditor/Private/Tests/ComposableCameraShotEditorTests.cpp`
+  - `Docs/TechDoc.md`
+  - `Docs/BugLog.md`
+- Fix: status resolution now checks stale-host and no-Shot states before
+  pending Free-exit state. `CanSaveFreeExitStatus` also requires an active Shot
+  and valid host.
+- Regression-test name:
+  `ComposableCameraSystem.ShotEditor.StatusBarState`.
+- Test blocker: automation test added, but project rules prohibit Codex from
+  invoking Unreal Editor automation from shell. User must run it from IDE /
+  Unreal Editor.
+- Avoid next time: any editor action row that writes data must gate on object
+  liveness before checking action-specific pending state.
+- Possible conflicts: only Shot Editor status-bar action visibility changes.
+  Normal Free-exit Save / Discard / Stay behavior with a live host is unchanged.
+
 ## 2026-06-12 - CompositionPreserving snaps on final collapse frame
 
 - Symptom: a CompositionPreserving transition keeps the subject framed during
@@ -434,3 +904,117 @@
   Spline, FocusPull, and VolumeConstraint, now continue toward the target
   instead of treating the damped delta as the final value. Vector SimpleSpring
   behavior is intended to remain unchanged.
+
+## 2026-06-13 - Shot Editor viewport toolbar uses wrong SOverlay include
+
+- Symptom: ComposableCameraSystemEditor compile fails with
+  `C1083: Cannot open include file: 'Widgets/Layout/SOverlay.h'`.
+- Trigger / repro: compile the editor module after adding the Shot Editor
+  viewport floating toolbar.
+- Why it happens: the new `SShotEditorRoot.cpp` include used the wrong Slate
+  header path for `SOverlay`.
+- Root cause: `SOverlay` lives at `Widgets/SOverlay.h`; `Widgets/Layout/`
+  contains layout widgets like boxes and splitters, not this overlay header.
+- Touched files:
+  - `Source/ComposableCameraSystemEditor/Private/Widgets/SShotEditorRoot.cpp`
+  - `Docs/BugLog.md`
+- Fix: replace `#include "Widgets/Layout/SOverlay.h"` with
+  `#include "Widgets/SOverlay.h"`.
+- Regression-test name: `ComposableCameraSystemEditor IDE compile`.
+- Test blocker: no focused automation test can catch a missing C++ include
+  without compiling the module, and project rules prohibit Codex from invoking
+  UBT / IDE compilation from shell. User must compile in Rider or Visual Studio.
+- Avoid next time: for Slate widgets whose path is uncertain, grep a known UE
+  source/include reference or prefer the canonical engine header path before
+  committing.
+- Possible conflicts: none expected; only include path changed.
+
+## 2026-06-13 - Shot Editor Reset toolbar action enabled outside Free mode
+
+- Symptom: Shot Editor viewport `Reset` button stays clickable in Drag and
+  Lock even though those modes already reassert the solved Shot camera every
+  tick.
+- Trigger / repro: open Shot Editor, bind any Shot, stay in Drag or Lock mode,
+  observe the floating viewport toolbar.
+- Why it happens: the toolbar action-state helper treated `ResetView` like a
+  generic active-Shot command instead of a Free-camera recovery command.
+- Root cause: `ResetView` was grouped with HUD / Guides toggles in
+  `IsToolbarActionEnabled`, while `FrameTargets` alone carried the Free-mode
+  gate.
+- Touched files:
+  - `Source/ComposableCameraSystemEditor/Private/Widgets/ComposableCameraShotViewportToolbarUtils.h`
+  - `Source/ComposableCameraSystemEditor/Private/Widgets/SShotEditorRoot.cpp`
+  - `Source/ComposableCameraSystemEditor/Private/Tests/ComposableCameraShotEditorTests.cpp`
+  - `Docs/EditorDesignDoc.md`
+  - `Docs/BugLog.md`
+- Fix: remove the visible `Copy` toolbar action and gate both `FrameTargets`
+  and `ResetView` on active Shot plus `EShotEditorMode::Free`.
+- Regression-test name:
+  `ComposableCameraSystem.ShotEditor.ViewportToolbarActionState`.
+- Test blocker: automation test updated, but project rules prohibit Codex from
+  invoking Unreal Editor automation from shell. User must run it from IDE /
+  Unreal Editor.
+- Avoid next time: model toolbar actions by user intent first. View-recovery
+  actions belong to Free mode; always-on debug toggles should be separate.
+- Possible conflicts: Ctrl+Alt+C still copies the viewport camera transform as
+  a hidden/debug shortcut, but the floating toolbar no longer exposes Copy.
+
+## 2026-06-13 - Shot Editor reverse-solve local shadows viewport AspectRatio member
+
+- Symptom: ComposableCameraSystemEditor compile fails with
+  `C4458: declaration of 'AspectRatio' hides class member` in
+  `ComposableCameraShotEditorViewportClient.cpp`.
+- Trigger / repro: compile the editor module after restoring the Shot Editor
+  Free-mode reverse-solve path.
+- Why it happens: `FComposableCameraShotEditorViewportClient` inherits from
+  `FEditorViewportClient`, which already has an `AspectRatio` member. The new
+  reverse-solve code declared a local variable with the same name inside a
+  member function.
+- Root cause: the local variable used a generic viewport-math name instead of a
+  specific one, and MSVC warning C4458 is treated as an error in this build.
+- Touched files:
+  - `Source/ComposableCameraSystemEditor/Private/Editors/ComposableCameraShotEditorViewportClient.cpp`
+  - `Docs/BugLog.md`
+- Fix: rename the local to `ViewportAspectRatio` and update all uses in the
+  reverse-solve projection math.
+- Regression-test name: `ComposableCameraSystemEditor IDE compile`.
+- Test blocker: no focused automation test can catch this C++ warning-as-error
+  without compiling the module, and project rules prohibit Codex from invoking
+  UBT / IDE compilation from shell. User must compile in Rider or Visual Studio.
+- Avoid next time: inside `FEditorViewportClient` subclasses, use
+  domain-specific local names such as `ViewportAspectRatio` instead of broad
+  names that may collide with inherited engine members.
+- Possible conflicts: none expected; the rename does not change projection
+  math.
+
+## 2026-06-13 - Shot Editor floating toolbar covers diagnostic HUD
+
+- Symptom: Shot Editor viewport floating toolbar appears in the top-left corner
+  and covers the diagnostic HUD text.
+- Trigger / repro: open Shot Editor with diagnostic HUD enabled and observe the
+  floating Reset / HUD / Guides toolbar in the same corner as the HUD readout.
+- Why it happens: both overlays were anchored to `HAlign_Left` /
+  `VAlign_Top`.
+- Root cause: the toolbar was introduced as a viewport-local overlay without
+  considering the existing top-left diagnostic overlay owned by the viewport
+  client.
+- Touched files:
+  - `Source/ComposableCameraSystemEditor/Private/Widgets/SShotEditorRoot.cpp`
+  - `Source/ComposableCameraSystemEditor/Public/Widgets/SShotEditorRoot.h`
+  - `Source/ComposableCameraSystemEditor/Private/Widgets/ComposableCameraShotViewportToolbarUtils.h`
+  - `Source/ComposableCameraSystemEditor/Private/Tests/ComposableCameraShotEditorTests.cpp`
+  - `Docs/EditorDesignDoc.md`
+  - `Docs/BugLog.md`
+- Fix: move the floating toolbar to the top-right corner and add a collapsible
+  `Tools +/-` control that hides Reset / HUD / Guides when collapsed.
+- Regression-test name:
+  `ComposableCameraSystem.ShotEditor.ViewportToolbarActionState`.
+- Test blocker: automation test updated, but project rules prohibit Codex from
+  invoking Unreal Editor automation from shell. User must run it from IDE /
+  Unreal Editor.
+- Avoid next time: place new viewport overlays against existing paint-time
+  overlays first; top-left belongs to diagnostic text unless the design doc
+  explicitly changes that.
+- Possible conflicts: on very narrow viewport widths, the top-right toolbar may
+  overlap scene content, but it no longer competes with the diagnostic HUD and
+  can be collapsed to the small Tools button.

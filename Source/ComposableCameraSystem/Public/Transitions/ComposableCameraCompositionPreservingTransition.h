@@ -33,7 +33,7 @@ public:
 	virtual float GetBlendWeightAt(float NormalizedTime) const override;
 
 #if !UE_BUILD_SHIPPING
-	virtual void DrawTransitionDebug(UWorld* World, bool bViewerIsOutsideCamera) const override;
+	virtual void DrawTransitionDebug(FComposableCameraDebugDrawSink& Draw, bool bViewerIsOutsideCamera) const override;
 #endif
 
 public:

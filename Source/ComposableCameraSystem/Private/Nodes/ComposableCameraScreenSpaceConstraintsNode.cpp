@@ -12,6 +12,7 @@
 
 #if !UE_BUILD_SHIPPING
 #include "CanvasItem.h"
+#include "Debug/ComposableCameraDebugDrawSink.h"
 #include "Debug/ComposableCameraViewportDebug.h"
 #include "DrawDebugHelpers.h"
 #include "Engine/Canvas.h"
@@ -254,19 +255,19 @@ FVector UComposableCameraScreenSpaceConstraintsNode::GetCurrentPivot() const
 }
 
 #if !UE_BUILD_SHIPPING
-void UComposableCameraScreenSpaceConstraintsNode::DrawNodeDebug(UWorld* World, bool /*bViewerIsOutsideCamera*/) const
+void UComposableCameraScreenSpaceConstraintsNode::DrawNodeDebug(FComposableCameraDebugDrawSink& Draw, bool /*bViewerIsOutsideCamera*/) const
 {
-	if (!World) { return; }
 	if (CVarShowScreenSpaceConstraintsGizmo.GetValueOnGameThread() == 0
-		&& !FComposableCameraViewportDebug::ShouldShowAllNodeGizmos()) { return; }
+		&& !FComposableCameraViewportDebug::ShouldShowAllNodeGizmos()
+		&& !Draw.ShouldForceDrawAllNodeGizmos()) { return; }
 	// Sphere at the constrained actor's location (same resolution the tick
 	// path uses via `GetCurrentPivot()`). Pink keeps it distinct from every
 	// other gizmo hue in the palette.
 	constexpr uint8 KForeground = 1;
 	const FVector Pivot = GetCurrentPivot();
-	FComposableCameraViewportDebug::DrawSolidDebugSphere(
-		World, Pivot, /*Radius=*/8.f, FColor(255, 180, 220),
-		/*Alpha=*/100, /*Segments=*/12, KForeground);
+	Draw.DrawSphere(Pivot, /*Radius=*/8.f, FComposableCameraViewportDebugColors::ScreenSpaceConstraints(),
+		/*Alpha=*/100, KForeground, /*bSolid=*/true,
+		/*Segments=*/12, /*Thickness=*/0.0f, TEXT("Screen Constraints"));
 }
 
 namespace

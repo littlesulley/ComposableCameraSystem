@@ -22,6 +22,6 @@ public:
 	// Gated on `CCS.Debug.Viewport.Transitions.Linear`. Paints only the
 	// standard source / target / progress triplet. A pure linear blend has
 	// no additional state worth visualizing.
-	virtual void DrawTransitionDebug(UWorld* World, bool bViewerIsOutsideCamera) const override;
+	virtual void DrawTransitionDebug(FComposableCameraDebugDrawSink& Draw, bool bViewerIsOutsideCamera) const override;
 #endif
 };

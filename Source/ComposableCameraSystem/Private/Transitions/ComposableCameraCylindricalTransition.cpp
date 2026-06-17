@@ -10,6 +10,7 @@
 #include "Utils/ComposableCameraBlueprintLibrary.h"
 
 #if !UE_BUILD_SHIPPING
+#include "Debug/ComposableCameraDebugDrawSink.h"
 #include "Debug/ComposableCameraViewportDebug.h"
 #include "DrawDebugHelpers.h"
 #include "Engine/World.h"
@@ -127,17 +128,17 @@ float UComposableCameraCylindricalTransition::GetBlendWeightAt(float NormalizedT
 }
 
 #if !UE_BUILD_SHIPPING
-void UComposableCameraCylindricalTransition::DrawTransitionDebug(UWorld* World, bool bViewerIsOutsideCamera) const
+void UComposableCameraCylindricalTransition::DrawTransitionDebug(FComposableCameraDebugDrawSink& Draw, bool bViewerIsOutsideCamera) const
 {
-	if (!World) { return; }
 	if (CVarShowCylindricalTransitionGizmo.GetValueOnGameThread() == 0
-		&& !FComposableCameraViewportDebug::ShouldShowAllTransitionGizmos()) { return; }
+		&& !FComposableCameraViewportDebug::ShouldShowAllTransitionGizmos()
+		&& !Draw.ShouldForceDrawAllTransitionGizmos()) { return; }
 
 	// Aqua. Vivid enough to stand out against the curved path, separate
 	// from LookAt's pure cyan.
-	static const FColor AccentColor { 100, 230, 200 };
+	const FColor AccentColor = FComposableCameraViewportDebugColors::TransitionCylindrical();
 
-	DrawStandardTransitionDebug(World, bViewerIsOutsideCamera, AccentColor);
+	DrawStandardTransitionDebug(Draw, bViewerIsOutsideCamera, AccentColor);
 
 	// Sample the actual cylindrical arc. 32 segments. Cheap, and matches
 	// the Spline / PathGuided resolution so overlapping transitions visually
@@ -154,9 +155,8 @@ void UComposableCameraCylindricalTransition::DrawTransitionDebug(UWorld* World, 
 	{
 		const float t = static_cast<float>(i) / static_cast<float>(NumSamples);
 		const FVector NextPoint = SampleCylindricalPathPosition(t, SrcPos, SrcRot, TgtPos, TgtRot, MinimumDistanceFromOrigin);
-		DrawDebugLine(World, PrevPoint, NextPoint, AccentColor,
-			/*bPersistent=*/false, /*LifeTime=*/-1.f,
-			/*DepthPriority=*/SDPG_Foreground, /*Thickness=*/1.f);
+		Draw.DrawLine(PrevPoint, NextPoint, AccentColor,
+			/*Thickness=*/1.f, /*DepthPriority=*/SDPG_Foreground);
 		PrevPoint = NextPoint;
 	}
 }

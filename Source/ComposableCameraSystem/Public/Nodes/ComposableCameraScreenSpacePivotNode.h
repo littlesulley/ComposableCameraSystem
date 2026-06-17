@@ -85,7 +85,7 @@ public:
 
 #if !UE_BUILD_SHIPPING
 	// 3D: teal sphere at the resolved world-space pivot.
-	virtual void DrawNodeDebug(UWorld* World, bool bViewerIsOutsideCamera) const override;
+	virtual void DrawNodeDebug(FComposableCameraDebugDrawSink& Draw, bool bViewerIsOutsideCamera) const override;
 
 	// 2D: safe-zone rectangle + center marker + projected-pivot marker on
 	// the HUD. Handles both `bConstrainAspectRatio = false` (whole viewport)

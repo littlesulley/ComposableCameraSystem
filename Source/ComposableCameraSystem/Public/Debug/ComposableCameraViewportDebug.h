@@ -3,6 +3,67 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Containers/ArrayView.h"
+
+struct FComposableCameraViewportDebugLegendEntry
+{
+	const TCHAR* Label = nullptr;
+	FColor Color = FColor::White;
+	const TCHAR* CVarName = nullptr;
+	bool bIsTransition = false;
+};
+
+struct FComposableCameraViewportDebugColors
+{
+	static FLinearColor ToLinearColor(const FColor& Color)
+	{
+		return FLinearColor(
+			static_cast<float>(Color.R) / 255.f,
+			static_cast<float>(Color.G) / 255.f,
+			static_cast<float>(Color.B) / 255.f,
+			static_cast<float>(Color.A) / 255.f);
+	}
+
+	static FColor SourcePose() { return FColor(80, 220, 120); }
+	static FColor TargetPose() { return FColor(80, 170, 255); }
+
+	static FColor TransitionLinear() { return FColor(200, 200, 200); }
+	static FColor TransitionSmooth() { return FColor(255, 220, 100); }
+	static FColor TransitionEase() { return FColor(255, 160, 80); }
+	static FColor TransitionCubic() { return FColor(180, 130, 255); }
+	static FColor TransitionInertialized() { return FColor(255, 100, 200); }
+	static FColor TransitionCylindrical() { return FColor(100, 230, 200); }
+	static FColor TransitionSpline() { return FColor(140, 200, 255); }
+	static FColor TransitionPathGuided() { return FColor(255, 130, 130); }
+	static FColor TransitionDynamicDeocclusion() { return FColor(255, 90, 90); }
+	static FColor TransitionCompositionPreserving() { return FColor(80, 220, 210); }
+
+	static FColor PivotOffset() { return FColor::Yellow; }
+	static FColor LockOnAimPoint() { return FColor(80, 160, 255); }
+	static FColor PivotDamping() { return FColor(255, 0, 255); }
+	static FColor LookAt() { return FColor(30, 200, 255); }
+	static FColor CollisionPushClear() { return FColor(80, 255, 120); }
+	static FColor CollisionPushBlocked() { return FColor(255, 80, 80); }
+	static FColor CollisionPushHit() { return FColor(255, 0, 0); }
+	static FColor CollisionPushSelf() { return FColor(80, 200, 255); }
+	static FColor OcclusionFadeSweep() { return FColor(255, 80, 80); }
+	static FColor OcclusionFadeProximity() { return FColor(80, 200, 255); }
+	static FColor VolumeConstraintClear() { return FColor(90, 255, 120); }
+	static FColor VolumeConstraintClamping() { return FColor(255, 90, 90); }
+	static FColor FocusPull() { return FColor(255, 200, 60); }
+	static FColor HitchcockZoom() { return FColor(180, 80, 220); }
+	static FColor SplineNode() { return FColor(170, 120, 255); }
+	static FColor SpiralNode() { return FColor(255, 150, 60); }
+	static FColor SpiralPivot() { return FColor::Yellow; }
+	static FColor ReceivePivotActor() { return FColor::White; }
+	static FColor RelativeFixedPose() { return FColor(255, 140, 0); }
+	static FColor ScreenSpacePivot() { return FColor(80, 200, 180); }
+	static FColor ScreenSpaceConstraints() { return FColor(255, 180, 220); }
+	static FColor PivotLookAhead() { return FColor(255, 128, 0); }
+	static FColor CompositionFramingPlacement() { return FColor(255, 130, 30); }
+	static FColor CompositionFramingAim() { return FColor(80, 200, 255); }
+	static FColor CompositionFramingTarget() { return FColor::White; }
+};
 
 /**
  * Runtime 3D viewport debug draw for the Composable Camera System.
@@ -36,7 +97,7 @@
  * most wanted draws to appear.
  *
  * Adding a new per-node gizmo is a localised ~15-line job:
- *  1. Override `UComposableCameraCameraNodeBase::DrawNodeDebug(UWorld*, bool)`
+ *  1. Override `UComposableCameraCameraNodeBase::DrawNodeDebug(FComposableCameraDebugDrawSink&, bool)`
  *     in the concrete node, guarded `#if !UE_BUILD_SHIPPING`. The second
  *     parameter is `bViewerIsOutsideCamera`. Use it to gate any gizmo that
  *     sits AT the camera's own position (see `CollisionPushNode`'s self-
@@ -44,8 +105,9 @@
  *  2. Declare a static `TAutoConsoleVariable<int32>` in the node's .cpp
  *     under `CCS.Debug.Viewport.<NodeName>`, default 0.
  *  3. Early-out on that CVar at the top of `DrawNodeDebug`.
- *  4. Call `DrawDebug*` via `DrawDebugHelpers.h` with the node's resolved
- *     runtime state.
+ *  4. Emit primitives through `FComposableCameraDebugDrawSink` with the
+ *     node's resolved runtime state. Use
+ *     `FComposableCameraViewportDebugColors` for any shared legend color.
  *
  * This is distinct from `FComposableCameraDebugPanel` (2D HUD overlay,
  * `CCS.Debug.Panel` CVar). They are independent and can be enabled in
@@ -77,25 +139,35 @@ public:
 	 * Callsite idiom:
 	 *
 	 *     if (CVarShowMyNodeGizmo.GetValueOnGameThread() == 0 &&
-	 *         !FComposableCameraViewportDebug::ShouldShowAllNodeGizmos())
+	 *         !FComposableCameraViewportDebug::ShouldShowAllNodeGizmos() &&
+	 *         !Draw.ShouldForceDrawAllNodeGizmos())
 	 *     {
 	 *         return;
 	 *     }
 	 *
 	 * OR semantics: if either the per-node CVar OR the All CVar is on,
-	 * the gizmo draws. No "except" subtraction; users wanting granularity
-	 * should leave All off and enable per-node CVars individually.
+	 * the gizmo draws. 3D draw-sink capture may also force all node gizmos
+	 * for Rewind trace recording. No "except" subtraction; users wanting
+	 * granularity should leave All off and enable per-node CVars individually.
 	 */
 	static bool ShouldShowAllNodeGizmos();
 
 	/**
 	 * True when `CCS.Debug.Viewport.Transitions.All` is non-zero. Every
 	 * per-transition gizmo draws regardless of its own CVar. Same OR
-	 * semantics as ShouldShowAllNodeGizmos.
+	 * semantics as ShouldShowAllNodeGizmos, with Rewind capture allowed
+	 * to force all transition gizmos through its draw sink.
 	 */
 	static bool ShouldShowAllTransitionGizmos();
 
+	/** Shared legend metadata. Used by the panel and automation tests so
+	 *  label swatches come from the same color constants as 3D gizmos. */
+	static TConstArrayView<FComposableCameraViewportDebugLegendEntry> GetLegendEntries();
+
 #if !UE_BUILD_SHIPPING
+	/** Lifetime used for per-frame sphere labels. Zero prevents stale HUD text. */
+	static float GetSphereLabelDurationSeconds();
+
 	/**
 	 * Draw a translucent-wireframe debug sphere. The canonical sphere
 	 * gizmo used by every CCS node / transition debug override.
@@ -135,6 +207,11 @@ public:
 	 *                       callsite passes `SDPG_Foreground` so the
 	 *                       marker is always visible even when embedded
 	 *                       in a character / geometry.
+	 * @param Label          Optional world-space text drawn above the
+	 *                       sphere. Keep it short: node name, or node +
+	 *                       marker role when one node draws several spheres.
+	 *                       Labels are redrawn with a one-frame lifetime
+	 *                       so moving markers do not leave stale text behind.
 	 *
 	 * Compiled out in shipping builds.
 	 */
@@ -145,6 +222,7 @@ public:
 		const FColor& Color,
 		uint8 Alpha = 100,
 		int32 Segments = 12,
-		uint8 DepthPriority = 0);
+		uint8 DepthPriority = 0,
+		const TCHAR* Label = nullptr);
 #endif
 };

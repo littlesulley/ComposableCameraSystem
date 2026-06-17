@@ -7,6 +7,7 @@
 #include "Kismet/KismetMathLibrary.h"
 
 #if !UE_BUILD_SHIPPING
+#include "Debug/ComposableCameraDebugDrawSink.h"
 #include "Debug/ComposableCameraViewportDebug.h"
 #include "DrawDebugHelpers.h"
 #include "HAL/IConsoleManager.h"
@@ -86,11 +87,11 @@ void UComposableCameraRelativeFixedPoseNode::OnTickNode_Implementation(float Del
 }
 
 #if !UE_BUILD_SHIPPING
-void UComposableCameraRelativeFixedPoseNode::DrawNodeDebug(UWorld* World, bool /*bViewerIsOutsideCamera*/) const
+void UComposableCameraRelativeFixedPoseNode::DrawNodeDebug(FComposableCameraDebugDrawSink& Draw, bool /*bViewerIsOutsideCamera*/) const
 {
-	if (!World) { return; }
 	if (CVarShowRelativeFixedPoseGizmo.GetValueOnGameThread() == 0
-		&& !FComposableCameraViewportDebug::ShouldShowAllNodeGizmos()) { return; }
+		&& !FComposableCameraViewportDebug::ShouldShowAllNodeGizmos()
+		&& !Draw.ShouldForceDrawAllNodeGizmos()) { return; }
 
 	// Resolve the reference transform origin the same way OnTickNode does -
 	// a sphere at that origin is the "what am I relative TO?" marker.
@@ -124,9 +125,9 @@ void UComposableCameraRelativeFixedPoseNode::DrawNodeDebug(UWorld* World, bool /
 
 	if (bHasOrigin)
 	{
-		FComposableCameraViewportDebug::DrawSolidDebugSphere(
-			World, OriginPos, /*Radius=*/8.f, FColor(255, 140, 0),
-			/*Alpha=*/100, /*Segments=*/12, KForeground);
+		Draw.DrawSphere(OriginPos, /*Radius=*/8.f, FComposableCameraViewportDebugColors::RelativeFixedPose(),
+			/*Alpha=*/100, KForeground, /*bSolid=*/true,
+			/*Segments=*/12, /*Thickness=*/0.0f, TEXT("Relative Origin"));
 	}
 }
 #endif

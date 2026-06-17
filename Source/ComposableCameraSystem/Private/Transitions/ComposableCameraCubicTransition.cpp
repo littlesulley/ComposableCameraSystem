@@ -3,6 +3,7 @@
 #include "Transitions/ComposableCameraCubicTransition.h"
 
 #if !UE_BUILD_SHIPPING
+#include "Debug/ComposableCameraDebugDrawSink.h"
 #include "Debug/ComposableCameraViewportDebug.h"
 #include "DrawDebugHelpers.h"
 #include "Engine/World.h"
@@ -42,21 +43,21 @@ float UComposableCameraCubicTransition::GetBlendWeightAt(float NormalizedTime) c
 }
 
 #if !UE_BUILD_SHIPPING
-void UComposableCameraCubicTransition::DrawTransitionDebug(UWorld* World, bool bViewerIsOutsideCamera) const
+void UComposableCameraCubicTransition::DrawTransitionDebug(FComposableCameraDebugDrawSink& Draw, bool bViewerIsOutsideCamera) const
 {
-	if (!World) { return; }
 	if (CVarShowCubicTransitionGizmo.GetValueOnGameThread() == 0
-		&& !FComposableCameraViewportDebug::ShouldShowAllTransitionGizmos()) { return; }
+		&& !FComposableCameraViewportDebug::ShouldShowAllTransitionGizmos()
+		&& !Draw.ShouldForceDrawAllTransitionGizmos()) { return; }
 
 	// Lavender. Still in the cool family but well clear of LookAt cyan
 	// and SplineNode violet.
-	static const FColor AccentColor { 180, 130, 255 };
+	const FColor AccentColor = FComposableCameraViewportDebugColors::TransitionCubic();
 
-	DrawStandardTransitionDebug(World, bViewerIsOutsideCamera, AccentColor);
+	DrawStandardTransitionDebug(Draw, bViewerIsOutsideCamera, AccentColor);
 
 	// Path is a straight line. Position lerps linearly in space. Only
 	// the cubic timing curve differs from Linear.
-	DrawDebugLine(World, LastDebugSource.Position, LastDebugTarget.Position, AccentColor,
-		false, -1.f, SDPG_Foreground, /*Thickness=*/0.f);
+	Draw.DrawLine(LastDebugSource.Position, LastDebugTarget.Position, AccentColor,
+		/*Thickness=*/0.f, /*DepthPriority=*/SDPG_Foreground);
 }
 #endif

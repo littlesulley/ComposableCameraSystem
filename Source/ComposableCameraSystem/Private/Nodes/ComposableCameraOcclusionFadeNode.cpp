@@ -19,6 +19,7 @@
 
 #if !UE_BUILD_SHIPPING
 #include "Cameras/ComposableCameraCameraBase.h"
+#include "Debug/ComposableCameraDebugDrawSink.h"
 #include "Debug/ComposableCameraViewportDebug.h"
 #include "DrawDebugHelpers.h"
 #include "HAL/IConsoleManager.h"
@@ -498,11 +499,11 @@ void UComposableCameraOcclusionFadeNode::GetPinDeclarations_Implementation(
 }
 
 #if !UE_BUILD_SHIPPING
-void UComposableCameraOcclusionFadeNode::DrawNodeDebug(UWorld* World, bool bViewerIsOutsideCamera) const
+void UComposableCameraOcclusionFadeNode::DrawNodeDebug(FComposableCameraDebugDrawSink& Draw, bool bViewerIsOutsideCamera) const
 {
-	if (!World) { return; }
 	if (CVarShowOcclusionFadeGizmo.GetValueOnGameThread() == 0
-		&& !FComposableCameraViewportDebug::ShouldShowAllNodeGizmos()) { return; }
+		&& !FComposableCameraViewportDebug::ShouldShowAllNodeGizmos()
+		&& !Draw.ShouldForceDrawAllNodeGizmos()) { return; }
 
 	// Sweep visualisation, split into two pieces that gate independently.
 	// Same pattern as CollisionPushNode's pivot-sphere + trace-line split:
@@ -516,16 +517,16 @@ void UComposableCameraOcclusionFadeNode::DrawNodeDebug(UWorld* World, bool bView
 	//    length; see TechDoc Section 3.20.2 "view-aligned lines".
 	if (bFadeOccluders && bDebugSweepSubmittedThisTick)
 	{
-		const FColor SweepColor(255, 80, 80);  // red
+		const FColor SweepColor = FComposableCameraViewportDebugColors::OcclusionFadeSweep();
 
-		FComposableCameraViewportDebug::DrawSolidDebugSphere(
-			World, DebugSweepEnd, /*Radius=*/FMath::Max(OcclusionSphereRadius, 4.f),
-			SweepColor, /*Alpha=*/80, /*Segments=*/12, /*DepthPriority=*/0);
+		Draw.DrawSphere(
+			DebugSweepEnd, /*Radius=*/FMath::Max(OcclusionSphereRadius, 4.f),
+			SweepColor, /*Alpha=*/80, /*DepthPriority=*/0, /*bSolid=*/true,
+			/*Segments=*/12, /*Thickness=*/0.0f, TEXT("Occlusion Target"));
 
 		if (bViewerIsOutsideCamera)
 		{
-			DrawDebugLine(World, DebugSweepStart, DebugSweepEnd, SweepColor,
-				/*bPersistentLines=*/false, /*LifeTime=*/-1.f, /*DepthPriority=*/0, /*Thickness=*/1.0f);
+			Draw.DrawLine(DebugSweepStart, DebugSweepEnd, SweepColor, /*Thickness=*/1.0f, /*DepthPriority=*/0);
 		}
 	}
 
@@ -534,10 +535,11 @@ void UComposableCameraOcclusionFadeNode::DrawNodeDebug(UWorld* World, bool bView
 	// around the camera, not a line, so it reads from either viewpoint.
 	if (bFadeNearbyActors)
 	{
-		const FColor ProximityColor(80, 200, 255);  // cyan
-		FComposableCameraViewportDebug::DrawSolidDebugSphere(
-			World, LastCameraPosition, FMath::Max(ProximityRadius, 4.f),
-			ProximityColor, /*Alpha=*/50, /*Segments=*/16, /*DepthPriority=*/0);
+		const FColor ProximityColor = FComposableCameraViewportDebugColors::OcclusionFadeProximity();
+		Draw.DrawSphere(
+			LastCameraPosition, FMath::Max(ProximityRadius, 4.f),
+			ProximityColor, /*Alpha=*/50, /*DepthPriority=*/0, /*bSolid=*/true,
+			/*Segments=*/16, /*Thickness=*/0.0f, TEXT("Occlusion Proximity"));
 	}
 }
 #endif

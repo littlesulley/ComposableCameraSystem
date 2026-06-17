@@ -7,6 +7,7 @@
 #include "Camera/CameraComponent.h"
 #include "Core/ComposableCameraContextStack.h"
 #include "Core/ComposableCameraDirector.h"
+#include "Core/ComposableCameraEvaluationTree.h"
 #include "Core/ComposableCameraModifierManager.h"
 #include "Core/ComposableCameraRuntimeDataBlock.h"
 #include "Core/ComposableCameraParameterBlock.h"
@@ -14,6 +15,7 @@
 #include "DataAssets/ComposableCameraTransitionDataAsset.h"
 #include "DataAssets/ComposableCameraTransitionTableDataAsset.h"
 #include "DataAssets/ComposableCameraTypeAsset.h"
+#include "Debug/ComposableCameraTrace.h"
 #include "Utils/ComposableCameraProjectSettings.h"
 #include "Engine/Canvas.h"
 #include "Engine/Engine.h"
@@ -27,6 +29,44 @@
 #include "Transitions/ComposableCameraViewTargetTransition.h"
 #include "Utils/ComposableCameraDebugFormatUtils.h"
 #include "Core/ComposableCameraTypeAssetInstantiator.h"
+
+#if UE_COMPOSABLE_CAMERA_TRACE
+#include "Debug/ComposableCameraDebugDrawSink.h"
+#include "ObjectTrace.h"
+
+static uint64 GetComposableCameraTraceObjectId(const UObject* Object)
+{
+	return IsValid(Object) ? FObjectTrace::GetObjectId(Object) : 0;
+}
+
+static FComposableCameraTracePose MakeTracePoseFromCCSPose(const FComposableCameraPose& Pose)
+{
+	FComposableCameraTracePose TracePose;
+	TracePose.Location = Pose.Position;
+	TracePose.Rotation = Pose.Rotation;
+	TracePose.FieldOfView = static_cast<float>(Pose.GetEffectiveFieldOfView());
+	TracePose.ProjectionMode = Pose.ProjectionMode;
+	TracePose.bConstrainAspectRatio = Pose.ConstrainAspectRatio;
+	TracePose.OrthoWidth = Pose.OrthographicWidth;
+	TracePose.OrthoNearClipPlane = Pose.OrthoNearClipPlane;
+	TracePose.OrthoFarClipPlane = Pose.OrthoFarClipPlane;
+	return TracePose;
+}
+
+static FComposableCameraTracePose MakeTracePoseFromMinimalView(const FMinimalViewInfo& View)
+{
+	FComposableCameraTracePose TracePose;
+	TracePose.Location = View.Location;
+	TracePose.Rotation = View.Rotation;
+	TracePose.FieldOfView = View.FOV;
+	TracePose.ProjectionMode = View.ProjectionMode;
+	TracePose.bConstrainAspectRatio = View.bConstrainAspectRatio;
+	TracePose.OrthoWidth = View.OrthoWidth;
+	TracePose.OrthoNearClipPlane = View.OrthoNearClipPlane;
+	TracePose.OrthoFarClipPlane = View.OrthoFarClipPlane;
+	return TracePose;
+}
+#endif // UE_COMPOSABLE_CAMERA_TRACE
 
 AComposableCameraPlayerCameraManager::AComposableCameraPlayerCameraManager(const  FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
@@ -1294,6 +1334,92 @@ FMinimalViewInfo AComposableCameraPlayerCameraManager::GetCameraViewFromCameraPo
 	return DesiredView;
 }
 
+#if UE_COMPOSABLE_CAMERA_TRACE
+void AComposableCameraPlayerCameraManager::TraceCCSEvaluationFrame(
+	const FComposableCameraPose& Pose,
+	EComposableCameraTraceProjectionStatus ProjectionStatus,
+	uint64 FrameCycle)
+{
+	if (!FComposableCameraTrace::IsTraceEnabled()) return;
+
+	FComposableCameraEvaluationTraceFrame Frame;
+	Frame.FrameCycle = FrameCycle;
+	Frame.SourceKind = EComposableCameraTraceSourceKind::CCS_PCM;
+	Frame.ProjectionStatus = ProjectionStatus;
+	Frame.SourceObjectId = GetComposableCameraTraceObjectId(this);
+	Frame.WorldId = GetComposableCameraTraceObjectId(GetWorld());
+	Frame.CCSPose = MakeTracePoseFromCCSPose(Pose);
+	Frame.ContextName = CurrentContext;
+
+	if (APlayerController* PC = GetOwningPlayerController())
+	{
+		Frame.PlayerControllerId = GetComposableCameraTraceObjectId(PC);
+		Frame.OwnerPawnId = GetComposableCameraTraceObjectId(PC->GetPawn());
+	}
+
+	if (AActor* ViewTargetActor = GetViewTarget())
+	{
+		Frame.ViewTargetActorId = GetComposableCameraTraceObjectId(ViewTargetActor);
+	}
+
+	if (RunningCamera)
+	{
+		Frame.CameraTypeAssetName = RunningCamera->SourceTypeAsset
+			? RunningCamera->SourceTypeAsset->GetFName()
+			: RunningCamera->GetFName();
+
+		Frame.Primitives.Reserve(128);
+		FComposableCameraPrimitiveCaptureSink Capture(Frame.Primitives);
+		RunningCamera->DrawCameraDebug(Capture, /*bDrawFrustum=*/true);
+
+		if (ContextStack)
+		{
+			if (UComposableCameraDirector* ActiveDirector = ContextStack->GetActiveDirector())
+			{
+				if (UComposableCameraEvaluationTree* Tree = ActiveDirector->GetEvaluationTree())
+				{
+					Tree->DrawTransitionsDebug(Capture, /*bViewerIsOutsideCamera=*/true);
+				}
+			}
+		}
+	}
+
+	FComposableCameraTrace::TraceEvaluation(GetWorld(), Frame);
+}
+
+void AComposableCameraPlayerCameraManager::TraceActiveCameraFrame(
+	const FMinimalViewInfo& RenderedView,
+	EComposableCameraTraceSourceKind SourceKind,
+	uint64 FrameCycle)
+{
+	if (!FComposableCameraTrace::IsTraceEnabled()) return;
+
+	FComposableCameraActiveTraceFrame Frame;
+	Frame.FrameCycle = FrameCycle;
+	Frame.SourceKind = SourceKind;
+	Frame.RenderedPose = MakeTracePoseFromMinimalView(RenderedView);
+	Frame.WorldId = GetComposableCameraTraceObjectId(GetWorld());
+	Frame.PlayerCameraManagerId = GetComposableCameraTraceObjectId(this);
+
+	if (APlayerController* PC = GetOwningPlayerController())
+	{
+		Frame.PlayerControllerId = GetComposableCameraTraceObjectId(PC);
+		Frame.PawnId = GetComposableCameraTraceObjectId(PC->GetPawn());
+	}
+
+	if (AActor* ViewTargetActor = GetViewTarget())
+	{
+		Frame.ViewTargetActorId = GetComposableCameraTraceObjectId(ViewTargetActor);
+		if (UCameraComponent* CameraComponent = ViewTargetActor->FindComponentByClass<UCameraComponent>())
+		{
+			Frame.CameraComponentId = GetComposableCameraTraceObjectId(CameraComponent);
+		}
+	}
+
+	FComposableCameraTrace::TraceActiveCamera(GetWorld(), Frame);
+}
+#endif // UE_COMPOSABLE_CAMERA_TRACE
+
 DECLARE_CYCLE_STAT(TEXT("PCM DoUpdateCamera"), STAT_CCS_PCM_DoUpdateCamera, STATGROUP_CCS);
 DECLARE_CYCLE_STAT(TEXT("PCM UpdateActions"),  STAT_CCS_PCM_UpdateActions,  STATGROUP_CCS);
 
@@ -1301,6 +1427,9 @@ void AComposableCameraPlayerCameraManager::DoUpdateCamera(float DeltaTime)
 {
 	SCOPE_CYCLE_COUNTER(STAT_CCS_PCM_DoUpdateCamera);
 	TRACE_CPUPROFILER_EVENT_SCOPE(CCS_PCM_DoUpdateCamera);
+#if UE_COMPOSABLE_CAMERA_TRACE
+	const uint64 RewindTraceFrameCycle = FPlatformTime::Cycles64();
+#endif
 
 	// We still call Super so engine-level PCM bookkeeping (its own modifier stack, ViewTarget
 	// plumbing, post-process blendable accumulation) runs, but Super also writes its own view
@@ -1372,7 +1501,19 @@ void AComposableCameraPlayerCameraManager::DoUpdateCamera(float DeltaTime)
 		}
 
 		LastDesiredView = DesiredView;
+#if UE_COMPOSABLE_CAMERA_TRACE
+		TraceCCSEvaluationFrame(
+			OutPose,
+			EComposableCameraTraceProjectionStatus::ProjectedToPCMCache,
+			RewindTraceFrameCycle);
+#endif
 		FillCameraCache(DesiredView);
+#if UE_COMPOSABLE_CAMERA_TRACE
+		TraceActiveCameraFrame(
+			DesiredView,
+			RunningCamera ? EComposableCameraTraceSourceKind::CCS_PCM : EComposableCameraTraceSourceKind::Unknown,
+			RewindTraceFrameCycle);
+#endif
 	}
 
 #if !UE_BUILD_SHIPPING

@@ -1,6 +1,6 @@
 # ComposableCameraSystem Tech Notes
 
-Updated: 2026-06-12
+Updated: 2026-06-17
 
 Purpose: compact implementation reference. Keep this file current when code
 patterns, public APIs, hot-path rules, node catalogs, or gotchas change.
@@ -170,6 +170,11 @@ Compute nodes derive from `UComposableCameraComputeNodeBase`.
 Rules:
 
 - Run on the camera BeginPlay/initialization chain.
+- Editor sync serializes the BeginPlay exec path into `ComputeFullExecChain`,
+  with `ComputeExecutionOrder` kept as a compute-node-only projection.
+- Concrete compute node display names use `Begin Play:` as the editor-facing
+  prefix so they stay distinct from per-frame camera nodes without implying
+  they tick every frame.
 - Write data into the runtime data block.
 - Do not run per frame.
 - Level Sequence compatibility defaults to compute-only; LS internal camera
@@ -382,15 +387,114 @@ Runtime debug:
 - runtime panel and pose history panel.
 - `CCS.Dump.*`.
 - viewport debug draw CVars.
+- viewport gizmo colors live in `FComposableCameraViewportDebugColors`; the
+  panel Legend reads `FComposableCameraViewportDebug::GetLegendEntries()` so
+  swatches and 3D markers share one source of truth.
+- `FComposableCameraDebugDrawSink` is the primitive emission adapter. The live
+  sink sends line / point / sphere / box / plane / frustum calls to Unreal debug
+  draw helpers and keeps solid spheres routed through
+  `FComposableCameraViewportDebug::DrawSolidDebugSphere` in non-shipping builds.
+  The capture sink records the same calls as `FComposableCameraDebugPrimitive`
+  values for rewind trace serialization. It also returns true from
+  `ShouldForceDrawAllNodeGizmos` and
+  `ShouldForceDrawAllTransitionGizmos`, so trace writers capture all 3D gizmos
+  without enabling or refreshing live viewport CVars. The live sink keeps the
+  default false values. It is a transient C++ adapter; its non-owning `UWorld*`
+  is not a `UPROPERTY`. Sphere / solid-sphere primitives
+  store segment count in `Size`, line thickness in `Thickness`, and optional
+  marker text in `Label`; box primitives store line thickness in `Thickness`;
+  plane primitives store center in `A`, normalized normal in `B`, and
+  two-dimensional extents in `Extent.X/Y`. For `CameraFrustum` primitives only,
+  `Radius` stores FOV, `Size` stores ortho width, and `Thickness` stores debug
+  frustum scale. Raw default constructed primitives are not valid frustums; use
+  `MakeCameraFrustum`, whose scale default is 1.0.
+- Rewind trace emission is editor-only even though the frame data is produced
+  by runtime classes. `UE_COMPOSABLE_CAMERA_TRACE` must include `WITH_EDITOR`,
+  and `ComposableCameraSystem.Build.cs` must add `TraceLog` only when
+  `Target.bBuildEditor` is true. Non-editor packaged targets should not compile
+  `FComposableCameraTrace`, `CCS.Debug.Trace`, ObjectTrace includes, or
+  PCM / LS trace writer bodies.
+- Gameplay PCM trace capture lives in `AComposableCameraPlayerCameraManager`.
+  `TraceCCSEvaluationFrame` must early-return on
+  `FComposableCameraTrace::IsTraceEnabled()` before reserving primitive storage.
+  It records the evaluated CCS pose, context, camera type asset name, owning
+  PC/pawn/view target ids, and sink-captured camera / transition gizmos.
+  `TraceActiveCameraFrame` records the final `FMinimalViewInfo` after
+  `FillCameraCache`. Both records share one `FPlatformTime::Cycles64()` value
+  sampled at the start of `DoUpdateCamera`.
+- Level Sequence trace capture lives in
+  `UComposableCameraLevelSequenceComponent`. It samples one
+  `FPlatformTime::Cycles64()` value before ticking the internal camera, returns
+  a projection status from `ProjectPoseToCineCamera`, and emits a
+  `CCS_LevelSequence` evaluation frame after projection. The function must
+  early-return on `FComposableCameraTrace::IsTraceEnabled()` before reserving
+  primitive storage. It captures only internal-camera gizmos; there is no LS
+  context stack / director transition tree to draw.
+- `FComposableCameraViewportDebug::DrawSolidDebugSphere` accepts an optional
+  short `Label`. Sink-routed sphere gizmos pass the same label through the live
+  sink and capture sink, and primitive stream version 2 serializes it in
+  `FComposableCameraDebugPrimitive::Label`. Labels use
+  `GetSphereLabelDurationSeconds() == 0.f`; do not make them persistent, or HUD
+  debug text will remain at stale world positions while the sphere moves.
 
 Editor debug:
 
 - selected runtime instance picker in type asset editor.
 - graph overlay of live node data.
 - runtime previewer tab showing visible-subject-local camera relation.
+- Rewind Debugger trace ingestion through the editor `Trace` folder:
+  `FComposableCameraTraceModule` registers a TraceServices module,
+  `FComposableCameraTraceAnalyzer` decodes `ComposableCameraSystem` trace
+  events, and `FComposableCameraTraceProvider` exposes active-camera and
+  CCS-evaluation point timelines for Rewind tracks. The same folder also owns
+  `FComposableCameraRewindDebuggerExtension`, which toggles the CCS trace
+  channel during recording and draws the recorded active camera frustum plus
+  matched CCS primitives during playback, and
+  `FComposableCameraRewindDebuggerTrackCreator`, which exposes a Pawn child
+  track named `Composable Camera`.
 - `CCS.Editor.Dump.*`.
 
 Snapshot rule: resolve runtime pointers to names and value copies early.
+
+Rewind provider technique:
+
+- Provider append functions must run under `FAnalysisSessionEditScope` and call
+  `Session.WriteAccessCheck()`.
+- Timeline reads must run under a session read scope and call
+  `Session.ReadAccessCheck()`.
+- Rewind Debugger target lookup is also a trace read in UE 5.6:
+  `IRewindDebugger::GetTargetActorId()` reaches `IGameplayProvider`, so CCS
+  playback code must call it only while holding `FAnalysisSessionReadScope`.
+- Provider timeline getters store timelines as `TSharedRef<TPointTimeline<...>>`;
+  `TSharedRef::Get()` returns a reference, so return `&Timeline.Get()` when the
+  getter exposes `const ITimeline<...>*`.
+- Event time comes from `Context.EventTime.AsSeconds(Cycle)` so active and
+  evaluation frames with the same runtime cycle align in Rewind playback.
+- Serialized primitive arrays are copied out of trace event storage, decoded
+  through `DeserializeComposableCameraDebugPrimitives`, and kept empty if the
+  stream is malformed.
+- Rewind playback drawing uses the active-camera trace as the authoritative
+  rendered pose. CCS evaluation primitives are drawn only when a matching
+  evaluation frame is found. Gameplay PCM frames match by PCM id plus frame
+  cycle; Level Sequence evaluation frames match the active view target actor so
+  they still pair when the PCM active-camera source is `Unknown`.
+- Rewind 3D primitive replay submits line-batcher primitives from an
+  `FTSTicker` callback, not from `UDebugDrawService`. Game viewport rendering
+  flushes non-persistent line batchers before the debug-draw service fires; if
+  the service submits 3D primitives, they render a frame late and visibly jitter
+  while scrubbing. The debug-draw service is kept only for Canvas text labels.
+- Playback frame caches are keyed by trace time and target actor id; target
+  selection changes must re-query even when the scrub time has not moved.
+- Primitive replay must preserve the runtime primitive payload: sphere segment
+  count from `Size` clamped to `[4, 32]`, sphere label from `Label`, line / box
+  thickness from `Thickness`, frustum scale from `Thickness` with a fallback of
+  1.0, and plane center / normal / extents from `A`, `B`, and `Extent.X/Y`.
+  The active-camera frustum synthesized by the extension uses scale 1.0 to
+  match `AComposableCameraCameraBase::DrawCameraDebug`; do not use the larger
+  Blueprint camera helper scale. Rewind sphere labels are projected with
+  `UCanvas::Project` and drawn with `FCanvasTextItem`; do not use
+  `DrawDebugString` there because it writes through `AHUD::AddDebugText`, and
+  Rewind's visualized world may not have a HUD/player-controller text path.
 
 Runtime Previewer technique:
 
@@ -440,6 +544,72 @@ Runtime Previewer technique:
 - The observer camera is the normal `FEditorViewportClient` camera. It is not
   coupled to runtime camera data.
 
+Shot Editor quick-control technique:
+
+- `SShotEditorRoot` keeps Quick controls in a collapsed-by-default strip as a
+  mirror of selected `FComposableCameraShot` fields, not a parallel data model.
+- Quick collapsed state and the viewport toolbar collapsed state are persisted
+  in `GEditorPerProjectIni` under `ComposableCameraSystem.ShotEditorLayout`;
+  defaults are Quick collapsed and viewport toolbar expanded.
+- Quick numeric widgets use a per-widget `TOptional<float>` drag cache. The
+  cache updates while editing; the Shot writes once on text commit or slider
+  release through `FScopedTransaction`, host `Modify()`, and
+  `PostEditChangeProperty(ValueSet)`.
+- Quick controls must resolve the active Shot property the same way the Details
+  bridge does: section inline shots post `InlineShot`, asset-reference override
+  shots post `ShotOverrides`, and ShotAsset / node hosts post `Shot`.
+- Do not fire per-tick `PostEditChangeProperty(Interactive)` from Quick
+  controls. Sequencer-backed shot sections can respawn preview actors during
+  those broadcasts.
+
+Shot Editor status bar technique:
+
+- `SShotEditorRoot::TrySetMode` classifies mode requests through
+  `Widgets/ComposableCameraShotEditorModeSwitchUtils.h`; Free -> Drag / Lock
+  does not apply immediately.
+- `Widgets/ComposableCameraShotEditorStatusBarUtils.h` keeps status-bar
+  priority and action mapping pure and testable. Clean active shots hide the
+  bar, no-shot states show info, stale hosts show warning, and active Free-exit
+  requests show warning plus Free-exit actions.
+- Liveness states win over pending actions. A stale host or missing Shot must
+  suppress Save / Discard / Stay, because Save writes through the active host.
+- Free-exit requests cache the target mode and reverse-solve status, then show
+  Save / Discard / Stay in the unified status bar below the top bar. Save
+  calls `ReverseSolveCurrentCameraToShot()` before applying the pending mode;
+  Discard applies the pending mode without writing Shot data; Stay clears the
+  pending request and remains in Free.
+- Free-exit actions are hidden when no pending request exists or the viewport
+  has already left Free. Active Shot context swaps clear pending requests to
+  avoid applying a stale Free camera pose to a different host.
+
+Shot Editor mode-sensitive Details technique:
+
+- Shot Details keeps the runtime structs unchanged and applies editor-only
+  `IPropertyTypeCustomization` visibility gates for `FShotPlacement`,
+  `FShotAim`, `FShotLens`, `FShotFocus`, and `FComposableCameraAnchorSpec`.
+- Visibility rules live in `ComposableCameraShotModeVisibility.h` so Slate
+  customizations and automation tests share the same mapping. Unknown fields
+  default to visible; explicit mode branches only collapse rows that the solver
+  ignores for the active mode.
+- Keep cross-layer anchor dependencies visible. `Focus.FollowPlacementAnchor`
+  can consume `Placement.PlacementAnchor`, and `Focus.FollowAimAnchor` can
+  consume `Aim.AimAnchor` even when the corresponding Placement / Aim mode
+  does not use that anchor locally.
+- Hidden rows are not reset or rewritten. The values stay serialized and
+  become editable again when the relevant mode is selected.
+
+Shot Editor Sequencer-shot menu technique:
+
+- The `Shots` dropdown is custom Slate content, not a plain `FMenuBuilder`
+  list. It uses `SSearchBox` plus `SScrollBox` so filtering happens in place
+  without closing the combo menu.
+- Search matching lives in `Widgets/ComposableCameraShotMenuUtils.h` and is
+  covered by automation tests. It tokenizes the user filter and requires every
+  token to match the combined track label, shot title, or time/row suffix.
+- The menu walks object-binding tracks and root tracks, de-duplicates sections,
+  groups visible rows by track label, marks the active section with a check
+  icon, and shows the same time/row suffix used by the Shot Editor breadcrumb.
+
 ## 16. Built-In Camera Nodes
 
 Current node classes:
@@ -451,6 +621,7 @@ Current node classes:
 - `UComposableCameraCollisionPushNode`
 - `UComposableCameraCompositionFramingNode`
 - `UComposableCameraComputeDistanceToActorNode`
+- `UComposableCameraComputePositionBetweenActorsNode`
 - `UComposableCameraControlRotateNode`
 - `UComposableCameraDirectionalMoveNode`
 - `UComposableCameraExposureNode`
@@ -488,6 +659,20 @@ Node notes:
   space (`X=forward, Y=right, Z=up`). Its inline
   `ForwardOffsetDeltaByPitchCurve` samples X as current pitch in degrees and
   adds Y as a camera-forward delta in cm before building the final position.
+- `UComposableCameraComputePositionBetweenActorsNode` runs on the BeginPlay
+  compute chain. It resolves both actor endpoints through
+  `EComposableCameraActorInputSource`, clamps `Alpha` to `[0, 1]`, linearly
+  interpolates world locations, then adds `HeightOffset` on world Z before
+  publishing `Position`.
+- `UComposableCameraSetRotationNode` and
+  `UComposableCameraBeginPlaySetRotationNode` share the same resolver. Rotation
+  source values are `FromActor`, `FromVector`, `FromRotator`, and
+  `FromTwoActors`. `FromTwoActors` resolves both endpoints through
+  `EComposableCameraActorInputSource`, builds a rotation from first actor to
+  second actor, then all source modes apply `RotationOffset` as
+  `WorldYaw * Base * LocalPitchRoll`. This matches `ControlRotate` semantics:
+  yaw is around world Z, while pitch / roll are authored in the resolved local
+  camera frame.
 
 Base classes:
 
@@ -529,10 +714,12 @@ Existing test files include:
 
 - `ComposableCameraBugFixTests.cpp`
 - `ComposableCameraCompositionPreservingTransitionTests.cpp`
+- `ComposableCameraComputePositionBetweenActorsNodeTests.cpp`
 - `ComposableCameraShotSolverTests.cpp`
 - `ComposableCameraPivotLookAheadNodeTests.cpp`
 - `ComposableCameraLockOnAimPointNodeTests.cpp`
 - `ComposableCameraNodeGraphSyncTests.cpp`
+- `ComposableCameraSetRotationNodeTests.cpp`
 
 Codex must not invoke Unreal automation from shell in this project. Run tests
 inside Rider or Visual Studio / Unreal Editor.
@@ -580,6 +767,8 @@ Rules:
   effective FOV.
 - Focus distance uses sentinel behavior. Do not blend invalid focus distance as
   a real distance.
+- UE automation `UTEST_EQUAL` has no `FName` overload in UE 5.6. Use
+  `UTEST_TRUE(NameA == NameB)` or compare strings when testing `FName`.
 - Interpolator `Run()` returns an absolute value, not a delta. If a scalar
   damping helper computes only `Target - Current` progress, add it back to the
   current value before returning; Spline, FocusPull, and VolumeConstraint reset
@@ -595,6 +784,11 @@ For this project:
 - Header/reflection/module changes require full editor restart, not Live Coding.
 - Docs-only changes do not need a compile, but a non-trivial code-adjacent doc
   sweep should still be reviewed against source.
+- For graph exec-chain serialization, variable identity and variable-node
+  identity are different. `SetVariable` entries must store the exact graph
+  node GUID and use variable GUID only as legacy fallback; otherwise a
+  same-variable Get node can capture the rebuild lookup and drop exec wires
+  after save/reopen.
 
 ## 23. Maintenance Rule
 

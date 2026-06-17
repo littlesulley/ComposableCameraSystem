@@ -13,6 +13,7 @@
 #include "Kismet/KismetSystemLibrary.h"
 
 #if !UE_BUILD_SHIPPING
+#include "Debug/ComposableCameraDebugDrawSink.h"
 #include "Debug/ComposableCameraViewportDebug.h"
 #include "DrawDebugHelpers.h"
 #include "HAL/IConsoleManager.h"
@@ -431,11 +432,11 @@ FComposableCameraHitResult UComposableCameraCollisionPushNode::FindCollisionPoin
 }
 
 #if !UE_BUILD_SHIPPING
-void UComposableCameraCollisionPushNode::DrawNodeDebug(UWorld* World, bool bViewerIsOutsideCamera) const
+void UComposableCameraCollisionPushNode::DrawNodeDebug(FComposableCameraDebugDrawSink& Draw, bool bViewerIsOutsideCamera) const
 {
-	if (!World) { return; }
 	if (CVarShowCollisionPushGizmo.GetValueOnGameThread() == 0
-		&& !FComposableCameraViewportDebug::ShouldShowAllNodeGizmos()) { return; }
+		&& !FComposableCameraViewportDebug::ShouldShowAllNodeGizmos()
+		&& !Draw.ShouldForceDrawAllNodeGizmos()) { return; }
 
 	// DepthPriority=1 (SDPG_Foreground) on every piece so the gizmos aren't
 	// occluded by the character mesh or world geometry they sit on/inside.
@@ -447,34 +448,36 @@ void UComposableCameraCollisionPushNode::DrawNodeDebug(UWorld* World, bool bView
 	// colour of the pivot sphere alone conveys "trace blocked this frame".
 	// F8 eject: draw the full pivotamera trace line so the reader can see
 	// what the trace is checking from the outside viewpoint.
-	const FColor TraceColor = bLastTraceBlocked ? FColor(255, 80, 80) : FColor(80, 255, 120);
+	const FColor TraceColor = bLastTraceBlocked
+		? FComposableCameraViewportDebugColors::CollisionPushBlocked()
+		: FComposableCameraViewportDebugColors::CollisionPushClear();
 
 	if (bViewerIsOutsideCamera)
 	{
-		DrawDebugLine(World, LastTraceStart, LastTraceEnd, TraceColor,
-			/*bPersistentLines=*/false, /*LifeTime=*/-1.f, KForeground, /*Thickness=*/0.f);
+		Draw.DrawLine(LastTraceStart, LastTraceEnd, TraceColor, /*Thickness=*/0.f, KForeground);
 	}
 
 	// Trace sphere at pivot (start) when using sphere trace. Shows the actual
 	// query geometry. Line trace: just a small marker.
 	if (bTraceUseSphere)
 	{
-		FComposableCameraViewportDebug::DrawSolidDebugSphere(
-			World, LastTraceStart, static_cast<float>(TraceSphereRadius),
-			TraceColor, /*Alpha=*/90, /*Segments=*/16, KForeground);
+		Draw.DrawSphere(
+			LastTraceStart, static_cast<float>(TraceSphereRadius),
+			TraceColor, /*Alpha=*/90, KForeground, /*bSolid=*/true,
+			/*Segments=*/16, /*Thickness=*/0.0f, TEXT("Collision Trace"));
 	}
 	else
 	{
-		DrawDebugPoint(World, LastTraceStart, /*Size=*/8.f, TraceColor,
-			/*bPersistentLines=*/false, /*LifeTime=*/-1.f, KForeground);
+		Draw.DrawPoint(LastTraceStart, TraceColor, /*Size=*/8.f, KForeground);
 	}
 
 	// Hit location. Red sphere when blocked, to show where the push resolved to.
 	if (bLastTraceBlocked)
 	{
-		FComposableCameraViewportDebug::DrawSolidDebugSphere(
-			World, LastTraceHitLocation, /*Radius=*/5.f, FColor(255, 0, 0),
-			/*Alpha=*/140, /*Segments=*/12, KForeground);
+		Draw.DrawSphere(
+			LastTraceHitLocation, /*Radius=*/5.f, FComposableCameraViewportDebugColors::CollisionPushHit(),
+			/*Alpha=*/140, KForeground, /*bSolid=*/true,
+			/*Segments=*/12, /*Thickness=*/0.0f, TEXT("Collision Hit"));
 	}
 
 	// Self-collision sphere sits AT the camera's position. Hermetically
@@ -486,9 +489,11 @@ void UComposableCameraCollisionPushNode::DrawNodeDebug(UWorld* World, bool bView
 	// ball that big needs to stay ghost-like to not drown the view.
 	if (bViewerIsOutsideCamera)
 	{
-		FComposableCameraViewportDebug::DrawSolidDebugSphere(
-			World, LastSelfSphereCenter, static_cast<float>(SelfSphereRadius),
-			FColor(80, 200, 255), /*Alpha=*/60, /*Segments=*/16, KForeground);
+		Draw.DrawSphere(
+			LastSelfSphereCenter, static_cast<float>(SelfSphereRadius),
+			FComposableCameraViewportDebugColors::CollisionPushSelf(),
+			/*Alpha=*/60, KForeground, /*bSolid=*/true,
+			/*Segments=*/16, /*Thickness=*/0.0f, TEXT("Collision Self"));
 	}
 }
 #endif

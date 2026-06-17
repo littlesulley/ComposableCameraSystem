@@ -5,6 +5,7 @@
 #include "ComposableCameraSystemModule.h"
 
 #if !UE_BUILD_SHIPPING
+#include "Debug/ComposableCameraDebugDrawSink.h"
 #include "Debug/ComposableCameraViewportDebug.h"
 #include "DrawDebugHelpers.h"
 #include "Engine/World.h"
@@ -154,17 +155,17 @@ float UComposableCameraInertializedTransition::GetActualBlendTime(float InDeltaT
 }
 
 #if !UE_BUILD_SHIPPING
-void UComposableCameraInertializedTransition::DrawTransitionDebug(UWorld* World, bool bViewerIsOutsideCamera) const
+void UComposableCameraInertializedTransition::DrawTransitionDebug(FComposableCameraDebugDrawSink& Draw, bool bViewerIsOutsideCamera) const
 {
-	if (!World) { return; }
 	if (CVarShowInertializedTransitionGizmo.GetValueOnGameThread() == 0
-		&& !FComposableCameraViewportDebug::ShouldShowAllTransitionGizmos()) { return; }
+		&& !FComposableCameraViewportDebug::ShouldShowAllTransitionGizmos()
+		&& !Draw.ShouldForceDrawAllTransitionGizmos()) { return; }
 
 	// Hot pink. Strongly distinct accent because inertialization's overshoot
 	// is the most visually interesting thing the debug draw reveals.
-	static const FColor AccentColor { 255, 100, 200 };
+	const FColor AccentColor = FComposableCameraViewportDebugColors::TransitionInertialized();
 
-	DrawStandardTransitionDebug(World, bViewerIsOutsideCamera, AccentColor);
+	DrawStandardTransitionDebug(Draw, bViewerIsOutsideCamera, AccentColor);
 
 	// DebugPathOffsets is populated by OnBeginPlay; if for some reason it
 	// is empty (pre-OnBeginPlay frame, or a sub-transition hasn't been
@@ -183,9 +184,8 @@ void UComposableCameraInertializedTransition::DrawTransitionDebug(UWorld* World,
 	for (int32 i = 1; i < DebugPathOffsets.Num(); ++i)
 	{
 		const FVector NextPoint = DebugPathOffsets[i] + TgtPos;
-		DrawDebugLine(World, PrevPoint, NextPoint, AccentColor,
-			/*bPersistent=*/false, /*LifeTime=*/-1.f,
-			/*DepthPriority=*/SDPG_Foreground, /*Thickness=*/1.f);
+		Draw.DrawLine(PrevPoint, NextPoint, AccentColor,
+			/*Thickness=*/1.f, /*DepthPriority=*/SDPG_Foreground);
 		PrevPoint = NextPoint;
 	}
 }

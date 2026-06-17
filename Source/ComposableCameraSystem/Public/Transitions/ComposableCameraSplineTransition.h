@@ -93,7 +93,7 @@ public:
 	// spline curve as a 32-segment polyline in the accent color on top of
 	// the standard source/target/progress markers. Seeing the whole path
 	// is the whole point. This transition type's purpose is the shape.
-	virtual void DrawTransitionDebug(UWorld* World, bool bViewerIsOutsideCamera) const override;
+	virtual void DrawTransitionDebug(FComposableCameraDebugDrawSink& Draw, bool bViewerIsOutsideCamera) const override;
 
 private:
 	/**

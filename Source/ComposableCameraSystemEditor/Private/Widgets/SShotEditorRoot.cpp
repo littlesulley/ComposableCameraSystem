@@ -20,45 +20,48 @@
 #include "MovieSceneSection.h"
 #include "MovieSceneTrack.h"
 #include "MovieSceneBinding.h"
+#include "Misc/ConfigCacheIni.h"
 #include "Nodes/ComposableCameraCameraNodeBase.h"
 #include "Nodes/ComposableCameraCompositionFramingNode.h"
 #include "PropertyEditorModule.h"
+#include "ScopedTransaction.h"
 #include "UObject/Package.h"
 #include "UObject/StructOnScope.h"
 #include "UObject/UObjectGlobals.h"
-#include "Misc/MessageDialog.h"
 #include "Styling/AppStyle.h"
+#include "Widgets/ComposableCameraShotEditorLayoutState.h"
+#include "Widgets/ComposableCameraShotEditorModeSwitchUtils.h"
+#include "Widgets/ComposableCameraShotMenuUtils.h"
+#include "Widgets/ComposableCameraShotEditorStatusBarUtils.h"
+#include "Widgets/ComposableCameraShotViewportToolbarUtils.h"
+#include "Widgets/Images/SImage.h"
+#include "Widgets/Input/SButton.h"
+#include "Widgets/Input/SCheckBox.h"
 #include "Widgets/Input/SComboButton.h"
+#include "Widgets/Input/SNumericEntryBox.h"
+#include "Widgets/Input/SSearchBox.h"
 #include "Widgets/Input/SSegmentedControl.h"
 #include "Widgets/Layout/SBorder.h"
 #include "Widgets/Layout/SBox.h"
+#include "Widgets/Layout/SExpandableArea.h"
+#include "Widgets/SOverlay.h"
+#include "Widgets/Layout/SScrollBox.h"
 #include "Widgets/Layout/SSplitter.h"
 #include "Widgets/SBoxPanel.h"
 #include "Widgets/SShotEditorViewport.h"
 #include "Widgets/Text/STextBlock.h"
-#include "Widgets/Views/SListView.h"
-#include "Widgets/Views/STableRow.h"
 
 #define LOCTEXT_NAMESPACE "SShotEditorRoot"
 
-/**
- * One row's payload in the Shot outliner (Polish E.4).
- *
- * Pre-formatted display strings rather than re-running ResolveShotSectionTitle
- * / BuildSectionTimeRowSuffix every paint - Slate ticks rows on every frame
- * regardless of changes, and section title resolution does scope walks.
- *
- * Defined here (rather than in the header) because it's a private detail of
- * the Shot Editor's left pane - no other widget in the editor module needs
- * to construct or read these.
- */
-struct FShotEditorListEntry
+namespace
 {
-	TWeakObjectPtr<UMovieSceneComposableCameraShotSection> Section;
-	FString TrackLabel;
-	FString TitleLabel;
-	FString TimeRowSuffix;
-};
+	constexpr const TCHAR* kShotEditorLayoutConfigSection =
+		TEXT("ComposableCameraSystem.ShotEditorLayout");
+	constexpr const TCHAR* kViewportToolbarCollapsedKey =
+		TEXT("ViewportToolbarCollapsed");
+	constexpr const TCHAR* kQuickControlsCollapsedKey =
+		TEXT("QuickControlsCollapsed");
+}
 
 void SShotEditorRoot::Construct(const FArguments& /*InArgs*/)
 {
@@ -88,114 +91,21 @@ void SShotEditorRoot::Construct(const FArguments& /*InArgs*/)
 		StructureDetailsView = PropertyModule.CreateStructureDetailView(DetailsArgs, StructArgs, /*StructData=*/nullptr);
 	}
 
+	LoadPersistedLayoutState();
+
 	ChildSlot
 	[SNew(SVerticalBox)
 
-		// Asset toolbar - Save / Browse to Asset / Refresh. Modeled on the
-		// FAssetEditorToolkit standard chrome so the Shot Editor reads as
-		// a regular UE asset editor despite living inside a nomad tab.
+		// Top bar: asset commands, host breadcrumb, Shot navigation dropdown,
+		// recents, and the viewport mode selector in one row.
 		+ SVerticalBox::Slot()
 		.AutoHeight()
-		[BuildAssetToolbar()]
+		.Padding(4.f, 2.f)
+		[BuildHeaderArea()]
 
-		// Header bar: host context chain ("LS->Track -> Section" or
-		// "Asset -> Node") on the left, "Shots in Sequence" + "Recent"
-		// dropdowns next to it, 3-state mode segmented control on the right.
-		// See EShotEditorMode in SShotEditorViewport.h for per-mode semantics
-		// and Section 23.12 of EditorDesignDoc for the dropdown breakdown.
-		+ SVerticalBox::Slot()
-		.AutoHeight()
-		.Padding(6.f, 4.f)
-		[SNew(SBorder)
-			.BorderBackgroundColor(FLinearColor(0.10f, 0.10f, 0.12f, 1.f))
-			.Padding(8.f, 4.f)
-			[SNew(SHorizontalBox)
-				+ SHorizontalBox::Slot()
-				.FillWidth(1.f)
-				.VAlign(VAlign_Center)
-				[SAssignNew(HostNameLabel, STextBlock)
-					.Text(BuildHostContextChain())
-					.ColorAndOpacity(FLinearColor(0.9f, 0.9f, 0.95f, 1.f))]
-
-				// "Shots" - dropdown of all Shot sections in the active
-				// host's parent LevelSequence. Hidden in non-LS contexts.
-				+ SHorizontalBox::Slot()
-				.AutoWidth()
-				.VAlign(VAlign_Center)
-				.Padding(8.f, 0.f, 0.f, 0.f)
-				[SAssignNew(LSShotsCombo, SComboButton)
-					.Visibility(this, &SShotEditorRoot::GetLSShotsComboVisibility)
-					.ToolTipText(LOCTEXT("LSShotsTooltip",
-						"Jump to another Shot section in this LevelSequence. "
-						"Only shown when the active Shot's host is a "
-						"Sequencer Section - for CameraTypeAsset / "
-						"standalone ShotAsset hosts there's no sibling list."))
-					.OnGetMenuContent(this, &SShotEditorRoot::BuildLSShotsMenu)
-					.ButtonContent()
-					[SNew(STextBlock).Text(LOCTEXT("LSShotsLabel", "Shots"))]]
-
-				// "Recent" - last 20 hosts the editor was bound to (most
-				// recent first). Backed by FShotEditorHistory.
-				+ SHorizontalBox::Slot()
-				.AutoWidth()
-				.VAlign(VAlign_Center)
-				.Padding(4.f, 0.f, 0.f, 0.f)
-				[SAssignNew(HistoryCombo, SComboButton)
-					.ToolTipText(LOCTEXT("HistoryTooltip",
-						"Reopen a recently edited Shot. History is in-memory "
-						"for the current editor session (last 20 entries)."))
-					.OnGetMenuContent(this, &SShotEditorRoot::BuildHistoryMenu)
-					.ButtonContent()
-					[SNew(STextBlock).Text(LOCTEXT("HistoryLabel", "Recent"))]]
-
-				+ SHorizontalBox::Slot()
-				.AutoWidth()
-				.VAlign(VAlign_Center)
-				.Padding(8.f, 0.f, 0.f, 0.f)
-				[SNew(SSegmentedControl<EShotEditorMode>)
-					.Value_Lambda([this]() -> EShotEditorMode
-					{
-						return Viewport.IsValid()
-							? Viewport->GetMode()
-							: EShotEditorMode::Drag;
-					})
-					.OnValueChanged_Lambda([this](EShotEditorMode NewMode)
-					{
-						TrySetMode(NewMode);
-					})
-					+ SSegmentedControl<EShotEditorMode>::Slot(EShotEditorMode::Drag)
-						.Text(LOCTEXT("ModeDrag", "Drag"))
-						.ToolTip(LOCTEXT("ModeDragTip",
-							"Drag mode (default): solver drives the camera. "
-							"LMB-drag the on-screen handles to author the "
-							"Placement / Aim anchor screen positions "
-							"(yellow = Placement, cyan = Aim). RMB on a handle "
-							"opens a context menu to pick the underlying "
-							"target's pivot bone in-viewport."))
-					+ SSegmentedControl<EShotEditorMode>::Slot(EShotEditorMode::Free)
-						.Text(LOCTEXT("ModeFree", "Free"))
-						.ToolTip(LOCTEXT("ModeFreeTip",
-							"Free mode: solver pauses, you have full mouse "
-							"camera control (orbit / pan / dolly). Handles "
-							"are still drawn but track the live projection "
-							"of world anchor / target points; they are "
-							"greyed out and not interactive. Switching back "
-							"to Drag will pop a 'save current camera framing "
-							"as Shot params?' dialog."))
-					+ SSegmentedControl<EShotEditorMode>::Slot(EShotEditorMode::Lock)
-						.Text(LOCTEXT("ModeLock", "Lock"))
-						.ToolTip(LOCTEXT("ModeLockTip",
-							"Lock mode: solver drives the camera (same as "
-							"Drag) but ALL viewport input is consumed - no "
-							"handle drag, no camera control, no scroll-zoom. "
-							"Read-only preview state, useful for "
-							"screenshots / demos / preventing accidental "
-							"edits."))]]]
-
-		// Body: 3-region horizontal splitter (Shot outliner / Viewport / Details).
-		// SSplitter so the user can drag region widths. Polish E.4 wires
-		// up the left outliner with an SListView of Shot sections in the
-		// active LevelSequence - single-click swaps context.
+		// Body: 2-region horizontal splitter (Viewport / Details). Shot
+		// navigation lives in the top bar's "Shots" dropdown so the viewport
+		// keeps the space formerly used by the left outliner.
 		+ SVerticalBox::Slot()
 		.FillHeight(1.f)
 		.Padding(2.f)
@@ -203,22 +113,12 @@ void SShotEditorRoot::Construct(const FArguments& /*InArgs*/)
 			.Orientation(Orient_Horizontal)
 
 			+ SSplitter::Slot()
-			.Value(0.18f) // Shot outliner - narrow nav strip
-			[BuildShotOutliner()]
+			.Value(0.72f) // Viewport - primary authoring surface
+			[BuildViewportPane()]
 
 			+ SSplitter::Slot()
-			.Value(0.55f) // Viewport - biggest region
-			[SAssignNew(Viewport, SShotEditorViewport)]
-
-			+ SSplitter::Slot()
-			.Value(0.27f) // Details - moderate width for property editor
-			[StructureDetailsView->GetWidget().ToSharedRef()]]];
-
-	// Initial outliner population - covers the case where Construct runs
-	// before the first SetActiveShot call (host might be already-bound at
-	// open-time via FComposableCameraShotEditor::OpenForShotSection's
-	// pre-construction context-set).
-	RefreshShotListItems();
+			.Value(0.28f) // Details - moderate width for property editor
+			[BuildDetailsPane()]]];
 }
 
 void SShotEditorRoot::SetActiveShot(FComposableCameraShot* Shot, UObject* HostObject)
@@ -249,21 +149,12 @@ void SShotEditorRoot::Tick(const FGeometry& AllottedGeometry, const double InCur
 		ActiveShot = nullptr;
 		OnActiveShotChanged();
 	}
-
-	// Shot outliner (E.4) refresh throttle - picks up external LS edits
-	// (sections added / removed / reordered via Sequencer) on a 0.5s cadence
-	// without polling every frame. Per-frame poll would be cheap (few
-	// sections) but burns Slate Tick time the editor doesn't need to spend.
-	ShotListRefreshAccum += InDeltaTime;
-	if (ShotListRefreshAccum >= 0.5f)
-	{
-		ShotListRefreshAccum = 0.f;
-		RefreshShotListItems();
-	}
 }
 
 void SShotEditorRoot::OnActiveShotChanged()
 {
+	ClearPendingFreeExitMode();
+
 	if (HostNameLabel.IsValid())
 	{
 		HostNameLabel->SetText(BuildHostContextChain());
@@ -275,10 +166,6 @@ void SShotEditorRoot::OnActiveShotChanged()
 
 	// Details panel: re-bind to the new Shot (or clear if no Shot bound).
 	RefreshDetailsView();
-
-	// Shot outliner (E.4): rebuild the list (LS may have changed) and
-	// re-highlight the current entry.
-	RefreshShotListItems();
 }
 
 void SShotEditorRoot::RefreshDetailsView()
@@ -304,6 +191,490 @@ void SShotEditorRoot::RefreshDetailsView()
 	{
 		StructureDetailsView->SetStructureData(nullptr);
 	}
+}
+
+TSharedRef<SWidget> SShotEditorRoot::BuildDetailsPane()
+{
+	return SNew(SVerticalBox)
+		+ SVerticalBox::Slot()
+		.AutoHeight()
+		.Padding(0.f, 0.f, 0.f, 2.f)
+		[BuildQuickControls()]
+
+		+ SVerticalBox::Slot()
+		.FillHeight(1.f)
+		[StructureDetailsView->GetWidget().ToSharedRef()];
+}
+
+TSharedRef<SWidget> SShotEditorRoot::BuildViewportPane()
+{
+	return SNew(SOverlay)
+		+ SOverlay::Slot()
+		[SAssignNew(Viewport, SShotEditorViewport)]
+
+		+ SOverlay::Slot()
+		.HAlign(HAlign_Right)
+		.VAlign(VAlign_Top)
+		.Padding(8.f)
+		[BuildViewportFloatingToolbar()];
+}
+
+TSharedRef<SWidget> SShotEditorRoot::BuildViewportFloatingToolbar()
+{
+	return SNew(SBorder)
+		.BorderImage(FAppStyle::GetBrush("ToolPanel.GroupBorder"))
+		.Padding(4.f, 3.f)
+		[SNew(SHorizontalBox)
+			+ SHorizontalBox::Slot()
+			.AutoWidth()
+			.Padding(0.f, 0.f, 4.f, 0.f)
+			[SNew(SButton)
+				.ButtonStyle(FAppStyle::Get(), "SimpleButton")
+				.OnClicked(this, &SShotEditorRoot::OnViewportToolbarToggleCollapsedClicked)
+				.ToolTipText(LOCTEXT("ViewportToolbarToggleTooltip",
+					"Show or collapse viewport tools."))
+				[SNew(STextBlock)
+					.Text_Lambda([this]()
+					{
+						return bViewportToolbarCollapsed
+							? LOCTEXT("ViewportToolbarExpand", "Tools +")
+							: LOCTEXT("ViewportToolbarCollapse", "Tools -");
+					})]]
+
+			+ SHorizontalBox::Slot()
+			.AutoWidth()
+			[SNew(SHorizontalBox)
+				.Visibility(this, &SShotEditorRoot::GetViewportToolbarControlsVisibility)
+
+				+ SHorizontalBox::Slot()
+				.AutoWidth()
+				.Padding(0.f, 0.f, 4.f, 0.f)
+				[SNew(SButton)
+					.ButtonStyle(FAppStyle::Get(), "SimpleButton")
+					.IsEnabled(this, &SShotEditorRoot::CanResetViewportCamera)
+					.OnClicked(this, &SShotEditorRoot::OnResetViewportCameraClicked)
+					.ToolTipText(LOCTEXT("ViewportToolbarResetTooltip",
+						"Reset the Free camera back to the current solved Shot pose."))
+					[SNew(STextBlock)
+						.Text(LOCTEXT("ViewportToolbarReset", "Reset"))]]
+
+				+ SHorizontalBox::Slot()
+				.AutoWidth()
+				.Padding(0.f, 0.f, 4.f, 0.f)
+				[SNew(SCheckBox)
+					.IsChecked(this, &SShotEditorRoot::GetViewportDiagnosticHudCheckState)
+					.OnCheckStateChanged(this, &SShotEditorRoot::OnViewportDiagnosticHudToggled)
+					.IsEnabled(this, &SShotEditorRoot::CanToggleViewportDiagnosticHud)
+					.ToolTipText(LOCTEXT("ViewportToolbarHudTooltip",
+						"Show or hide diagnostic HUD text."))
+					[SNew(STextBlock)
+						.Text(LOCTEXT("ViewportToolbarHud", "HUD"))]]
+
+				+ SHorizontalBox::Slot()
+				.AutoWidth()
+				[SNew(SCheckBox)
+					.IsChecked(this, &SShotEditorRoot::GetViewportCompositionGuidesCheckState)
+					.OnCheckStateChanged(this, &SShotEditorRoot::OnViewportCompositionGuidesToggled)
+					.IsEnabled(this, &SShotEditorRoot::CanToggleViewportCompositionGuides)
+					.ToolTipText(LOCTEXT("ViewportToolbarGuidesTooltip",
+						"Show or hide handles, framing zones, and bounds guides."))
+					[SNew(STextBlock)
+						.Text(LOCTEXT("ViewportToolbarGuides", "Guides"))]]]];
+}
+
+EVisibility SShotEditorRoot::GetViewportToolbarControlsVisibility() const
+{
+	using namespace ComposableCameraSystem::ShotEditorViewportToolbar;
+	return ShouldShowToolbarExpandedControls(bViewportToolbarCollapsed)
+		? EVisibility::Visible
+		: EVisibility::Collapsed;
+}
+
+FReply SShotEditorRoot::OnViewportToolbarToggleCollapsedClicked()
+{
+	bViewportToolbarCollapsed = !bViewportToolbarCollapsed;
+	SavePersistedLayoutState();
+	return FReply::Handled();
+}
+
+void SShotEditorRoot::OnQuickControlsExpansionChanged(bool bExpanded)
+{
+	bQuickControlsCollapsed = !bExpanded;
+	SavePersistedLayoutState();
+}
+
+void SShotEditorRoot::LoadPersistedLayoutState()
+{
+	using namespace ComposableCameraSystem::ShotEditorLayout;
+
+	TOptional<bool> ViewportToolbarCollapsed;
+	TOptional<bool> QuickControlsCollapsed;
+
+	if (GConfig)
+	{
+		bool bPersistedViewportToolbarCollapsed = false;
+		if (GConfig->GetBool(kShotEditorLayoutConfigSection,
+			kViewportToolbarCollapsedKey,
+			bPersistedViewportToolbarCollapsed,
+			GEditorPerProjectIni))
+		{
+			ViewportToolbarCollapsed = bPersistedViewportToolbarCollapsed;
+		}
+
+		bool bPersistedQuickControlsCollapsed = true;
+		if (GConfig->GetBool(kShotEditorLayoutConfigSection,
+			kQuickControlsCollapsedKey,
+			bPersistedQuickControlsCollapsed,
+			GEditorPerProjectIni))
+		{
+			QuickControlsCollapsed = bPersistedQuickControlsCollapsed;
+		}
+	}
+
+	const FShotEditorLayoutState LayoutState =
+		ResolveLayoutState(ViewportToolbarCollapsed, QuickControlsCollapsed);
+	bViewportToolbarCollapsed = LayoutState.bViewportToolbarCollapsed;
+	bQuickControlsCollapsed = LayoutState.bQuickControlsCollapsed;
+}
+
+void SShotEditorRoot::SavePersistedLayoutState() const
+{
+	if (!GConfig)
+	{
+		return;
+	}
+
+	GConfig->SetBool(kShotEditorLayoutConfigSection,
+		kViewportToolbarCollapsedKey,
+		bViewportToolbarCollapsed,
+		GEditorPerProjectIni);
+	GConfig->SetBool(kShotEditorLayoutConfigSection,
+		kQuickControlsCollapsedKey,
+		bQuickControlsCollapsed,
+		GEditorPerProjectIni);
+	GConfig->Flush(/*bRead=*/false, GEditorPerProjectIni);
+}
+
+TSharedRef<SWidget> SShotEditorRoot::BuildQuickControls()
+{
+	return SNew(SExpandableArea)
+		.InitiallyCollapsed(bQuickControlsCollapsed)
+		.OnAreaExpansionChanged(this, &SShotEditorRoot::OnQuickControlsExpansionChanged)
+		.BorderImage(FAppStyle::GetBrush("DetailsView.CategoryTop"))
+		.HeaderContent()
+		[
+			SNew(STextBlock)
+			.Text(LOCTEXT("QuickControlsHeader", "Quick"))
+			.ColorAndOpacity(FLinearColor(0.85f, 0.85f, 0.9f, 1.f))
+		]
+		.BodyContent()
+		[
+			SNew(SBorder)
+			.BorderImage(FAppStyle::GetBrush("ToolPanel.GroupBorder"))
+			.Padding(6.f, 4.f)
+			[
+				SNew(SVerticalBox)
+				+ SVerticalBox::Slot()
+				.AutoHeight()
+				[
+					SNew(SHorizontalBox)
+					+ SHorizontalBox::Slot()
+					.AutoWidth()
+					.Padding(0.f, 0.f, 4.f, 0.f)
+					[BuildQuickFloatControl(EQuickControlField::Distance,
+						LOCTEXT("QuickDistance", "Distance"),
+						LOCTEXT("QuickDistanceTip", "Placement.Distance"),
+						FShotPlacement::MinDistance,
+						FShotPlacement::MaxDistance)]
+
+					+ SHorizontalBox::Slot()
+					.AutoWidth()
+					.Padding(0.f, 0.f, 4.f, 0.f)
+					[BuildQuickFloatControl(EQuickControlField::FOV,
+						LOCTEXT("QuickFOV", "Manual FOV"),
+						LOCTEXT("QuickFOVTip", "Lens.ManualFOV"),
+						1.f,
+						170.f)]
+
+					+ SHorizontalBox::Slot()
+					.AutoWidth()
+					[BuildQuickFloatControl(EQuickControlField::Roll,
+						LOCTEXT("QuickRoll", "Roll"),
+						LOCTEXT("QuickRollTip", "Shot.Roll"),
+						-180.f,
+						180.f)]
+				]
+
+				+ SVerticalBox::Slot()
+				.AutoHeight()
+				.Padding(0.f, 4.f, 0.f, 0.f)
+				[
+					SNew(SHorizontalBox)
+					+ SHorizontalBox::Slot()
+					.AutoWidth()
+					.Padding(0.f, 0.f, 4.f, 0.f)
+					[BuildQuickFloatControl(EQuickControlField::PlacementX,
+						LOCTEXT("QuickPlaceX", "Placement X"),
+						LOCTEXT("QuickPlaceXTip", "Placement.ScreenPosition.X"),
+						-0.5f,
+						0.5f)]
+
+					+ SHorizontalBox::Slot()
+					.AutoWidth()
+					.Padding(0.f, 0.f, 4.f, 0.f)
+					[BuildQuickFloatControl(EQuickControlField::PlacementY,
+						LOCTEXT("QuickPlaceY", "Placement Y"),
+						LOCTEXT("QuickPlaceYTip", "Placement.ScreenPosition.Y"),
+						-0.5f,
+						0.5f)]
+
+					+ SHorizontalBox::Slot()
+					.AutoWidth()
+					.Padding(0.f, 0.f, 4.f, 0.f)
+					[BuildQuickFloatControl(EQuickControlField::AimX,
+						LOCTEXT("QuickAimX", "Aim X"),
+						LOCTEXT("QuickAimXTip", "Aim.ScreenPosition.X"),
+						-0.5f,
+						0.5f)]
+
+					+ SHorizontalBox::Slot()
+					.AutoWidth()
+					[BuildQuickFloatControl(EQuickControlField::AimY,
+						LOCTEXT("QuickAimY", "Aim Y"),
+						LOCTEXT("QuickAimYTip", "Aim.ScreenPosition.Y"),
+						-0.5f,
+						0.5f)]
+				]
+			]
+		];
+}
+
+TSharedRef<SWidget> SShotEditorRoot::BuildQuickFloatControl(EQuickControlField Field,
+	const FText& Label,
+	const FText& ToolTip,
+	float MinValue,
+	float MaxValue)
+{
+	TSharedRef<TOptional<float>> DragCache = MakeShared<TOptional<float>>();
+	return SNew(SBox)
+		.WidthOverride(112.f)
+		[
+			SNew(SVerticalBox)
+			+ SVerticalBox::Slot()
+			.AutoHeight()
+			[
+				SNew(STextBlock)
+				.Text(Label)
+				.ToolTipText(ToolTip)
+			]
+
+			+ SVerticalBox::Slot()
+			.AutoHeight()
+			.Padding(0.f, 1.f, 0.f, 0.f)
+			[
+				SNew(SNumericEntryBox<float>)
+				.AllowSpin(true)
+				.MinValue(TOptional<float>(MinValue))
+				.MaxValue(TOptional<float>(MaxValue))
+				.MinSliderValue(TOptional<float>(MinValue))
+				.MaxSliderValue(TOptional<float>(MaxValue))
+				.MinDesiredValueWidth(56.f)
+				.IsEnabled_Lambda([this, Field]()
+				{
+					return IsQuickControlEnabled(Field);
+				})
+				.Value_Lambda([this, Field, DragCache]() -> TOptional<float>
+				{
+					if (DragCache->IsSet())
+					{
+						return DragCache->GetValue();
+					}
+					return GetQuickControlValue(Field);
+				})
+				.OnValueChanged_Lambda([DragCache](float NewValue)
+				{
+					*DragCache = NewValue;
+				})
+				.OnValueCommitted_Lambda([this, Field, DragCache](float NewValue, ETextCommit::Type)
+				{
+					DragCache->Reset();
+					CommitQuickControlValue(Field, NewValue);
+				})
+				.OnEndSliderMovement_Lambda([this, Field, DragCache](float NewValue)
+				{
+					DragCache->Reset();
+					CommitQuickControlValue(Field, NewValue);
+				})
+			]
+		];
+}
+
+TOptional<float> SShotEditorRoot::GetQuickControlValue(EQuickControlField Field) const
+{
+	if (!ActiveShot)
+	{
+		return TOptional<float>();
+	}
+
+	switch (Field)
+	{
+	case EQuickControlField::Distance:
+		return ActiveShot->Placement.Distance;
+	case EQuickControlField::FOV:
+		return ActiveShot->Lens.ManualFOV;
+	case EQuickControlField::Roll:
+		return ActiveShot->Roll;
+	case EQuickControlField::PlacementX:
+		return ActiveShot->Placement.ScreenPosition.X;
+	case EQuickControlField::PlacementY:
+		return ActiveShot->Placement.ScreenPosition.Y;
+	case EQuickControlField::AimX:
+		return ActiveShot->Aim.ScreenPosition.X;
+	case EQuickControlField::AimY:
+		return ActiveShot->Aim.ScreenPosition.Y;
+	default:
+		return TOptional<float>();
+	}
+}
+
+bool SShotEditorRoot::IsQuickControlEnabled(EQuickControlField Field) const
+{
+	if (!ActiveShot || !ActiveHost.IsValid())
+	{
+		return false;
+	}
+
+	switch (Field)
+	{
+	case EQuickControlField::Distance:
+		return ActiveShot->Placement.Mode == EShotPlacementMode::AnchorOrbit
+			|| ActiveShot->Placement.Mode == EShotPlacementMode::AnchorAtScreen;
+	case EQuickControlField::FOV:
+		return ActiveShot->Lens.FOVMode == EShotFOVMode::Manual;
+	case EQuickControlField::Roll:
+		return true;
+	case EQuickControlField::PlacementX:
+	case EQuickControlField::PlacementY:
+		return ActiveShot->Placement.Mode == EShotPlacementMode::AnchorAtScreen;
+	case EQuickControlField::AimX:
+	case EQuickControlField::AimY:
+		return ActiveShot->Aim.Mode == EShotAimMode::LookAtAnchor;
+	default:
+		return false;
+	}
+}
+
+void SShotEditorRoot::CommitQuickControlValue(EQuickControlField Field, float NewValue)
+{
+	if (!ActiveShot || !ActiveHost.IsValid())
+	{
+		return;
+	}
+
+	const TOptional<float> OldValue = GetQuickControlValue(Field);
+	if (!OldValue.IsSet())
+	{
+		return;
+	}
+
+	switch (Field)
+	{
+	case EQuickControlField::Distance:
+		NewValue = FMath::Clamp(NewValue, FShotPlacement::MinDistance, FShotPlacement::MaxDistance);
+		break;
+	case EQuickControlField::FOV:
+		NewValue = FMath::Clamp(NewValue, 1.f, 170.f);
+		break;
+	case EQuickControlField::Roll:
+		NewValue = FMath::Clamp(NewValue, -180.f, 180.f);
+		break;
+	case EQuickControlField::PlacementX:
+	case EQuickControlField::PlacementY:
+	case EQuickControlField::AimX:
+	case EQuickControlField::AimY:
+		NewValue = FMath::Clamp(NewValue, -0.5f, 0.5f);
+		break;
+	default:
+		return;
+	}
+
+	if (FMath::IsNearlyEqual(OldValue.GetValue(), NewValue))
+	{
+		return;
+	}
+
+	const FScopedTransaction Transaction(LOCTEXT("EditShotQuickControl", "Edit Shot Quick Control"));
+	if (UObject* Host = ActiveHost.Get())
+	{
+		Host->Modify();
+	}
+
+	switch (Field)
+	{
+	case EQuickControlField::Distance:
+		ActiveShot->Placement.Distance = NewValue;
+		break;
+	case EQuickControlField::FOV:
+		ActiveShot->Lens.ManualFOV = NewValue;
+		break;
+	case EQuickControlField::Roll:
+		ActiveShot->Roll = NewValue;
+		break;
+	case EQuickControlField::PlacementX:
+		ActiveShot->Placement.ScreenPosition.X = NewValue;
+		break;
+	case EQuickControlField::PlacementY:
+		ActiveShot->Placement.ScreenPosition.Y = NewValue;
+		break;
+	case EQuickControlField::AimX:
+		ActiveShot->Aim.ScreenPosition.X = NewValue;
+		break;
+	case EQuickControlField::AimY:
+		ActiveShot->Aim.ScreenPosition.Y = NewValue;
+		break;
+	default:
+		break;
+	}
+
+	PostActiveShotValueSet();
+	RefreshDetailsView();
+}
+
+FProperty* SShotEditorRoot::ResolveActiveShotProperty() const
+{
+	UObject* Host = ActiveHost.Get();
+	if (!Host)
+	{
+		return nullptr;
+	}
+
+	if (UMovieSceneComposableCameraShotSection* Section =
+			Cast<UMovieSceneComposableCameraShotSection>(Host))
+	{
+		if (ActiveShot == &Section->InlineShot)
+		{
+			return Section->GetClass()->FindPropertyByName(GET_MEMBER_NAME_CHECKED(UMovieSceneComposableCameraShotSection, InlineShot));
+		}
+		if (ActiveShot == &Section->ShotOverrides)
+		{
+			return Section->GetClass()->FindPropertyByName(GET_MEMBER_NAME_CHECKED(UMovieSceneComposableCameraShotSection, ShotOverrides));
+		}
+	}
+
+	return Host->GetClass()->FindPropertyByName(TEXT("Shot"));
+}
+
+void SShotEditorRoot::PostActiveShotValueSet()
+{
+	UObject* Host = ActiveHost.Get();
+	FProperty* ShotProp = ResolveActiveShotProperty();
+	if (!Host || !ShotProp)
+	{
+		return;
+	}
+
+	FPropertyChangedEvent Event(ShotProp, EPropertyChangeType::ValueSet);
+	Host->PostEditChangeProperty(Event);
 }
 
 void SShotEditorRoot::NotifyPreChange(FProperty* /*PropertyAboutToChange*/)
@@ -337,24 +708,8 @@ void SShotEditorRoot::NotifyPostChange(const FPropertyChangedEvent& PropertyChan
 	}
 
 	UObject* Host = ActiveHost.Get();
-	if (!Host)
-	{
-		return;
-	}
-	FProperty* ShotProp = Host->GetClass()->FindPropertyByName(TEXT("Shot"));
-	if (UMovieSceneComposableCameraShotSection* Section =
-			Cast<UMovieSceneComposableCameraShotSection>(Host))
-	{
-		if (ActiveShot == &Section->InlineShot)
-		{
-			ShotProp = Section->GetClass()->FindPropertyByName(GET_MEMBER_NAME_CHECKED(UMovieSceneComposableCameraShotSection, InlineShot));
-		}
-		else if (ActiveShot == &Section->ShotOverrides)
-		{
-			ShotProp = Section->GetClass()->FindPropertyByName(GET_MEMBER_NAME_CHECKED(UMovieSceneComposableCameraShotSection, ShotOverrides));
-		}
-	}
-	if (ShotProp)
+	FProperty* ShotProp = ResolveActiveShotProperty();
+	if (Host && ShotProp)
 	{
 		FPropertyChangedEvent OuterEvent(ShotProp, PropertyChangedEvent.ChangeType);
 		Host->PostEditChangeProperty(OuterEvent);
@@ -417,21 +772,28 @@ namespace
 		}
 		return FString::Printf(TEXT("(Unbounded, Row %d)"), Section.GetRowIndex());
 	}
+
+	struct FLSShotMenuEntry
+	{
+		TWeakObjectPtr<UMovieSceneComposableCameraShotSection> Section;
+		FString TrackLabel;
+		FString TitleLabel;
+		FString TimeRowSuffix;
+		bool bIsCurrent = false;
+	};
 }
 
 FText SShotEditorRoot::BuildHostContextChain() const
 {
 	if (!ActiveShot)
 	{
-		return LOCTEXT("NoShotLoaded",
-			"No Shot loaded - open a Camera Type Asset, select a CompositionFramingNode, and click the toolbar's 'Shot Editor' button.");
+		return LOCTEXT("NoShotLoadedLabel", "No Shot loaded");
 	}
 
 	UObject* Host = ActiveHost.Get();
 	if (!Host)
 	{
-		return LOCTEXT("ActiveHostStale",
-			"Host destroyed - Shot context cleared. Reopen from a CompositionFramingNode.");
+		return LOCTEXT("ActiveHostStaleLabel", "Host destroyed");
 	}
 
 	// Section host -> "{LS} -> {Track} -> {Section} (start - end, Row N)".
@@ -491,55 +853,43 @@ EVisibility SShotEditorRoot::GetLSShotsComboVisibility() const
 
 TSharedRef<SWidget> SShotEditorRoot::BuildLSShotsMenu()
 {
-	FMenuBuilder MenuBuilder(/*bShouldCloseAfterSelect=*/true, /*CommandList=*/nullptr);
-
 	UMovieSceneComposableCameraShotSection* CurrentSection =
 		Cast<UMovieSceneComposableCameraShotSection>(ActiveHost.Get());
 	const ULevelSequence* LS = ResolveLevelSequenceForSection(CurrentSection);
 	const UMovieScene* MovieScene = LS ? LS->GetMovieScene() : nullptr;
 	if (!MovieScene)
 	{
-		MenuBuilder.AddMenuEntry(LOCTEXT("LSShotsNoLS", "No LevelSequence resolved."),
-			FText::GetEmpty(), FSlateIcon(), FUIAction(),
-			NAME_None, EUserInterfaceActionType::None);
-		return MenuBuilder.MakeWidget();
+		return SNew(SBox)
+			.WidthOverride(420.f)
+			.Padding(10.f)
+			[SNew(STextBlock)
+				.Text(LOCTEXT("LSShotsNoLS", "No LevelSequence resolved."))
+				.ColorAndOpacity(FSlateColor::UseSubduedForeground())];
 	}
 
 	// Walk every Shot section in the MovieScene. Shot tracks live under
 	// object bindings (FMovieSceneBinding) since `FComposableCameraShotTrackEditor`
 	// extends `BuildObjectBindingTrackMenu`, but we also scan root tracks
 	// defensively so future-routing changes don't silently empty the menu.
-	int32 EntryCount = 0;
+	TSharedRef<TArray<FLSShotMenuEntry>> Entries = MakeShared<TArray<FLSShotMenuEntry>>();
+	TSet<const UMovieSceneComposableCameraShotSection*> SeenSections;
 	auto AddShotEntry =
-		[this, &MenuBuilder, &EntryCount, CurrentSection](UMovieSceneComposableCameraShotSection* Section,
+		[Entries, &SeenSections, CurrentSection](UMovieSceneComposableCameraShotSection* Section,
 			const FString& TrackLabel)
 	{
-		if (!Section)
+		if (!Section || SeenSections.Contains(Section))
 		{
 			return;
 		}
-		const FString Title = ResolveShotSectionTitle(*Section);
-		const FString RangeSuffix = BuildSectionTimeRowSuffix(*Section);
-		const bool bIsCurrent = (Section == CurrentSection);
 
-		// "Current - " prefix marks the section currently bound to the Shot
-		// Editor. Plain ASCII so it renders consistently across menu themes.
-		const FText EntryText = FText::FromString(FString::Printf(TEXT("%s%s / %s %s"),
-			bIsCurrent ? TEXT("Current - ") : TEXT(""),
-			*TrackLabel, *Title, *RangeSuffix));
-
-		const TWeakObjectPtr<UMovieSceneComposableCameraShotSection> WeakSection(Section);
-		MenuBuilder.AddMenuEntry(EntryText,
-			FText::GetEmpty(),
-			FSlateIcon(),
-			FUIAction(FExecuteAction::CreateLambda([WeakSection]()
-			{
-				if (UMovieSceneComposableCameraShotSection* Live = WeakSection.Get())
-				{
-					FComposableCameraShotEditor::OpenForShotSection(Live);
-				}
-			})));
-		++EntryCount;
+		SeenSections.Add(Section);
+		FLSShotMenuEntry Entry;
+		Entry.Section = Section;
+		Entry.TrackLabel = TrackLabel;
+		Entry.TitleLabel = ResolveShotSectionTitle(*Section);
+		Entry.TimeRowSuffix = BuildSectionTimeRowSuffix(*Section);
+		Entry.bIsCurrent = (Section == CurrentSection);
+		Entries->Add(MoveTemp(Entry));
 	};
 
 	for (const FMovieSceneBinding& Binding: MovieScene->GetBindings())
@@ -576,14 +926,143 @@ TSharedRef<SWidget> SShotEditorRoot::BuildLSShotsMenu()
 		}
 	}
 
-	if (EntryCount == 0)
-	{
-		MenuBuilder.AddMenuEntry(LOCTEXT("LSShotsEmpty", "No Shot sections in this LevelSequence."),
-			FText::GetEmpty(), FSlateIcon(), FUIAction(),
-			NAME_None, EUserInterfaceActionType::None);
-	}
+	TSharedRef<FString> SearchText = MakeShared<FString>();
+	TSharedRef<TSharedPtr<SScrollBox>> ResultsBoxRef = MakeShared<TSharedPtr<SScrollBox>>();
 
-	return MenuBuilder.MakeWidget();
+	auto AddEmptyRow = [ResultsBoxRef](const FText& Message)
+	{
+		if (!ResultsBoxRef->IsValid())
+		{
+			return;
+		}
+		(*ResultsBoxRef)->AddSlot()
+			.Padding(8.f, 10.f)
+			[SNew(STextBlock)
+				.Text(Message)
+				.ColorAndOpacity(FSlateColor::UseSubduedForeground())];
+	};
+
+	auto RebuildResults = [this, Entries, SearchText, ResultsBoxRef, AddEmptyRow]()
+	{
+		using ComposableCameraSystem::ShotEditorMenu::MatchesSearchFilter;
+
+		if (!ResultsBoxRef->IsValid())
+		{
+			return;
+		}
+
+		(*ResultsBoxRef)->ClearChildren();
+		if (Entries->Num() == 0)
+		{
+			AddEmptyRow(LOCTEXT("LSShotsEmpty", "No Shot sections in this LevelSequence."));
+			return;
+		}
+
+		FString LastTrackLabel;
+		bool bAnyVisible = false;
+		for (const FLSShotMenuEntry& Entry: *Entries)
+		{
+			if (!MatchesSearchFilter(Entry.TrackLabel, Entry.TitleLabel, Entry.TimeRowSuffix, *SearchText))
+			{
+				continue;
+			}
+
+			if (LastTrackLabel != Entry.TrackLabel)
+			{
+				LastTrackLabel = Entry.TrackLabel;
+				(*ResultsBoxRef)->AddSlot()
+					.Padding(8.f, bAnyVisible ? 8.f: 2.f, 8.f, 2.f)
+					[SNew(STextBlock)
+						.Text(FText::FromString(Entry.TrackLabel))
+						.ColorAndOpacity(FSlateColor::UseSubduedForeground())];
+			}
+
+			const TWeakObjectPtr<UMovieSceneComposableCameraShotSection> WeakSection = Entry.Section;
+			const bool bIsCurrent = Entry.bIsCurrent;
+			const FSlateColor TitleColor = bIsCurrent
+				? FSlateColor(FLinearColor(1.f, 0.95f, 0.55f, 1.f))
+				: FSlateColor::UseForeground();
+
+			(*ResultsBoxRef)->AddSlot()
+				.Padding(4.f, 1.f)
+				[SNew(SButton)
+					.ButtonStyle(&FAppStyle::Get().GetWidgetStyle<FButtonStyle>("SimpleButton"))
+					.ContentPadding(FMargin(6.f, 4.f))
+					.OnClicked_Lambda([this, WeakSection, bIsCurrent]() -> FReply
+					{
+						if (bIsCurrent)
+						{
+							return FReply::Handled();
+						}
+						if (UMovieSceneComposableCameraShotSection* Live = WeakSection.Get())
+						{
+							if (LSShotsCombo.IsValid())
+							{
+								LSShotsCombo->SetIsOpen(false);
+							}
+							FComposableCameraShotEditor::OpenForShotSection(Live);
+						}
+						return FReply::Handled();
+					})
+					[SNew(SHorizontalBox)
+						+ SHorizontalBox::Slot()
+						.AutoWidth()
+						.VAlign(VAlign_Center)
+						.Padding(0.f, 0.f, 6.f, 0.f)
+						[SNew(SImage)
+							.Image(FAppStyle::GetBrush("Icons.Check"))
+							.Visibility(bIsCurrent ? EVisibility::Visible: EVisibility::Hidden)]
+
+						+ SHorizontalBox::Slot()
+						.FillWidth(1.f)
+						.VAlign(VAlign_Center)
+						[SNew(STextBlock)
+							.Text(FText::FromString(Entry.TitleLabel))
+							.ColorAndOpacity(TitleColor)]
+
+						+ SHorizontalBox::Slot()
+						.AutoWidth()
+						.VAlign(VAlign_Center)
+						.Padding(12.f, 0.f, 0.f, 0.f)
+						[SNew(STextBlock)
+							.Text(FText::FromString(Entry.TimeRowSuffix))
+							.ColorAndOpacity(FSlateColor::UseSubduedForeground())]]];
+
+			bAnyVisible = true;
+		}
+
+		if (!bAnyVisible)
+		{
+			AddEmptyRow(LOCTEXT("LSShotsNoMatches", "No matching shots."));
+		}
+	};
+
+	TSharedPtr<SScrollBox> ResultsBox;
+	TSharedRef<SWidget> MenuWidget = SNew(SBox)
+		.WidthOverride(460.f)
+		.MaxDesiredHeight(520.f)
+		[SNew(SBorder)
+			.BorderImage(FAppStyle::GetBrush("ToolPanel.GroupBorder"))
+			.Padding(6.f)
+			[SNew(SVerticalBox)
+				+ SVerticalBox::Slot()
+				.AutoHeight()
+				.Padding(0.f, 0.f, 0.f, 6.f)
+				[SNew(SSearchBox)
+					.HintText(LOCTEXT("LSShotsSearchHint", "Search shots, tracks, or time"))
+					.OnTextChanged_Lambda([SearchText, RebuildResults](const FText& NewText)
+					{
+						*SearchText = NewText.ToString();
+						RebuildResults();
+					})]
+
+				+ SVerticalBox::Slot()
+				.FillHeight(1.f)
+				[SAssignNew(ResultsBox, SScrollBox)]]];
+
+	*ResultsBoxRef = ResultsBox;
+	RebuildResults();
+	return MenuWidget;
 }
 
 TSharedRef<SWidget> SShotEditorRoot::BuildHistoryMenu()
@@ -674,56 +1153,65 @@ void SShotEditorRoot::TrySetMode(EShotEditorMode NewMode)
 		return;
 	}
 	const EShotEditorMode OldMode = Viewport->GetMode();
-	if (OldMode == NewMode)
+
+	using namespace ComposableCameraSystem::ShotEditorModeSwitch;
+	switch (ClassifyModeRequest(OldMode, NewMode))
 	{
+	case EModeRequestHandling::Ignore:
+		return;
+	case EModeRequestHandling::ShowFreeExitStatus:
+		QueueFreeExitStatus(NewMode);
+		return;
+	case EModeRequestHandling::ApplyImmediately:
+		ClearPendingFreeExitMode();
+		Viewport->SetMode(NewMode);
 		return;
 	}
 
-	// Leaving Free mode (to Drag OR Lock) pops a "save current camera
-	// framing?" dialog - Free is the only mode where the user has authored a
-	// camera pose that diverges from the solver's output, so both other
-	// modes need to ask before discarding the user's work.
-	if (OldMode == EShotEditorMode::Free
-		&& NewMode != EShotEditorMode::Free)
-	{
-		const EShotEditorReverseSolveStatus Status = Viewport->DiagnoseReverseSolveCurrentCamera();
-		const bool bCanSolve = (Status == EShotEditorReverseSolveStatus::Ok);
-		const FText Title = LOCTEXT("ReverseSolveTitle",
-			"Save camera framing?");
-		// Failure body weaves the status reason into the message so
-		// designers see *why* Save is unavailable (placement anchor
-		// missing, anchor behind camera, etc.) instead of a generic
-		// "no resolvable Anchor" string. Reasons live in
-		// `ShotEditorReverseSolveStatusToText` so the cpp / UI strings
-		// stay in one place.
-		const FText Body = bCanSolve
-			? LOCTEXT("ReverseSolveBody",
-				"You moved the camera in Free mode.\n\n"
-				"Yes: save the new framing.\n"
-				"No: discard (camera snaps back).\n"
-				"Cancel: stay in Free.")
-			: FText::Format(LOCTEXT("ReverseSolveBodyUnavailable",
-				"You moved the camera in Free mode, but Save is unavailable.\n"
-				"Reason: {0}\n\n"
-				"Yes/No: discard (camera snaps back).\n"
-				"Cancel: stay in Free."),
-				ShotEditorReverseSolveStatusToText(Status));
-		const EAppReturnType::Type Choice =
-			FMessageDialog::Open(EAppMsgType::YesNoCancel, Body, Title);
+	return;
+}
 
-		if (Choice == EAppReturnType::Cancel)
-		{
-			return; // stay in Free
-		}
-		if (Choice == EAppReturnType::Yes && bCanSolve)
-		{
-			Viewport->ReverseSolveCurrentCameraToShot();
-		}
-		// "No" or "Yes-but-can't-solve" both fall through: switch to
-		// NewMode, solver re-asserts authored pose on next tick.
+void SShotEditorRoot::ClearPendingFreeExitMode()
+{
+	bHasPendingFreeExitMode = false;
+	PendingFreeExitMode = EShotEditorMode::Drag;
+	PendingFreeExitStatus = EShotEditorReverseSolveStatus::Ok;
+}
+
+void SShotEditorRoot::QueueFreeExitStatus(EShotEditorMode NewMode)
+{
+	if (!Viewport.IsValid())
+	{
+		ClearPendingFreeExitMode();
+		return;
 	}
 
-	Viewport->SetMode(NewMode);
+	PendingFreeExitMode = NewMode;
+	bHasPendingFreeExitMode = true;
+	PendingFreeExitStatus = Viewport->DiagnoseReverseSolveCurrentCamera();
+}
+
+void SShotEditorRoot::ApplyPendingFreeExitMode(bool bSaveCurrentCamera)
+{
+	if (!bHasPendingFreeExitMode)
+	{
+		return;
+	}
+	if (!Viewport.IsValid())
+	{
+		ClearPendingFreeExitMode();
+		return;
+	}
+
+	if (bSaveCurrentCamera && !Viewport->ReverseSolveCurrentCameraToShot())
+	{
+		PendingFreeExitStatus = Viewport->DiagnoseReverseSolveCurrentCamera();
+		return;
+	}
+
+	const EShotEditorMode ModeToApply = PendingFreeExitMode;
+	ClearPendingFreeExitMode();
+	Viewport->SetMode(ModeToApply);
 }
 
 FReply SShotEditorRoot::OnKeyDown(const FGeometry& MyGeometry, const FKeyEvent& InKeyEvent)
@@ -764,12 +1252,9 @@ FReply SShotEditorRoot::OnKeyDown(const FGeometry& MyGeometry, const FKeyEvent& 
 
 	if (bHandled)
 	{
-		// Restore keyboard focus to this root widget. TrySetMode may pop a
-		// modal FMessageDialog (Free->Drag/Lock reverse-solve prompt); when
-		// the dialog closes Slate doesn't auto-restore focus, so subsequent
-		// hotkeys would fall on deaf ears until the user clicks back into
-		// the editor. Force-routing focus back here makes hotkeys feel
-		// continuous.
+		// Restore keyboard focus to this root widget after mode shortcuts.
+		// Free-exit confirmation lives in the status bar, so focus does not
+		// leave Slate.
 		FSlateApplication::Get().SetKeyboardFocus(SharedThis(this), EFocusCause::SetDirectly);
 		return FReply::Handled();
 	}
@@ -808,6 +1293,328 @@ namespace
 	}
 }
 
+TSharedRef<SWidget> SShotEditorRoot::BuildHeaderArea()
+{
+	return SNew(SVerticalBox)
+		+ SVerticalBox::Slot()
+		.AutoHeight()
+		[BuildTopBar()]
+
+		+ SVerticalBox::Slot()
+		.AutoHeight()
+		.Padding(0.f, 2.f, 0.f, 0.f)
+		[BuildStatusBar()];
+}
+
+TSharedRef<SWidget> SShotEditorRoot::BuildTopBar()
+{
+	return SNew(SBorder)
+		.BorderBackgroundColor(FLinearColor(0.10f, 0.10f, 0.12f, 1.f))
+		.Padding(4.f, 2.f)
+		[SNew(SHorizontalBox)
+			+ SHorizontalBox::Slot()
+			.AutoWidth()
+			.VAlign(VAlign_Center)
+			[BuildAssetToolbar()]
+
+			+ SHorizontalBox::Slot()
+			.FillWidth(1.f)
+			.VAlign(VAlign_Center)
+			.Padding(8.f, 0.f, 8.f, 0.f)
+			[SAssignNew(HostNameLabel, STextBlock)
+				.Text(BuildHostContextChain())
+				.ColorAndOpacity(FLinearColor(0.9f, 0.9f, 0.95f, 1.f))]
+
+			// "Shots" - dropdown of all Shot sections in the active host's
+			// parent LevelSequence. Hidden in non-LS contexts.
+			+ SHorizontalBox::Slot()
+			.AutoWidth()
+			.VAlign(VAlign_Center)
+			.Padding(0.f, 0.f, 4.f, 0.f)
+			[SAssignNew(LSShotsCombo, SComboButton)
+				.Visibility(this, &SShotEditorRoot::GetLSShotsComboVisibility)
+				.ToolTipText(LOCTEXT("LSShotsTooltip",
+					"Jump to another Shot section in this LevelSequence. "
+					"Only shown when the active Shot's host is a "
+					"Sequencer Section - for CameraTypeAsset / "
+					"standalone ShotAsset hosts there's no sibling list."))
+				.OnGetMenuContent(this, &SShotEditorRoot::BuildLSShotsMenu)
+				.ButtonContent()
+				[SNew(STextBlock).Text(LOCTEXT("LSShotsLabel", "Shots"))]]
+
+			// "Recent" - last 20 hosts the editor was bound to (most recent
+			// first). Backed by FShotEditorHistory.
+			+ SHorizontalBox::Slot()
+			.AutoWidth()
+			.VAlign(VAlign_Center)
+			.Padding(0.f, 0.f, 8.f, 0.f)
+			[SAssignNew(HistoryCombo, SComboButton)
+				.ToolTipText(LOCTEXT("HistoryTooltip",
+					"Reopen a recently edited Shot. History is in-memory "
+					"for the current editor session (last 20 entries)."))
+				.OnGetMenuContent(this, &SShotEditorRoot::BuildHistoryMenu)
+				.ButtonContent()
+				[SNew(STextBlock).Text(LOCTEXT("HistoryLabel", "Recent"))]]
+
+			+ SHorizontalBox::Slot()
+			.AutoWidth()
+			.VAlign(VAlign_Center)
+			[SNew(SSegmentedControl<EShotEditorMode>)
+				.Value_Lambda([this]() -> EShotEditorMode
+				{
+					return Viewport.IsValid()
+						? Viewport->GetMode()
+						: EShotEditorMode::Drag;
+				})
+				.OnValueChanged_Lambda([this](EShotEditorMode NewMode)
+				{
+					TrySetMode(NewMode);
+				})
+				+ SSegmentedControl<EShotEditorMode>::Slot(EShotEditorMode::Drag)
+					.Text(LOCTEXT("ModeDrag", "Drag"))
+					.ToolTip(LOCTEXT("ModeDragTip",
+						"Drag mode (default): solver drives the camera. "
+						"LMB-drag the on-screen handles to author the "
+						"Placement / Aim anchor screen positions "
+						"(yellow = Placement, cyan = Aim). RMB on a handle "
+						"opens a context menu to pick the underlying "
+						"target's pivot bone in-viewport."))
+				+ SSegmentedControl<EShotEditorMode>::Slot(EShotEditorMode::Free)
+					.Text(LOCTEXT("ModeFree", "Free"))
+					.ToolTip(LOCTEXT("ModeFreeTip",
+						"Free mode: solver pauses, you have full mouse "
+						"camera control (orbit / pan / dolly). Handles "
+						"are still drawn but track the live projection "
+						"of world anchor / target points; they are "
+						"greyed out and not interactive. Switching back "
+						"to Drag or Lock shows Save / Discard / Stay for "
+						"the current camera framing."))
+				+ SSegmentedControl<EShotEditorMode>::Slot(EShotEditorMode::Lock)
+					.Text(LOCTEXT("ModeLock", "Lock"))
+					.ToolTip(LOCTEXT("ModeLockTip",
+						"Lock mode: solver drives the camera (same as "
+						"Drag) but ALL viewport input is consumed - no "
+						"handle drag, no camera control, no scroll-zoom. "
+						"Read-only preview state, useful for "
+						"screenshots / demos / preventing accidental "
+						"edits."))]];
+}
+
+TSharedRef<SWidget> SShotEditorRoot::BuildStatusBar()
+{
+	return SNew(SBorder)
+		.Visibility(this, &SShotEditorRoot::GetStatusBarVisibility)
+		.BorderBackgroundColor(this, &SShotEditorRoot::GetStatusBarBackgroundColor)
+		.Padding(6.f, 4.f)
+		[SNew(SHorizontalBox)
+			+ SHorizontalBox::Slot()
+			.FillWidth(1.f)
+			.VAlign(VAlign_Center)
+			[SNew(STextBlock)
+				.Text(this, &SShotEditorRoot::GetStatusBarText)
+				.AutoWrapText(true)
+				.ColorAndOpacity(this, &SShotEditorRoot::GetStatusBarTextColor)]
+
+			+ SHorizontalBox::Slot()
+			.AutoWidth()
+			.VAlign(VAlign_Center)
+			.Padding(6.f, 0.f, 0.f, 0.f)
+			[SNew(SHorizontalBox)
+				.Visibility(this, &SShotEditorRoot::GetStatusBarFreeExitActionsVisibility)
+
+				+ SHorizontalBox::Slot()
+				.AutoWidth()
+				[SNew(SButton)
+					.ButtonStyle(FAppStyle::Get(), "SimpleButton")
+					.IsEnabled(this, &SShotEditorRoot::CanSaveFreeExitStatus)
+					.OnClicked(this, &SShotEditorRoot::OnFreeExitStatusSaveClicked)
+					.ToolTipText(this, &SShotEditorRoot::GetFreeExitStatusSaveTooltip)
+					[SNew(STextBlock)
+						.Text(LOCTEXT("FreeExitPromptSave", "Save"))]]
+
+				+ SHorizontalBox::Slot()
+				.AutoWidth()
+				.Padding(4.f, 0.f, 0.f, 0.f)
+				[SNew(SButton)
+					.ButtonStyle(FAppStyle::Get(), "SimpleButton")
+					.OnClicked(this, &SShotEditorRoot::OnFreeExitStatusDiscardClicked)
+					.ToolTipText(LOCTEXT("FreeExitPromptDiscardTooltip",
+						"Discard the Free camera pose and switch modes."))
+					[SNew(STextBlock)
+						.Text(LOCTEXT("FreeExitPromptDiscard", "Discard"))]]
+
+				+ SHorizontalBox::Slot()
+				.AutoWidth()
+				.Padding(4.f, 0.f, 0.f, 0.f)
+				[SNew(SButton)
+					.ButtonStyle(FAppStyle::Get(), "SimpleButton")
+					.OnClicked(this, &SShotEditorRoot::OnFreeExitStatusStayClicked)
+					.ToolTipText(LOCTEXT("FreeExitPromptStayTooltip",
+						"Stay in Free mode."))
+					[SNew(STextBlock)
+						.Text(LOCTEXT("FreeExitPromptStay", "Stay"))]]]];
+}
+
+EVisibility SShotEditorRoot::GetStatusBarVisibility() const
+{
+	const EShotEditorMode CurrentMode = Viewport.IsValid()
+		? Viewport->GetMode()
+		: EShotEditorMode::Drag;
+	const ComposableCameraSystem::ShotEditorStatusBar::FShotEditorStatusBarState State =
+		ComposableCameraSystem::ShotEditorStatusBar::ResolveStatusBarState(
+			ActiveShot != nullptr,
+			ActiveHost.IsValid(),
+			bHasPendingFreeExitMode,
+			CurrentMode);
+	return ComposableCameraSystem::ShotEditorStatusBar::ShouldShowStatusBar(State)
+		? EVisibility::Visible
+		: EVisibility::Collapsed;
+}
+
+EVisibility SShotEditorRoot::GetStatusBarFreeExitActionsVisibility() const
+{
+	const EShotEditorMode CurrentMode = Viewport.IsValid()
+		? Viewport->GetMode()
+		: EShotEditorMode::Drag;
+	const ComposableCameraSystem::ShotEditorStatusBar::FShotEditorStatusBarState State =
+		ComposableCameraSystem::ShotEditorStatusBar::ResolveStatusBarState(
+			ActiveShot != nullptr,
+			ActiveHost.IsValid(),
+			bHasPendingFreeExitMode,
+			CurrentMode);
+	return State.Actions == ComposableCameraSystem::ShotEditorStatusBar::EShotEditorStatusBarActions::FreeExit
+		? EVisibility::Visible
+		: EVisibility::Collapsed;
+}
+
+FSlateColor SShotEditorRoot::GetStatusBarBackgroundColor() const
+{
+	const EShotEditorMode CurrentMode = Viewport.IsValid()
+		? Viewport->GetMode()
+		: EShotEditorMode::Drag;
+	const ComposableCameraSystem::ShotEditorStatusBar::FShotEditorStatusBarState State =
+		ComposableCameraSystem::ShotEditorStatusBar::ResolveStatusBarState(
+			ActiveShot != nullptr,
+			ActiveHost.IsValid(),
+			bHasPendingFreeExitMode,
+			CurrentMode);
+
+	switch (State.Kind)
+	{
+	case ComposableCameraSystem::ShotEditorStatusBar::EShotEditorStatusBarKind::Info:
+		return FSlateColor(FLinearColor(0.06f, 0.09f, 0.12f, 1.f));
+	case ComposableCameraSystem::ShotEditorStatusBar::EShotEditorStatusBarKind::Warning:
+		return FSlateColor(FLinearColor(0.16f, 0.12f, 0.05f, 1.f));
+	case ComposableCameraSystem::ShotEditorStatusBar::EShotEditorStatusBarKind::Hidden:
+	default:
+		return FSlateColor(FLinearColor::Transparent);
+	}
+}
+
+FSlateColor SShotEditorRoot::GetStatusBarTextColor() const
+{
+	const EShotEditorMode CurrentMode = Viewport.IsValid()
+		? Viewport->GetMode()
+		: EShotEditorMode::Drag;
+	const ComposableCameraSystem::ShotEditorStatusBar::FShotEditorStatusBarState State =
+		ComposableCameraSystem::ShotEditorStatusBar::ResolveStatusBarState(
+			ActiveShot != nullptr,
+			ActiveHost.IsValid(),
+			bHasPendingFreeExitMode,
+			CurrentMode);
+
+	switch (State.Kind)
+	{
+	case ComposableCameraSystem::ShotEditorStatusBar::EShotEditorStatusBarKind::Info:
+		return FSlateColor(FLinearColor(0.72f, 0.82f, 0.92f, 1.f));
+	case ComposableCameraSystem::ShotEditorStatusBar::EShotEditorStatusBarKind::Warning:
+		return FSlateColor(FLinearColor(0.95f, 0.88f, 0.66f, 1.f));
+	case ComposableCameraSystem::ShotEditorStatusBar::EShotEditorStatusBarKind::Hidden:
+	default:
+		return FSlateColor::UseForeground();
+	}
+}
+
+FText SShotEditorRoot::GetStatusBarText() const
+{
+	const EShotEditorMode CurrentMode = Viewport.IsValid()
+		? Viewport->GetMode()
+		: EShotEditorMode::Drag;
+	const ComposableCameraSystem::ShotEditorStatusBar::FShotEditorStatusBarState State =
+		ComposableCameraSystem::ShotEditorStatusBar::ResolveStatusBarState(
+			ActiveShot != nullptr,
+			ActiveHost.IsValid(),
+			bHasPendingFreeExitMode,
+			CurrentMode);
+
+	if (State.Actions == ComposableCameraSystem::ShotEditorStatusBar::EShotEditorStatusBarActions::FreeExit)
+	{
+		if (PendingFreeExitStatus == EShotEditorReverseSolveStatus::Ok)
+		{
+			return LOCTEXT("FreeExitPromptReady",
+				"Free camera moved. Save framing before leaving Free?");
+		}
+
+		return FText::Format(LOCTEXT("FreeExitPromptUnavailable",
+			"Free camera moved. Save unavailable: {0}"),
+			ShotEditorReverseSolveStatusToText(PendingFreeExitStatus));
+	}
+
+	if (ActiveShot && !ActiveHost.IsValid())
+	{
+		return LOCTEXT("StatusBarHostDestroyed",
+			"Host destroyed. Shot context cleared; reopen from the source asset or Sequencer section.");
+	}
+
+	if (!ActiveShot)
+	{
+		return LOCTEXT("StatusBarNoShotLoaded",
+			"No Shot loaded. Open a Shot from a CompositionFramingNode, Shot asset, or Sequencer section.");
+	}
+
+	return FText::GetEmpty();
+}
+
+FText SShotEditorRoot::GetFreeExitStatusSaveTooltip() const
+{
+	if (PendingFreeExitStatus == EShotEditorReverseSolveStatus::Ok)
+	{
+		return LOCTEXT("FreeExitPromptSaveTooltip",
+			"Save the current Free camera pose into Shot params and switch modes.");
+	}
+
+	return FText::Format(LOCTEXT("FreeExitPromptSaveUnavailableTooltip",
+		"Save is unavailable: {0}"),
+		ShotEditorReverseSolveStatusToText(PendingFreeExitStatus));
+}
+
+bool SShotEditorRoot::CanSaveFreeExitStatus() const
+{
+	return bHasPendingFreeExitMode
+		&& ActiveShot
+		&& ActiveHost.IsValid()
+		&& Viewport.IsValid()
+		&& PendingFreeExitStatus == EShotEditorReverseSolveStatus::Ok;
+}
+
+FReply SShotEditorRoot::OnFreeExitStatusSaveClicked()
+{
+	ApplyPendingFreeExitMode(/*SaveCurrentCamera=*/true);
+	return FReply::Handled();
+}
+
+FReply SShotEditorRoot::OnFreeExitStatusDiscardClicked()
+{
+	ApplyPendingFreeExitMode(/*SaveCurrentCamera=*/false);
+	return FReply::Handled();
+}
+
+FReply SShotEditorRoot::OnFreeExitStatusStayClicked()
+{
+	ClearPendingFreeExitMode();
+	return FReply::Handled();
+}
+
 TSharedRef<SWidget> SShotEditorRoot::BuildAssetToolbar()
 {
 	FToolBarBuilder ToolbarBuilder(/*InCommandList=*/nullptr,
@@ -843,16 +1650,8 @@ TSharedRef<SWidget> SShotEditorRoot::BuildAssetToolbar()
 	}
 	ToolbarBuilder.EndSection();
 
-	ToolbarBuilder.BeginSection("View");
+	ToolbarBuilder.BeginSection("Details");
 	{
-		ToolbarBuilder.AddToolBarButton(FUIAction(FExecuteAction::CreateSP(this, &SShotEditorRoot::OnCopyViewportCameraTransformClicked),
-				FCanExecuteAction::CreateSP(this, &SShotEditorRoot::CanCopyViewportCameraTransform)),
-			NAME_None,
-			LOCTEXT("ToolbarCopyViewportCameraTransform", "Copy Camera"),
-			LOCTEXT("ToolbarCopyViewportCameraTransformTooltip",
-				"Copy the Shot Editor viewport camera transform as pasteable FTransform text."),
-			FSlateIcon(FAppStyle::GetAppStyleSetName(), "Icons.Copy"));
-
 		ToolbarBuilder.AddToolBarButton(FUIAction(FExecuteAction::CreateSP(this, &SShotEditorRoot::OnRefreshClicked)),
 			NAME_None,
 			LOCTEXT("ToolbarRefresh", "Refresh"),
@@ -910,6 +1709,27 @@ void SShotEditorRoot::OnRefreshClicked()
 	RefreshDetailsView();
 }
 
+FReply SShotEditorRoot::OnResetViewportCameraClicked()
+{
+	if (Viewport.IsValid())
+	{
+		Viewport->ResetViewToShot();
+	}
+	return FReply::Handled();
+}
+
+bool SShotEditorRoot::CanResetViewportCamera() const
+{
+	using namespace ComposableCameraSystem::ShotEditorViewportToolbar;
+	const EShotEditorMode ViewportMode = Viewport.IsValid()
+		? Viewport->GetMode()
+		: EShotEditorMode::Drag;
+	return IsToolbarActionEnabled(EViewportToolbarAction::ResetView,
+		Viewport.IsValid(),
+		ActiveShot != nullptr && ActiveHost.IsValid(),
+		ViewportMode);
+}
+
 void SShotEditorRoot::OnCopyViewportCameraTransformClicked()
 {
 	if (Viewport.IsValid())
@@ -923,229 +1743,58 @@ bool SShotEditorRoot::CanCopyViewportCameraTransform() const
 	return Viewport.IsValid();
 }
 
-// Shot outliner (Polish E.4) 
-
-TSharedRef<SWidget> SShotEditorRoot::BuildShotOutliner()
+ECheckBoxState SShotEditorRoot::GetViewportDiagnosticHudCheckState() const
 {
-	return SNew(SBorder)
-		.BorderBackgroundColor(FLinearColor(0.10f, 0.10f, 0.12f, 1.f))
-		.Padding(4.f)
-		[SNew(SVerticalBox)
-
-			// Section heading.
-			+ SVerticalBox::Slot()
-			.AutoHeight()
-			.Padding(4.f, 4.f, 4.f, 6.f)
-			[SNew(STextBlock)
-				.Text(LOCTEXT("ShotOutlinerHeader", "Shots in Sequence"))
-				.ColorAndOpacity(FLinearColor(0.85f, 0.85f, 0.9f, 1.f))]
-
-			// Scrollable list of Shot sections in the active LS.
-			+ SVerticalBox::Slot()
-			.FillHeight(1.f)
-			[SAssignNew(ShotListView, SListView<TSharedPtr<FShotEditorListEntry>>)
-					.ListItemsSource(&ShotListItems)
-					.OnGenerateRow(this, &SShotEditorRoot::MakeShotListRow)
-					.OnMouseButtonClick(this, &SShotEditorRoot::OnShotListMouseButtonClick)
-					.SelectionMode(ESelectionMode::Single)]];
+	return Viewport.IsValid() && Viewport->GetShowDiagnosticHud()
+		? ECheckBoxState::Checked
+		: ECheckBoxState::Unchecked;
 }
 
-void SShotEditorRoot::RefreshShotListItems()
+void SShotEditorRoot::OnViewportDiagnosticHudToggled(ECheckBoxState NewState)
 {
-	// Walk the active LS for Shot sections - same enumeration as
-	// `BuildLSShotsMenu`. Inlining the walk (rather than extracting a
-	// shared helper) keeps the menu independent of the list's pre-cached
-	// strings; if either grows divergent display rules later, neither
-	// has to fight the other's contract.
-	UMovieSceneComposableCameraShotSection* CurrentSection =
-		Cast<UMovieSceneComposableCameraShotSection>(ActiveHost.Get());
-	const ULevelSequence* LS = ResolveLevelSequenceForSection(CurrentSection);
-	const UMovieScene* MS = LS ? LS->GetMovieScene() : nullptr;
-
-	TArray<TSharedPtr<FShotEditorListEntry>> NewItems;
-
-	if (MS)
+	if (Viewport.IsValid())
 	{
-		auto AddEntry =
-			[&NewItems](UMovieSceneComposableCameraShotSection* Section,
-				const FString& TrackLabel)
-		{
-			if (!Section)
-			{
-				return;
-			}
-			TSharedPtr<FShotEditorListEntry> Entry =
-				MakeShared<FShotEditorListEntry>();
-			Entry->Section = Section;
-			Entry->TrackLabel = TrackLabel;
-			Entry->TitleLabel = ResolveShotSectionTitle(*Section);
-			Entry->TimeRowSuffix = BuildSectionTimeRowSuffix(*Section);
-			NewItems.Add(Entry);
-		};
-
-		for (const FMovieSceneBinding& Binding: MS->GetBindings())
-		{
-			for (UMovieSceneTrack* Track: Binding.GetTracks())
-			{
-				if (!Track)
-				{
-					continue;
-				}
-				const FString TrackLabel = Track->GetDisplayName().ToString();
-				for (UMovieSceneSection* Sec: Track->GetAllSections())
-				{
-					AddEntry(Cast<UMovieSceneComposableCameraShotSection>(Sec),
-						TrackLabel);
-				}
-			}
-		}
-		for (UMovieSceneTrack* Track: MS->GetTracks())
-		{
-			if (!Track)
-			{
-				continue;
-			}
-			const FString TrackLabel = Track->GetDisplayName().ToString();
-			for (UMovieSceneSection* Sec: Track->GetAllSections())
-			{
-				AddEntry(Cast<UMovieSceneComposableCameraShotSection>(Sec),
-					TrackLabel);
-			}
-		}
+		Viewport->SetShowDiagnosticHud(NewState == ECheckBoxState::Checked);
 	}
-
-	// Diff before clobbering so the SListView doesn't refresh on every
-	// 0.5s tick when nothing changed (avoids dropped hover state, scroll
-	// position resets, and re-paints during otherwise-idle editor frames).
-	auto SameEntry =
-		[](const TSharedPtr<FShotEditorListEntry>& A,
-		 const TSharedPtr<FShotEditorListEntry>& B) -> bool
-	{
-		return A.IsValid() && B.IsValid()
-			&& A->Section == B->Section
-			&& A->TrackLabel == B->TrackLabel
-			&& A->TitleLabel == B->TitleLabel
-			&& A->TimeRowSuffix == B->TimeRowSuffix;
-	};
-	bool bChanged = NewItems.Num() != ShotListItems.Num();
-	if (!bChanged)
-	{
-		for (int32 i = 0; i < NewItems.Num(); ++i)
-		{
-			if (!SameEntry(NewItems[i], ShotListItems[i]))
-			{
-				bChanged = true;
-				break;
-			}
-		}
-	}
-	if (bChanged)
-	{
-		ShotListItems = MoveTemp(NewItems);
-		if (ShotListView.IsValid())
-		{
-			ShotListView->RequestListRefresh();
-		}
-	}
-
-	// NOTE: this method intentionally DOES NOT manage SListView's selection
-	// state. The visual "current Shot" indicator is the row's ` ` prefix +
-	// gold tint (rendered via reactive `TAttribute` lambdas in
-	// `MakeShotListRow`), which re-evaluate `Entry->Section == ActiveHost`
-	// on every paint. SListView's user-click selection (the blue row
-	// background) is left under Slate's natural control - clicking a row
-	// selects it visually, no programmatic write fights the click commit.
-	//
-	// Earlier attempts to mirror "selected" to "current" via
-	// `SetItemSelection` from this refresh produced an occasional one-
-	// frame flicker on click: between the click's selection commit and
-	// our subsequent programmatic Direct set, Slate could schedule an
-	// intermediate paint that briefly showed the wrong combination.
-	// Decoupling the two means selection (user intent indicator) and
-	// ``/gold (current state indicator) are drawn from independent
-	// sources - slight cosmetic drift is possible if the user clicks a
-	// row but the swap fails (selection on B, `` on A), but the more
-	// common cases (click succeeds, external swap) read cleanly.
 }
 
-TSharedRef<ITableRow> SShotEditorRoot::MakeShotListRow(TSharedPtr<FShotEditorListEntry> Entry,
-	const TSharedRef<STableViewBase>& OwnerTable)
+bool SShotEditorRoot::CanToggleViewportDiagnosticHud() const
 {
-	// Title + color are TAttribute lambdas that re-evaluate every paint
-	// - `bIsCurrent` flips when the editor's `ActiveHost` swaps to/from
-	// this row's Section, and we want the `` prefix + gold tint to track
-	// that without forcing a full SListView rebuild. Reading from the
-	// captured weak entry pointer (rather than the row index) keeps the
-	// lambda valid across diff-skipped refreshes that preserve the same
-	// `TSharedPtr<FShotEditorListEntry>` instances.
-	TWeakPtr<FShotEditorListEntry> WeakEntry = Entry;
-	auto IsCurrentLambda = [this, WeakEntry]() -> bool
-	{
-		TSharedPtr<FShotEditorListEntry> Pin = WeakEntry.Pin();
-		return Pin.IsValid() && Pin->Section.Get() == ActiveHost.Get();
-	};
-
-	TAttribute<FText> TitleAttr = TAttribute<FText>::CreateLambda([WeakEntry, IsCurrentLambda]()
-	{
-		TSharedPtr<FShotEditorListEntry> Pin = WeakEntry.Pin();
-		if (!Pin.IsValid()) { return FText::GetEmpty(); }
-		return IsCurrentLambda()
-			? FText::FromString(FString::Printf(TEXT(" %s"), *Pin->TitleLabel))
-			: FText::FromString(Pin->TitleLabel);
-	});
-
-	TAttribute<FSlateColor> TitleColorAttr =
-		TAttribute<FSlateColor>::CreateLambda([IsCurrentLambda]() -> FSlateColor
-	{
-		return IsCurrentLambda()
-			? FSlateColor(FLinearColor(1.f, 0.95f, 0.55f, 1.f)) // gold for current
-			: FSlateColor(FLinearColor(0.92f, 0.92f, 0.95f, 1.f));
-	});
-
-	TAttribute<FText> MetaAttr = TAttribute<FText>::CreateLambda([WeakEntry]()
-	{
-		TSharedPtr<FShotEditorListEntry> Pin = WeakEntry.Pin();
-		if (!Pin.IsValid()) { return FText::GetEmpty(); }
-		return FText::FromString(FString::Printf(TEXT("%s %s"), *Pin->TrackLabel, *Pin->TimeRowSuffix));
-	});
-
-	return SNew(STableRow<TSharedPtr<FShotEditorListEntry>>, OwnerTable)
-		.Padding(FMargin(4.f, 3.f))
-		[SNew(SVerticalBox)
-			+ SVerticalBox::Slot()
-			.AutoHeight()
-			[SNew(STextBlock)
-				.Text(TitleAttr)
-				.ColorAndOpacity(TitleColorAttr)]
-			+ SVerticalBox::Slot()
-			.AutoHeight()
-			.Padding(0.f, 1.f, 0.f, 0.f)
-			[SNew(STextBlock)
-				.Text(MetaAttr)
-				.ColorAndOpacity(FSlateColor(FLinearColor(0.55f, 0.55f, 0.6f, 1.f)))]];
+	using namespace ComposableCameraSystem::ShotEditorViewportToolbar;
+	const EShotEditorMode ViewportMode = Viewport.IsValid()
+		? Viewport->GetMode()
+		: EShotEditorMode::Drag;
+	return IsToolbarActionEnabled(EViewportToolbarAction::ToggleDiagnosticHud,
+		Viewport.IsValid(),
+		ActiveShot != nullptr && ActiveHost.IsValid(),
+		ViewportMode);
 }
 
-void SShotEditorRoot::OnShotListMouseButtonClick(TSharedPtr<FShotEditorListEntry> ClickedEntry)
+ECheckBoxState SShotEditorRoot::GetViewportCompositionGuidesCheckState() const
 {
-	// Direct mouse-click handler - `SListView::OnMouseButtonClick` fires
-	// on every item click independently of `OnSelectionChanged`, so the
-	// swap routing never fights Slate's selection state machine. Earlier
-	// approaches went through `OnSelectionChanged` and raced with
-	// `Private_SetItemSelection` from the user click + our programmatic
-	// selection sync, which produced two-rows-highlighted flicker and
-	// snap-back-to-current visuals. With this handler, the swap is the
-	// only authoritative path; selection state is purely cosmetic and
-	// updated post-swap via `RefreshShotListItems`.
-	if (!ClickedEntry.IsValid())
+	return Viewport.IsValid() && Viewport->GetShowCompositionGuides()
+		? ECheckBoxState::Checked
+		: ECheckBoxState::Unchecked;
+}
+
+void SShotEditorRoot::OnViewportCompositionGuidesToggled(ECheckBoxState NewState)
+{
+	if (Viewport.IsValid())
 	{
-		return;
+		Viewport->SetShowCompositionGuides(NewState == ECheckBoxState::Checked);
 	}
-	UMovieSceneComposableCameraShotSection* Target = ClickedEntry->Section.Get();
-	if (!Target || Target == ActiveHost.Get())
-	{
-		return;
-	}
-	FComposableCameraShotEditor::OpenForShotSection(Target);
+}
+
+bool SShotEditorRoot::CanToggleViewportCompositionGuides() const
+{
+	using namespace ComposableCameraSystem::ShotEditorViewportToolbar;
+	const EShotEditorMode ViewportMode = Viewport.IsValid()
+		? Viewport->GetMode()
+		: EShotEditorMode::Drag;
+	return IsToolbarActionEnabled(EViewportToolbarAction::ToggleCompositionGuides,
+		Viewport.IsValid(),
+		ActiveShot != nullptr && ActiveHost.IsValid(),
+		ViewportMode);
 }
 
 #undef LOCTEXT_NAMESPACE

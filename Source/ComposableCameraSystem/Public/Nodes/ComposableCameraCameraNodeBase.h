@@ -12,6 +12,7 @@
 
 class AComposableCameraCameraBase;
 class AComposableCameraPlayerCameraManager;
+class FComposableCameraDebugDrawSink;
 struct FComposableCameraPose;
 struct FComposableCameraRuntimeDataBlock;
 
@@ -690,7 +691,7 @@ public:
 	/**
 	 * Called each frame when the `CCS.Debug.Viewport` CVar is enabled, for
 	 * every node on the currently running camera. Override to draw world-space
-	 * debug gizmos via `DrawDebugHelpers` (DrawDebugSphere, DrawDebugLine, etc.)
+	 * debug gizmos via `FComposableCameraDebugDrawSink`
 	 * that visualise this node's runtime state. E.g. a pivot sphere for
 	 * PivotOffsetNode, a look-at line for LookAtNode, the collision trace for
 	 * CollisionPushNode, a sampled spline path for SplineNode.
@@ -712,7 +713,7 @@ public:
 	 *
 	 * Default implementation does nothing. Compiled out in shipping builds.
 	 */
-	virtual void DrawNodeDebug(class UWorld* World, bool bViewerIsOutsideCamera) const {}
+	virtual void DrawNodeDebug(FComposableCameraDebugDrawSink& Draw, bool bViewerIsOutsideCamera) const {}
 
 	/**
 	 * 2D counterpart to DrawNodeDebug. Fires from a separate UDebugDrawService

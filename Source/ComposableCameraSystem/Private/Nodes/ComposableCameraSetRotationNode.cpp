@@ -9,13 +9,26 @@
 
 namespace
 {
+	FRotator ApplySetRotationOffset(const FRotator& BaseRotation, const FRotator& RotationOffset)
+	{
+		const FQuat WorldYawQuat = FRotator(0.f, RotationOffset.Yaw, 0.f).Quaternion();
+		const FQuat BaseQuat = BaseRotation.Quaternion();
+		const FQuat LocalPitchRollQuat = FRotator(RotationOffset.Pitch, 0.f, RotationOffset.Roll).Quaternion();
+		return (WorldYawQuat * BaseQuat * LocalPitchRollQuat).GetNormalized().Rotator();
+	}
+
 	bool TryResolveSetRotation(
 		const UComposableCameraCameraNodeBase* Node,
 		EComposableCameraSetRotationSource RotationSource,
 		EComposableCameraActorInputSource RotationActorSource,
 		AActor* RotationActor,
+		EComposableCameraActorInputSource FirstActorSource,
+		AActor* FirstActor,
+		EComposableCameraActorInputSource SecondActorSource,
+		AActor* SecondActor,
 		const FVector& RotationVector,
 		const FRotator& Rotation,
+		const FRotator& RotationOffset,
 		FRotator& OutRotation)
 	{
 		switch (RotationSource)
@@ -30,7 +43,7 @@ namespace
 				if (IsValid(EffectiveRotationActor))
 				{
 					OutRotation = UKismetMathLibrary::MakeRotFromX(EffectiveRotationActor->GetActorForwardVector());
-					return true;
+					break;
 				}
 
 				UE_LOG(LogComposableCameraSystem, Warning,
@@ -38,11 +51,42 @@ namespace
 				return false;
 			}
 
+		case EComposableCameraSetRotationSource::FromTwoActors:
+			{
+				AActor* EffectiveFirstActor = ComposableCameraSystem::ResolveActorInput(
+					FirstActorSource,
+					FirstActor,
+					Node ? Node->GetOwningPlayerCameraManager() : nullptr,
+					Node);
+				AActor* EffectiveSecondActor = ComposableCameraSystem::ResolveActorInput(
+					SecondActorSource,
+					SecondActor,
+					Node ? Node->GetOwningPlayerCameraManager() : nullptr,
+					Node);
+				if (!IsValid(EffectiveFirstActor) || !IsValid(EffectiveSecondActor))
+				{
+					UE_LOG(LogComposableCameraSystem, Warning,
+						TEXT("SetRotation: RotationSource=FromTwoActors but one or both actors are null; preserving upstream rotation."));
+					return false;
+				}
+
+				const FVector Direction = EffectiveSecondActor->GetActorLocation() - EffectiveFirstActor->GetActorLocation();
+				if (!Direction.IsNearlyZero())
+				{
+					OutRotation = UKismetMathLibrary::MakeRotFromX(Direction);
+					break;
+				}
+
+				UE_LOG(LogComposableCameraSystem, Warning,
+					TEXT("SetRotation: RotationSource=FromTwoActors but actor positions are identical; preserving upstream rotation."));
+				return false;
+			}
+
 		case EComposableCameraSetRotationSource::FromVector:
 			if (!RotationVector.IsNearlyZero())
 			{
 				OutRotation = UKismetMathLibrary::MakeRotFromX(RotationVector);
-				return true;
+				break;
 			}
 
 			UE_LOG(LogComposableCameraSystem, Warning,
@@ -51,18 +95,25 @@ namespace
 
 		case EComposableCameraSetRotationSource::FromRotator:
 			OutRotation = Rotation;
-			return true;
+			break;
+
+		default:
+			return false;
 		}
 
-		return false;
+		OutRotation = ApplySetRotationOffset(OutRotation, RotationOffset);
+		return true;
 	}
 
 	void DeclareSetRotationPins(
 		TArray<FComposableCameraNodePinDeclaration>& OutPins,
 		EComposableCameraSetRotationSource RotationSource,
 		EComposableCameraActorInputSource RotationActorSource,
+		EComposableCameraActorInputSource FirstActorSource,
+		EComposableCameraActorInputSource SecondActorSource,
 		const FVector& RotationVector,
-		const FRotator& Rotation)
+		const FRotator& Rotation,
+		const FRotator& RotationOffset)
 	{
 		{
 			FComposableCameraNodePinDeclaration PinDecl;
@@ -74,7 +125,7 @@ namespace
 			PinDecl.bRequired = false;
 			PinDecl.bDefaultAsPin = false;
 			PinDecl.DefaultValueString = PinDecl.EnumType ? PinDecl.EnumType->GetNameStringByValue(static_cast<int64>(RotationSource)) : FString();
-			PinDecl.Tooltip = NSLOCTEXT("UComposableCameraSetRotationNode", "RotationSourceTip", "Selects whether camera rotation is set from an actor, vector, or rotator.");
+			PinDecl.Tooltip = NSLOCTEXT("UComposableCameraSetRotationNode", "RotationSourceTip", "Selects whether camera rotation is set from an actor, two actors, vector, or rotator.");
 			OutPins.Add(PinDecl);
 		}
 
@@ -106,6 +157,58 @@ namespace
 
 		{
 			FComposableCameraNodePinDeclaration PinDecl;
+			PinDecl.PinName = TEXT("FirstActorSource");
+			PinDecl.DisplayName = NSLOCTEXT("UComposableCameraSetRotationNode", "FirstActorSource", "First Actor Source");
+			PinDecl.Direction = EComposableCameraPinDirection::Input;
+			PinDecl.PinType = EComposableCameraPinType::Enum;
+			PinDecl.EnumType = StaticEnum<EComposableCameraActorInputSource>();
+			PinDecl.bRequired = false;
+			PinDecl.bDefaultAsPin = false;
+			PinDecl.DefaultValueString = PinDecl.EnumType ? PinDecl.EnumType->GetNameStringByValue(static_cast<int64>(FirstActorSource)) : FString();
+			PinDecl.Tooltip = NSLOCTEXT("UComposableCameraSetRotationNode", "FirstActorSourceTip", "Selects whether FirstActor comes from an explicit actor or the controller's controlled pawn.");
+			OutPins.Add(PinDecl);
+		}
+
+		{
+			FComposableCameraNodePinDeclaration PinDecl;
+			PinDecl.PinName = TEXT("FirstActor");
+			PinDecl.DisplayName = NSLOCTEXT("UComposableCameraSetRotationNode", "FirstActor", "First Actor");
+			PinDecl.Direction = EComposableCameraPinDirection::Input;
+			PinDecl.PinType = EComposableCameraPinType::Actor;
+			PinDecl.bRequired = false;
+			PinDecl.bDefaultAsPin = false;
+			PinDecl.Tooltip = NSLOCTEXT("UComposableCameraSetRotationNode", "FirstActorTip", "First endpoint for FromTwoActors.");
+			OutPins.Add(PinDecl);
+		}
+
+		{
+			FComposableCameraNodePinDeclaration PinDecl;
+			PinDecl.PinName = TEXT("SecondActorSource");
+			PinDecl.DisplayName = NSLOCTEXT("UComposableCameraSetRotationNode", "SecondActorSource", "Second Actor Source");
+			PinDecl.Direction = EComposableCameraPinDirection::Input;
+			PinDecl.PinType = EComposableCameraPinType::Enum;
+			PinDecl.EnumType = StaticEnum<EComposableCameraActorInputSource>();
+			PinDecl.bRequired = false;
+			PinDecl.bDefaultAsPin = false;
+			PinDecl.DefaultValueString = PinDecl.EnumType ? PinDecl.EnumType->GetNameStringByValue(static_cast<int64>(SecondActorSource)) : FString();
+			PinDecl.Tooltip = NSLOCTEXT("UComposableCameraSetRotationNode", "SecondActorSourceTip", "Selects whether SecondActor comes from an explicit actor or the controller's controlled pawn.");
+			OutPins.Add(PinDecl);
+		}
+
+		{
+			FComposableCameraNodePinDeclaration PinDecl;
+			PinDecl.PinName = TEXT("SecondActor");
+			PinDecl.DisplayName = NSLOCTEXT("UComposableCameraSetRotationNode", "SecondActor", "Second Actor");
+			PinDecl.Direction = EComposableCameraPinDirection::Input;
+			PinDecl.PinType = EComposableCameraPinType::Actor;
+			PinDecl.bRequired = false;
+			PinDecl.bDefaultAsPin = false;
+			PinDecl.Tooltip = NSLOCTEXT("UComposableCameraSetRotationNode", "SecondActorTip", "Second endpoint for FromTwoActors.");
+			OutPins.Add(PinDecl);
+		}
+
+		{
+			FComposableCameraNodePinDeclaration PinDecl;
 			PinDecl.PinName = TEXT("RotationVector");
 			PinDecl.DisplayName = NSLOCTEXT("UComposableCameraSetRotationNode", "RotationVector", "Rotation Vector");
 			PinDecl.Direction = EComposableCameraPinDirection::Input;
@@ -129,6 +232,19 @@ namespace
 			PinDecl.Tooltip = NSLOCTEXT("UComposableCameraSetRotationNode", "RotationTip", "Literal replacement rotation.");
 			OutPins.Add(PinDecl);
 		}
+
+		{
+			FComposableCameraNodePinDeclaration PinDecl;
+			PinDecl.PinName = TEXT("RotationOffset");
+			PinDecl.DisplayName = NSLOCTEXT("UComposableCameraSetRotationNode", "RotationOffset", "Rotation Offset");
+			PinDecl.Direction = EComposableCameraPinDirection::Input;
+			PinDecl.PinType = EComposableCameraPinType::Rotator;
+			PinDecl.bRequired = false;
+			PinDecl.bDefaultAsPin = false;
+			PinDecl.DefaultValueString = RotationOffset.ToString();
+			PinDecl.Tooltip = NSLOCTEXT("UComposableCameraSetRotationNode", "RotationOffsetTip", "Additional rotation applied after the base rotation is resolved. Yaw uses world Z; pitch and roll use the resolved local rotation.");
+			OutPins.Add(PinDecl);
+		}
 	}
 }
 
@@ -141,8 +257,13 @@ void UComposableCameraSetRotationNode::OnTickNode_Implementation(
 		RotationSource,
 		RotationActorSource,
 		RotationActor.Get(),
+		FirstActorSource,
+		FirstActor.Get(),
+		SecondActorSource,
+		SecondActor.Get(),
 		RotationVector,
 		Rotation,
+		RotationOffset,
 		TargetRotation))
 	{
 		OutCameraPose.Rotation = TargetRotation;
@@ -152,7 +273,15 @@ void UComposableCameraSetRotationNode::OnTickNode_Implementation(
 void UComposableCameraSetRotationNode::GetPinDeclarations_Implementation(
 	TArray<FComposableCameraNodePinDeclaration>& OutPins) const
 {
-	DeclareSetRotationPins(OutPins, RotationSource, RotationActorSource, RotationVector, Rotation);
+	DeclareSetRotationPins(
+		OutPins,
+		RotationSource,
+		RotationActorSource,
+		FirstActorSource,
+		SecondActorSource,
+		RotationVector,
+		Rotation,
+		RotationOffset);
 }
 
 void UComposableCameraBeginPlaySetRotationNode::ExecuteBeginPlay()
@@ -165,8 +294,13 @@ void UComposableCameraBeginPlaySetRotationNode::ExecuteBeginPlay()
 		RotationSource,
 		RotationActorSource,
 		RotationActor.Get(),
+		FirstActorSource,
+		FirstActor.Get(),
+		SecondActorSource,
+		SecondActor.Get(),
 		RotationVector,
 		Rotation,
+		RotationOffset,
 		TargetRotation))
 	{
 		return;
@@ -192,5 +326,13 @@ void UComposableCameraBeginPlaySetRotationNode::ExecuteBeginPlay()
 void UComposableCameraBeginPlaySetRotationNode::GetPinDeclarations_Implementation(
 	TArray<FComposableCameraNodePinDeclaration>& OutPins) const
 {
-	DeclareSetRotationPins(OutPins, RotationSource, RotationActorSource, RotationVector, Rotation);
+	DeclareSetRotationPins(
+		OutPins,
+		RotationSource,
+		RotationActorSource,
+		FirstActorSource,
+		SecondActorSource,
+		RotationVector,
+		Rotation,
+		RotationOffset);
 }

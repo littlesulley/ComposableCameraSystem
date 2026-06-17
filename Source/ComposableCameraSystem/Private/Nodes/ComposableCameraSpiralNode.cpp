@@ -7,6 +7,7 @@
 #include "GameFramework/Actor.h"
 
 #if !UE_BUILD_SHIPPING
+#include "Debug/ComposableCameraDebugDrawSink.h"
 #include "Debug/ComposableCameraViewportDebug.h"
 #include "DrawDebugHelpers.h"
 #include "HAL/IConsoleManager.h"
@@ -403,17 +404,17 @@ void UComposableCameraSpiralNode::GetPinDeclarations_Implementation(
 }
 
 #if !UE_BUILD_SHIPPING
-void UComposableCameraSpiralNode::DrawNodeDebug(UWorld* World, bool /*bViewerIsOutsideCamera*/) const
+void UComposableCameraSpiralNode::DrawNodeDebug(FComposableCameraDebugDrawSink& Draw, bool /*bViewerIsOutsideCamera*/) const
 {
-	if (!World) { return; }
 	if (CVarShowSpiralGizmo.GetValueOnGameThread() == 0
-		&& !FComposableCameraViewportDebug::ShouldShowAllNodeGizmos()) { return; }
+		&& !FComposableCameraViewportDebug::ShouldShowAllNodeGizmos()
+		&& !Draw.ShouldForceDrawAllNodeGizmos()) { return; }
 
 	// The spiral polyline is laid out in the world around the pivot and
 	// rarely coincides with the camera's own position, so no F8 gate is
 	// needed; same reasoning as SplineNode's polyline.
 
-	const FColor SpiralColor(255, 150, 60);  // warm orange, distinct from SplineNode violet and PivotOffset yellow
+	const FColor SpiralColor = FComposableCameraViewportDebugColors::SpiralNode();
 
 	// Sample the helical path across [0,1] normalized time. Each sample is an
 	// O(1) direct read of the three curves; no integration, no dependence on
@@ -438,25 +439,23 @@ void UComposableCameraSpiralNode::DrawNodeDebug(UWorld* World, bool /*bViewerIsO
 	{
 		const float NormalizedTime = static_cast<float>(i) / static_cast<float>(SampleCount);
 		const FVector NextPoint = SamplePoint(NormalizedTime);
-		DrawDebugLine(World, PrevPoint, NextPoint, SpiralColor,
-			/*bPersistentLines=*/false, /*LifeTime=*/-1.f, /*DepthPriority=*/0, /*Thickness=*/1.5f);
+		Draw.DrawLine(PrevPoint, NextPoint, SpiralColor, /*Thickness=*/1.5f, /*DepthPriority=*/0);
 		PrevPoint = NextPoint;
 	}
 
 	// Small sphere at the effective pivot, so the reader can see where the
 	// spiral is anchored (post PivotOffset).
-	FComposableCameraViewportDebug::DrawSolidDebugSphere(
-		World, DebugEffectivePivot, /*Radius=*/8.f, FColor::Yellow,
-		/*Alpha=*/120, /*Segments=*/12, /*DepthPriority=*/0);
+	Draw.DrawSphere(DebugEffectivePivot, /*Radius=*/8.f, FComposableCameraViewportDebugColors::SpiralPivot(),
+		/*Alpha=*/120, /*DepthPriority=*/0, /*bSolid=*/true,
+		/*Segments=*/12, /*Thickness=*/0.0f, TEXT("Spiral Pivot"));
 
 	// Short line along the rotation axis at the pivot, so the axis is unambiguous.
-	DrawDebugLine(World, DebugEffectivePivot, DebugEffectivePivot + DebugAxis * 40.f,
-		FColor::White, /*bPersistentLines=*/false, /*LifeTime=*/-1.f,
-		/*DepthPriority=*/0, /*Thickness=*/1.5f);
+	Draw.DrawLine(DebugEffectivePivot, DebugEffectivePivot + DebugAxis * 40.f,
+		FColor::White, /*Thickness=*/1.5f, /*DepthPriority=*/0);
 
 	// Highlighted sphere at the current evaluation position.
-	FComposableCameraViewportDebug::DrawSolidDebugSphere(
-		World, DebugCurrentPosition, /*Radius=*/9.f, SpiralColor,
-		/*Alpha=*/160, /*Segments=*/12, /*DepthPriority=*/0);
+	Draw.DrawSphere(DebugCurrentPosition, /*Radius=*/9.f, SpiralColor,
+		/*Alpha=*/160, /*DepthPriority=*/0, /*bSolid=*/true,
+		/*Segments=*/12, /*Thickness=*/0.0f, TEXT("Spiral Camera"));
 }
 #endif

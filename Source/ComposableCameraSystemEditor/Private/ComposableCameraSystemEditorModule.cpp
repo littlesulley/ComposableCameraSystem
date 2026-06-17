@@ -4,6 +4,7 @@
 
 #include "AssetToolsModule.h"
 #include "Editor.h"
+#include "Features/IModularFeatures.h"
 #include "GameFramework/Actor.h"
 #include "ISequencer.h"
 #include "MovieSceneSequencePlayer.h"
@@ -21,6 +22,7 @@
 #include "Customizations/ComposableCameraPatchTypeAssetCustomization.h"
 #include "Customizations/ComposableCameraParameterTableRowCustomization.h"
 #include "Customizations/ComposableCameraShotAnchorIndexCustomization.h"
+#include "Customizations/ComposableCameraShotLayerModeCustomization.h"
 #include "Customizations/ComposableCameraShotPlacementCustomization.h"
 #include "Customizations/ComposableCameraShotSectionDetails.h"
 #include "Customizations/ComposableCameraTargetInfoCustomization.h"
@@ -32,6 +34,10 @@
 #include "Sequencer/ComposableCameraLevelSequenceComponentTrackEditor.h"
 #include "Sequencer/ComposableCameraPatchTrackEditor.h"
 #include "Sequencer/ComposableCameraShotTrackEditor.h"
+#include "Trace/ComposableCameraRewindDebuggerExtension.h"
+#include "Trace/ComposableCameraRewindDebuggerTrack.h"
+#include "Trace/ComposableCameraTraceModule.h"
+#include "TraceServices/ModuleService.h"
 #include "Utilities/ComposableCameraLevelSequenceSpawnTrackTool.h"
 #include "Utilities/ComposableCameraViewportTransformClipboard.h"
 
@@ -40,6 +46,8 @@ class UComposableCameraTypeAsset;
 #define LOCTEXT_NAMESPACE "FComposableCameraSystemEditorModule"
 
 DEFINE_LOG_CATEGORY(LogComposableCameraSystemEditor);
+
+FComposableCameraSystemEditorModule::~FComposableCameraSystemEditorModule() = default;
 
 void FComposableCameraSystemEditorModule::StartupModule()
 {
@@ -132,6 +140,7 @@ void FComposableCameraSystemEditorModule::StartupModule()
  RegisterSequencerTrackEditor();
  FComposableCameraLevelSequenceSpawnTrackTool::Register();
  FComposableCameraViewportTransformClipboard::Register();
+ RegisterRewindDebuggerSupport();
 
  // Shot Editor - registers the nomad tab spawner with
  // FGlobalTabmanager + binds the runtime-side FOpenShotEditor delegate
@@ -149,6 +158,8 @@ void FComposableCameraSystemEditorModule::StartupModule()
 
 void FComposableCameraSystemEditorModule::ShutdownModule()
 {
+ UnregisterRewindDebuggerSupport();
+
 #if WITH_EDITOR
  FIsSimulatingInEditor::GetIsSimulatingInEditorDelegate.Unbind();
  FGetActiveEditorViewport::GetSizeDelegate.Unbind();
@@ -171,6 +182,56 @@ void FComposableCameraSystemEditorModule::ShutdownModule()
  UnregisterGraphNodeFactory();
  UnregisterNodeGraphPinFactory();
  UnregisterDetailsCustomizations();
+}
+
+void FComposableCameraSystemEditorModule::RegisterRewindDebuggerSupport()
+{
+ if (!RewindDebuggerExtension.IsValid())
+ {
+ RewindDebuggerExtension = MakeShared<FComposableCameraRewindDebuggerExtension>();
+ IModularFeatures::Get().RegisterModularFeature(
+ IRewindDebuggerExtension::ModularFeatureName,
+ RewindDebuggerExtension.Get());
+ }
+
+ if (!RewindDebuggerTrackCreator.IsValid())
+ {
+ RewindDebuggerTrackCreator = MakeShared<FComposableCameraRewindDebuggerTrackCreator>();
+ IModularFeatures::Get().RegisterModularFeature(
+ RewindDebugger::IRewindDebuggerTrackCreator::ModularFeatureName,
+ RewindDebuggerTrackCreator.Get());
+ }
+
+ if (!TraceModule.IsValid())
+ {
+ TraceModule = MakeUnique<FComposableCameraTraceModule>();
+ IModularFeatures::Get().RegisterModularFeature(TraceServices::ModuleFeatureName, TraceModule.Get());
+ }
+}
+
+void FComposableCameraSystemEditorModule::UnregisterRewindDebuggerSupport()
+{
+ if (RewindDebuggerTrackCreator.IsValid())
+ {
+ IModularFeatures::Get().UnregisterModularFeature(
+ RewindDebugger::IRewindDebuggerTrackCreator::ModularFeatureName,
+ RewindDebuggerTrackCreator.Get());
+ RewindDebuggerTrackCreator.Reset();
+ }
+
+ if (RewindDebuggerExtension.IsValid())
+ {
+ IModularFeatures::Get().UnregisterModularFeature(
+ IRewindDebuggerExtension::ModularFeatureName,
+ RewindDebuggerExtension.Get());
+ RewindDebuggerExtension.Reset();
+ }
+
+ if (TraceModule.IsValid())
+ {
+ IModularFeatures::Get().UnregisterModularFeature(TraceServices::ModuleFeatureName, TraceModule.Get());
+ TraceModule.Reset();
+ }
 }
 
 void FComposableCameraSystemEditorModule::OnSequencerCreated(TSharedRef<ISequencer> InSequencer)
@@ -265,6 +326,7 @@ void FComposableCameraSystemEditorModule::RegisterDetailsCustomizations()
  FComposableCameraShotSectionDetails::Register(PropertyEditorModule);
  FComposableCameraTargetInfoCustomization::Register(PropertyEditorModule);
  FShotPlacementCustomization::Register(PropertyEditorModule);
+ FShotLayerModeCustomization::Register(PropertyEditorModule);
  FShotAnchorIndexCustomization::Register(PropertyEditorModule);
 }
 
@@ -283,6 +345,7 @@ void FComposableCameraSystemEditorModule::UnregisterDetailsCustomizations()
  FComposableCameraShotSectionDetails::Unregister(*PropertyEditorModule);
  FComposableCameraTargetInfoCustomization::Unregister(*PropertyEditorModule);
  FShotPlacementCustomization::Unregister(*PropertyEditorModule);
+ FShotLayerModeCustomization::Unregister(*PropertyEditorModule);
  FShotAnchorIndexCustomization::Unregister(*PropertyEditorModule);
  }
 }

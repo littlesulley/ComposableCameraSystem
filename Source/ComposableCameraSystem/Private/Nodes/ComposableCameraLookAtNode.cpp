@@ -7,6 +7,7 @@
 #include "Kismet/KismetMathLibrary.h"
 
 #if !UE_BUILD_SHIPPING
+#include "Debug/ComposableCameraDebugDrawSink.h"
 #include "Debug/ComposableCameraViewportDebug.h"
 #include "DrawDebugHelpers.h"
 #include "HAL/IConsoleManager.h"
@@ -132,11 +133,11 @@ void UComposableCameraLookAtNode::OnTickNode_Implementation(float DeltaTime,
 }
 
 #if !UE_BUILD_SHIPPING
-void UComposableCameraLookAtNode::DrawNodeDebug(UWorld* World, bool bViewerIsOutsideCamera) const
+void UComposableCameraLookAtNode::DrawNodeDebug(FComposableCameraDebugDrawSink& Draw, bool bViewerIsOutsideCamera) const
 {
-	if (!World) { return; }
 	if (CVarShowLookAtGizmo.GetValueOnGameThread() == 0
-		&& !FComposableCameraViewportDebug::ShouldShowAllNodeGizmos()) { return; }
+		&& !FComposableCameraViewportDebug::ShouldShowAllNodeGizmos()
+		&& !Draw.ShouldForceDrawAllNodeGizmos()) { return; }
 	// Possessed play: target sphere only. A line from camera to target is
 	// by definition along the view axis and all variants tried (thin line,
 	// thick line, arrow, manual arrow, line+box) either vanish via view
@@ -176,15 +177,14 @@ void UComposableCameraLookAtNode::DrawNodeDebug(UWorld* World, bool bViewerIsOut
 	// DepthPriority=1 (SDPG_Foreground) draws above scene geometry - without
 	// it, a target anchored on a bone socket would be occluded by the mesh.
 	constexpr uint8 KForeground = 1;
-	const FColor TargetColor(30, 200, 255);
-	FComposableCameraViewportDebug::DrawSolidDebugSphere(
-		World, TargetPosition, /*Radius=*/7.5f, TargetColor,
-		/*Alpha=*/110, /*Segments=*/12, KForeground);
+	const FColor TargetColor = FComposableCameraViewportDebugColors::LookAt();
+	Draw.DrawSphere(TargetPosition, /*Radius=*/7.5f, TargetColor,
+		/*Alpha=*/110, KForeground, /*bSolid=*/true,
+		/*Segments=*/12, /*Thickness=*/0.0f, TEXT("LookAt Target"));
 
 	if (bViewerIsOutsideCamera && OwningCamera)
 	{
-		DrawDebugLine(World, OwningCamera->GetCameraPose().Position, TargetPosition,
-			TargetColor, /*bPersistentLines=*/false, /*LifeTime=*/-1.f, KForeground, /*Thickness=*/0.f);
+		Draw.DrawLine(OwningCamera->GetCameraPose().Position, TargetPosition, TargetColor, /*Thickness=*/0.f, KForeground);
 	}
 }
 #endif

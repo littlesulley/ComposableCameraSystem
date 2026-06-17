@@ -11,6 +11,7 @@
 #include "Nodes/ComposableCameraSplineNode.h"
 
 #if !UE_BUILD_SHIPPING
+#include "Debug/ComposableCameraDebugDrawSink.h"
 #include "Debug/ComposableCameraViewportDebug.h"
 #include "DrawDebugHelpers.h"
 #include "HAL/IConsoleManager.h"
@@ -351,7 +352,7 @@ FComposableCameraPose UComposableCameraPathGuidedTransition::OnEvaluate_Implemen
 	// Transition-level debug draws were previously gated on the legacy
 	// `PCM->bDrawDebugInformation` flag. That flag is removed as part of the
 	// unified `CCS.Debug.Viewport` framework; transition-specific gizmos can
-	// be re-added via a future `DrawTransitionDebug(UWorld*)` virtual on
+	// be re-added via a future `DrawTransitionDebug(FComposableCameraDebugDrawSink&)` virtual on
 	// UComposableCameraTransitionBase, mirroring the per-node pattern on
 	// UComposableCameraCameraNodeBase.
 
@@ -455,17 +456,17 @@ float UComposableCameraPathGuidedTransition::GetBlendWeightAt(float NormalizedTi
 }
 
 #if !UE_BUILD_SHIPPING
-void UComposableCameraPathGuidedTransition::DrawTransitionDebug(UWorld* World, bool bViewerIsOutsideCamera) const
+void UComposableCameraPathGuidedTransition::DrawTransitionDebug(FComposableCameraDebugDrawSink& Draw, bool bViewerIsOutsideCamera) const
 {
-	if (!World) { return; }
 	if (CVarShowPathGuidedTransitionGizmo.GetValueOnGameThread() == 0
-		&& !FComposableCameraViewportDebug::ShouldShowAllTransitionGizmos()) { return; }
+		&& !FComposableCameraViewportDebug::ShouldShowAllTransitionGizmos()
+		&& !Draw.ShouldForceDrawAllTransitionGizmos()) { return; }
 
 	// Coral accent. Warm but clearly distinct from Ease orange and
 	// DynamicDeocclusion red.
-	static const FColor AccentColor { 255, 130, 130 };
+	const FColor AccentColor = FComposableCameraViewportDebugColors::TransitionPathGuided();
 
-	DrawStandardTransitionDebug(World, bViewerIsOutsideCamera, AccentColor);
+	DrawStandardTransitionDebug(Draw, bViewerIsOutsideCamera, AccentColor);
 
 	// Pick whichever spline is actually driving motion this frame.
 	// Inertialized ->IntermediateCamera's spline node owns the rail; we
@@ -501,9 +502,8 @@ void UComposableCameraPathGuidedTransition::DrawTransitionDebug(UWorld* World, b
 	{
 		const float D = SplineLength * (static_cast<float>(i) / static_cast<float>(NumSamples));
 		const FVector NextPoint = SplineToDraw->GetLocationAtDistanceAlongSpline(D, ESplineCoordinateSpace::World);
-		DrawDebugLine(World, PrevPoint, NextPoint, AccentColor,
-			/*bPersistent=*/false, /*LifeTime=*/-1.f,
-			/*DepthPriority=*/SDPG_Foreground, /*Thickness=*/1.f);
+		Draw.DrawLine(PrevPoint, NextPoint, AccentColor,
+			/*Thickness=*/1.f, /*DepthPriority=*/SDPG_Foreground);
 		PrevPoint = NextPoint;
 	}
 }

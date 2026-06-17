@@ -6,6 +6,7 @@
 #include "Components/SkeletalMeshComponent.h"
 
 #if !UE_BUILD_SHIPPING
+#include "Debug/ComposableCameraDebugDrawSink.h"
 #include "Debug/ComposableCameraViewportDebug.h"
 #include "DrawDebugHelpers.h"
 #include "HAL/IConsoleManager.h"
@@ -90,11 +91,11 @@ void UComposableCameraReceivePivotActorNode::OnTickNode_Implementation(
 }
 
 #if !UE_BUILD_SHIPPING
-void UComposableCameraReceivePivotActorNode::DrawNodeDebug(UWorld* World, bool /*bViewerIsOutsideCamera*/) const
+void UComposableCameraReceivePivotActorNode::DrawNodeDebug(FComposableCameraDebugDrawSink& Draw, bool /*bViewerIsOutsideCamera*/) const
 {
-	if (!World) { return; }
 	if (CVarShowReceivePivotActorGizmo.GetValueOnGameThread() == 0
-		&& !FComposableCameraViewportDebug::ShouldShowAllNodeGizmos()) { return; }
+		&& !FComposableCameraViewportDebug::ShouldShowAllNodeGizmos()
+		&& !Draw.ShouldForceDrawAllNodeGizmos()) { return; }
 
 	// Resolve pivot position the same way OnTickNode does. Sphere at the
 	// bone socket if configured, otherwise at the actor origin. White sphere
@@ -117,9 +118,9 @@ void UComposableCameraReceivePivotActorNode::DrawNodeDebug(UWorld* World, bool /
 	{
 		return; // no valid anchor to draw
 	}
-	FComposableCameraViewportDebug::DrawSolidDebugSphere(
-		World, PivotPos, /*Radius=*/9.f, FColor::White,
-		/*Alpha=*/100, /*Segments=*/12, KForeground);
+	Draw.DrawSphere(PivotPos, /*Radius=*/9.f, FComposableCameraViewportDebugColors::ReceivePivotActor(),
+		/*Alpha=*/100, KForeground, /*bSolid=*/true,
+		/*Segments=*/12, /*Thickness=*/0.0f, TEXT("Receive Pivot"));
 }
 #endif
 

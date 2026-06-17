@@ -10,6 +10,7 @@
 #include "DataAssets/ComposableCameraPatchTypeAsset.h"
 #include "DataAssets/ComposableCameraTypeAsset.h"
 #include "Debug/ComposableCameraDebugPanelData.h"
+#include "Debug/ComposableCameraTrace.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
 #include "EditorHooks/EditorHooks.h"
@@ -26,6 +27,11 @@
 #include "Nodes/ComposableCameraCompositionFramingNode.h"
 #include "Utils/ComposableCameraViewportUtils.h"
 
+#if UE_COMPOSABLE_CAMERA_TRACE
+#include "Debug/ComposableCameraDebugDrawSink.h"
+#include "ObjectTrace.h"
+#endif
+
 namespace
 {
 	bool IsRuntimeSequencePlayerOwningActor(
@@ -37,6 +43,27 @@ namespace
 			.FindSpawnedObject(Annotation.ObjectBindingID, Annotation.SequenceID)
 			.Get() == &Actor;
 	}
+
+#if UE_COMPOSABLE_CAMERA_TRACE
+	uint64 GetComposableCameraTraceObjectId(const UObject* Object)
+	{
+		return IsValid(Object) ? FObjectTrace::GetObjectId(Object) : 0;
+	}
+
+	FComposableCameraTracePose MakeTracePoseFromCCSPose(const FComposableCameraPose& Pose)
+	{
+		FComposableCameraTracePose TracePose;
+		TracePose.Location = Pose.Position;
+		TracePose.Rotation = Pose.Rotation;
+		TracePose.FieldOfView = static_cast<float>(Pose.GetEffectiveFieldOfView());
+		TracePose.ProjectionMode = Pose.ProjectionMode;
+		TracePose.bConstrainAspectRatio = Pose.ConstrainAspectRatio;
+		TracePose.OrthoWidth = Pose.OrthographicWidth;
+		TracePose.OrthoNearClipPlane = Pose.OrthoNearClipPlane;
+		TracePose.OrthoFarClipPlane = Pose.OrthoFarClipPlane;
+		return TracePose;
+	}
+#endif
 }
 
 UComposableCameraLevelSequenceComponent::UComposableCameraLevelSequenceComponent()
@@ -235,6 +262,10 @@ void UComposableCameraLevelSequenceComponent::EvaluateOnce(float DeltaTime)
 		return;
 	}
 
+#if UE_COMPOSABLE_CAMERA_TRACE
+	const uint64 RewindTraceFrameCycle = FPlatformTime::Cycles64();
+#endif
+
 	// Re-sync the bag's current values into the runtime data block before
 	// ticking. Sequencer's stock FPropertyTrack evaluation writes
 	// directly into the bag's backing FProperty each frame; our job is to
@@ -292,7 +323,10 @@ void UComposableCameraLevelSequenceComponent::EvaluateOnce(float DeltaTime)
 		ApplySequencerPatchOverlays(Pose, DeltaTime);
 	}
 
-	ProjectPoseToCineCamera(Pose);
+	const EComposableCameraTraceProjectionStatus ProjectionStatus = ProjectPoseToCineCamera(Pose);
+#if UE_COMPOSABLE_CAMERA_TRACE
+	TraceLevelSequenceEvaluationFrame(Pose, ProjectionStatus, RewindTraceFrameCycle);
+#endif
 }
 
 #if WITH_EDITOR
@@ -520,11 +554,11 @@ void UComposableCameraLevelSequenceComponent::AddReferencedObjects(UObject* InTh
 	Super::AddReferencedObjects(InThis, Collector);
 }
 
-void UComposableCameraLevelSequenceComponent::ProjectPoseToCineCamera(const FComposableCameraPose& Pose)
+EComposableCameraTraceProjectionStatus UComposableCameraLevelSequenceComponent::ProjectPoseToCineCamera(const FComposableCameraPose& Pose)
 {
 	if (!OutputCineCameraComponent)
 	{
-		return;
+		return EComposableCameraTraceProjectionStatus::SkippedMissingOutputComponent;
 	}
 
 	// Framing solver failed this tick. Hold the CineCamera's current
@@ -546,7 +580,7 @@ void UComposableCameraLevelSequenceComponent::ProjectPoseToCineCamera(const FCom
 	//. Preserves the original behavior for non-Shot-driven LS Actors.
 	if (InternalCamera && InternalCamera->bLastTickFramingFailed)
 	{
-		return;
+		return EComposableCameraTraceProjectionStatus::SkippedFramingFailed;
 	}
 
 	// Position + Rotation always. The unconditional baseline that the
@@ -615,7 +649,40 @@ void UComposableCameraLevelSequenceComponent::ProjectPoseToCineCamera(const FCom
 			OutputCineCameraComponent->FocusSettings.ManualFocusDistance = Pose.FocusDistance;
 		}
 	}
+
+	return EComposableCameraTraceProjectionStatus::ProjectedToCineCamera;
 }
+
+#if UE_COMPOSABLE_CAMERA_TRACE
+void UComposableCameraLevelSequenceComponent::TraceLevelSequenceEvaluationFrame(
+	const FComposableCameraPose& Pose,
+	EComposableCameraTraceProjectionStatus ProjectionStatus,
+	uint64 FrameCycle)
+{
+	if (!FComposableCameraTrace::IsTraceEnabled()) return;
+
+	FComposableCameraEvaluationTraceFrame Frame;
+	Frame.FrameCycle = FrameCycle;
+	Frame.SourceKind = EComposableCameraTraceSourceKind::CCS_LevelSequence;
+	Frame.ProjectionStatus = ProjectionStatus;
+	Frame.WorldId = GetComposableCameraTraceObjectId(GetWorld());
+	Frame.SourceObjectId = GetComposableCameraTraceObjectId(this);
+	Frame.ViewTargetActorId = GetComposableCameraTraceObjectId(GetOwner());
+	Frame.CameraTypeAssetName = TypeAssetReference.TypeAsset
+		? TypeAssetReference.TypeAsset->GetFName()
+		: NAME_None;
+	Frame.CCSPose = MakeTracePoseFromCCSPose(Pose);
+
+	if (InternalCamera)
+	{
+		Frame.Primitives.Reserve(128);
+		FComposableCameraPrimitiveCaptureSink Capture(Frame.Primitives);
+		InternalCamera->DrawCameraDebug(Capture, /*bDrawFrustum=*/true);
+	}
+
+	FComposableCameraTrace::TraceEvaluation(GetWorld(), Frame);
+}
+#endif
 
 void UComposableCameraLevelSequenceComponent::SetSequencerPatchOverlay(
 	UMovieSceneComposableCameraPatchSection* Section,

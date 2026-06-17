@@ -7,6 +7,7 @@
 #include "Kismet/KismetMathLibrary.h"
 
 #if !UE_BUILD_SHIPPING
+#include "Debug/ComposableCameraDebugDrawSink.h"
 #include "Debug/ComposableCameraViewportDebug.h"
 #include "DrawDebugHelpers.h"
 #include "HAL/IConsoleManager.h"
@@ -90,16 +91,16 @@ void UComposableCameraPivotOffsetNode::UpdatePivotOffset(const FVector& InPivot,
 }
 
 #if !UE_BUILD_SHIPPING
-void UComposableCameraPivotOffsetNode::DrawNodeDebug(UWorld* World, bool /*bViewerIsOutsideCamera*/) const
+void UComposableCameraPivotOffsetNode::DrawNodeDebug(FComposableCameraDebugDrawSink& Draw, bool /*bViewerIsOutsideCamera*/) const
 {
-	if (!World) { return; }
 	if (CVarShowPivotOffsetGizmo.GetValueOnGameThread() == 0
-		&& !FComposableCameraViewportDebug::ShouldShowAllNodeGizmos()) { return; }
+		&& !FComposableCameraViewportDebug::ShouldShowAllNodeGizmos()
+		&& !Draw.ShouldForceDrawAllNodeGizmos()) { return; }
 	// Pivot is out at the character / world target. Never sits on top of
 	// the camera, so the occlusion gate doesn't apply here.
-	FComposableCameraViewportDebug::DrawSolidDebugSphere(
-		World, LastComputedPivot, /*Radius=*/10.f, FColor::Yellow,
-		/*Alpha=*/100, /*Segments=*/12, /*DepthPriority=*/0);
+	Draw.DrawSphere(LastComputedPivot, /*Radius=*/10.f, FComposableCameraViewportDebugColors::PivotOffset(),
+		/*Alpha=*/100, /*DepthPriority=*/0, /*bSolid=*/true,
+		/*Segments=*/12, /*Thickness=*/0.0f, TEXT("Pivot Offset"));
 }
 #endif
 

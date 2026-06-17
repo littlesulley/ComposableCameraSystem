@@ -10,6 +10,7 @@
 #include "Interpolator/ComposableCameraInterpolatorBase.h"
 
 #if !UE_BUILD_SHIPPING
+#include "Debug/ComposableCameraDebugDrawSink.h"
 #include "Debug/ComposableCameraViewportDebug.h"
 #include "DrawDebugHelpers.h"
 #include "HAL/IConsoleManager.h"
@@ -284,36 +285,37 @@ void UComposableCameraVolumeConstraintNode::GetPinDeclarations_Implementation(
 }
 
 #if !UE_BUILD_SHIPPING
-void UComposableCameraVolumeConstraintNode::DrawNodeDebug(UWorld* World, bool /*bViewerIsOutsideCamera*/) const
+void UComposableCameraVolumeConstraintNode::DrawNodeDebug(FComposableCameraDebugDrawSink& Draw, bool /*bViewerIsOutsideCamera*/) const
 {
-	if (!World) { return; }
 	if (CVarShowVolumeConstraintGizmo.GetValueOnGameThread() == 0
-		&& !FComposableCameraViewportDebug::ShouldShowAllNodeGizmos()) { return; }
+		&& !FComposableCameraViewportDebug::ShouldShowAllNodeGizmos()
+		&& !Draw.ShouldForceDrawAllNodeGizmos()) { return; }
 
 	if (!DebugHasResolvedVolume) { return; }
 
 	// Green wireframe when the camera is happily inside; red when we had to
 	// clamp this tick. Volume edges sit out in the world around the player,
 	// not at the camera itself, no F8 gate needed.
-	const FColor VolumeColor = DebugIsClamping ? FColor(255, 90, 90) : FColor(90, 255, 120);
+	const FColor VolumeColor = DebugIsClamping
+		? FComposableCameraViewportDebugColors::VolumeConstraintClamping()
+		: FComposableCameraViewportDebugColors::VolumeConstraintClear();
 
 	switch (DebugResolvedVolume.Shape)
 	{
 	case EComposableCameraVolumeShape::Box:
-		DrawDebugBox(World, DebugResolvedVolume.Center,
+		Draw.DrawBox(DebugResolvedVolume.Center,
 			DebugResolvedVolume.BoxExtents,
 			DebugResolvedVolume.Rotation.Quaternion(),
 			VolumeColor,
-			/*bPersistentLines=*/false, /*LifeTime=*/-1.f,
-			/*DepthPriority=*/0, /*Thickness=*/1.5f);
+			/*DepthPriority=*/0,
+			/*Thickness=*/1.5f);
 		break;
 
 	case EComposableCameraVolumeShape::Sphere:
-		DrawDebugSphere(World, DebugResolvedVolume.Center,
+		Draw.DrawSphere(DebugResolvedVolume.Center,
 			DebugResolvedVolume.SphereRadius,
-			/*Segments=*/24, VolumeColor,
-			/*bPersistentLines=*/false, /*LifeTime=*/-1.f,
-			/*DepthPriority=*/0, /*Thickness=*/1.5f);
+			VolumeColor, VolumeColor.A, /*DepthPriority=*/0, /*bSolid=*/false,
+			/*Segments=*/24, /*Thickness=*/1.5f, TEXT("Volume"));
 		break;
 	}
 
@@ -321,9 +323,9 @@ void UComposableCameraVolumeConstraintNode::DrawNodeDebug(UWorld* World, bool /*
 	// the author can see exactly where the camera got pulled to.
 	if (DebugIsClamping)
 	{
-		FComposableCameraViewportDebug::DrawSolidDebugSphere(
-			World, DebugClampedPosition, /*Radius=*/8.f, VolumeColor,
-			/*Alpha=*/160, /*Segments=*/12, /*DepthPriority=*/0);
+		Draw.DrawSphere(DebugClampedPosition, /*Radius=*/8.f, VolumeColor,
+			/*Alpha=*/160, /*DepthPriority=*/0, /*bSolid=*/true,
+			/*Segments=*/12, /*Thickness=*/0.0f, TEXT("Volume Clamp"));
 	}
 }
 #endif

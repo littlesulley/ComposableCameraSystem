@@ -11,6 +11,7 @@
 // in shipping builds (returns an empty array there). Keeps the Panel
 // cpp linkable without per-configuration #ifs around every call site.
 #include "Debug/ComposableCameraPoseHistoryData.h"
+#include "Debug/ComposableCameraTrace.h"
 #include "ComposableCameraPlayerCameraManager.generated.h"
 
 class UComposableCameraActionBase;
@@ -246,6 +247,18 @@ private:
 
 	// Build debug string for modifiers.
 	void BuildModifierDebugString(FDisplayDebugManager& DisplayDebugManager);
+
+#if UE_COMPOSABLE_CAMERA_TRACE
+	void TraceCCSEvaluationFrame(
+		const FComposableCameraPose& Pose,
+		EComposableCameraTraceProjectionStatus ProjectionStatus,
+		uint64 FrameCycle);
+
+	void TraceActiveCameraFrame(
+		const FMinimalViewInfo& RenderedView,
+		EComposableCameraTraceSourceKind SourceKind,
+		uint64 FrameCycle);
+#endif
 
 	// --- Type Asset Activation Helper -------------------------------------
 	// FOnCameraFinishConstructed is a dynamic delegate that doesn't support BindLambda.

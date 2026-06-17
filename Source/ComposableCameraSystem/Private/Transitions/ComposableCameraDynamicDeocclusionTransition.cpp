@@ -10,6 +10,7 @@
 #include "Utils/ComposableCameraBlueprintLibrary.h"
 
 #if !UE_BUILD_SHIPPING
+#include "Debug/ComposableCameraDebugDrawSink.h"
 #include "Debug/ComposableCameraViewportDebug.h"
 #include "DrawDebugHelpers.h"
 #include "Engine/World.h"
@@ -43,7 +44,7 @@ void UComposableCameraDynamicDeocclusionTransition::OnBeginPlay_Implementation(f
 	}
 
 	// Kismet-trace built-in debug draw is disabled in favour of the unified
-	// CCS.Debug.Viewport framework. A future DrawTransitionDebug(UWorld*)
+	// CCS.Debug.Viewport framework. A future DrawTransitionDebug(FComposableCameraDebugDrawSink&)
 	// virtual on UComposableCameraTransitionBase can route through it if
 	// transition-level gizmos are wanted back.
 	DrawDebugType = EDrawDebugTrace::None;
@@ -188,16 +189,16 @@ float UComposableCameraDynamicDeocclusionTransition::GetBlendWeightAt(float Norm
 
 #if !UE_BUILD_SHIPPING
 void UComposableCameraDynamicDeocclusionTransition::DrawTransitionDebug(
-	UWorld* World, bool bViewerIsOutsideCamera) const
+	FComposableCameraDebugDrawSink& Draw, bool bViewerIsOutsideCamera) const
 {
-	if (!World) { return; }
 	if (CVarShowDynamicDeocclusionTransitionGizmo.GetValueOnGameThread() == 0
-		&& !FComposableCameraViewportDebug::ShouldShowAllTransitionGizmos()) { return; }
+		&& !FComposableCameraViewportDebug::ShouldShowAllTransitionGizmos()
+		&& !Draw.ShouldForceDrawAllTransitionGizmos()) { return; }
 
 	// Red accent reinforces the "danger / avoid" intent of deocclusion.
-	static const FColor AccentColor { 255, 90, 90 };
+	const FColor AccentColor = FComposableCameraViewportDebugColors::TransitionDynamicDeocclusion();
 
-	DrawStandardTransitionDebug(World, bViewerIsOutsideCamera, AccentColor);
+	DrawStandardTransitionDebug(Draw, bViewerIsOutsideCamera, AccentColor);
 
 	// Feeler rays at the current blended pose. GetRayStartPosition /
 	// GetRayEndPosition only read Position and Rotation, so we synthesize
@@ -213,9 +214,8 @@ void UComposableCameraDynamicDeocclusionTransition::DrawTransitionDebug(
 		const FVector RayStart = Feeler.GetRayStartPosition(BlendedPoseForFeelers);
 		const FVector RayEnd   = Feeler.GetRayEndPosition(BlendedPoseForFeelers);
 
-		DrawDebugLine(World, RayStart, RayEnd, AccentColor,
-			/*bPersistent=*/false, /*LifeTime=*/-1.f,
-			/*DepthPriority=*/SDPG_Foreground, /*Thickness=*/0.f);
+		Draw.DrawLine(RayStart, RayEnd, AccentColor,
+			/*Thickness=*/0.f, /*DepthPriority=*/SDPG_Foreground);
 
 		// If the feeler has a non-zero radius the engine performs a sphere
 		// trace along the ray. Show the sphere at the tip so the user
@@ -224,9 +224,10 @@ void UComposableCameraDynamicDeocclusionTransition::DrawTransitionDebug(
 		// mass.
 		if (Feeler.Radius > 0.f)
 		{
-			FComposableCameraViewportDebug::DrawSolidDebugSphere(
-				World, RayEnd, Feeler.Radius, AccentColor,
-				/*Alpha=*/70, /*Segments=*/10, /*DepthPriority=*/SDPG_Foreground);
+			Draw.DrawSphere(
+				RayEnd, Feeler.Radius, AccentColor,
+				/*Alpha=*/70, /*DepthPriority=*/SDPG_Foreground, /*bSolid=*/true,
+				/*Segments=*/10, /*Thickness=*/0.0f, TEXT("Deocclusion Feeler"));
 		}
 	}
 }

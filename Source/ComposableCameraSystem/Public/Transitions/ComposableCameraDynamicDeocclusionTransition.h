@@ -69,7 +69,7 @@ public:
 	// Gated on `CCS.Debug.Viewport.Transitions.DynamicDeocclusion`.
 	// Standard triplet in red accent, plus the feeler rays emanating from
 	// the current blended pose. Essential for tuning feeler angles.
-	virtual void DrawTransitionDebug(UWorld* World, bool bViewerIsOutsideCamera) const override;
+	virtual void DrawTransitionDebug(FComposableCameraDebugDrawSink& Draw, bool bViewerIsOutsideCamera) const override;
 #endif
 
 public:

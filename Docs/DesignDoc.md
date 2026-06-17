@@ -1,6 +1,6 @@
 # ComposableCameraSystem Design
 
-Updated: 2026-06-12
+Updated: 2026-06-17
 
 This document describes the current runtime architecture of the UE 5.6
 ComposableCameraSystem plugin. It is intentionally compact. Implementation
@@ -186,6 +186,15 @@ input pose
 Compute nodes run in the camera BeginPlay path. They seed data before normal
 per-frame camera nodes run.
 
+Built-in compute nodes cover activation-time helpers such as actor distance /
+direction, actor-between world positions with height offsets, and initial
+camera rotation setup.
+
+Set Rotation nodes can resolve a base rotation from an actor forward vector,
+an explicit vector, a literal rotator, or the direction from one resolved actor
+to another, then apply a final rotation offset. That offset keeps yaw in world
+space around Z, while pitch and roll apply in the resolved camera local space.
+
 Node pin categories currently include:
 
 - Bool, Int32, Float, Double.
@@ -336,6 +345,43 @@ Available debug surfaces include:
 
 Snapshots resolve pointers to display data early so UI consumers do not deref
 runtime-owned objects later.
+
+Viewport gizmo colors are centralized in the runtime debug palette. The bottom
+Legend panel reads the same metadata as the 3D draw sites, so swatches match the
+spheres and transition markers. Sink-routed sphere gizmos carry optional short
+frame-local labels so live viewport drawing and rewind trace playback can show
+the same marker names. Live labels use HUD debug text with a frame-local
+lifetime; Rewind playback projects those labels directly onto the debug Canvas
+because the visualized playback world is not guaranteed to own a usable HUD.
+
+Debug primitive emission goes through a draw sink abstraction when it needs to
+target either live viewport drawing or rewind trace capture. The live sink
+adapts to `DrawDebug*` / `FComposableCameraViewportDebug`; the capture sink
+appends immutable `FComposableCameraDebugPrimitive` snapshots for trace writers.
+The capture sink explicitly forces all 3D node / transition gizmo gates open,
+so `CCS.Debug.Trace 1` records Rewind primitives without depending on live
+viewport CVars or cached `Nodes.All` / `Transitions.All` state. Live viewport
+draws still obey the per-gizmo and All CVars.
+The primitive stream supports line, point, sphere / solid-sphere, box, plane,
+and camera-frustum records. Sphere records preserve optional segment count in
+`Size`, line thickness in `Thickness`, and an optional `Label`; box records
+preserve line thickness in `Thickness`. For `CameraFrustum` records only,
+`Radius` stores FOV, `Size` stores ortho width, and `Thickness` stores debug
+frustum draw scale. Raw default constructed primitives are not valid frustums;
+the `MakeCameraFrustum` factory defaults scale to 1.0.
+
+When CCS trace is enabled in an editor target, the gameplay PCM emits paired
+rewind trace frames: one evaluation frame for the CCS pose and captured gizmos,
+and one active-camera frame for the final `FMinimalViewInfo` just written to the
+PCM cache. Both records share the same frame cycle so tooling can compare
+evaluated CCS output with the rendered camera view. Non-editor and packaged
+targets compile the Rewind trace channel / writer path out completely. The
+Level Sequence component emits an evaluation frame with
+`SourceKind = CCS_LevelSequence`, its projection status, object ids for the
+world / component / owning actor, the type asset name, the evaluated CCS pose,
+and sink-captured camera gizmos from its internal camera. The LS path
+does not emit transition primitives because it has no context stack / director
+transition tree.
 
 ## 15. Hard Invariants
 

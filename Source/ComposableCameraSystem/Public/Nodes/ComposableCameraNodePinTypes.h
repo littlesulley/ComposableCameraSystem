@@ -367,7 +367,8 @@ enum class EComposableCameraExecEntryType : uint8
  * The editor walks the exec-pin chain in the visual graph (starting from the
  * Start sentinel's ExecOut) and records each step here. Camera-node steps
  * resolve to a camera node index; Set-variable steps capture the variable
- * GUID and the source pin that feeds the Set node's Value input.
+ * GUID, the exact Set node GUID, and the source pin that feeds the Set node's
+ * Value input.
  *
  * The runtime consumes the full chain to interleave camera node execution
  * with scratch-variable writes. The older TypeAsset::ExecutionOrder array is
@@ -400,6 +401,14 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraExecEntry
 	 *  EntryType == SetVariable. */
 	UPROPERTY()
 	FGuid VariableGuid;
+
+	/** Stable identity of the variable Set graph node. Used only by editor
+	 *  graph rebuild so multiple Get/Set nodes for the same variable can
+	 *  round-trip without resolving exec wires to the wrong node. Assets saved
+	 *  before this field existed leave it invalid and fall back to
+	 *  VariableGuid. */
+	UPROPERTY()
+	FGuid VariableNodeGuid;
 
 	/** Cached runtime name of the internal variable, matching
 	 *  FComposableCameraInternalVariable::VariableName. The editor populates

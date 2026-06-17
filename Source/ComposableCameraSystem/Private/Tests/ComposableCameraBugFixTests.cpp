@@ -9,6 +9,7 @@
 #include "Core/ComposableCameraEvaluationTree.h"
 #include "Cameras/ComposableCameraCameraBase.h"
 #include "DataAssets/ComposableCameraTypeAsset.h"
+#include "Debug/ComposableCameraViewportDebug.h"
 #include "Interpolator/ComposableCameraIIRInterpolator.h"
 #include "Interpolator/ComposableCameraSimpleSpringInterpolator.h"
 #include "Nodes/ComposableCameraCollisionPushNode.h"
@@ -44,6 +45,67 @@ namespace
 		Actor->SetActorLocationAndRotation(Location, Rotation);
 		return Actor;
 	}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FViewportDebugLegendUsesSharedGizmoColorsTest,
+	"System.Engine.ComposableCameraSystem.Debug.ViewportLegend.UsesSharedGizmoColors",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FViewportDebugLegendUsesSharedGizmoColorsTest::RunTest(const FString& Parameters)
+{
+	auto FindLegendColor = [](TConstArrayView<FComposableCameraViewportDebugLegendEntry> Entries,
+		const TCHAR* Label, FColor& OutColor) -> bool
+	{
+		for (const FComposableCameraViewportDebugLegendEntry& Entry : Entries)
+		{
+			if (Entry.Label && FCString::Strcmp(Entry.Label, Label) == 0)
+			{
+				OutColor = Entry.Color;
+				return true;
+			}
+		}
+		return false;
+	};
+
+	const TConstArrayView<FComposableCameraViewportDebugLegendEntry> Entries =
+		FComposableCameraViewportDebug::GetLegendEntries();
+
+	FColor LegendColor;
+	UTEST_TRUE("LookAt legend entry exists",
+		FindLegendColor(Entries, TEXT("LookAt"), LegendColor));
+	const FColor LookAtColor = FComposableCameraViewportDebugColors::LookAt();
+	UTEST_EQUAL("LookAt legend red matches its 3D sphere", LegendColor.R, LookAtColor.R);
+	UTEST_EQUAL("LookAt legend green matches its 3D sphere", LegendColor.G, LookAtColor.G);
+	UTEST_EQUAL("LookAt legend blue matches its 3D sphere", LegendColor.B, LookAtColor.B);
+
+	UTEST_TRUE("CollisionPush legend entry exists",
+		FindLegendColor(Entries, TEXT("CollisionPush"), LegendColor));
+	const FColor CollisionPushColor = FComposableCameraViewportDebugColors::CollisionPushClear();
+	UTEST_EQUAL("CollisionPush legend red matches its clear-state sphere", LegendColor.R, CollisionPushColor.R);
+	UTEST_EQUAL("CollisionPush legend green matches its clear-state sphere", LegendColor.G, CollisionPushColor.G);
+	UTEST_EQUAL("CollisionPush legend blue matches its clear-state sphere", LegendColor.B, CollisionPushColor.B);
+
+	UTEST_TRUE("Spline node legend entry exists",
+		FindLegendColor(Entries, TEXT("Spline (node)"), LegendColor));
+	const FColor SplineColor = FComposableCameraViewportDebugColors::SplineNode();
+	UTEST_EQUAL("Spline node legend red matches its 3D sphere", LegendColor.R, SplineColor.R);
+	UTEST_EQUAL("Spline node legend green matches its 3D sphere", LegendColor.G, SplineColor.G);
+	UTEST_EQUAL("Spline node legend blue matches its 3D sphere", LegendColor.B, SplineColor.B);
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FViewportDebugSphereLabelsUseFrameLifetimeTest,
+	"System.Engine.ComposableCameraSystem.Debug.ViewportSphereLabels.UseFrameLifetime",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FViewportDebugSphereLabelsUseFrameLifetimeTest::RunTest(const FString& Parameters)
+{
+	UTEST_TRUE("Sphere labels use frame-local DrawDebugString lifetime",
+		FMath::IsNearlyZero(FComposableCameraViewportDebug::GetSphereLabelDurationSeconds()));
+	return true;
 }
 
 // ============================================================================

@@ -110,21 +110,11 @@ void FComposableCameraShotEditor::OpenForShotSection(UMovieSceneComposableCamera
 		return;
 	}
 
-	// Swap the editor's active Shot FIRST, then open LS.
-	//
-	// The swap is fast (synchronous SetActiveShot->OnActiveShotChanged -> 
-	// RefreshShotListItems all in one stack frame). The LS auto-open is
-	// the slow path - `OpenEditorForAsset` runs Sequencer init, which can
-	// pump nested Slate ticks during layout / spawnable resolution. If
-	// any of those nested ticks land on our Shot Editor's tick boundary
-	// (every 0.5s, RefreshShotListItems runs) BEFORE the swap completes,
-	// the refresh sees `ActiveHost` still pointing at the OLD section
-	// while the user-click selection is on the NEW section - triggering
-	// the conditional "selection current -> snap to current" path,
-	// which visibly flickers the selection back to the old row before
-	// the swap finally commits and a final refresh restores it. Doing
-	// the swap first means the LS-open's nested ticks see the already-
-	// committed current section and the refresh is a no-op.
+	// Swap the editor's active Shot FIRST, then open LS. `OpenEditorForAsset`
+	// can pump nested Slate ticks during Sequencer init / spawnable
+	// resolution, so the Shot Editor should already point at the requested
+	// section before those ticks can ask the root widget or viewport for
+	// active context.
 	FComposableCameraShot* Shot = Section->ResolveShotEditorShot();
 	UObject* Host = Section->ResolveShotEditorHost();
 	OpenForShot(Shot, Host);

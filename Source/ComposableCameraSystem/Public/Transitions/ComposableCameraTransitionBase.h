@@ -9,6 +9,7 @@
 
 class UComposableCameraTransitionBase;
 class AComposableCameraPlayerCameraManager;
+class FComposableCameraDebugDrawSink;
 
 DECLARE_MULTICAST_DELEGATE(FOnTransitionFinishes);
 
@@ -205,10 +206,7 @@ public:
 	 * call `DrawStandardTransitionDebug` plus any type-specific extras
 	 * (spline curve sample, feeler rays, etc.).
 	 *
-	 * @param World                 World to draw into. Routes through the
-	 *                              world's LineBatcher, so the draw is
-	 *                              visible in every viewport that renders
-	 *                              this world (game + F8-ejected editor).
+	 * @param Draw                  Draw sink for live viewport or trace capture.
 	 * @param bViewerIsOutsideCamera True when the player is NOT viewing
 	 *                              through the camera (F8 eject / SIE).
 	 *                              Overrides use this to skip gizmos that
@@ -217,7 +215,7 @@ public:
 	 *
 	 * Compiled out in shipping builds.
 	 */
-	virtual void DrawTransitionDebug(class UWorld* World, bool bViewerIsOutsideCamera) const {}
+	virtual void DrawTransitionDebug(FComposableCameraDebugDrawSink& Draw, bool bViewerIsOutsideCamera) const {}
 
 protected:
 	/**
@@ -245,7 +243,7 @@ protected:
 	 * AccentColor should be distinct from every node-gizmo color in the
 	 * codebase (see `Docs/TechDoc.md Section 3.20.4` for the reserved-color table).
 	 */
-	void DrawStandardTransitionDebug(class UWorld* World, bool bViewerIsOutsideCamera, const FColor& AccentColor) const;
+	void DrawStandardTransitionDebug(FComposableCameraDebugDrawSink& Draw, bool bViewerIsOutsideCamera, const FColor& AccentColor) const;
 #endif // !UE_BUILD_SHIPPING
 
 protected:
