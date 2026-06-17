@@ -29,7 +29,8 @@ public class ComposableCameraSystem : ModuleRules
                 "SlateCore",
                 // FPlatformApplicationMisc::ClipboardCopy — used by the
                 // CCS.Dump.* console commands to make bug-report pastes trivial.
-                "ApplicationCore"
+                "ApplicationCore",
+                "TraceLog"
             }
 			);
 
