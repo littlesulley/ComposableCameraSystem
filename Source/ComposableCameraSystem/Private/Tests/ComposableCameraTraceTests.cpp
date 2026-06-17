@@ -3,6 +3,7 @@
 #include "Debug/ComposableCameraDebugDrawSink.h"
 #include "Debug/ComposableCameraTraceTypes.h"
 #include "Misc/AutomationTest.h"
+#include "Serialization/BufferArchive.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
 
@@ -28,7 +29,8 @@ bool FComposableCameraTracePrimitiveRoundTripTest::RunTest(const FString& Parame
 		SDPG_Foreground,
 		/*bSolid=*/true,
 		/*InSegments=*/16,
-		/*InThickness=*/1.5f));
+		/*InThickness=*/1.5f,
+		/*InLabel=*/FName(TEXT("Test Sphere"))));
 	Input.Add(FComposableCameraDebugPrimitive::MakePoint(
 		FVector(7.0, 8.0, 9.0),
 		FColor::Blue,
@@ -75,6 +77,7 @@ bool FComposableCameraTracePrimitiveRoundTripTest::RunTest(const FString& Parame
 	UTEST_EQUAL("Sphere alpha survives", Output[1].Alpha, static_cast<uint8>(96));
 	UTEST_EQUAL("Sphere segments survive", Output[1].Size, 16.0f);
 	UTEST_EQUAL("Sphere thickness survives", Output[1].Thickness, 1.5f);
+	UTEST_EQUAL("Sphere label survives", Output[1].Label, FName(TEXT("Test Sphere")));
 	UTEST_EQUAL("Point kind survives", Output[2].Kind, EComposableCameraDebugPrimitiveKind::Point);
 	UTEST_EQUAL("Point location survives", Output[2].A, FVector(7.0, 8.0, 9.0));
 	UTEST_EQUAL("Point size survives", Output[2].Size, 3.0f);
@@ -92,6 +95,44 @@ bool FComposableCameraTracePrimitiveRoundTripTest::RunTest(const FString& Parame
 	UTEST_EQUAL("Plane center survives", Output[5].A, FVector(21.0, 22.0, 23.0));
 	UTEST_EQUAL("Plane normal survives", Output[5].B, FVector::UpVector);
 	UTEST_EQUAL("Plane extents survive", Output[5].Extent, FVector(60.0f, 70.0f, 0.0f));
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FComposableCameraTracePrimitiveV1CompatibilityTest,
+	"ComposableCameraSystem.RewindTrace.PrimitiveV1Compatibility",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FComposableCameraTracePrimitiveV1CompatibilityTest::RunTest(const FString& Parameters)
+{
+	FBufferArchive Archive;
+	uint8 Magic = 0xcc;
+	uint8 Version = 1;
+	int32 Count = 1;
+	Archive << Magic;
+	Archive << Version;
+	Archive << Count;
+
+	FComposableCameraDebugPrimitive Primitive = FComposableCameraDebugPrimitive::MakeSphere(
+		FVector(10.0, 20.0, 30.0),
+		42.0f,
+		FColor::Green,
+		96,
+		SDPG_Foreground,
+		/*bSolid=*/true,
+		/*InSegments=*/16,
+		/*InThickness=*/1.5f,
+		/*InLabel=*/FName(TEXT("V1 Should Not Serialize")));
+	Primitive.Serialize(Archive, Version);
+
+	TArray<uint8> Bytes;
+	Bytes = MoveTemp(Archive);
+	TArray<FComposableCameraDebugPrimitive> Output;
+	UTEST_TRUE("Deserialize v1 primitive stream", DeserializeComposableCameraDebugPrimitives(Bytes, Output));
+	UTEST_EQUAL("V1 primitive count survives", Output.Num(), 1);
+	UTEST_EQUAL("V1 sphere kind survives", Output[0].Kind, EComposableCameraDebugPrimitiveKind::SolidSphere);
+	UTEST_EQUAL("V1 sphere label defaults empty", Output[0].Label, NAME_None);
 
 	return true;
 }
@@ -271,7 +312,7 @@ bool FComposableCameraTraceCaptureSinkRecordsPrimitivesTest::RunTest(const FStri
 
 	Sink.DrawLine(FVector::ZeroVector, FVector(1.0, 0.0, 0.0), FColor::Blue, 3.0f, SDPG_Foreground);
 	Sink.DrawPoint(FVector(2.0, 0.0, 0.0), FColor::Red, 5.0f, SDPG_World);
-	Sink.DrawSphere(FVector(3.0, 0.0, 0.0), 9.0f, FColor::Green, 80, SDPG_Foreground, true, 16, 2.0f);
+	Sink.DrawSphere(FVector(3.0, 0.0, 0.0), 9.0f, FColor::Green, 80, SDPG_Foreground, true, 16, 2.0f, TEXT("Capture Sphere"));
 	FComposableCameraTracePose FrustumPose;
 	FrustumPose.Location = FVector(4.0, 0.0, 0.0);
 	Sink.DrawCameraFrustum(FrustumPose, FColor::Yellow, SDPG_Foreground, 12.0f);
@@ -283,6 +324,7 @@ bool FComposableCameraTraceCaptureSinkRecordsPrimitivesTest::RunTest(const FStri
 	UTEST_EQUAL("Third primitive solid sphere", Primitives[2].Kind, EComposableCameraDebugPrimitiveKind::SolidSphere);
 	UTEST_EQUAL("Capture sink preserved sphere segments", Primitives[2].Size, 16.0f);
 	UTEST_EQUAL("Capture sink preserved sphere thickness", Primitives[2].Thickness, 2.0f);
+	UTEST_EQUAL("Capture sink preserved sphere label", Primitives[2].Label, FName(TEXT("Capture Sphere")));
 	UTEST_EQUAL("Fourth primitive frustum", Primitives[3].Kind, EComposableCameraDebugPrimitiveKind::CameraFrustum);
 	UTEST_EQUAL("Capture sink preserved frustum scale", Primitives[3].Thickness, 12.0f);
 	UTEST_EQUAL("Fifth primitive plane", Primitives[4].Kind, EComposableCameraDebugPrimitiveKind::Plane);

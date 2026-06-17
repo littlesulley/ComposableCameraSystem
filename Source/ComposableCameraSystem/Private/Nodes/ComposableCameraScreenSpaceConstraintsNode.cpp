@@ -266,7 +266,8 @@ void UComposableCameraScreenSpaceConstraintsNode::DrawNodeDebug(FComposableCamer
 	constexpr uint8 KForeground = 1;
 	const FVector Pivot = GetCurrentPivot();
 	Draw.DrawSphere(Pivot, /*Radius=*/8.f, FComposableCameraViewportDebugColors::ScreenSpaceConstraints(),
-		/*Alpha=*/100, KForeground, /*bSolid=*/true);
+		/*Alpha=*/100, KForeground, /*bSolid=*/true,
+		/*Segments=*/12, /*Thickness=*/0.0f, TEXT("Screen Constraints"));
 }
 
 namespace

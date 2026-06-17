@@ -119,7 +119,8 @@ void UComposableCameraReceivePivotActorNode::DrawNodeDebug(FComposableCameraDebu
 		return; // no valid anchor to draw
 	}
 	Draw.DrawSphere(PivotPos, /*Radius=*/9.f, FComposableCameraViewportDebugColors::ReceivePivotActor(),
-		/*Alpha=*/100, KForeground, /*bSolid=*/true);
+		/*Alpha=*/100, KForeground, /*bSolid=*/true,
+		/*Segments=*/12, /*Thickness=*/0.0f, TEXT("Receive Pivot"));
 }
 #endif
 

@@ -323,7 +323,8 @@ void UComposableCameraLockOnAimPointNode::DrawNodeDebug(FComposableCameraDebugDr
 	constexpr uint8 KForeground = 1;
 	const FColor AimPointColor = FComposableCameraViewportDebugColors::LockOnAimPoint();
 	Draw.DrawSphere(LastOutputPivotPosition, /*Radius=*/8.f, AimPointColor,
-		/*Alpha=*/100, KForeground, /*bSolid=*/true);
+		/*Alpha=*/100, KForeground, /*bSolid=*/true,
+		/*Segments=*/12, /*Thickness=*/0.0f, TEXT("LockOn Aim"));
 
 	if (bViewerIsOutsideCamera && bLastAppliedCorrection)
 	{

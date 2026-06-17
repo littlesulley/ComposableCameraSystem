@@ -463,11 +463,13 @@ void UComposableCameraHitchcockZoomNode::DrawNodeDebug(FComposableCameraDebugDra
 
 	// Sphere at the target point. The "lock subject".
 	Draw.DrawSphere(DebugTargetPoint, /*Radius=*/8.f, HitchcockColor,
-		/*Alpha=*/160, /*DepthPriority=*/0, /*bSolid=*/true);
+		/*Alpha=*/160, /*DepthPriority=*/0, /*bSolid=*/true,
+		/*Segments=*/12, /*Thickness=*/0.0f, TEXT("Hitchcock Target"));
 
 	// Sphere at the current camera position. The "dolly endpoint".
 	Draw.DrawSphere(DebugCameraPosition, /*Radius=*/8.f, HitchcockColor,
-		/*Alpha=*/120, /*DepthPriority=*/0, /*bSolid=*/true);
+		/*Alpha=*/120, /*DepthPriority=*/0, /*bSolid=*/true,
+		/*Segments=*/12, /*Thickness=*/0.0f, TEXT("Hitchcock Camera"));
 
 	if (bViewerIsOutsideCamera)
 	{

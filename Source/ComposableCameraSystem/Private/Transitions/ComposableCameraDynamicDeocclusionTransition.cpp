@@ -227,7 +227,7 @@ void UComposableCameraDynamicDeocclusionTransition::DrawTransitionDebug(
 			Draw.DrawSphere(
 				RayEnd, Feeler.Radius, AccentColor,
 				/*Alpha=*/70, /*DepthPriority=*/SDPG_Foreground, /*bSolid=*/true,
-				/*Segments=*/10);
+				/*Segments=*/10, /*Thickness=*/0.0f, TEXT("Deocclusion Feeler"));
 		}
 	}
 }

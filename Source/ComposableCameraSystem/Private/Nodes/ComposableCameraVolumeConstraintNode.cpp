@@ -315,7 +315,7 @@ void UComposableCameraVolumeConstraintNode::DrawNodeDebug(FComposableCameraDebug
 		Draw.DrawSphere(DebugResolvedVolume.Center,
 			DebugResolvedVolume.SphereRadius,
 			VolumeColor, VolumeColor.A, /*DepthPriority=*/0, /*bSolid=*/false,
-			/*Segments=*/24, /*Thickness=*/1.5f);
+			/*Segments=*/24, /*Thickness=*/1.5f, TEXT("Volume"));
 		break;
 	}
 
@@ -324,7 +324,8 @@ void UComposableCameraVolumeConstraintNode::DrawNodeDebug(FComposableCameraDebug
 	if (DebugIsClamping)
 	{
 		Draw.DrawSphere(DebugClampedPosition, /*Radius=*/8.f, VolumeColor,
-			/*Alpha=*/160, /*DepthPriority=*/0, /*bSolid=*/true);
+			/*Alpha=*/160, /*DepthPriority=*/0, /*bSolid=*/true,
+			/*Segments=*/12, /*Thickness=*/0.0f, TEXT("Volume Clamp"));
 	}
 }
 #endif

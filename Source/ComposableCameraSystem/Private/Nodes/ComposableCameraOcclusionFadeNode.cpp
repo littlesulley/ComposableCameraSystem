@@ -521,7 +521,8 @@ void UComposableCameraOcclusionFadeNode::DrawNodeDebug(FComposableCameraDebugDra
 
 		Draw.DrawSphere(
 			DebugSweepEnd, /*Radius=*/FMath::Max(OcclusionSphereRadius, 4.f),
-			SweepColor, /*Alpha=*/80, /*DepthPriority=*/0, /*bSolid=*/true);
+			SweepColor, /*Alpha=*/80, /*DepthPriority=*/0, /*bSolid=*/true,
+			/*Segments=*/12, /*Thickness=*/0.0f, TEXT("Occlusion Target"));
 
 		if (bViewerIsOutsideCamera)
 		{
@@ -538,7 +539,7 @@ void UComposableCameraOcclusionFadeNode::DrawNodeDebug(FComposableCameraDebugDra
 		Draw.DrawSphere(
 			LastCameraPosition, FMath::Max(ProximityRadius, 4.f),
 			ProximityColor, /*Alpha=*/50, /*DepthPriority=*/0, /*bSolid=*/true,
-			/*Segments=*/16);
+			/*Segments=*/16, /*Thickness=*/0.0f, TEXT("Occlusion Proximity"));
 	}
 }
 #endif

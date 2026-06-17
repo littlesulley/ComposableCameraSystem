@@ -151,7 +151,8 @@ void UComposableCameraPivotDampingNode::DrawNodeDebug(FComposableCameraDebugDraw
 	// Magenta to stay distinct from the green CollisionPush trace (same hue
 	// family would blur together when both nodes are enabled at once).
 	Draw.DrawSphere(LastPivotPosition, /*Radius=*/10.f, FComposableCameraViewportDebugColors::PivotDamping(),
-		/*Alpha=*/100, /*DepthPriority=*/0, /*bSolid=*/true);
+		/*Alpha=*/100, /*DepthPriority=*/0, /*bSolid=*/true,
+		/*Segments=*/12, /*Thickness=*/0.0f, TEXT("Pivot Damping"));
 }
 #endif
 

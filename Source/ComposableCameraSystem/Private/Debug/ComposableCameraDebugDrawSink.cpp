@@ -52,7 +52,8 @@ void FComposableCameraLiveDebugDrawSink::DrawSphere(
 	uint8 DepthPriority,
 	bool bSolid,
 	int32 Segments,
-	float Thickness)
+	float Thickness,
+	const TCHAR* Label)
 {
 	if (!World)
 	{
@@ -62,7 +63,7 @@ void FComposableCameraLiveDebugDrawSink::DrawSphere(
 #if !UE_BUILD_SHIPPING
 	if (bSolid)
 	{
-		FComposableCameraViewportDebug::DrawSolidDebugSphere(World, Center, Radius, Color, Alpha, Segments, DepthPriority);
+		FComposableCameraViewportDebug::DrawSolidDebugSphere(World, Center, Radius, Color, Alpha, Segments, DepthPriority, Label);
 		return;
 	}
 
@@ -76,6 +77,19 @@ void FComposableCameraLiveDebugDrawSink::DrawSphere(
 		-1.0f,
 		DepthPriority,
 		Thickness);
+	if (Label && Label[0] != TCHAR('\0'))
+	{
+		const FVector LabelLocation = Center + FVector(0.f, 0.f, Radius + 8.f);
+		DrawDebugString(
+			World,
+			LabelLocation,
+			FString(Label),
+			nullptr,
+			FColor(Color.R, Color.G, Color.B, 255),
+			FComposableCameraViewportDebug::GetSphereLabelDurationSeconds(),
+			/*bDrawShadow=*/true,
+			/*FontScale=*/1.f);
+	}
 #endif
 }
 
@@ -169,9 +183,11 @@ void FComposableCameraPrimitiveCaptureSink::DrawSphere(
 	uint8 DepthPriority,
 	bool bSolid,
 	int32 Segments,
-	float Thickness)
+	float Thickness,
+	const TCHAR* Label)
 {
-	Primitives.Add(FComposableCameraDebugPrimitive::MakeSphere(Center, Radius, Color, Alpha, DepthPriority, bSolid, Segments, Thickness));
+	const FName LabelName = (Label && Label[0] != TCHAR('\0')) ? FName(Label) : NAME_None;
+	Primitives.Add(FComposableCameraDebugPrimitive::MakeSphere(Center, Radius, Color, Alpha, DepthPriority, bSolid, Segments, Thickness, LabelName));
 }
 
 void FComposableCameraPrimitiveCaptureSink::DrawBox(

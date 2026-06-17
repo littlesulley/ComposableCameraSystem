@@ -464,7 +464,7 @@ void UComposableCameraCollisionPushNode::DrawNodeDebug(FComposableCameraDebugDra
 		Draw.DrawSphere(
 			LastTraceStart, static_cast<float>(TraceSphereRadius),
 			TraceColor, /*Alpha=*/90, KForeground, /*bSolid=*/true,
-			/*Segments=*/16);
+			/*Segments=*/16, /*Thickness=*/0.0f, TEXT("Collision Trace"));
 	}
 	else
 	{
@@ -476,7 +476,8 @@ void UComposableCameraCollisionPushNode::DrawNodeDebug(FComposableCameraDebugDra
 	{
 		Draw.DrawSphere(
 			LastTraceHitLocation, /*Radius=*/5.f, FComposableCameraViewportDebugColors::CollisionPushHit(),
-			/*Alpha=*/140, KForeground, /*bSolid=*/true);
+			/*Alpha=*/140, KForeground, /*bSolid=*/true,
+			/*Segments=*/12, /*Thickness=*/0.0f, TEXT("Collision Hit"));
 	}
 
 	// Self-collision sphere sits AT the camera's position. Hermetically
@@ -492,7 +493,7 @@ void UComposableCameraCollisionPushNode::DrawNodeDebug(FComposableCameraDebugDra
 			LastSelfSphereCenter, static_cast<float>(SelfSphereRadius),
 			FComposableCameraViewportDebugColors::CollisionPushSelf(),
 			/*Alpha=*/60, KForeground, /*bSolid=*/true,
-			/*Segments=*/16);
+			/*Segments=*/16, /*Thickness=*/0.0f, TEXT("Collision Self"));
 	}
 }
 #endif

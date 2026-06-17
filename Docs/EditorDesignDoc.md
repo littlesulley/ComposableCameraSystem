@@ -449,7 +449,9 @@ Rewind Debugger trace ingestion:
   require the session read scope used by Rewind track code.
 - The Rewind extension toggles `ComposableCameraSystemChannel` while recording.
   During playback it draws the selected pawn's historical active camera frustum
-  and any matching CCS evaluation primitives into the visualized world.
+  at the same compact scale as CCS live camera debug, plus any matching CCS
+  evaluation primitives and their short sphere labels into the visualized
+  world.
 - The Rewind track creator adds a `Composable Camera` child track under Pawn
   selections. The track is a selection / visibility affordance; drawing is owned
   by the extension.

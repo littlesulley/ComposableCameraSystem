@@ -36,7 +36,8 @@ public:
 		uint8 DepthPriority,
 		bool bSolid,
 		int32 Segments = 12,
-		float Thickness = 0.0f) = 0;
+		float Thickness = 0.0f,
+		const TCHAR* Label = nullptr) = 0;
 
 	virtual void DrawBox(
 		const FVector& Center,
@@ -86,7 +87,8 @@ public:
 		uint8 DepthPriority,
 		bool bSolid,
 		int32 Segments = 12,
-		float Thickness = 0.0f) override;
+		float Thickness = 0.0f,
+		const TCHAR* Label = nullptr) override;
 
 	virtual void DrawBox(
 		const FVector& Center,
@@ -142,7 +144,8 @@ public:
 		uint8 DepthPriority,
 		bool bSolid,
 		int32 Segments = 12,
-		float Thickness = 0.0f) override;
+		float Thickness = 0.0f,
+		const TCHAR* Label = nullptr) override;
 
 	virtual void DrawBox(
 		const FVector& Center,

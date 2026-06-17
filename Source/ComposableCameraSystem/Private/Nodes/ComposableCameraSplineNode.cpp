@@ -409,7 +409,8 @@ void UComposableCameraSplineNode::DrawNodeDebug(FComposableCameraDebugDrawSink& 
 		Draw.DrawSphere(
 			OwningCamera->GetCameraPose().Position,
 			/*Radius=*/9.f, SplineColor,
-			/*Alpha=*/120, /*DepthPriority=*/0, /*bSolid=*/true);
+			/*Alpha=*/120, /*DepthPriority=*/0, /*bSolid=*/true,
+			/*Segments=*/12, /*Thickness=*/0.0f, TEXT("Spline Camera"));
 	}
 }
 #endif

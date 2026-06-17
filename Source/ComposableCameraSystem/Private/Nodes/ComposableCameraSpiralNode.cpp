@@ -446,7 +446,8 @@ void UComposableCameraSpiralNode::DrawNodeDebug(FComposableCameraDebugDrawSink& 
 	// Small sphere at the effective pivot, so the reader can see where the
 	// spiral is anchored (post PivotOffset).
 	Draw.DrawSphere(DebugEffectivePivot, /*Radius=*/8.f, FComposableCameraViewportDebugColors::SpiralPivot(),
-		/*Alpha=*/120, /*DepthPriority=*/0, /*bSolid=*/true);
+		/*Alpha=*/120, /*DepthPriority=*/0, /*bSolid=*/true,
+		/*Segments=*/12, /*Thickness=*/0.0f, TEXT("Spiral Pivot"));
 
 	// Short line along the rotation axis at the pivot, so the axis is unambiguous.
 	Draw.DrawLine(DebugEffectivePivot, DebugEffectivePivot + DebugAxis * 40.f,
@@ -454,6 +455,7 @@ void UComposableCameraSpiralNode::DrawNodeDebug(FComposableCameraDebugDrawSink& 
 
 	// Highlighted sphere at the current evaluation position.
 	Draw.DrawSphere(DebugCurrentPosition, /*Radius=*/9.f, SpiralColor,
-		/*Alpha=*/160, /*DepthPriority=*/0, /*bSolid=*/true);
+		/*Alpha=*/160, /*DepthPriority=*/0, /*bSolid=*/true,
+		/*Segments=*/12, /*Thickness=*/0.0f, TEXT("Spiral Camera"));
 }
 #endif

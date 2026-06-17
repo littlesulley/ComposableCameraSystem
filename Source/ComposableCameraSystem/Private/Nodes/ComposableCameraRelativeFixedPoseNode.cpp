@@ -126,7 +126,8 @@ void UComposableCameraRelativeFixedPoseNode::DrawNodeDebug(FComposableCameraDebu
 	if (bHasOrigin)
 	{
 		Draw.DrawSphere(OriginPos, /*Radius=*/8.f, FComposableCameraViewportDebugColors::RelativeFixedPose(),
-			/*Alpha=*/100, KForeground, /*bSolid=*/true);
+			/*Alpha=*/100, KForeground, /*bSolid=*/true,
+			/*Segments=*/12, /*Thickness=*/0.0f, TEXT("Relative Origin"));
 	}
 }
 #endif

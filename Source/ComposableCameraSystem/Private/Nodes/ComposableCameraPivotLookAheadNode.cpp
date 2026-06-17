@@ -102,7 +102,8 @@ void UComposableCameraPivotLookAheadNode::DrawNodeDebug(FComposableCameraDebugDr
 
 	constexpr uint8 KForeground = 1;
 	Draw.DrawSphere(LastOutputPivotPosition, /*Radius=*/9.f, FComposableCameraViewportDebugColors::PivotLookAhead(),
-		/*Alpha=*/105, KForeground, /*bSolid=*/true);
+		/*Alpha=*/105, KForeground, /*bSolid=*/true,
+		/*Segments=*/12, /*Thickness=*/0.0f, TEXT("Pivot LookAhead"));
 }
 #endif
 

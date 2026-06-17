@@ -8,13 +8,19 @@
 namespace
 {
 	constexpr uint8 GComposableCameraPrimitiveStreamMagic = 0xCC;
-	constexpr uint8 GComposableCameraPrimitiveStreamVersion = 1;
+	constexpr uint8 GComposableCameraPrimitiveStreamVersion = 2;
+	constexpr uint8 GComposableCameraPrimitiveStreamVersion_Label = 2;
 	constexpr int32 GComposableCameraMaxPrimitiveStreamCount = 16384;
 	constexpr int32 GComposableCameraPrimitiveStreamHeaderBytes = sizeof(uint8) + sizeof(uint8) + sizeof(int32);
 
 	static bool IsValidComposableCameraDebugPrimitiveKind(uint8 Value)
 	{
 		return Value <= static_cast<uint8>(EComposableCameraDebugPrimitiveKind::Plane);
+	}
+
+	static bool IsSupportedComposableCameraPrimitiveStreamVersion(uint8 Version)
+	{
+		return Version >= 1 && Version <= GComposableCameraPrimitiveStreamVersion;
 	}
 }
 
@@ -70,7 +76,8 @@ FComposableCameraDebugPrimitive FComposableCameraDebugPrimitive::MakeSphere(
 	uint8 InDepthPriority,
 	bool bSolid,
 	int32 InSegments,
-	float InThickness)
+	float InThickness,
+	FName InLabel)
 {
 	FComposableCameraDebugPrimitive Primitive;
 	Primitive.Kind = bSolid
@@ -83,6 +90,7 @@ FComposableCameraDebugPrimitive FComposableCameraDebugPrimitive::MakeSphere(
 	Primitive.Color = InColor;
 	Primitive.Alpha = InAlpha;
 	Primitive.DepthPriority = InDepthPriority;
+	Primitive.Label = InLabel;
 	return Primitive;
 }
 
@@ -140,7 +148,7 @@ FComposableCameraDebugPrimitive FComposableCameraDebugPrimitive::MakePlane(
 	return Primitive;
 }
 
-void FComposableCameraDebugPrimitive::Serialize(FArchive& Ar)
+void FComposableCameraDebugPrimitive::Serialize(FArchive& Ar, uint8 StreamVersion)
 {
 	uint8 KindValue = static_cast<uint8>(Kind);
 
@@ -156,6 +164,20 @@ void FComposableCameraDebugPrimitive::Serialize(FArchive& Ar)
 	Ar << Thickness;
 	Ar << Alpha;
 	Ar << DepthPriority;
+	if (StreamVersion >= GComposableCameraPrimitiveStreamVersion_Label)
+	{
+		if (Ar.IsSaving())
+		{
+			FString LabelString = Label.IsNone() ? FString() : Label.ToString();
+			Ar << LabelString;
+		}
+		else
+		{
+			FString LabelString;
+			Ar << LabelString;
+			Label = LabelString.IsEmpty() ? NAME_None : FName(*LabelString);
+		}
+	}
 
 	if (Ar.IsLoading())
 	{
@@ -184,7 +206,7 @@ bool SerializeComposableCameraDebugPrimitives(
 
 	for (FComposableCameraDebugPrimitive Primitive : Primitives)
 	{
-		Primitive.Serialize(Archive);
+		Primitive.Serialize(Archive, GComposableCameraPrimitiveStreamVersion);
 	}
 
 	OutBytes = MoveTemp(Archive);
@@ -212,7 +234,7 @@ bool DeserializeComposableCameraDebugPrimitives(
 
 	if (Reader.IsError()
 		|| Magic != GComposableCameraPrimitiveStreamMagic
-		|| Version != GComposableCameraPrimitiveStreamVersion
+		|| !IsSupportedComposableCameraPrimitiveStreamVersion(Version)
 		|| Count < 0
 		|| Count > GComposableCameraMaxPrimitiveStreamCount)
 	{
@@ -224,7 +246,7 @@ bool DeserializeComposableCameraDebugPrimitives(
 	for (int32 Index = 0; Index < Count; ++Index)
 	{
 		FComposableCameraDebugPrimitive Primitive;
-		Primitive.Serialize(Reader);
+		Primitive.Serialize(Reader, Version);
 		if (Reader.IsError()
 			|| !IsValidComposableCameraDebugPrimitiveKind(static_cast<uint8>(Primitive.Kind)))
 		{

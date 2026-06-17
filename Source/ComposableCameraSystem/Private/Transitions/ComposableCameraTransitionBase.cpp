@@ -184,9 +184,12 @@ void UComposableCameraTransitionBase::DrawStandardTransitionDebug(
 	// DepthPriority=SDPG_Foreground so the ball draws above scene
 	// geometry even when sitting inside a mesh (e.g. camera embedded
 	// in a character), same rule as the retired wireframe path.
-	Draw.DrawSphere(SrcPos, /*Radius=*/7.5f, SourceColor, /*Alpha=*/100, /*DepthPriority=*/SDPG_Foreground, /*bSolid=*/true);
-	Draw.DrawSphere(TgtPos, 7.5f, TargetColor, 100, SDPG_Foreground, true);
-	Draw.DrawSphere(BlendPos, 10.f, AccentColor, /*Alpha=*/130, SDPG_Foreground, true);
+	Draw.DrawSphere(SrcPos, /*Radius=*/7.5f, SourceColor, /*Alpha=*/100, /*DepthPriority=*/SDPG_Foreground, /*bSolid=*/true,
+		/*Segments=*/12, /*Thickness=*/0.0f, TEXT("Transition Source"));
+	Draw.DrawSphere(TgtPos, 7.5f, TargetColor, 100, SDPG_Foreground, true,
+		/*Segments=*/12, /*Thickness=*/0.0f, TEXT("Transition Target"));
+	Draw.DrawSphere(BlendPos, 10.f, AccentColor, /*Alpha=*/130, SDPG_Foreground, true,
+		/*Segments=*/12, /*Thickness=*/0.0f, TEXT("Transition Blend"));
 
 	// Frustums only outside possess. The blended frustum is already painted
 	// by the camera-level pass (AComposableCameraCameraBase::DrawCameraDebug

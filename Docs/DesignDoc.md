@@ -348,10 +348,9 @@ runtime-owned objects later.
 
 Viewport gizmo colors are centralized in the runtime debug palette. The bottom
 Legend panel reads the same metadata as the 3D draw sites, so swatches match the
-spheres and transition markers. The low-level live sphere helper still supports
-short frame-local world-space labels, but sink-routed camera / node / transition
-gizmos intentionally emit label-free primitives so the same draw calls can feed
-live viewport drawing and rewind trace capture.
+spheres and transition markers. Sink-routed sphere gizmos carry optional short
+frame-local labels so live viewport drawing and rewind trace playback can show
+the same marker names.
 
 Debug primitive emission goes through a draw sink abstraction when it needs to
 target either live viewport drawing or rewind trace capture. The live sink
@@ -363,11 +362,11 @@ viewport CVars or cached `Nodes.All` / `Transitions.All` state. Live viewport
 draws still obey the per-gizmo and All CVars.
 The primitive stream supports line, point, sphere / solid-sphere, box, plane,
 and camera-frustum records. Sphere records preserve optional segment count in
-`Size` and line thickness in `Thickness`; box records preserve line thickness
-in `Thickness`. For `CameraFrustum` records only, `Radius` stores FOV, `Size`
-stores ortho width, and `Thickness` stores debug frustum draw scale. Raw default
-constructed primitives are not valid frustums; the `MakeCameraFrustum` factory
-defaults scale to 1.0.
+`Size`, line thickness in `Thickness`, and an optional `Label`; box records
+preserve line thickness in `Thickness`. For `CameraFrustum` records only,
+`Radius` stores FOV, `Size` stores ortho width, and `Thickness` stores debug
+frustum draw scale. Raw default constructed primitives are not valid frustums;
+the `MakeCameraFrustum` factory defaults scale to 1.0.
 
 When CCS trace is enabled, the gameplay PCM emits paired rewind trace frames:
 one evaluation frame for the CCS pose and captured gizmos, and one active-camera

@@ -1,5 +1,52 @@
 # Bug Log
 
+## 2026-06-17 - Rewind playback drew oversized active frustum and dropped sphere labels
+
+- Symptom: Rewind Debugger playback drew a huge blue active-camera frustum that
+  dominated the viewport, and several recorded sphere gizmos had no text label.
+- Trigger / repro: record CCS camera playback, select the pawn in Rewind
+  Debugger, then scrub a frame that contains node / transition sphere gizmos.
+- Why it happens: the editor Rewind extension synthesized the active-camera
+  frustum with scale `100.0f`, unlike live CCS camera debug which uses scale
+  `1.0f`. Sphere label text also stopped at the live-only
+  `DrawSolidDebugSphere` helper because `FComposableCameraDebugDrawSink` and
+  `FComposableCameraDebugPrimitive` had no label payload.
+- Root cause: Rewind playback used a Blueprint-style camera debug scale for
+  active camera display, and primitive stream version 1 had no marker-name
+  field for sink-routed sphere gizmos.
+- Touched files:
+  - `Source/ComposableCameraSystem/Public/Debug/ComposableCameraDebugDrawSink.h`
+  - `Source/ComposableCameraSystem/Public/Debug/ComposableCameraTraceTypes.h`
+  - `Source/ComposableCameraSystem/Private/Debug/ComposableCameraDebugDrawSink.cpp`
+  - `Source/ComposableCameraSystem/Private/Debug/ComposableCameraTraceTypes.cpp`
+  - `Source/ComposableCameraSystem/Private/Nodes/*`
+  - `Source/ComposableCameraSystem/Private/Transitions/*`
+  - `Source/ComposableCameraSystem/Private/Tests/ComposableCameraTraceTests.cpp`
+  - `Source/ComposableCameraSystemEditor/Private/Trace/ComposableCameraRewindDebuggerExtension.cpp`
+  - `Docs/DesignDoc.md`
+  - `Docs/EditorDesignDoc.md`
+  - `Docs/TechDoc.md`
+  - `Docs/BugLog.md`
+- Fix: draw the synthesized active-camera frustum at scale `1.0f`, add an
+  optional `Label` through `DrawSphere`, serialize it in primitive stream
+  version 2, replay it for solid and wire spheres, and label the built-in node /
+  transition sphere call sites with short role names.
+- Regression-test name:
+  `ComposableCameraSystem.RewindTrace.PrimitiveRoundTrip` and
+  `ComposableCameraSystem.RewindTrace.CaptureSinkRecordsPrimitives` cover label
+  serialization / capture. `ComposableCameraSystem.RewindTrace.PrimitiveV1Compatibility`
+  covers old label-free primitive streams. The active-frustum scale requires a
+  Rewind Debugger selected-pawn playback smoke test.
+- Test blocker: automation tests were updated, but project rules prohibit
+  Codex from running Unreal automation or launching the editor from shell. User
+  must compile and verify Rewind playback in Rider / Visual Studio / Unreal
+  Editor.
+- Avoid next time: editor replay of a runtime debug primitive should preserve
+  the same scale and label contract as live CCS debug. Do not synthesize
+  Blueprint camera helper scales for CCS camera poses.
+- Possible conflicts: primitive stream version 2 adds label data but still
+  accepts version 1 streams; old recordings simply replay without labels.
+
 ## 2026-06-17 - Rewind playback target lookup read GameplayProvider without session read scope
 
 - Symptom: Rewind Debugger playback can break into the debugger with exception

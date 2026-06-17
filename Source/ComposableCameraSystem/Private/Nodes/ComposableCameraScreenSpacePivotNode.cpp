@@ -420,7 +420,8 @@ void UComposableCameraScreenSpacePivotNode::DrawNodeDebug(FComposableCameraDebug
 	constexpr uint8 KForeground = 1;
 	const FVector Pivot = GetCurrentPivot();
 	Draw.DrawSphere(Pivot, /*Radius=*/8.f, FComposableCameraViewportDebugColors::ScreenSpacePivot(),
-		/*Alpha=*/100, KForeground, /*bSolid=*/true);
+		/*Alpha=*/100, KForeground, /*bSolid=*/true,
+		/*Segments=*/12, /*Thickness=*/0.0f, TEXT("Screen Pivot"));
 }
 
 namespace

@@ -355,7 +355,8 @@ void UComposableCameraFocusPullNode::DrawNodeDebug(FComposableCameraDebugDrawSin
 	// on" marker). Always visible; it lives out in the world, not at the
 	// camera. Matches CollisionPush's pivot-sphere pattern.
 	Draw.DrawSphere(DebugTargetPoint, /*Radius=*/8.f, FocusColor,
-		/*Alpha=*/160, /*DepthPriority=*/0, /*bSolid=*/true);
+		/*Alpha=*/160, /*DepthPriority=*/0, /*bSolid=*/true,
+		/*Segments=*/12, /*Thickness=*/0.0f, TEXT("Focus Target"));
 
 	// Translucent plane at the current focus distance, perpendicular to
 	// the camera's forward vector. Answers "where on the view axis is DoF

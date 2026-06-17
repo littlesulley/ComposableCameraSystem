@@ -62,6 +62,7 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraDebugPrimitive
 	float Thickness = 0.0f;
 	uint8 Alpha = 255;
 	uint8 DepthPriority = SDPG_World;
+	FName Label = NAME_None;
 
 	static FComposableCameraDebugPrimitive MakeLine(
 		const FVector& Start,
@@ -84,7 +85,8 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraDebugPrimitive
 		uint8 InDepthPriority,
 		bool bSolid,
 		int32 InSegments = 12,
-		float InThickness = 0.0f);
+		float InThickness = 0.0f,
+		FName InLabel = NAME_None);
 
 	static FComposableCameraDebugPrimitive MakeBox(
 		const FVector& Center,
@@ -107,7 +109,7 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraDebugPrimitive
 		const FColor& InColor,
 		uint8 InDepthPriority);
 
-	void Serialize(FArchive& Ar);
+	void Serialize(FArchive& Ar, uint8 StreamVersion);
 };
 
 struct COMPOSABLECAMERASYSTEM_API FComposableCameraActiveTraceFrame

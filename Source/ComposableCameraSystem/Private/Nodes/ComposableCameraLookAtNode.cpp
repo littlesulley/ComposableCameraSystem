@@ -179,7 +179,8 @@ void UComposableCameraLookAtNode::DrawNodeDebug(FComposableCameraDebugDrawSink& 
 	constexpr uint8 KForeground = 1;
 	const FColor TargetColor = FComposableCameraViewportDebugColors::LookAt();
 	Draw.DrawSphere(TargetPosition, /*Radius=*/7.5f, TargetColor,
-		/*Alpha=*/110, KForeground, /*bSolid=*/true);
+		/*Alpha=*/110, KForeground, /*bSolid=*/true,
+		/*Segments=*/12, /*Thickness=*/0.0f, TEXT("LookAt Target"));
 
 	if (bViewerIsOutsideCamera && OwningCamera)
 	{

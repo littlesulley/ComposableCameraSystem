@@ -401,13 +401,13 @@ Runtime debug:
   without enabling or refreshing live viewport CVars. The live sink keeps the
   default false values. It is a transient C++ adapter; its non-owning `UWorld*`
   is not a `UPROPERTY`. Sphere / solid-sphere primitives
-  store segment count in `Size` and line thickness in `Thickness`; box
-  primitives store line thickness in `Thickness`; plane primitives store center
-  in `A`, normalized normal in `B`, and two-dimensional extents in `Extent.X/Y`.
-  For `CameraFrustum` primitives only, `Radius` stores FOV, `Size` stores ortho
-  width, and `Thickness` stores debug frustum scale. Raw default constructed
-  primitives are not valid frustums; use `MakeCameraFrustum`, whose scale
-  default is 1.0.
+  store segment count in `Size`, line thickness in `Thickness`, and optional
+  marker text in `Label`; box primitives store line thickness in `Thickness`;
+  plane primitives store center in `A`, normalized normal in `B`, and
+  two-dimensional extents in `Extent.X/Y`. For `CameraFrustum` primitives only,
+  `Radius` stores FOV, `Size` stores ortho width, and `Thickness` stores debug
+  frustum scale. Raw default constructed primitives are not valid frustums; use
+  `MakeCameraFrustum`, whose scale default is 1.0.
 - Gameplay PCM trace capture lives in `AComposableCameraPlayerCameraManager`.
   `TraceCCSEvaluationFrame` must early-return on
   `FComposableCameraTrace::IsTraceEnabled()` before reserving primitive storage.
@@ -425,11 +425,11 @@ Runtime debug:
   primitive storage. It captures only internal-camera gizmos; there is no LS
   context stack / director transition tree to draw.
 - `FComposableCameraViewportDebug::DrawSolidDebugSphere` accepts an optional
-  short `Label` for direct live-only draw sites. Sink-routed node / transition
-  gizmos do not carry labels; rewind primitives currently have no text payload.
-  Labels use `GetSphereLabelDurationSeconds() == 0.f`; do not make them
-  persistent, or HUD debug text will remain at stale world positions while the
-  sphere moves.
+  short `Label`. Sink-routed sphere gizmos pass the same label through the live
+  sink and capture sink, and primitive stream version 2 serializes it in
+  `FComposableCameraDebugPrimitive::Label`. Labels use
+  `GetSphereLabelDurationSeconds() == 0.f`; do not make them persistent, or HUD
+  debug text will remain at stale world positions while the sphere moves.
 
 Editor debug:
 
@@ -475,9 +475,12 @@ Rewind provider technique:
 - Playback frame caches are keyed by trace time and target actor id; target
   selection changes must re-query even when the scrub time has not moved.
 - Primitive replay must preserve the runtime primitive payload: sphere segment
-  count from `Size` clamped to `[4, 32]`, line / box thickness from
-  `Thickness`, frustum scale from `Thickness` with a fallback of 1.0, and plane
-  center / normal / extents from `A`, `B`, and `Extent.X/Y`.
+  count from `Size` clamped to `[4, 32]`, sphere label from `Label`, line / box
+  thickness from `Thickness`, frustum scale from `Thickness` with a fallback of
+  1.0, and plane center / normal / extents from `A`, `B`, and `Extent.X/Y`.
+  The active-camera frustum synthesized by the extension uses scale 1.0 to
+  match `AComposableCameraCameraBase::DrawCameraDebug`; do not use the larger
+  Blueprint camera helper scale.
 
 Runtime Previewer technique:
 
