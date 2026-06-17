@@ -436,9 +436,26 @@ Editor debug:
 - selected runtime instance picker in type asset editor.
 - graph overlay of live node data.
 - runtime previewer tab showing visible-subject-local camera relation.
+- Rewind Debugger trace ingestion through the editor `Trace` folder:
+  `FComposableCameraTraceModule` registers a TraceServices module,
+  `FComposableCameraTraceAnalyzer` decodes `ComposableCameraSystem` trace
+  events, and `FComposableCameraTraceProvider` exposes active-camera and
+  CCS-evaluation point timelines for Rewind tracks.
 - `CCS.Editor.Dump.*`.
 
 Snapshot rule: resolve runtime pointers to names and value copies early.
+
+Rewind provider technique:
+
+- Provider append functions must run under `FAnalysisSessionEditScope` and call
+  `Session.WriteAccessCheck()`.
+- Timeline reads must run under a session read scope and call
+  `Session.ReadAccessCheck()`.
+- Event time comes from `Context.EventTime.AsSeconds(Cycle)` so active and
+  evaluation frames with the same runtime cycle align in Rewind playback.
+- Serialized primitive arrays are copied out of trace event storage, decoded
+  through `DeserializeComposableCameraDebugPrimitives`, and kept empty if the
+  stream is malformed.
 
 Runtime Previewer technique:
 

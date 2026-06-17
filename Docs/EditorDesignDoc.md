@@ -1,6 +1,6 @@
 # ComposableCameraSystem Editor Design
 
-Updated: 2026-06-16
+Updated: 2026-06-17
 
 This document describes the current editor module. It replaces the old
 phase-by-phase implementation plan. Runtime architecture lives in
@@ -28,6 +28,7 @@ Main areas:
 - `Customizations`: details customizations.
 - `Widgets`: Slate widgets for debug and shot editing.
 - `ScriptedActions`: asset scripts.
+- `Trace`: Rewind Debugger trace provider, analyzer, and TraceServices module.
 
 UncookedOnly module adds K2 nodes and graph pin widgets used in editor/PIE.
 
@@ -431,6 +432,22 @@ Runtime Previewer:
   drives the PIE pawn or runtime camera.
 - PIE end, camera unbind, invalid snapshots, and missing pawns clear the
   previewer to concise empty states while leaving the tab open.
+
+Rewind Debugger trace ingestion:
+
+- The editor module registers `FComposableCameraTraceModule` as a
+  TraceServices modular feature during startup and unregisters it during
+  shutdown before other editor teardown. This follows GameplayCamerasEditor
+  `Private/GameplayCamerasEditorModule.cpp` and `Private/Trace/`.
+- `FComposableCameraTraceAnalyzer` routes the runtime logger
+  `ComposableCameraSystem` events `ActiveCamera` and `CCSEvaluation`.
+- `FComposableCameraTraceProvider` stores two point timelines: rendered active
+  camera frames and CCS evaluation frames. Both are keyed by trace event time
+  converted from the recorded frame cycle.
+- Analyzer writes happen under `FAnalysisSessionEditScope`; provider reads
+  require the session read scope used by Rewind track code.
+- Rewind extension and track drawing are separate from ingestion. The provider
+  owns only immutable trace-frame copies, not live world objects.
 
 ## 17. Asset and Factory Coverage
 

@@ -4,6 +4,7 @@
 
 #include "AssetToolsModule.h"
 #include "Editor.h"
+#include "Features/IModularFeatures.h"
 #include "GameFramework/Actor.h"
 #include "ISequencer.h"
 #include "MovieSceneSequencePlayer.h"
@@ -33,6 +34,8 @@
 #include "Sequencer/ComposableCameraLevelSequenceComponentTrackEditor.h"
 #include "Sequencer/ComposableCameraPatchTrackEditor.h"
 #include "Sequencer/ComposableCameraShotTrackEditor.h"
+#include "Trace/ComposableCameraTraceModule.h"
+#include "TraceServices/ModuleService.h"
 #include "Utilities/ComposableCameraLevelSequenceSpawnTrackTool.h"
 #include "Utilities/ComposableCameraViewportTransformClipboard.h"
 
@@ -41,6 +44,8 @@ class UComposableCameraTypeAsset;
 #define LOCTEXT_NAMESPACE "FComposableCameraSystemEditorModule"
 
 DEFINE_LOG_CATEGORY(LogComposableCameraSystemEditor);
+
+FComposableCameraSystemEditorModule::~FComposableCameraSystemEditorModule() = default;
 
 void FComposableCameraSystemEditorModule::StartupModule()
 {
@@ -133,6 +138,7 @@ void FComposableCameraSystemEditorModule::StartupModule()
  RegisterSequencerTrackEditor();
  FComposableCameraLevelSequenceSpawnTrackTool::Register();
  FComposableCameraViewportTransformClipboard::Register();
+ RegisterRewindDebuggerSupport();
 
  // Shot Editor - registers the nomad tab spawner with
  // FGlobalTabmanager + binds the runtime-side FOpenShotEditor delegate
@@ -150,6 +156,8 @@ void FComposableCameraSystemEditorModule::StartupModule()
 
 void FComposableCameraSystemEditorModule::ShutdownModule()
 {
+ UnregisterRewindDebuggerSupport();
+
 #if WITH_EDITOR
  FIsSimulatingInEditor::GetIsSimulatingInEditorDelegate.Unbind();
  FGetActiveEditorViewport::GetSizeDelegate.Unbind();
@@ -172,6 +180,26 @@ void FComposableCameraSystemEditorModule::ShutdownModule()
  UnregisterGraphNodeFactory();
  UnregisterNodeGraphPinFactory();
  UnregisterDetailsCustomizations();
+}
+
+void FComposableCameraSystemEditorModule::RegisterRewindDebuggerSupport()
+{
+ if (!TraceModule.IsValid())
+ {
+ TraceModule = MakeUnique<FComposableCameraTraceModule>();
+ IModularFeatures::Get().RegisterModularFeature(TraceServices::ModuleFeatureName, TraceModule.Get());
+ }
+}
+
+void FComposableCameraSystemEditorModule::UnregisterRewindDebuggerSupport()
+{
+ if (TraceModule.IsValid())
+ {
+ IModularFeatures::Get().UnregisterModularFeature(TraceServices::ModuleFeatureName, TraceModule.Get());
+ TraceModule.Reset();
+ }
+ RewindDebuggerTrackCreator.Reset();
+ RewindDebuggerExtension.Reset();
 }
 
 void FComposableCameraSystemEditorModule::OnSequencerCreated(TSharedRef<ISequencer> InSequencer)
