@@ -435,9 +435,10 @@ Runtime Previewer:
 
 Rewind Debugger trace ingestion:
 
-- The editor module registers `FComposableCameraTraceModule` as a
-  TraceServices modular feature during startup and unregisters it during
-  shutdown before other editor teardown. This follows GameplayCamerasEditor
+- The editor module registers `FComposableCameraTraceModule`,
+  `FComposableCameraRewindDebuggerExtension`, and
+  `FComposableCameraRewindDebuggerTrackCreator` during startup and unregisters
+  them during shutdown. This follows GameplayCamerasEditor
   `Private/GameplayCamerasEditorModule.cpp` and `Private/Trace/`.
 - `FComposableCameraTraceAnalyzer` routes the runtime logger
   `ComposableCameraSystem` events `ActiveCamera` and `CCSEvaluation`.
@@ -446,8 +447,13 @@ Rewind Debugger trace ingestion:
   converted from the recorded frame cycle.
 - Analyzer writes happen under `FAnalysisSessionEditScope`; provider reads
   require the session read scope used by Rewind track code.
-- Rewind extension and track drawing are separate from ingestion. The provider
-  owns only immutable trace-frame copies, not live world objects.
+- The Rewind extension toggles `ComposableCameraSystemChannel` while recording.
+  During playback it draws the selected pawn's historical active camera frustum
+  and any matching CCS evaluation primitives into the visualized world.
+- The Rewind track creator adds a `Composable Camera` child track under Pawn
+  selections. The track is a selection / visibility affordance; drawing is owned
+  by the extension.
+- The provider owns only immutable trace-frame copies, not live world objects.
 
 ## 17. Asset and Factory Coverage
 

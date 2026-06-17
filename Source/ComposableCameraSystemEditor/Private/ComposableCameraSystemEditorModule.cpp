@@ -34,6 +34,8 @@
 #include "Sequencer/ComposableCameraLevelSequenceComponentTrackEditor.h"
 #include "Sequencer/ComposableCameraPatchTrackEditor.h"
 #include "Sequencer/ComposableCameraShotTrackEditor.h"
+#include "Trace/ComposableCameraRewindDebuggerExtension.h"
+#include "Trace/ComposableCameraRewindDebuggerTrack.h"
 #include "Trace/ComposableCameraTraceModule.h"
 #include "TraceServices/ModuleService.h"
 #include "Utilities/ComposableCameraLevelSequenceSpawnTrackTool.h"
@@ -184,6 +186,22 @@ void FComposableCameraSystemEditorModule::ShutdownModule()
 
 void FComposableCameraSystemEditorModule::RegisterRewindDebuggerSupport()
 {
+ if (!RewindDebuggerExtension.IsValid())
+ {
+ RewindDebuggerExtension = MakeShared<FComposableCameraRewindDebuggerExtension>();
+ IModularFeatures::Get().RegisterModularFeature(
+ IRewindDebuggerExtension::ModularFeatureName,
+ RewindDebuggerExtension.Get());
+ }
+
+ if (!RewindDebuggerTrackCreator.IsValid())
+ {
+ RewindDebuggerTrackCreator = MakeShared<FComposableCameraRewindDebuggerTrackCreator>();
+ IModularFeatures::Get().RegisterModularFeature(
+ RewindDebugger::IRewindDebuggerTrackCreator::ModularFeatureName,
+ RewindDebuggerTrackCreator.Get());
+ }
+
  if (!TraceModule.IsValid())
  {
  TraceModule = MakeUnique<FComposableCameraTraceModule>();
@@ -193,13 +211,27 @@ void FComposableCameraSystemEditorModule::RegisterRewindDebuggerSupport()
 
 void FComposableCameraSystemEditorModule::UnregisterRewindDebuggerSupport()
 {
+ if (RewindDebuggerTrackCreator.IsValid())
+ {
+ IModularFeatures::Get().UnregisterModularFeature(
+ RewindDebugger::IRewindDebuggerTrackCreator::ModularFeatureName,
+ RewindDebuggerTrackCreator.Get());
+ RewindDebuggerTrackCreator.Reset();
+ }
+
+ if (RewindDebuggerExtension.IsValid())
+ {
+ IModularFeatures::Get().UnregisterModularFeature(
+ IRewindDebuggerExtension::ModularFeatureName,
+ RewindDebuggerExtension.Get());
+ RewindDebuggerExtension.Reset();
+ }
+
  if (TraceModule.IsValid())
  {
  IModularFeatures::Get().UnregisterModularFeature(TraceServices::ModuleFeatureName, TraceModule.Get());
  TraceModule.Reset();
  }
- RewindDebuggerTrackCreator.Reset();
- RewindDebuggerExtension.Reset();
 }
 
 void FComposableCameraSystemEditorModule::OnSequencerCreated(TSharedRef<ISequencer> InSequencer)

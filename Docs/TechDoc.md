@@ -440,7 +440,12 @@ Editor debug:
   `FComposableCameraTraceModule` registers a TraceServices module,
   `FComposableCameraTraceAnalyzer` decodes `ComposableCameraSystem` trace
   events, and `FComposableCameraTraceProvider` exposes active-camera and
-  CCS-evaluation point timelines for Rewind tracks.
+  CCS-evaluation point timelines for Rewind tracks. The same folder also owns
+  `FComposableCameraRewindDebuggerExtension`, which toggles the CCS trace
+  channel during recording and draws the recorded active camera frustum plus
+  matched CCS primitives during playback, and
+  `FComposableCameraRewindDebuggerTrackCreator`, which exposes a Pawn child
+  track named `Composable Camera`.
 - `CCS.Editor.Dump.*`.
 
 Snapshot rule: resolve runtime pointers to names and value copies early.
@@ -456,6 +461,17 @@ Rewind provider technique:
 - Serialized primitive arrays are copied out of trace event storage, decoded
   through `DeserializeComposableCameraDebugPrimitives`, and kept empty if the
   stream is malformed.
+- Rewind playback drawing uses the active-camera trace as the authoritative
+  rendered pose. CCS evaluation primitives are drawn only when a matching
+  evaluation frame is found. Gameplay PCM frames match by PCM id plus frame
+  cycle; Level Sequence evaluation frames match the active view target actor so
+  they still pair when the PCM active-camera source is `Unknown`.
+- Playback frame caches are keyed by trace time and target actor id; target
+  selection changes must re-query even when the scrub time has not moved.
+- Primitive replay must preserve the runtime primitive payload: sphere segment
+  count from `Size` clamped to `[4, 32]`, line / box thickness from
+  `Thickness`, frustum scale from `Thickness` with a fallback of 1.0, and plane
+  center / normal / extents from `A`, `B`, and `Extent.X/Y`.
 
 Runtime Previewer technique:
 
