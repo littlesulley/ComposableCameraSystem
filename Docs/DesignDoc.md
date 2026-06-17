@@ -365,6 +365,12 @@ stores ortho width, and `Thickness` stores debug frustum draw scale. Raw default
 constructed primitives are not valid frustums; the `MakeCameraFrustum` factory
 defaults scale to 1.0.
 
+When CCS trace is enabled, the gameplay PCM emits paired rewind trace frames:
+one evaluation frame for the CCS pose and captured gizmos, and one active-camera
+frame for the final `FMinimalViewInfo` just written to the PCM cache. Both
+records share the same frame cycle so tooling can compare evaluated CCS output
+with the rendered camera view.
+
 ## 15. Hard Invariants
 
 - Context stack position matters. `EnsureContext` may reorder entries.

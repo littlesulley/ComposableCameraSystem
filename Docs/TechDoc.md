@@ -404,6 +404,14 @@ Runtime debug:
   width, and `Thickness` stores debug frustum scale. Raw default constructed
   primitives are not valid frustums; use `MakeCameraFrustum`, whose scale
   default is 1.0.
+- Gameplay PCM trace capture lives in `AComposableCameraPlayerCameraManager`.
+  `TraceCCSEvaluationFrame` must early-return on
+  `FComposableCameraTrace::IsTraceEnabled()` before reserving primitive storage.
+  It records the evaluated CCS pose, context, camera type asset name, owning
+  PC/pawn/view target ids, and sink-captured camera / transition gizmos.
+  `TraceActiveCameraFrame` records the final `FMinimalViewInfo` after
+  `FillCameraCache`. Both records share one `FPlatformTime::Cycles64()` value
+  sampled at the start of `DoUpdateCamera`.
 - `FComposableCameraViewportDebug::DrawSolidDebugSphere` accepts an optional
   short `Label` for direct live-only draw sites. Sink-routed node / transition
   gizmos do not carry labels; rewind primitives currently have no text payload.
