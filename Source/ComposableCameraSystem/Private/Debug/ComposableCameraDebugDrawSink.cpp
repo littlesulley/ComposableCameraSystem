@@ -104,7 +104,7 @@ void FComposableCameraLiveDebugDrawSink::DrawCameraFrustum(
 	}
 
 #if !UE_BUILD_SHIPPING
-	DrawDebugCamera(World, Pose.Location, Pose.Rotation, Pose.FieldOfView, 100.0f, Color, false, -1.0f, DepthPriority);
+	DrawDebugCamera(World, Pose.Location, Pose.Rotation, Pose.FieldOfView, 1.0f, Color, false, -1.0f, DepthPriority);
 #endif
 }
 
