@@ -350,7 +350,9 @@ Viewport gizmo colors are centralized in the runtime debug palette. The bottom
 Legend panel reads the same metadata as the 3D draw sites, so swatches match the
 spheres and transition markers. Sink-routed sphere gizmos carry optional short
 frame-local labels so live viewport drawing and rewind trace playback can show
-the same marker names.
+the same marker names. Live labels use HUD debug text with a frame-local
+lifetime; Rewind playback projects those labels directly onto the debug Canvas
+because the visualized playback world is not guaranteed to own a usable HUD.
 
 Debug primitive emission goes through a draw sink abstraction when it needs to
 target either live viewport drawing or rewind trace capture. The live sink

@@ -451,7 +451,9 @@ Rewind Debugger trace ingestion:
   During playback it draws the selected pawn's historical active camera frustum
   at the same compact scale as CCS live camera debug, plus any matching CCS
   evaluation primitives and their short sphere labels into the visualized
-  world.
+  world. 3D primitives are submitted from a core ticker so line-batcher content
+  reaches the current scene render. Sphere labels are drawn in the
+  debug-draw-service Canvas pass, not through HUD debug strings.
 - The Rewind track creator adds a `Composable Camera` child track under Pawn
   selections. The track is a selection / visibility affordance; drawing is owned
   by the extension.

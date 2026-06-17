@@ -2,10 +2,12 @@
 
 #include "Trace/ComposableCameraRewindDebuggerExtension.h"
 
+#include "CanvasItem.h"
 #include "Debug/ComposableCameraViewportDebug.h"
 #include "Debug/DebugDrawService.h"
 #include "DrawDebugHelpers.h"
 #include "Engine/Canvas.h"
+#include "Engine/Engine.h"
 #include "Engine/World.h"
 #include "IRewindDebugger.h"
 #include "Trace/ComposableCameraTraceProvider.h"
@@ -28,31 +30,23 @@ namespace
 		return Primitive.Thickness > 0.0f ? Primitive.Thickness : 1.0f;
 	}
 
-	static void DrawComposableCameraPrimitiveLabel(
-		UWorld* World,
-		const FComposableCameraDebugPrimitive& Primitive)
+	static bool GetComposableCameraPrimitiveLabelLocation(
+		const FComposableCameraDebugPrimitive& Primitive,
+		FVector& OutLocation)
 	{
-		if (!World || Primitive.Label.IsNone() || Primitive.Radius <= 0.0f)
+		if (Primitive.Label.IsNone() || Primitive.Radius <= 0.0f)
 		{
-			return;
+			return false;
 		}
 
-		const FVector LabelLocation = Primitive.A + FVector(0.f, 0.f, Primitive.Radius + 8.f);
-		DrawDebugString(
-			World,
-			LabelLocation,
-			Primitive.Label.ToString(),
-			nullptr,
-			FColor(Primitive.Color.R, Primitive.Color.G, Primitive.Color.B, 255),
-			FComposableCameraViewportDebug::GetSphereLabelDurationSeconds(),
-			/*bDrawShadow=*/true,
-			/*FontScale=*/1.f);
+		OutLocation = Primitive.A + FVector(0.f, 0.f, Primitive.Radius + 8.f);
+		return true;
 	}
 }
 
 FComposableCameraRewindDebuggerExtension::~FComposableCameraRewindDebuggerExtension()
 {
-	EnsureDebugDrawDelegate(false);
+	EnsureDebugDrawHooks(false);
 }
 
 void FComposableCameraRewindDebuggerExtension::RecordingStarted(IRewindDebugger* RewindDebugger)
@@ -67,7 +61,7 @@ void FComposableCameraRewindDebuggerExtension::RecordingStopped(IRewindDebugger*
 
 void FComposableCameraRewindDebuggerExtension::Clear(IRewindDebugger* RewindDebugger)
 {
-	EnsureDebugDrawDelegate(false);
+	EnsureDebugDrawHooks(false);
 	VisualizedWorld.Reset();
 	bHasActiveFrame = false;
 	bHasEvaluationFrame = false;
@@ -79,11 +73,11 @@ void FComposableCameraRewindDebuggerExtension::Update(float DeltaTime, IRewindDe
 {
 	if (!RewindDebugger || RewindDebugger->IsPIESimulating() || RewindDebugger->GetRecordingDuration() == 0.0)
 	{
-		EnsureDebugDrawDelegate(false);
+		EnsureDebugDrawHooks(false);
 		return;
 	}
 
-	EnsureDebugDrawDelegate(true);
+	EnsureDebugDrawHooks(true);
 
 	const double CurrentTraceTime = RewindDebugger->CurrentTraceTime();
 	uint64 TargetActorId = 0;
@@ -129,18 +123,34 @@ void FComposableCameraRewindDebuggerExtension::Update(float DeltaTime, IRewindDe
 	}
 }
 
-void FComposableCameraRewindDebuggerExtension::EnsureDebugDrawDelegate(bool bRegistered)
+void FComposableCameraRewindDebuggerExtension::EnsureDebugDrawHooks(bool bRegistered)
 {
-	if (bRegistered && !DebugDrawDelegateHandle.IsValid())
+	if (bRegistered)
 	{
-		DebugDrawDelegateHandle = UDebugDrawService::Register(
-			TEXT("GameplayDebug"),
-			FDebugDrawDelegate::CreateRaw(this, &FComposableCameraRewindDebuggerExtension::DebugDraw));
+		if (!DebugDrawDelegateHandle.IsValid())
+		{
+			DebugDrawDelegateHandle = UDebugDrawService::Register(
+				TEXT("GameplayDebug"),
+				FDebugDrawDelegate::CreateRaw(this, &FComposableCameraRewindDebuggerExtension::DebugDrawLabels));
+		}
+		if (!DebugDrawTickerHandle.IsValid())
+		{
+			DebugDrawTickerHandle = FTSTicker::GetCoreTicker().AddTicker(
+				FTickerDelegate::CreateRaw(this, &FComposableCameraRewindDebuggerExtension::TickDebugDraw3D),
+				/*InDelay=*/0.f);
+		}
+		return;
 	}
-	else if (!bRegistered && DebugDrawDelegateHandle.IsValid())
+
+	if (DebugDrawDelegateHandle.IsValid())
 	{
 		UDebugDrawService::Unregister(DebugDrawDelegateHandle);
 		DebugDrawDelegateHandle.Reset();
+	}
+	if (DebugDrawTickerHandle.IsValid())
+	{
+		FTSTicker::GetCoreTicker().RemoveTicker(DebugDrawTickerHandle);
+		DebugDrawTickerHandle.Reset();
 	}
 }
 
@@ -265,12 +275,12 @@ bool FComposableCameraRewindDebuggerExtension::DoesEvaluationMatchActiveFrameFor
 	return false;
 }
 
-void FComposableCameraRewindDebuggerExtension::DebugDraw(UCanvas* Canvas, APlayerController* PlayerController)
+bool FComposableCameraRewindDebuggerExtension::TickDebugDraw3D(float /*DeltaTime*/)
 {
 	UWorld* World = VisualizedWorld.Get();
 	if (!World || !bHasActiveFrame)
 	{
-		return;
+		return true;
 	}
 
 	FComposableCameraDebugPrimitive ActiveFrustum =
@@ -279,18 +289,35 @@ void FComposableCameraRewindDebuggerExtension::DebugDraw(UCanvas* Canvas, APlaye
 			FColor(80, 200, 255),
 			SDPG_Foreground,
 			1.0f);
-	DrawPrimitive(World, ActiveFrustum);
+	DrawPrimitive3D(World, ActiveFrustum);
 
 	if (bHasEvaluationFrame)
 	{
 		for (const FComposableCameraDebugPrimitive& Primitive : EvaluationFrame.Primitives)
 		{
-			DrawPrimitive(World, Primitive);
+			DrawPrimitive3D(World, Primitive);
 		}
+	}
+
+	return true;
+}
+
+void FComposableCameraRewindDebuggerExtension::DebugDrawLabels(
+	UCanvas* Canvas,
+	APlayerController* /*PlayerController*/)
+{
+	if (!Canvas || !Canvas->Canvas || !bHasActiveFrame || !bHasEvaluationFrame)
+	{
+		return;
+	}
+
+	for (const FComposableCameraDebugPrimitive& Primitive : EvaluationFrame.Primitives)
+	{
+		DrawPrimitiveLabel(Canvas, Primitive);
 	}
 }
 
-void FComposableCameraRewindDebuggerExtension::DrawPrimitive(
+void FComposableCameraRewindDebuggerExtension::DrawPrimitive3D(
 	UWorld* World,
 	const FComposableCameraDebugPrimitive& Primitive) const
 {
@@ -304,10 +331,10 @@ void FComposableCameraRewindDebuggerExtension::DrawPrimitive(
 	switch (Primitive.Kind)
 	{
 	case EComposableCameraDebugPrimitiveKind::Line:
-		DrawDebugLine(World, Primitive.A, Primitive.B, Primitive.Color, false, -1.0f, Primitive.DepthPriority, Primitive.Thickness);
+		DrawDebugLine(World, Primitive.A, Primitive.B, Primitive.Color, false, 0.0f, Primitive.DepthPriority, Primitive.Thickness);
 		break;
 	case EComposableCameraDebugPrimitiveKind::Point:
-		DrawDebugPoint(World, Primitive.A, Primitive.Size, Primitive.Color, false, -1.0f, Primitive.DepthPriority);
+		DrawDebugPoint(World, Primitive.A, Primitive.Size, Primitive.Color, false, 0.0f, Primitive.DepthPriority);
 		break;
 	case EComposableCameraDebugPrimitiveKind::Sphere:
 		DrawDebugSphere(
@@ -317,14 +344,12 @@ void FComposableCameraRewindDebuggerExtension::DrawPrimitive(
 			GetComposableCameraPrimitiveSegments(Primitive),
 			ColorWithAlpha,
 			false,
-			-1.0f,
+			0.0f,
 			Primitive.DepthPriority,
 			Primitive.Thickness);
-		DrawComposableCameraPrimitiveLabel(World, Primitive);
 		break;
 	case EComposableCameraDebugPrimitiveKind::SolidSphere:
 		{
-			const FString Label = Primitive.Label.IsNone() ? FString() : Primitive.Label.ToString();
 			FComposableCameraViewportDebug::DrawSolidDebugSphere(
 				World,
 				Primitive.A,
@@ -333,7 +358,7 @@ void FComposableCameraRewindDebuggerExtension::DrawPrimitive(
 				Primitive.Alpha,
 				GetComposableCameraPrimitiveSegments(Primitive),
 				Primitive.DepthPriority,
-				Label.IsEmpty() ? nullptr : *Label);
+				/*Label=*/nullptr);
 		}
 		break;
 	case EComposableCameraDebugPrimitiveKind::Box:
@@ -344,7 +369,7 @@ void FComposableCameraRewindDebuggerExtension::DrawPrimitive(
 			Primitive.Rotation.Quaternion(),
 			Primitive.Color,
 			false,
-			-1.0f,
+			0.0f,
 			Primitive.DepthPriority,
 			Primitive.Thickness);
 		break;
@@ -357,7 +382,7 @@ void FComposableCameraRewindDebuggerExtension::DrawPrimitive(
 			GetComposableCameraFrustumScale(Primitive),
 			Primitive.Color,
 			false,
-			-1.0f,
+			0.0f,
 			Primitive.DepthPriority);
 		break;
 	case EComposableCameraDebugPrimitiveKind::Plane:
@@ -371,11 +396,58 @@ void FComposableCameraRewindDebuggerExtension::DrawPrimitive(
 				FVector2D(Primitive.Extent.X, Primitive.Extent.Y),
 				Primitive.Color,
 				false,
-				-1.0f,
+				0.0f,
 				Primitive.DepthPriority);
 		}
 		break;
 	default:
 		break;
 	}
+}
+
+void FComposableCameraRewindDebuggerExtension::DrawPrimitiveLabel(
+	UCanvas* Canvas,
+	const FComposableCameraDebugPrimitive& Primitive) const
+{
+	if (!Canvas || !Canvas->Canvas)
+	{
+		return;
+	}
+
+	if (Primitive.Kind != EComposableCameraDebugPrimitiveKind::Sphere
+		&& Primitive.Kind != EComposableCameraDebugPrimitiveKind::SolidSphere)
+	{
+		return;
+	}
+
+	FVector LabelLocation;
+	if (!GetComposableCameraPrimitiveLabelLocation(Primitive, LabelLocation))
+	{
+		return;
+	}
+
+	UFont* Font = GEngine ? GEngine->GetSmallFont() : nullptr;
+	if (!Font)
+	{
+		return;
+	}
+
+	const FVector ScreenLocation = Canvas->Project(LabelLocation);
+	if (ScreenLocation.Z <= 0.0f
+		|| ScreenLocation.X < 0.0f
+		|| ScreenLocation.X > static_cast<float>(Canvas->SizeX)
+		|| ScreenLocation.Y < 0.0f
+		|| ScreenLocation.Y > static_cast<float>(Canvas->SizeY))
+	{
+		return;
+	}
+
+	FCanvasTextItem TextItem(
+		FVector2D(ScreenLocation.X, ScreenLocation.Y),
+		FText::FromName(Primitive.Label),
+		Font,
+		FLinearColor::FromSRGBColor(FColor(Primitive.Color.R, Primitive.Color.G, Primitive.Color.B, 255)));
+	TextItem.bCentreX = true;
+	TextItem.EnableShadow(FLinearColor::Black);
+	Canvas->Canvas->DrawItem(TextItem);
 }

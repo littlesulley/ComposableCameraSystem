@@ -1,5 +1,44 @@
 # Bug Log
 
+## 2026-06-17 - Rewind sphere labels were invisible and 3D primitives jittered while scrubbing
+
+- Symptom: Rewind playback showed correctly sized CCS camera / node gizmos, but
+  sphere text labels were absent. Dragging the Rewind timeline made 3D gizmos
+  such as spheres and lines twitch between positions.
+- Trigger / repro: record CCS playback, select the pawn in Rewind Debugger,
+  scrub / drag the timeline over frames with node or transition 3D gizmos.
+- Why it happens: Rewind label replay called `DrawDebugString`, which writes
+  through `AHUD::AddDebugText`; the Rewind visualized playback world is not
+  guaranteed to have a player-controller / HUD path for that text. The same
+  extension submitted 3D `DrawDebug*` primitives from a `UDebugDrawService`
+  callback. UE 5.6 game viewport rendering flushes temporary line batchers
+  before the debug-draw-service pass, so those 3D primitives render on the next
+  scene frame and can appear one scrub step behind the visualized actors.
+- Root cause: Rewind playback used HUD debug text and post-scene debug-draw
+  service timing for data that needed immediate Canvas text and current-frame
+  3D line-batcher submission.
+- Touched files:
+  - `Source/ComposableCameraSystemEditor/Private/Trace/ComposableCameraRewindDebuggerExtension.h`
+  - `Source/ComposableCameraSystemEditor/Private/Trace/ComposableCameraRewindDebuggerExtension.cpp`
+  - `Docs/DesignDoc.md`
+  - `Docs/EditorDesignDoc.md`
+  - `Docs/TechDoc.md`
+  - `Docs/BugLog.md`
+- Fix: split Rewind visualization into two paths. A core ticker submits 3D
+  active-frustum and primitive line-batcher draws before scene rendering. The
+  `UDebugDrawService` callback now draws only projected sphere labels with
+  `FCanvasTextItem`, so labels do not depend on HUD debug strings.
+- Regression-test name: Rewind Debugger selected-pawn playback smoke test.
+- Test blocker: this is an editor viewport rendering / scrub timing issue.
+  Project rules prohibit Codex from launching Unreal Editor or automation from
+  shell. User must verify by recording, selecting a pawn, scrubbing, and
+  checking that labels appear and 3D gizmos no longer twitch.
+- Avoid next time: do not submit Rewind 3D line-batcher primitives from
+  `UDebugDrawService`; use a pre-render ticker or a scene proxy. Do not use
+  `DrawDebugString` for Rewind labels; draw Canvas text directly.
+- Possible conflicts: live viewport debug still uses the existing ticker /
+  HUD-string helper path. This change only affects Rewind playback.
+
 ## 2026-06-17 - Rewind trace tests used unsupported FName UTEST_EQUAL overload
 
 - Symptom: compiling `ComposableCameraTraceTests.cpp` failed with

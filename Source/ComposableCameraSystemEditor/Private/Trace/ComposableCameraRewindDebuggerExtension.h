@@ -2,6 +2,7 @@
 
 #pragma once
 
+#include "Containers/Ticker.h"
 #include "CoreMinimal.h"
 #include "Debug/ComposableCameraTraceTypes.h"
 #include "IRewindDebuggerExtension.h"
@@ -22,9 +23,11 @@ public:
 	virtual void Clear(IRewindDebugger* RewindDebugger) override;
 
 private:
-	void EnsureDebugDrawDelegate(bool bRegistered);
-	void DebugDraw(UCanvas* Canvas, APlayerController* PlayerController);
-	void DrawPrimitive(UWorld* World, const FComposableCameraDebugPrimitive& Primitive) const;
+	void EnsureDebugDrawHooks(bool bRegistered);
+	bool TickDebugDraw3D(float DeltaTime);
+	void DebugDrawLabels(UCanvas* Canvas, APlayerController* PlayerController);
+	void DrawPrimitive3D(UWorld* World, const FComposableCameraDebugPrimitive& Primitive) const;
+	void DrawPrimitiveLabel(UCanvas* Canvas, const FComposableCameraDebugPrimitive& Primitive) const;
 	bool GetTargetActorIdForPlayback(IRewindDebugger* RewindDebugger, uint64& OutTargetActorId) const;
 	bool FindPlaybackFrames(
 		IRewindDebugger* RewindDebugger,
@@ -41,6 +44,7 @@ private:
 
 private:
 	FDelegateHandle DebugDrawDelegateHandle;
+	FTSTicker::FDelegateHandle DebugDrawTickerHandle;
 	TWeakObjectPtr<UWorld> VisualizedWorld;
 	FComposableCameraActiveTraceFrame ActiveFrame;
 	FComposableCameraEvaluationTraceFrame EvaluationFrame;

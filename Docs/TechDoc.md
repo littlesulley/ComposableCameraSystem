@@ -472,6 +472,11 @@ Rewind provider technique:
   evaluation frame is found. Gameplay PCM frames match by PCM id plus frame
   cycle; Level Sequence evaluation frames match the active view target actor so
   they still pair when the PCM active-camera source is `Unknown`.
+- Rewind 3D primitive replay submits line-batcher primitives from an
+  `FTSTicker` callback, not from `UDebugDrawService`. Game viewport rendering
+  flushes non-persistent line batchers before the debug-draw service fires; if
+  the service submits 3D primitives, they render a frame late and visibly jitter
+  while scrubbing. The debug-draw service is kept only for Canvas text labels.
 - Playback frame caches are keyed by trace time and target actor id; target
   selection changes must re-query even when the scrub time has not moved.
 - Primitive replay must preserve the runtime primitive payload: sphere segment
@@ -480,7 +485,10 @@ Rewind provider technique:
   1.0, and plane center / normal / extents from `A`, `B`, and `Extent.X/Y`.
   The active-camera frustum synthesized by the extension uses scale 1.0 to
   match `AComposableCameraCameraBase::DrawCameraDebug`; do not use the larger
-  Blueprint camera helper scale.
+  Blueprint camera helper scale. Rewind sphere labels are projected with
+  `UCanvas::Project` and drawn with `FCanvasTextItem`; do not use
+  `DrawDebugString` there because it writes through `AHUD::AddDebugText`, and
+  Rewind's visualized world may not have a HUD/player-controller text path.
 
 Runtime Previewer technique:
 
