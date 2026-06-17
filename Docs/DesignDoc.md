@@ -1,6 +1,6 @@
 # ComposableCameraSystem Design
 
-Updated: 2026-06-16
+Updated: 2026-06-17
 
 This document describes the current runtime architecture of the UE 5.6
 ComposableCameraSystem plugin. It is intentionally compact. Implementation
@@ -352,6 +352,11 @@ spheres and transition markers. Sphere markers can also carry short world-space
 labels for node / marker-role identification when many gizmos overlap. Those
 labels are frame-local debug strings and are redrawn at the sphere's current
 world position each viewport debug tick.
+
+Debug primitive emission goes through a draw sink abstraction when it needs to
+target either live viewport drawing or rewind trace capture. The live sink
+adapts to `DrawDebug*` / `FComposableCameraViewportDebug`; the capture sink
+appends immutable `FComposableCameraDebugPrimitive` snapshots for trace writers.
 
 ## 15. Hard Invariants
 

@@ -1,6 +1,6 @@
 # ComposableCameraSystem Tech Notes
 
-Updated: 2026-06-16
+Updated: 2026-06-17
 
 Purpose: compact implementation reference. Keep this file current when code
 patterns, public APIs, hot-path rules, node catalogs, or gotchas change.
@@ -390,6 +390,13 @@ Runtime debug:
 - viewport gizmo colors live in `FComposableCameraViewportDebugColors`; the
   panel Legend reads `FComposableCameraViewportDebug::GetLegendEntries()` so
   swatches and 3D markers share one source of truth.
+- `FComposableCameraDebugDrawSink` is the primitive emission adapter. The live
+  sink sends line / point / sphere / box / frustum calls to Unreal debug draw
+  helpers and keeps solid spheres routed through
+  `FComposableCameraViewportDebug::DrawSolidDebugSphere` in non-shipping builds.
+  The capture sink records the same calls as `FComposableCameraDebugPrimitive`
+  values for rewind trace serialization. It is a transient C++ adapter; its
+  non-owning `UWorld*` is not a `UPROPERTY`.
 - `FComposableCameraViewportDebug::DrawSolidDebugSphere` accepts an optional
   short `Label`. Node draw calls should pass the node name, or `Node role` when
   one node draws multiple spheres. Keep labels literal and compact; they are

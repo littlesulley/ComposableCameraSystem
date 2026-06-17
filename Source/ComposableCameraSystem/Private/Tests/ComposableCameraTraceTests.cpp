@@ -1,5 +1,6 @@
 // Copyright 2026 Sulley. All Rights Reserved.
 
+#include "Debug/ComposableCameraDebugDrawSink.h"
 #include "Debug/ComposableCameraTraceTypes.h"
 #include "Misc/AutomationTest.h"
 
@@ -237,6 +238,27 @@ bool FComposableCameraTraceRejectsTruncatedPrimitiveStreamTest::RunTest(const FS
 		DeserializeComposableCameraDebugPrimitives(Bytes, Output));
 	UTEST_EQUAL("Truncated primitive stream produces no output", Output.Num(), 0);
 
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FComposableCameraTraceCaptureSinkRecordsPrimitivesTest,
+	"ComposableCameraSystem.RewindTrace.CaptureSinkRecordsPrimitives",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FComposableCameraTraceCaptureSinkRecordsPrimitivesTest::RunTest(const FString& Parameters)
+{
+	TArray<FComposableCameraDebugPrimitive> Primitives;
+	FComposableCameraPrimitiveCaptureSink Sink(Primitives);
+
+	Sink.DrawLine(FVector::ZeroVector, FVector(1.0, 0.0, 0.0), FColor::Blue, 3.0f, SDPG_Foreground);
+	Sink.DrawPoint(FVector(2.0, 0.0, 0.0), FColor::Red, 5.0f, SDPG_World);
+	Sink.DrawSphere(FVector(3.0, 0.0, 0.0), 9.0f, FColor::Green, 80, SDPG_Foreground, true);
+
+	UTEST_EQUAL("Capture sink recorded three primitives", Primitives.Num(), 3);
+	UTEST_EQUAL("First primitive line", Primitives[0].Kind, EComposableCameraDebugPrimitiveKind::Line);
+	UTEST_EQUAL("Second primitive point", Primitives[1].Kind, EComposableCameraDebugPrimitiveKind::Point);
+	UTEST_EQUAL("Third primitive solid sphere", Primitives[2].Kind, EComposableCameraDebugPrimitiveKind::SolidSphere);
 	return true;
 }
 
