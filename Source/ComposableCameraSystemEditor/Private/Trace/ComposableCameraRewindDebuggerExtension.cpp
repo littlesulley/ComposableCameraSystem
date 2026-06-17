@@ -65,7 +65,15 @@ void FComposableCameraRewindDebuggerExtension::Update(float DeltaTime, IRewindDe
 	EnsureDebugDrawDelegate(true);
 
 	const double CurrentTraceTime = RewindDebugger->CurrentTraceTime();
-	const uint64 TargetActorId = RewindDebugger->GetTargetActorId();
+	uint64 TargetActorId = 0;
+	if (!GetTargetActorIdForPlayback(RewindDebugger, TargetActorId))
+	{
+		bHasActiveFrame = false;
+		bHasEvaluationFrame = false;
+		LastTraceTime = -1.0;
+		LastTargetActorId = 0;
+		return;
+	}
 	if (CurrentTraceTime == LastTraceTime && TargetActorId == LastTargetActorId && bHasActiveFrame)
 	{
 		return;
@@ -79,6 +87,7 @@ void FComposableCameraRewindDebuggerExtension::Update(float DeltaTime, IRewindDe
 
 	bHasActiveFrame = FindPlaybackFrames(
 		RewindDebugger,
+		TargetActorId,
 		NewActiveFrame,
 		NewEvaluationFrame,
 		bNewHasEvaluationFrame);
@@ -114,8 +123,28 @@ void FComposableCameraRewindDebuggerExtension::EnsureDebugDrawDelegate(bool bReg
 	}
 }
 
+bool FComposableCameraRewindDebuggerExtension::GetTargetActorIdForPlayback(
+	IRewindDebugger* RewindDebugger,
+	uint64& OutTargetActorId) const
+{
+	OutTargetActorId = 0;
+
+	const TraceServices::IAnalysisSession* AnalysisSession = RewindDebugger
+		? RewindDebugger->GetAnalysisSession()
+		: nullptr;
+	if (!AnalysisSession)
+	{
+		return false;
+	}
+
+	TraceServices::FAnalysisSessionReadScope SessionReadScope(*AnalysisSession);
+	OutTargetActorId = RewindDebugger->GetTargetActorId();
+	return true;
+}
+
 bool FComposableCameraRewindDebuggerExtension::FindPlaybackFrames(
 	IRewindDebugger* RewindDebugger,
+	uint64 TargetActorId,
 	FComposableCameraActiveTraceFrame& OutActiveFrame,
 	FComposableCameraEvaluationTraceFrame& OutEvaluationFrame,
 	bool& bOutHasEvaluationFrame) const
@@ -145,7 +174,6 @@ bool FComposableCameraRewindDebuggerExtension::FindPlaybackFrames(
 		return false;
 	}
 
-	const uint64 TargetActorId = RewindDebugger->GetTargetActorId();
 	bool bFoundActive = false;
 	Provider->GetActiveTimeline()->EnumerateEvents(
 		Frame.StartTime,

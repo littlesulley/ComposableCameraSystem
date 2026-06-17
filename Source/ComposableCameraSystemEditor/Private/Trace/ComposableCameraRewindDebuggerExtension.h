@@ -25,8 +25,10 @@ private:
 	void EnsureDebugDrawDelegate(bool bRegistered);
 	void DebugDraw(UCanvas* Canvas, APlayerController* PlayerController);
 	void DrawPrimitive(UWorld* World, const FComposableCameraDebugPrimitive& Primitive) const;
+	bool GetTargetActorIdForPlayback(IRewindDebugger* RewindDebugger, uint64& OutTargetActorId) const;
 	bool FindPlaybackFrames(
 		IRewindDebugger* RewindDebugger,
+		uint64 TargetActorId,
 		FComposableCameraActiveTraceFrame& OutActiveFrame,
 		FComposableCameraEvaluationTraceFrame& OutEvaluationFrame,
 		bool& bOutHasEvaluationFrame) const;

@@ -1,5 +1,40 @@
 # Bug Log
 
+## 2026-06-17 - Rewind playback target lookup read GameplayProvider without session read scope
+
+- Symptom: Rewind Debugger playback can break into the debugger with exception
+  `0x80000003` at `TraceServices::FAnalysisSessionLock::ReadAccessCheck()`.
+  The stack shows `FGameplayProvider::EnumerateObjects`,
+  `FRewindDebugger::GetTargetActorId`, and
+  `FComposableCameraRewindDebuggerExtension::Update`.
+- Trigger / repro: compile the CCS Rewind support, open Rewind Debugger with a
+  selected actor, then let the CCS rewind extension tick during playback /
+  scrub.
+- Why it happens: UE 5.6 `FRewindDebugger::GetTargetActorId()` enumerates the
+  `GameplayProvider` but does not create its own
+  `FAnalysisSessionReadScope`. Callers must already hold the analysis session
+  read lock.
+- Root cause: `FComposableCameraRewindDebuggerExtension::Update` called
+  `RewindDebugger->GetTargetActorId()` before entering any analysis session
+  read scope, only to build its playback cache key.
+- Touched files:
+  - `Source/ComposableCameraSystemEditor/Private/Trace/ComposableCameraRewindDebuggerExtension.h`
+  - `Source/ComposableCameraSystemEditor/Private/Trace/ComposableCameraRewindDebuggerExtension.cpp`
+  - `Docs/TechDoc.md`
+  - `Docs/BugLog.md`
+- Fix: add `GetTargetActorIdForPlayback`, wrap the target lookup in
+  `FAnalysisSessionReadScope`, and pass the resulting actor id into
+  `FindPlaybackFrames` so frame lookup no longer performs an extra target query.
+- Regression-test name: Rewind Debugger selected-pawn playback smoke test.
+- Test blocker: this is an editor Rewind Debugger tick path and project rules
+  prohibit Codex from launching Unreal Editor or automation from shell. User
+  must verify by recording, selecting a pawn, and scrubbing in Rewind Debugger.
+- Avoid next time: every call into Rewind Debugger APIs that may read
+  `IGameplayProvider` must be audited for caller-owned
+  `FAnalysisSessionReadScope`; do not assume helper APIs create their own lock.
+- Possible conflicts: none expected. The cache key still includes target actor
+  id; only the lock ownership changed.
+
 ## 2026-06-17 - Trace provider returned TSharedRef values as timeline pointers
 
 - Symptom: `ComposableCameraSystemEditor` compile fails in

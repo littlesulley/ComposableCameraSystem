@@ -456,6 +456,9 @@ Rewind provider technique:
   `Session.WriteAccessCheck()`.
 - Timeline reads must run under a session read scope and call
   `Session.ReadAccessCheck()`.
+- Rewind Debugger target lookup is also a trace read in UE 5.6:
+  `IRewindDebugger::GetTargetActorId()` reaches `IGameplayProvider`, so CCS
+  playback code must call it only while holding `FAnalysisSessionReadScope`.
 - Provider timeline getters store timelines as `TSharedRef<TPointTimeline<...>>`;
   `TSharedRef::Get()` returns a reference, so return `&Timeline.Get()` when the
   getter exposes `const ITimeline<...>*`.
