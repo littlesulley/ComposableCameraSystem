@@ -369,7 +369,12 @@ When CCS trace is enabled, the gameplay PCM emits paired rewind trace frames:
 one evaluation frame for the CCS pose and captured gizmos, and one active-camera
 frame for the final `FMinimalViewInfo` just written to the PCM cache. Both
 records share the same frame cycle so tooling can compare evaluated CCS output
-with the rendered camera view.
+with the rendered camera view. The Level Sequence component emits an evaluation
+frame with `SourceKind = CCS_LevelSequence`, its projection status, object ids
+for the world / component / owning actor, the type asset name, the evaluated
+CCS pose, and sink-captured camera gizmos from its internal camera. The LS path
+does not emit transition primitives because it has no context stack / director
+transition tree.
 
 ## 15. Hard Invariants
 

@@ -412,6 +412,14 @@ Runtime debug:
   `TraceActiveCameraFrame` records the final `FMinimalViewInfo` after
   `FillCameraCache`. Both records share one `FPlatformTime::Cycles64()` value
   sampled at the start of `DoUpdateCamera`.
+- Level Sequence trace capture lives in
+  `UComposableCameraLevelSequenceComponent`. It samples one
+  `FPlatformTime::Cycles64()` value before ticking the internal camera, returns
+  a projection status from `ProjectPoseToCineCamera`, and emits a
+  `CCS_LevelSequence` evaluation frame after projection. The function must
+  early-return on `FComposableCameraTrace::IsTraceEnabled()` before reserving
+  primitive storage. It captures only internal-camera gizmos; there is no LS
+  context stack / director transition tree to draw.
 - `FComposableCameraViewportDebug::DrawSolidDebugSphere` accepts an optional
   short `Label` for direct live-only draw sites. Sink-routed node / transition
   gizmos do not carry labels; rewind primitives currently have no text payload.

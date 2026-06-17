@@ -6,6 +6,7 @@
 #include "Components/ActorComponent.h"
 #include "Core/ComposableCameraParameterBlock.h"
 #include "DataAssets/ComposableCameraShot.h"
+#include "Debug/ComposableCameraTrace.h"
 #include "LevelSequence/ComposableCameraTypeAssetReference.h"
 #include "Nodes/ComposableCameraNodePinTypes.h"
 #include "ComposableCameraLevelSequenceComponent.generated.h"
@@ -333,7 +334,14 @@ private:
 	/** Project a pose into OutputCineCameraComponent. Position and rotation
 	 *  are the only fields written; physical optics stay on the CineCamera
 	 *  (designer or Sequencer property tracks drive them). */
-	void ProjectPoseToCineCamera(const FComposableCameraPose& Pose);
+	EComposableCameraTraceProjectionStatus ProjectPoseToCineCamera(const FComposableCameraPose& Pose);
+
+#if UE_COMPOSABLE_CAMERA_TRACE
+	void TraceLevelSequenceEvaluationFrame(
+		const FComposableCameraPose& Pose,
+		EComposableCameraTraceProjectionStatus ProjectionStatus,
+		uint64 FrameCycle);
+#endif
 
 	/** Destroy the internal camera actor if one exists. */
 	void DestroyInternalCamera();
