@@ -9,6 +9,13 @@ namespace
 {
 	constexpr uint8 GComposableCameraPrimitiveStreamMagic = 0xCC;
 	constexpr uint8 GComposableCameraPrimitiveStreamVersion = 1;
+	constexpr int32 GComposableCameraMaxPrimitiveStreamCount = 16384;
+	constexpr int32 GComposableCameraPrimitiveStreamHeaderBytes = sizeof(uint8) + sizeof(uint8) + sizeof(int32);
+
+	static bool IsValidComposableCameraDebugPrimitiveKind(uint8 Value)
+	{
+		return Value <= static_cast<uint8>(EComposableCameraDebugPrimitiveKind::CameraFrustum);
+	}
 }
 
 void FComposableCameraTracePose::Serialize(FArchive& Ar)
@@ -135,6 +142,12 @@ bool SerializeComposableCameraDebugPrimitives(
 	const TArray<FComposableCameraDebugPrimitive>& Primitives,
 	TArray<uint8>& OutBytes)
 {
+	if (Primitives.Num() > GComposableCameraMaxPrimitiveStreamCount)
+	{
+		OutBytes.Reset();
+		return false;
+	}
+
 	FBufferArchive Archive;
 	uint8 Magic = GComposableCameraPrimitiveStreamMagic;
 	uint8 Version = GComposableCameraPrimitiveStreamVersion;
@@ -158,7 +171,7 @@ bool DeserializeComposableCameraDebugPrimitives(
 	TArray<FComposableCameraDebugPrimitive>& OutPrimitives)
 {
 	OutPrimitives.Reset();
-	if (Bytes.Num() < 3)
+	if (Bytes.Num() < GComposableCameraPrimitiveStreamHeaderBytes)
 	{
 		return false;
 	}
@@ -176,7 +189,7 @@ bool DeserializeComposableCameraDebugPrimitives(
 		|| Magic != GComposableCameraPrimitiveStreamMagic
 		|| Version != GComposableCameraPrimitiveStreamVersion
 		|| Count < 0
-		|| Count > 16384)
+		|| Count > GComposableCameraMaxPrimitiveStreamCount)
 	{
 		OutPrimitives.Reset();
 		return false;
@@ -187,7 +200,8 @@ bool DeserializeComposableCameraDebugPrimitives(
 	{
 		FComposableCameraDebugPrimitive Primitive;
 		Primitive.Serialize(Reader);
-		if (Reader.IsError())
+		if (Reader.IsError()
+			|| !IsValidComposableCameraDebugPrimitiveKind(static_cast<uint8>(Primitive.Kind)))
 		{
 			OutPrimitives.Reset();
 			return false;
