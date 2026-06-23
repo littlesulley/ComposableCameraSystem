@@ -1,6 +1,6 @@
 # ComposableCameraSystem Design
 
-Updated: 2026-06-17
+Updated: 2026-06-23
 
 This document describes the current runtime architecture of the UE 5.6
 ComposableCameraSystem plugin. It is intentionally compact. Implementation
@@ -348,7 +348,11 @@ runtime-owned objects later.
 
 Viewport gizmo colors are centralized in the runtime debug palette. The bottom
 Legend panel reads the same metadata as the 3D draw sites, so swatches match the
-spheres and transition markers. Sink-routed sphere gizmos carry optional short
+spheres and transition markers. Legend rows are also filtered against current
+draw state: node rows appear only for gizmo types present on the current
+running camera, and transition rows appear only for active transition nodes in
+the active context tree. Source / target pose swatches appear only when a
+relevant transition row can draw. Sink-routed sphere gizmos carry optional short
 frame-local labels so live viewport drawing and rewind trace playback can show
 the same marker names. Live labels use HUD debug text with a frame-local
 lifetime; Rewind playback projects those labels directly onto the debug Canvas

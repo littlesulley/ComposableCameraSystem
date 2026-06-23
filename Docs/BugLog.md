@@ -1,5 +1,78 @@
 # Bug Log
 
+## 2026-06-23 - Test actor helper names collided in unity build
+
+- Symptom: compiling tests failed with C2084 "`SpawnActorWithRoot` already has
+  a body" when `ComposableCameraLockOnAimPointNodeTests.cpp` and
+  `ComposableCameraComputePositionBetweenActorsNodeTests.cpp` were compiled in
+  the same unity translation unit. Follow-up C2065 / C2440 errors appeared at
+  LockOnAimPoint call sites because the duplicate definition confused name
+  lookup after the first error.
+- Trigger / repro: compile the `ComposableCameraSystem` tests in Rider /
+  Visual Studio with unity builds enabled so both test files are grouped
+  together.
+- Why it happens: both files placed an `AActor* SpawnActorWithRoot(UWorld*,
+  const FVector&)` helper inside an anonymous namespace. Anonymous namespaces
+  give internal linkage per translation unit, but unity builds concatenate
+  several `.cpp` files into one translation unit, so the names still collide.
+- Root cause: test-local helper names were generic instead of file-specific.
+- Touched files:
+  - `Source/ComposableCameraSystem/Private/Tests/ComposableCameraLockOnAimPointNodeTests.cpp`
+  - `Docs/TechDoc.md`
+  - `Docs/BugLog.md`
+- Fix: rename the LockOnAimPoint test helper to
+  `SpawnLockOnAimPointActorWithRoot` and update its call sites.
+- Regression-test name: `ComposableCameraSystem IDE unity test compile`.
+- Test blocker: this is a C++ translation-unit compile failure; no runtime
+  automation test can run until compilation succeeds. Project rules prohibit
+  Codex from invoking UBT or IDE compilation from shell, so user must recompile
+  in Rider / Visual Studio.
+- Avoid next time: give test-local helpers file-specific names even inside
+  anonymous namespaces, especially in `Private/Tests` where unity grouping is
+  common.
+- Possible conflicts: none expected; this changes only a private test helper
+  name and two call sites.
+
+## 2026-06-23 - Viewport Legend listed the whole debug palette under All CVars
+
+- Symptom: the debug panel's bottom Legend could show every node and transition
+  color entry when `CCS.Debug.Viewport.Nodes.All` or
+  `CCS.Debug.Viewport.Transitions.All` was enabled, even if the current camera
+  did not contain those node types and no transition of that type was running.
+- Trigger / repro: enable `CCS.Debug.Panel`, `CCS.Debug.Viewport`, and the node
+  / transition All viewport CVar while playing a camera with only a small subset
+  of debug-capable nodes, then look at the bottom Legend.
+- Why it happens: `BuildLegendRows` filtered only by viewport CVars. The shared
+  palette correctly listed every known gizmo type, but the panel did not compare
+  those entries against the current `RunningCamera` or the active evaluation
+  tree.
+- Root cause: the Legend conflated "debug type exists and is enabled globally"
+  with "this type can draw this frame".
+- Touched files:
+  - `Source/ComposableCameraSystem/Private/Debug/ComposableCameraDebugPanel.cpp`
+  - `Source/ComposableCameraSystem/Private/Debug/ComposableCameraViewportDebugLegendUtils.h`
+  - `Source/ComposableCameraSystem/Private/Tests/ComposableCameraBugFixTests.cpp`
+  - `Docs/DesignDoc.md`
+  - `Docs/TechDoc.md`
+  - `Docs/BugLog.md`
+- Fix: add a shared private legend matcher and make the panel require both CVar
+  enablement and relevance. Node rows now match node classes on the current
+  running camera; transition rows now match active `InnerTransition` class names
+  in the active context tree snapshot. Source / target swatches appear only when
+  at least one relevant transition row can draw.
+- Regression-test name:
+  `System.Engine.ComposableCameraSystem.Debug.ViewportLegend.MatchesRuntimeClasses`.
+- Test blocker: automation test added, but project rules prohibit Codex from
+  invoking Unreal automation or UBT from shell. User must compile and run the
+  test from Rider / Visual Studio / Unreal Editor.
+- Avoid next time: palette metadata is not draw state. Any panel row that claims
+  "currently drawing" must also check the live camera / active tree source that
+  invokes the corresponding draw override.
+- Possible conflicts: Blueprint subclasses whose class names do not include the
+  base gizmo token may not match transition rows because tree snapshots store
+  display class names, not `UClass*`. Node rows walk the superclass chain and
+  should handle inherited node gizmo overrides.
+
 ## 2026-06-17 - Rewind trace writers compiled into non-editor runtime builds
 
 - Symptom: CCS Rewind support was intended to be editor-only, but the runtime

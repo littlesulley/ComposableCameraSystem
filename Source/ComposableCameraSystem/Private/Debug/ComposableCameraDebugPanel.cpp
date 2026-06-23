@@ -16,6 +16,7 @@
 #include "DataAssets/ComposableCameraTypeAsset.h"
 #include "Debug/ComposableCameraLogCapture.h"
 #include "Debug/ComposableCameraViewportDebug.h"
+#include "Debug/ComposableCameraViewportDebugLegendUtils.h"
 #include "Debug/DebugDrawService.h"
 #include "Modifiers/ComposableCameraModifierBase.h"
 #include "Patches/ComposableCameraPatchManager.h"
@@ -2080,7 +2081,7 @@ namespace
 
 	// Universal transition endpoint markers. Source/target colors painted
 	// by DrawStandardTransitionDebug. Only relevant when at least one
-	// transition CVar is on, so we gate these on ShouldShowAllTransitionGizmos()
+	// transition CVar is on, so we gate these on the Transitions.All CVar
 	// OR any per-transition entry being enabled.
 	static const FLinearColor CLegendSource =
 		FComposableCameraViewportDebugColors::ToLinearColor(FComposableCameraViewportDebugColors::SourcePose());
@@ -2089,7 +2090,7 @@ namespace
 
 	/** Read an int32 CVar by name. Returns false if the CVar doesn't exist
 	 *  or is zero. String lookup is done fresh each call. Fine at legend
-	 *  frequency (at most ~20 lookups per frame). */
+	 *  frequency because the metadata list is small and fixed. */
 	static bool IsCVarEnabled(const TCHAR* Name)
 	{
 		if (!Name) { return false; }
@@ -2097,20 +2098,59 @@ namespace
 		return CVar && CVar->GetInt() != 0;
 	}
 
-	/** True when at least one transition gizmo is currently drawing. Used
-	 *  to decide whether to show the universal Source/Target swatches. */
-	static bool AnyTransitionEnabled()
+	static bool IsLegendEntryEnabledByCVar(
+		const FComposableCameraViewportDebugLegendEntry& E,
+		bool bShowAllTransitions,
+		bool bShowAllNodes)
 	{
-		if (FComposableCameraViewportDebug::ShouldShowAllTransitionGizmos())
+		return E.bIsTransition
+			? (bShowAllTransitions || IsCVarEnabled(E.CVarName))
+			: (bShowAllNodes       || IsCVarEnabled(E.CVarName));
+	}
+
+	static bool IsLegendEntryRelevantToRunningCamera(
+		const FComposableCameraViewportDebugLegendEntry& E,
+		const AComposableCameraCameraBase* RunningCamera)
+	{
+		if (!RunningCamera)
 		{
-			return true;
+			return false;
 		}
-		for (const FComposableCameraViewportDebugLegendEntry& E : FComposableCameraViewportDebug::GetLegendEntries())
+
+		for (const UComposableCameraCameraNodeBase* Node : RunningCamera->CameraNodes)
 		{
-			if (E.bIsTransition && IsCVarEnabled(E.CVarName))
+			if (Node && ComposableCameraViewportDebugLegend::EntryMatchesClass(E, Node->GetClass()))
 			{
 				return true;
 			}
+		}
+		return false;
+	}
+
+	static bool IsLegendEntryRelevantToActiveTransitions(
+		const FComposableCameraViewportDebugLegendEntry& E,
+		const FComposableCameraContextStackSnapshot& StackSnapshot)
+	{
+		for (const FComposableCameraContextSnapshot& Context : StackSnapshot.Contexts)
+		{
+			if (!Context.bIsActive || Context.bIsPendingDestroy)
+			{
+				continue;
+			}
+
+			for (const FComposableCameraTreeNodeSnapshot& TreeNode : Context.TreeNodes)
+			{
+				if (TreeNode.Kind != EComposableCameraTreeNodeKind::InnerTransition || TreeNode.bDestroyed)
+				{
+					continue;
+				}
+
+				if (ComposableCameraViewportDebugLegend::EntryMatchesClassName(E, TreeNode.DisplayLabel))
+				{
+					return true;
+				}
+			}
+			return false;
 		}
 		return false;
 	}
@@ -2125,6 +2165,8 @@ namespace
 	 *  per-item CVar is inert and we'd end up labelling colors that
 	 *  aren't on screen. Early-return empty in that case. */
 	static void BuildLegendRows(
+		const FPanelCtx& Ctx,
+		const FComposableCameraContextStackSnapshot& StackSnapshot,
 		TArray<TPair<FString, FLinearColor>>& OutTransitionRows,
 		TArray<TPair<FString, FLinearColor>>& OutNodeRows)
 	{
@@ -2133,25 +2175,38 @@ namespace
 			return;
 		}
 
-		const bool bShowAllTransitions = FComposableCameraViewportDebug::ShouldShowAllTransitionGizmos();
-		const bool bShowAllNodes       = FComposableCameraViewportDebug::ShouldShowAllNodeGizmos();
-
-		// Universal entries first (both lead the transition column).
-		if (AnyTransitionEnabled())
-		{
-			OutTransitionRows.Add({ TEXT("Source pose"), CLegendSource });
-			OutTransitionRows.Add({ TEXT("Target pose"), CLegendTarget });
-		}
+		const bool bShowAllTransitions = IsCVarEnabled(TEXT("CCS.Debug.Viewport.Transitions.All"));
+		const bool bShowAllNodes       = IsCVarEnabled(TEXT("CCS.Debug.Viewport.Nodes.All"));
+		const AComposableCameraCameraBase* RunningCamera = Ctx.PCM ? Ctx.PCM->GetRunningCamera() : nullptr;
+		TArray<TPair<FString, FLinearColor>> TransitionRows;
 
 		for (const FComposableCameraViewportDebugLegendEntry& E : FComposableCameraViewportDebug::GetLegendEntries())
 		{
-			const bool bEnabled = E.bIsTransition
-				? (bShowAllTransitions || IsCVarEnabled(E.CVarName))
-				: (bShowAllNodes       || IsCVarEnabled(E.CVarName));
+			const bool bEnabled = IsLegendEntryEnabledByCVar(E, bShowAllTransitions, bShowAllNodes);
 			if (!bEnabled) { continue; }
 
-			auto& TargetList = E.bIsTransition ? OutTransitionRows : OutNodeRows;
-			TargetList.Add({ E.Label, FComposableCameraViewportDebugColors::ToLinearColor(E.Color) });
+			if (E.bIsTransition)
+			{
+				if (!IsLegendEntryRelevantToActiveTransitions(E, StackSnapshot)) { continue; }
+				TransitionRows.Add({ E.Label, FComposableCameraViewportDebugColors::ToLinearColor(E.Color) });
+			}
+			else
+			{
+				if (!IsLegendEntryRelevantToRunningCamera(E, RunningCamera)) { continue; }
+				OutNodeRows.Add({ E.Label, FComposableCameraViewportDebugColors::ToLinearColor(E.Color) });
+			}
+		}
+
+		// Universal source/target colors are painted by standard transition
+		// debug only when a relevant transition row can also draw.
+		if (TransitionRows.Num() > 0)
+		{
+			OutTransitionRows.Add({ TEXT("Source pose"), CLegendSource });
+			OutTransitionRows.Add({ TEXT("Target pose"), CLegendTarget });
+			for (TPair<FString, FLinearColor>& Row : TransitionRows)
+			{
+				OutTransitionRows.Add(MoveTemp(Row));
+			}
 		}
 	}
 
@@ -2865,7 +2920,7 @@ namespace
 		const bool bWantLegend = CVarPanelLegend.GetValueOnGameThread() != 0;
 		if (bWantLegend)
 		{
-			BuildLegendRows(LegendTransRows, LegendNodeRows);
+			BuildLegendRows(Ctx, StackSnapshot, LegendTransRows, LegendNodeRows);
 		}
 		const float LegendH = bWantLegend
 			? ComputeLegendBodyHeight(LegendTransRows, LegendNodeRows)

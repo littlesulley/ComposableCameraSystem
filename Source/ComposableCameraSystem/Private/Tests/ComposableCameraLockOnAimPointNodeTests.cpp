@@ -28,7 +28,7 @@ namespace
 		RuntimeData.OutputPinOffsets.Add(FComposableCameraPinKey{NodeIndex, PinName}, Offset);
 	}
 
-	AActor* SpawnActorWithRoot(UWorld* World, const FVector& Location)
+	AActor* SpawnLockOnAimPointActorWithRoot(UWorld* World, const FVector& Location)
 	{
 		AActor* Actor = World ? World->SpawnActor<AActor>(AActor::StaticClass(), FTransform::Identity) : nullptr;
 		if (!Actor)
@@ -298,8 +298,8 @@ bool FLockOnAimPointNodeResolvesActorSourcesTest::RunTest(const FString& Paramet
 	World->InitializeActorsForPlay(FURL());
 	World->BeginPlay();
 
-	AActor* FollowActor = SpawnActorWithRoot(World, FVector::ZeroVector);
-	AActor* AimActor = SpawnActorWithRoot(World, FVector(100.f, 0.f, 0.f));
+	AActor* FollowActor = SpawnLockOnAimPointActorWithRoot(World, FVector::ZeroVector);
+	AActor* AimActor = SpawnLockOnAimPointActorWithRoot(World, FVector(100.f, 0.f, 0.f));
 
 	FComposableCameraRuntimeDataBlock RuntimeData;
 	AddLockOnAimPointVectorOutputSlot(RuntimeData, 0, TEXT("PivotPosition"), 0);

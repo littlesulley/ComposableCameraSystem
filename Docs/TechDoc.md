@@ -1,6 +1,6 @@
 # ComposableCameraSystem Tech Notes
 
-Updated: 2026-06-17
+Updated: 2026-06-23
 
 Purpose: compact implementation reference. Keep this file current when code
 patterns, public APIs, hot-path rules, node catalogs, or gotchas change.
@@ -389,7 +389,11 @@ Runtime debug:
 - viewport debug draw CVars.
 - viewport gizmo colors live in `FComposableCameraViewportDebugColors`; the
   panel Legend reads `FComposableCameraViewportDebug::GetLegendEntries()` so
-  swatches and 3D markers share one source of truth.
+  swatches and 3D markers share one source of truth. Legend rows still require
+  the matching viewport debug CVar or `*.All` shortcut, but the panel filters
+  them again through `ComposableCameraViewportDebugLegendUtils`: node rows must
+  match a node class on the current `RunningCamera`, and transition rows must
+  match an `InnerTransition` class in the active context tree snapshot.
 - `FComposableCameraDebugDrawSink` is the primitive emission adapter. The live
   sink sends line / point / sphere / box / plane / frustum calls to Unreal debug
   draw helpers and keeps solid spheres routed through
@@ -773,6 +777,14 @@ Rules:
   damping helper computes only `Target - Current` progress, add it back to the
   current value before returning; Spline, FocusPull, and VolumeConstraint reset
   double interpolators from their last smoothed output each frame.
+- Viewport Legend `Nodes.All` / `Transitions.All` means "show all relevant
+  current-camera / active-transition legend rows", not the entire palette. Keep
+  legend filtering tied to the same runtime classes that can actually draw this
+  frame.
+- Automation-test helpers in anonymous namespaces still need file-specific
+  names. UE unity builds can concatenate multiple test `.cpp` files into one
+  translation unit, where two same-signature anonymous-namespace helpers with
+  the same name become duplicate definitions.
 
 ## 22. Build and Verification
 
