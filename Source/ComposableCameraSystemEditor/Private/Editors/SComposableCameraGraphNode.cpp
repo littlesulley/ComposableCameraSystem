@@ -4,6 +4,7 @@
 #include "Editors/ComposableCameraNodeGraphNode.h"
 #include "Cameras/ComposableCameraCameraBase.h"
 #include "ComposableCameraEditorStyle.h"
+#include "Nodes/ComposableCameraCameraNodeBase.h"
 
 #include "SGraphPin.h"
 #include "Framework/Application/SlateApplication.h"

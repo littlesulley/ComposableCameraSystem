@@ -6,6 +6,7 @@
 #include "ComposableCameraEditorStyle.h"
 #include "Editors/ComposableCameraNodeGraph.h"
 #include "Editors/ComposableCameraNodeGraphNode.h"
+#include "Nodes/ComposableCameraCameraNodeBase.h"
 
 #include "Styling/AppStyle.h"
 #include "Widgets/Images/SImage.h"

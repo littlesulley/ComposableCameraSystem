@@ -10,6 +10,7 @@
 
 class UComposableCameraTypeAsset;
 class UComposableCameraNodeGraph;
+class UComposableCameraNodeGraphNode;
 class UAssetEditor;
 class AComposableCameraCameraBase;
 class AActor;

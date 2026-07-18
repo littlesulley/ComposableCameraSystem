@@ -1,5 +1,38 @@
 # Bug Log
 
+## 2026-07-19 - Runtime Debug editor files relied on incomplete node types
+
+- Symptom: editor compilation failed with C2061/C2665/C2511 around
+  `ShowRuntimeDebugForNode`, then C2027/C2232 when Runtime Debug widgets called
+  `NodeTemplate->GetClass()`.
+- Trigger / repro: compile the Runtime Debug port as separate editor translation
+  units, as done by the UE5.7 build that reported the failure.
+- Why it happens: the toolkit header used
+  `UComposableCameraNodeGraphNode*` without declaring that type. Two widget
+  implementation files dereferenced `UComposableCameraCameraNodeBase` while
+  seeing only its forward declaration through other headers.
+- Root cause: new Runtime Debug code depended on incidental transitive/unity
+  includes instead of declaring pointer-only types and including definitions at
+  dereference sites.
+- Touched files:
+  - `Source/ComposableCameraSystemEditor/Public/Toolkits/ComposableCameraTypeAssetEditorToolkit.h`
+  - `Source/ComposableCameraSystemEditor/Private/Editors/SComposableCameraGraphNode.cpp`
+  - `Source/ComposableCameraSystemEditor/Private/Widgets/SComposableCameraRuntimeDebugPanel.cpp`
+  - `Docs/BugLog.md`
+- Fix: forward-declare `UComposableCameraNodeGraphNode` in the toolkit header;
+  explicitly include `Nodes/ComposableCameraCameraNodeBase.h` in both widget
+  implementation files before dereferencing `NodeTemplate`.
+- Regression-test name: `ComposableCameraSystemEditor non-unity compile: Runtime Debug include completeness`.
+- Test blocker: this failure occurs before an automation module can load.
+  Project rules also prohibit command-line UBT. Verify by fully rebuilding the
+  Editor target in Rider or Visual Studio with the affected files compiled as
+  separate translation units.
+- Avoid next time: forward-declare every pointer parameter named by a public
+  header; include the defining header in each `.cpp` that dereferences an
+  otherwise incomplete UObject type. Never rely on unity grouping.
+- Possible conflicts: none. Only compile-time type visibility changes; runtime
+  debug behavior and serialized data remain unchanged.
+
 ## 2026-07-18 - Collapsing Runtime Debug rows hides lower nodes
 
 - Symptom: with all Runtime Debug items expanded, collapsing the first few rows
