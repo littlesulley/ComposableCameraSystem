@@ -1526,9 +1526,11 @@ namespace
 	//
 	// Color convention:
 	//   CLabel   . Section / group headers
-	//   CValue   . Modifier body lines
+	//   CModifierInactive. Registered but non-effective modifier body lines
 	//   CActiveMarker. Effective entry (both in section 1, and `[*]` lines in section 2)
 	//   CNeutral . Empty-state "(none)" placeholders
+	static const FLinearColor CModifierInactive(0.70f, 0.88f, 1.00f, 1.00f);
+
 	static void BuildModifiersLines(const FPanelCtx& Ctx, FRegionLines& Out)
 	{
 		Out.Title = TEXT("Modifiers");
@@ -1618,7 +1620,7 @@ namespace
 						Entry.Asset->Priority,
 						QueryDescription.IsEmpty() ? TEXT("Tag Query") : *QueryDescription,
 						bIsEffective ? TEXT("  [*]") : TEXT("")),
-					bIsEffective ? CActiveMarker : CValue });
+					bIsEffective ? CActiveMarker : CModifierInactive });
 			}
 		}
 	}
