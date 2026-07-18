@@ -518,6 +518,56 @@ Editor debug:
 
 - selected runtime instance picker in type asset editor.
 - graph overlay of live node data.
+- node tooltips append live `Runtime Parameters` from copied graph-node debug
+  state. `SnapshotDebugState` prefers each declared input's resolved data-block
+  slot, including exact reflected export for struct slots. It falls back to the
+  runtime UPROPERTY when no slot exists; modifier-owned fields intentionally use
+  that property because modifiers outrank pins. Remaining editable node and
+  subobject properties follow. Runtime-data presence is tracked independently
+  of active-node glow so skipped nodes remain inspectable. Slate consumes
+  strings only and never follows runtime node pointers.
+- `SComposableCameraGraphNode::GetToolTip` conditionally supplies a lazy
+  interactive `SToolTip` only while runtime debug data exists. It keeps the
+  normal `SGraphNode` tooltip path for authoring mode, caches one card for the
+  current hover, and drops it from `OnToolTipClosing`. Because UE interactive
+  tooltips intentionally remain open after leaving their source, the node Tick
+  closes it only after neither node nor card is hovered for a short grace
+  interval. Parameter text attributes capture only a weak graph-node pointer
+  plus row index. Theme-aware rounded brushes live in
+  `FComposableCameraEditorStyle`; do not fall back to CoreStyle's bright
+  `ToolTip.Background` for this card.
+- Runtime hover card content is shared by its transient `SToolTip` and a pinned
+  `SWindow`. Pin detaches the existing card widget, captures the tooltip host's
+  screen position, closes the reusable tooltip host, and inserts the same card
+  at that position into at most one native child observer per graph-node Slate
+  widget. Tooltip-host positions are already physical desktop coordinates;
+  disable initial `SWindow` DPI size/position adjustment or high-DPI desktops
+  scale the position twice. Repeated requests foreground it; owner destruction
+  closes it. Pinned attributes read only weak graph-node state;
+  active/idle/no-data status stays live without retaining PIE runtime objects.
+- `SComposableCameraRuntimeDebugPanel` provides the default-left aggregate
+  view. It filters copied graph-node state to active camera nodes, keeps
+  expansion state by weak graph-node identity, and rebuilds `SListView` rows
+  only for membership/filter/parameter-count/expansion changes. Pose and
+  parameter text attributes remain live weak reads. Search matches title, class display name,
+  and parameter labels. List selection is disabled; programmatic navigation
+  scrolls directly and drives an outer content tint plus hit-test-invisible
+  node-color overlay through a 1.25-second linear `FCurveSequence`. Every
+  navigation restarts the sequence, producing clear whole-item feedback without
+  selected-row blue. Headers omit parameter-count text. Non-empty membership,
+  parameter-shape, and expansion refreshes arm one post-generation layout pass;
+  `OnItemsRebuilt` consumes that flag and calls `RequestListRefresh` once more.
+  The second pass reuses generated rows after expanded/wrapped DesiredSize values
+  stabilize, recalculates collapsed-row scroll range and lower-row
+  virtualization, and clears the flag before requesting refresh, preventing
+  callback loops.
+- Runtime-debug navigation uses
+  `UComposableCameraNodeGraph::RequestShowRuntimeDebug`, a non-serialized
+  multicast delegate bound by the owning toolkit. Double-click and the active-
+  only `Show Debug Information` context action route through this bridge. The
+  toolkit invokes `RuntimeDebugTabId`, clears hiding search text, expands the
+  target row, requests scroll into view, and starts the focus fade. Remove the
+  delegate in toolkit teardown before releasing the rooted graph.
 - runtime previewer tab showing visible-subject-local camera relation.
 - Rewind Debugger trace ingestion through the editor `Trace` folder:
   `FComposableCameraTraceModule` registers a TraceServices module,
@@ -575,8 +625,8 @@ Rewind provider technique:
 
 Runtime Previewer technique:
 
-- The Camera Type Asset editor registers `RuntimePreviewerTabId`, but does not
-  include it in the default layout.
+- Camera Type Asset layout v3 opens `RuntimeDebugTabId` in the left observer
+  stack and keeps `RuntimePreviewerTabId` closed in that same stack.
 - `SComposableCameraRuntimePreviewer` follows the Shot Editor viewport lifetime
   pattern: widget owns `FAdvancedPreviewScene`, viewport client borrows it, and
   widget destruction clears `ViewportClient->Viewport` before draining scene
@@ -795,7 +845,11 @@ Existing test files include:
 - `ComposableCameraShotSolverTests.cpp`
 - `ComposableCameraPivotLookAheadNodeTests.cpp`
 - `ComposableCameraLockOnAimPointNodeTests.cpp`
+- `ComposableCameraModifierPropertyOverrideTests.cpp`
+- `ComposableCameraDebugSnapshotTests.cpp`
 - `ComposableCameraNodeGraphSyncTests.cpp`
+- `ComposableCameraNodeRuntimeTooltipTests.cpp`
+- `ComposableCameraRuntimeDebugPanelTests.cpp`
 - `ComposableCameraSetRotationNodeTests.cpp`
 
 Codex must not invoke Unreal automation from shell in this project. Run tests
@@ -858,6 +912,20 @@ Rules:
   names. UE unity builds can concatenate multiple test `.cpp` files into one
   translation unit, where two same-signature anonymous-namespace helpers with
   the same name become duplicate definitions.
+- A virtualized `SListView` does not automatically revise cached variable row
+  heights when a nested `SExpandableArea` changes state. Route visible
+  expansion changes through list refresh plus post-rebuild measurement.
+- Do not mix `TObjectPtr<T>` and raw `T*` in a conditional expression. Call
+  `.Get()` first, or use explicit branches when returning `TSubclassOf<T>` from
+  a `UClass*`. In UE 5.6, include `PropertyHandle.h` for `IPropertyHandle`.
+- Type-asset identity fields are copied after camera `Initialize()`. Any cache
+  derived from `CameraTags` must refresh at the copy site; use
+  `AComposableCameraCameraBase::RefreshCameraTags()` rather than updating the
+  container and cached trace label independently.
+- UE module dependencies are not linker-transitive. A module that directly
+  calls exported `FGameplayTagContainer` / `FGameplayTagQuery` methods must list
+  `GameplayTags` in its own Build.cs, even when a depended-on runtime module
+  already lists it.
 
 ## 22. Build and Verification
 

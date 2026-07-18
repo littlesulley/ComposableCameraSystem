@@ -6,6 +6,8 @@
 #include "SGraphNode.h"
 
 class UComposableCameraNodeGraphNode;
+class SToolTip;
+class SWindow;
 
 /**
  * Custom SGraphNode widget for UComposableCameraNodeGraphNode instances.
@@ -34,13 +36,47 @@ public:
 	SLATE_BEGIN_ARGS(SComposableCameraGraphNode) {}
 	SLATE_END_ARGS()
 
+	virtual ~SComposableCameraGraphNode() override;
+
 	void Construct(const FArguments& InArgs, UComposableCameraNodeGraphNode* InNode);
 
-	// SGraphNode Interface 
+	/** Promote the transient hover card into one movable, persistent window. */
+	void PinRuntimeDebugWindow();
+
+	/** Close this node's persistent runtime-debug window, if any. */
+	void ClosePinnedRuntimeDebugWindow();
+
+	/** Whether this node currently owns a persistent runtime-debug window. */
+	bool IsRuntimeDebugWindowPinned() const { return PinnedRuntimeDebugWindow.IsValid(); }
+
+#if WITH_DEV_AUTOMATION_TESTS
+	/** Test seam for the interactive-tooltip leave grace rule. */
+	static bool ShouldCloseRuntimeDebugToolTipForTesting(
+		bool bSourceHovered,
+		bool bToolTipHovered,
+		double SecondsSinceLastHover);
+
+	/** Whether the last Pin operation moved the existing hover card. */
+	bool DidLastPinReuseHoverCardForTesting() const { return bLastPinReusedHoverCard; }
+
+	/** Whether the pinned window kept the captured physical screen position. */
+	bool DidLastPinPreserveScreenPositionForTesting() const
+	{
+		return bLastPinPreservedScreenPosition;
+	}
+#endif
+
+	// SGraphNode Interface
 
 	virtual void UpdateGraphNode() override;
 
-	// SWidget Interface 
+	// SWidget Interface
+
+	virtual TSharedPtr<IToolTip> GetToolTip() override;
+	virtual void OnToolTipClosing() override;
+	virtual void Tick(const FGeometry& AllottedGeometry,
+		double InCurrentTime,
+		float InDeltaTime) override;
 
 	virtual int32 OnPaint(const FPaintArgs& Args,
 		const FGeometry& AllottedGeometry,
@@ -54,8 +90,42 @@ private:
 	/** The backing graph node (typed accessor to avoid repeated casts). */
 	UComposableCameraNodeGraphNode* CameraGraphNode = nullptr;
 
+	/** Lazily-built dark runtime tooltip. Reset when hover closes so the next
+	 *  opening reflects any parameter-list shape change. */
+	TSharedPtr<SToolTip> RuntimeDebugToolTip;
+
+	/** Independent debug observer created from the hover card's Pin action. */
+	TSharedPtr<SWindow> PinnedRuntimeDebugWindow;
+
+	/** Last time either the graph node or interactive card was under the cursor. */
+	double LastRuntimeDebugHoverTime = 0.0;
+
+	/** Test-visible record of whether Pin promoted the existing card widget. */
+	bool bLastPinReusedHoverCard = false;
+
+	/** Test-visible record that SWindow did not apply a second DPI transform. */
+	bool bLastPinPreservedScreenPosition = false;
+
 	/** Whether the debug state indicates this node was active last tick. */
 	bool IsDebugActive() const;
+
+	/** Build the styled runtime parameter card shown during PIE debugging. */
+	TSharedRef<SToolTip> BuildRuntimeDebugToolTip();
+
+	/** Build shared card content for transient tooltip or pinned window. */
+	TSharedRef<SWidget> BuildRuntimeDebugCard(bool bShowPinAction);
+
+	/** Handle the Pin button embedded in the transient hover card. */
+	FReply HandlePinRuntimeDebugWindow();
+
+	/** Interactive tooltips persist by default; apply CCS leave semantics. */
+	static bool ShouldCloseRuntimeDebugToolTip(
+		bool bSourceHovered,
+		bool bToolTipHovered,
+		double SecondsSinceLastHover);
+
+	/** Release state after the user closes the pinned window title bar. */
+	void HandlePinnedRuntimeDebugWindowClosed(const TSharedRef<SWindow>& ClosedWindow);
 
 	/** Paint the debug footer below the node body. */
 	void PaintDebugFooter(const FGeometry& AllottedGeometry,

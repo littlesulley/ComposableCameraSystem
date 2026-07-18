@@ -156,9 +156,10 @@ private:
 		UComposableCameraNodeGraphNode* CameraGraphNode,
 		const UEdGraphPin* ClickedPin);
 
-	/** Add the "Delete" node-body entry for a right-click on a user-deletable
-	 * node (no pin targeted). Delegates to a `Modify->DestroyNode -> Sync`
-	 * lambda that works even when the tool menu context lacks a command list. */
+	/** Add active-node Runtime Debug navigation and, when allowed, Delete for
+	 * a node-body right-click. Delete delegates to a
+	 * `Modify -> DestroyNode -> Sync` lambda that works even when the tool
+	 * menu context lacks a command list. */
 	static void BuildNodeContextMenuActions(UToolMenu* Menu,
 		const UEdGraphNode* ClickedNode);
 

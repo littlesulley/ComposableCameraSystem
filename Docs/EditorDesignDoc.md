@@ -44,6 +44,7 @@ Current surfaces:
 - graph tab.
 - details tab.
 - build messages tab.
+- runtime debug tab, default-open in the left editor stack.
 - runtime previewer tab, opened from the Window menu.
 - debug instance picker / graph overlay.
 - toolbar command to open Shot Editor for selected composition framing node.
@@ -52,10 +53,11 @@ The toolkit uses `FBaseAssetToolkit`. It owns graph commands, selection sync,
 save/build hooks, property-change hooks, debug ticker, and selected-instance
 tracking.
 
-Runtime Previewer is not part of the default layout. `RuntimePreviewerTabId`
-registers with the toolkit's local tab manager so users can open or close it
-from Window like other optional editor tabs. It shares the existing Debug
-instance picker selection; it does not create a separate runtime camera picker.
+The v3 default layout places `RuntimeDebugTabId` in a narrow left stack beside
+the graph and Details panels. `RuntimePreviewerTabId` is a closed tab in that
+same stack, so Window opens it in the same local observer area instead of an
+unrelated floating region. Both share the existing Debug instance picker
+selection; neither creates a separate runtime camera picker.
 
 Delegate rule: any `AddRaw(this, ...)` binding to a details view, graph, ticker,
 or external editor object must be explicitly removed in the toolkit destructor.
@@ -380,7 +382,7 @@ Flow:
 selected PIE/world camera instance
   -> editor debug snapshot
   -> graph node overlay
-  -> details/debug panels
+  -> runtime debug tab
   -> runtime previewer tab
 ```
 
@@ -390,6 +392,77 @@ Rules:
 - Clear debug state on PIE end and toolkit destruction.
 - Snapshot values before painting.
 - Do not deref stale runtime pointers from Slate paint.
+
+Node hover debug:
+
+- Every runtime node snapshot carries its current parameter values as owned
+  strings. Declared input parameters appear first. Editable runtime properties
+  not represented by pins follow, covering Details-only arrays, curves, and
+  other node-specific settings. Shared node metadata such as `PaletteCategory`
+  is excluded.
+- Declared inputs read the resolved runtime data-block slot first, covering
+  wires, exposed parameters, authored overrides, and nodes that opt out of
+  automatic UPROPERTY resolution. If no slot exists, the live runtime property
+  supplies its authored/current value. A PCM modifier-owned field deliberately
+  reads the property instead because that layer outranks the data block.
+- Toolkit copies these strings into transient graph-node debug state. During
+  PIE, `SComposableCameraGraphNode` replaces the default bright documentation
+  tooltip with an on-demand dark runtime card: node-color accent, Active/Idle
+  badge, description/error area, alternating two-column parameter rows,
+  monospaced accent values, and a height-limited interactive scroll view.
+  Value text uses weak graph-node attributes, so it refreshes while the card is
+  open; the card is rebuilt on the next hover when parameter-list shape changes.
+  UE interactive tooltips otherwise persist after leaving their source, so the
+  node widget explicitly closes the card after the cursor leaves both node and
+  card, with a short grace interval for crossing between them. Its header Pin
+  action detaches that exact card from Slate's reusable tooltip host and
+  promotes it at the same screen position into one independent movable observer
+  window for that graph node. Tooltip-host positions are already DPI-adjusted
+  physical desktop coordinates, so the pinned `SWindow` disables its default
+  initial DPI position adjustment. The pinned window survives hover exit,
+  remains above its parent editor, keeps reading copied graph-node debug state,
+  and reports `NO DATA` after runtime state clears. Repeated Pin actions reuse
+  and foreground the existing window; closing the node widget closes its pinned
+  observer so stale Slate windows cannot survive graph reconstruction.
+  Outside runtime debugging, the standard graph tooltip remains unchanged.
+  Slate never dereferences the runtime node.
+- Runtime-data presence is separate from active-node glow. A skipped node can
+  still expose its current parameter state while remaining visually inactive.
+
+Runtime Debug panel:
+
+- `SComposableCameraRuntimeDebugPanel` is default-open in the Camera Type
+  editor's left stack. It reads the same transient graph-node debug copies as
+  hover cards and never retains runtime camera or node objects.
+- Only camera nodes with both runtime data and current active/ticked state are
+  listed. Items are ordered by runtime node index, default expanded, and use a
+  left disclosure button to collapse or expand the pose plus live parameter
+  rows. Value attributes keep reading weak graph-node state; the list rebuilds
+  only when active membership, search results, parameter-row shape, or item
+  expansion changes.
+  Item headers show node name and Active badge without a parameter-count number.
+  After a non-empty rebuild, `OnItemsRebuilt` requests exactly one additional
+  layout pass. This lets expanded rows settle width-dependent wrapped-text
+  heights and lets collapsed rows update the list's scroll range plus lower-row
+  virtualization, without requiring a user scroll or rebuilding continuously.
+- The top search box matches node title, node class display name, and parameter
+  labels. Filtering can never reveal an inactive node.
+- Double-clicking an active graph node or choosing `Show Debug Information`
+  from its node-body context menu invokes a transient graph-to-toolkit request.
+  Toolkit opens/focuses Runtime Debug, clears a filter that could hide the
+  target, expands its item, requests scroll into view, and runs a 1.25-second
+  linear node-color fade across the whole item. A semi-transparent accent
+  overlay plus content tint makes the target obvious; repeated navigation
+  restarts the effect at full strength. The list keeps selection disabled, so
+  navigation never leaves Unreal's blue selected-row background. The context action is disabled
+  and double-click is a no-op without active runtime data. The request delegate
+  is removed during toolkit teardown.
+- Expandable debug groups follow GameplayCamerasEditor
+  `Private/Debugger/SGameplayCamerasDebugger.cpp`; search/list scrolling follows
+  `Private/Editors/SCameraVariableCollectionEditor.cpp`. The focus fade follows
+  the `FCurveSequence` pulse pattern in PropertyEditor
+  `Private/SDetailSingleItemRow.cpp`. CCS keeps its own copied graph-node data
+  model rather than adopting those editors' runtime ownership.
 
 Runtime Previewer:
 

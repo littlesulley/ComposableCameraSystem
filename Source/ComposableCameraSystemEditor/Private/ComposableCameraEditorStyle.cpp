@@ -2,6 +2,7 @@
 
 #include "ComposableCameraEditorStyle.h"
 
+#include "Brushes/SlateRoundedBoxBrush.h"
 #include "Interfaces/IPluginManager.h"
 #include "Styling/AppStyle.h"
 #include "Styling/CoreStyle.h"
@@ -55,6 +56,23 @@ FComposableCameraEditorStyle::FComposableCameraEditorStyle()
 		/ TEXT("Resources/Content");
 	SetContentRoot(ContentDir);
 	SetCoreContentRoot(FPaths::EngineContentDir() / TEXT("Slate"));
+
+	// Runtime graph-node tooltip. Explicit dark/editor-theme brushes replace
+	// CoreStyle's bright documentation tooltip while keeping colors theme-aware.
+	Set("DebugTooltip.Background",
+		new FSlateRoundedBoxBrush(FStyleColors::Background, 6.f, FStyleColors::Secondary, 1.f));
+	Set("DebugTooltip.Header",
+		new FSlateRoundedBoxBrush(FStyleColors::Header, FVector4(5.f, 5.f, 0.f, 0.f)));
+	Set("DebugTooltip.Row",
+		new FSlateRoundedBoxBrush(FStyleColors::Recessed, 3.f));
+	Set("DebugTooltip.RowAlternate",
+		new FSlateRoundedBoxBrush(FStyleColors::Panel, 3.f));
+	Set("DebugTooltip.ActiveBadge",
+		new FSlateRoundedBoxBrush(FStyleColors::AccentGreen, 8.f));
+	Set("DebugTooltip.InactiveBadge",
+		new FSlateRoundedBoxBrush(FStyleColors::Secondary, 8.f));
+	Set("DebugTooltip.ErrorPanel",
+		new FSlateRoundedBoxBrush(FStyleColors::Transparent, 3.f, FStyleColors::Error, 1.f));
 
 	// Content Browser thumbnails and class icons 
 	// The engine resolves these by the naming convention

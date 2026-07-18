@@ -13,6 +13,7 @@ class UComposableCameraNodeGraph;
 class UAssetEditor;
 class AComposableCameraCameraBase;
 class AActor;
+class SComposableCameraRuntimeDebugPanel;
 class SComposableCameraRuntimePreviewer;
 struct FComposableCameraDebugSnapshot;
 enum class ERuntimePreviewerStatus : uint8;
@@ -26,14 +27,15 @@ enum class ERuntimePreviewerStatus : uint8;
  * Toolbar [Build] 
  * 
  * 
- * Details Panel 
- * Node Graph (selected node properties - 
+ * Runtime Debug | Node Graph | Details Panel
+ *
+ * Node Graph selection drives selected node properties -
  * falls back to the type asset 
  * itself when nothing is selected,
  * so Exposed Parameters, Internal 
  * Variables, and Default 
  * Transition all remain editable 
- * in-place) 
+ * in-place.
  * 
  * 
  * Build Messages (validation log) 
@@ -150,6 +152,7 @@ private:
 	TSharedRef<SDockTab> SpawnTab_GraphEditor(const FSpawnTabArgs& Args);
 	TSharedRef<SDockTab> SpawnTab_Details(const FSpawnTabArgs& Args);
 	TSharedRef<SDockTab> SpawnTab_BuildMessages(const FSpawnTabArgs& Args);
+	TSharedRef<SDockTab> SpawnTab_RuntimeDebug(const FSpawnTabArgs& Args);
 	TSharedRef<SDockTab> SpawnTab_RuntimePreviewer(const FSpawnTabArgs& Args);
 
 	// Toolbar Actions 
@@ -224,6 +227,9 @@ private:
 	/** Clear debug state from all graph nodes. */
 	void ClearGraphNodeDebugState();
 
+	/** Open Runtime Debug, reveal one active node, and force its card open. */
+	void ShowRuntimeDebugForNode(UComposableCameraNodeGraphNode* GraphNode);
+
 	/** Push the selected runtime camera + controlled pawn relation into the previewer tab. */
 	void PushRuntimePreviewData(const FComposableCameraDebugSnapshot& Snapshot);
 
@@ -277,6 +283,9 @@ private:
 	/** Optional Runtime Previewer dock tab content. Created only when the user opens it. */
 	TSharedPtr<SComposableCameraRuntimePreviewer> RuntimePreviewerWidget;
 
+	/** Runtime Debug dock content. Default layout opens it in the left stack. */
+	TSharedPtr<SComposableCameraRuntimeDebugPanel> RuntimeDebugWidget;
+
 	/** Whether we're actively in a PIE/SIE session. */
 	bool bIsPIEActive = false;
 
@@ -289,10 +298,14 @@ private:
 	/** Handle for the debug ticker. */
 	FTSTicker::FDelegateHandle DebugTickerHandle;
 
+	/** Graph schema request bridge; removed before NodeGraph/toolkit teardown. */
+	FDelegateHandle RuntimeDebugRequestHandle;
+
 	/** Tab IDs. */
 	static const FName GraphEditorTabId;
 	static const FName DetailsTabId;
 	static const FName BuildMessagesTabId;
+	static const FName RuntimeDebugTabId;
 	static const FName RuntimePreviewerTabId;
 };
 

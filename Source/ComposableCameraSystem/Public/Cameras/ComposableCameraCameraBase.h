@@ -700,8 +700,8 @@ public:
 	 * Capture a debug snapshot of this camera's current state for editor overlay.
 	 *
 	 * Called by the editor toolkit's debug ticker during PIE. Walks CameraNodes,
-	 * reads per-node DebugPoseAfterTick and output pin values from the
-	 * RuntimeDataBlock, and formats them as human-readable strings.
+	 * reads per-node DebugPoseAfterTick, current node parameters, and output
+	 * pin values, then formats them as human-readable strings.
 	 *
 	 * Zero-cost in non-editor builds (compiled out entirely). The function itself
 	 * does allocate (TArray, FString), but it runs on the editor tick, not the

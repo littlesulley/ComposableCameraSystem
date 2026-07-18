@@ -7,6 +7,19 @@
 
 #if WITH_EDITOR
 
+/** One current runtime parameter value captured for a camera node. */
+struct FComposableCameraNodeParameterDebugValue
+{
+	/** Stable property / pin name. Compound subobject values use `Parent.Child`. */
+	FName ParameterName;
+
+	/** User-facing label from pin metadata or reflected property display text. */
+	FString DisplayName;
+
+	/** Current runtime value, already formatted for editor display. */
+	FString Value;
+};
+
 /**
  * Per-node debug entry captured by AComposableCameraCameraBase::SnapshotDebugState().
  *
@@ -30,6 +43,11 @@ struct FComposableCameraNodeDebugEntry
 	/** Camera pose snapshot captured immediately after this node's TickNode
 	 *  completed. Lets the editor show the cumulative pose at each stage. */
 	FComposableCameraPose PoseAfterNode;
+
+	/** Current values for every authored parameter on this runtime node.
+	 *  Declared inputs come first. Remaining editable properties follow, so
+	 *  Details-only arrays, curves, and other non-pin parameters stay visible. */
+	TArray<FComposableCameraNodeParameterDebugValue> ParameterValues;
 
 	/** Output pin values as human-readable strings for overlay display.
 	 *  Key = pin name, Value = formatted value string.

@@ -141,6 +141,31 @@ FText UComposableCameraNodeGraphNode::GetTooltipText() const
 		Tooltip += ErrorMsg;
 	}
 
+	// During runtime debugging, append current values captured from the live
+	// node instance. GetTooltipText is queried when Slate opens the tooltip, so
+	// this reflects the latest editor-tick snapshot without rebuilding widgets.
+	if (DebugState.bHasRuntimeData)
+	{
+		if (!Tooltip.IsEmpty())
+		{
+			Tooltip += TEXT("\n\n");
+		}
+		Tooltip += LOCTEXT("RuntimeParametersTooltipHeader", "Runtime Parameters").ToString();
+
+		if (DebugState.ParameterDisplayValues.IsEmpty())
+		{
+			Tooltip += TEXT("\n");
+			Tooltip += LOCTEXT("RuntimeParametersTooltipEmpty", "(No editable parameters)").ToString();
+		}
+		else
+		{
+			for (const TPair<FString, FString>& ParameterValue : DebugState.ParameterDisplayValues)
+			{
+				Tooltip += FString::Printf(TEXT("\n%s: %s"), *ParameterValue.Key, *ParameterValue.Value);
+			}
+		}
+	}
+
 	return Tooltip.IsEmpty() ? FText::GetEmpty() : FText::FromString(Tooltip);
 }
 

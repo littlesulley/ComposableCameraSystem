@@ -376,6 +376,13 @@ Available debug surfaces include:
 Snapshots resolve pointers to display data early so UI consumers do not deref
 runtime-owned objects later.
 
+Per-node editor snapshots include the pose after evaluation, output-pin values,
+and owned strings for every current node parameter. Declared inputs are emitted
+before remaining editable properties, so both pin-backed values and
+Details-only node settings are inspectable. The editor uses this data for a
+runtime-parameter hover section and an active-node Runtime Debug panel without
+retaining or dereferencing live runtime node pointers from Slate.
+
 Viewport gizmo colors are centralized in the runtime debug palette. The bottom
 Legend panel reads the same metadata as the 3D draw sites, so swatches match the
 spheres and transition markers. Legend rows are also filtered against current

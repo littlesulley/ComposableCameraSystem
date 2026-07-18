@@ -1,5 +1,215 @@
 # Bug Log
 
+## 2026-07-18 - Collapsing Runtime Debug rows hides lower nodes
+
+- Symptom: with all Runtime Debug items expanded, collapsing the first few rows
+  from top to bottom makes lower node items disappear and leaves a large empty
+  area in the panel.
+- Trigger / repro: run PIE with many active nodes, expand every Runtime Debug
+  item, then collapse them sequentially from the top. The second or third
+  collapse exposes the stale blank region.
+- Why it happens: `SExpandableArea` updates its own DesiredSize, but the owning
+  virtualized `SListView` is not told that a generated variable-height row
+  changed shape. It keeps expanded row heights and the old scroll range, so it
+  does not generate lower rows for newly available space.
+- Root cause: expansion state was persisted in `ExpandedNodes` without routing
+  the row-shape change through the panel's list remeasurement policy.
+- Touched files:
+  - `Source/ComposableCameraSystemEditor/Public/Widgets/SComposableCameraRuntimeDebugPanel.h`
+  - `Source/ComposableCameraSystemEditor/Private/Widgets/SComposableCameraRuntimeDebugPanel.cpp`
+  - `Source/ComposableCameraSystemEditor/Private/Tests/ComposableCameraRuntimeDebugPanelTests.cpp`
+  - `Docs/EditorDesignDoc.md`
+  - `Docs/TechDoc.md`
+  - `Docs/BugLog.md`
+- Fix: centralize variable-height list refresh, invoke it whenever a visible
+  item expands or collapses, and reuse the existing one-shot post-rebuild pass.
+  Both scroll range and lower-row virtualization are then recalculated.
+- Regression-test name:
+  `ComposableCameraSystem.Editor.Debug.RuntimeDebugPanel`.
+- Test blocker: automation verifies that collapse schedules and consumes one
+  remeasurement pass. Exact lower-row generation after sequential clicks needs
+  a PIE visual smoke test after IDE compilation; project rules prohibit
+  launching Unreal Editor automation from shell.
+- Avoid next time: persisting child expansion state is insufficient inside a
+  virtualized variable-height list; notify the owner whenever row shape changes.
+- Possible conflicts: each actual visible expansion change adds one two-pass
+  list refresh. Live value-only updates still do not rebuild rows every frame.
+
+## 2026-07-18 - Pinning a runtime debug card moves it on high-DPI desktops
+
+- Symptom: clicking Pin reuses the visible node debug card, but the resulting
+  persistent window jumps to another screen position instead of staying put.
+- Trigger / repro: use Windows display scaling above 100%, hover a runtime
+  camera node, then click the card's Pin button.
+- Why it happens: the tooltip host position is already a DPI-adjusted physical
+  desktop coordinate. A normal `SWindow` defaults
+  `AdjustInitialSizeAndPositionForDPIScale` to true and multiplies that captured
+  position by the monitor DPI scale again.
+- Root cause: the hover-to-window promotion mixed tooltip physical-screen
+  coordinates with normal-window DPI-adjusted initialization semantics.
+- Touched files:
+  - `Source/ComposableCameraSystemEditor/Public/Editors/SComposableCameraGraphNode.h`
+  - `Source/ComposableCameraSystemEditor/Private/Editors/SComposableCameraGraphNode.cpp`
+  - `Source/ComposableCameraSystemEditor/Private/Tests/ComposableCameraNodeRuntimeTooltipTests.cpp`
+  - `Docs/EditorDesignDoc.md`
+  - `Docs/TechDoc.md`
+  - `Docs/BugLog.md`
+- Fix: construct the pinned native child with
+  `AdjustInitialSizeAndPositionForDPIScale(false)`, matching UE5.6 tooltip-window
+  coordinate semantics. Card identity and captured outer-window position stay
+  unchanged.
+- Regression-test name:
+  `ComposableCameraSystem.Editor.Debug.NodeRuntimeTooltip`.
+- Test blocker: automation verifies the pinned `SWindow` keeps the captured
+  initial screen position. Exact OS placement across mixed-DPI monitors needs a
+  PIE visual smoke test after IDE compilation; project rules prohibit launching
+  Unreal Editor automation from shell.
+- Avoid next time: when promoting popup content into another Slate window,
+  audit whether the source coordinate is logical Slate space or physical desktop
+  space before accepting `SWindow`'s default DPI adjustment.
+- Possible conflicts: native-child ownership, title bar, card reuse, and manual
+  movement remain unchanged. Only initial position conversion changes.
+
+## 2026-07-18 - Runtime Debug navigation focus transition is too subtle
+
+- Symptom: double-clicking an active graph node successfully scrolls to and
+  expands its Runtime Debug item, but the visual transition is easy to miss.
+- Trigger / repro: run PIE, double-click an active camera graph node, then watch
+  the corresponding item in the left Runtime Debug panel.
+- Why it happens: the focus effect only multiplied item content 30% toward the
+  node color. Its 0.8-second `CubicOut` curve removed most contrast near the
+  beginning, especially on dark editor themes and similarly colored cards.
+- Root cause: navigation feedback relied on a short, low-contrast content tint
+  without a dedicated background/foreground highlight layer.
+- Touched files:
+  - `Source/ComposableCameraSystemEditor/Public/Widgets/SComposableCameraRuntimeDebugPanel.h`
+  - `Source/ComposableCameraSystemEditor/Private/Widgets/SComposableCameraRuntimeDebugPanel.cpp`
+  - `Source/ComposableCameraSystemEditor/Private/Tests/ComposableCameraRuntimeDebugPanelTests.cpp`
+  - `Docs/EditorDesignDoc.md`
+  - `Docs/TechDoc.md`
+  - `Docs/BugLog.md`
+- Fix: use a 1.25-second linear fade combining stronger content tint with a
+  32%-opaque, hit-test-invisible whole-item node-color overlay. Explicitly jump
+  the sequence to its start so repeated double-clicks replay full feedback.
+- Regression-test name:
+  `ComposableCameraSystem.Editor.Debug.RuntimeDebugPanel`.
+- Test blocker: automation verifies that focus begins with overlay opacity at
+  least 25%. Exact perceived contrast and timing require a PIE visual smoke test
+  after IDE compilation; project rules prohibit launching Unreal Editor
+  automation from shell.
+- Avoid next time: navigation feedback needs a measurable contrast floor and a
+  replay policy; animation-active state alone does not prove visibility.
+- Possible conflicts: overlay sits above the card but is hit-test-invisible, so
+  disclosure controls remain interactive. Selection remains disabled; no blue
+  row state returns.
+
+## 2026-07-18 - Runtime Debug initial expanded rows render incompletely
+
+- Symptom: when Runtime Debug first becomes populated, some left-panel node
+  items are clipped or missing content; one mouse-wheel step makes every item
+  render completely.
+- Trigger / repro: start PIE with Runtime Debug open and enough active nodes or
+  parameters to produce multiple expanded variable-height rows. Observe the
+  first populated frame before scrolling.
+- Why it happens: `RequestListRefresh` performs the first row-generation pass
+  before expanded rows containing wrapped text have stable width-dependent
+  DesiredSize values. With unchanged membership, CCS requests no second layout.
+  Mouse-wheel input incidentally calls the list's layout-refresh path.
+- Root cause: the aggregate panel treated one list regeneration as sufficient
+  for dynamically sized expanded rows.
+- Touched files:
+  - `Source/ComposableCameraSystemEditor/Public/Widgets/SComposableCameraRuntimeDebugPanel.h`
+  - `Source/ComposableCameraSystemEditor/Private/Widgets/SComposableCameraRuntimeDebugPanel.cpp`
+  - `Source/ComposableCameraSystemEditor/Private/Tests/ComposableCameraRuntimeDebugPanelTests.cpp`
+  - `Docs/EditorDesignDoc.md`
+  - `Docs/TechDoc.md`
+  - `Docs/BugLog.md`
+- Fix: arm a post-rebuild flag for each non-empty membership/shape refresh.
+  `OnItemsRebuilt` clears the flag first, then requests exactly one second
+  layout pass so existing rows are measured again after their sizes stabilize.
+- Regression-test name:
+  `ComposableCameraSystem.Editor.Debug.RuntimeDebugPanel`.
+- Test blocker: automation verifies that initial active rows arm the second pass
+  and that the rebuild callback consumes it exactly once. Actual clipping and
+  first-paint completeness require a PIE visual smoke test after IDE compile;
+  project rules prohibit launching Unreal Editor automation from shell.
+- Avoid next time: variable-height Slate rows with expanded or wrapped children
+  need an explicit post-generation layout policy; do not rely on scrolling to
+  invalidate stale DesiredSize caches.
+- Possible conflicts: each non-empty list-shape change adds one layout-only
+  refresh. Live value updates still do not rebuild rows every frame.
+
+## 2026-07-17 - Runtime Debug hover, Pin, and focus interaction regressions
+
+- Symptom: an unpinned node hover card remains visible after the cursor leaves;
+  Pin opens equivalent content at a new cursor-offset location; graph-node
+  navigation leaves a blue selected-row background in Runtime Debug; item
+  headers also show an unwanted parameter-count number.
+- Trigger / repro: during PIE, hover a camera graph node and move away; hover
+  again and click Pin; then double-click an active graph node and inspect the
+  target Runtime Debug item header/background.
+- Why it happens: UE interactive tooltips deliberately stay alive when no new
+  tooltip replaces them. Pin rebuilt a second card and positioned its window
+  from the current cursor. `FocusNode` called `SListView::SetSelection`, which
+  activates the default table-row selection brush. The header explicitly
+  rendered `ParameterDisplayValues.Num()`.
+- Root cause: the first Runtime Debug implementation relied on default Slate
+  interaction semantics that did not match the intended transient-card and
+  navigation UX.
+- Touched files:
+  - `Source/ComposableCameraSystemEditor/Public/Editors/SComposableCameraGraphNode.h`
+  - `Source/ComposableCameraSystemEditor/Private/Editors/SComposableCameraGraphNode.cpp`
+  - `Source/ComposableCameraSystemEditor/Public/Widgets/SComposableCameraRuntimeDebugPanel.h`
+  - `Source/ComposableCameraSystemEditor/Private/Widgets/SComposableCameraRuntimeDebugPanel.cpp`
+  - `Source/ComposableCameraSystemEditor/Private/Tests/ComposableCameraNodeRuntimeTooltipTests.cpp`
+  - `Source/ComposableCameraSystemEditor/Private/Tests/ComposableCameraRuntimeDebugPanelTests.cpp`
+  - `Docs/EditorDesignDoc.md`
+  - `Docs/TechDoc.md`
+  - `Docs/BugLog.md`
+- Fix: actively close the interactive card after both source and card lose
+  hover, with a crossing grace interval. Pin detaches and reuses the current
+  card at its tooltip-host position. Runtime Debug disables selection and uses
+  a whole-item `FCurveSequence` tint fade for navigation. Remove header count.
+- Regression-test names:
+  `ComposableCameraSystem.Editor.Debug.NodeRuntimeTooltip` and
+  `ComposableCameraSystem.Editor.Debug.RuntimeDebugPanel`.
+- Test blocker: automation covers leave-policy decisions, hover-card reuse,
+  focus animation state, and absence of list selection. Final position,
+  disappearance timing, tint appearance, and removed header number need a PIE
+  visual smoke test after IDE compilation. Project rules prohibit launching
+  Unreal Editor automation from shell.
+- Avoid next time: inspect Slate's default lifecycle and paint semantics before
+  relying on `IsInteractive`, `SetSelection`, or cursor-derived popup positions;
+  separate navigation feedback from persistent selection.
+- Possible conflicts: the 0.12-second leave grace intentionally keeps the card
+  alive while crossing from node to card. Pinned observers remain independent
+  native child windows and still close with their graph-node widget.
+
+## 2026-07-17 - Runtime Debug panel repeats wrong SOverlay include
+
+- Symptom: ComposableCameraSystemEditor compile fails with
+  `C1083: Cannot open include file: 'Widgets/Layout/SOverlay.h'` in
+  `SComposableCameraRuntimeDebugPanel.cpp`.
+- Trigger / repro: compile the editor module after adding the aggregate Runtime
+  Debug panel.
+- Why it happens: the new panel guessed `SOverlay` belonged under Slate's
+  `Widgets/Layout/` include directory.
+- Root cause: `SOverlay` is declared by UE5.6 SlateCore at
+  `Widgets/SOverlay.h`; this repeated the previously recorded Shot Editor
+  include-path bug.
+- Touched files:
+  - `Source/ComposableCameraSystemEditor/Private/Widgets/SComposableCameraRuntimeDebugPanel.cpp`
+  - `Docs/BugLog.md`
+- Fix: replace `#include "Widgets/Layout/SOverlay.h"` with
+  `#include "Widgets/SOverlay.h"`.
+- Regression-test name: `ComposableCameraSystemEditor IDE compile`.
+- Test blocker: automation cannot validate a missing C++ include before the
+  module compiles, and project rules prohibit Codex from invoking UBT or an IDE
+  build from shell. User must compile in Rider or Visual Studio.
+- Avoid next time: before adding a Slate include, search UE5.6 headers and this
+  module's existing includes; also check BugLog for the widget name.
+- Possible conflicts: none expected; only the include path changed.
+
 ## 2026-07-16 - Modifier array entries after Index 0 lost the mode checkbox
 
 - Symptom: Index 0 showed `Use Custom Modifier Class`, but later array entries

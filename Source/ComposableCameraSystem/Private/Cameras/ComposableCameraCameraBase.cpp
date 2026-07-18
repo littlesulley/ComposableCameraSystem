@@ -15,6 +15,7 @@
 #include "Nodes/ComposableCameraCameraNodeBase.h"
 #include "Nodes/ComposableCameraComputeNodeBase.h"
 #include "Utils/ComposableCameraDebugFormatUtils.h"
+#include "UObject/UnrealType.h"
 
 namespace ComposableCameraPosePrivate
 {
@@ -764,6 +765,186 @@ UComposableCameraCameraNodeBase* AComposableCameraCameraBase::GetNodeByClass(
 
 #if WITH_EDITOR
 
+namespace ComposableCameraDebugSnapshotPrivate
+{
+	FString ExportPropertyValue(const FProperty* Property, const void* Container)
+	{
+		if (!Property || !Container)
+		{
+			return TEXT("(unavailable)");
+		}
+
+		FString Value;
+		Property->ExportTextItem_Direct(
+			Value,
+			Property->ContainerPtrToValuePtr<void>(Container),
+			nullptr,
+			nullptr,
+			PPF_None);
+		return Value;
+	}
+
+	bool TryExportPropertyPath(
+		const UObject* RootObject,
+		FName PropertyPath,
+		FString& OutValue,
+		int32& OutTopLevelFieldOffset)
+	{
+		OutTopLevelFieldOffset = INDEX_NONE;
+		if (!RootObject || PropertyPath.IsNone())
+		{
+			return false;
+		}
+
+		FString ParentName;
+		FString ChildName;
+		if (!PropertyPath.ToString().Split(TEXT("."), &ParentName, &ChildName))
+		{
+			const FProperty* Property = FindFProperty<FProperty>(RootObject->GetClass(), PropertyPath);
+			if (!Property || !Property->HasAnyPropertyFlags(CPF_Edit))
+			{
+				return false;
+			}
+			OutTopLevelFieldOffset = Property->GetOffset_ForInternal();
+			OutValue = ExportPropertyValue(Property, RootObject);
+			return true;
+		}
+
+		const FObjectPropertyBase* ParentProperty = CastField<FObjectPropertyBase>(
+			FindFProperty<FProperty>(RootObject->GetClass(), FName(*ParentName)));
+		if (!ParentProperty)
+		{
+			return false;
+		}
+		OutTopLevelFieldOffset = ParentProperty->GetOffset_ForInternal();
+
+		const UObject* Subobject = ParentProperty->GetObjectPropertyValue(
+			ParentProperty->ContainerPtrToValuePtr<void>(RootObject));
+		const FProperty* ChildProperty = Subobject
+			? FindFProperty<FProperty>(Subobject->GetClass(), FName(*ChildName))
+			: nullptr;
+		if (!ChildProperty || !ChildProperty->HasAnyPropertyFlags(CPF_Edit))
+		{
+			return false;
+		}
+
+		OutValue = ExportPropertyValue(ChildProperty, Subobject);
+		return true;
+	}
+
+	FString FormatResolvedInputValue(
+		const FComposableCameraRuntimeDataBlock& DataBlock,
+		int32 Offset,
+		const FComposableCameraNodePinDeclaration& Pin)
+	{
+		const UScriptStruct* StructType = Pin.StructType.Get();
+		if (Pin.PinType != EComposableCameraPinType::Struct || !StructType)
+		{
+			return ComposableCameraDebug::FormatTypedValue(
+				DataBlock, Offset, Pin.PinType, Pin.EnumType);
+		}
+
+		const void* StructMemory = nullptr;
+		if (DataBlock.IsStructSlotOffset(Offset))
+		{
+			if (const FInstancedStruct* Slot = DataBlock.TryGetStructSlot(Offset, StructType))
+			{
+				StructMemory = Slot->GetMemory();
+			}
+		}
+		else
+		{
+			const FComposableCameraRuntimeDataBlock::FSlotShape* Shape = DataBlock.SlotShapes.Find(Offset);
+			const int32 StructSize = StructType->GetStructureSize();
+			if (Shape
+				&& Shape->PinType == EComposableCameraPinType::Struct
+				&& Shape->StructType.Get() == StructType
+				&& Shape->Size == StructSize
+				&& Offset >= 0
+				&& Offset + StructSize <= DataBlock.Storage.Num())
+			{
+				StructMemory = DataBlock.Storage.GetData() + Offset;
+			}
+		}
+
+		if (!StructMemory)
+		{
+			return TEXT("(no data)");
+		}
+
+		FString Value;
+		StructType->ExportText(
+			Value, StructMemory, nullptr, nullptr, PPF_None, nullptr);
+		return Value;
+	}
+
+	void AppendRemainingEditableProperties(
+		const UObject* Object,
+		const FString& NamePrefix,
+		const FString& DisplayPrefix,
+		const TSet<FName>& DeclaredParameterNames,
+		TArray<FComposableCameraNodeParameterDebugValue>& OutValues,
+		bool bSkipNodeBaseProperties)
+	{
+		if (!Object)
+		{
+			return;
+		}
+
+		for (TFieldIterator<FProperty> PropIt(Object->GetClass()); PropIt; ++PropIt)
+		{
+			const FProperty* Property = *PropIt;
+			if (!Property || !Property->HasAnyPropertyFlags(CPF_Edit))
+			{
+				continue;
+			}
+			if (bSkipNodeBaseProperties
+				&& Property->GetOwnerClass() == UComposableCameraCameraNodeBase::StaticClass())
+			{
+				continue;
+			}
+
+			const FString PropertyName = NamePrefix + Property->GetName();
+			const FName ParameterName(*PropertyName);
+			const FString PropertyDisplayName = DisplayPrefix + Property->GetDisplayNameText().ToString();
+
+			if (Property->HasAnyPropertyFlags(CPF_InstancedReference))
+			{
+				const FObjectPropertyBase* ObjectProperty = CastField<FObjectPropertyBase>(Property);
+				const UObject* Subobject = ObjectProperty
+					? ObjectProperty->GetObjectPropertyValue(ObjectProperty->ContainerPtrToValuePtr<void>(Object))
+					: nullptr;
+				if (Subobject)
+				{
+					AppendRemainingEditableProperties(
+						Subobject,
+						PropertyName + TEXT("."),
+						PropertyDisplayName + TEXT(" > "),
+						DeclaredParameterNames,
+						OutValues,
+						/*bSkipNodeBaseProperties=*/false);
+				}
+				else if (!DeclaredParameterNames.Contains(ParameterName))
+				{
+					OutValues.Add({ ParameterName, PropertyDisplayName, TEXT("null") });
+				}
+				continue;
+			}
+
+			if (DeclaredParameterNames.Contains(ParameterName))
+			{
+				continue;
+			}
+
+			OutValues.Add({
+				ParameterName,
+				PropertyDisplayName,
+				ExportPropertyValue(Property, Object)
+			});
+		}
+	}
+}
+
 void AComposableCameraCameraBase::ClearNodeDebugFlags()
 {
 	for (UComposableCameraCameraNodeBase* Node : CameraNodes)
@@ -798,20 +979,82 @@ FComposableCameraDebugSnapshot AComposableCameraCameraBase::SnapshotDebugState()
 		Entry.bWasTicked = Node->bDebugWasTickedThisFrame;
 		Entry.PoseAfterNode = Node->DebugPoseAfterTick;
 
+		TArray<FComposableCameraNodePinDeclaration> Pins;
+		Node->GatherAllPinDeclarations(Pins);
+		TSet<FName> DeclaredParameterNames;
+		DeclaredParameterNames.Reserve(Pins.Num());
+
+		// Capture declared input parameters first. Resolved RuntimeDataBlock slots
+		// are the current source of truth for wires, exposed parameters, defaults,
+		// and nodes that opt out of auto-resolution. Modifier-owned fields outrank
+		// those slots and are read from the live runtime property instead. Pins
+		// without either source fall back to their declaration default.
+		for (const FComposableCameraNodePinDeclaration& Pin : Pins)
+		{
+			if (Pin.Direction != EComposableCameraPinDirection::Input)
+			{
+				continue;
+			}
+
+			DeclaredParameterNames.Add(Pin.PinName);
+			FString PropertyValue;
+			int32 TopLevelFieldOffset = INDEX_NONE;
+			const bool bHasPropertyValue = ComposableCameraDebugSnapshotPrivate::TryExportPropertyPath(
+				Node, Pin.PinName, PropertyValue, TopLevelFieldOffset);
+			const bool bModifierOwnsProperty = bHasPropertyValue
+				&& Node->HasModifierOverrideFieldOffset(TopLevelFieldOffset);
+
+			int32 ResolvedOffset = INDEX_NONE;
+			const bool bHasResolvedValue = OwnedRuntimeDataBlock
+				&& OwnedRuntimeDataBlock->IsValid()
+				&& OwnedRuntimeDataBlock->ResolveInputPinOffset(i, Pin.PinName, ResolvedOffset);
+
+			FString Formatted;
+			if (bHasResolvedValue
+				&& !bModifierOwnsProperty
+				&& Pin.PinType != EComposableCameraPinType::Delegate)
+			{
+				Formatted = ComposableCameraDebugSnapshotPrivate::FormatResolvedInputValue(
+					*OwnedRuntimeDataBlock, ResolvedOffset, Pin);
+			}
+			else if (bHasPropertyValue)
+			{
+				Formatted = MoveTemp(PropertyValue);
+			}
+			else
+			{
+				Formatted = Pin.DefaultValueString;
+			}
+
+			const FString DisplayName = Pin.DisplayName.IsEmpty()
+				? FName::NameToDisplayString(Pin.PinName.ToString(), /*bIsBool=*/false)
+				: Pin.DisplayName.ToString();
+			Entry.ParameterValues.Add({ Pin.PinName, DisplayName, MoveTemp(Formatted) });
+		}
+
+		// Add editable node properties that are not declared as input pins. This
+		// keeps Details-only arrays, curves, and other non-pin parameters visible.
+		ComposableCameraDebugSnapshotPrivate::AppendRemainingEditableProperties(
+			Node,
+			FString(),
+			FString(),
+			DeclaredParameterNames,
+			Entry.ParameterValues,
+			/*bSkipNodeBaseProperties=*/true);
+
 		// Read output pin values from the data block.
 		if (OwnedRuntimeDataBlock && OwnedRuntimeDataBlock->IsValid())
 		{
-			TArray<FComposableCameraNodePinDeclaration> Pins;
-			const_cast<UComposableCameraCameraNodeBase*>(Node)->GatherAllPinDeclarations(Pins);
-
 			for (const FComposableCameraNodePinDeclaration& Pin : Pins)
 			{
-				if (Pin.Direction == EComposableCameraPinDirection::Output)
+				if (Pin.Direction != EComposableCameraPinDirection::Output)
 				{
-					FString Formatted = ComposableCameraDebug::FormatOutputPinValue(
-						*OwnedRuntimeDataBlock, i, Pin.PinName, Pin.PinType, Pin.EnumType);
-					Entry.OutputPinValues.Emplace(Pin.PinName, MoveTemp(Formatted));
+					continue;
 				}
+
+				FString Formatted = ComposableCameraDebug::FormatOutputPinValue(
+					*OwnedRuntimeDataBlock, i, Pin.PinName, Pin.PinType, Pin.EnumType);
+				Entry.OutputPinValues.Emplace(Pin.PinName, MoveTemp(Formatted));
 			}
 		}
 
