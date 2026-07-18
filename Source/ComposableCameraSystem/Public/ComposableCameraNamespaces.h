@@ -36,5 +36,4 @@ namespace ComposableCameraModifier
 
 	using T_NodeModifier = TMap<T_NodeClass, FModifierEntry>;
 	using T_NodeModifierArray = TMap<T_NodeClass, TArray<FModifierEntry>>;
-	using T_CameraModifier = TMap<FGameplayTag, T_NodeModifierArray>;
 }

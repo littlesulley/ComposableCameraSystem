@@ -1,6 +1,6 @@
 # ComposableCameraSystem Tech Notes
 
-Updated: 2026-06-23
+Updated: 2026-07-18
 
 Purpose: compact implementation reference. Keep this file current when code
 patterns, public APIs, hot-path rules, node catalogs, or gotchas change.
@@ -140,6 +140,79 @@ Blueprint/K2/DataTable
   -> FinishSpawning
   -> evaluation tree activation
 ```
+
+### Node Property Modifiers
+
+Every `Modifiers` element serializes as an exact
+`UComposableCameraModifierBase` wrapper. `bUseCustomModifierClass` selects one
+of two retained branches, so toggling modes does not discard either branch:
+
+- Node Type: `NodeTemplate` owns an instanced concrete camera node
+  and `OverrideProperties` stores checked `FName` property names.
+- Custom Modifier Class: `CustomModifier` owns an instanced user Blueprint/C++
+  subclass. The wrapper targets that object's legacy `NodeClass`, classifies it
+  as post-initialize, and invokes its Blueprint `ApplyModifier` event. Generic
+  template state is never consulted in this branch.
+
+`PostLoad` converts pre-wrapper derived array elements into exact base wrappers
+and duplicates the old object beneath `CustomModifier`. Generic exact-base
+entries need no migration. The custom-class picker excludes the base class,
+abstract classes, deprecated classes, and superseded Blueprint classes.
+
+Camera instances and type assets expose `FGameplayTagContainer CameraTags`.
+Modifier assets expose `FGameplayTagQuery CameraTagQuery`, using UE's native
+recursive ALL / ANY / NONE query editor and token-stream evaluator. Empty query
+means all cameras; non-empty query calls `Matches` against the full camera tag
+container. The manager stores every candidate in one node-class bucket and
+filters queries only when rebuilding `EffectiveModifiers`; no global bucket or
+tag sentinel exists. Higher priority wins among matching candidates.
+
+Legacy single camera `CameraTag` properties remain hidden serialized fields.
+Type-asset `PostLoad` and runtime construction migrate them into `CameraTags`.
+Legacy modifier `CameraTags` containers remain hidden and migrate during
+`PostLoad` through `MakeQuery_MatchAnyTags`, preserving their former OR intent.
+
+In Node Type mode, `GetTargetNodeClass` prefers the template's class. In Custom
+mode, target lookup uses the nested modifier's `NodeClass` and execution stays
+post-initialize. Matching
+stays exact, same as node-scoped actions. `ApplyModifierToNode` reflects only during camera
+construction / reactivation, never in the per-frame tick. It validates every
+stored name through `IsNodePropertyOverridable`, then copies that one property.
+An instanced-object property duplicates its source subobject into the runtime
+node; other property types use normal `FProperty` copy semantics. It then
+registers the target field offset in the node's inline modifier-override list.
+The PCM-only `ConstructCameraFromTypeAsset` overload invokes a synchronous
+pre-initialize callback after node/data-block setup; generic modifiers run in
+that callback, before `InitializeNodes` builds interpolator / solver caches.
+Custom Blueprint `ApplyModifier` callbacks keep their original post-init timing.
+
+`ResolveAllInputPins` skips registered modifier field offsets. This makes a
+checked modifier property higher priority than the same node's graph wire or
+exposed parameter without per-frame reflection or allocation. The offset list
+uses `TInlineAllocator<4>` and is filled only during construction.
+
+Eligible properties are editable instance properties only. `EditDefaultsOnly`,
+transient, deprecated, and `NoModifierOverride` fields are excluded. This hides
+node metadata such as `PaletteCategory` and prevents stale serialized names from
+changing non-runtime state.
+
+The editor customization is registered on the Modifier data asset, not on
+`UComposableCameraModifierBase`. UE class-layout customizations do not drive
+`EditInlineNew` UObject children nested in an array. An asset-level
+`FDetailArrayBuilder` preserves normal array controls and normalizes new null
+elements to base wrappers. The first child row is `Use Custom Modifier Class`.
+Unchecked shows the node-class picker plus external node-template property rows;
+checked shows a filtered custom-modifier class picker plus that instance's
+editable fields. Both authored branches remain serialized while only one is
+active.
+
+UE5.6 `FPropertyHandleObject::SetValue` deliberately returns `Fail` for
+`EditInlineNew` property nodes. Modifier array normalization therefore writes
+the single customized asset's authoritative `Modifiers[ArrayIndex]` slot before
+composing that element row. Using `SetValue` here leaks UE's default polymorphic
+object picker for every null or derived entry that was not already a wrapper.
+The asset's `CameraTagQuery` stays in its normal Details category and uses the
+engine-provided Gameplay Tags query customization.
 
 ## 6. Camera Tick
 

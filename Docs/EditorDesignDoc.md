@@ -1,6 +1,6 @@
 # ComposableCameraSystem Editor Design
 
-Updated: 2026-06-17
+Updated: 2026-07-18
 
 This document describes the current editor module. It replaces the old
 phase-by-phase implementation plan. Runtime architecture lives in
@@ -470,6 +470,41 @@ Editor asset tooling exists for:
 - modifier asset.
 - shot asset.
 - Level Sequence shot actor / related helpers.
+
+Modifier asset details use `FComposableCameraModifierDetails`, registered on
+`UComposableCameraNodeModifierDataAsset`. The customization owns `Modifiers`
+through `FDetailArrayBuilder`, because class-layout customizations are not
+applied to `EditInlineNew` UObjects nested inside an array. Every element is an
+exact base wrapper. Its first child row is the `Use Custom Modifier Class` bool:
+
+- Unchecked: show `Node Type`, then the selected built-in or Blueprint node's
+  editable instance properties. Each property keeps its native widget and an
+  `Override` checkbox. Unchecked controls remain disabled.
+- Checked: show `Custom Modifier Class`, then the selected user Blueprint/C++
+  subclass's editable fields, including its legacy `NodeClass` configuration.
+  The exact base class, abstract classes, and deprecated classes are filtered
+  from this picker.
+
+Switching modes preserves both branches' authored data; only the selected branch
+is active at runtime. Class metadata (`EditDefaultsOnly`, including
+`PaletteCategory`) and transient node fields do not render in Node Type mode.
+
+Generic entries created through the pre-fix default inline layout can contain a
+`NodeClass` but no `NodeTemplate`. Opening the asset repairs that state by
+creating the missing template from the selected class, then shows its property
+rows. Pre-wrapper assets that directly stored a custom Modifier subclass migrate
+that object into the wrapper's Custom Modifier Class branch during `PostLoad`.
+
+Changing node type creates a fresh template and clears checked property names.
+This does not participate in graph `SyncToTypeAsset` / `RebuildFromTypeAsset`:
+modifier assets are durable data assets and own their templates directly.
+The same Details view exposes `CameraTagQuery` through UE's native
+`FGameplayTagQuery` customization. Empty query means all cameras; authored
+queries can nest ALL / ANY / NONE expressions against a camera type asset's
+`CameraTags` container. Camera tags remain direct durable type-asset properties,
+not graph state. Legacy single camera tags and modifier tag lists migrate on
+load and remain hidden from new authoring. This follows GameplayCameras'
+`GameplayCameras/Public/Transitions/GameplayTagTransitionConditions.h` pattern.
 
 When adding an asset class, update:
 

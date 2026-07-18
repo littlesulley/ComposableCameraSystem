@@ -336,8 +336,8 @@ void AComposableCameraPlayerCameraManager::DisplayDebug(class UCanvas* Canvas,
 		const UComposableCameraTypeAsset* TypeAsset = RunningCamera ? RunningCamera->SourceTypeAsset.Get() : nullptr;
 		const FString CameraDisplayName = TypeAsset
 			? TypeAsset->GetName()
-			: (RunningCamera && RunningCamera->CameraTag.IsValid()
-				? RunningCamera->CameraTag.ToString()
+			: (RunningCamera && !RunningCamera->CameraTags.IsEmpty()
+				? RunningCamera->CameraTags.ToStringSimple()
 				: TEXT("(unknown)"));
 		DrawHeader(*FString::Printf(TEXT("Running Camera: %s"), *CameraDisplayName));
 	}
@@ -347,8 +347,10 @@ void AComposableCameraPlayerCameraManager::DisplayDebug(class UCanvas* Canvas,
 		const UComposableCameraTypeAsset* TypeAsset = RunningCamera->SourceTypeAsset.Get();
 
 		DisplayDebugManager.SetDrawColor(FColor(222, 100, 5));
-		DisplayDebugManager.DrawString(FString::Printf(TEXT("    Tag:  %s"),
-			RunningCamera->CameraTag.IsValid() ? *RunningCamera->CameraTag.ToString() : TEXT("(none)")));
+		DisplayDebugManager.DrawString(FString::Printf(TEXT("    Tags: %s"),
+			RunningCamera->CameraTags.IsEmpty()
+				? TEXT("(none)")
+				: *RunningCamera->CameraTags.ToStringSimple()));
 
 		if (RunningCamera->IsTransient())
 		{
@@ -944,7 +946,25 @@ void AComposableCameraPlayerCameraManager::OnTypeAssetCameraConstructed(AComposa
 	// Level Sequence component path, which calls ConstructCameraFromTypeAsset
 	// directly with no PCM involvement at all.
 	UComposableCameraTypeAsset* TypeAsset = PendingTypeAsset.Get();
-	UE::ComposableCameras::ConstructCameraFromTypeAsset(Camera, TypeAsset, PendingParameterBlock);
+	UE::ComposableCameras::ConstructCameraFromTypeAsset(
+		Camera, TypeAsset, PendingParameterBlock,
+		[this](AComposableCameraCameraBase* ConstructedCamera)
+		{
+			if (!ModifierManager || !ConstructedCamera)
+			{
+				return;
+			}
+
+			// CameraNodes now exist, so filtering effective modifiers by exact
+			// node class is valid. Apply only data-driven templates before node
+			// initialization; legacy Blueprint callbacks keep their old post-init
+			// execution timing in Director::ActivateNewCamera.
+			ModifierManager->GetModifierData().UpdateEffectiveModifiers(ConstructedCamera);
+			ConstructedCamera->ApplyModifiers(
+				ModifierManager->GetModifierData().EffectiveModifiers,
+				/* bApplyNodeTemplateModifiers = */ true,
+				/* bApplyLegacyBlueprintModifiers = */ false);
+		});
 
 	// Clear pending state regardless of outcome; if the construct call
 	// early-returned due to null inputs we still don't want stale pending state
@@ -1673,38 +1693,29 @@ void AComposableCameraPlayerCameraManager::BuildModifierDebugString(FDisplayDebu
 	DisplayDebugManager.SetDrawColor(FColor( 100, 20, 100 ));
 	DisplayDebugManager.DrawString(FString("\nAll Modifiers"));
 	DisplayDebugManager.SetDrawColor(FColor( 222, 100, 5 ));
-	
-	for (const auto& CameraModifier : ModifierData)
+
+	for (const auto& NodeModifiers : ModifierData)
 	{
-		const auto& CameraTag = CameraModifier.Key;
-		const auto& NodeModifierArray = CameraModifier.Value;
-		
-		// Begin Level 0: CameraTag
-		AddText(ModifierDataString, TEXT("%s[Camera Tag] %s:\n"), *GetIndentString(), *CameraTag.ToString());
-		
-		// Begin Level 1: Node Class
+		const auto& NodeClass = NodeModifiers.Key;
+		const auto& Modifiers = NodeModifiers.Value;
+
+		AddText(ModifierDataString, TEXT("%s[Camera Node] %s:\n"), *GetIndentString(), *NodeClass->GetName());
 		++IndentLevel;
-		for (const auto& NodeModifiers : NodeModifierArray)
+		for (const auto& Modifier : Modifiers)
 		{
-			const auto& NodeClass = NodeModifiers.Key;
-			const auto& Modifiers = NodeModifiers.Value;
-			
-			AddText(ModifierDataString, TEXT("%s[Camera Node] %s:\n"), *GetIndentString(), *NodeClass->GetName());
-			
-			// Begin Level 2: Modifiers
-			++IndentLevel;
-			for (const auto& Modifier : Modifiers)
+			if (Modifier.Asset && Modifier.Modifier)
 			{
-				if (Modifier.Asset && Modifier.Modifier)
-				{
-					AddText(ModifierDataString, TEXT("%s[Modifier] %s from [Asset]%s with priority %d\n"), 
-						*GetIndentString(), 
-						*Modifier.Modifier->GetName(),
-						*Modifier.Asset->GetName(),
-						Modifier.Asset->Priority);
-				}
+				const FString QueryDescription = Modifier.Asset->CameraTagQuery.IsEmpty()
+					? FString(TEXT("All Cameras"))
+					: Modifier.Asset->CameraTagQuery.GetDescription();
+				AddText(ModifierDataString,
+					TEXT("%s[Modifier] %s from [Asset] %s with priority %d, query: %s\n"),
+					*GetIndentString(),
+					*Modifier.Modifier->GetName(),
+					*Modifier.Asset->GetName(),
+					Modifier.Asset->Priority,
+					QueryDescription.IsEmpty() ? TEXT("Tag Query") : *QueryDescription);
 			}
-			--IndentLevel;
 		}
 		--IndentLevel;
 	}

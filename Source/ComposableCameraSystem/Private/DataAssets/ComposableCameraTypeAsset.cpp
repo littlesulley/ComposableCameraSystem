@@ -2376,6 +2376,15 @@ void UComposableCameraTypeAsset::PostLoad()
 {
 	Super::PostLoad();
 
+	if (CameraTag.IsValid())
+	{
+		if (CameraTags.IsEmpty())
+		{
+			CameraTags.AddTag(CameraTag);
+		}
+		CameraTag = FGameplayTag::EmptyTag;
+	}
+
 	// Migrate any legacy InternalVariable / ExposedVariable entries that
 	// pre-date the VariableGuid field. Existing editor graphs still reference
 	// variables by FName via UComposableCameraVariableGraphNode::VariableName;

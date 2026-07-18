@@ -252,7 +252,9 @@ namespace
 	{
 		B.Appendf(TEXT("Camera: %s\n"), *Camera->GetName());
 		B.Appendf(TEXT("  Class: %s\n"), *Camera->GetClass()->GetName());
-		B.Appendf(TEXT("  Tag:   %s\n"), *Camera->CameraTag.ToString());
+		B.Appendf(TEXT("  Tags:  %s\n"), Camera->CameraTags.IsEmpty()
+			? TEXT("(none)")
+			: *Camera->CameraTags.ToStringSimple());
 		B.Appendf(TEXT("  Pose:  pos=%s  rot=%s  fov=%.1f\n"),
 			*Camera->CameraPose.Position.ToCompactString(),
 			*Camera->CameraPose.Rotation.ToCompactString(),
@@ -470,8 +472,8 @@ namespace
 
 	// `CCS.Dump.Camera [tag]`
 	//   No arg ->active context's RunningCamera.
-	//   With arg ->scan each live context's RunningCamera for a CameraTag
-	//              whose string matches the arg; first match wins.
+	//   With arg ->scan each live context's RunningCamera for any CameraTags
+	//              entry whose string matches the arg; first camera wins.
 	// Source-side cameras in mid-transition aren't searched (they live
 	// inside eval-tree leaves, not on `Director::RunningCamera`). That's
 	// acceptable for the diagnostic use case -"what's this camera doing
@@ -503,7 +505,16 @@ namespace
 				if (!Director) { continue; }
 				AComposableCameraCameraBase* Candidate = Director->GetRunningCamera();
 				if (!IsValid(Candidate)) { continue; }
-				if (Candidate->CameraTag.ToString().Equals(TargetTag, ESearchCase::IgnoreCase))
+				bool bTagMatches = false;
+				for (const FGameplayTag CameraTag : Candidate->CameraTags)
+				{
+					if (CameraTag.ToString().Equals(TargetTag, ESearchCase::IgnoreCase))
+					{
+						bTagMatches = true;
+						break;
+					}
+				}
+				if (bTagMatches)
 				{
 					Camera = Candidate;
 					break;
@@ -543,7 +554,7 @@ namespace
 		TEXT("CCS.Dump.Camera"),
 		TEXT("Print a camera's full state (nodes, per-pin output values, exposed parameters, internal variables, data block summary) to LogComposableCameraSystem at Display and copy to clipboard.\n")
 		TEXT("Usage: CCS.Dump.Camera             . Dumps the active context's running camera\n")
-		TEXT("       CCS.Dump.Camera <CameraTag> . Scans each context's running camera for a matching tag (case-insensitive, first match)"),
+		TEXT("       CCS.Dump.Camera <CameraTag> . Scans each context's running camera tags (case-insensitive, first camera match)"),
 		FConsoleCommandWithWorldAndArgsDelegate::CreateStatic(&CmdDumpCamera));
 
 	static FAutoConsoleCommandWithWorldAndArgs GCmdDumpPatches(

@@ -1,6 +1,6 @@
 # ComposableCameraSystem Design
 
-Updated: 2026-06-23
+Updated: 2026-07-17
 
 This document describes the current runtime architecture of the UE 5.6
 ComposableCameraSystem plugin. It is intentionally compact. Implementation
@@ -143,6 +143,7 @@ Main persisted data:
 - internal variables.
 - exposed variables.
 - variable nodes.
+- camera gameplay-tag container.
 - optional enter / exit transitions.
 - default preserve-pose flag.
 - editor node positions.
@@ -245,6 +246,35 @@ pose to avoid a collapse-frame snap.
 ## 10. Modifiers and Actions
 
 Modifiers live at the PCM level and are applied after context evaluation.
+
+`UComposableCameraNodeModifierDataAsset` stores fixed base-wrapper entries.
+Each wrapper's first choice selects one of two mutually exclusive branches:
+Node Type mode owns a concrete built-in or Blueprint node template plus a sparse
+set of explicitly enabled property names; Custom Modifier Class mode owns an
+instanced user-authored `UComposableCameraModifierBase` subclass.
+Each camera and camera type asset owns an `FGameplayTagContainer`. The modifier
+asset's `FGameplayTagQuery` scopes the whole asset: an empty query means every
+camera; a non-empty query supports nested ALL / ANY / NONE expressions against
+the camera's complete tag container. Registered candidates are grouped only by
+target node class. Matching candidates then compete by priority.
+At camera construction, the manager matches the template's exact node class
+and copies only checked properties onto the runtime node. Node-class metadata
+and transient fields are never modifier inputs. This keeps a modifier additive:
+unchecked node values continue to come from the camera type asset.
+
+Checked properties are a higher-priority authored layer than the target node's
+graph wires and exposed parameters. The node's pin resolver skips those exact
+fields for this camera instance, so an override stays effective after the first
+tick. Type-asset construction applies data-driven modifiers before node
+initialization, so interpolator and solver caches are built from override values.
+
+Custom wrappers read the nested modifier's `NodeClass`, always retain the legacy
+post-initialize phase, and invoke its `ApplyModifier` event. Existing assets that stored
+Blueprint modifier subclasses directly in the array migrate those objects into
+Custom Modifier Class wrappers during load, preserving `NodeClass`, custom
+fields, and their `ApplyModifier` event path.
+Legacy camera `CameraTag` fields migrate into the new container. Legacy modifier
+`CameraTags` lists migrate into an ANY query, preserving their OR intent.
 
 Actions are runtime objects registered on the PCM. They can target:
 

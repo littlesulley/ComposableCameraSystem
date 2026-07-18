@@ -191,7 +191,18 @@ void UComposableCameraCameraNodeBase::TickNode(float DeltaTime, const FComposabl
 
 FGameplayTag UComposableCameraCameraNodeBase::GetOwningCameraTag() const
 {
-	return OwningCamera ? OwningCamera->CameraTag : FGameplayTag::EmptyTag;
+	if (!OwningCamera)
+	{
+		return FGameplayTag::EmptyTag;
+	}
+	return OwningCamera->CameraTags.IsEmpty()
+		? OwningCamera->CameraTag
+		: OwningCamera->CameraTags.First();
+}
+
+FGameplayTagContainer UComposableCameraCameraNodeBase::GetOwningCameraTags() const
+{
+	return OwningCamera ? OwningCamera->CameraTags : FGameplayTagContainer();
 }
 
 void UComposableCameraCameraNodeBase::OnPreTick(float DeltaTime, const FComposableCameraPose& CurrentCameraPose, FComposableCameraPose& OutCameraPose)
@@ -260,6 +271,13 @@ void UComposableCameraCameraNodeBase::AutoApplySubobjectPinValues()
 		}
 		if (!Property->HasAnyPropertyFlags(CPF_InstancedReference))
 		{
+			continue;
+		}
+		if (ModifierOverrideFieldOffsets.Contains(Property->GetOffset_ForInternal()))
+		{
+			// Whole-subobject modifier overrides own their authored values. Do not
+			// apply subobject pin defaults / wires before OnInitialize builds its
+			// typed runtime helper from this object.
 			continue;
 		}
 
@@ -430,6 +448,14 @@ void UComposableCameraCameraNodeBase::ResolveAllInputPins()
 
 	for (const FComposableCameraNodePinBinding& Binding : Table.InputBindings)
 	{
+		// A PCM modifier is the highest-priority authored layer. Its selected
+		// fields must not be overwritten by an exposed parameter or graph wire
+		// during this node's initialization or later TickNode prologues.
+		if (ModifierOverrideFieldOffsets.Contains(Binding.FieldOffset))
+		{
+			continue;
+		}
+
 		void* const ValuePtr = NodeBase + Binding.FieldOffset;
 
 		// Type-dispatch: read from the data block and write into the node's UPROPERTY.
@@ -581,6 +607,19 @@ void UComposableCameraCameraNodeBase::ResolveAllInputPins()
 			break;
 		}
 	}
+}
+
+void UComposableCameraCameraNodeBase::RegisterModifierOverrideFieldOffset(int32 FieldOffset)
+{
+	if (FieldOffset >= 0)
+	{
+		ModifierOverrideFieldOffsets.AddUnique(FieldOffset);
+	}
+}
+
+bool UComposableCameraCameraNodeBase::HasModifierOverrideFieldOffset(int32 FieldOffset) const
+{
+	return ModifierOverrideFieldOffsets.Contains(FieldOffset);
 }
 
 // --- Subobject Pin Helpers ----------------------------------------------

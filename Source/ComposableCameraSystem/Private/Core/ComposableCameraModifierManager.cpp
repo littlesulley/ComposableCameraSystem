@@ -7,6 +7,87 @@
 #include "Modifiers/ComposableCameraModifierBase.h"
 #include "Nodes/ComposableCameraCameraNodeBase.h"
 
+namespace
+{
+	void AddModifierEntries(
+		T_NodeModifierArray& NodeModifierData,
+		UComposableCameraNodeModifierDataAsset* ModifierAsset)
+	{
+		for (UComposableCameraModifierBase* Modifier : ModifierAsset->Modifiers)
+		{
+			const TSubclassOf<UComposableCameraCameraNodeBase> NodeClass =
+				Modifier ? Modifier->GetTargetNodeClass() : nullptr;
+			if (!NodeClass)
+			{
+				continue;
+			}
+
+			TArray<FModifierEntry>& NodeModifiers = NodeModifierData.FindOrAdd(NodeClass);
+			const FModifierEntry Entry { Modifier, ModifierAsset };
+			if (!NodeModifiers.Contains(Entry))
+			{
+				NodeModifiers.Add(Entry);
+			}
+		}
+	}
+
+	void RemoveModifierEntries(
+		T_NodeModifierArray& NodeModifierData,
+		UComposableCameraNodeModifierDataAsset* ModifierAsset)
+	{
+		for (UComposableCameraModifierBase* Modifier : ModifierAsset->Modifiers)
+		{
+			const TSubclassOf<UComposableCameraCameraNodeBase> NodeClass =
+				Modifier ? Modifier->GetTargetNodeClass() : nullptr;
+			if (!NodeClass)
+			{
+				continue;
+			}
+
+			if (TArray<FModifierEntry>* NodeModifiers = NodeModifierData.Find(NodeClass))
+			{
+				NodeModifiers->Remove(FModifierEntry { Modifier, ModifierAsset });
+				if (NodeModifiers->IsEmpty())
+				{
+					NodeModifierData.Remove(NodeClass);
+				}
+			}
+		}
+	}
+
+	void SelectBestModifiers(
+		const T_NodeModifierArray& Candidates,
+		const FGameplayTagContainer& CameraTags,
+		T_NodeModifier& InOutEffectiveModifiers)
+	{
+		for (const auto& NodeModifier : Candidates)
+		{
+			const T_NodeClass& NodeClass = NodeModifier.Key;
+			const TArray<FModifierEntry>& Modifiers = NodeModifier.Value;
+
+			int32 BestPriority = TNumericLimits<int32>::Lowest();
+			if (const FModifierEntry* Existing = InOutEffectiveModifiers.Find(NodeClass))
+			{
+				if (Existing->Asset)
+				{
+					BestPriority = Existing->Asset->Priority;
+				}
+			}
+
+			for (const FModifierEntry& Modifier : Modifiers)
+			{
+				if (Modifier.Modifier && Modifier.Asset
+					&& Modifier.Asset->MatchesCameraTags(CameraTags)
+					&& Modifier.Asset->Priority >= BestPriority)
+				{
+					BestPriority = Modifier.Asset->Priority;
+					InOutEffectiveModifiers.FindOrAdd(NodeClass) = Modifier;
+				}
+			}
+		}
+	}
+}
+
 void UComposableCameraModifierManager::AddReferencedObjects(UObject* InThis, FReferenceCollector& Collector)
 {
 	UComposableCameraModifierManager* This = CastChecked<UComposableCameraModifierManager>(InThis);
@@ -23,14 +104,11 @@ void UComposableCameraModifierManager::AddReferencedObjects(UObject* InThis, FRe
 		}
 	};
 
-	for (auto& TagPair : This->ModifierData.ModifierData)
+	for (auto& NodeClassPair : This->ModifierData.ModifierData)
 	{
-		for (auto& NodeClassPair : TagPair.Value)
+		for (FModifierEntry& Entry : NodeClassPair.Value)
 		{
-			for (FModifierEntry& Entry : NodeClassPair.Value)
-			{
-				AddEntryRefs(Entry);
-			}
+			AddEntryRefs(Entry);
 		}
 	}
 
@@ -44,77 +122,22 @@ void UComposableCameraModifierManager::AddReferencedObjects(UObject* InThis, FRe
 
 void UComposableCameraModifierManager::AddModifier(UComposableCameraNodeModifierDataAsset* ModifierAsset)
 {
-	if (!ModifierAsset || ModifierAsset->CameraTags.IsEmpty() || ModifierAsset->Modifiers.IsEmpty())
+	if (!ModifierAsset || ModifierAsset->Modifiers.IsEmpty())
 	{
 		return;
 	}
 
-	for (FGameplayTag CameraTag : ModifierAsset->CameraTags)
-	{
-		if (!ModifierData.ModifierData.Contains(CameraTag))
-		{
-			ModifierData.ModifierData.Emplace(CameraTag, T_NodeModifierArray{});
-		}
-		
-		for (UComposableCameraModifierBase* Modifier : ModifierAsset->Modifiers)
-		{
-			if (!Modifier || !Modifier->NodeClass)
-			{
-				continue;
-			}
-			
-			TSubclassOf<UComposableCameraCameraNodeBase> NodeClass = Modifier->NodeClass;
-			auto& AllNodeModifiers = ModifierData.ModifierData[CameraTag];
-			auto* NodeModifiers = AllNodeModifiers.Find(NodeClass);
-
-			if (!NodeModifiers)
-			{
-				AllNodeModifiers.Emplace(NodeClass, TArray<FModifierEntry>{});
-				NodeModifiers = AllNodeModifiers.Find(NodeClass);
-			}
-
-			if (!NodeModifiers->Contains(FModifierEntry{ Modifier, ModifierAsset }))
-			{
-				NodeModifiers->Add(FModifierEntry{ Modifier, ModifierAsset });
-			}
-		}
-	}
+	AddModifierEntries(ModifierData.ModifierData, ModifierAsset);
 }
 
 void UComposableCameraModifierManager::RemoveModifier(UComposableCameraNodeModifierDataAsset* ModifierAsset)
 {
-	if (!ModifierAsset || ModifierAsset->CameraTags.IsEmpty() || ModifierAsset->Modifiers.IsEmpty())
+	if (!ModifierAsset || ModifierAsset->Modifiers.IsEmpty())
 	{
 		return;
 	}
 
-	for (FGameplayTag CameraTag : ModifierAsset->CameraTags)
-	{
-		if (!ModifierData.ModifierData.Contains(CameraTag))
-		{
-			continue;
-		}
-		
-		for (UComposableCameraModifierBase* Modifier : ModifierAsset->Modifiers)
-		{
-			if (!Modifier || !Modifier->NodeClass)
-			{
-				continue;
-			}
-			
-			TSubclassOf<UComposableCameraCameraNodeBase> NodeClass = Modifier->NodeClass;
-			auto& AllNodeModifiers = ModifierData.ModifierData[CameraTag];
-
-			if (auto* NodeModifiers = AllNodeModifiers.Find(NodeClass))
-			{
-				auto Index = NodeModifiers->Find(FModifierEntry{ Modifier, ModifierAsset });
-				if (Index != INDEX_NONE)
-				{
-					NodeModifiers->RemoveAt(Index);
-				}
-			}
-		}
-	}
+	RemoveModifierEntries(ModifierData.ModifierData, ModifierAsset);
 }
 
 DECLARE_CYCLE_STAT(TEXT("ModifierManager UpdateEffective"), STAT_CCS_ModifierManager_UpdateEffectiveModifiers, STATGROUP_CCS);
@@ -125,36 +148,9 @@ UComposableCameraModifierManager::FComposableCameraModifierData::UpdateEffective
 	SCOPE_CYCLE_COUNTER(STAT_CCS_ModifierManager_UpdateEffectiveModifiers);
 	TRACE_CPUPROFILER_EVENT_SCOPE(CCS_ModifierManager_UpdateEffectiveModifiers);
 
-	FGameplayTag CameraTag = Camera->CameraTag;
-
 	// Build new effective camera modifiers.
 	T_NodeModifier NewEffectiveModifiers {};
-
-	if (const auto* NodeModifiers = ModifierData.Find(CameraTag))
-	{
-		for (auto& NodeModifier : *NodeModifiers)
-		{
-			const T_NodeClass& NodeClass = NodeModifier.Key;
-			const TArray<FModifierEntry>& Modifiers = NodeModifier.Value;
-
-			int BestPriority = TNumericLimits<int32>::Lowest();
-			FModifierEntry BestModifier { nullptr, nullptr };
-
-			for (const FModifierEntry& Modifier : Modifiers)
-			{
-				if (Modifier.Modifier && Modifier.Asset && Modifier.Asset->Priority >= BestPriority)
-				{
-					BestPriority = Modifier.Asset->Priority;
-					BestModifier = Modifier;
-				}
-			}
-
-			if (BestModifier.Modifier && BestModifier.Asset)
-			{
-				NewEffectiveModifiers.Add(NodeClass, BestModifier);	
-			}
-		}
-	}
+	SelectBestModifiers(ModifierData, Camera->CameraTags, NewEffectiveModifiers);
 
 	// Filter invalid for camera node ownership
 	TArray<T_NodeClass> RemovalKeys;
@@ -186,8 +182,8 @@ UComposableCameraModifierManager::FComposableCameraModifierData::UpdateEffective
 
 			if (OldModifier.Asset->Priority > BestPriorityForTransition)
 			{
-				Transition = OldModifier.Asset->OverrideExitTransition
-						   ? OldModifier.Asset->OverrideExitTransition
+				Transition = OldModifier.Asset->OverrideExitTransition.Get()
+						   ? OldModifier.Asset->OverrideExitTransition.Get()
 						   : Camera->EnterTransition;
 				BestPriorityForTransition = OldModifier.Asset->Priority;
 			}
@@ -201,8 +197,8 @@ UComposableCameraModifierManager::FComposableCameraModifierData::UpdateEffective
 
 				if (NewModifier.Asset->Priority > BestPriorityForTransition)
 				{
-					Transition = NewModifier.Asset->OverrideEnterTransition
-							   ? NewModifier.Asset->OverrideEnterTransition
+					Transition = NewModifier.Asset->OverrideEnterTransition.Get()
+							   ? NewModifier.Asset->OverrideEnterTransition.Get()
 							   : Camera->EnterTransition;
 					BestPriorityForTransition = NewModifier.Asset->Priority;
 				}
@@ -210,8 +206,8 @@ UComposableCameraModifierManager::FComposableCameraModifierData::UpdateEffective
 				// Theoretically this branch will never be reached because NewModifier always has a higher priority then OldModifier.
 				else if (OldModifier.Asset->Priority > BestPriorityForTransition) 
 				{
-					Transition = OldModifier.Asset->OverrideExitTransition
-							   ? OldModifier.Asset->OverrideExitTransition
+					Transition = OldModifier.Asset->OverrideExitTransition.Get()
+							   ? OldModifier.Asset->OverrideExitTransition.Get()
 							   : Camera->EnterTransition;
 					BestPriorityForTransition = OldModifier.Asset->Priority;
 				}
@@ -231,8 +227,8 @@ UComposableCameraModifierManager::FComposableCameraModifierData::UpdateEffective
 
 			if (NewModifier.Asset->Priority > BestPriorityForTransition)
 			{
-				Transition = NewModifier.Asset->OverrideEnterTransition
-						   ? NewModifier.Asset->OverrideEnterTransition
+				Transition = NewModifier.Asset->OverrideEnterTransition.Get()
+						   ? NewModifier.Asset->OverrideEnterTransition.Get()
 						   : Camera->EnterTransition;
 				BestPriorityForTransition = NewModifier.Asset->Priority;
 			}

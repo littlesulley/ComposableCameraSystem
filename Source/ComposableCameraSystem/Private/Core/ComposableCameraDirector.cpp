@@ -731,9 +731,9 @@ void UComposableCameraDirector::BuildDebugSnapshot(FComposableCameraContextSnaps
 		{
 			OutSnapshot.RunningCameraDisplay = TA->GetName();
 		}
-		else if (RunningCamera->CameraTag.IsValid())
+		else if (!RunningCamera->CameraTags.IsEmpty())
 		{
-			OutSnapshot.RunningCameraDisplay = RunningCamera->CameraTag.ToString();
+			OutSnapshot.RunningCameraDisplay = RunningCamera->CameraTags.ToStringSimple();
 		}
 		else
 		{

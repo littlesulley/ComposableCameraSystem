@@ -1,6 +1,6 @@
 # Execution Flow Examples
 
-Updated: 2026-06-01
+Updated: 2026-07-15
 
 This file gives compact end-to-end flows. Keep examples current with source.
 
@@ -23,10 +23,13 @@ BP K2 node / Blueprint library
        -> SpawnActorDeferred(AComposableCameraCameraBase)
        -> Initialize(PCM)
        -> ConstructCameraFromTypeAsset
+            -> copy camera tag container
             -> duplicate nodes
             -> build runtime data block
             -> apply parameter block
             -> bind delegates
+            -> match modifier tag queries
+            -> apply checked node overrides before node initialization
        -> ApplyModifiers
        -> FinishSpawning
   -> EvaluationTree.OnActivateNewCamera

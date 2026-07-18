@@ -153,8 +153,12 @@ public:
 	void Initialize(AComposableCameraCameraBase* InOwningCamera, AComposableCameraPlayerCameraManager* InPlayerCameraManager);
 	void TickNode(float DeltaTime, const FComposableCameraPose CurrentCameraPose, FComposableCameraPose& OutCameraPose);
 	
-	UFUNCTION(BlueprintPure, Category = "ComposableCameraSystem|Node")
+	UFUNCTION(BlueprintPure, Category = "ComposableCameraSystem|Node",
+		meta = (DeprecatedFunction, DeprecationMessage = "Use GetOwningCameraTags instead."))
 	FGameplayTag GetOwningCameraTag() const;
+
+	UFUNCTION(BlueprintPure, Category = "ComposableCameraSystem|Node")
+	FGameplayTagContainer GetOwningCameraTags() const;
 
 	UFUNCTION(BlueprintPure, Category = "ComposableCameraSystem|Node")
 	AComposableCameraCameraBase* GetOwningCamera() const { return OwningCamera; }
@@ -299,6 +303,17 @@ public:
 	 */
 	void ResolveAllInputPins();
 
+	/**
+	 * Marks one top-level property as a PCM modifier override. Matching input
+	 * pins no longer write this field during initialization or tick, so the
+	 * modifier remains higher priority than authored wires and parameters.
+	 * Called only while a camera is constructed / reactivated.
+	 */
+	void RegisterModifierOverrideFieldOffset(int32 FieldOffset);
+
+	/** Returns true when a PCM modifier already owns this field for this camera instance. */
+	bool HasModifierOverrideFieldOffset(int32 FieldOffset) const;
+
 protected:
 	/**
 	 * Opt-out hook for the auto-resolve-before-tick behavior. Override and return
@@ -314,6 +329,13 @@ private:
 	/** Set to true after the first TickNode call. Cleared by Initialize() so
 	 *  re-activation re-triggers OnFirstTickNode on the new first frame. */
 	bool bHasHadFirstTick = false;
+
+	/**
+	 * Field offsets protected from per-frame pin auto-resolution by the active
+	 * PCM modifier. Inline storage covers normal modifier sizes without a heap
+	 * allocation; populated only during camera construction.
+	 */
+	TArray<int32, TInlineAllocator<4>> ModifierOverrideFieldOffsets;
 
 #if CPUPROFILERTRACE_ENABLED
 	/** Cached class name for the one-shot spec ID registration on first tick. */

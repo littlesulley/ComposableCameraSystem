@@ -62,5 +62,16 @@ public class ComposableCameraSystemEditor : ModuleRules
                 "Blutility"
             }
         );
+
+        // Details customization implements an IClassViewerFilter. Editor dump
+        // code also calls exported GameplayTags methods directly; runtime's
+        // dependency is not transitive for linker symbols.
+        PrivateDependencyModuleNames.AddRange(
+            new string[]
+            {
+                "ClassViewer",
+                "GameplayTags"
+            }
+        );
     }
 }

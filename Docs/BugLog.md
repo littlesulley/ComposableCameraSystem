@@ -1,5 +1,220 @@
 # Bug Log
 
+## 2026-07-16 - Modifier array entries after Index 0 lost the mode checkbox
+
+- Symptom: Index 0 showed `Use Custom Modifier Class`, but later array entries
+  displayed UE's default polymorphic Modifier picker and exposed only the old
+  custom Modifier fields.
+- Trigger / repro: open a Modifier data asset, configure Index 0 as Node Type,
+  add Index 1, then choose a custom Modifier subclass in the default object row.
+- Why it happens: the customization tried to replace null or derived inline
+  objects through `IPropertyHandle::SetValue`. UE5.6
+  `FPropertyHandleObject::SetValue` deliberately returns `Fail` when its property
+  node has `EditInlineNew`, so `EnsureWrapperForElement` returned null and left
+  the default row visible.
+- Root cause: the normalization path assumed normal object-property write
+  semantics for an inline-instanced object handle.
+- Touched files:
+  - `Source/ComposableCameraSystemEditor/Public/Customizations/ComposableCameraModifierDetails.h`
+  - `Source/ComposableCameraSystemEditor/Private/Customizations/ComposableCameraModifierDetails.cpp`
+  - `Docs/TechDoc.md`
+- Fix: for a single customized asset, normalize the authoritative
+  `Modifiers[ArrayIndex]` slot directly before creating the property row. Null
+  entries become exact-base wrappers; derived legacy entries are duplicated into
+  the wrapper's Custom branch.
+- Regression-test name: Modifier multi-element wrapper Details smoke test.
+- Test blocker: array-row composition and add-button refresh require a live
+  Unreal Editor Details view. After compiling, create at least three entries and
+  verify every index starts with `Use Custom Modifier Class` and supports both
+  modes.
+- How to avoid: do not call object-handle `SetValue` for `EditInlineNew` nodes;
+  update the authoritative owner slot with transaction/dirty tracking before
+  composing custom rows.
+- Possible conflicts: multi-object Details intentionally avoids normalizing
+  differing array slots. Edit one Modifier data asset at a time for this custom
+  authoring UI.
+
+## 2026-07-15 - Modifier Details duplicated a local weak utilities variable
+
+- Symptom: `ComposableCameraSystemEditor` failed with C2374 in
+  `ComposableCameraModifierDetails.cpp`: `LocalWeakUtilities` was redefined.
+- Trigger / repro: compile the Editor module after adding the per-item mode
+  checkbox to `GenerateModifierElement`.
+- Why it happens: the function already declared the weak utilities pointer for
+  the element value-change callback; the mode-row block declared the same local
+  name again in the same scope.
+- Root cause: the new UI block copied an existing local declaration instead of
+  reusing it.
+- Touched files:
+  - `Source/ComposableCameraSystemEditor/Private/Customizations/ComposableCameraModifierDetails.cpp`
+- Fix: remove the second declaration. Both callbacks capture the original weak
+  pointer declared at function entry.
+- Regression-test name: `ComposableCameraSystemEditor Modifier Details compile`.
+- Test blocker: this is a translation-unit compile regression. Verification
+  requires rebuilding the Editor target in Rider or Visual Studio; runtime
+  automation cannot run while the module fails to compile.
+- How to avoid: before introducing a callback-local alias, search the complete
+  function scope for an existing alias with the same lifetime and purpose.
+- Possible conflicts: none. Runtime and Details behavior remain unchanged.
+
+## 2026-07-15 - Custom Modifier wrapper could enter generic pre-initialize path
+
+- Symptom: a Custom Modifier Class entry could be classified as a generic node
+  override and skip its Blueprint `ApplyModifier` callback if its nested object
+  contained inherited `NodeTemplate` state.
+- Trigger / repro: enable Custom mode, assign a custom modifier whose inherited
+  `NodeTemplate` is non-null, then construct a type-asset camera.
+- Why it happens: the first wrapper implementation delegated
+  `UsesNodeTemplateOverride` and `ApplyModifierToNode` wholesale to the nested
+  object, even though Node Type and Custom Modifier Class are mutually exclusive
+  authoring modes.
+- Root cause: branch selection existed in the UI but was not enforced at the
+  runtime execution-phase boundary.
+- Touched files:
+  - `Source/ComposableCameraSystem/Private/Modifiers/ComposableCameraModifierBase.cpp`
+  - `Source/ComposableCameraSystem/Private/Tests/ComposableCameraModifierPropertyOverrideTests.cpp`
+- Fix: Custom mode now reads only the nested modifier's legacy `NodeClass`,
+  always reports post-initialize timing, and invokes its `ApplyModifier` event
+  directly. It never consults generic template state.
+- Regression-test name:
+  `System.Engine.ComposableCameraSystem.Modifiers.Wrapper.SelectsActiveBranch`.
+- How to avoid: when a bool selects mutually exclusive serialized branches,
+  enforce the branch at every runtime dispatch point, not only in Details UI.
+- Possible conflicts: custom subclasses that intentionally populated inherited
+  generic `NodeTemplate` state must use Node Type mode instead; Custom mode is
+  reserved for the original `NodeClass + ApplyModifier` contract.
+
+## 2026-07-15 - Editor module failed to link Gameplay Tags string formatting
+
+- Symptom: `ComposableCameraSystemEditor` failed with LNK2019 for
+  `FGameplayTagContainer::ToStringSimple(bool) const` from
+  `ComposableCameraEditorDumpCommands.cpp`.
+- Trigger / repro: compile the Editor module after the camera identity field
+  changed to `FGameplayTagContainer` and the editor dump began formatting the
+  full container.
+- Why it happens: C++ headers were visible through the runtime module, so the
+  editor translation unit compiled, but exported Gameplay Tags symbols still
+  require a direct module link dependency.
+- Root cause: `ComposableCameraSystemEditor.Build.cs` omitted `GameplayTags`.
+- Touched files:
+  - `Source/ComposableCameraSystemEditor/ComposableCameraSystemEditor.Build.cs`
+- Fix: add `GameplayTags` to `PrivateDependencyModuleNames` for the Editor
+  module.
+- Regression-test name: `ComposableCameraSystemEditor GameplayTags link`.
+- Test blocker: this is a module-link regression, not runtime behavior.
+  Verification requires a full Rider or Visual Studio Editor build; Unreal
+  automation cannot detect a DLL that failed to link.
+- How to avoid: every module that directly calls a non-inline exported method
+  must declare the exporting module itself. Do not rely on another module's
+  public dependency for linker ownership.
+- Possible conflicts: none expected. `GameplayTags` is already a Runtime module
+  dependency; this only links the Editor module directly.
+
+## 2026-07-15 - Type-asset camera tag trace label stayed empty after tag-container migration
+
+- Symptom: a type-asset camera carried the correct runtime `CameraTags`, but
+  its cached Insights trace label still showed `(none)`.
+- Trigger / repro: spawn a deferred type-asset camera. Director calls
+  `Initialize()` before `ConstructCameraFromTypeAsset()` copies identity fields.
+  Read `CameraTagsTraceName` after construction.
+- Why it happens: tag-string caching ran only from `Initialize()`, while the
+  type asset populated tags later through the pre-BeginPlay construction
+  callback.
+- Root cause: the tag-container refactor copied the old cache site without
+  auditing activation ordering.
+- Touched files:
+  - `Source/ComposableCameraSystem/Public/Cameras/ComposableCameraCameraBase.h`
+  - `Source/ComposableCameraSystem/Private/Cameras/ComposableCameraCameraBase.cpp`
+  - `Source/ComposableCameraSystem/Private/Core/ComposableCameraTypeAssetInstantiator.cpp`
+  - `Source/ComposableCameraSystem/Private/Tests/ComposableCameraModifierPropertyOverrideTests.cpp`
+- Fix: centralize legacy-tag migration, compatibility-field synchronization,
+  and trace-label caching in `RefreshCameraTags()`. Call it from both camera
+  initialization and type-asset construction after tags are copied.
+- Regression-test name:
+  `System.Engine.ComposableCameraSystem.Modifiers.CameraTagQuery.FiltersCameraTags`
+  (`Type-asset construction refreshes the cached trace label`).
+- How to avoid: when a value is copied after `Initialize()`, audit every cache
+  derived from that value and refresh it at the final write site.
+- Possible conflicts: direct runtime mutation of `CameraTags` after construction
+  still requires an explicit `RefreshCameraTags()` call; normal type-asset and
+  native-camera initialization paths already call it.
+
+## 2026-07-15 - Modifier node override UI never appeared inside the array
+
+- Symptom: a Modifier data asset showed the default `Node Class` and
+  `Node Template` fields instead of a `Node Override` category. Selecting a
+  node class left `Node Template` as `None`, so no override checkboxes or node
+  parameter rows appeared.
+- Trigger / repro: open a `UComposableCameraNodeModifierDataAsset`, add a base
+  `UComposableCameraModifierBase` entry to `Modifiers`, expand index 0, and
+  select any camera node class.
+- Why it happens: `RegisterCustomClassLayout` for
+  `UComposableCameraModifierBase` applies when that UObject is a root Details
+  object. The modifier is an `EditInlineNew` UObject nested inside a `TArray`,
+  so the asset Details view generated its default child layout instead.
+- Root cause: the customization was registered at the wrong Details hierarchy
+  level. Its `OnNodeClassSelected` callback never existed in the rendered tree,
+  leaving `NodeTemplate` uncreated.
+- Touched files:
+  - `Source/ComposableCameraSystemEditor/Public/Customizations/ComposableCameraModifierDetails.h`
+  - `Source/ComposableCameraSystemEditor/Private/Customizations/ComposableCameraModifierDetails.cpp`
+  - `Docs/EditorDesignDoc.md`
+  - `Docs/TechDoc.md`
+  - `Docs/BugLog.md`
+- Fix: register the customization on the Modifier data asset and rebuild
+  `Modifiers` with UE5.6 `FDetailArrayBuilder`. Generic base entries now render
+  the Node Type picker and checked property rows directly under their array
+  element. Legacy Modifier Blueprint entries keep the default inline layout.
+  Existing broken base entries with `NodeClass` but no template are repaired on
+  open by creating `NodeTemplate` from that class.
+- Regression-test name: Modifier asset Node Override Details smoke test.
+- Test blocker: Details-row composition and interactive class-picker refresh
+  require a live Unreal Editor Details view. Project rules prohibit Codex from
+  launching the Editor or automation from shell. After compiling, reopen the
+  asset and verify `Node Override -> Modifiers -> Node Type`; choosing
+  `CameraOffset` must show its editable parameters and no `PaletteCategory`.
+- Avoid next time: register class layouts at the actual root object owned by the
+  Details view. For polymorphic inline UObject arrays, use an asset-level array
+  builder instead of assuming nested class customizations will run.
+- Possible conflicts: custom Modifier Blueprint subclasses intentionally keep
+  their legacy default fields. Generic base entries use the new data-driven
+  rows only.
+
+## 2026-07-15 - Generic Modifier `TObjectPtr` expressions failed to compile
+
+- Symptom: compiling `ComposableCameraSystem` failed with C2445 in
+  `ComposableCameraModifierManager.cpp` and
+  `ComposableCameraModifierBase.cpp`; the Editor module also failed with C1083
+  because `IPropertyHandle.h` does not exist in UE 5.6.
+- Trigger / repro: compile after generic Modifier entries changed transition
+  and node-template references to `TObjectPtr`.
+- Why it happens: C++ conditional expressions had one `TObjectPtr<T>` operand
+  and one raw `T*` operand, so MSVC could not choose a common result type.
+  The node-class helper mixed `UClass*` with `TSubclassOf<T>` the same way.
+  UE 5.6 exposes `IPropertyHandle` through `PropertyHandle.h`.
+- Root cause: implicit smart-pointer conversion was assumed in mixed `?:`
+  expressions, and the editor include name was guessed instead of following
+  existing UE5.6 module usage.
+- Touched files:
+  - `Source/ComposableCameraSystem/Private/Core/ComposableCameraModifierManager.cpp`
+  - `Source/ComposableCameraSystem/Private/Modifiers/ComposableCameraModifierBase.cpp`
+  - `Source/ComposableCameraSystemEditor/Private/Customizations/ComposableCameraModifierDetails.cpp`
+  - `Docs/TechDoc.md`
+  - `Docs/BugLog.md`
+- Fix: use `.Get()` on modifier-asset transition references before the ternary,
+  return the template class through an explicit `TSubclassOf` branch, and
+  include `PropertyHandle.h`.
+- Regression-test name: `ComposableCameraSystem IDE generic Modifier compile`.
+- Test blocker: this is a C++ type/include compile failure. No runtime
+  automation test can execute before modules compile, and project rules forbid
+  Codex from invoking UBT or IDE builds from shell. Rebuild in Rider / Visual
+  Studio; then run `System.Engine.ComposableCameraSystem.Modifiers.PropertyOverride.*`.
+- Avoid next time: never mix `TObjectPtr<T>` and raw `T*` in `?:`; normalize
+  to raw pointers with `.Get()`. Do not infer UE header names; grep existing
+  module includes first.
+- Possible conflicts: none expected. Pointer ownership and serialized asset
+  data remain unchanged.
+
 ## 2026-06-23 - Test actor helper names collided in unity build
 
 - Symptom: compiling tests failed with C2084 "`SpawnActorWithRoot` already has

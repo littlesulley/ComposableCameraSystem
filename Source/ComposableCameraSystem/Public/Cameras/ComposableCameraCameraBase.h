@@ -312,17 +312,27 @@ public:
 
 	static void AddReferencedObjects(UObject* InThis, FReferenceCollector& Collector);
 
-	/** Tag for this camera. Used by modifiers to distinguish different cameras. */
+	/** Migrates the legacy single tag, updates its compatibility value, and
+	 *  rebuilds the allocation-free Insights trace label. */
+	void RefreshCameraTags();
+
+	/** Tags describing this camera. Modifier assets evaluate CameraTagQuery
+	 *  against this container. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "ComposableCameraSystem|Composable Camera")
+	FGameplayTagContainer CameraTags;
+
+	/** Legacy single tag. Migrated into CameraTags during initialization. */
+	UPROPERTY(BlueprintReadOnly, Category = "ComposableCameraSystem|Composable Camera",
+		meta = (DeprecatedProperty, DeprecationMessage = "Use CameraTags instead."))
 	FGameplayTag CameraTag {};
 
-	/** Cached `CameraTag.ToString()` populated once at Initialize and reused
+	/** Cached `CameraTags.ToStringSimple()` populated once at Initialize and reused
 	 *  by per-tick `TRACE_CPUPROFILER_EVENT_SCOPE_STR` so the dynamic Insights
-	 *  scope name doesn't allocate an FString per tick. CameraTag is
+	 *  scope name doesn't allocate an FString per tick. CameraTags is
 	 *  EditDefaultsOnly so the cache is stable across the camera's lifetime
 	 * . Repopulated only on Initialize (in case the runtime mutates the
-	 *  tag before construction completes). */
-	FString CameraTagTraceName;
+	 *  tags before construction completes). */
+	FString CameraTagsTraceName;
 
 	/** Enter transition. Usually used for returning back to this camera from a transient camera. */
 	UPROPERTY(EditDefaultsOnly, Instanced, Category = "ComposableCameraSystem|Composable Camera")
@@ -385,7 +395,14 @@ public:
 	 */
 	void InitializeNodes();
 
-	void ApplyModifiers(const T_NodeModifier& Modifiers);
+	/**
+	 * Apply effective PCM modifiers. Type-asset construction invokes the
+	 * node-template path before node initialization; legacy Blueprint modifiers
+	 * remain applied after initialization through the default call path.
+	 */
+	void ApplyModifiers(const T_NodeModifier& Modifiers,
+		bool bApplyNodeTemplateModifiers = true,
+		bool bApplyLegacyBlueprintModifiers = true);
 
 	/**
 	 * Runs the BeginPlay compute chain: walks ComputeNodes in order and calls

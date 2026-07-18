@@ -238,7 +238,9 @@ namespace
 		B.Appendf(TEXT("Camera Type Asset: %s\n"), *A.GetName());
 		B.Appendf(TEXT(" Package: %s\n"), *A.GetPathName());
 		B.Appendf(TEXT(" Class: %s\n"), *A.GetClass()->GetName());
-		B.Appendf(TEXT(" CameraTag: %s\n"), *A.CameraTag.ToString());
+		B.Appendf(TEXT(" CameraTags: %s\n"), A.CameraTags.IsEmpty()
+			? TEXT("(none)")
+			: *A.CameraTags.ToStringSimple());
 		B.Appendf(TEXT(" BuildStatus: %s (%d messages)\n"),
 			BuildStatusToString(A.BuildStatus),
 			A.BuildMessages.Num());

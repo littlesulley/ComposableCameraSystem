@@ -26,7 +26,7 @@ class COMPOSABLECAMERASYSTEM_API UComposableCameraModifierManager : public UObje
 	GENERATED_BODY()
 
 public:
-	// FModifierEntry holds raw UObject* (Modifier / Asset) inside a non-reflected
+	// FModifierEntry holds TObjectPtr references inside a non-reflected
 	// nested TMap. Without this override the GC would not see those references -
 	// callers that pass a transiently-rooted asset to AddModifier would see it
 	// collected and the next UpdateEffectiveModifiers / ApplyModifiers would
@@ -39,8 +39,9 @@ public:
 public:
 	struct FComposableCameraModifierData
 	{
-		// All modifiers.
-		T_CameraModifier ModifierData;
+		// All registered candidates grouped by exact target node class. Each
+		// candidate's CameraTagQuery is evaluated when the active camera changes.
+		T_NodeModifierArray ModifierData;
 
 		// Effective modifiers that are used by current camera. For each node type, the modifier with the highest priority is tracked.
 		T_NodeModifier EffectiveModifiers;

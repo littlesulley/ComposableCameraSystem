@@ -729,9 +729,9 @@ void UComposableCameraEvaluationTree::BuildNodeDebugSnapshot(
 			{
 				Entry.DisplayLabel = TA->GetName();
 			}
-			else if (Camera->CameraTag.IsValid())
+			else if (!Camera->CameraTags.IsEmpty())
 			{
-				Entry.DisplayLabel = Camera->CameraTag.ToString();
+				Entry.DisplayLabel = Camera->CameraTags.ToStringSimple();
 			}
 			else
 			{

@@ -304,13 +304,7 @@ void AComposableCameraCameraBase::EndPlay(const EEndPlayReason::Type EndPlayReas
 void AComposableCameraCameraBase::Initialize(AComposableCameraPlayerCameraManager* Manager)
 {
 	CameraManager = Manager;
-
-	// Cache the gameplay-tag string for per-tick Insights scope naming.
-	// `FGameplayTag::ToString` allocates an FString; the previous code
-	// regenerated it every TickCamera, paying one heap alloc per camera
-	// per frame just for the dynamic trace label. CameraTag is
-	// EditDefaultsOnly, so caching once here is safe.
-	CameraTagTraceName = CameraTag.ToString();
+	RefreshCameraTags();
 
 	// Per-node initialization is factored out so type-asset cameras can run it
 	// later, once OnTypeAssetCameraConstructed has populated CameraNodes.
@@ -325,6 +319,24 @@ void AComposableCameraCameraBase::Initialize(AComposableCameraPlayerCameraManage
 	{
 		Manager->BindCameraActionsForNewCamera(this);
 	}
+}
+
+void AComposableCameraCameraBase::RefreshCameraTags()
+{
+	if (CameraTags.IsEmpty() && CameraTag.IsValid())
+	{
+		CameraTags.AddTag(CameraTag);
+	}
+	CameraTag = CameraTags.IsEmpty() ? FGameplayTag::EmptyTag : CameraTags.First();
+
+	// Cache the gameplay-tag string for per-tick Insights scope naming.
+	// `FGameplayTagContainer::ToStringSimple` allocates an FString; the previous code
+	// regenerated it every TickCamera, paying one heap alloc per camera
+	// per frame just for the dynamic trace label. CameraTags is
+	// EditDefaultsOnly, so caching once here is safe.
+	CameraTagsTraceName = CameraTags.IsEmpty()
+		? FString(TEXT("(none)"))
+		: CameraTags.ToStringSimple();
 }
 
 void AComposableCameraCameraBase::InitializeNodes()
@@ -356,7 +368,8 @@ void AComposableCameraCameraBase::InitializeNodes()
 	}
 }
 
-void AComposableCameraCameraBase::ApplyModifiers(const T_NodeModifier& Modifiers)
+void AComposableCameraCameraBase::ApplyModifiers(const T_NodeModifier& Modifiers,
+	bool bApplyNodeTemplateModifiers, bool bApplyLegacyBlueprintModifiers)
 {
 	for (UComposableCameraCameraNodeBase* Node : CameraNodes)
 	{
@@ -369,7 +382,13 @@ void AComposableCameraCameraBase::ApplyModifiers(const T_NodeModifier& Modifiers
 		{
 			if (Modifier->Modifier)
 			{
-				Modifier->Modifier->ApplyModifier(Node);
+				const bool bUsesNodeTemplate = Modifier->Modifier->UsesNodeTemplateOverride();
+				if ((bUsesNodeTemplate && !bApplyNodeTemplateModifiers)
+					|| (!bUsesNodeTemplate && !bApplyLegacyBlueprintModifiers))
+				{
+					continue;
+				}
+				Modifier->Modifier->ApplyModifierToNode(Node);
 			}
 		}
 	}
@@ -595,7 +614,7 @@ FComposableCameraPose AComposableCameraCameraBase::TickCamera(float DeltaTime)
 	TRACE_CPUPROFILER_EVENT_SCOPE(CCS_Camera_TickCamera);
 	// Read the cached trace name from Initialize. Never allocate a fresh
 	// FString here on the per-tick hot path.
-	TRACE_CPUPROFILER_EVENT_SCOPE_STR(*CameraTagTraceName);
+	TRACE_CPUPROFILER_EVENT_SCOPE_STR(*CameraTagsTraceName);
 
 	// Per-frame memoization. Under the snapshot-DAG evaluation topology,
 	// a single camera can be reached via multiple paths in one frame

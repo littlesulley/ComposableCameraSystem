@@ -17,6 +17,7 @@
 #include "ISequencerModule.h"
 #include "AssetTools/ComposableCameraTypeAssetEditor.h"
 #include "Customizations/ComposableCameraInternalVariableCustomization.h"
+#include "Customizations/ComposableCameraModifierDetails.h"
 #include "Customizations/ComposableCameraNodeGraphNodeDetails.h"
 #include "Customizations/ComposableCameraPatchSectionDetails.h"
 #include "Customizations/ComposableCameraPatchTypeAssetCustomization.h"
@@ -318,6 +319,7 @@ void FComposableCameraSystemEditorModule::RegisterDetailsCustomizations()
  FPropertyEditorModule& PropertyEditorModule = FModuleManager::GetModuleChecked<FPropertyEditorModule>("PropertyEditor");
 
  FComposableCameraInternalVariableCustomization::Register(PropertyEditorModule);
+ FComposableCameraModifierDetails::Register(PropertyEditorModule);
  FComposableCameraParameterTableRowCustomization::Register(PropertyEditorModule);
  FComposableCameraNodeGraphNodeDetails::Register(PropertyEditorModule);
  FComposableCameraTypeAssetReferenceCustomization::Register(PropertyEditorModule);
@@ -337,6 +339,7 @@ void FComposableCameraSystemEditorModule::UnregisterDetailsCustomizations()
  if (PropertyEditorModule)
  {
  FComposableCameraInternalVariableCustomization::Unregister(*PropertyEditorModule);
+ FComposableCameraModifierDetails::Unregister(*PropertyEditorModule);
  FComposableCameraParameterTableRowCustomization::Unregister(*PropertyEditorModule);
  FComposableCameraNodeGraphNodeDetails::Unregister(*PropertyEditorModule);
  FComposableCameraTypeAssetReferenceCustomization::Unregister(*PropertyEditorModule);

@@ -1051,10 +1051,10 @@ namespace
 		const UComposableCameraTypeAsset* TypeAsset = Camera->SourceTypeAsset.Get();
 		const FString DisplayName = TypeAsset
 			? TypeAsset->GetName()
-			: (Camera->CameraTag.IsValid() ? Camera->CameraTag.ToString() : Camera->GetName());
+			: (!Camera->CameraTags.IsEmpty() ? Camera->CameraTags.ToStringSimple() : Camera->GetName());
 		Out.Lines.Add({ TEXT("Class"), DisplayName, CValue });
-		Out.Lines.Add({ TEXT("Tag"),
-			Camera->CameraTag.IsValid() ? Camera->CameraTag.ToString() : FString(TEXT("(none)")),
+		Out.Lines.Add({ TEXT("Tags"),
+			Camera->CameraTags.IsEmpty() ? FString(TEXT("(none)")) : Camera->CameraTags.ToStringSimple(),
 			CValue });
 		if (Camera->IsTransient())
 		{
@@ -1517,9 +1517,9 @@ namespace
 	// Two sub-sections:
 	//   1. "Effective (N)": what's actually driving the running camera
 	//      right now. One line per node class, showing the winning
-	//      modifier (highest priority whose tag matches the camera).
-	//   2. "All (M)": every registered modifier grouped by [CameraTag] ->
-	//      [NodeClass] -> modifier entries. The one marked `[*]` inside
+	//      modifier (highest priority whose query matches the camera).
+	//   2. "All (M)": every registered modifier grouped by [NodeClass], with
+	//      each asset's tag-query description. The one marked `[*]` inside
 	//      each node-class group is the effective winner. Makes "why
 	//      is my modifier not applying?" trivially answerable (look for
 	//      a [*] mark on a different modifier of the same node class).
@@ -1541,7 +1541,7 @@ namespace
 		}
 
 		const auto& Data      = ModMgr->GetModifierData();
-		const auto& AllMods   = Data.ModifierData;       // TMap<Tag, TMap<NodeClass, TArray<Entry>>>
+		const auto& AllMods   = Data.ModifierData;       // TMap<NodeClass, TArray<Entry>>
 		const auto& Effective = Data.EffectiveModifiers; // TMap<NodeClass, Entry>
 
 		// ---- Section 1: Effective ----
@@ -1564,7 +1564,7 @@ namespace
 				FString ModDesc;
 				if (Entry.Modifier && Entry.Asset)
 				{
-					ModDesc = FString::Printf(TEXT("%s <%s> p=%d"),
+					ModDesc = FString::Printf(TEXT("%s <%s> Priority=%d"),
 						*Entry.Modifier->GetClass()->GetName(),
 						*Entry.Asset->GetName(),
 						Entry.Asset->Priority);
@@ -1580,15 +1580,11 @@ namespace
 			}
 		}
 
-		// ---- Section 2: All, grouped by camera tag ----
-		// Count total entries across all (tag, nodeclass) buckets for the header.
+		// ---- Section 2: All, grouped by target node class ----
 		int32 AllCount = 0;
-		for (const auto& TagPair : AllMods)
+		for (const auto& NodePair : AllMods)
 		{
-			for (const auto& NodePair : TagPair.Value)
-			{
-				AllCount += NodePair.Value.Num();
-			}
+			AllCount += NodePair.Value.Num();
 		}
 		Out.Lines.Add({ FString::Printf(TEXT("All  (%d)"), AllCount), CLabel });
 		if (AllMods.Num() == 0)
@@ -1597,44 +1593,32 @@ namespace
 			return;
 		}
 
-		for (const auto& TagPair : AllMods)
+		for (const auto& NodePair : AllMods)
 		{
-			const FGameplayTag& Tag       = TagPair.Key;
-			const auto&         NodeArray = TagPair.Value;
+			const auto& NodeClass = NodePair.Key;
+			const auto& ModList = NodePair.Value;
 
 			Out.Lines.Add({
-				FString::Printf(TEXT("  [%s]"), *Tag.ToString()),
-				CValue });
+				FString::Printf(TEXT("  %s:"),
+					NodeClass ? *NodeClass->GetName() : TEXT("(null class)")),
+				CLabel });
 
-			for (const auto& NodePair : NodeArray)
+			const FModifierEntry* EffForNode = Effective.Find(NodeClass);
+			for (const FModifierEntry& Entry : ModList)
 			{
-				const auto& NodeClass = NodePair.Key;
-				const auto& ModList   = NodePair.Value;
-
+				if (!Entry.Modifier || !Entry.Asset) { continue; }
+				const bool bIsEffective = EffForNode && (*EffForNode) == Entry;
+				const FString QueryDescription = Entry.Asset->CameraTagQuery.IsEmpty()
+					? FString(TEXT("All Cameras"))
+					: Entry.Asset->CameraTagQuery.GetDescription();
 				Out.Lines.Add({
-					FString::Printf(TEXT("    %s:"),
-						NodeClass ? *NodeClass->GetName() : TEXT("(null class)")),
-					CLabel });
-
-				// Find the effective modifier for this node class so we
-				// can mark the winner with [*] inline. Effective is a flat
-				// NodeClass ->Entry map (one entry per node class, camera-tag
-				// is already factored in by UpdateEffectiveModifiers), so
-				// the comparison uses FModifierEntry::operator==.
-				const FModifierEntry* EffForNode = Effective.Find(NodeClass);
-
-				for (const FModifierEntry& Entry : ModList)
-				{
-					if (!Entry.Modifier || !Entry.Asset) { continue; }
-					const bool bIsEffective = EffForNode && (*EffForNode) == Entry;
-					Out.Lines.Add({
-						FString::Printf(TEXT("      %s <%s> p=%d%s"),
-							*Entry.Modifier->GetClass()->GetName(),
-							*Entry.Asset->GetName(),
-							Entry.Asset->Priority,
-							bIsEffective ? TEXT("  [*]") : TEXT("")),
-						bIsEffective ? CActiveMarker : CValue });
-				}
+					FString::Printf(TEXT("    %s <%s> Priority=%d Query=%s%s"),
+						*Entry.Modifier->GetClass()->GetName(),
+						*Entry.Asset->GetName(),
+						Entry.Asset->Priority,
+						QueryDescription.IsEmpty() ? TEXT("Tag Query") : *QueryDescription,
+						bIsEffective ? TEXT("  [*]") : TEXT("")),
+					bIsEffective ? CActiveMarker : CValue });
 			}
 		}
 	}
