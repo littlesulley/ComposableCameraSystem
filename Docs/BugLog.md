@@ -1,5 +1,622 @@
 # Bug Log
 
+## 2026-07-22 - Nested Mesh Layer replaced instead of suspending outer Layer
+
+- Symptom: entering an inner painted Layer removed the outer Layer's Camera
+  Type and every Modifier even while the player was still inside the outer
+  shape. Exiting the inner Layer could not resume the original outer camera.
+- Trigger / repro: paint overlapping red and yellow Layers, give both Profiles
+  camera effects, walk red -> overlap -> red -> outside.
+- Why it happens: the ray query returned one winning Layer and the subsystem
+  stored one Profile, one Modifier array, and one Mesh Context per player.
+  A same-surface Priority winner therefore replaced the complete previous
+  scope.
+- Root cause: Layer was modeled as an exclusive selector instead of an
+  irregular Trigger scope with independent enter/exit lifetime.
+- Touched files:
+  - `Source/ComposableCameraSystem/Public/MeshCamera/ComposableCameraMeshSurfaceTypes.h`
+  - `Source/ComposableCameraSystem/Private/MeshCamera/ComposableCameraMeshSurfaceTypes.cpp`
+  - `Source/ComposableCameraSystem/Public/MeshCamera/ComposableCameraMeshSurfaceStorageActor.h`
+  - `Source/ComposableCameraSystem/Private/MeshCamera/ComposableCameraMeshSurfaceStorageActor.cpp`
+  - `Source/ComposableCameraSystem/Public/MeshCamera/ComposableCameraMeshWorldSubsystem.h`
+  - `Source/ComposableCameraSystem/Private/MeshCamera/ComposableCameraMeshWorldSubsystem.cpp`
+  - `Source/ComposableCameraSystem/Private/MeshCamera/ComposableCameraMeshProfileState.h`
+  - `Source/ComposableCameraSystem/Public/Core/ComposableCameraPlayerCameraManager.h`
+  - `Source/ComposableCameraSystem/Private/Core/ComposableCameraPlayerCameraManager.cpp`
+  - `Source/ComposableCameraSystem/Public/Core/ComposableCameraContextStack.h`
+  - `Source/ComposableCameraSystem/Private/Core/ComposableCameraContextStack.cpp`
+  - `Source/ComposableCameraSystemEditor/Private/MeshCamera/ComposableCameraMeshLayerRendering.cpp`
+  - `Source/ComposableCameraSystemEditor/Private/MeshCamera/ComposableCameraMeshLayerModeToolkit.cpp`
+  - `Source/ComposableCameraSystemEditor/Private/Customizations/ComposableCameraMeshProfileCustomization.cpp`
+  - Mesh runtime/editor automation tests and design documents.
+- Fix: remove numeric Layer Priority. Query every enabled Layer on the nearest
+  surface and reconcile an active set keyed by storage actor plus Layer GUID.
+  Every active Layer owns its Modifier instances. Every Camera-bearing Layer
+  pushes a unique temporary Context whose readable hint contains Layer name and
+  GUID. Inner exit pops only its Context, restoring the original outer camera;
+  final outer exit restores gameplay. A Camera-less Layer leaves the lower
+  camera active. Active pop also refreshes ModifierManager selection without
+  rebuilding the resumed camera, preventing removed duplicated assets from
+  remaining strongly referenced. Editor overlap color now follows
+  top-to-bottom list order.
+- Regression-test names:
+  - `System.Engine.ComposableCameraSystem.MeshCamera.SurfaceLayerSet`
+  - `ComposableCameraSystem.MeshCamera.LayerCameraContextOwnershipPolicy`
+  - `ComposableCameraSystem.MeshCamera.LayerExitModifierRefreshPolicy`
+  - `System.Engine.ComposableCameraSystem.ContextStack.NestedTemporaryContextsRestoreInOrder`
+  - `ComposableCameraSystem.Editor.MeshCamera.ResolvedVisualization`
+  - `ComposableCameraSystem.Editor.MeshCamera.ProfileDetailsLayout`
+- Test coverage: pure tests cover same-surface active-set collection, nearest
+  floor isolation, per-Layer Context ownership, Modifier refresh policy, list
+  order rendering, and hidden manual Context Name. Full red -> yellow -> red ->
+  gameplay camera-instance restoration requires an IDE-built PIE smoke test.
+- Avoid next time: keep spatial membership separate from effect conflict
+  resolution. Never collapse overlapping Trigger-like scopes before their
+  independent exit events have been derived.
+- Possible conflicts: saved Priority values are intentionally discarded after
+  the reflected field removal. Mesh Profile Context Name remains in the
+  shared row schema but is hidden and ignored. This entry supersedes the old
+  Priority-winner behavior recorded by the 2026-07-20 overlay bug.
+
+## 2026-07-22 - PIE exit released Scene with Mesh preview component still registered
+
+- Symptom: after enabling `Show Mesh Camera Layers` during PIE, stopping PIE
+  triggered an ensure/crash in `FScene::Release` from
+  `UWorld::FinishDestroy` during garbage collection.
+- Trigger / repro: start PIE, enable Show Mesh Camera Layers, then stop PIE
+  while the read-only Layer overlay is visible.
+- Why it happens: PIE preview meshes live in ownerless transient
+  `ULineBatchComponent`s held by `TStrongObjectPtr`. Cleanup depended on the
+  next core-ticker scan noticing that the PIE storage actor/world disappeared.
+  `EndPlayMap` can proceed directly to world/scene teardown and GC without that
+  later scan.
+- Root cause: the preview component lifetime was coupled to polling after world
+  disappearance instead of UE's pre-PIE-teardown lifecycle boundary. The
+  strong reference kept a registered primitive alive while its `FScene` was
+  being released.
+- Touched files:
+  - `Source/ComposableCameraSystemEditor/Private/Utilities/ComposableCameraMeshLayerTool.cpp`
+  - `Source/ComposableCameraSystemEditor/Private/MeshCamera/ComposableCameraMeshLayerRendering.h`
+  - `Source/ComposableCameraSystemEditor/Private/MeshCamera/ComposableCameraMeshLayerRendering.cpp`
+  - `Source/ComposableCameraSystemEditor/Private/Tests/ComposableCameraMeshLayerVisualizationTests.cpp`
+  - `Docs/EditorDesignDoc.md`
+  - `Docs/TechDoc.md`
+  - `Docs/ExecutionFlowExamples.md`
+  - `Docs/BugLog.md`
+- Fix: stop creating editor-owned components. Preview now submits each storage
+  mesh under a unique non-zero BatchID to the PIE world's own
+  `WorldPersistent` LineBatcher, and cleanup calls `ClearBatch`. Also bind
+  `PrePIEEnded` to clear all CCS batches and reject new work before
+  `EndPlayMap`; `PostPIEStarted` re-enables routing for the next session.
+- Regression-test name:
+  `ComposableCameraSystem.Editor.MeshCamera.PIEPreviewWorldRouting`.
+- Test coverage: automation verifies requested PIE rendering is rejected while
+  teardown is active. Full `PrePIEEnded -> EndPlayMap -> FScene::Release`
+  ordering requires an IDE-built PIE smoke test; project rules prohibit
+  launching Unreal Editor automation from shell.
+- Avoid next time: prefer world-owned rendering services for PIE overlays. Any
+  editor-owned `UPrimitiveComponent` registered with a PIE world must still be
+  destroyed on `PrePIEEnded`, never after weak world keys expire or during GC.
+- Possible conflicts: Show remains logically enabled across PIE sessions. Its
+  Level Editor preview stays active; only PIE batches are removed at
+  pre-end and rebuilt after the next `PostPIEStarted`.
+
+## 2026-07-21 - Mesh Profile exit could not restore gameplay camera
+
+- Symptom: after the player left every Mesh Layer, the Mesh Profile camera
+  remained active instead of returning to the normal gameplay camera.
+- Trigger / repro: start with a gameplay camera, enter a Layer whose Profile
+  has a Camera Type and uses `ContextName=None` or a Context already on the
+  stack, then leave all Layers.
+- Why it happens: those activations replaced the camera inside an externally
+  owned Context. Mesh recorded no `OwnedCameraContextName`, so exit removed
+  Modifiers and called `OnModifierChanged()` on the still-running Mesh camera.
+  The previous same-Context camera/tree may already have been destroyed.
+- Root cause: reversible Layer lifetime was implemented with destructive
+  same-Context activation; Context ownership depended on whether the authored
+  name happened to be absent before entry.
+- Touched files:
+  - `Source/ComposableCameraSystem/Public/Core/ComposableCameraContextStack.h`
+  - `Source/ComposableCameraSystem/Private/Core/ComposableCameraContextStack.cpp`
+  - `Source/ComposableCameraSystem/Public/Core/ComposableCameraPlayerCameraManager.h`
+  - `Source/ComposableCameraSystem/Private/Core/ComposableCameraPlayerCameraManager.cpp`
+  - `Source/ComposableCameraSystem/Public/MeshCamera/ComposableCameraMeshWorldSubsystem.h`
+  - `Source/ComposableCameraSystem/Private/MeshCamera/ComposableCameraMeshWorldSubsystem.cpp`
+  - `Source/ComposableCameraSystem/Private/MeshCamera/ComposableCameraMeshProfileState.h`
+  - `Source/ComposableCameraSystem/Private/Tests/ComposableCameraContextStackTests.cpp`
+  - `Source/ComposableCameraSystem/Private/Tests/ComposableCameraMeshProfileTests.cpp`
+  - `Source/ComposableCameraSystemEditor/Private/Customizations/ComposableCameraMeshProfileCustomization.cpp`
+  - `Docs/DesignDoc.md`
+  - `Docs/EditorDesignDoc.md`
+  - `Docs/TechDoc.md`
+  - `Docs/ExecutionFlowExamples.md`
+  - `Docs/BugLog.md`
+- Fix: the first Camera-bearing Profile now pushes a unique caller-owned
+  temporary Context above the current gameplay Context. Nested Camera Profiles
+  reuse it. Final Camera-Layer exit pops it and resumes the untouched lower
+  camera tree. The PCM transaction captures the gameplay Director before the
+  push, preserving the entry reference-source transition. Mesh forces the
+  scoped camera non-transient, and failed camera construction rolls back the
+  empty Context immediately.
+- Regression-test names:
+  `System.Engine.ComposableCameraSystem.ContextStack.TemporaryContextRestoresPrevious`
+  and
+  `ComposableCameraSystem.MeshCamera.ProfileCameraContextOwnershipPolicy`.
+- Test coverage: automation verifies unique temporary push/pop preserves the
+  original Director and verifies first-entry/reuse/exit ownership policy. Full
+  camera-actor pointer restoration still needs an IDE-built PIE smoke test:
+  Gameplay A -> Mesh B -> no Layer must return to A with original node state.
+- Avoid next time: any scoped feature that must restore prior camera state must
+  own a separate Context. Never treat a cached old camera pointer or an
+  external Context as a reversible override.
+- Possible conflicts: while Mesh Camera is active,
+  `GetActiveContextName()` reports its generated internal temporary name.
+  Mesh treats the authored Context Name as a logical/debug hint and ignores
+  transient lifetime fields because Layer presence is authoritative. Normal
+  DataTable activation keeps existing Context/ActivationParams semantics.
+
+## 2026-07-21 - Show Mesh Camera Layers did not render in PIE
+
+- Symptom: `Show Mesh Camera Layers` displayed filled Layer colors in the
+  Level Editor viewport but not in the PIE game viewport.
+- Trigger / repro: enable Show before or during PIE and inspect the same painted
+  floor through the PIE viewport.
+- Why it happens: the preview existed only in
+  `FComposableCameraMeshLayerPreviewEdMode::Render()`. Editor-mode rendering
+  receives the editor world and is not called by the PIE GameViewport.
+- Root cause: preview visibility was modeled as one editor-mode render callback
+  instead of one logical Show state with per-world rendering backends.
+- Touched files:
+  - `Source/ComposableCameraSystemEditor/Private/MeshCamera/ComposableCameraMeshLayerRendering.h`
+  - `Source/ComposableCameraSystemEditor/Private/MeshCamera/ComposableCameraMeshLayerRendering.cpp`
+  - `Source/ComposableCameraSystemEditor/Private/Utilities/ComposableCameraMeshLayerTool.cpp`
+  - `Source/ComposableCameraSystemEditor/Private/Tests/ComposableCameraMeshLayerVisualizationTests.cpp`
+  - `Docs/EditorDesignDoc.md`
+  - `Docs/TechDoc.md`
+  - `Docs/ExecutionFlowExamples.md`
+  - `Docs/BugLog.md`
+- Fix: Show now owns an independent preview-request flag. For each PIE storage
+  actor, the editor module converts the same resolved non-stacking cells into a
+  unique batch on that PIE world's persistent LineBatcher. Meshes submit once;
+  a ticker handles already-running PIE, multiple PIE worlds, transform changes,
+  streaming removal, and deterministic pre-PIE-end cleanup.
+- Regression-test names:
+  `ComposableCameraSystem.Editor.MeshCamera.PIEPreviewWorldRouting` and
+  `ComposableCameraSystem.Editor.MeshCamera.ResolvedVisualization`.
+- Test coverage: automation verifies routing accepts only requested PIE worlds
+  and verifies PIE mesh generation emits one quad per already-resolved winning
+  cell. Actual GameViewport rendering cannot be asserted by headless
+  automation. After IDE compilation: toggle Show before/during PIE, test SIE,
+  stop/restart PIE, and confirm overlays appear/disappear without stale color.
+- Avoid next time: viewport tools spanning Editor and PIE need explicit world
+  routing. Reuse resolved visualization data, but give each viewport family a
+  renderer that actually participates in its scene.
+- Possible conflicts: PIE geometry uses the world LineBatcher because attaching
+  a render component to the hidden storage actor would suppress it. BatchIDs
+  isolate CCS cleanup from unrelated debug drawing. The implementation lives in
+  the Editor module and is absent from Shipping builds.
+
+## 2026-07-21 - Editor exit accessed destroyed Level Editor mode tools
+
+- Symptom: closing Unreal Editor emitted an ensure from
+  `GLevelEditorModeTools()` at `UnrealEdGlobals.cpp:119`.
+- Trigger / repro: load the CCS editor module, then exit Unreal Editor. Module
+  shutdown called `FComposableCameraMeshLayerTool::Unregister()` after UE had
+  destroyed its global Level Editor mode manager.
+- Why it happens: `Unregister()` queried the active mesh edit/preview modes
+  unconditionally. `GLevelEditorModeTools()` treats a missing singleton as an
+  early-startup access, emits an ensure, and creates a replacement manager even
+  when the real cause is late shutdown.
+- Root cause: mesh mode cleanup assumed module shutdown always happened while
+  the global Level Editor mode manager was alive.
+- Touched files:
+  - `Source/ComposableCameraSystemEditor/Private/Utilities/ComposableCameraMeshLayerTool.cpp`
+  - `Docs/TechDoc.md`
+  - `Docs/BugLog.md`
+- Fix: active-state callbacks return false after engine exit is requested, and
+  edit/preview toggle commands become no-ops. `Unregister()` therefore skips
+  mode-manager access during engine teardown while retaining normal hot-unload
+  cleanup before exit.
+- Regression-test name:
+  `ComposableCameraSystem Editor Mesh Layer shutdown lifecycle smoke test`.
+- Test blocker: automation cannot safely request full engine exit, wait until
+  UE destroys the global mode-manager singleton, then continue inside the same
+  test process. After IDE compilation, open the editor and exit; verify no
+  `UnrealEdGlobals.cpp:119` ensure appears.
+- Avoid next time: any editor shutdown path that touches
+  `GLevelEditorModeTools()` must first reject `IsEngineExitRequested()`.
+- Possible conflicts: none expected. Normal edit/preview toggling and module
+  hot-unload before engine exit keep existing behavior.
+
+## 2026-07-21 - Stray identifier broke PCM compilation
+
+- Symptom: Editor compilation failed with C2065 for undeclared identifier
+  `ibin`, followed by C2146 before `DesiredView`.
+- Trigger / repro: compile `ComposableCameraPlayerCameraManager.cpp` with the
+  stray token appended after the aspect-ratio constraint block.
+- Why it happens: C++ parsed `ibin` as an identifier between the closing brace
+  and the following statement, corrupting the function grammar.
+- Root cause: an accidental text fragment remained after an earlier edit.
+- Touched files:
+  - `Source/ComposableCameraSystem/Private/Core/ComposableCameraPlayerCameraManager.cpp`
+  - `Docs/BugLog.md`
+- Fix: remove the stray `ibin` token. Camera pose, aspect-ratio, and
+  post-process behavior remain unchanged.
+- Regression-test name:
+  `ComposableCameraSystem non-unity compile: PCM stray-token hygiene`.
+- Test blocker: the failure occurs during C++ compilation before automation can
+  load, and project rules prohibit command-line UBT. Verify through the next
+  Rider or Visual Studio Editor-target build.
+- Avoid next time: inspect the complete edited statement boundary and run the
+  IDE compiler before treating a multi-file change as verified.
+- Possible conflicts: none. This is syntax-only cleanup.
+
+## 2026-07-20 - Mesh Profile Context was free text and Camera row was duplicated
+
+- Symptom: Mesh Profile `Context Name` rendered as a free-text FName field,
+  and the Camera category ended with an extra `Camera` struct field after all
+  intended Camera properties.
+- Trigger / repro: open any `ComposableCameraMeshProfile` asset in Details.
+- Why it happens: the shared parameter row's ContextName property had no
+  `GetOptions` metadata. The Profile class customization re-added the parent
+  Camera property even though `ShowOnlyInnerProperties` already flattened it.
+- Root cause: the embedded row depended on default property rendering while the
+  class customization also attempted to own its placement.
+- Touched files:
+  - `Source/ComposableCameraSystem/Public/DataAssets/ComposableCameraParameterTableRow.h`
+  - `Source/ComposableCameraSystemEditor/Private/Customizations/ComposableCameraMeshProfileCustomization.cpp`
+  - `Source/ComposableCameraSystemEditor/Private/Tests/ComposableCameraMeshProfileCustomizationTests.cpp`
+  - `Docs/EditorDesignDoc.md`
+  - `Docs/TechDoc.md`
+  - `Docs/BugLog.md`
+- Fix: bind ContextName to the configured project Context list through native
+  `GetOptions`; hide the parent Camera row and explicitly add its five children
+  in the desired order.
+- Regression-test name:
+  `ComposableCameraSystem.Editor.MeshCamera.ProfileDetailsLayout`.
+- Test coverage: property-row generation verifies no visible Camera parent,
+  all five Camera children, and dropdown values sourced from project Settings.
+  Final spacing and labels still require an IDE-built Details-panel smoke test.
+- Avoid next time: when a class customization flattens a struct, it must own the
+  child rows explicitly and suppress the parent instead of mixing implicit and
+  explicit placement.
+- Possible conflicts: ContextName becomes constrained to configured Contexts in
+  both DataTable rows and Mesh Profiles. Stored FName data and runtime
+  activation behavior remain unchanged.
+
+## 2026-07-20 - Expired Camera-only Mesh Profile could preserve owned Context
+
+- Symptom: an Mesh Profile containing a Camera but no Modifier could leave
+  its Profile-created Context on the stack after the Profile asset expired.
+- Trigger / repro: enter a Layer whose Profile creates an explicit Context and
+  has zero Modifier assets, unload the Profile source, allow GC, then tick the
+  mesh subsystem outside that Layer.
+- Why it happens: the unchanged-null fast path treated an empty Modifier
+  instance array as proof that no Profile effects remained.
+- Root cause: Profile residual state expanded from Modifier instances to
+  Modifier instances plus owned Camera Context, but the weak-Profile cleanup
+  predicate still modeled only the original Modifier-only layout.
+- Touched files:
+  - `Source/ComposableCameraSystem/Private/MeshCamera/ComposableCameraMeshProfileState.h`
+  - `Source/ComposableCameraSystem/Private/MeshCamera/ComposableCameraMeshWorldSubsystem.cpp`
+  - `Source/ComposableCameraSystem/Private/Tests/ComposableCameraMeshProfileTests.cpp`
+  - `Docs/BugLog.md`
+- Fix: the fast path now requires both an empty Modifier instance array and no
+  owned Camera Context when the resolved Profile is null.
+- Regression-test name:
+  `ComposableCameraSystem.MeshCamera.ExpiredCameraOnlyProfileCleanupGuard`.
+- Test coverage: pure automation covers live Profile, empty null state,
+  expired Camera-only state, and expired Modifier state. A PIE smoke test must
+  still verify the actual Context pop after streamed-Level unload and GC.
+- Avoid next time: every weak-source equality fast path must audit all applied
+  runtime effects, not only the effect type that existed when the state struct
+  was first introduced.
+- Possible conflicts: none. Stable live Profiles keep the same zero-work fast
+  path; only null state with a residual owned Context now performs cleanup.
+
+## 2026-07-20 - Mesh edit mode showed a blank active-mode icon
+
+- Symptom: after activating `Mesh Camera Layers Mode`, the Level Editor
+  displayed its name but left the leading mode-icon slot blank.
+- Trigger / repro: open `Tools > Edit Mesh Camera Layers`, then inspect the
+  active-mode selector in the Level Editor toolbar.
+- Why it happens: both mesh editor modes and their ToolMenus entries were
+  registered with the default-constructed, unset `FSlateIcon`.
+- Root cause: mode registration added labels and priorities but never connected
+  the feature to a registered editor-style brush.
+- Touched files:
+  - `Source/ComposableCameraSystemEditor/Private/ComposableCameraEditorStyle.cpp`
+  - `Source/ComposableCameraSystemEditor/Private/Utilities/ComposableCameraMeshLayerTool.cpp`
+  - `Source/ComposableCameraSystemEditor/Private/Tests/ComposableCameraMeshLayerToolSettingsTests.cpp`
+  - `Docs/EditorDesignDoc.md`
+  - `Docs/TechDoc.md`
+  - `Docs/BugLog.md`
+- Fix: register normal and small mesh-mode brushes using the existing CCS
+  camera SVG, then supply the shared icon to edit/preview mode registration and
+  both Tools menu actions.
+- Regression-test name:
+  `ComposableCameraSystem.Editor.MeshCamera.ModeIcon`.
+- Test coverage: automation verifies the visible edit mode has a configured
+  icon and that both normal and small brushes resolve from Slate style data.
+  Final placement/scale still needs a Level Editor visual smoke test after the
+  IDE build.
+- Avoid next time: every visible `RegisterMode` call must receive a non-empty
+  icon with both normal and small style resources.
+- Possible conflicts: the mesh commands now use the existing CCS camera
+  glyph. No mode activation, painting, preview, or runtime query behavior
+  changes.
+
+## 2026-07-20 - Visualization Layer resolver mixed int32 and enum returns
+
+- Symptom: Editor compilation failed with C3487 in the authoring-visualization
+  Layer resolver lambda.
+- Trigger / repro: compile `ComposableCameraMeshLayerRendering.cpp` after
+  adding GUID-to-Layer-index resolution.
+- Why it happens: a lambda without an explicit return type must deduce one exact
+  type from every return expression. Dereferencing the map returned `int32`,
+  while `INDEX_NONE` retained its anonymous-enum type.
+- Root cause: the resolver relied on implicit lambda return-type deduction for
+  a sentinel whose declared type differs from the successful value type.
+- Touched files:
+  - `Source/ComposableCameraSystemEditor/Private/MeshCamera/ComposableCameraMeshLayerRendering.cpp`
+  - `Docs/BugLog.md`
+  - `Docs/TechDoc.md`
+- Fix: declare the resolver lambda return type as `int32` explicitly.
+- Regression-test name:
+  `ComposableCameraSystemEditor non-unity compile: visualization resolver return-type hygiene`.
+- Test blocker: C3487 occurs during C++ compilation before automation modules
+  load, and project rules prohibit command-line UBT. Verify through the next
+  full Editor-target rebuild in Rider or Visual Studio.
+- Avoid next time: explicitly declare lambda return types when branches mix a
+  typed value with legacy enum sentinels such as `INDEX_NONE`.
+- Possible conflicts: none. Resolver values and runtime behavior are unchanged.
+
+## 2026-07-20 - Mesh brush left gaps at collision-component seams
+
+- Symptom: visible floor regions inside the brush sometimes could not be
+  painted, leaving long gaps aligned with floor or Landscape component seams.
+- Trigger / repro: paint while the brush overlaps two collision components
+  that form one continuous floor surface.
+- Why it happens: every projected ring hit was required to belong to the exact
+  component hit at the brush center. Valid samples on an adjacent component
+  were discarded, and the fan skipped triangles beside invalid samples.
+- Root cause: collision-component identity was incorrectly treated as floor
+  surface identity.
+- Touched files:
+  - `Source/ComposableCameraSystemEditor/Private/MeshCamera/ComposableCameraMeshLayerEdMode.cpp`
+  - `Docs/EditorDesignDoc.md`
+  - `Docs/TechDoc.md`
+  - `Docs/ExecutionFlowExamples.md`
+  - `Docs/BugLog.md`
+- Fix: remove the component-identity gate. Projection distance, collision hit,
+  and minimum floor normal remain required, allowing continuous floors made
+  from multiple components.
+- Regression-test name:
+  `ComposableCameraSystem Editor Mesh Layer cross-component projection smoke test`.
+- Test blocker: reproducing the bug requires a live Level viewport plus two
+  separately colliding floor components. After IDE compilation, paint across a
+  Landscape/component seam and confirm no seam-shaped gap remains.
+- Avoid next time: use geometric continuity tests for surface painting; never
+  infer one logical paint surface from one `UPrimitiveComponent` pointer.
+- Possible conflicts: a projection can now continue onto an adjacent valid
+  floor component inside the configured projection distance. Holes still fail
+  when no compatible floor hit exists.
+
+## 2026-07-20 - Mesh overlay accumulated color and ignored Layer Priority
+
+- Symptom: repeated strokes made one Layer progressively darker, overlapping
+  Layer colors mixed, and a lower-Priority Layer could remain visible over a
+  higher-Priority Layer.
+- Trigger / repro: repeatedly paint one location, then paint a second enabled
+  Layer with a different Priority over the same surface.
+- Why it happens: viewport rendering submitted every stored stamp triangle to
+  a translucent material. Overdraw accumulated alpha, and draw order followed
+  Layer-array order instead of resolving Priority.
+- Root cause: durable query triangles were rendered directly even though their
+  additive stamp representation is not a valid compositing representation.
+- Touched files:
+  - `Source/ComposableCameraSystemEditor/Private/MeshCamera/ComposableCameraMeshLayerRendering.h`
+  - `Source/ComposableCameraSystemEditor/Private/MeshCamera/ComposableCameraMeshLayerRendering.cpp`
+  - `Source/ComposableCameraSystemEditor/Private/MeshCamera/ComposableCameraMeshLayerEdMode.h`
+  - `Source/ComposableCameraSystemEditor/Private/MeshCamera/ComposableCameraMeshLayerEdMode.cpp`
+  - `Source/ComposableCameraSystemEditor/Private/MeshCamera/ComposableCameraMeshLayerPreviewEdMode.h`
+  - `Source/ComposableCameraSystemEditor/Private/MeshCamera/ComposableCameraMeshLayerPreviewEdMode.cpp`
+  - `Source/ComposableCameraSystemEditor/Private/Tests/ComposableCameraMeshLayerVisualizationTests.cpp`
+  - `Docs/EditorDesignDoc.md`
+  - `Docs/TechDoc.md`
+  - `Docs/ExecutionFlowExamples.md`
+  - `Docs/BugLog.md`
+- Fix: derive an anchor-local resolved visualization grid. Same-surface repeat
+  coverage emits one cell, disabled Layers emit none, and the enabled Layer
+  with greatest Priority owns each overlapping cell. Edit and Preview modes
+  cache resolved data instead of rebuilding it every viewport frame.
+- Regression-test name:
+  `ComposableCameraSystem.Editor.MeshCamera.ResolvedVisualization`.
+- Test blocker: automation covers repeat de-duplication, Priority order
+  independence, and Enable fallback. Perceived edge quality and transparency
+  still require a Level viewport smoke test after IDE compilation.
+- Avoid next time: never render additive authoring primitives directly when UX
+  requires set-like paint coverage or winner-takes-all Layer semantics.
+- Possible conflicts: visualization uses a 10-unit minimum cell size and may
+  coarsen for very large document bounds. Durable authoring/runtime triangles
+  and runtime query results remain unchanged.
+
+## 2026-07-20 - Mesh toolkit mismatched FSpawnTabArgs declaration kind
+
+- Symptom: Editor compilation failed with C4099 because `FSpawnTabArgs` was
+  first declared as a class and later declared as a struct.
+- Trigger / repro: compile the Editor target after adding the mesh toolkit's
+  custom primary-tab spawn callback.
+- Why it happens: MSVC tracks the class-key used by forward declarations, and
+  this project treats the resulting warning as an error.
+- Root cause: the mesh toolkit header used `struct FSpawnTabArgs`, while the
+  existing Shot Editor and UE editor headers use `class FSpawnTabArgs`.
+- Touched files:
+  - `Source/ComposableCameraSystemEditor/Private/MeshCamera/ComposableCameraMeshLayerModeToolkit.h`
+  - `Docs/BugLog.md`
+  - `Docs/TechDoc.md`
+- Fix: use the canonical `class FSpawnTabArgs` forward declaration.
+- Regression-test name:
+  `ComposableCameraSystemEditor non-unity compile: tab-spawn declaration-kind hygiene`.
+- Test blocker: C4099 occurs during C++ compilation before automation modules
+  load, and project rules prohibit command-line UBT. Verify through the next
+  full Editor-target rebuild in Rider or Visual Studio.
+- Avoid next time: match UE's existing class-key exactly when forward-declaring
+  engine types; search all project declarations before adding one.
+- Possible conflicts: none. The type remains incomplete in the header and the
+  callback signature is unchanged.
+
+## 2026-07-19 - Closing the mesh edit tab left its mode rendering active
+
+- Symptom: closing the `Edit Mesh Camera Layers` panel removed the UI, but
+  painted Layer visualization remained in Level viewports.
+- Trigger / repro: activate the mesh edit mode, paint or load Layer data,
+  then close its primary mode tab with the tab close button.
+- Why it happens: UE's world-centric mode-tab close removes the tab but does
+  not automatically deactivate its legacy `FEdMode`. No viewport redraw was
+  requested during the tool's exit path either.
+- Root cause: toolkit-tab lifetime and edit-mode lifetime were treated as the
+  same state without an explicit close bridge.
+- Touched files:
+  - `Source/ComposableCameraSystemEditor/Private/MeshCamera/ComposableCameraMeshLayerEdMode.h`
+  - `Source/ComposableCameraSystemEditor/Private/MeshCamera/ComposableCameraMeshLayerEdMode.cpp`
+  - `Source/ComposableCameraSystemEditor/Private/MeshCamera/ComposableCameraMeshLayerModeToolkit.h`
+  - `Source/ComposableCameraSystemEditor/Private/MeshCamera/ComposableCameraMeshLayerModeToolkit.cpp`
+  - `Docs/BugLog.md`
+- Fix: bind the primary tab's close callback to edit-mode deletion, guard exit
+  against callback re-entry, and redraw Level viewports after exit.
+- Regression-test name:
+  `ComposableCameraSystem Editor Mesh Layer close-tab lifecycle smoke test`.
+- Test blocker: reproducing a world-centric mode tab close requires a live
+  Level Editor tab manager and registered `FEditorModeTools`; the headless
+  automation harness cannot create that host reliably. After IDE compilation,
+  open Edit, close its mode tab, and verify the overlay disappears immediately.
+- Avoid next time: world-centric toolkit tab closure must explicitly define
+  whether its owning legacy mode survives or exits.
+- Possible conflicts: none expected. Programmatic mode exit uses the same
+  callback but is suppressed by the exit re-entry guard.
+
+## 2026-07-19 - Mesh preview command silently ignored active edit mode
+
+- Symptom: `Show Mesh Camera Layers` sometimes appeared to do nothing and
+  required repeated clicks.
+- Trigger / repro: invoke Show while mesh edit mode is active, including the
+  stale-active state left after closing its tab.
+- Why it happens: preview toggle activated preview only when edit mode was
+  already inactive. The active-edit branch performed no action.
+- Root cause: mutual exclusion was encoded as a silent guard instead of a
+  deterministic edit-to-preview transition.
+- Touched files:
+  - `Source/ComposableCameraSystemEditor/Private/Utilities/ComposableCameraMeshLayerTool.cpp`
+  - `Docs/BugLog.md`
+- Fix: a preview-on request first deactivates edit mode, then activates preview
+  and redraws Level viewports. A preview-off request deactivates and redraws.
+- Regression-test name:
+  `ComposableCameraSystem Editor Mesh Layer one-click preview transition smoke test`.
+- Test blocker: command behavior depends on the global Level Editor mode stack
+  and its registered mode factories. Verify after IDE compilation: activate
+  Edit, click Show once, and confirm Edit closes while Preview becomes checked.
+- Avoid next time: mutually exclusive mode commands must transition from every
+  valid source state; never encode one source state as a no-op.
+- Possible conflicts: switching Edit to Preview now triggers the existing dirty
+  save prompt before Preview activates. This is intentional and prevents silent
+  loss of transient edits.
+
+## 2026-07-19 - Mesh editor mode had incomplete and shadowed toolkit types
+
+- Symptom: Editor compilation failed with C2027 when `Enter()` called
+  `Owner->GetToolkitHost()`, then C4458 because a local `DetailsView` hid
+  `FModeToolkit::DetailsView`.
+- Trigger / repro: compile the new mesh Layer editor mode as independent
+  translation units with warnings treated as errors.
+- Why it happens: `EdMode.h` only forward-declares `FEditorModeTools`, so
+  dereferencing `Owner` requires `EditorModeManager.h`. The toolkit also chose
+  the same name as a protected base-class member for its custom Details view.
+- Root cause: implementation relied on transitive/unity include visibility and
+  did not audit inherited member names.
+- Touched files:
+  - `Source/ComposableCameraSystemEditor/Private/MeshCamera/ComposableCameraMeshLayerEdMode.cpp`
+  - `Source/ComposableCameraSystemEditor/Private/MeshCamera/ComposableCameraMeshLayerModeToolkit.cpp`
+  - `Docs/BugLog.md`
+- Fix: include `EditorModeManager.h` at the `FEditorModeTools` dereference site;
+  rename the custom local widget to `LayerDetailsView`. Keep it separate from
+  the base member because `FModeToolkit::Init` creates and replaces its own
+  `DetailsView`.
+- Regression-test name:
+  `ComposableCameraSystemEditor non-unity compile: mesh mode include and shadowing hygiene`.
+- Test blocker: both failures occur before automation modules load, and project
+  rules prohibit command-line UBT. Verify through a full Editor-target rebuild
+  in Rider or Visual Studio.
+- Avoid next time: include defining headers where forward-declared types are
+  dereferenced; check protected base members before naming toolkit locals.
+- Possible conflicts: none. Changes affect compile-time visibility and a local
+  identifier only; Tool layout, settings ownership, and save behavior remain
+  unchanged.
+
+## 2026-07-19 - Mesh storage field shadowed AActor Layers
+
+- Symptom: Unreal Header Tool rejected
+  `AComposableCameraMeshSurfaceStorageActor::Layers` because `AActor`
+  already defines a member with that name.
+- Trigger / repro: compile the Editor target after adding the mesh surface
+  storage actor.
+- Why it happens: UHT forbids a reflected member in a derived class from
+  shadowing an inherited member, even when the base member is not used by the
+  feature.
+- Root cause: the new private `UPROPERTY` was named without auditing inherited
+  `AActor` fields.
+- Touched files:
+  - `Source/ComposableCameraSystem/Public/MeshCamera/ComposableCameraMeshSurfaceStorageActor.h`
+  - `Source/ComposableCameraSystem/Private/MeshCamera/ComposableCameraMeshSurfaceStorageActor.cpp`
+  - `Docs/BugLog.md`
+- Fix: rename the serialized private field from `Layers` to
+  `LayerDefinitions`; keep the public `GetLayers()` API unchanged.
+- Regression-test name:
+  `ComposableCameraSystemEditor non-unity compile: mesh storage inherited-name collision`.
+- Test blocker: UHT fails before an automation module can load, and project
+  rules prohibit command-line UBT. Verify with a full Editor-target rebuild in
+  Rider or Visual Studio.
+- Avoid next time: audit inherited reflected names before adding fields to
+  `AActor` descendants; use domain-specific storage names.
+- Possible conflicts: serialized property name changes, but this actor has not
+  yet completed its first successful compile/save. No asset migration is
+  required. Runtime query behavior and public tool API remain unchanged.
+
+## 2026-07-19 - Expired mesh Profile weak pointer could preserve old modifiers
+
+- Symptom: after a mesh storage Level unloads and its Profile becomes
+  unreachable, a local player can keep the duplicated mesh Modifier set even
+  though the next surface query returns no Profile.
+- Trigger / repro: enter a painted mesh Layer, unload its owning streamed
+  Level or Level Instance, allow GC to release the Profile source, then tick the
+  mesh world subsystem.
+- Why it happens: player state intentionally keeps Profile as a weak pointer.
+  Once it expires, `State.Profile.Get()` and the new null Profile compare equal.
+  The old early-return treated that as an unchanged null state without checking
+  whether duplicated Modifier instances were still registered.
+- Root cause: profile identity and applied modifier-instance lifetime were
+  collapsed into one weak-pointer equality check.
+- Touched files:
+  - `Source/ComposableCameraSystem/Private/MeshCamera/ComposableCameraMeshWorldSubsystem.cpp`
+  - `Docs/BugLog.md`
+- Fix: null-profile equality may early-return only when the state's duplicated
+  Modifier instance array is also empty. An expired source with live instances
+  now enters replacement, removes the old set, and clears state.
+- Regression-test name:
+  `ComposableCameraSystem Mesh Profile streamed-Level unload smoke test`.
+- Test blocker: reproducing weak source expiry requires a PIE world, a streamed
+  Level lifecycle, forced GC, and a live CCS player camera manager. The focused
+  pure surface-query automation test does not model those engine lifetimes, and
+  project rules prohibit launching Unreal Editor automation from shell. Verify
+  in PIE after IDE compilation by entering the Layer, unloading its Level,
+  running GC, and checking that the PCM effective Modifier set is empty.
+- Avoid next time: weak source identity cannot alone describe applied runtime
+  state. Any null-equality fast path must also verify that owned runtime
+  instances are empty.
+- Possible conflicts: none expected. Stable non-null Profiles still use the
+  same no-work fast path; only expired/null state with residual instances now
+  performs cleanup.
+
 ## 2026-07-19 - Runtime Debug editor files relied on incomplete node types
 
 - Symptom: editor compilation failed with C2061/C2665/C2511 around

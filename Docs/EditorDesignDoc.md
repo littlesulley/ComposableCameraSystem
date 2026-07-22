@@ -1,6 +1,6 @@
 # ComposableCameraSystem Editor Design
 
-Updated: 2026-07-18
+Updated: 2026-07-22
 
 This document describes the current editor module. It replaces the old
 phase-by-phase implementation plan. Runtime architecture lives in
@@ -587,7 +587,94 @@ When adding an asset class, update:
 - editor open path.
 - docs.
 
-## 18. Invariants
+## 18. Mesh Camera Layer Tool
+
+`FComposableCameraMeshLayerEdMode` owns the complete authoring workflow.
+
+- Toolkit presents a selectable Layer list following Landscape Editor's
+  `LandscapeEditorDetailCustomization_Layers.cpp` row-selection pattern.
+  Clicking a row makes its stable GUID the current paint target; users never
+  edit an active-layer index. Add/delete/reorder controls operate on the
+  selected row, selected Layer properties appear below it, and brush-only
+  settings remain in their own Details section.
+- Left mouse paints. Shift + left mouse temporarily erases.
+- A brush stamp projects a ring back onto compatible floor collision. Ring
+  samples may cross component boundaries, so Landscape components and modular
+  floor pieces do not create artificial paint gaps. The projection trace and
+  minimum floor-normal test still reject missing or non-floor samples.
+- Viewport visualization rasterizes stored triangles into an anchor-local
+  resolved surface grid. Repeated source triangles collapse into one visual
+  cell. Layer list order follows image-editor convention: the top row draws
+  above lower rows. At one surface location, only the first enabled Layer in
+  list order emits a cell; disabling it reveals the next row. This prevents
+  alpha accumulation without storing a separate numeric Priority.
+- Resolved cells build disposable filled dynamic meshes grouped by Layer color.
+  They do not alter stored authoring/runtime triangle data. Edit mode rebuilds
+  its cache only after paint, erase, or Layer data changes; Preview caches one
+  resolved grid per loaded storage actor for its mode lifetime.
+- `Show Mesh Camera Layers` also covers every PIE world. The editor module
+  converts the same resolved runtime cells into uniquely identified batches on
+  that world's persistent `ULineBatchComponent`. Meshes are submitted once, so
+  transparent color cannot accumulate per frame. World-owned batches remain
+  visible even though the tool-owned storage actor is hidden in game.
+- A lightweight ticker discovers newly streamed PIE storage actors, rebuilds a
+  storage Batch only when its transform changes, and clears batches no longer
+  seen. `PrePIEEnded` clears every preview BatchID before `EndPlayMap`
+  starts releasing PIE scenes; the ticker rejects teardown work until
+  `PostPIEStarted` begins the next session. Turning Show off, switching to Edit
+  mode, or unloading the editor module performs the same batch cleanup. The
+  batcher itself remains owned by `UWorld`, so editor state cannot outlive its
+  Scene.
+  The path lives only in the Editor module and never ships.
+- The working document is transient. Existing serialized data is unchanged
+  until Save.
+- Save resolves the current Level, auto-creates the hidden
+  `AComposableCameraMeshSurfaceStorageActor` when needed, copies authoring
+  data, rebuilds runtime data, and saves the owning package.
+- Exiting with dirty data asks whether to save. Declining discards the transient
+  working document.
+- Closing the mode panel exits the edit mode and immediately invalidates Level
+  viewports. `Show Mesh Camera Layers` deterministically switches out of edit
+  mode when necessary, then enables the read-only preview in one command.
+- `FComposableCameraMeshLayerPreviewEdMode` renders all loaded runtime Layer
+  surfaces as read-only filled overlays while the editing tool is closed.
+- The visible edit mode and both Tools menu actions use one icon from
+  `FComposableCameraEditorStyle`. Normal and small brushes are both registered,
+  so the Level Editor mode selector and compact menu/tool-bar layouts never
+  receive an empty `FSlateIcon`.
+
+`UComposableCameraMeshProfile` uses a dedicated Details customization with
+four ordered sections:
+
+- `Camera`: directly expands an embedded
+  `FComposableCameraParameterTableRow`, showing Camera Type, Transition
+  Override, Activation Params, and the existing typed exposed
+  parameter/variable override UI. Reusing the row and its
+  `FComposableCameraExposedParameterValues` customization keeps DataTable and
+  Mesh Profile authoring identical. The class customization hides the parent
+  `Camera` struct row and adds those four child properties explicitly, avoiding
+  a duplicate trailing Camera field. Context Name stays in the shared row
+  schema but is hidden here: runtime generates one readable, collision-free
+  temporary Context from each Layer name and GUID.
+- `Modifier`: preserves the existing `ModifierAssets` array.
+- `Action` and `Patch`: visible reserved sections with no editable runtime
+  configuration in this version.
+
+The current Level is the storage scope. When editing a streamed Level or Level
+Instance, the storage actor uses that Level transform as its local anchor. Users
+never create, select, or edit the storage actor.
+
+Authoring and runtime data must remain one-way:
+
+```text
+full authoring triangles + stable Layer GUIDs
+  -> save/bake
+  -> runtime triangles + compact Layer indices
+```
+
+Future mesh reduction belongs only on the right side of this boundary.
+
+## 19. Invariants
 
 - `SyncToTypeAsset` and `RebuildFromTypeAsset` must stay inverse enough for
   save/load stability.

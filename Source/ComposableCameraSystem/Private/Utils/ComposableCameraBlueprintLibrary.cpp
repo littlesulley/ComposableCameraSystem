@@ -93,118 +93,12 @@ AComposableCameraCameraBase* UComposableCameraBlueprintLibrary::ActivateComposab
 		return nullptr;
 	}
 
-	// Build the parameter block from the row's string map, using the type
-	// asset's exposed parameters AND exposed variables as the type-info
-	// source. Both share the same ParameterBlock keyspace at activation time
-	// (see UComposableCameraTypeAsset::ApplyParameterBlock), so the row can
-	// supply values for either category and the runtime routes them
-	// correctly. Unknown keys are logged as orphans below.
 	FComposableCameraParameterBlock Params;
-	const TArray<FComposableCameraExposedParameter>& Exposed = TypeAsset->GetExposedParameters();
-	const TArray<FComposableCameraInternalVariable>& ExposedVars = TypeAsset->ExposedVariables;
-
-	TSet<FName> KnownNames;
-	KnownNames.Reserve(Exposed.Num() + ExposedVars.Num());
-
-	for (const FComposableCameraExposedParameter& Param : Exposed)
-	{
-		KnownNames.Add(Param.ParameterName);
-
-		const FString* RowValuePtr = Row->Parameters.Values.Find(Param.ParameterName);
-		const FString ParamDefault = TypeAsset->GetExposedParameterDefaultValue(Param);
-		const FString& ValueString = RowValuePtr ? *RowValuePtr : ParamDefault;
-
-		if (ValueString.IsEmpty())
-		{
-			// Nothing to write - the runtime data block will be zero-initialized
-			// for this slot and ApplyParameterBlock will log a warning if the
-			// parameter was bRequired.
-			continue;
-		}
-
-		FString ParseError;
-		const bool bOk = FComposableCameraParameterBlock::ApplyStringValue(
-			Params, Param.ParameterName, Param.PinType, Param.StructType, Param.EnumType, ValueString, &ParseError);
-
-		if (!bOk)
-		{
-			UE_LOG(LogComposableCameraSystem, Warning,
-				TEXT("ActivateComposableCameraFromDataTable: Row '%s' parameter '%s' parse failed (%s)."
-					 " Falling back to node pin default."),
-				*RowName.ToString(), *Param.ParameterName.ToString(), *ParseError);
-
-			// One-shot fallback: if the row value was bad but the node pin
-			// has a sane default, try that next. This covers the case where
-			// a row has a typo but the node authored a valid default.
-			if (RowValuePtr && !ParamDefault.IsEmpty()
-				&& !ParamDefault.Equals(ValueString))
-			{
-				FString FallbackError;
-				FComposableCameraParameterBlock::ApplyStringValue(
-					Params, Param.ParameterName, Param.PinType, Param.StructType, Param.EnumType,
-					ParamDefault, &FallbackError);
-			}
-		}
-	}
-
-	// Exposed variables: same parsing flow as exposed parameters, but the
-	// type-side default comes from InitialValueString (the variable's
-	// author-time initial value).
-	// If the row omits this variable entirely AND InitialValueString is
-	// empty, we intentionally leave it out of the ParameterBlock - the
-	// runtime will zero-initialize the slot and log nothing (exposed
-	// variables have no "required" flag).
-	for (const FComposableCameraInternalVariable& Var : ExposedVars)
-	{
-		if (Var.VariableName.IsNone())
-		{
-			continue;
-		}
-
-		KnownNames.Add(Var.VariableName);
-
-		const FString* RowValuePtr = Row->Parameters.Values.Find(Var.VariableName);
-		const FString& ValueString = RowValuePtr ? *RowValuePtr : Var.InitialValueString;
-
-		if (ValueString.IsEmpty())
-		{
-			continue;
-		}
-
-		FString ParseError;
-		const bool bOk = FComposableCameraParameterBlock::ApplyStringValue(
-			Params, Var.VariableName, Var.VariableType, Var.StructType, Var.EnumType, ValueString, &ParseError);
-
-		if (!bOk)
-		{
-			UE_LOG(LogComposableCameraSystem, Warning,
-				TEXT("ActivateComposableCameraFromDataTable: Row '%s' exposed variable '%s' parse failed (%s)."
-					 " Falling back to InitialValueString."),
-				*RowName.ToString(), *Var.VariableName.ToString(), *ParseError);
-
-			if (RowValuePtr && !Var.InitialValueString.IsEmpty()
-				&& !Var.InitialValueString.Equals(ValueString))
-			{
-				FString FallbackError;
-				FComposableCameraParameterBlock::ApplyStringValue(
-					Params, Var.VariableName, Var.VariableType, Var.StructType, Var.EnumType,
-					Var.InitialValueString, &FallbackError);
-			}
-		}
-	}
-
-	// Flag orphaned row entries (keys the current type asset no longer exposes
-	// as either a parameter OR a variable) exactly once per call so designers
-	// can clean up after a CameraType swap.
-	for (const TPair<FName, FString>& Entry : Row->Parameters.Values)
-	{
-		if (!KnownNames.Contains(Entry.Key))
-		{
-			UE_LOG(LogComposableCameraSystem, Verbose,
-				TEXT("ActivateComposableCameraFromDataTable: Row '%s' has orphaned entry '%s' not present on CameraType '%s'."),
-				*RowName.ToString(), *Entry.Key.ToString(), *TypeAsset->GetName());
-		}
-	}
+	const FString SourceDescription = FString::Printf(
+		TEXT("DataTable '%s' row '%s'"),
+		*DataTable->GetName(),
+		*RowName.ToString());
+	Row->BuildParameterBlock(*TypeAsset, Params, SourceDescription);
 
 	// Merge per-call-site overrides on top of the row-parsed values. An override
 	// entry for a given name replaces the row value entirely - this is how the

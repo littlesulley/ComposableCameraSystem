@@ -90,6 +90,20 @@ public:
 		const FComposableCameraParameterBlock& Parameters,
 		FName ContextName = NAME_None);
 
+	/**
+	 * Transactionally activate a Type Asset inside a new temporary Context.
+	 * Captures the current Director before the push so entry transitions retain
+	 * the correct reference source. Failure pops the empty Context and returns
+	 * the previously running camera with OutTemporaryContextName = NAME_None.
+	 */
+	AComposableCameraCameraBase* ActivateNewCameraFromTypeAssetInTemporaryContext(
+		UComposableCameraTypeAsset* CameraTypeAsset,
+		UComposableCameraTransitionDataAsset* TransitionOverride,
+		const FComposableCameraActivateParams& ActivationParams,
+		const FComposableCameraParameterBlock& Parameters,
+		FName DebugNameHint,
+		FName& OutTemporaryContextName);
+
 	AComposableCameraCameraBase* ReactivateCurrentCamera(UComposableCameraTransitionBase* Transition);
 
 	// Resume a given camera with a given transition.
@@ -99,6 +113,19 @@ public:
 	const TSet<UComposableCameraActionBase*>& GetCameraActions();
 	void AddModifier(UComposableCameraNodeModifierDataAsset* ModifierAsset);
 	void RemoveModifier(UComposableCameraNodeModifierDataAsset* ModifierAsset);
+	/**
+	 * Applies a source-owned modifier-set replacement.
+	 *
+	 * Set bReactivateCurrentCamera false when a new Camera Type activation will
+	 * immediately follow. The new camera construction path resolves and applies
+	 * the updated Modifier set, avoiding an unnecessary intermediate activation.
+	 */
+	void ReplaceModifiers(
+		TConstArrayView<UComposableCameraNodeModifierDataAsset*> ModifierAssetsToRemove,
+		TConstArrayView<UComposableCameraNodeModifierDataAsset*> ModifierAssetsToAdd,
+		bool bReactivateCurrentCamera = true);
+	/** Recompute ModifierManager selection without rebuilding or mutating the running camera. */
+	void RefreshEffectiveModifierSelection();
 	void ApplyModifiers(AComposableCameraCameraBase* Camera, bool bRefreshModifierData = false);
 
 	// Called when modifier is added or removed. When this happens, the modifier data will be refreshed and the current running camera may be re-activated.

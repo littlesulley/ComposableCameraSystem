@@ -27,7 +27,7 @@ struct FComposableCameraContextEntry
 	UPROPERTY(Transient)
 	TObjectPtr<UComposableCameraDirector> Director { nullptr };
 
-	/** The name that identifies this context (from project settings). */
+	/** Configured context name, or a collision-free internal temporary name. */
 	FName ContextName;
 
 	/** Last evaluated pose from this context. Used for inter-context blending on pop. */
@@ -42,7 +42,8 @@ struct FComposableCameraContextEntry
  *   - Tier 1 (this): Context stack for switching between camera "modes" (gameplay, UI, cinematic).
  *   - Tier 2: Evaluation tree within each context for transitions between cameras of the same mode.
  *
- * Contexts are identified by FName and defined in project settings.
+ * Normal Contexts are identified by configured FNames. Scoped systems may
+ * push collision-free internal temporary Contexts and must pop what they own.
  * The stack is strict LIFO: new contexts push on top, popping removes from top (or by name).
  *
  * Auto-pop: when the active context's running camera is transient and finishes,
@@ -74,6 +75,22 @@ public:
 	 * @return The Director for the context. Returns nullptr if the name is not registered.
 	 */
 	UComposableCameraDirector* EnsureContext(AComposableCameraPlayerCameraManager* PlayerCameraManager, FName ContextName);
+
+	/**
+	 * Push a caller-owned temporary context above the current stack.
+	 *
+	 * Unlike EnsureContext, the generated name is internal and does not need to
+	 * appear in project settings. The caller must later pop the returned name.
+	 * This is intended for reversible, scoped overrides that must not replace a
+	 * camera inside a gameplay-owned context.
+	 *
+	 * A base context must already exist so popping can restore it. NAME_None is
+	 * returned when no restorable context exists. DebugNameHint is sanitized and
+	 * preserved in the generated name before a collision-free serial suffix.
+	 */
+	FName PushTemporaryContext(
+		AComposableCameraPlayerCameraManager* PlayerCameraManager,
+		FName DebugNameHint = NAME_None);
 
 	/**
 	 * Pop a specific context by name.
@@ -201,6 +218,12 @@ private:
 
 	/** Find the index of a context by name. Returns INDEX_NONE if not found. */
 	int32 FindContextIndex(FName ContextName) const;
+
+	/** Includes active and pending-destroy entries. */
+	bool IsContextNameInUse(FName ContextName) const;
+
+	/** Monotonic suffix for collision-free internal temporary context names. */
+	uint64 NextTemporaryContextSerial = 0;
 
 	/**
 	 * Internal: execute a pop of the active context with optional transition.

@@ -1,6 +1,6 @@
 # ComposableCameraSystem Tech Notes
 
-Updated: 2026-07-18
+Updated: 2026-07-22
 
 Purpose: compact implementation reference. Keep this file current when code
 patterns, public APIs, hot-path rules, node catalogs, or gotchas change.
@@ -21,6 +21,8 @@ Runtime module: `Source/ComposableCameraSystem`
 - `LevelSequence`, `MovieScene`: Sequencer component, actor, tracks, sections.
 - `Debug`: runtime panel, dumps, viewport draw.
 - `Math`, `Interpolator`, `Utils`, `EditorHooks`.
+- `MeshCamera`: Level-local painted surface data, query actor, and world
+  subsystem profile application.
 
 Editor module: `Source/ComposableCameraSystemEditor`
 
@@ -851,6 +853,11 @@ Existing test files include:
 - `ComposableCameraNodeRuntimeTooltipTests.cpp`
 - `ComposableCameraRuntimeDebugPanelTests.cpp`
 - `ComposableCameraSetRotationNodeTests.cpp`
+- `ComposableCameraMeshSurfaceTests.cpp`
+- `ComposableCameraMeshProfileTests.cpp`
+- `ComposableCameraMeshProfileCustomizationTests.cpp`
+- `ComposableCameraMeshLayerToolSettingsTests.cpp`
+- `ComposableCameraMeshLayerVisualizationTests.cpp`
 
 Codex must not invoke Unreal automation from shell in this project. Run tests
 inside Rider or Visual Studio / Unreal Editor.
@@ -867,6 +874,7 @@ Assume these are hot:
 - patch apply.
 - Sequencer component tick.
 - shot solver.
+- mesh surface query and stable-profile subsystem tick.
 
 Rules:
 
@@ -894,6 +902,9 @@ Rules:
 - Object/Actor pin class constraints still need earlier layout-time diagnostics;
   runtime guards prevent corruption but do not give the best authoring message.
 - Local-player subsystem caches need weak pointers plus parent identity checks.
+- Mesh active Layer identity is `(StorageActor, LayerGuid)`, not GUID alone:
+  Level Instance copies can contain identical serialized Layer GUIDs. Cleanup
+  must remove each Layer's duplicated Modifiers and its own temporary Context.
 - FOV may be stored as FieldOfView or FocalLength. Use pose helper methods for
   effective FOV.
 - Focus distance uses sentinel behavior. Do not blend invalid focus distance as
@@ -915,6 +926,15 @@ Rules:
 - A virtualized `SListView` does not automatically revise cached variable row
   heights when a nested `SExpandableArea` changes state. Route visible
   expansion changes through list refresh plus post-rebuild measurement.
+- A non-owning `FStructOnScope` bound to a `TArray` element becomes invalid when
+  add/remove/reorder relocates or replaces that element. Clear the structure
+  Details view before mutation, then bind a fresh scope afterward.
+- Forward declarations must use the same class-key as existing UE/project
+  declarations. In particular, declare `FSpawnTabArgs` as `class`; MSVC C4099
+  becomes a build failure when warnings are treated as errors.
+- Lambdas returning a typed index in one branch and `INDEX_NONE` in another
+  need an explicit `-> int32` return type. `INDEX_NONE` is an anonymous-enum
+  sentinel, so implicit deduction fails with MSVC C3487.
 - Do not mix `TObjectPtr<T>` and raw `T*` in a conditional expression. Call
   `.Get()` first, or use explicit branches when returning `TSubclassOf<T>` from
   a `UClass*`. In UE 5.6, include `PropertyHandle.h` for `IPropertyHandle`.
@@ -926,6 +946,10 @@ Rules:
   calls exported `FGameplayTagContainer` / `FGameplayTagQuery` methods must list
   `GameplayTags` in its own Build.cs, even when a depended-on runtime module
   already lists it.
+- Editor-module shutdown runs after UE's global Level Editor mode manager can
+  be destroyed. Gate every shutdown-time `GLevelEditorModeTools()` access with
+  `!IsEngineExitRequested()`; otherwise the accessor emits an ensure and
+  recreates a mode manager during teardown.
 
 ## 22. Build and Verification
 
@@ -943,7 +967,127 @@ For this project:
   same-variable Get node can capture the rebuild lookup and drop exec wires
   after save/reopen.
 
-## 23. Maintenance Rule
+## 23. Mesh Camera Surface Query
+
+Runtime types:
+
+- `FComposableCameraMeshLayerDefinition`: GUID, name, profile, enabled state,
+  debug color. Array index is editor display order; index zero is topmost.
+- `FComposableCameraMeshSurfaceAuthoringData`: editor-only full source using
+  one stable Layer GUID per triangle.
+- `FComposableCameraMeshSurfaceRuntimeData`: cooked indexed triangles using
+  one Layer array index per triangle.
+- `AComposableCameraMeshSurfaceStorageActor`: hidden, `NotPlaceable`,
+  Level-local serialization anchor.
+- `UComposableCameraMeshWorldSubsystem`: loaded-storage registration,
+  per-local-player query, profile switching.
+
+MVP query:
+
+```text
+player world position
+  -> each storage actor inverse transform
+  -> local downward ray against indexed triangles
+  -> nearest surface
+  -> collect every enabled Layer within SameSurfaceTolerance
+  -> top-to-bottom Layer-order results
+```
+
+No `UStaticMesh` or collision query mesh is involved. Query outputs use inline
+capacity for 16 overlapping Layers; deeper overlap may allocate. The current
+query uses two linear triangle passes. A later BVH/tile index may replace
+traversal without changing actor, profile, or tool contracts.
+
+`UComposableCameraMeshProfile` stores an embedded
+`FComposableCameraParameterTableRow Camera` plus the existing Modifier asset
+array. `FComposableCameraParameterTableRow::BuildParameterBlock` is the shared
+string-to-typed block path for both DataTable and Mesh Profile activation;
+do not duplicate parameter/default/orphan handling in new callers.
+
+Layer Profile Modifier assets are templates. The subsystem duplicates them with the
+player camera manager as Outer. This prevents mesh removal from unregistering
+the same asset instance owned by another gameplay system. When a Profile also
+activates a Camera Type, `ReplaceModifiers(..., false)` updates candidates
+without reactivating the old camera. `OnTypeAssetCameraConstructed` resolves and
+applies those candidates to the new camera. Failed Camera activation explicitly
+falls back to `OnModifierChanged`. Modifier-only Layer edges update candidates,
+then refresh the currently active camera once.
+
+The subsystem stores an active set keyed by storage actor plus Layer GUID. Each
+active Layer owns its duplicated Modifier instances. Every Camera-bearing Layer
+also owns a separate temporary Context; entering a nested Layer pushes above
+the outer Context, and exit pops only that Layer. Lower camera instances retain
+their Director/tree state and resume in place. A Camera-less Layer creates no
+Context. Debug hints use `Mesh_<LayerName>_<LayerGuid>`; the context stack
+sanitizes and preserves the readable hint while adding a collision-free serial.
+The shared row's authored `ContextName` is ignored for Mesh. Mesh forces
+`bIsTransient=false` because Layer presence owns lifetime. Each entry
+transaction captures the source Director before pushing, then activates with a
+reference source. Activation failure rolls back only that empty Layer Context.
+Exits process in reverse entry order. Simultaneous first hits process bottom
+list rows first, making the top row the deterministic top Context.
+When an active Layer Context pops, the resumed lower camera already contains
+the correct pre-entry properties. `RefreshEffectiveModifierSelection` updates
+only ModifierManager bookkeeping so removed duplicated assets are released;
+calling `OnModifierChanged` there would rebuild and reset the resumed camera.
+Camera Type and Transition soft references sync-load only on a Profile edge,
+never on the per-frame unchanged fast path.
+
+Editor technique:
+
+- Mesh Profile Details has ordered Camera, Modifier, Action, and Patch
+  categories. Camera hides its parent property row and explicitly adds the four
+  relevant children of its embedded parameter row, so the existing exposed-value
+  customization still reaches the sibling CameraType without emitting a second
+  trailing Camera field. ContextName is omitted because Layer identity creates
+  the runtime Context. Action/Patch currently show reserved messages only.
+- Tool works on a transient document.
+- Layer selection is GUID-based. A selected `SListView` row updates the private
+  paint index; the index is not exposed in Details.
+- Selected Layer properties use an `IStructureDetailsView` over a non-owning
+  `FStructOnScope`. Detach that scope before any Layer-array add/delete/reorder
+  that could relocate elements, then bind it to the newly selected element.
+- Save copies source into the hidden Level actor.
+- Bake drops orphaned Layer GUID triangles and resolves remaining GUIDs to
+  compact indices.
+- Brush-ring traces accept compatible floor hits across collision-component
+  boundaries. Component identity is not surface identity; floor normal and
+  bounded projection remain the geometric filters.
+- Authoring and preview visualization rasterize saved triangles into a separate
+  anchor-local cell cache. Each same-surface cell emits once. The first enabled
+  Layer in top-to-bottom list order resolves the visual winner before
+  `FDynamicMeshBuilder` submission, so transparent color never accumulates from
+  repeat stamps or lower rows. Query and save structures remain untouched.
+- Edit mode invalidates this cache after geometry or Layer changes. Read-only
+  Preview builds one cache per loaded storage actor and releases all caches on
+  mode exit.
+- PIE cannot use `FEdMode::Render`: that callback draws only Level Editor
+  viewports and resolves the editor world. The Show command therefore builds
+  the same resolved cell meshes into non-zero, per-storage BatchIDs on each PIE
+  world's `WorldPersistent` `ULineBatchComponent`. One persistent submission
+  per Layer avoids frame-over-frame alpha accumulation; `ClearBatch` removes
+  only CCS-owned geometry. A ticker handles already-running PIE, multi-PIE
+  worlds, streaming add/remove, and transform changes.
+- Never register an ownerless editor-created `UPrimitiveComponent` into a PIE
+  world and retain it through a global `TStrongObjectPtr`: `EndPlayMap` can
+  release the world's `FScene` before a later ticker/GC pass drops that object.
+  Use a world-owned renderer or tear it down on `PrePIEEnded`. Mesh preview
+  does both: its batcher belongs to `UWorld`, `PrePIEEnded` clears all BatchIDs,
+  and `PostPIEStarted` re-enables routing. Editor-module placement excludes
+  Shipping.
+- Closing the mode's primary tab routes back to `FEdMode::RequestDeletion`.
+  Exit guards against close-callback re-entry and explicitly redraws Level
+  viewports. Preview toggle first deactivates edit mode, then activates preview.
+- Register custom Level Editor modes with a resolved normal/small icon pair
+  from `FComposableCameraEditorStyle`; reuse that pair for related ToolMenus
+  entries. Passing default `FSlateIcon()` leaves the active-mode icon slot
+  blank even when the mode name renders correctly.
+- Read-only preview is a separate legacy editor mode and never exposes storage
+  actor details. Its PIE companion is rendering-only and never changes data.
+- Geometry optimization must consume authoring data and emit runtime data. It
+  must not round-trip simplified geometry back into authoring state.
+
+## 24. Maintenance Rule
 
 Update this document when:
 

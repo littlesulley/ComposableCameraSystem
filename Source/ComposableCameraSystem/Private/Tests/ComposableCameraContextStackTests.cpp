@@ -265,4 +265,74 @@ bool FContextStackGetDirectorTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FContextStackTemporaryContextRestoresPreviousTest,
+	"System.Engine.ComposableCameraSystem.ContextStack.TemporaryContextRestoresPrevious",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FContextStackTemporaryContextRestoresPreviousTest::RunTest(
+	const FString& /*Parameters*/)
+{
+	ComposableCameraTest::FTestContextSetup Setup;
+	ComposableCameraTest::FContextTestWorld TestWorld;
+
+	UComposableCameraDirector* GameplayDirector =
+		TestWorld.ContextStack->EnsureContext(nullptr, Setup.GameplayName);
+	const FName TemporaryName =
+		TestWorld.ContextStack->PushTemporaryContext(nullptr, Setup.GameplayName);
+
+	TestTrue(TEXT("Temporary Context gets an internal unique name"),
+		!TemporaryName.IsNone() && TemporaryName != Setup.GameplayName);
+	TestTrue(TEXT("Temporary Context preserves its readable debug hint"),
+		TemporaryName.ToString().Contains(Setup.GameplayName.ToString()));
+	TestEqual(TEXT("Temporary Context pushes above gameplay"),
+		TestWorld.ContextStack->GetStackDepth(), 2);
+	TestTrue(TEXT("Temporary Context becomes active"),
+		TestWorld.ContextStack->GetActiveContextName() == TemporaryName);
+
+	TestWorld.ContextStack->PopContext(TemporaryName);
+	TestEqual(TEXT("Temporary Context pop restores stack depth"),
+		TestWorld.ContextStack->GetStackDepth(), 1);
+	TestTrue(TEXT("Gameplay Context becomes active again"),
+		TestWorld.ContextStack->GetActiveContextName() == Setup.GameplayName);
+	TestEqual(TEXT("Original Gameplay Director is preserved"),
+		TestWorld.ContextStack->GetDirectorForContext(Setup.GameplayName),
+		GameplayDirector);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FContextStackNestedTemporaryContextsRestoreInOrderTest,
+	"System.Engine.ComposableCameraSystem.ContextStack.NestedTemporaryContextsRestoreInOrder",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FContextStackNestedTemporaryContextsRestoreInOrderTest::RunTest(
+	const FString& /*Parameters*/)
+{
+	ComposableCameraTest::FTestContextSetup Setup;
+	ComposableCameraTest::FContextTestWorld TestWorld;
+
+	TestWorld.ContextStack->EnsureContext(nullptr, Setup.GameplayName);
+	const FName OuterLayerContext =
+		TestWorld.ContextStack->PushTemporaryContext(nullptr, FName(TEXT("Mesh_Red")));
+	const FName InnerLayerContext =
+		TestWorld.ContextStack->PushTemporaryContext(nullptr, FName(TEXT("Mesh_Yellow")));
+
+	TestTrue(TEXT("Nested Layers receive distinct temporary Contexts"),
+		!OuterLayerContext.IsNone()
+			&& !InnerLayerContext.IsNone()
+			&& OuterLayerContext != InnerLayerContext);
+	TestTrue(TEXT("Inner Layer Context is active"),
+		TestWorld.ContextStack->GetActiveContextName() == InnerLayerContext);
+
+	TestWorld.ContextStack->PopContext(InnerLayerContext);
+	TestTrue(TEXT("Inner exit restores outer Layer Context"),
+		TestWorld.ContextStack->GetActiveContextName() == OuterLayerContext);
+
+	TestWorld.ContextStack->PopContext(OuterLayerContext);
+	TestTrue(TEXT("Outer exit restores gameplay Context"),
+		TestWorld.ContextStack->GetActiveContextName() == Setup.GameplayName);
+	return true;
+}
+
 #undef LOCTEXT_NAMESPACE

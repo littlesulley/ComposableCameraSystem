@@ -1,6 +1,6 @@
 # ComposableCameraSystem Design
 
-Updated: 2026-07-17
+Updated: 2026-07-22
 
 This document describes the current runtime architecture of the UE 5.6
 ComposableCameraSystem plugin. It is intentionally compact. Implementation
@@ -62,7 +62,8 @@ tree snapshot.
 
 `UComposableCameraContextStack` is Tier 1: macro mode switching.
 
-- A context name comes from `UComposableCameraProjectSettings::ContextNames`.
+- Normal gameplay context names come from
+  `UComposableCameraProjectSettings::ContextNames`.
 - `EnsureContext` creates the context if missing.
 - If the context already exists below the top, `EnsureContext` moves it to the
   top. Position matters.
@@ -74,6 +75,10 @@ tree snapshot.
   until the transition finishes.
 - Non-top transient contexts can be implicitly demoted to pending destruction
   when an inter-context activation replaces them.
+- `PushTemporaryContext` is the internal exception to configured names. It
+  creates a collision-free caller-owned Context only above an existing base
+  Context. Scoped systems must retain its returned name and pop it; they must
+  never claim or pop a gameplay-owned Context with the same logical label.
 
 Pop does not respawn the resumed camera. Its existing tree stays alive, so node
 state such as damping, interpolation, and spline progress continues.
@@ -424,7 +429,73 @@ and sink-captured camera gizmos from its internal camera. The LS path
 does not emit transition primitives because it has no context stack / director
 transition tree.
 
-## 15. Hard Invariants
+## 15. Mesh Camera Layers
+
+Mesh camera behavior uses a Level-local painted surface document. It does not
+use collision volumes, floor-actor identity, or a persistent query StaticMesh.
+
+```text
+tool-authored local triangles
+  -> hidden AComposableCameraMeshSurfaceStorageActor in current Level
+  -> disposable runtime triangle data
+  -> UComposableCameraMeshWorldSubsystem downward query
+  -> every enabled layer on the nearest surface
+  -> one active scope per Layer
+  -> UComposableCameraMeshProfile per scope
+       -> Camera activation configuration
+       -> camera-tag-filtered Modifier assets
+       -> reserved Action / Patch sections
+```
+
+The storage actor is `NotPlaceable`, excluded from Scene Outliner, and created
+only by the tool. Its actor transform is the document anchor. A document saved
+inside a streamed Level or Level Instance therefore follows that source instead
+of baking world coordinates.
+
+Profiles expose four ordered authoring sections: Camera, Modifier, Action, and
+Patch. Camera embeds `FComposableCameraParameterTableRow`, so it carries one
+Camera Type, Context Name, Transition Override, Activation Params, and typed
+overrides for the selected Type's exposed parameters/variables. Modifier keeps
+the existing asset-template array. Action and Patch are visible reserved
+sections with no runtime data in this version.
+
+Layer changes are edge-triggered. Spatial membership is a set: entering an
+overlapping Layer does not exit Layers that still cover the player. Every
+active Layer contributes duplicated Modifier candidates. Removing one Layer
+removes only its candidates; Modifier asset priority continues to resolve
+same-node conflicts inside the modifier manager.
+
+Every Camera-bearing Layer pushes its own collision-free temporary Context.
+Its readable hint contains `Mesh`, Layer name, and Layer GUID. Entering a
+nested Camera Layer therefore suspends, rather than replaces, the outer
+Layer's Director and camera instance. Exiting the nested Layer pops only its
+Context and resumes the exact outer camera. A Layer without Camera Type pushes
+no Context, so the current lower camera remains active while its Modifiers are
+added. Exiting the final Camera-bearing Layer restores the gameplay Context.
+After an active pop, ModifierManager selection is recomputed without rebuilding
+the resumed camera, releasing removed candidates while preserving node state.
+The embedded row's authored `ContextName` is ignored and hidden for Mesh
+Profiles because ownership comes from Layer identity. Normal traversal follows
+Layer enter order. If several Layers first appear on one tick, the subsystem
+enters bottom list rows first so the top row becomes the top Context.
+
+Each Camera Layer entry is transactional: the PCM captures the current source
+Director before its temporary push and activates through the inter-context
+reference-source path. The configured transition therefore blends from the
+camera currently visible at that nesting depth.
+
+Mesh Layer presence owns camera lifetime. The subsystem therefore forces its
+scoped Camera activation to non-transient regardless of the embedded row's
+transient fields. Failed construction immediately pops the empty temporary
+Context before falling back to modifier refresh; it cannot strand an empty
+stack entry or overwrite the gameplay camera.
+
+Authoring triangles and runtime triangles are separate serialized fields.
+Runtime data is always rebuilt from authoring data. The MVP performs a linear
+triangle-ray query; spatial acceleration and constrained simplification are
+replaceable bake optimizations.
+
+## 16. Hard Invariants
 
 - Context stack position matters. `EnsureContext` may reorder entries.
 - Base context is never popped.
@@ -436,11 +507,21 @@ transition tree.
 - Hot paths must not allocate without a clear reason.
 - UObject member fields / UPROPERTY references use `TObjectPtr`.
 - New runtime logs use `LogComposableCameraSystem`.
+- Mesh authoring data is durable source. Simplified/runtime surface data must
+  never become the source for the next edit.
+- Mesh surface vertices are storage-actor local. Do not bake world-space
+  Level Instance transforms into the document.
+- Mesh Layer entry must not reactivate once for Modifier replacement and a
+  second time for Camera activation. Update candidates first; let the new
+  Camera construction resolve them.
+- Every Mesh Camera Layer owns a separate temporary Context. A Layer exit
+  pops only that Context; lower Mesh and external gameplay Contexts remain
+  intact.
 - Command-line UBT / editor / automation test runs are not part of Codex
   verification for this project. Compile and automation run inside Rider or
   Visual Studio.
 
-## 16. Document Map
+## 17. Document Map
 
 - Runtime design: this file.
 - Implementation techniques: `TechDoc.md`.

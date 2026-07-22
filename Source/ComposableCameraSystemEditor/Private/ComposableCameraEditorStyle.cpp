@@ -119,6 +119,13 @@ FComposableCameraEditorStyle::FComposableCameraEditorStyle()
 	Set("ClassThumbnail.ComposableCameraShotAsset",
 		new IMAGE_BRUSH_SVG("Icons/ContentBrowser-ComposableCameraShot", Icon64x64));
 
+	// Mesh Camera Layer editor mode. The Level Editor mode selector uses the
+	// normal brush, while compact menus and toolbars request the small brush.
+	Set("MeshCameraLayers.Mode",
+		new IMAGE_BRUSH_SVG("Icons/ContentBrowser-ComposableCameraType", Icon20x20));
+	Set("MeshCameraLayers.Mode.Small",
+		new IMAGE_BRUSH_SVG("Icons/ContentBrowser-ComposableCameraType", Icon16x16));
+
 	FSlateStyleRegistry::RegisterSlateStyle(*this);
 }
 

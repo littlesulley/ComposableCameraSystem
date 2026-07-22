@@ -938,6 +938,97 @@ AComposableCameraCameraBase* AComposableCameraPlayerCameraManager::ActivateNewCa
 	return NewCamera;
 }
 
+AComposableCameraCameraBase*
+AComposableCameraPlayerCameraManager::ActivateNewCameraFromTypeAssetInTemporaryContext(
+	UComposableCameraTypeAsset* CameraTypeAsset,
+	UComposableCameraTransitionDataAsset* TransitionOverride,
+	const FComposableCameraActivateParams& ActivationParams,
+	const FComposableCameraParameterBlock& Parameters,
+	FName DebugNameHint,
+	FName& OutTemporaryContextName)
+{
+	OutTemporaryContextName = NAME_None;
+	if (!CameraTypeAsset)
+	{
+		UE_LOG(LogComposableCameraSystem, Warning, TEXT(
+			"ActivateNewCameraFromTypeAssetInTemporaryContext: CameraTypeAsset is null."));
+		return RunningCamera;
+	}
+	if (CameraTypeAsset->NodeTemplates.IsEmpty())
+	{
+		UE_LOG(LogComposableCameraSystem, Warning, TEXT(
+			"ActivateNewCameraFromTypeAssetInTemporaryContext: CameraTypeAsset '%s' has no nodes."),
+			*CameraTypeAsset->GetName());
+		return RunningCamera;
+	}
+	if (!ContextStack)
+	{
+		UE_LOG(LogComposableCameraSystem, Warning, TEXT(
+			"ActivateNewCameraFromTypeAssetInTemporaryContext: ContextStack is null."));
+		return RunningCamera;
+	}
+
+	UComposableCameraDirector* SourceDirector = GetActiveDirectorSafe();
+	AComposableCameraCameraBase* PreviousCamera = RunningCamera;
+	if (!SourceDirector)
+	{
+		UE_LOG(LogComposableCameraSystem, Warning, TEXT(
+			"ActivateNewCameraFromTypeAssetInTemporaryContext: no source Context to restore."));
+		return RunningCamera;
+	}
+
+	const FName TemporaryContextName =
+		ContextStack->PushTemporaryContext(this, DebugNameHint);
+	UComposableCameraDirector* TargetDirector =
+		ContextStack->GetDirectorForContext(TemporaryContextName);
+	if (TemporaryContextName.IsNone())
+	{
+		return RunningCamera;
+	}
+	if (!TargetDirector)
+	{
+		ContextStack->PopContext(TemporaryContextName, this);
+		RunningCamera = ContextStack->GetRunningCamera();
+		return RunningCamera;
+	}
+
+	PendingTypeAsset = CameraTypeAsset;
+	PendingParameterBlock = Parameters;
+	FOnCameraFinishConstructed OnPreBeginplay;
+	OnPreBeginplay.BindDynamic(
+		this,
+		&AComposableCameraPlayerCameraManager::OnTypeAssetCameraConstructed);
+
+	const UComposableCameraTypeAsset* SourceTypeAsset =
+		PreviousCamera ? PreviousCamera->SourceTypeAsset.Get() : nullptr;
+	UComposableCameraTransitionBase* ResolvedTransition =
+		ResolveTransition(SourceTypeAsset, CameraTypeAsset, TransitionOverride);
+	AComposableCameraCameraBase* NewCamera =
+		TargetDirector->ActivateNewCameraWithReferenceSource(
+			this,
+			AComposableCameraCameraBase::StaticClass(),
+			ResolvedTransition,
+			ActivationParams,
+			OnPreBeginplay,
+			SourceDirector);
+
+	if (NewCamera && NewCamera != PreviousCamera)
+	{
+		CurrentOnPreBeginplayEvent = OnPreBeginplay;
+		RunningCamera = NewCamera;
+		OutTemporaryContextName = TemporaryContextName;
+		return NewCamera;
+	}
+
+	// Spawn/activation failed before the construction callback could consume
+	// these fields. Roll back both pending data and the empty scoped Context.
+	PendingTypeAsset = nullptr;
+	PendingParameterBlock = FComposableCameraParameterBlock();
+	ContextStack->PopContext(TemporaryContextName, this);
+	RunningCamera = ContextStack->GetRunningCamera();
+	return RunningCamera;
+}
+
 void AComposableCameraPlayerCameraManager::OnTypeAssetCameraConstructed(AComposableCameraCameraBase* Camera)
 {
 	// Delegate to the PCM-independent free function that does all the real work
@@ -1049,6 +1140,56 @@ void AComposableCameraPlayerCameraManager::RemoveModifier(UComposableCameraNodeM
 	}
 	ModifierManager->RemoveModifier(ModifierAsset);
 	OnModifierChanged();
+}
+
+void AComposableCameraPlayerCameraManager::ReplaceModifiers(
+	TConstArrayView<UComposableCameraNodeModifierDataAsset*> ModifierAssetsToRemove,
+	TConstArrayView<UComposableCameraNodeModifierDataAsset*> ModifierAssetsToAdd,
+	bool bReactivateCurrentCamera)
+{
+	if (!ModifierManager)
+	{
+		UE_LOG(LogComposableCameraSystem, Warning, TEXT(
+			"ReplaceModifiers: ModifierManager is null. Aborting."));
+		return;
+	}
+
+	bool bChanged = false;
+	for (UComposableCameraNodeModifierDataAsset* ModifierAsset : ModifierAssetsToRemove)
+	{
+		if (ModifierAsset)
+		{
+			ModifierManager->RemoveModifier(ModifierAsset);
+			bChanged = true;
+		}
+	}
+	for (UComposableCameraNodeModifierDataAsset* ModifierAsset : ModifierAssetsToAdd)
+	{
+		if (ModifierAsset)
+		{
+			ModifierManager->AddModifier(ModifierAsset);
+			bChanged = true;
+		}
+	}
+
+	if (bChanged && bReactivateCurrentCamera)
+	{
+		OnModifierChanged();
+	}
+}
+
+void AComposableCameraPlayerCameraManager::RefreshEffectiveModifierSelection()
+{
+	if (!ModifierManager)
+	{
+		return;
+	}
+	if (IsValid(RunningCamera))
+	{
+		(void)ModifierManager->GetModifierData().UpdateEffectiveModifiers(RunningCamera);
+		return;
+	}
+	ModifierManager->GetModifierData().GetEffectiveModifiers().Reset();
 }
 
 void AComposableCameraPlayerCameraManager::ApplyModifiers(AComposableCameraCameraBase* Camera, bool bRefreshModifierData)

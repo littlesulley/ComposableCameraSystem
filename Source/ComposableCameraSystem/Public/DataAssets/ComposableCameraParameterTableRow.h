@@ -9,6 +9,7 @@
 
 class UComposableCameraTypeAsset;
 class UComposableCameraTransitionDataAsset;
+struct FComposableCameraParameterBlock;
 
 /**
  * Bag of serialized per-parameter values, keyed by the exposed parameter's
@@ -71,7 +72,8 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraParameterTableRow : public FT
 	TSoftObjectPtr<UComposableCameraTypeAsset> CameraType;
 
 	/** Context to activate into. If NAME_None, the active context is used. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera",
+		meta = (GetOptions = "ComposableCameraSystem.ComposableCameraProjectSettings.GetContextNames"))
 	FName ContextName;
 
 	/** Optional transition override. If null, the type asset's default
@@ -92,4 +94,21 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraParameterTableRow : public FT
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera", meta = (DisplayName = "Exposed Parameters"))
 	FComposableCameraExposedParameterValues Parameters;
+
+	/**
+	 * Build the typed runtime parameter block represented by this row.
+	 *
+	 * Shared by DataTable activation and any asset that embeds this row schema
+	 * (for example an Mesh Profile). Row overrides are parsed first; missing
+	 * values fall back to CameraType defaults. Parse failures also attempt the
+	 * corresponding type-asset default before leaving the slot unset.
+	 *
+	 * @param TypeAsset Resolved CameraType used for parameter type information.
+	 * @param OutParameters Fresh output block. Existing contents are cleared.
+	 * @param SourceDescription Human-readable source used by diagnostic logs.
+	 */
+	void BuildParameterBlock(
+		const UComposableCameraTypeAsset& TypeAsset,
+		FComposableCameraParameterBlock& OutParameters,
+		const FString& SourceDescription) const;
 };
