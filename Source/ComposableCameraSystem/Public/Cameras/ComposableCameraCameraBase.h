@@ -15,6 +15,9 @@
 #include "ComposableCameraCameraBase.generated.h"
 
 class UComposableCameraModifierManager;
+class UComposableCameraModifierRuntimeState;
+struct FComposableCameraModifierPropertyDebugSnapshot;
+class UComposableCameraModifierTransitionBase;
 class UComposableCameraTransitionBase;
 struct FComposableCameraDebugSnapshot;
 class UComposableCameraActionBase;
@@ -312,17 +315,27 @@ public:
 
 	static void AddReferencedObjects(UObject* InThis, FReferenceCollector& Collector);
 
-	/** Tag for this camera. Used by modifiers to distinguish different cameras. */
+	/** Migrates the legacy single tag, updates its compatibility value, and
+	 *  rebuilds the allocation-free Insights trace label. */
+	void RefreshCameraTags();
+
+	/** Tags describing this camera. Modifier assets evaluate CameraTagQuery
+	 *  against this container. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "ComposableCameraSystem|Composable Camera")
+	FGameplayTagContainer CameraTags;
+
+	/** Legacy single tag. Migrated into CameraTags during initialization. */
+	UPROPERTY(BlueprintReadOnly, Category = "ComposableCameraSystem|Composable Camera",
+		meta = (DeprecatedProperty, DeprecationMessage = "Use CameraTags instead."))
 	FGameplayTag CameraTag {};
 
-	/** Cached `CameraTag.ToString()` populated once at Initialize and reused
+	/** Cached `CameraTags.ToStringSimple()` populated once at Initialize and reused
 	 *  by per-tick `TRACE_CPUPROFILER_EVENT_SCOPE_STR` so the dynamic Insights
-	 *  scope name doesn't allocate an FString per tick. CameraTag is
+	 *  scope name doesn't allocate an FString per tick. CameraTags is
 	 *  EditDefaultsOnly so the cache is stable across the camera's lifetime
 	 * . Repopulated only on Initialize (in case the runtime mutates the
-	 *  tag before construction completes). */
-	FString CameraTagTraceName;
+	 *  tags before construction completes). */
+	FString CameraTagsTraceName;
 
 	/** Enter transition. Usually used for returning back to this camera from a transient camera. */
 	UPROPERTY(EditDefaultsOnly, Instanced, Category = "ComposableCameraSystem|Composable Camera")
@@ -385,7 +398,43 @@ public:
 	 */
 	void InitializeNodes();
 
-	void ApplyModifiers(const T_NodeModifier& Modifiers);
+	/**
+	 * Apply effective PCM modifiers. Type-asset construction invokes the
+	 * node-template path before node initialization; legacy Blueprint modifiers
+	 * remain applied after initialization through the default call path.
+	 */
+	void ApplyModifiers(const T_NodeModifier& Modifiers,
+		bool bApplyNodeTemplateModifiers = true,
+		bool bApplyLegacyBlueprintModifiers = true);
+
+	/** Production per-property effective selection path. */
+	void ApplyEffectiveModifiers(const T_EffectiveModifier& Modifiers,
+		bool bApplyNodeTemplateModifiers = true,
+		bool bApplyLegacyBlueprintModifiers = true);
+
+	/**
+	 * Reconcile opt-in in-place Modifier assets without camera reactivation.
+	 * Production path resolves Enter/Replace/Exit timing per property from the
+	 * old and new effective Modifier assets.
+	 */
+	void ReconcileInPlaceEffectiveModifiersFromAssets(
+		const T_EffectiveModifier& Modifiers);
+
+	/** Legacy one-entry-per-node compatibility path. */
+	void ReconcileInPlaceModifiersFromAssets(
+		const T_NodeModifier& Modifiers);
+
+	/**
+	 * Compatibility/test path forcing one transition for every changed
+	 * property. Existing C++ callers retain the previous behavior.
+	 */
+	void ReconcileInPlaceModifiers(
+		const T_NodeModifier& Modifiers,
+		UComposableCameraModifierTransitionBase* TransitionOverride);
+
+	/** Snapshot in-place property values for the runtime debug panel. */
+	void BuildModifierDebugSnapshot(
+		TArray<FComposableCameraModifierPropertyDebugSnapshot>& Out) const;
 
 	/**
 	 * Runs the BeginPlay compute chain: walks ComputeNodes in order and calls
@@ -443,21 +492,15 @@ public:
 	FOnActionPreTick  OnActionPreTick;
 	FOnActionPostTick OnActionPostTick;
 
-	/**
-	 * Node-scoped actions fired around each node's TickNode. The PCM registers
-	 * actions here when their ExecutionType is PreNodeTick / PostNodeTick (see
-	 * AComposableCameraPlayerCameraManager::AddCameraAction /
-	 * BindCameraActionsForNewCamera). Matching is by exact class (Node->GetClass()
-	 * == Action->TargetNodeClass), same rule as the Modifier system.
-	 *
-	 * These are NOT UPROPERTY. Ownership lives on the PCM's CameraActions
-	 * UPROPERTY TSet, which is the GC root. This camera-local view is just a
-	 * hot-path iteration cache; the PCM clears it via UnregisterNodeAction when
-	 * an action expires, and EndPlay clears it defensively.
-	 */
-	TArray<UComposableCameraActionBase*> PreNodeTickActions;
-	TArray<UComposableCameraActionBase*> PostNodeTickActions;
+	/** Camera-local action views. The PCM owns actions; these weak lists only
+	 * dispatch them at the matching stage. Node targets match exact class. */
+	TArray<TWeakObjectPtr<UComposableCameraActionBase>> PreCameraTickActions;
+	TArray<TWeakObjectPtr<UComposableCameraActionBase>> PostCameraTickActions;
+	TArray<TWeakObjectPtr<UComposableCameraActionBase>> PreNodeTickActions;
+	TArray<TWeakObjectPtr<UComposableCameraActionBase>> PostNodeTickActions;
 
+	void RegisterCameraAction(UComposableCameraActionBase* Action);
+	void UnregisterCameraAction(UComposableCameraActionBase* Action);
 	void RegisterNodeAction(UComposableCameraActionBase* Action);
 	void UnregisterNodeAction(UComposableCameraActionBase* Action);
 	
@@ -639,6 +682,10 @@ public:
 	 */
 	TUniquePtr<FComposableCameraRuntimeDataBlock> OwnedRuntimeDataBlock;
 
+	/** Per-camera baselines and value transitions for opt-in in-place Modifiers. */
+	UPROPERTY(Transient)
+	TObjectPtr<UComposableCameraModifierRuntimeState> ModifierRuntimeState;
+
 	/**
 	 * The type asset that was used to construct this camera.
 	 * Stored so that ReactivateCurrentCamera (triggered by modifier changes)
@@ -683,8 +730,8 @@ public:
 	 * Capture a debug snapshot of this camera's current state for editor overlay.
 	 *
 	 * Called by the editor toolkit's debug ticker during PIE. Walks CameraNodes,
-	 * reads per-node DebugPoseAfterTick and output pin values from the
-	 * RuntimeDataBlock, and formats them as human-readable strings.
+	 * reads per-node DebugPoseAfterTick, current node parameters, and output
+	 * pin values, then formats them as human-readable strings.
 	 *
 	 * Zero-cost in non-editor builds (compiled out entirely). The function itself
 	 * does allocate (TArray, FString), but it runs on the editor tick, not the

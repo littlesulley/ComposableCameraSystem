@@ -17,6 +17,7 @@
 #include "Cameras/ComposableCameraCameraBase.h"
 #include "Core/ComposableCameraDebugSnapshot.h"
 #include "Core/ComposableCameraPlayerCameraManager.h"
+#include "Widgets/SComposableCameraRuntimeDebugPanel.h"
 #include "Widgets/SComposableCameraRuntimePreviewer.h"
 
 #include "EdGraph/EdGraph.h"
@@ -57,6 +58,7 @@
 const FName FComposableCameraTypeAssetEditorToolkit::GraphEditorTabId(TEXT("ComposableCameraTypeAsset_GraphEditor"));
 const FName FComposableCameraTypeAssetEditorToolkit::DetailsTabId(TEXT("ComposableCameraTypeAsset_Details"));
 const FName FComposableCameraTypeAssetEditorToolkit::BuildMessagesTabId(TEXT("ComposableCameraTypeAsset_BuildMessages"));
+const FName FComposableCameraTypeAssetEditorToolkit::RuntimeDebugTabId(TEXT("ComposableCameraTypeAsset_RuntimeDebug"));
 const FName FComposableCameraTypeAssetEditorToolkit::RuntimePreviewerTabId(TEXT("ComposableCameraTypeAsset_RuntimePreviewer"));
 
 // Construction 
@@ -64,15 +66,12 @@ const FName FComposableCameraTypeAssetEditorToolkit::RuntimePreviewerTabId(TEXT(
 FComposableCameraTypeAssetEditorToolkit::FComposableCameraTypeAssetEditorToolkit(UAssetEditor* InAssetEditor)
 	: FBaseAssetToolkit(InAssetEditor)
 {
-	// Override FBaseAssetToolkit's default layout with our custom 3-panel layout.
+	// Override FBaseAssetToolkit's default layout with our custom dock layout.
 	// Must be set in the constructor - FBaseAssetToolkit reads this during InitAssetEditor().
 	//
-	// The layout version was bumped to _v2 when the Parameters tab was removed.
-	// Users who had the old _v1 layout saved in their editor ini will get a
-	// fresh _v2 layout on first open instead of loading a layout that still
-	// references the now-nonexistent ParametersTabId (which would leave an
-	// empty pane in the tab stack).
-	StandaloneDefaultLayout = FTabManager::NewLayout("ComposableCameraTypeAssetEditor_Layout_v2")
+	// v3 adds the left Runtime Debug / Runtime Previewer stack. Bumping the
+	// layout prevents a saved v2 layout from hiding the new default-open tab.
+	StandaloneDefaultLayout = FTabManager::NewLayout("ComposableCameraTypeAssetEditor_Layout_v3")
 		->AddArea
 		(FTabManager::NewPrimaryArea()
 			->SetOrientation(Orient_Vertical)
@@ -82,12 +81,18 @@ FComposableCameraTypeAssetEditorToolkit::FComposableCameraTypeAssetEditorToolkit
 				->SetSizeCoefficient(0.75f)
 				->Split
 				(FTabManager::NewStack()
-					->SetSizeCoefficient(0.7f)
+					->SetSizeCoefficient(0.23f)
+					->AddTab(RuntimeDebugTabId, ETabState::OpenedTab)
+					->AddTab(RuntimePreviewerTabId, ETabState::ClosedTab)
+				)
+				->Split
+				(FTabManager::NewStack()
+					->SetSizeCoefficient(0.52f)
 					->AddTab(GraphEditorTabId, ETabState::OpenedTab)
 				)
 				->Split
 				(FTabManager::NewStack()
-					->SetSizeCoefficient(0.3f)
+					->SetSizeCoefficient(0.25f)
 					->AddTab(DetailsTabId, ETabState::OpenedTab)
 				)
 			)
@@ -128,9 +133,15 @@ FComposableCameraTypeAssetEditorToolkit::~FComposableCameraTypeAssetEditorToolki
 	}
 	ClearRuntimePreviewer(ERuntimePreviewerStatus::NoPIE);
 	RuntimePreviewerWidget.Reset();
+	RuntimeDebugWidget.Reset();
 
 	if (NodeGraph)
 	{
+		if (RuntimeDebugRequestHandle.IsValid())
+		{
+			NodeGraph->OnRequestShowRuntimeDebug().Remove(RuntimeDebugRequestHandle);
+			RuntimeDebugRequestHandle.Reset();
+		}
 		if (GraphChangedDelegateHandle.IsValid())
 		{
 			NodeGraph->RemoveOnGraphChangedHandler(GraphChangedDelegateHandle);
@@ -190,6 +201,12 @@ void FComposableCameraTypeAssetEditorToolkit::RegisterTabSpawners(const TSharedR
 		.SetGroup(LocalWorkspaceMenuCategory)
 		.SetIcon(FSlateIcon(FAppStyle::GetAppStyleSetName(), "LevelEditor.Tabs.StatsViewer"));
 
+	InTabManager->RegisterTabSpawner(RuntimeDebugTabId,
+		FOnSpawnTab::CreateSP(this, &FComposableCameraTypeAssetEditorToolkit::SpawnTab_RuntimeDebug))
+		.SetDisplayName(LOCTEXT("RuntimeDebugTab", "Runtime Debug"))
+		.SetGroup(LocalWorkspaceMenuCategory)
+		.SetIcon(FSlateIcon(FAppStyle::GetAppStyleSetName(), "Icons.Info"));
+
 	InTabManager->RegisterTabSpawner(RuntimePreviewerTabId,
 		FOnSpawnTab::CreateSP(this, &FComposableCameraTypeAssetEditorToolkit::SpawnTab_RuntimePreviewer))
 		.SetDisplayName(LOCTEXT("RuntimePreviewerTab", "Runtime Previewer"))
@@ -202,6 +219,7 @@ void FComposableCameraTypeAssetEditorToolkit::UnregisterTabSpawners(const TShare
 	InTabManager->UnregisterTabSpawner(GraphEditorTabId);
 	InTabManager->UnregisterTabSpawner(DetailsTabId);
 	InTabManager->UnregisterTabSpawner(BuildMessagesTabId);
+	InTabManager->UnregisterTabSpawner(RuntimeDebugTabId);
 	InTabManager->UnregisterTabSpawner(RuntimePreviewerTabId);
 
 	FAssetEditorToolkit::UnregisterTabSpawners(InTabManager);
@@ -252,6 +270,28 @@ TSharedRef<SDockTab> FComposableCameraTypeAssetEditorToolkit::SpawnTab_BuildMess
 	return SNew(SDockTab)
 		.Label(LOCTEXT("BuildMessagesTabLabel", "Build Messages"))
 		[BuildBuildMessagesWidget()];
+}
+
+TSharedRef<SDockTab> FComposableCameraTypeAssetEditorToolkit::SpawnTab_RuntimeDebug(const FSpawnTabArgs& Args)
+{
+	if (!NodeGraph)
+	{
+		EnsureEditorGraph();
+	}
+	RuntimeDebugWidget = SNew(SComposableCameraRuntimeDebugPanel)
+		.NodeGraph(NodeGraph);
+	TWeakPtr<FComposableCameraTypeAssetEditorToolkit> WeakToolkit = SharedThis(this);
+
+	return SNew(SDockTab)
+		.Label(LOCTEXT("RuntimeDebugTabLabel", "Runtime Debug"))
+		.OnTabClosed_Lambda([WeakToolkit](TSharedRef<SDockTab>)
+		{
+			if (TSharedPtr<FComposableCameraTypeAssetEditorToolkit> Toolkit = WeakToolkit.Pin())
+			{
+				Toolkit->RuntimeDebugWidget.Reset();
+			}
+		})
+		[RuntimeDebugWidget.ToSharedRef()];
 }
 
 TSharedRef<SDockTab> FComposableCameraTypeAssetEditorToolkit::SpawnTab_RuntimePreviewer(const FSpawnTabArgs& Args)
@@ -380,6 +420,12 @@ void FComposableCameraTypeAssetEditorToolkit::InitToolMenuContext(FToolMenuConte
 void FComposableCameraTypeAssetEditorToolkit::PostInitAssetEditor()
 {
 	EnsureEditorGraph();
+	if (NodeGraph && !RuntimeDebugRequestHandle.IsValid())
+	{
+		RuntimeDebugRequestHandle = NodeGraph->OnRequestShowRuntimeDebug().AddSP(
+			this,
+			&FComposableCameraTypeAssetEditorToolkit::ShowRuntimeDebugForNode);
+	}
 
 	// Subscribe to PIE lifecycle for runtime debug monitoring 
 	PIEStartedHandle = FEditorDelegates::PostPIEStarted.AddRaw(this, &FComposableCameraTypeAssetEditorToolkit::OnPIEStarted);
@@ -657,7 +703,11 @@ bool FComposableCameraTypeAssetEditorToolkit::ApplyPendingSelectionToDetails(flo
 
 void FComposableCameraTypeAssetEditorToolkit::OnGraphNodeDoubleClicked(UEdGraphNode* Node)
 {
-	// Could open a sub-editor or focus the details panel in the future.
+	if (UComposableCameraNodeGraphNode* CameraNode =
+		Cast<UComposableCameraNodeGraphNode>(Node))
+	{
+		ShowRuntimeDebugForNode(CameraNode);
+	}
 }
 
 void FComposableCameraTypeAssetEditorToolkit::OnGraphChanged(const FEdGraphEditAction& Action)
@@ -1272,7 +1322,7 @@ bool FComposableCameraTypeAssetEditorToolkit::DebugTick(float DeltaTime)
 
 		for (UEdGraphNode* RawNode: NodeGraph->Nodes)
 		{
-			// Camera nodes: per-node pose + output pin values. Runtime debug
+			// Camera nodes: per-node pose, parameters, and output pin values. Runtime debug
 			// snapshots only contain CameraNodes; compute nodes have a separate
 			// authoring index space and are not per-frame ticked, so do not map
 			// them by bare NodeIndex here.
@@ -1297,8 +1347,16 @@ bool FComposableCameraTypeAssetEditorToolkit::DebugTick(float DeltaTime)
 
 				if (MatchingEntry)
 				{
+					GraphNode->DebugState.bHasRuntimeData = true;
 					GraphNode->DebugState.bIsActive = MatchingEntry->bWasTicked;
 					GraphNode->DebugState.PoseAfterNode = MatchingEntry->PoseAfterNode;
+					GraphNode->DebugState.ParameterDisplayValues.Reset();
+					GraphNode->DebugState.ParameterDisplayValues.Reserve(MatchingEntry->ParameterValues.Num());
+					for (const FComposableCameraNodeParameterDebugValue& ParameterValue: MatchingEntry->ParameterValues)
+					{
+						GraphNode->DebugState.ParameterDisplayValues.Emplace(
+							ParameterValue.DisplayName, ParameterValue.Value);
+					}
 					GraphNode->DebugState.OutputPinDisplayValues.Reset();
 					for (const TPair<FName, FString>& PinValue: MatchingEntry->OutputPinValues)
 					{
@@ -1428,6 +1486,32 @@ void FComposableCameraTypeAssetEditorToolkit::ClearGraphNodeDebugState()
 
 	// No explicit repaint needed - the custom SGraphNode OnPaint overlays are
 	// re-evaluated by Slate on the next paint pass automatically.
+	if (RuntimeDebugWidget.IsValid())
+	{
+		RuntimeDebugWidget->Refresh();
+	}
+}
+
+void FComposableCameraTypeAssetEditorToolkit::ShowRuntimeDebugForNode(
+	UComposableCameraNodeGraphNode* GraphNode)
+{
+	if (!GraphNode || !GraphNode->DebugState.bHasRuntimeData ||
+		!GraphNode->DebugState.bIsActive)
+	{
+		return;
+	}
+
+	const TSharedPtr<FTabManager> LocalTabManager = GetTabManager();
+	if (!LocalTabManager.IsValid())
+	{
+		return;
+	}
+
+	LocalTabManager->TryInvokeTab(FTabId(RuntimeDebugTabId));
+	if (RuntimeDebugWidget.IsValid())
+	{
+		RuntimeDebugWidget->FocusNode(GraphNode);
+	}
 }
 
 void FComposableCameraTypeAssetEditorToolkit::PushRuntimePreviewData(

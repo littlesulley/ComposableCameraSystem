@@ -208,6 +208,9 @@ public:
 	 * live pin value overlays. Reset to defaults when PIE ends. */
 	struct FDebugState
 	{
+		/** True when a runtime counterpart was found in the current snapshot. */
+		bool bHasRuntimeData = false;
+
 		/** True when this node's runtime counterpart was ticked this frame. */
 		bool bIsActive = false;
 
@@ -217,11 +220,16 @@ public:
 		/** Output pin values as formatted strings (PinName -> display text). */
 		TMap<FName, FString> OutputPinDisplayValues;
 
+		/** Current runtime parameter values (display label -> display text). */
+		TArray<TPair<FString, FString>> ParameterDisplayValues;
+
 		void Reset()
 		{
+			bHasRuntimeData = false;
 			bIsActive = false;
 			PoseAfterNode = FComposableCameraPose();
 			OutputPinDisplayValues.Reset();
+			ParameterDisplayValues.Reset();
 		}
 	};
 

@@ -1,6 +1,6 @@
 # ComposableCameraSystem Editor Design
 
-Updated: 2026-06-17
+Updated: 2026-09-28
 
 This document describes the current editor module. It replaces the old
 phase-by-phase implementation plan. Runtime architecture lives in
@@ -44,6 +44,7 @@ Current surfaces:
 - graph tab.
 - details tab.
 - build messages tab.
+- runtime debug tab, default-open in the left editor stack.
 - runtime previewer tab, opened from the Window menu.
 - debug instance picker / graph overlay.
 - toolbar command to open Shot Editor for selected composition framing node.
@@ -52,10 +53,11 @@ The toolkit uses `FBaseAssetToolkit`. It owns graph commands, selection sync,
 save/build hooks, property-change hooks, debug ticker, and selected-instance
 tracking.
 
-Runtime Previewer is not part of the default layout. `RuntimePreviewerTabId`
-registers with the toolkit's local tab manager so users can open or close it
-from Window like other optional editor tabs. It shares the existing Debug
-instance picker selection; it does not create a separate runtime camera picker.
+The v3 default layout places `RuntimeDebugTabId` in a narrow left stack beside
+the graph and Details panels. `RuntimePreviewerTabId` is a closed tab in that
+same stack, so Window opens it in the same local observer area instead of an
+unrelated floating region. Both share the existing Debug instance picker
+selection; neither creates a separate runtime camera picker.
 
 Delegate rule: any `AddRaw(this, ...)` binding to a details view, graph, ticker,
 or external editor object must be explicitly removed in the toolkit destructor.
@@ -233,10 +235,24 @@ UncookedOnly contains custom Blueprint nodes:
 - `UK2Node_ActivateComposableCamera`.
 - `UK2Node_ActivateComposableCameraFromDataTable`.
 - `UK2Node_AddCameraPatch`.
+- `UK2Node_AddCameraAction`.
 - `UK2Node_PlayCutsceneSequence`.
 
 These nodes generate typed pins from selected assets. They must refresh pins
 when the asset changes and compile to runtime Blueprint library calls.
+`UK2Node_AddCameraAction` reads the selected Composable Camera Action asset's
+instanced Action template. It shows pin-compatible editable Blueprint-visible
+fields declared below ActionBase as optional advanced pins. Only connected
+pins enter a parameter block; the asset template supplies every unconnected
+default. A variable-driven asset input has no static parameter pins but may
+still activate an asset at runtime.
+The node expands to `AddActionFromAsset` in the runtime Blueprint library.
+Composable Camera Action assets use the normal Details editor, not the camera
+node graph. The Content Browser displays that name without the internal
+`TypeAsset` suffix. A camera silhouette with an indigo action bolt is registered
+as both class icon and thumbnail through `FComposableCameraEditorStyle`.
+The Add Camera Action K2 node title uses the same indigo (`#665AE5`) as the asset,
+distinguishing it from the default Blueprint function-node blue.
 
 Important activation data:
 
@@ -380,7 +396,7 @@ Flow:
 selected PIE/world camera instance
   -> editor debug snapshot
   -> graph node overlay
-  -> details/debug panels
+  -> runtime debug tab
   -> runtime previewer tab
 ```
 
@@ -390,6 +406,77 @@ Rules:
 - Clear debug state on PIE end and toolkit destruction.
 - Snapshot values before painting.
 - Do not deref stale runtime pointers from Slate paint.
+
+Node hover debug:
+
+- Every runtime node snapshot carries its current parameter values as owned
+  strings. Declared input parameters appear first. Editable runtime properties
+  not represented by pins follow, covering Details-only arrays, curves, and
+  other node-specific settings. Shared node metadata such as `PaletteCategory`
+  is excluded.
+- Declared inputs read the resolved runtime data-block slot first, covering
+  wires, exposed parameters, authored overrides, and nodes that opt out of
+  automatic UPROPERTY resolution. If no slot exists, the live runtime property
+  supplies its authored/current value. A PCM modifier-owned field deliberately
+  reads the property instead because that layer outranks the data block.
+- Toolkit copies these strings into transient graph-node debug state. During
+  PIE, `SComposableCameraGraphNode` replaces the default bright documentation
+  tooltip with an on-demand dark runtime card: node-color accent, Active/Idle
+  badge, description/error area, alternating two-column parameter rows,
+  monospaced accent values, and a height-limited interactive scroll view.
+  Value text uses weak graph-node attributes, so it refreshes while the card is
+  open; the card is rebuilt on the next hover when parameter-list shape changes.
+  UE interactive tooltips otherwise persist after leaving their source, so the
+  node widget explicitly closes the card after the cursor leaves both node and
+  card, with a short grace interval for crossing between them. Its header Pin
+  action detaches that exact card from Slate's reusable tooltip host and
+  promotes it at the same screen position into one independent movable observer
+  window for that graph node. Tooltip-host positions are already DPI-adjusted
+  physical desktop coordinates, so the pinned `SWindow` disables its default
+  initial DPI position adjustment. The pinned window survives hover exit,
+  remains above its parent editor, keeps reading copied graph-node debug state,
+  and reports `NO DATA` after runtime state clears. Repeated Pin actions reuse
+  and foreground the existing window; closing the node widget closes its pinned
+  observer so stale Slate windows cannot survive graph reconstruction.
+  Outside runtime debugging, the standard graph tooltip remains unchanged.
+  Slate never dereferences the runtime node.
+- Runtime-data presence is separate from active-node glow. A skipped node can
+  still expose its current parameter state while remaining visually inactive.
+
+Runtime Debug panel:
+
+- `SComposableCameraRuntimeDebugPanel` is default-open in the Camera Type
+  editor's left stack. It reads the same transient graph-node debug copies as
+  hover cards and never retains runtime camera or node objects.
+- Only camera nodes with both runtime data and current active/ticked state are
+  listed. Items are ordered by runtime node index, default expanded, and use a
+  left disclosure button to collapse or expand the pose plus live parameter
+  rows. Value attributes keep reading weak graph-node state; the list rebuilds
+  only when active membership, search results, parameter-row shape, or item
+  expansion changes.
+  Item headers show node name and Active badge without a parameter-count number.
+  After a non-empty rebuild, `OnItemsRebuilt` requests exactly one additional
+  layout pass. This lets expanded rows settle width-dependent wrapped-text
+  heights and lets collapsed rows update the list's scroll range plus lower-row
+  virtualization, without requiring a user scroll or rebuilding continuously.
+- The top search box matches node title, node class display name, and parameter
+  labels. Filtering can never reveal an inactive node.
+- Double-clicking an active graph node or choosing `Show Debug Information`
+  from its node-body context menu invokes a transient graph-to-toolkit request.
+  Toolkit opens/focuses Runtime Debug, clears a filter that could hide the
+  target, expands its item, requests scroll into view, and runs a 1.25-second
+  linear node-color fade across the whole item. A semi-transparent accent
+  overlay plus content tint makes the target obvious; repeated navigation
+  restarts the effect at full strength. The list keeps selection disabled, so
+  navigation never leaves Unreal's blue selected-row background. The context action is disabled
+  and double-click is a no-op without active runtime data. The request delegate
+  is removed during toolkit teardown.
+- Expandable debug groups follow GameplayCamerasEditor
+  `Private/Debugger/SGameplayCamerasDebugger.cpp`; search/list scrolling follows
+  `Private/Editors/SCameraVariableCollectionEditor.cpp`. The focus fade follows
+  the `FCurveSequence` pulse pattern in PropertyEditor
+  `Private/SDetailSingleItemRow.cpp`. CCS keeps its own copied graph-node data
+  model rather than adopting those editors' runtime ownership.
 
 Runtime Previewer:
 
@@ -464,12 +551,72 @@ Rewind Debugger trace ingestion:
 Editor asset tooling exists for:
 
 - camera type asset.
+- action type asset (inline Action template, Content Browser factory and asset definition).
 - patch type asset.
 - transition data asset.
 - transition table.
 - modifier asset.
 - shot asset.
 - Level Sequence shot actor / related helpers.
+
+Modifier asset details use `FComposableCameraModifierDetails`, registered on
+`UComposableCameraNodeModifierDataAsset`. The customization owns `Modifiers`
+through `FDetailArrayBuilder`, because class-layout customizations are not
+applied to `EditInlineNew` UObjects nested inside an array. Every element is an
+exact base wrapper. Its first child row is the `Use Custom Modifier Class` bool:
+
+- Unchecked: show `Node Type`, then the selected built-in or Blueprint node's
+  editable instance properties. Each property keeps its native widget and an
+  `Override` checkbox. Unchecked controls remain disabled.
+- Checked: show `Custom Modifier Class`, then the selected user Blueprint/C++
+  subclass's editable fields, including its legacy `NodeClass` configuration.
+  The exact base class, abstract classes, and deprecated classes are filtered
+  from this picker.
+
+Switching modes preserves both branches' authored data; only the selected branch
+is active at runtime. Class metadata (`EditDefaultsOnly`, including
+`PaletteCategory`) and transient node fields do not render in Node Type mode.
+
+Generic entries created through the pre-fix default inline layout can contain a
+`NodeClass` but no `NodeTemplate`. Opening the asset repairs that state by
+creating the missing template from the selected class, then shows its property
+rows. Pre-wrapper assets that directly stored a custom Modifier subclass migrate
+that object into the wrapper's Custom Modifier Class branch during `PostLoad`.
+
+Changing node type creates a fresh template and clears checked property names.
+This does not participate in graph `SyncToTypeAsset` / `RebuildFromTypeAsset`:
+modifier assets are durable data assets and own their templates directly.
+The same Details view exposes `CameraTagQuery` through UE's native
+`FGameplayTagQuery` customization. Empty query means all cameras; authored
+queries can nest ALL / ANY / NONE expressions against a camera type asset's
+`CameraTags` container. Camera tags remain direct durable type-asset properties,
+not graph state. Legacy single camera tags and modifier tag lists migrate on
+load and remain hidden from new authoring. This follows GameplayCameras'
+`GameplayCameras/Public/Transitions/GameplayTagTransitionConditions.h` pattern.
+
+Modifier Details exposes `Application Mode` above the wrapper array:
+
+- `Reactivate Camera` is the compatibility default. Existing pose Enter/Exit
+  Transition fields are visible.
+- `Modify Existing Instance` is explicit opt-in. Pose Transition fields are
+  hidden and Modifier Value Enter/Replace/Exit Transition fields are visible.
+  Replace applies only to properties checked by both the old and new winning
+  Modifiers. Null Replace shows `Legacy`: desired Enter wins when desired
+  priority is at least previous priority, otherwise previous Exit. Authors use
+  a zero-duration Replace to request an explicitly immediate handoff.
+
+In in-place mode, each Node Type property row carries one compact capability
+label. `Blend` means a built-in continuous value blender exists. `Step` means
+the property switches once at the transition threshold. `Unsupported` means
+the property has neither a matching top-level input pin nor a node-provided
+runtime-mutation opt-in; its value widget stays disabled without deleting the
+authored legacy value. Custom Modifier Class wrappers produce an error banner
+because arbitrary Blueprint side effects cannot be interpolated or reverted.
+Switching application mode never clears either transition family, node
+templates, checked-property names, or Custom Modifier data.
+
+This state remains direct durable Modifier-asset data. It does not participate
+in graph `SyncToTypeAsset` / `RebuildFromTypeAsset`.
 
 When adding an asset class, update:
 
@@ -479,12 +626,101 @@ When adding an asset class, update:
 - editor open path.
 - docs.
 
-## 18. Invariants
+## 18. Mesh Camera Layer Tool
+
+`FComposableCameraMeshLayerEdMode` owns the complete authoring workflow.
+
+- Toolkit presents a selectable Layer list following Landscape Editor's
+  `LandscapeEditorDetailCustomization_Layers.cpp` row-selection pattern.
+  Clicking a row makes its stable GUID the current paint target; users never
+  edit an active-layer index. Add/delete/reorder controls operate on the
+  selected row, selected Layer properties appear below it, and brush-only
+  settings remain in their own Details section.
+- Left mouse paints. Shift + left mouse temporarily erases.
+- A brush stamp projects a ring back onto compatible floor collision. Ring
+  samples may cross component boundaries, so Landscape components and modular
+  floor pieces do not create artificial paint gaps. The projection trace and
+  minimum floor-normal test still reject missing or non-floor samples.
+- Viewport visualization rasterizes stored triangles into an anchor-local
+  resolved surface grid. Repeated source triangles collapse into one visual
+  cell. Layer list order follows image-editor convention: the top row draws
+  above lower rows. At one surface location, only the first enabled Layer in
+  list order emits a cell; disabling it reveals the next row. This prevents
+  alpha accumulation without storing a separate numeric Priority.
+- Resolved cells build disposable filled dynamic meshes grouped by Layer color.
+  They do not alter stored authoring/runtime triangle data. Edit mode rebuilds
+  its cache only after paint, erase, or Layer data changes; Preview caches one
+  resolved grid per loaded storage actor for its mode lifetime.
+- `Show Mesh Camera Layers` also covers every PIE world. The editor module
+  converts the same resolved runtime cells into uniquely identified batches on
+  that world's persistent `ULineBatchComponent`. Meshes are submitted once, so
+  transparent color cannot accumulate per frame. World-owned batches remain
+  visible even though the tool-owned storage actor is hidden in game.
+- A lightweight ticker discovers newly streamed PIE storage actors, rebuilds a
+  storage Batch only when its transform changes, and clears batches no longer
+  seen. `PrePIEEnded` clears every preview BatchID before `EndPlayMap`
+  starts releasing PIE scenes; the ticker rejects teardown work until
+  `PostPIEStarted` begins the next session. Turning Show off, switching to Edit
+  mode, or unloading the editor module performs the same batch cleanup. The
+  batcher itself remains owned by `UWorld`, so editor state cannot outlive its
+  Scene.
+  The path lives only in the Editor module and never ships.
+- The working document is transient. Existing serialized data is unchanged
+  until Save.
+- Save resolves the current Level, auto-creates the hidden
+  `AComposableCameraMeshSurfaceStorageActor` when needed, copies authoring
+  data, rebuilds runtime data, and saves the owning package.
+- Exiting with dirty data asks whether to save. Declining discards the transient
+  working document.
+- Closing the mode panel exits the edit mode and immediately invalidates Level
+  viewports. `Show Mesh Camera Layers` deterministically switches out of edit
+  mode when necessary, then enables the read-only preview in one command.
+- `FComposableCameraMeshLayerPreviewEdMode` renders all loaded runtime Layer
+  surfaces as read-only filled overlays while the editing tool is closed.
+- The visible edit mode and both Tools menu actions use one icon from
+  `FComposableCameraEditorStyle`. Normal and small brushes are both registered,
+  so the Level Editor mode selector and compact menu/tool-bar layouts never
+  receive an empty `FSlateIcon`.
+
+`UComposableCameraMeshProfile` uses a dedicated Details customization with
+four ordered sections:
+
+- `Camera`: directly expands an embedded
+  `FComposableCameraParameterTableRow`, showing Camera Type, Transition
+  Override, Activation Params, and the existing typed exposed
+  parameter/variable override UI. Reusing the row and its
+  `FComposableCameraExposedParameterValues` customization keeps DataTable and
+  Mesh Profile authoring identical. The class customization hides the parent
+  `Camera` struct row and adds those four child properties explicitly, avoiding
+  a duplicate trailing Camera field. Context Name stays in the shared row
+  schema but is hidden here: runtime generates one readable, collision-free
+  temporary Context from each Layer name and GUID.
+- `Modifier`: preserves the existing `ModifierAssets` array.
+- `Action` and `Patch`: visible reserved sections with no editable runtime
+  configuration in this version.
+
+The current Level is the storage scope. When editing a streamed Level or Level
+Instance, the storage actor uses that Level transform as its local anchor. Users
+never create, select, or edit the storage actor.
+
+Authoring and runtime data must remain one-way:
+
+```text
+full authoring triangles + stable Layer GUIDs
+  -> save/bake
+  -> runtime triangles + compact Layer indices
+```
+
+Future mesh reduction belongs only on the right side of this boundary.
+
+## 19. Invariants
 
 - `SyncToTypeAsset` and `RebuildFromTypeAsset` must stay inverse enough for
   save/load stability.
 - Graph node GUIDs are durable identity.
 - Runtime asset data, not transient graph data, is saved truth.
+- Modifier application-mode authoring never enters the Camera Type graph
+  round-trip.
 - Build messages must point to authorable fixes.
 - K2 generated pins must match runtime asset exposed surfaces.
 - Sequencer sections must not block-load assets on eval path.

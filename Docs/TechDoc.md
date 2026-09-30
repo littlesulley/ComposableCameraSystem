@@ -1,6 +1,6 @@
 # ComposableCameraSystem Tech Notes
 
-Updated: 2026-06-17
+Updated: 2026-09-28
 
 Purpose: compact implementation reference. Keep this file current when code
 patterns, public APIs, hot-path rules, node catalogs, or gotchas change.
@@ -21,6 +21,8 @@ Runtime module: `Source/ComposableCameraSystem`
 - `LevelSequence`, `MovieScene`: Sequencer component, actor, tracks, sections.
 - `Debug`: runtime panel, dumps, viewport draw.
 - `Math`, `Interpolator`, `Utils`, `EditorHooks`.
+- `MeshCamera`: Level-local painted surface data, query actor, and world
+  subsystem profile application.
 
 Editor module: `Source/ComposableCameraSystemEditor`
 
@@ -141,19 +143,185 @@ Blueprint/K2/DataTable
   -> evaluation tree activation
 ```
 
+### Node Property Modifiers
+
+Every `Modifiers` element serializes as an exact
+`UComposableCameraModifierBase` wrapper. `bUseCustomModifierClass` selects one
+of two retained branches, so toggling modes does not discard either branch:
+
+- Node Type: `NodeTemplate` owns an instanced concrete camera node
+  and `OverrideProperties` stores checked `FName` property names.
+- Custom Modifier Class: `CustomModifier` owns an instanced user Blueprint/C++
+  subclass. The wrapper targets that object's legacy `NodeClass`, classifies it
+  as post-initialize, and invokes its Blueprint `ApplyModifier` event. Generic
+  template state is never consulted in this branch.
+
+`PostLoad` converts pre-wrapper derived array elements into exact base wrappers
+and duplicates the old object beneath `CustomModifier`. Generic exact-base
+entries need no migration. The custom-class picker excludes the base class,
+abstract classes, deprecated classes, and superseded Blueprint classes.
+
+Camera instances and type assets expose `FGameplayTagContainer CameraTags`.
+Modifier assets expose `FGameplayTagQuery CameraTagQuery`, using UE's native
+recursive ALL / ANY / NONE query editor and token-stream evaluator. Empty query
+means all cameras; non-empty query calls `Matches` against the full camera tag
+container. The manager stores every candidate in one node-class bucket and
+filters queries only when rebuilding `EffectiveModifiers`; no global bucket or
+tag sentinel exists. Effective Node Type selection is a nested
+`NodeClass -> PropertyName -> FModifierEntry` map. Each checked property elects
+its own matching winner by asset priority; equal priority uses monotonic
+registration order, preserving later-registration-wins behavior. Disjoint
+properties therefore compose even when their winners come from different
+assets. The selected entry keeps its registration order in the non-reflected
+manager data. Equal-priority transition summaries prefer entering edges over
+exiting edges, then later registration, preserving the legacy
+desired-wins-on-equal replacement rule.
+
+`NAME_None` is reserved as the whole-node key. If the legacy node-class winner
+is a Custom Modifier, the effective map contains only that key for the class.
+This prevents arbitrary Blueprint side effects from being silently composed
+with property entries whose overlap cannot be discovered.
+
+`EComposableCameraModifierApplyMode` is serialized on the Modifier asset.
+`ReactivateCamera = 0` is the compatibility default. It keeps
+`ApplyModifierToNode`, `ModifierOverrideFieldOffsets`, and camera reactivation
+unchanged. `ModifyExistingInstance` routes selection changes into the running
+camera's transient `UComposableCameraModifierRuntimeState`. Its durable timing
+fields are Enter, Replace, and Exit Value Transition. Null Enter/Exit means
+immediate; null Replace preserves the legacy priority rule by selecting desired
+Enter when desired priority is at least previous priority, otherwise previous
+Exit. Duration zero expresses an explicitly immediate Replace.
+
+The in-place state duplicates one baseline node per affected runtime node and
+caches one binding per checked property. Binding construction performs all
+reflection and pin discovery. Per-frame work uses cached `FProperty*`, field
+offset, pin identity, blend kind, transition weight, and source/target node
+snapshots. Each binding also stores its current winning Modifier and asset, so
+one runtime node may be driven by several assets without sharing transition
+state. Multiple nodes of the same exact class receive separate states.
+
+Pin-backed bindings register an in-place pin/property identity on the node.
+`ResolveAllInputPins` continues to skip the owned field, while explicit
+`GetInputPinValue<T>` returns the current modifier-owned property. The lower
+RuntimeDataBlock remains unchanged and is accessed through
+`TryResolveUnderlyingInputPin` / `TryCopyUnderlyingInputPinToProperty`.
+Removal unregisters ownership before the normal node tick resolves the latest
+wire/exposed/default value.
+Null and zero-duration runtime exits keep their pending binding until
+`ApplyForNode` calls `ReleaseProperty`; only the camera-construction
+`bImmediate` path may apply and prune that binding synchronously.
+
+Continuous built-in types are Float, Double, Vector2D/3D/4D, Rotator,
+Transform, and LinearColor. Rotator uses quaternion slerp; Transform uses
+`FTransform::Blend`. Other supported pin-backed values switch once at
+`DiscreteSwitchWeight`. Non-pin properties require the node's
+`SupportsInPlaceModifierProperty` opt-in. `OnModifierPropertyChanged` is the
+cache-rebuild hook for opted-in configuration. Initial camera construction
+suppresses this hook because normal node initialization follows immediately.
+
+`UComposableCameraModifierTransitionBase` is a stateless timing template with
+duration, linear/smooth/smoother/ease/custom-curve weight, and a discrete switch
+threshold. Each binding stores elapsed time, so disjoint or interrupted
+property changes can coexist without mutable transition-template state.
+`ReconcileNode` resolves the desired entry for each existing binding by property
+name. New ownership selects desired Enter, a changed winner selects desired
+Replace, and removed ownership selects previous Exit. Unowned bindings keep
+their already-running exit unchanged. Newly selected properties create new
+bindings with their own winning Modifier/asset pair. The PCM production path
+calls `ReconcileInPlaceEffectiveModifiersFromAssets` with the
+`T_EffectiveModifier` shape. The original
+`ReconcileInPlaceModifiersFromAssets(T_NodeModifier)` and
+`ReconcileInPlaceModifiers(T_NodeModifier, Transition)` signatures remain
+unambiguous source-compatibility paths for focused tests and external C++.
+`FComposableCameraModifierUpdateResult::ModifierTransition`
+remains only a compatibility summary and no longer drives PCM evaluation.
+Reflection, node duplication, and binding-array growth happen only on Modifier
+selection edges, never inside camera/node evaluation.
+
+Custom Modifier Class entries are invalid in `ModifyExistingInstance`: editor
+shows an error and runtime skips the entry with a warning. A mixed selection
+change uses legacy camera reactivation when any changed old/new asset requires
+it.
+
+Legacy single camera `CameraTag` properties remain hidden serialized fields.
+Type-asset `PostLoad` and runtime construction migrate them into `CameraTags`.
+Legacy modifier `CameraTags` containers remain hidden and migrate during
+`PostLoad` through `MakeQuery_MatchAnyTags`, preserving their former OR intent.
+
+In Node Type mode, `GetTargetNodeClass` prefers the template's class. In Custom
+mode, target lookup uses the nested modifier's `NodeClass` and execution stays
+post-initialize. Matching stays exact, same as node-scoped actions.
+`ApplyModifierPropertyToNode` is the per-property construction path;
+`ApplyModifierToNode` retains the whole-wrapper compatibility path. Reflection
+runs only during camera construction / reactivation, never in the per-frame
+tick. Each selected name is validated through `IsNodePropertyOverridable`, then
+that one property is copied.
+An instanced-object property duplicates its source subobject into the runtime
+node; other property types use normal `FProperty` copy semantics. It then
+registers the target field offset in the node's inline modifier-override list.
+The PCM-only `ConstructCameraFromTypeAsset` overload invokes a synchronous
+pre-initialize callback after node/data-block setup; generic modifiers run in
+that callback, before `InitializeNodes` builds interpolator / solver caches.
+Custom Blueprint `ApplyModifier` callbacks keep their original post-init timing.
+`ApplyCustomModifierWithPinOwnership` snapshots the node's cached non-wired pin-backed
+`FProperty` values at activation, executes the callback once, and registers
+only changed property/pin identities. The snapshot uses reflected property
+copy/identity/destruction so struct and object pins remain valid. This work
+never runs in the evaluation hot path. A changed field then survives later
+`ResolveAllInputPins` calls and explicit pin reads, while untouched inputs
+remain live. Wired pins are excluded because BeginPlay compute outputs may be
+uninitialized until after the callback. K2 activation
+values and type-asset defaults are both valid bases for the one-shot callback;
+later changes to an owned input do not reapply the callback.
+
+`ResolveAllInputPins` skips registered modifier field offsets. This makes a
+checked modifier property higher priority than the same node's graph wire or
+exposed parameter without per-frame reflection or allocation. The offset list
+uses `TInlineAllocator<4>` and is filled only during construction.
+
+Eligible properties are editable instance properties only. `EditDefaultsOnly`,
+transient, deprecated, and `NoModifierOverride` fields are excluded. This hides
+node metadata such as `PaletteCategory` and prevents stale serialized names from
+changing non-runtime state.
+
+The editor customization is registered on the Modifier data asset, not on
+`UComposableCameraModifierBase`. UE class-layout customizations do not drive
+`EditInlineNew` UObject children nested in an array. An asset-level
+`FDetailArrayBuilder` preserves normal array controls and normalizes new null
+elements to base wrappers. The first child row is `Use Custom Modifier Class`.
+Unchecked shows the node-class picker plus external node-template property rows;
+checked shows a filtered custom-modifier class picker plus that instance's
+editable fields. Both authored branches remain serialized while only one is
+active.
+
+UE5.6 `FPropertyHandleObject::SetValue` deliberately returns `Fail` for
+`EditInlineNew` property nodes. Modifier array normalization therefore writes
+the single customized asset's authoritative `Modifiers[ArrayIndex]` slot before
+composing that element row. Using `SetValue` here leaks UE's default polymorphic
+object picker for every null or derived entry that was not already a wrapper.
+The asset's `CameraTagQuery` stays in its normal Details category and uses the
+engine-provided Gameplay Tags query customization.
+
 ## 6. Camera Tick
 
 `AComposableCameraCameraBase::TickCamera` is memoized per `GFrameCounter`.
 
 Camera tick:
 
-1. Start from current camera pose.
-2. Walk `FullExecChain`.
-3. Run node pre-actions.
-4. Tick node.
-5. Run node post-actions.
-6. Apply set-variable entries.
-7. Store pose and frame cache.
+1. Pass the per-frame memoization guard.
+2. Advance active Modifier value clocks once.
+3. Start from current camera pose.
+4. Walk `FullExecChain`.
+5. Run node pre-actions.
+6. Apply cached in-place Modifier operations for this node.
+7. Tick node.
+8. Run node post-actions.
+9. Apply set-variable entries.
+10. Store pose and frame cache.
+
+No in-place state means one null/empty branch and the legacy order/result is
+unchanged. A reference DAG that reaches the same camera twice still advances
+Modifier clocks once because the existing camera memoization guard runs first.
 
 `TickWithInputPose` is used by patches and Sequencer patch overlays. It lets a
 patch node graph consume the upstream pose instead of synthesizing from the
@@ -385,11 +553,58 @@ Runtime debug:
 - flattened DFS tree snapshots.
 - patch snapshots from PCM path and Sequencer path.
 - runtime panel and pose history panel.
+- Modifier panel rows use one structured group per exact target node class.
+  Candidates appear once and are sorted by status, priority, then asset name.
+  `ACTIVE`, `PARTIAL`, `UNSUPPORTED`, `SHADOWED`, `FILTERED`, `NO NODE`, and
+  `DESTROYED` expose selection outcome directly. `PARTIAL` means the candidate
+  won only a subset of its authored properties. Each two-line card puts the compact
+  TagQuery scope beside the Modifier name, then shows
+  enter/replace/exit Blend on its own clipped full-width row. Apply mode and
+  priority remain on the identity row. Below the candidate cards, active
+  in-place bindings show one two-line row per property: owner and transition
+  phase/time progress, then clipped current and target values. Exiting pin
+  bindings label the target `Live Lower`; non-pin exits label it `Baseline`.
+  Bindings remain visible during exit even after their last registered
+  candidate is removed. A `Last Change` row reports the PCM's last selection
+  decision for this exact camera; reactivation names the first changed legacy
+  asset and property that required a new instance.
+  Canvas labels use measured pixel width plus a fixed gap. Every right-aligned
+  field shares a content-right safety inset so text shadows and glyph bearings
+  cannot touch or cross the group/region edge;
+  fixed-width label columns can overlap proportional-font values. Do not return
+  to duplicated `Effective` plus `All` text lists: they hide the reason a
+  candidate lost and waste vertical space.
+- Action panel rows use compact two-line cards. Identity, camera scope, and
+  optional node target share the first line with the execution phase; expiration
+  rules use one measured label/value row below. The source `TSet` has no display
+  order, so snapshots sort by execution phase, identity, then stable object key
+  before drawing.
+  Missing targets use problem coloring without changing action execution.
+- Patch panel rows use lifecycle-colored cards. The identity row separates phase,
+  asset/source/Sequencer host, and layer into clipped columns; Alpha and
+  meaningful Time values keep their progress bars; expiration rules use a
+  measured label/value row. Patch snapshots retain manager/Sequencer producer
+  order rather than sorting by display text. Actions, Modifiers, and Patches
+  share the same content-right safety inset.
+- Current Pose groups use compact two-column cards; context headers and Running
+  Camera section/node rows use tinted backgrounds without side rails. Warning
+  entries keep their severity rail. Tree connectors and Legend swatches retain
+  their specialized layouts.
+  The common body line, title, margins, and gaps use a compact density. The
+  height pass packs whole regions into viewport-height pages; select a page
+  with `CCS.Debug.Panel.Page` (zero-based). A single region taller than the
+  viewport is clipped inside its border and marked in the page footer rather
+  than drawing beyond the screen. All region renderers must honor the supplied
+  body height, including Legend rows.
 - `CCS.Dump.*`.
 - viewport debug draw CVars.
 - viewport gizmo colors live in `FComposableCameraViewportDebugColors`; the
   panel Legend reads `FComposableCameraViewportDebug::GetLegendEntries()` so
-  swatches and 3D markers share one source of truth.
+  swatches and 3D markers share one source of truth. Legend rows still require
+  the matching viewport debug CVar or `*.All` shortcut, but the panel filters
+  them again through `ComposableCameraViewportDebugLegendUtils`: node rows must
+  match a node class on the current `RunningCamera`, and transition rows must
+  match an `InnerTransition` class in the active context tree snapshot.
 - `FComposableCameraDebugDrawSink` is the primitive emission adapter. The live
   sink sends line / point / sphere / box / plane / frustum calls to Unreal debug
   draw helpers and keeps solid spheres routed through
@@ -441,6 +656,56 @@ Editor debug:
 
 - selected runtime instance picker in type asset editor.
 - graph overlay of live node data.
+- node tooltips append live `Runtime Parameters` from copied graph-node debug
+  state. `SnapshotDebugState` prefers each declared input's resolved data-block
+  slot, including exact reflected export for struct slots. It falls back to the
+  runtime UPROPERTY when no slot exists; modifier-owned fields intentionally use
+  that property because modifiers outrank pins. Remaining editable node and
+  subobject properties follow. Runtime-data presence is tracked independently
+  of active-node glow so skipped nodes remain inspectable. Slate consumes
+  strings only and never follows runtime node pointers.
+- `SComposableCameraGraphNode::GetToolTip` conditionally supplies a lazy
+  interactive `SToolTip` only while runtime debug data exists. It keeps the
+  normal `SGraphNode` tooltip path for authoring mode, caches one card for the
+  current hover, and drops it from `OnToolTipClosing`. Because UE interactive
+  tooltips intentionally remain open after leaving their source, the node Tick
+  closes it only after neither node nor card is hovered for a short grace
+  interval. Parameter text attributes capture only a weak graph-node pointer
+  plus row index. Theme-aware rounded brushes live in
+  `FComposableCameraEditorStyle`; do not fall back to CoreStyle's bright
+  `ToolTip.Background` for this card.
+- Runtime hover card content is shared by its transient `SToolTip` and a pinned
+  `SWindow`. Pin detaches the existing card widget, captures the tooltip host's
+  screen position, closes the reusable tooltip host, and inserts the same card
+  at that position into at most one native child observer per graph-node Slate
+  widget. Tooltip-host positions are already physical desktop coordinates;
+  disable initial `SWindow` DPI size/position adjustment or high-DPI desktops
+  scale the position twice. Repeated requests foreground it; owner destruction
+  closes it. Pinned attributes read only weak graph-node state;
+  active/idle/no-data status stays live without retaining PIE runtime objects.
+- `SComposableCameraRuntimeDebugPanel` provides the default-left aggregate
+  view. It filters copied graph-node state to active camera nodes, keeps
+  expansion state by weak graph-node identity, and rebuilds `SListView` rows
+  only for membership/filter/parameter-count/expansion changes. Pose and
+  parameter text attributes remain live weak reads. Search matches title, class display name,
+  and parameter labels. List selection is disabled; programmatic navigation
+  scrolls directly and drives an outer content tint plus hit-test-invisible
+  node-color overlay through a 1.25-second linear `FCurveSequence`. Every
+  navigation restarts the sequence, producing clear whole-item feedback without
+  selected-row blue. Headers omit parameter-count text. Non-empty membership,
+  parameter-shape, and expansion refreshes arm one post-generation layout pass;
+  `OnItemsRebuilt` consumes that flag and calls `RequestListRefresh` once more.
+  The second pass reuses generated rows after expanded/wrapped DesiredSize values
+  stabilize, recalculates collapsed-row scroll range and lower-row
+  virtualization, and clears the flag before requesting refresh, preventing
+  callback loops.
+- Runtime-debug navigation uses
+  `UComposableCameraNodeGraph::RequestShowRuntimeDebug`, a non-serialized
+  multicast delegate bound by the owning toolkit. Double-click and the active-
+  only `Show Debug Information` context action route through this bridge. The
+  toolkit invokes `RuntimeDebugTabId`, clears hiding search text, expands the
+  target row, requests scroll into view, and starts the focus fade. Remove the
+  delegate in toolkit teardown before releasing the rooted graph.
 - runtime previewer tab showing visible-subject-local camera relation.
 - Rewind Debugger trace ingestion through the editor `Trace` folder:
   `FComposableCameraTraceModule` registers a TraceServices module,
@@ -498,8 +763,8 @@ Rewind provider technique:
 
 Runtime Previewer technique:
 
-- The Camera Type Asset editor registers `RuntimePreviewerTabId`, but does not
-  include it in the default layout.
+- Camera Type Asset layout v3 opens `RuntimeDebugTabId` in the left observer
+  stack and keeps `RuntimePreviewerTabId` closed in that same stack.
 - `SComposableCameraRuntimePreviewer` follows the Shot Editor viewport lifetime
   pattern: widget owns `FAdvancedPreviewScene`, viewport client borrows it, and
   widget destruction clears `ViewportClient->Viewport` before draining scene
@@ -693,13 +958,41 @@ Base classes:
 - `UComposableCameraCompositionPreservingTransition`
 - `UComposableCameraViewTargetTransition`
 
+Modifier-value timing:
+
+- `UComposableCameraModifierTransitionBase`
+
 ## 18. Built-In Actions and Interpolators
 
 Actions:
 
+- `UComposableCameraActionTypeAsset` duplicates an instanced Blueprint or C++
+  Action template before registration. Pin-compatible subclass properties with
+  both Edit and BlueprintVisible flags become K2 inputs; base lifecycle fields stay on
+  the asset. ParameterBlock values are checked against reflected field types,
+  then written once to the duplicate. Object references use reflected setters
+  and remain GC-visible through the Action's UPROPERTY fields. The K2 node
+  returns the instance handle; `RemoveActionInstance` removes that one Action
+  even when other assets instantiate the same class.
 - `UComposableCameraMoveToAction`
 - `UComposableCameraResetPitchAction`
 - `UComposableCameraRotateToAction`
+
+Action lifetime is checked once per PCM update before context evaluation.
+Instant consumes one update frame; Duration accumulates update DeltaTime even
+when no target executes. `AddCameraAction` rejects a Duration-enabled action
+whose authored Duration is non-positive. `OnCanExecute` rejects the same invalid
+value if C++ changes it after registration.
+`OnCanExecute` handles only Instant, Duration, and Manual. Camera-local weak
+action lists dispatch the four execution stages with mutation-safe snapshots.
+At the running camera's first matching hook each PCM update,
+`ExecuteForCamera` calls the Blueprint `CanExecute` Condition with that stage's
+local pose. False removes the Action immediately and skips `OnExecute`.
+Source-camera hooks during a blend cannot expire a global Action; the running
+camera controls completion. A current-camera-only Action instead checks its
+bound camera, including when that camera becomes a transition source. A
+Condition Action with no matching hook is not condition-checked until it can
+execute.
 
 Interpolators:
 
@@ -713,13 +1006,36 @@ Interpolators:
 Existing test files include:
 
 - `ComposableCameraBugFixTests.cpp`
+- `ComposableCameraActionTests.cpp` (non-positive Duration guard; Condition uses
+  the executing camera's local pose; Action asset parameters stay instance-local).
+  Class-based default-value tests use dedicated reflected fixture classes;
+  mutating an initialized CDO does not reliably simulate authored defaults
+  on instances made by `NewObject`.
 - `ComposableCameraCompositionPreservingTransitionTests.cpp`
 - `ComposableCameraComputePositionBetweenActorsNodeTests.cpp`
 - `ComposableCameraShotSolverTests.cpp`
 - `ComposableCameraPivotLookAheadNodeTests.cpp`
 - `ComposableCameraLockOnAimPointNodeTests.cpp`
+- `ComposableCameraModifierPropertyOverrideTests.cpp`
+  - legacy property-copy/pin priority.
+  - in-place live lower-layer enter/exit.
+  - every matching same-class node instance.
+  - apply-mode compatibility default, mixed-mode reactivation, and null-safe
+    reflection classification.
+  - property-local Enter/Replace/Exit routing across partially overlapping
+    override sets.
+  - per-property winner composition, overlap priority, removal fallback,
+    construction application, and Custom whole-node compatibility.
+- `ComposableCameraDebugSnapshotTests.cpp`
 - `ComposableCameraNodeGraphSyncTests.cpp`
+- `ComposableCameraNodeRuntimeTooltipTests.cpp`
+- `ComposableCameraRuntimeDebugPanelTests.cpp`
 - `ComposableCameraSetRotationNodeTests.cpp`
+- `ComposableCameraMeshSurfaceTests.cpp`
+- `ComposableCameraMeshProfileTests.cpp`
+- `ComposableCameraMeshProfileCustomizationTests.cpp`
+- `ComposableCameraMeshLayerToolSettingsTests.cpp`
+- `ComposableCameraMeshLayerVisualizationTests.cpp`
 
 Codex must not invoke Unreal automation from shell in this project. Run tests
 inside Rider or Visual Studio / Unreal Editor.
@@ -736,6 +1052,7 @@ Assume these are hot:
 - patch apply.
 - Sequencer component tick.
 - shot solver.
+- mesh surface query and stable-profile subsystem tick.
 
 Rules:
 
@@ -743,6 +1060,9 @@ Rules:
 - No `LoadSynchronous`.
 - No FString formatting in per-frame loops.
 - No container mutation that can reallocate during iteration.
+- In-place Modifier binding creation, reflection, and node snapshots happen on
+  selection edges. Per-frame value application uses preallocated arrays and
+  cached property operations.
 - Snapshot mutable callback lists before invoking Blueprint callbacks.
 - Use weak pointers in snapshots that can survive arbitrary Blueprint work.
 - Cache soft object resolution outside the eval path.
@@ -752,6 +1072,23 @@ Rules:
 - `EnsureContext` means "exists and top", not merely "exists".
 - `ReferenceLeaf` captures tree topology. It is not a live director pointer.
 - Same camera UObject can be reached twice in one frame through snapshots.
+- Modifier value clocks must advance after the camera memoization guard, not
+  before it.
+- Removing an in-place pin override must unregister node ownership before the
+  normal pin resolver runs; copying a type-asset value back is incorrect for
+  K2/wire-driven inputs.
+- A pending in-place Modifier exit is work, not dead state. Do not erase its
+  binding during normal reconcile; `ApplyForNode` must first restore the lower
+  layer and unregister ownership.
+- If neither the previous nor desired effective Modifier owns a still-bound
+  property, keep its existing Exit state. Restarting it from an unrelated
+  selection edge changes both duration and source snapshot.
+- Do not collapse effective Node Type entries back to one winner per node
+  class. Registration is node-class-bucketed, but selection and runtime
+  ownership are keyed by `(exact node class, property name)`.
+- Custom Modifier callbacks use the reserved `NAME_None` whole-node lane. They
+  cannot safely participate in property composition because Blueprint side
+  effects do not declare the fields they mutate.
 - A patch evaluator is a transient camera actor, not a node grafted into the
   main camera.
 - Patch activation override booleans are semantic. Zero is a valid value.
@@ -763,16 +1100,58 @@ Rules:
 - Object/Actor pin class constraints still need earlier layout-time diagnostics;
   runtime guards prevent corruption but do not give the best authoring message.
 - Local-player subsystem caches need weak pointers plus parent identity checks.
+- Mesh active Layer identity is `(StorageActor, LayerGuid)`, not GUID alone:
+  Level Instance copies can contain identical serialized Layer GUIDs. Cleanup
+  must remove each Layer's duplicated Modifiers and its own temporary Context.
 - FOV may be stored as FieldOfView or FocalLength. Use pose helper methods for
   effective FOV.
 - Focus distance uses sentinel behavior. Do not blend invalid focus distance as
   a real distance.
 - UE automation `UTEST_EQUAL` has no `FName` overload in UE 5.6. Use
   `UTEST_TRUE(NameA == NameB)` or compare strings when testing `FName`.
+- UE5.6 LWC math aliases such as `FVector`, `FVector2D`, `FVector4`,
+  `FRotator`, and `FTransform` do not expose a member `T::StaticStruct()`.
+  Generic reflection code for built-in structs must use
+  `TBaseStructure<T>::Get()`.
 - Interpolator `Run()` returns an absolute value, not a delta. If a scalar
   damping helper computes only `Target - Current` progress, add it back to the
   current value before returning; Spline, FocusPull, and VolumeConstraint reset
   double interpolators from their last smoothed output each frame.
+- Viewport Legend `Nodes.All` / `Transitions.All` means "show all relevant
+  current-camera / active-transition legend rows", not the entire palette. Keep
+  legend filtering tied to the same runtime classes that can actually draw this
+  frame.
+- Automation-test helpers in anonymous namespaces still need file-specific
+  names. UE unity builds can concatenate multiple test `.cpp` files into one
+  translation unit, where two same-signature anonymous-namespace helpers with
+  the same name become duplicate definitions.
+- A virtualized `SListView` does not automatically revise cached variable row
+  heights when a nested `SExpandableArea` changes state. Route visible
+  expansion changes through list refresh plus post-rebuild measurement.
+- A non-owning `FStructOnScope` bound to a `TArray` element becomes invalid when
+  add/remove/reorder relocates or replaces that element. Clear the structure
+  Details view before mutation, then bind a fresh scope afterward.
+- Forward declarations must use the same class-key as existing UE/project
+  declarations. In particular, declare `FSpawnTabArgs` as `class`; MSVC C4099
+  becomes a build failure when warnings are treated as errors.
+- Lambdas returning a typed index in one branch and `INDEX_NONE` in another
+  need an explicit `-> int32` return type. `INDEX_NONE` is an anonymous-enum
+  sentinel, so implicit deduction fails with MSVC C3487.
+- Do not mix `TObjectPtr<T>` and raw `T*` in a conditional expression. Call
+  `.Get()` first, or use explicit branches when returning `TSubclassOf<T>` from
+  a `UClass*`. In UE 5.6, include `PropertyHandle.h` for `IPropertyHandle`.
+- Type-asset identity fields are copied after camera `Initialize()`. Any cache
+  derived from `CameraTags` must refresh at the copy site; use
+  `AComposableCameraCameraBase::RefreshCameraTags()` rather than updating the
+  container and cached trace label independently.
+- UE module dependencies are not linker-transitive. A module that directly
+  calls exported `FGameplayTagContainer` / `FGameplayTagQuery` methods must list
+  `GameplayTags` in its own Build.cs, even when a depended-on runtime module
+  already lists it.
+- Editor-module shutdown runs after UE's global Level Editor mode manager can
+  be destroyed. Gate every shutdown-time `GLevelEditorModeTools()` access with
+  `!IsEngineExitRequested()`; otherwise the accessor emits an ensure and
+  recreates a mode manager during teardown.
 
 ## 22. Build and Verification
 
@@ -790,7 +1169,127 @@ For this project:
   same-variable Get node can capture the rebuild lookup and drop exec wires
   after save/reopen.
 
-## 23. Maintenance Rule
+## 23. Mesh Camera Surface Query
+
+Runtime types:
+
+- `FComposableCameraMeshLayerDefinition`: GUID, name, profile, enabled state,
+  debug color. Array index is editor display order; index zero is topmost.
+- `FComposableCameraMeshSurfaceAuthoringData`: editor-only full source using
+  one stable Layer GUID per triangle.
+- `FComposableCameraMeshSurfaceRuntimeData`: cooked indexed triangles using
+  one Layer array index per triangle.
+- `AComposableCameraMeshSurfaceStorageActor`: hidden, `NotPlaceable`,
+  Level-local serialization anchor.
+- `UComposableCameraMeshWorldSubsystem`: loaded-storage registration,
+  per-local-player query, profile switching.
+
+MVP query:
+
+```text
+player world position
+  -> each storage actor inverse transform
+  -> local downward ray against indexed triangles
+  -> nearest surface
+  -> collect every enabled Layer within SameSurfaceTolerance
+  -> top-to-bottom Layer-order results
+```
+
+No `UStaticMesh` or collision query mesh is involved. Query outputs use inline
+capacity for 16 overlapping Layers; deeper overlap may allocate. The current
+query uses two linear triangle passes. A later BVH/tile index may replace
+traversal without changing actor, profile, or tool contracts.
+
+`UComposableCameraMeshProfile` stores an embedded
+`FComposableCameraParameterTableRow Camera` plus the existing Modifier asset
+array. `FComposableCameraParameterTableRow::BuildParameterBlock` is the shared
+string-to-typed block path for both DataTable and Mesh Profile activation;
+do not duplicate parameter/default/orphan handling in new callers.
+
+Layer Profile Modifier assets are templates. The subsystem duplicates them with the
+player camera manager as Outer. This prevents mesh removal from unregistering
+the same asset instance owned by another gameplay system. When a Profile also
+activates a Camera Type, `ReplaceModifiers(..., false)` updates candidates
+without reactivating the old camera. `OnTypeAssetCameraConstructed` resolves and
+applies those candidates to the new camera. Failed Camera activation explicitly
+falls back to `OnModifierChanged`. Modifier-only Layer edges update candidates,
+then refresh the currently active camera once.
+
+The subsystem stores an active set keyed by storage actor plus Layer GUID. Each
+active Layer owns its duplicated Modifier instances. Every Camera-bearing Layer
+also owns a separate temporary Context; entering a nested Layer pushes above
+the outer Context, and exit pops only that Layer. Lower camera instances retain
+their Director/tree state and resume in place. A Camera-less Layer creates no
+Context. Debug hints use `Mesh_<LayerName>_<LayerGuid>`; the context stack
+sanitizes and preserves the readable hint while adding a collision-free serial.
+The shared row's authored `ContextName` is ignored for Mesh. Mesh forces
+`bIsTransient=false` because Layer presence owns lifetime. Each entry
+transaction captures the source Director before pushing, then activates with a
+reference source. Activation failure rolls back only that empty Layer Context.
+Exits process in reverse entry order. Simultaneous first hits process bottom
+list rows first, making the top row the deterministic top Context.
+When an active Layer Context pops, the resumed lower camera already contains
+the correct pre-entry properties. `RefreshEffectiveModifierSelection` updates
+only ModifierManager bookkeeping so removed duplicated assets are released;
+calling `OnModifierChanged` there would rebuild and reset the resumed camera.
+Camera Type and Transition soft references sync-load only on a Profile edge,
+never on the per-frame unchanged fast path.
+
+Editor technique:
+
+- Mesh Profile Details has ordered Camera, Modifier, Action, and Patch
+  categories. Camera hides its parent property row and explicitly adds the four
+  relevant children of its embedded parameter row, so the existing exposed-value
+  customization still reaches the sibling CameraType without emitting a second
+  trailing Camera field. ContextName is omitted because Layer identity creates
+  the runtime Context. Action/Patch currently show reserved messages only.
+- Tool works on a transient document.
+- Layer selection is GUID-based. A selected `SListView` row updates the private
+  paint index; the index is not exposed in Details.
+- Selected Layer properties use an `IStructureDetailsView` over a non-owning
+  `FStructOnScope`. Detach that scope before any Layer-array add/delete/reorder
+  that could relocate elements, then bind it to the newly selected element.
+- Save copies source into the hidden Level actor.
+- Bake drops orphaned Layer GUID triangles and resolves remaining GUIDs to
+  compact indices.
+- Brush-ring traces accept compatible floor hits across collision-component
+  boundaries. Component identity is not surface identity; floor normal and
+  bounded projection remain the geometric filters.
+- Authoring and preview visualization rasterize saved triangles into a separate
+  anchor-local cell cache. Each same-surface cell emits once. The first enabled
+  Layer in top-to-bottom list order resolves the visual winner before
+  `FDynamicMeshBuilder` submission, so transparent color never accumulates from
+  repeat stamps or lower rows. Query and save structures remain untouched.
+- Edit mode invalidates this cache after geometry or Layer changes. Read-only
+  Preview builds one cache per loaded storage actor and releases all caches on
+  mode exit.
+- PIE cannot use `FEdMode::Render`: that callback draws only Level Editor
+  viewports and resolves the editor world. The Show command therefore builds
+  the same resolved cell meshes into non-zero, per-storage BatchIDs on each PIE
+  world's `WorldPersistent` `ULineBatchComponent`. One persistent submission
+  per Layer avoids frame-over-frame alpha accumulation; `ClearBatch` removes
+  only CCS-owned geometry. A ticker handles already-running PIE, multi-PIE
+  worlds, streaming add/remove, and transform changes.
+- Never register an ownerless editor-created `UPrimitiveComponent` into a PIE
+  world and retain it through a global `TStrongObjectPtr`: `EndPlayMap` can
+  release the world's `FScene` before a later ticker/GC pass drops that object.
+  Use a world-owned renderer or tear it down on `PrePIEEnded`. Mesh preview
+  does both: its batcher belongs to `UWorld`, `PrePIEEnded` clears all BatchIDs,
+  and `PostPIEStarted` re-enables routing. Editor-module placement excludes
+  Shipping.
+- Closing the mode's primary tab routes back to `FEdMode::RequestDeletion`.
+  Exit guards against close-callback re-entry and explicitly redraws Level
+  viewports. Preview toggle first deactivates edit mode, then activates preview.
+- Register custom Level Editor modes with a resolved normal/small icon pair
+  from `FComposableCameraEditorStyle`; reuse that pair for related ToolMenus
+  entries. Passing default `FSlateIcon()` leaves the active-mode icon slot
+  blank even when the mode name renders correctly.
+- Read-only preview is a separate legacy editor mode and never exposes storage
+  actor details. Its PIE companion is rendering-only and never changes data.
+- Geometry optimization must consume authoring data and emit runtime data. It
+  must not round-trip simplified geometry back into authoring state.
+
+## 24. Maintenance Rule
 
 Update this document when:
 

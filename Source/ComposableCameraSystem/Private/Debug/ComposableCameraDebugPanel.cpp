@@ -16,10 +16,14 @@
 #include "DataAssets/ComposableCameraTypeAsset.h"
 #include "Debug/ComposableCameraLogCapture.h"
 #include "Debug/ComposableCameraViewportDebug.h"
+#include "Debug/ComposableCameraViewportDebugLegendUtils.h"
 #include "Debug/DebugDrawService.h"
 #include "Modifiers/ComposableCameraModifierBase.h"
+#include "Modifiers/ComposableCameraModifierRuntimeState.h"
+#include "Modifiers/ComposableCameraModifierTransition.h"
 #include "Patches/ComposableCameraPatchManager.h"
 #include "Patches/ComposableCameraPatchTypes.h"
+#include "Transitions/ComposableCameraTransitionBase.h"
 #include "GlobalRenderResources.h"
 #include "TextureResource.h"   // GWhiteTexture. Needed as the shading source for FCanvasTriangleItem
 #include "Engine/Canvas.h"
@@ -59,6 +63,12 @@ namespace
 		TEXT("Fraction of screen width occupied by the panel (clamped to 0.15-0.60)."),
 		ECVF_Default);
 
+	static TAutoConsoleVariable<int32> CVarPanelPage(
+		TEXT("CCS.Debug.Panel.Page"),
+		0,
+		TEXT("Zero-based page of debug regions when the panel exceeds viewport height."),
+		ECVF_Default);
+
 	static TAutoConsoleVariable<int32> CVarPanelLegend(
 		TEXT("CCS.Debug.Panel.Legend"),
 		1,
@@ -85,12 +95,11 @@ namespace
 		TEXT("CCS.Debug.Panel.Patches"),
 		1,
 		TEXT("Show the Patches region listing every active CameraPatch on the\n")
-		TEXT("active context's Director. Three lines per patch:\n")
-		TEXT("   [layer=N] AssetName   <Phase>\n")
-		TEXT("     a=0.42  enter 0.10/0.25s\n")
-		TEXT("     expire: D+CamChange\n")
+		TEXT("active context's Director and every Sequencer patch overlay.\n")
+		TEXT("Each structured card shows source, phase, layer, Alpha/Time\n")
+		TEXT("progress, and enabled expiration rules.\n")
 		TEXT("  0: region always hidden\n")
-		TEXT("  1: region always shown (uses '(none)' placeholder when empty)."),
+		TEXT("  1: region always shown (uses '(None Tracked)' when empty)."),
 		ECVF_Default);
 
 	// ---- Module state --------------------------------------------------
@@ -140,11 +149,11 @@ namespace
 	static const FLinearColor CDestroyed    (0.75f, 0.35f, 0.35f, 1.00f);
 	static const FLinearColor CActiveMarker (0.40f, 1.00f, 1.00f, 1.00f);
 
-	static constexpr float KMargin         = 12.f;  // panel outer margin from screen edge
-	static constexpr float KPadding        = 6.f;   // region inner padding (left/right/top/bottom of content)
-	static constexpr float KTitleBarH      = 18.f;  // title bar height per region
-	static constexpr float KInterRegionGap = 4.f;   // vertical gap between regions
-	static constexpr float KLineH          = 13.f;  // body line height (matches small font approx.)
+	static constexpr float KMargin         = 8.f;
+	static constexpr float KPadding        = 5.f;
+	static constexpr float KTitleBarH      = 17.f;
+	static constexpr float KInterRegionGap = 3.f;
+	static constexpr float KLineH          = 12.f;
 
 	// ---- Primitive helpers --------------------------------------------
 	static void DrawFilledRect(UCanvas* Canvas, const FVector2D& Pos, const FVector2D& Size, const FLinearColor& Color)
@@ -278,6 +287,62 @@ namespace
 		TArray<FPanelLine> Lines;
 	};
 
+	struct FActionDebugEntrySnapshot
+	{
+		EComposableCameraActionExecutionType ExecutionType =
+			EComposableCameraActionExecutionType::PreCameraTick;
+		FString Identity;
+		FString Expiration;
+		FString StableKey;
+		bool bMissingTarget = false;
+	};
+
+	struct FActionDebugSnapshot
+	{
+		TArray<FActionDebugEntrySnapshot> Entries;
+	};
+
+	enum class EModifierDebugEntryStatus : uint8
+	{
+		Active,
+		Partial,
+		Unsupported,
+		Shadowed,
+		Filtered,
+		NoTargetNode,
+		Destroyed
+	};
+
+	struct FModifierDebugEntrySnapshot
+	{
+		EModifierDebugEntryStatus Status = EModifierDebugEntryStatus::Destroyed;
+		EComposableCameraModifierApplyMode ApplyMode =
+			EComposableCameraModifierApplyMode::ReactivateCamera;
+		FString AssetName;
+		FString ScopeSummary;
+		FString BlendSummary;
+		int32 Priority = 0;
+	};
+
+	struct FModifierDebugGroupSnapshot
+	{
+		FString TargetNodeClassPath;
+		FString TargetNodeName;
+		bool bTargetNodePresent = false;
+		TArray<FModifierDebugEntrySnapshot> Entries;
+		TArray<FComposableCameraModifierPropertyDebugSnapshot> RuntimeProperties;
+	};
+
+	struct FModifierDebugSnapshot
+	{
+		bool bHasManager = false;
+		FString CameraTags;
+		FString LastDecision;
+		int32 ActiveCount = 0;
+		int32 RegisteredCount = 0;
+		TArray<FModifierDebugGroupSnapshot> Groups;
+	};
+
 	/** Per-region render data. Most regions emit simple text lines (Lines).
 	 *  The Context Stack & Tree region uses a structured snapshot instead
 	 *  (bIsStackAndTree = true, StackBodyHeight pre-computed) so it can
@@ -306,13 +371,25 @@ namespace
 		float PoseBodyHeight     = 0.f;
 		int32 PoseLeftGroupCount = 0;
 
+		// Actions region. TSet iteration is normalized into stable, compact
+		// two-line cards: identity/scope/target + execution, then expiration.
+		bool bIsActions = false;
+		FActionDebugSnapshot ActionSnapshot;
+		float ActionsBodyHeight = 0.f;
+
 		// Patches region. Structured like Stack & Tree so each patch can
-		// render a phase-colored identity row + two filled progress bars
-		// (Alpha / Time) instead of plain text. The snapshot is stashed here
-		// at build time and the renderer walks it in DrawPatchesStructured.
+		// render a phase-colored identity row plus Alpha and optional Time
+		// progress bars. The renderer preserves snapshot producer order.
 		bool  bIsPatches          = false;
 		TArray<FComposableCameraPatchSnapshot> PatchSnapshots;
 		float PatchesBodyHeight   = 0.f;
+
+		// Modifiers region. One target-node group owns ordered candidate
+		// cards. Status, identity/scope, apply mode, and blend are drawn in
+		// fixed columns instead of repeated unaligned text blobs.
+		bool bIsModifiers = false;
+		FModifierDebugSnapshot ModifierSnapshot;
+		float ModifiersBodyHeight = 0.f;
 
 		// Warnings region reuses the plain Lines path. No new flag needed.
 		// Each line carries its own verbosity-colored FLinearColor, which
@@ -636,7 +713,7 @@ namespace
 	/** Draw a leaf/inner/ref-leaf label, including the InnerTransition row's
 	 *  timing-curve sparkline and progress fill, plus the active-leaf highlight.
 	 *
-	 *  Layout of an InnerTransition row (RowH = KTreeTransitionLineH = 22):
+	 *  Layout of an InnerTransition row (RowH = KTreeTransitionLineH):
 	 *    [ LineY                    ] text line (KLineH = 13 tall)
 	 *    [ LineY + KLineH + pad ->  ] curve area: amber area-under-curve up
 	 *                                 to TransitionProgress + cream outline
@@ -939,6 +1016,11 @@ namespace
 			if (Ctxt.bIsPendingDestroy) { BulletColor = CDestroyed; }
 			else if (Ctxt.bIsActive)    { BulletColor = CActiveMarker; }
 			else                        { BulletColor = CBulletInactive; }
+			DrawFilledRect(Canvas, FVector2D(X, Y),
+				FVector2D(FMath::Max(0.f, RightX - X), KLineH),
+				Ctxt.bIsActive
+					? FLinearColor(0.10f, 0.30f, 0.32f, 0.20f)
+					: FLinearColor(0.12f, 0.22f, 0.34f, 0.12f));
 			DrawFilledRect(Canvas,
 				FVector2D(X, Y + FMath::RoundToFloat(KLineH * 0.3f)),
 				FVector2D(KHeaderBulletW, FMath::RoundToFloat(KLineH * 0.4f)),
@@ -1050,10 +1132,10 @@ namespace
 		const UComposableCameraTypeAsset* TypeAsset = Camera->SourceTypeAsset.Get();
 		const FString DisplayName = TypeAsset
 			? TypeAsset->GetName()
-			: (Camera->CameraTag.IsValid() ? Camera->CameraTag.ToString() : Camera->GetName());
+			: (!Camera->CameraTags.IsEmpty() ? Camera->CameraTags.ToStringSimple() : Camera->GetName());
 		Out.Lines.Add({ TEXT("Class"), DisplayName, CValue });
-		Out.Lines.Add({ TEXT("Tag"),
-			Camera->CameraTag.IsValid() ? Camera->CameraTag.ToString() : FString(TEXT("(none)")),
+		Out.Lines.Add({ TEXT("Tags"),
+			Camera->CameraTags.IsEmpty() ? FString(TEXT("(none)")) : Camera->CameraTags.ToStringSimple(),
 			CValue });
 		if (Camera->IsTransient())
 		{
@@ -1398,28 +1480,69 @@ namespace
 
 	// ---- Region: Actions ----------------------------------------------
 	//
-	// Three lines per action:
-	//   1. <ClassName>  <scope>  . Name + camera/persistent
-	//   2. exec: <Phase> [->TargetNode] . When it fires, and for node-
-	//      scoped phases the target node class it runs around
-	//   3. expire: <bitmask summary> . Which expiration rules are on,
-	//      with ElapsedTime/Duration fraction for the Duration bit
+	// One action = one compact two-line card:
 	//
-	// Keeps every field public-API accessible: ExecutionType / TargetNodeClass
-	// / ExpirationType bits / Duration are all EditAnywhere UPROPERTYs;
-	// ElapsedTime is the only thing that needed a getter exposing (added
-	// as a BlueprintPure getter on the action base. Zero runtime cost,
-	// debug-only consumer).
+	//   Identity [Scope | Target]                         EXECUTION PHASE
+	//   Expire   Duration 0.20/1.00s | Manual
+	//
+	// Camera-scoped phases omit Target. Node-scoped phases show the target
+	// node directly in the identity so missing targets are immediately
+	// visible. CameraActions is a TSet, so the snapshot is sorted before
+	// drawing to prevent rows jumping between frames.
+	static const FLinearColor CActionPreCamera (0.55f, 0.85f, 0.95f, 1.00f);
+	static const FLinearColor CActionPreNode   (0.48f, 0.95f, 0.62f, 1.00f);
+	static const FLinearColor CActionPostNode  (1.00f, 0.82f, 0.35f, 1.00f);
+	static const FLinearColor CActionPostCamera(0.80f, 0.66f, 1.00f, 1.00f);
+	static const FLinearColor CActionMissing   (1.00f, 0.40f, 0.35f, 1.00f);
+	static const FLinearColor CActionCardBG    (0.12f, 0.22f, 0.34f, 0.16f);
+	static const FLinearColor CActionProblemBG (0.42f, 0.08f, 0.08f, 0.14f);
+
+	static constexpr float KActionCardH = KLineH * 2.f + 2.f;
+	static constexpr float KActionCardGap = 4.f;
+	static constexpr float KActionRightInset = 12.f;
+
 	static const TCHAR* ActionExecToStr(EComposableCameraActionExecutionType Exec)
 	{
 		switch (Exec)
 		{
-			case EComposableCameraActionExecutionType::PreCameraTick:  return TEXT("PreCameraTick");
-			case EComposableCameraActionExecutionType::PreNodeTick:    return TEXT("PreNodeTick");
-			case EComposableCameraActionExecutionType::PostNodeTick:   return TEXT("PostNodeTick");
-			case EComposableCameraActionExecutionType::PostCameraTick: return TEXT("PostCameraTick");
+			case EComposableCameraActionExecutionType::PreCameraTick:  return TEXT("PRE CAMERA");
+			case EComposableCameraActionExecutionType::PreNodeTick:    return TEXT("PRE NODE");
+			case EComposableCameraActionExecutionType::PostNodeTick:   return TEXT("POST NODE");
+			case EComposableCameraActionExecutionType::PostCameraTick: return TEXT("POST CAMERA");
 		}
 		return TEXT("?");
+	}
+
+	static FLinearColor ActionExecColor(EComposableCameraActionExecutionType Exec)
+	{
+		switch (Exec)
+		{
+			case EComposableCameraActionExecutionType::PreCameraTick:  return CActionPreCamera;
+			case EComposableCameraActionExecutionType::PreNodeTick:    return CActionPreNode;
+			case EComposableCameraActionExecutionType::PostNodeTick:   return CActionPostNode;
+			case EComposableCameraActionExecutionType::PostCameraTick: return CActionPostCamera;
+		}
+		return CValue;
+	}
+
+	static FString MakeActionFriendlyClassName(const UClass* Class)
+	{
+		FString Result = Class
+			? FName::NameToDisplayString(Class->GetName(), false)
+			: FString(TEXT("(Null Action)"));
+		Result.RemoveFromStart(TEXT("Composable Camera "));
+		Result.RemoveFromEnd(TEXT(" Action"));
+		return Result;
+	}
+
+	static FString MakeActionFriendlyTargetName(const UClass* Class)
+	{
+		FString Result = Class
+			? FName::NameToDisplayString(Class->GetName(), false)
+			: FString(TEXT("No Target"));
+		Result.RemoveFromStart(TEXT("Composable Camera "));
+		Result.RemoveFromEnd(TEXT(" Node"));
+		return Result;
 	}
 
 	/** Format the ExpirationType bitmask as a pipe-separated list, with
@@ -1450,217 +1573,866 @@ namespace
 			Parts.Add(TEXT("Condition"));
 		}
 
-		if (Parts.Num() == 0) { return TEXT("(no expiration bits set)"); }
+		if (Parts.Num() == 0) { return TEXT("(No Expiration Rules)"); }
 		return FString::Join(Parts, TEXT(" | "));
+	}
+
+	static float ComputeActionsBodyHeight(const FActionDebugSnapshot& Snapshot)
+	{
+		if (Snapshot.Entries.IsEmpty())
+		{
+			return KLineH;
+		}
+		return Snapshot.Entries.Num() * KActionCardH
+			+ (Snapshot.Entries.Num() - 1) * KActionCardGap;
 	}
 
 	static void BuildActionsLines(const FPanelCtx& Ctx, FRegionLines& Out)
 	{
-		Out.Title = TEXT("Actions");
+		Out.bIsActions = true;
 		const TSet<UComposableCameraActionBase*>& Actions = Ctx.PCM->CameraActions;
-
-		// Header with count so user sees "(0)" vs "(none)" distinction
-		//. Makes it clear whether the set is populated at all.
-		Out.Lines.Add({ FString::Printf(TEXT("Actions  (%d)"), Actions.Num()), CLabel });
-		if (Actions.Num() == 0)
-		{
-			Out.Lines.Add({ TEXT("  (none)"), CNeutral });
-			return;
-		}
 
 		for (const UComposableCameraActionBase* Action : Actions)
 		{
 			if (!Action) { continue; }
 
-			const TCHAR* Scope = Action->bOnlyForCurrentCamera ? TEXT("camera") : TEXT("persist");
+			FActionDebugEntrySnapshot& Entry =
+				Out.ActionSnapshot.Entries.AddDefaulted_GetRef();
+			Entry.ExecutionType = Action->ExecutionType;
+			Entry.Expiration = FormatActionExpiration(Action);
+			Entry.StableKey = Action->GetPathName();
 
-			// Line 1: class name + scope tag
-			Out.Lines.Add({
-				FString::Printf(TEXT("  %s   <%s>"),
-					*Action->GetClass()->GetName(), Scope),
-				CValue });
-
-			// Line 2: execution phase (+ target node for node-scoped phases)
-			FString ExecLine;
+			const FString ActionName =
+				MakeActionFriendlyClassName(Action->GetClass());
+			const TCHAR* Scope = Action->bOnlyForCurrentCamera
+				? TEXT("Current Camera")
+				: TEXT("Persistent");
 			const EComposableCameraActionExecutionType Exec = Action->ExecutionType;
 			const bool bNeedsTarget =
 				Exec == EComposableCameraActionExecutionType::PreNodeTick ||
 				Exec == EComposableCameraActionExecutionType::PostNodeTick;
 			if (bNeedsTarget)
 			{
-				const FString TargetName = Action->TargetNodeClass
-					? Action->TargetNodeClass->GetName()
-					: TEXT("(null. Action will be ignored)");
-				ExecLine = FString::Printf(TEXT("    exec:   %s -> %s"),
-					ActionExecToStr(Exec), *TargetName);
+				Entry.bMissingTarget = !Action->TargetNodeClass;
+				const FString TargetName =
+					MakeActionFriendlyTargetName(Action->TargetNodeClass.Get());
+				Entry.Identity = FString::Printf(
+					TEXT("%s  [%s | %s]"),
+					*ActionName,
+					Scope,
+					*TargetName);
 			}
 			else
 			{
-				ExecLine = FString::Printf(TEXT("    exec:   %s"),
-					ActionExecToStr(Exec));
+				Entry.Identity = FString::Printf(
+					TEXT("%s  [%s]"),
+					*ActionName,
+					Scope);
 			}
-			Out.Lines.Add({ ExecLine, CNeutral });
+		}
 
-			// Line 3: expiration summary
-			Out.Lines.Add({
-				FString::Printf(TEXT("    expire: %s"), *FormatActionExpiration(Action)),
-				CNeutral });
+		Out.ActionSnapshot.Entries.Sort(
+			[](const FActionDebugEntrySnapshot& A,
+				const FActionDebugEntrySnapshot& B)
+			{
+				if (A.ExecutionType != B.ExecutionType)
+				{
+					return static_cast<uint8>(A.ExecutionType)
+						< static_cast<uint8>(B.ExecutionType);
+				}
+				if (A.Identity != B.Identity)
+				{
+					return A.Identity < B.Identity;
+				}
+				return A.StableKey < B.StableKey;
+			});
+
+		Out.Title = FString::Printf(
+			TEXT("Actions  [%d Registered]"),
+			Actions.Num());
+		Out.ActionsBodyHeight =
+			ComputeActionsBodyHeight(Out.ActionSnapshot);
+	}
+
+	static void DrawActionsStructured(
+		const FPanelCtx& Ctx,
+		const FActionDebugSnapshot& Snapshot,
+		const FVector2D& BodyPos,
+		const FVector2D& BodySize)
+	{
+		UCanvas* Canvas = Ctx.Canvas;
+		UFont* Font = Ctx.BodyFont;
+		const float RightX = BodyPos.X + BodySize.X;
+		const float ContentRightX =
+			FMath::Max(BodyPos.X, RightX - KActionRightInset);
+		const float MaxY = BodyPos.Y + BodySize.Y;
+
+		if (Snapshot.Entries.IsEmpty())
+		{
+			DrawTextLineClipped(Canvas, Font, TEXT("(None Registered)"),
+				BodyPos.X, BodyPos.Y, ContentRightX, CNeutral);
+			return;
+		}
+
+		float CursorY = BodyPos.Y;
+		const float ExpireLabelW =
+			MeasureTextWidth(Canvas, Font, TEXT("Expire"));
+		const float ExpireValueGap = 10.f;
+
+		for (int32 EntryIndex = 0;
+			EntryIndex < Snapshot.Entries.Num();
+			++EntryIndex)
+		{
+			if (CursorY + KActionCardH > MaxY)
+			{
+				return;
+			}
+
+			const FActionDebugEntrySnapshot& Entry =
+				Snapshot.Entries[EntryIndex];
+			const FLinearColor PhaseColor =
+				ActionExecColor(Entry.ExecutionType);
+
+			DrawFilledRect(Canvas,
+				FVector2D(BodyPos.X, CursorY),
+				FVector2D(BodySize.X, KActionCardH),
+				Entry.bMissingTarget ? CActionProblemBG : CActionCardBG);
+			DrawFilledRect(Canvas,
+				FVector2D(BodyPos.X, CursorY + 1.f),
+				FVector2D(3.f, KActionCardH - 2.f),
+				Entry.bMissingTarget ? CActionMissing : PhaseColor);
+
+			const float ContentX =
+				FMath::Min(BodyPos.X + 8.f, ContentRightX);
+			const FString ExecutionText =
+				ActionExecToStr(Entry.ExecutionType);
+			const float ExecutionWidth =
+				MeasureTextWidth(Canvas, Font, ExecutionText);
+			const float ExecutionX = FMath::Clamp(
+				ContentRightX - ExecutionWidth,
+				ContentX,
+				ContentRightX);
+			DrawTextLineClipped(Canvas, Font, Entry.Identity,
+				ContentX, CursorY, ExecutionX - 6.f,
+				Entry.bMissingTarget ? CActionMissing : CValue);
+			DrawTextLineClipped(Canvas, Font, ExecutionText,
+				ExecutionX, CursorY, ContentRightX, PhaseColor);
+
+			const float ExpireValueX = FMath::Min(
+				ContentX + ExpireLabelW + ExpireValueGap,
+				ContentRightX);
+			DrawTextLineClipped(Canvas, Font, TEXT("Expire"),
+				ContentX, CursorY + KLineH,
+				ExpireValueX - 3.f, CLabel);
+			DrawTextLineClipped(Canvas, Font, Entry.Expiration,
+				ExpireValueX, CursorY + KLineH,
+				ContentRightX, CNeutral);
+
+			CursorY += KActionCardH;
+			if (EntryIndex + 1 < Snapshot.Entries.Num())
+			{
+				CursorY += KActionCardGap;
+			}
 		}
 	}
 
 	// ---- Region: Modifiers --------------------------------------------
 	//
-	// Mirrors `BuildModifierDebugString` (PCM) but in structured-lines form
-	// so the panel width clipping + coloring applies.
+	// One target node class = one visual group. Each registered candidate is
+	// shown once, with a status that explains the selection result:
 	//
-	// Two sub-sections:
-	//   1. "Effective (N)": what's actually driving the running camera
-	//      right now. One line per node class, showing the winning
-	//      modifier (highest priority whose tag matches the camera).
-	//   2. "All (M)": every registered modifier grouped by [CameraTag] ->
-	//      [NodeClass] -> modifier entries. The one marked `[*]` inside
-	//      each node-class group is the effective winner. Makes "why
-	//      is my modifier not applying?" trivially answerable (look for
-	//      a [*] mark on a different modifier of the same node class).
+	//   ACTIVE       selected and applied to the running camera.
+	//   PARTIAL      selected for some, but not all, authored properties.
+	//   UNSUPPORTED  selected Custom callback in In-Place mode; runtime skips it.
+	//   SHADOWED     query matched, but another candidate won.
+	//   FILTERED     camera tag query did not match.
+	//   NO NODE      running camera has no exact target node class.
+	//   DESTROYED    stale/null entry.
 	//
-	// Color convention:
-	//   CLabel   . Section / group headers
-	//   CValue   . Modifier body lines
-	//   CActiveMarker. Effective entry (both in section 1, and `[*]` lines in section 2)
-	//   CNeutral . Empty-state "(none)" placeholders
+	// Every candidate has two fixed rows: identity (including scope) and blend.
+	// This removes the old duplicated Effective + All lists and
+	// makes selection reasons readable without decoding a long text line.
+	static const FLinearColor CModifierInactive(0.70f, 0.88f, 1.00f, 1.00f);
+	static const FLinearColor CModifierFiltered(0.62f, 0.62f, 0.68f, 1.00f);
+	static const FLinearColor CModifierMissing(1.00f, 0.68f, 0.28f, 1.00f);
+	static const FLinearColor CModifierUnsupported(1.00f, 0.40f, 0.35f, 1.00f);
+	static const FLinearColor CModifierInPlace(0.48f, 0.95f, 0.62f, 1.00f);
+	static const FLinearColor CModifierReactivate(1.00f, 0.80f, 0.35f, 1.00f);
+	static const FLinearColor CModifierGroupBG(0.22f, 0.20f, 0.34f, 0.48f);
+	static const FLinearColor CModifierActiveBG(0.08f, 0.38f, 0.42f, 0.18f);
+	static const FLinearColor CModifierProblemBG(0.42f, 0.08f, 0.08f, 0.14f);
+
+	static constexpr float KModifierGroupHeaderH = 17.f;
+	static constexpr float KModifierCandidateH = KLineH * 2.f + 2.f;
+	static constexpr float KModifierPropertyH = KLineH * 2.f + 2.f;
+	static constexpr float KModifierCandidateGap = 2.f;
+	static constexpr float KModifierGroupGap = 5.f;
+	static constexpr float KModifierRightInset = 12.f;
+
+	static FString MakeModifierFriendlyClassName(const UClass* Class)
+	{
+		return Class
+			? FName::NameToDisplayString(Class->GetName(), false)
+			: FString(TEXT("(Null Class)"));
+	}
+
+	static FString MakeModifierCompactTransitionName(const UClass* Class)
+	{
+		FString Result = MakeModifierFriendlyClassName(Class);
+		Result.RemoveFromStart(TEXT("Composable Camera "));
+		Result.RemoveFromEnd(TEXT(" Transition"));
+		return Result;
+	}
+
+	static const TCHAR* ModifierStatusLabel(EModifierDebugEntryStatus Status)
+	{
+		switch (Status)
+		{
+			case EModifierDebugEntryStatus::Active:       return TEXT("ACTIVE");
+			case EModifierDebugEntryStatus::Partial:      return TEXT("PARTIAL");
+			case EModifierDebugEntryStatus::Unsupported:  return TEXT("UNSUPPORTED");
+			case EModifierDebugEntryStatus::Shadowed:     return TEXT("SHADOWED");
+			case EModifierDebugEntryStatus::Filtered:     return TEXT("FILTERED");
+			case EModifierDebugEntryStatus::NoTargetNode: return TEXT("NO NODE");
+			case EModifierDebugEntryStatus::Destroyed:    return TEXT("DESTROYED");
+		}
+		return TEXT("?");
+	}
+
+	static const TCHAR* ModifierPropertyPhaseLabel(
+		EComposableCameraModifierPropertyPhase Phase)
+	{
+		switch (Phase)
+		{
+			case EComposableCameraModifierPropertyPhase::Entering:  return TEXT("ENTER");
+			case EComposableCameraModifierPropertyPhase::Replacing: return TEXT("REPLACE");
+			case EComposableCameraModifierPropertyPhase::Active:    return TEXT("ACTIVE");
+			case EComposableCameraModifierPropertyPhase::Exiting:   return TEXT("EXIT");
+		}
+		return TEXT("?");
+	}
+
+	static FLinearColor ModifierStatusColor(EModifierDebugEntryStatus Status)
+	{
+		switch (Status)
+		{
+			case EModifierDebugEntryStatus::Active:       return CActiveMarker;
+			case EModifierDebugEntryStatus::Partial:      return CActiveMarker;
+			case EModifierDebugEntryStatus::Unsupported:  return CModifierUnsupported;
+			case EModifierDebugEntryStatus::Shadowed:     return CModifierInactive;
+			case EModifierDebugEntryStatus::Filtered:     return CModifierFiltered;
+			case EModifierDebugEntryStatus::NoTargetNode: return CModifierMissing;
+			case EModifierDebugEntryStatus::Destroyed:    return CDestroyed;
+		}
+		return CNeutral;
+	}
+
+	static int32 ModifierStatusSortRank(EModifierDebugEntryStatus Status)
+	{
+		switch (Status)
+		{
+			case EModifierDebugEntryStatus::Active:       return 0;
+			case EModifierDebugEntryStatus::Partial:      return 1;
+			case EModifierDebugEntryStatus::Unsupported:  return 2;
+			case EModifierDebugEntryStatus::Shadowed:     return 3;
+			case EModifierDebugEntryStatus::Filtered:     return 4;
+			case EModifierDebugEntryStatus::NoTargetNode: return 5;
+			case EModifierDebugEntryStatus::Destroyed:    return 6;
+		}
+		return 7;
+	}
+
+	static const TCHAR* ModifierBlendFunctionLabel(
+		EComposableCameraModifierBlendFunction BlendFunction)
+	{
+		switch (BlendFunction)
+		{
+			case EComposableCameraModifierBlendFunction::Linear:       return TEXT("Linear");
+			case EComposableCameraModifierBlendFunction::SmoothStep:   return TEXT("Smooth");
+			case EComposableCameraModifierBlendFunction::SmootherStep: return TEXT("Smoother");
+			case EComposableCameraModifierBlendFunction::EaseIn:       return TEXT("Ease In");
+			case EComposableCameraModifierBlendFunction::EaseOut:      return TEXT("Ease Out");
+			case EComposableCameraModifierBlendFunction::EaseInOut:    return TEXT("Ease In/Out");
+			case EComposableCameraModifierBlendFunction::CustomCurve:  return TEXT("Curve");
+		}
+		return TEXT("?");
+	}
+
+	static FString FormatModifierValueTransition(
+		const UComposableCameraModifierTransitionBase* Transition)
+	{
+		if (!Transition || Transition->Duration <= 0.f)
+		{
+			return TEXT("Immediate");
+		}
+		return FString::Printf(TEXT("%s %.2fs"),
+			ModifierBlendFunctionLabel(Transition->BlendFunction),
+			Transition->Duration);
+	}
+
+	static FString FormatModifierCameraTransition(
+		const UComposableCameraTransitionBase* Transition)
+	{
+		return Transition
+			? MakeModifierCompactTransitionName(Transition->GetClass())
+			: FString(TEXT("Camera Default"));
+	}
+
+	static FString FormatModifierBlend(
+		const UComposableCameraNodeModifierDataAsset* Asset)
+	{
+		if (!Asset)
+		{
+			return TEXT("(Invalid)");
+		}
+
+		if (Asset->ApplyMode == EComposableCameraModifierApplyMode::ModifyExistingInstance)
+		{
+			const UComposableCameraModifierTransitionBase* ReplaceTransition =
+				Asset->OverrideReplaceValueTransition
+					? Asset->OverrideReplaceValueTransition.Get()
+					: nullptr;
+			const FString EnterSummary = FormatModifierValueTransition(
+				Asset->OverrideEnterValueTransition.Get());
+			const FString ReplaceSummary = ReplaceTransition
+				? FormatModifierValueTransition(ReplaceTransition)
+				: FString(TEXT("Legacy"));
+			const FString ExitSummary = FormatModifierValueTransition(
+				Asset->OverrideExitValueTransition.Get());
+			return FString::Printf(
+				TEXT("Enter: %s  Replace: %s  Exit: %s"),
+				*EnterSummary,
+				*ReplaceSummary,
+				*ExitSummary);
+		}
+
+		return FString::Printf(TEXT("Enter: %s  Exit: %s"),
+			*FormatModifierCameraTransition(Asset->OverrideEnterTransition.Get()),
+			*FormatModifierCameraTransition(Asset->OverrideExitTransition.Get()));
+	}
+
+	static bool ModifierTargetExistsOnCamera(
+		const AComposableCameraCameraBase* Camera,
+		const UClass* TargetClass)
+	{
+		if (!Camera || !TargetClass)
+		{
+			return false;
+		}
+
+		for (const UComposableCameraCameraNodeBase* Node : Camera->CameraNodes)
+		{
+			if (Node && Node->GetClass() == TargetClass)
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
+	static float ComputeModifiersBodyHeight(
+		const FModifierDebugSnapshot& Snapshot)
+	{
+		if (!Snapshot.bHasManager)
+		{
+			return KLineH;
+		}
+
+		float Height = KLineH; // running-camera tag context
+		if (!Snapshot.LastDecision.IsEmpty())
+		{
+			Height += KLineH;
+		}
+		if (Snapshot.Groups.IsEmpty())
+		{
+			return Height + KLineH;
+		}
+
+		for (const FModifierDebugGroupSnapshot& Group : Snapshot.Groups)
+		{
+			Height += KModifierGroupHeaderH;
+			if (Group.Entries.IsEmpty())
+			{
+				Height += KLineH;
+			}
+			else
+			{
+				Height += Group.Entries.Num() * KModifierCandidateH;
+				Height += FMath::Max(0, Group.Entries.Num() - 1)
+					* KModifierCandidateGap;
+			}
+			Height += Group.RuntimeProperties.Num() * KModifierPropertyH;
+			Height += KModifierGroupGap;
+		}
+		return Height - KModifierGroupGap;
+	}
+
 	static void BuildModifiersLines(const FPanelCtx& Ctx, FRegionLines& Out)
 	{
 		Out.Title = TEXT("Modifiers");
+		Out.bIsModifiers = true;
+		FModifierDebugSnapshot& Snapshot = Out.ModifierSnapshot;
 
 		const UComposableCameraModifierManager* ModMgr = Ctx.PCM->GetModifierManager();
 		if (!ModMgr)
 		{
-			Out.Lines.Add({ TEXT("(no modifier manager)"), CDestroyed });
+			Out.ModifiersBodyHeight = ComputeModifiersBodyHeight(Snapshot);
 			return;
 		}
+		Snapshot.bHasManager = true;
+		Snapshot.LastDecision =
+			Ctx.PCM->GetRunningCameraModifierDecision();
 
-		const auto& Data      = ModMgr->GetModifierData();
-		const auto& AllMods   = Data.ModifierData;       // TMap<Tag, TMap<NodeClass, TArray<Entry>>>
-		const auto& Effective = Data.EffectiveModifiers; // TMap<NodeClass, Entry>
+		const AComposableCameraCameraBase* Camera = Ctx.PCM->GetRunningCamera();
+		Snapshot.CameraTags = !Camera
+			? FString(TEXT("(No Running Camera)"))
+			: Camera->CameraTags.IsEmpty()
+				? FString(TEXT("(None)"))
+				: Camera->CameraTags.ToStringSimple();
 
-		// ---- Section 1: Effective ----
-		Out.Lines.Add({ FString::Printf(TEXT("Effective  (%d)"), Effective.Num()), CLabel });
-		if (Effective.Num() == 0)
+		const auto& Data = ModMgr->GetModifierData();
+		const auto& AllMods = Data.ModifierData;
+		const auto& Effective = Data.EffectiveModifiers;
+
+		for (const auto& NodePair : AllMods)
 		{
-			Out.Lines.Add({ TEXT("  (none)"), CNeutral });
-		}
-		else
-		{
-			for (const auto& Pair : Effective)
+			const auto& NodeClass = NodePair.Key;
+			const auto& ModList = NodePair.Value;
+			const UClass* TargetClass = NodeClass.Get();
+
+			FModifierDebugGroupSnapshot& Group =
+				Snapshot.Groups.AddDefaulted_GetRef();
+			Group.TargetNodeClassPath = TargetClass
+				? TargetClass->GetPathName() : FString();
+			Group.TargetNodeName = MakeModifierFriendlyClassName(TargetClass);
+			Group.bTargetNodePresent =
+				ModifierTargetExistsOnCamera(Camera, TargetClass);
+
+			const T_PropertyModifier* EffectiveProperties =
+				Effective.Find(NodeClass);
+			for (const FModifierEntry& Entry : ModList)
 			{
-				const auto& NodeClass = Pair.Key;
-				const auto& Entry     = Pair.Value;
+				++Snapshot.RegisteredCount;
+				FModifierDebugEntrySnapshot& EntrySnapshot =
+					Group.Entries.AddDefaulted_GetRef();
 
-				const FString NodeName = NodeClass
-					? NodeClass->GetName()
-					: TEXT("(null class)");
-
-				FString ModDesc;
-				if (Entry.Modifier && Entry.Asset)
+				if (!Entry.Modifier || !Entry.Asset)
 				{
-					ModDesc = FString::Printf(TEXT("%s <%s> p=%d"),
-						*Entry.Modifier->GetClass()->GetName(),
-						*Entry.Asset->GetName(),
-						Entry.Asset->Priority);
+					EntrySnapshot.AssetName = TEXT("(Destroyed Entry)");
+					EntrySnapshot.ScopeSummary = TEXT("Invalid Scope");
+					EntrySnapshot.BlendSummary = TEXT("(Unavailable)");
+					EntrySnapshot.Status =
+						EModifierDebugEntryStatus::Destroyed;
+					continue;
+				}
+
+				EntrySnapshot.AssetName = Entry.Asset->GetName();
+				EntrySnapshot.Priority = Entry.Asset->Priority;
+				EntrySnapshot.ApplyMode = Entry.Asset->ApplyMode;
+				EntrySnapshot.BlendSummary =
+					FormatModifierBlend(Entry.Asset.Get());
+
+				FString QueryDescription = Entry.Asset->CameraTagQuery.IsEmpty()
+					? FString(TEXT("All Cameras"))
+					: Entry.Asset->CameraTagQuery.GetDescription();
+				if (QueryDescription.IsEmpty())
+				{
+					QueryDescription = TEXT("Tag Query");
+				}
+				EntrySnapshot.ScopeSummary = MoveTemp(QueryDescription);
+
+				const bool bMatchesQuery =
+					Camera && Entry.Asset->MatchesCameraTags(Camera->CameraTags);
+				const bool bUnsupportedInPlaceCustom =
+					Entry.Asset->ApplyMode
+						== EComposableCameraModifierApplyMode::ModifyExistingInstance
+					&& !Entry.Modifier->UsesNodeTemplateOverride();
+				int32 AuthoredPropertyCount = 0;
+				int32 EffectivePropertyCount = 0;
+				if (Entry.Modifier->UsesNodeTemplateOverride())
+				{
+					for (const FName PropertyName
+						: Entry.Modifier->OverrideProperties)
+					{
+						if (PropertyName.IsNone())
+						{
+							continue;
+						}
+						++AuthoredPropertyCount;
+						const FModifierEntry* EffectiveEntry =
+							EffectiveProperties
+								? EffectiveProperties->Find(PropertyName)
+								: nullptr;
+						if (EffectiveEntry && *EffectiveEntry == Entry)
+						{
+							++EffectivePropertyCount;
+						}
+					}
 				}
 				else
 				{
-					ModDesc = TEXT("(destroyed)");
+					AuthoredPropertyCount = 1;
+					const FModifierEntry* EffectiveEntry =
+						EffectiveProperties
+							? EffectiveProperties->Find(NAME_None)
+							: nullptr;
+					EffectivePropertyCount =
+						EffectiveEntry && *EffectiveEntry == Entry ? 1 : 0;
 				}
+				const bool bIsEffective = EffectivePropertyCount > 0;
+				const bool bIsPartiallyEffective =
+					bIsEffective
+					&& EffectivePropertyCount < AuthoredPropertyCount;
 
-				Out.Lines.Add({
-					FString::Printf(TEXT("  %s  <-  %s"), *NodeName, *ModDesc),
-					CActiveMarker });
+				if (!Group.bTargetNodePresent)
+				{
+					EntrySnapshot.Status =
+						EModifierDebugEntryStatus::NoTargetNode;
+				}
+				else if (!bMatchesQuery)
+				{
+					EntrySnapshot.Status =
+						EModifierDebugEntryStatus::Filtered;
+				}
+				else if (bUnsupportedInPlaceCustom)
+				{
+					EntrySnapshot.Status =
+						EModifierDebugEntryStatus::Unsupported;
+				}
+				else if (bIsEffective)
+				{
+					EntrySnapshot.Status =
+						bIsPartiallyEffective
+							? EModifierDebugEntryStatus::Partial
+							: EModifierDebugEntryStatus::Active;
+					++Snapshot.ActiveCount;
+				}
+				else
+				{
+					EntrySnapshot.Status =
+						EModifierDebugEntryStatus::Shadowed;
+				}
 			}
+
+			Group.Entries.Sort(
+				[](const FModifierDebugEntrySnapshot& A,
+					const FModifierDebugEntrySnapshot& B)
+				{
+					const int32 StatusA = ModifierStatusSortRank(A.Status);
+					const int32 StatusB = ModifierStatusSortRank(B.Status);
+					if (StatusA != StatusB)
+					{
+						return StatusA < StatusB;
+					}
+					if (A.Priority != B.Priority)
+					{
+						return A.Priority > B.Priority;
+					}
+					return A.AssetName < B.AssetName;
+				});
 		}
 
-		// ---- Section 2: All, grouped by camera tag ----
-		// Count total entries across all (tag, nodeclass) buckets for the header.
-		int32 AllCount = 0;
-		for (const auto& TagPair : AllMods)
+		if (Camera)
 		{
-			for (const auto& NodePair : TagPair.Value)
+			TArray<FComposableCameraModifierPropertyDebugSnapshot> LiveProperties;
+			Camera->BuildModifierDebugSnapshot(LiveProperties);
+			for (FComposableCameraModifierPropertyDebugSnapshot& Property
+				: LiveProperties)
 			{
-				AllCount += NodePair.Value.Num();
+				FModifierDebugGroupSnapshot* Group =
+					Snapshot.Groups.FindByPredicate(
+						[&Property](const FModifierDebugGroupSnapshot& Candidate)
+						{
+							return Candidate.TargetNodeClassPath
+								== Property.NodeClassPath;
+						});
+				if (!Group)
+				{
+					Group = &Snapshot.Groups.AddDefaulted_GetRef();
+					Group->TargetNodeClassPath = Property.NodeClassPath;
+					Group->TargetNodeName = Property.NodeClassName;
+					Group->bTargetNodePresent = true;
+				}
+				Group->RuntimeProperties.Add(MoveTemp(Property));
 			}
 		}
-		Out.Lines.Add({ FString::Printf(TEXT("All  (%d)"), AllCount), CLabel });
-		if (AllMods.Num() == 0)
+		for (FModifierDebugGroupSnapshot& Group : Snapshot.Groups)
 		{
-			Out.Lines.Add({ TEXT("  (none)"), CNeutral });
+			Group.RuntimeProperties.Sort(
+				[](const FComposableCameraModifierPropertyDebugSnapshot& A,
+					const FComposableCameraModifierPropertyDebugSnapshot& B)
+				{
+					return A.PropertyName == B.PropertyName
+						? A.OwnerName < B.OwnerName
+						: A.PropertyName < B.PropertyName;
+				});
+		}
+
+		Snapshot.Groups.Sort(
+			[](const FModifierDebugGroupSnapshot& A,
+				const FModifierDebugGroupSnapshot& B)
+			{
+				return A.TargetNodeName < B.TargetNodeName;
+			});
+
+		Out.Title = FString::Printf(
+			TEXT("Modifiers  [%d Active / %d Registered]"),
+			Snapshot.ActiveCount,
+			Snapshot.RegisteredCount);
+		Out.ModifiersBodyHeight = ComputeModifiersBodyHeight(Snapshot);
+	}
+
+	static void DrawModifiersStructured(
+		const FPanelCtx& Ctx,
+		const FModifierDebugSnapshot& Snapshot,
+		const FVector2D& BodyPos,
+		const FVector2D& BodySize)
+	{
+		UCanvas* Canvas = Ctx.Canvas;
+		UFont* Font = Ctx.BodyFont;
+		const float RightX = BodyPos.X + BodySize.X;
+		const float ContentRightX =
+			FMath::Max(BodyPos.X, RightX - KModifierRightInset);
+		const float MaxY = BodyPos.Y + BodySize.Y;
+
+		if (!Snapshot.bHasManager)
+		{
+			DrawTextLineClipped(Canvas, Font, TEXT("(No Modifier Manager)"),
+				BodyPos.X, BodyPos.Y, ContentRightX, CDestroyed);
 			return;
 		}
 
-		for (const auto& TagPair : AllMods)
+		float CursorY = BodyPos.Y;
+		if (CursorY + KLineH > MaxY) { return; }
+		const FString CameraTagsLabel = TEXT("Camera Tags");
+		const float CameraTagsValueX = BodyPos.X
+			+ MeasureTextWidth(Canvas, Font, CameraTagsLabel) + 10.f;
+		DrawTextLineClipped(Canvas, Font, CameraTagsLabel,
+			BodyPos.X, CursorY, CameraTagsValueX - 4.f, CLabel);
+		DrawTextLineClipped(Canvas, Font, Snapshot.CameraTags,
+			CameraTagsValueX, CursorY, ContentRightX, CNeutral);
+		CursorY += KLineH;
+		if (!Snapshot.LastDecision.IsEmpty())
 		{
-			const FGameplayTag& Tag       = TagPair.Key;
-			const auto&         NodeArray = TagPair.Value;
+			if (CursorY + KLineH > MaxY) { return; }
+			const FString DecisionLabel = TEXT("Last Change");
+			const float DecisionValueX = BodyPos.X
+				+ MeasureTextWidth(Canvas, Font, DecisionLabel) + 10.f;
+			DrawTextLineClipped(Canvas, Font, DecisionLabel,
+				BodyPos.X, CursorY, DecisionValueX - 4.f, CLabel);
+			DrawTextLineClipped(Canvas, Font, Snapshot.LastDecision,
+				DecisionValueX, CursorY, ContentRightX,
+				Snapshot.LastDecision.StartsWith(TEXT("Reactivated"))
+					? CModifierReactivate
+					: Snapshot.LastDecision.StartsWith(TEXT("In Place"))
+						? CModifierInPlace : CNeutral);
+			CursorY += KLineH;
+		}
 
-			Out.Lines.Add({
-				FString::Printf(TEXT("  [%s]"), *Tag.ToString()),
-				CValue });
-
-			for (const auto& NodePair : NodeArray)
+		if (Snapshot.Groups.IsEmpty())
+		{
+			if (CursorY + KLineH <= MaxY)
 			{
-				const auto& NodeClass = NodePair.Key;
-				const auto& ModList   = NodePair.Value;
+				DrawTextLineClipped(Canvas, Font, TEXT("(None Registered)"),
+					BodyPos.X, CursorY, ContentRightX, CNeutral);
+			}
+			return;
+		}
 
-				Out.Lines.Add({
-					FString::Printf(TEXT("    %s:"),
-						NodeClass ? *NodeClass->GetName() : TEXT("(null class)")),
-					CLabel });
+		constexpr float KStatusColumnW = 88.f;
+		const float DetailLabelW =
+			MeasureTextWidth(Canvas, Font, TEXT("Blend"));
+		const float DetailValueGap = 10.f;
 
-				// Find the effective modifier for this node class so we
-				// can mark the winner with [*] inline. Effective is a flat
-				// NodeClass ->Entry map (one entry per node class, camera-tag
-				// is already factored in by UpdateEffectiveModifiers), so
-				// the comparison uses FModifierEntry::operator==.
-				const FModifierEntry* EffForNode = Effective.Find(NodeClass);
+		for (const FModifierDebugGroupSnapshot& Group : Snapshot.Groups)
+		{
+			if (CursorY + KModifierGroupHeaderH > MaxY)
+			{
+				return;
+			}
 
-				for (const FModifierEntry& Entry : ModList)
+			const FLinearColor GroupColor = Group.bTargetNodePresent
+				? CModifierGroupBG
+				: FLinearColor(0.40f, 0.18f, 0.08f, 0.42f);
+			DrawFilledRect(Canvas,
+				FVector2D(BodyPos.X, CursorY),
+				FVector2D(BodySize.X, KModifierGroupHeaderH),
+				GroupColor);
+
+			const FString CountText = FString::Printf(
+				TEXT("%d Candidate%s"),
+				Group.Entries.Num(),
+				Group.Entries.Num() == 1 ? TEXT("") : TEXT("s"));
+			const float CountWidth = MeasureTextWidth(Canvas, Font, CountText);
+			const float CountMinX =
+				FMath::Min(BodyPos.X + 80.f, ContentRightX);
+			const float CountX = FMath::Clamp(
+				ContentRightX - CountWidth,
+				CountMinX,
+				ContentRightX);
+			DrawTextLineClipped(Canvas, Font, Group.TargetNodeName,
+				BodyPos.X + 5.f, CursorY + 2.f, CountX - 5.f, CLabel);
+			DrawTextLineClipped(Canvas, Font, CountText,
+				CountX, CursorY + 2.f, ContentRightX,
+				Group.bTargetNodePresent ? CNeutral : CModifierMissing);
+			CursorY += KModifierGroupHeaderH;
+
+			if (Group.Entries.IsEmpty())
+			{
+				DrawTextLineClipped(Canvas, Font, TEXT("  (None)"),
+					BodyPos.X, CursorY, ContentRightX, CNeutral);
+				CursorY += KLineH;
+			}
+
+			for (int32 EntryIndex = 0;
+				EntryIndex < Group.Entries.Num();
+				++EntryIndex)
+			{
+				if (CursorY + KModifierCandidateH > MaxY)
 				{
-					if (!Entry.Modifier || !Entry.Asset) { continue; }
-					const bool bIsEffective = EffForNode && (*EffForNode) == Entry;
-					Out.Lines.Add({
-						FString::Printf(TEXT("      %s <%s> p=%d%s"),
-							*Entry.Modifier->GetClass()->GetName(),
-							*Entry.Asset->GetName(),
-							Entry.Asset->Priority,
-							bIsEffective ? TEXT("  [*]") : TEXT("")),
-						bIsEffective ? CActiveMarker : CValue });
+					return;
+				}
+
+				const FModifierDebugEntrySnapshot& Entry =
+					Group.Entries[EntryIndex];
+				const FLinearColor StatusColor =
+					ModifierStatusColor(Entry.Status);
+
+				if (Entry.Status == EModifierDebugEntryStatus::Active
+					|| Entry.Status == EModifierDebugEntryStatus::Partial)
+				{
+					DrawFilledRect(Canvas,
+						FVector2D(BodyPos.X, CursorY),
+						FVector2D(BodySize.X, KModifierCandidateH),
+						CModifierActiveBG);
+				}
+				else if (Entry.Status == EModifierDebugEntryStatus::Unsupported
+					|| Entry.Status == EModifierDebugEntryStatus::Destroyed)
+				{
+					DrawFilledRect(Canvas,
+						FVector2D(BodyPos.X, CursorY),
+						FVector2D(BodySize.X, KModifierCandidateH),
+						CModifierProblemBG);
+				}
+
+				DrawFilledRect(Canvas,
+					FVector2D(BodyPos.X, CursorY + 1.f),
+					FVector2D(3.f, KModifierCandidateH - 2.f),
+					StatusColor);
+
+				const float ContentX = BodyPos.X + 8.f;
+				const float AssetX = ContentX + KStatusColumnW;
+				const TCHAR* ModeText =
+					Entry.ApplyMode
+						== EComposableCameraModifierApplyMode::ModifyExistingInstance
+					? TEXT("IN PLACE")
+					: TEXT("REACTIVATE");
+				const FString Meta = FString::Printf(
+					TEXT("P%d  %s"), Entry.Priority, ModeText);
+				const float MetaWidth = MeasureTextWidth(Canvas, Font, Meta);
+				const float MetaMinX = FMath::Min(AssetX, ContentRightX);
+				const float MetaX = FMath::Clamp(
+					ContentRightX - MetaWidth,
+					MetaMinX,
+					ContentRightX);
+
+				DrawTextLineClipped(Canvas, Font,
+					ModifierStatusLabel(Entry.Status),
+					ContentX, CursorY, AssetX - 4.f, StatusColor);
+				const FString ModifierIdentity = Entry.ScopeSummary.IsEmpty()
+					? Entry.AssetName
+					: FString::Printf(TEXT("%s  [%s]"),
+						*Entry.AssetName,
+						*Entry.ScopeSummary);
+				DrawTextLineClipped(Canvas, Font, ModifierIdentity,
+					AssetX, CursorY, MetaX - 6.f, CValue);
+				DrawTextLineClipped(Canvas, Font, Meta,
+					MetaX, CursorY, ContentRightX,
+					Entry.ApplyMode
+						== EComposableCameraModifierApplyMode::ModifyExistingInstance
+						? CModifierInPlace
+						: CModifierReactivate);
+
+				const float DetailX = AssetX;
+				const float DetailValueX =
+					DetailX + DetailLabelW + DetailValueGap;
+				DrawTextLineClipped(Canvas, Font, TEXT("Blend"),
+					DetailX, CursorY + KLineH,
+					DetailValueX - 3.f, CLabel);
+				DrawTextLineClipped(Canvas, Font, Entry.BlendSummary,
+					DetailValueX, CursorY + KLineH,
+					ContentRightX, CNeutral);
+
+				CursorY += KModifierCandidateH;
+				if (EntryIndex + 1 < Group.Entries.Num())
+				{
+					CursorY += KModifierCandidateGap;
 				}
 			}
+
+			for (const FComposableCameraModifierPropertyDebugSnapshot& Property
+				: Group.RuntimeProperties)
+			{
+				if (CursorY + KModifierPropertyH > MaxY)
+				{
+					return;
+				}
+				const float PropertyX = BodyPos.X + 12.f;
+				const FString Phase = Property.Phase
+					== EComposableCameraModifierPropertyPhase::Active
+						? FString(TEXT("ACTIVE"))
+						: FString::Printf(TEXT("%s  %.0f%%"),
+							ModifierPropertyPhaseLabel(Property.Phase),
+							Property.Progress * 100.f);
+				const float PhaseWidth = MeasureTextWidth(Canvas, Font, Phase);
+				const float PhaseX = FMath::Clamp(
+					ContentRightX - PhaseWidth,
+					FMath::Min(PropertyX + 70.f, ContentRightX),
+					ContentRightX);
+				const FString Identity = Property.OwnerName.IsEmpty()
+					? Property.PropertyName
+					: FString::Printf(TEXT("%s  /  %s"),
+						*Property.PropertyName, *Property.OwnerName);
+				DrawTextLineClipped(Canvas, Font, Identity,
+					PropertyX, CursorY, PhaseX - 6.f, CValue);
+				DrawTextLineClipped(Canvas, Font, Phase,
+					PhaseX, CursorY, ContentRightX, CModifierInPlace);
+
+				const float TargetX = PropertyX
+					+ (ContentRightX - PropertyX) * 0.5f;
+				const FString CurrentText = FString::Printf(
+					TEXT("Now: %s"), *Property.CurrentValue);
+				const FString TargetText = FString::Printf(
+					TEXT("Target: %s"), *Property.TargetValue);
+				DrawTextLineClipped(Canvas, Font, CurrentText,
+					PropertyX, CursorY + KLineH, TargetX - 5.f, CNeutral);
+				DrawTextLineClipped(Canvas, Font, TargetText,
+					TargetX, CursorY + KLineH, ContentRightX, CNeutral);
+				CursorY += KModifierPropertyH;
+			}
+
+			CursorY += KModifierGroupGap;
 		}
 	}
 
 	// ---- Region: Patches ---------------------------------------------
 	//
-	// Three lines per patch, designed to read at a glance:
+	// Compact card per patch, designed to read at a glance:
 	//
-	//   ?AssetName              L0    Active     a 1.00
-	//       7.39 / 10.00 s   active (74%)
-	//       expire   Duration * Manual * Condition  +CamChange
+	//   ACTIVE   AssetName [BP]                              L0
+	//            Alpha  [bar] 1.00
+	//            Time   [bar] 7.39 / 10.00 s
+	//            Expire Duration | Manual | Camera Change
 	//
-	// Visual hierarchy:
-	//   Line 1. Phase-colored (cyan/green/amber/red), highest weight, contains
-	//            asset identity + key state fields. The line color makes the
-	//            patch's lifecycle phase readable in one glance even with many
-	//            patches active simultaneously.
-	//   Line 2. Neutral (dim), timing data with progress percentage.
-	//   Line 3. Neutral, expiration channels spelled out (Duration / Manual /
-	//            Condition) rather than D*M*C glyphs. The panel is wide enough
-	//            to fit the words, and they read as English instead of cipher.
-	//            Skipped entirely when no channels are enabled and OnCameraChange
-	//            is off.
+	// Source, lifecycle, layer, progress, and expiration remain visible.
+	// Text columns are measured and share the same right safety inset as
+	// Actions and Modifiers.
 	static const FLinearColor CPatchEntering(0.55f, 0.85f, 0.95f, 1.00f); // cyan-ish (matches CLabel)
 	static const FLinearColor CPatchActive  (0.45f, 0.95f, 0.55f, 1.00f); // green
 	static const FLinearColor CPatchExiting (1.00f, 0.82f, 0.35f, 1.00f); // amber
 	static const FLinearColor CPatchExpired (0.75f, 0.45f, 0.45f, 1.00f); // muted red
+	static const FLinearColor CPatchCardBG  (0.12f, 0.22f, 0.34f, 0.16f);
+	static const FLinearColor CPatchExpiredBG(0.42f, 0.08f, 0.08f, 0.12f);
 
 	static FLinearColor PatchPhaseColor(EComposableCameraPatchPhase Phase)
 	{
@@ -1678,12 +2450,12 @@ namespace
 	{
 		switch (Phase)
 		{
-			case EComposableCameraPatchPhase::Entering: return TEXT("Entering");
-			case EComposableCameraPatchPhase::Active:   return TEXT("Active  ");
-			case EComposableCameraPatchPhase::Exiting:  return TEXT("Exiting ");
-			case EComposableCameraPatchPhase::Expired:  return TEXT("Expired ");
+			case EComposableCameraPatchPhase::Entering: return TEXT("ENTERING");
+			case EComposableCameraPatchPhase::Active:   return TEXT("ACTIVE");
+			case EComposableCameraPatchPhase::Exiting:  return TEXT("EXITING");
+			case EComposableCameraPatchPhase::Expired:  return TEXT("EXPIRED");
 		}
-		return TEXT("???     ");
+		return TEXT("?");
 	}
 
 	// Emit "X.YY / Z.ZZ s   <action> (NN%)" for the timing line. Action label is
@@ -1722,22 +2494,19 @@ namespace
 		return FString();
 	}
 
-	// Spelled-out channel names joined by " * ". Plus suffix " +CamChange" if
-	// the auxiliary flag is set. Returns empty when no channel and no flag.
+	// Spelled-out channel names joined by " | ". Returns empty when no
+	// channel and no camera-change rule is enabled.
 	static FString FormatPatchExpirationLine(const FComposableCameraPatchSnapshot& P)
 	{
-		TArray<FString, TInlineAllocator<3>> Channels;
+		TArray<FString, TInlineAllocator<4>> Channels;
 		if (P.ExpirationType & static_cast<uint8>(EComposableCameraPatchExpirationType::Duration))  Channels.Add(TEXT("Duration"));
 		if (P.ExpirationType & static_cast<uint8>(EComposableCameraPatchExpirationType::Manual))    Channels.Add(TEXT("Manual"));
 		if (P.ExpirationType & static_cast<uint8>(EComposableCameraPatchExpirationType::Condition)) Channels.Add(TEXT("Condition"));
-
-		FString Out = FString::Join(Channels, TEXT(" * "));
 		if (P.bExpireOnCameraChange)
 		{
-			if (!Out.IsEmpty()) Out += TEXT("  ");
-			Out += TEXT("+CamChange");
+			Channels.Add(TEXT("Camera Change"));
 		}
-		return Out;
+		return FString::Join(Channels, TEXT(" | "));
 	}
 
 	// Row heights / paddings for the structured Patches render.
@@ -1745,12 +2514,12 @@ namespace
 	static constexpr float KPatchBarRowH        = 18.f;     // alpha or time bar row
 	static constexpr float KPatchBarHeight      = 8.f;      // filled-rect thickness
 	static constexpr float KPatchBarTopInset    = 5.f;      // distance from row top to bar top
-	static constexpr float KPatchBarIndentPx    = 24.f;     // bar row indent from region left
-	static constexpr float KPatchBarLabelW      = 42.f;     // "Alpha" / "Time" / "Expire" label column width
 	static constexpr float KPatchBarLabelGap    = 6.f;      // gap between label text and bar
 	static constexpr float KPatchBarValueGap    = 8.f;      // gap between bar right edge and numeric value
 	static constexpr float KPatchInterRowGap    = 2.f;      // gap between consecutive rows within one patch
 	static constexpr float KPatchInterPatchGap  = 6.f;      // gap between adjacent patches
+	static constexpr float KPatchStatusColumnW  = 82.f;
+	static constexpr float KPatchRightInset     = 12.f;
 
 	static bool PatchHasTimeBar(const FComposableCameraPatchSnapshot& P, EComposableCameraPatchPhase Phase)
 	{
@@ -1782,13 +2551,11 @@ namespace
 
 	static float ComputePatchesBodyHeight(const TArray<FComposableCameraPatchSnapshot>& Snap)
 	{
-		// Header row "Patches  (N)" always present.
-		float H = KLineH;
 		if (Snap.Num() == 0)
 		{
-			// "(none)" placeholder row.
-			return H + KLineH;
+			return KLineH;
 		}
+		float H = 0.f;
 		for (int32 i = 0; i < Snap.Num(); ++i)
 		{
 			if (i > 0) H += KPatchInterPatchGap;
@@ -1799,7 +2566,6 @@ namespace
 
 	static void BuildPatchesLines(const FPanelCtx& Ctx, FRegionLines& Out)
 	{
-		Out.Title      = TEXT("Patches");
 		Out.bIsPatches = true;
 
 		// Source 1: BP path: PCM->ContextStack ->ActiveDirector->PatchManager.
@@ -1831,7 +2597,11 @@ namespace
 			}
 		}
 
-		Out.PatchesBodyHeight = ComputePatchesBodyHeight(Out.PatchSnapshots);
+		Out.Title = FString::Printf(
+			TEXT("Patches  [%d Tracked]"),
+			Out.PatchSnapshots.Num());
+		Out.PatchesBodyHeight =
+			ComputePatchesBodyHeight(Out.PatchSnapshots);
 	}
 
 	/**
@@ -1856,15 +2626,23 @@ namespace
 		UFont*   Font   = Ctx.BodyFont;
 
 		const float LabelX  = BarOriginX;
-		const float BarX    = LabelX + KPatchBarLabelW + KPatchBarLabelGap;
+		const float LabelW =
+			MeasureTextWidth(Canvas, Font, TEXT("Expire"));
+		const float BarX    = FMath::Min(
+			LabelX + LabelW + KPatchBarLabelGap,
+			RightX);
 		const float ValueW  = MeasureTextWidth(Canvas, Font, ValueText);
-		const float ValueX  = RightX - ValueW;
+		const float ValueX  = FMath::Clamp(
+			RightX - ValueW,
+			FMath::Min(BarX, RightX),
+			RightX);
 		const float BarRight = FMath::Max(BarX, ValueX - KPatchBarValueGap);
 		const float BarW    = BarRight - BarX;
 
 		// Label (neutral. The bar carries the phase color).
 		DrawTextLineClipped(Canvas, Font, LabelText,
-			LabelX, RowY + KPatchBarTopInset - 4.f, LabelX + KPatchBarLabelW, CNeutral);
+			LabelX, RowY + KPatchBarTopInset - 4.f,
+			FMath::Min(LabelX + LabelW, RightX), CNeutral);
 
 		// Bar body (bg + fill + outline).
 		const float BarY = RowY + KPatchBarTopInset;
@@ -1889,12 +2667,12 @@ namespace
 
 	/**
 	 * Render the Patches region. For each patch:
-	 *   Row A: phase-colored identity text line ("> AssetName  L0  Active").
+	 *   Row A: phase + source-aware identity + layer.
 	 *   Row B: "Alpha  [bar] 1.00" progress bar.
 	 *   Row C: "Time   [bar] X.XX / Y.YY s". Only when a meaningful denominator
 	 *          exists (Entering/EnterDuration, Exiting/ExitDuration,
 	 *          Active/Duration-channel).
-	 *   Row D: "Expire  Duration * Manual * Condition  +CamChange". Only when
+	 *   Row D: "Expire  Duration | Manual | Condition | Camera Change". Only when
 	 *          at least one channel or the OnCameraChange flag is on.
 	 *
 	 * The Time bar progress semantic matches the phase's natural direction:
@@ -1912,17 +2690,15 @@ namespace
 		UCanvas* Canvas = Ctx.Canvas;
 		UFont*   Font   = Ctx.BodyFont;
 		const float RightX = BodyPos.X + BodySize.X;
+		const float ContentRightX =
+			FMath::Max(BodyPos.X, RightX - KPatchRightInset);
+		const float MaxY = BodyPos.Y + BodySize.Y;
 		float CursorY = BodyPos.Y;
-
-		// Header.
-		DrawTextLineClipped(Canvas, Font,
-			FString::Printf(TEXT("Patches  (%d)"), Snap.Num()),
-			BodyPos.X, CursorY, RightX, CLabel);
-		CursorY += KLineH;
 
 		if (Snap.Num() == 0)
 		{
-			DrawTextLineClipped(Canvas, Font, TEXT("  (none)"), BodyPos.X, CursorY, RightX, CNeutral);
+			DrawTextLineClipped(Canvas, Font, TEXT("(None Tracked)"),
+				BodyPos.X, CursorY, ContentRightX, CNeutral);
 			return;
 		}
 
@@ -1933,36 +2709,66 @@ namespace
 			const FComposableCameraPatchSnapshot& P = Snap[i];
 			const EComposableCameraPatchPhase Phase = static_cast<EComposableCameraPatchPhase>(P.Phase);
 			const FLinearColor Hue = PatchPhaseColor(Phase);
+			const float CardHeight = ComputePatchRowHeight(P);
+			if (CursorY + CardHeight > MaxY)
+			{
+				return;
+			}
 
-			// Row A. Identity.
-			// Source-tag prefix lets the designer tell BP-driven patches from
-			// Sequencer-driven overlays at a glance. "[Seq] AssetName on Actor"
-			// for Sequencer overlays since multiple LS Actors can have overlapping
-			// patches and the host actor name disambiguates them; bare AssetName
-			// for the BP path (PatchManager / Director-scoped. No host needed).
-			FString IdLine;
+			DrawFilledRect(Canvas,
+				FVector2D(BodyPos.X, CursorY),
+				FVector2D(BodySize.X, CardHeight),
+				Phase == EComposableCameraPatchPhase::Expired
+					? CPatchExpiredBG
+					: CPatchCardBG);
+			DrawFilledRect(Canvas,
+				FVector2D(BodyPos.X, CursorY + 1.f),
+				FVector2D(3.f, CardHeight - 2.f),
+				Hue);
+
+			const float ContentX =
+				FMath::Min(BodyPos.X + 8.f, ContentRightX);
+			const float IdentityX =
+				FMath::Min(ContentX + KPatchStatusColumnW, ContentRightX);
+			const FString LayerText =
+				FString::Printf(TEXT("L%d"), P.LayerIndex);
+			const float LayerWidth =
+				MeasureTextWidth(Canvas, Font, LayerText);
+			const float LayerX = FMath::Clamp(
+				ContentRightX - LayerWidth,
+				IdentityX,
+				ContentRightX);
+			FString Identity;
 			if (P.Source == EComposableCameraPatchSource::Sequencer)
 			{
-				IdLine = FString::Printf(TEXT("  > [Seq] %s on %s        L%-2d   %s"),
-					*P.AssetName, *P.HostActorName, P.LayerIndex, PatchPhaseLabel(Phase));
+				Identity = FString::Printf(
+					TEXT("%s  [SEQ | %s]"),
+					*P.AssetName,
+					*P.HostActorName);
 			}
 			else
 			{
-				IdLine = FString::Printf(TEXT("  > %s        L%-2d   %s"),
-					*P.AssetName, P.LayerIndex, PatchPhaseLabel(Phase));
+				Identity = FString::Printf(TEXT("%s  [BP]"), *P.AssetName);
 			}
-			DrawTextLineClipped(Canvas, Font, IdLine, BodyPos.X, CursorY, RightX, Hue);
-			CursorY += KPatchIdentityRowH + KPatchInterRowGap;
+			DrawTextLineClipped(Canvas, Font, PatchPhaseLabel(Phase),
+				ContentX, CursorY, IdentityX - 4.f, Hue);
+			DrawTextLineClipped(Canvas, Font, Identity,
+				IdentityX, CursorY, LayerX - 6.f, CValue);
+			DrawTextLineClipped(Canvas, Font, LayerText,
+				LayerX, CursorY, ContentRightX, Hue);
+			CursorY += KPatchIdentityRowH;
 
 			// Row B: Alpha bar (always).
-			const float BarOriginX = BodyPos.X + KPatchBarIndentPx;
-			DrawPatchBarRow(Ctx, BarOriginX, CursorY, RightX,
+			const float BarOriginX = IdentityX;
+			CursorY += KPatchInterRowGap;
+			DrawPatchBarRow(Ctx, BarOriginX, CursorY, ContentRightX,
 				TEXT("Alpha"), P.Alpha, FString::Printf(TEXT("%.2f"), P.Alpha), Hue);
-			CursorY += KPatchBarRowH + KPatchInterRowGap;
+			CursorY += KPatchBarRowH;
 
 			// Row C: Time bar (conditional).
 			if (PatchHasTimeBar(P, Phase))
 			{
+				CursorY += KPatchInterRowGap;
 				float Elapsed = 0.f, Total = 0.f;
 				if (Phase == EComposableCameraPatchPhase::Entering)
 				{
@@ -1978,18 +2784,28 @@ namespace
 				}
 				const float TimeProgress = Total > 0.f
 					? FMath::Clamp(Elapsed / Total, 0.f, 1.f) : 0.f;
-				DrawPatchBarRow(Ctx, BarOriginX, CursorY, RightX,
+				DrawPatchBarRow(Ctx, BarOriginX, CursorY, ContentRightX,
 					TEXT("Time"), TimeProgress,
 					FString::Printf(TEXT("%.2f / %.2f s"), Elapsed, Total), Hue);
-				CursorY += KPatchBarRowH + KPatchInterRowGap;
+				CursorY += KPatchBarRowH;
 			}
 
 			// Row D: Expire (conditional).
 			if (PatchHasExpire(P))
 			{
-				const FString Line = FString::Printf(TEXT("    Expire   %s"),
-					*FormatPatchExpirationLine(P));
-				DrawTextLineClipped(Canvas, Font, Line, BodyPos.X, CursorY, RightX, CNeutral);
+				CursorY += KPatchInterRowGap;
+				const float ExpireLabelW =
+					MeasureTextWidth(Canvas, Font, TEXT("Expire"));
+				const float ExpireValueX = FMath::Min(
+					BarOriginX + ExpireLabelW + 10.f,
+					ContentRightX);
+				DrawTextLineClipped(Canvas, Font, TEXT("Expire"),
+					BarOriginX, CursorY,
+					ExpireValueX - 3.f, CLabel);
+				DrawTextLineClipped(Canvas, Font,
+					FormatPatchExpirationLine(P),
+					ExpireValueX, CursorY,
+					ContentRightX, CNeutral);
 				CursorY += KLineH;
 			}
 		}
@@ -2055,18 +2871,16 @@ namespace
 				CatShort.RightChopInline(FCString::Strlen(TEXT("LogComposableCamera")));
 			}
 
-			// Compose. Message intentionally last so truncation eats the
-			// least important part (the prefix tags are almost always
-			// needed; if the message is long it'll get "..."-clipped).
+			// Keep severity, age, and category in the measured left column;
+			// long messages clip in the remaining width.
 			FString DisplayMessage = Entry.Message;
 			if (Entry.RepeatCount > 1)
 			{
 				DisplayMessage += FString::Printf(TEXT("  (x%d)"), Entry.RepeatCount);
 			}
 			Out.Lines.Add({
-				FString::Printf(TEXT("[%s] %-8s %s : %s"),
-					VerbTag, *AgeStr, *CatShort, *DisplayMessage),
-				LineColor });
+				FString::Printf(TEXT("[%s] %s %s"), VerbTag, *AgeStr, *CatShort),
+				MoveTemp(DisplayMessage), LineColor });
 		}
 
 		return true;
@@ -2080,7 +2894,7 @@ namespace
 
 	// Universal transition endpoint markers. Source/target colors painted
 	// by DrawStandardTransitionDebug. Only relevant when at least one
-	// transition CVar is on, so we gate these on ShouldShowAllTransitionGizmos()
+	// transition CVar is on, so we gate these on the Transitions.All CVar
 	// OR any per-transition entry being enabled.
 	static const FLinearColor CLegendSource =
 		FComposableCameraViewportDebugColors::ToLinearColor(FComposableCameraViewportDebugColors::SourcePose());
@@ -2089,7 +2903,7 @@ namespace
 
 	/** Read an int32 CVar by name. Returns false if the CVar doesn't exist
 	 *  or is zero. String lookup is done fresh each call. Fine at legend
-	 *  frequency (at most ~20 lookups per frame). */
+	 *  frequency because the metadata list is small and fixed. */
 	static bool IsCVarEnabled(const TCHAR* Name)
 	{
 		if (!Name) { return false; }
@@ -2097,20 +2911,59 @@ namespace
 		return CVar && CVar->GetInt() != 0;
 	}
 
-	/** True when at least one transition gizmo is currently drawing. Used
-	 *  to decide whether to show the universal Source/Target swatches. */
-	static bool AnyTransitionEnabled()
+	static bool IsLegendEntryEnabledByCVar(
+		const FComposableCameraViewportDebugLegendEntry& E,
+		bool bShowAllTransitions,
+		bool bShowAllNodes)
 	{
-		if (FComposableCameraViewportDebug::ShouldShowAllTransitionGizmos())
+		return E.bIsTransition
+			? (bShowAllTransitions || IsCVarEnabled(E.CVarName))
+			: (bShowAllNodes       || IsCVarEnabled(E.CVarName));
+	}
+
+	static bool IsLegendEntryRelevantToRunningCamera(
+		const FComposableCameraViewportDebugLegendEntry& E,
+		const AComposableCameraCameraBase* RunningCamera)
+	{
+		if (!RunningCamera)
 		{
-			return true;
+			return false;
 		}
-		for (const FComposableCameraViewportDebugLegendEntry& E : FComposableCameraViewportDebug::GetLegendEntries())
+
+		for (const UComposableCameraCameraNodeBase* Node : RunningCamera->CameraNodes)
 		{
-			if (E.bIsTransition && IsCVarEnabled(E.CVarName))
+			if (Node && ComposableCameraViewportDebugLegend::EntryMatchesClass(E, Node->GetClass()))
 			{
 				return true;
 			}
+		}
+		return false;
+	}
+
+	static bool IsLegendEntryRelevantToActiveTransitions(
+		const FComposableCameraViewportDebugLegendEntry& E,
+		const FComposableCameraContextStackSnapshot& StackSnapshot)
+	{
+		for (const FComposableCameraContextSnapshot& Context : StackSnapshot.Contexts)
+		{
+			if (!Context.bIsActive || Context.bIsPendingDestroy)
+			{
+				continue;
+			}
+
+			for (const FComposableCameraTreeNodeSnapshot& TreeNode : Context.TreeNodes)
+			{
+				if (TreeNode.Kind != EComposableCameraTreeNodeKind::InnerTransition || TreeNode.bDestroyed)
+				{
+					continue;
+				}
+
+				if (ComposableCameraViewportDebugLegend::EntryMatchesClassName(E, TreeNode.DisplayLabel))
+				{
+					return true;
+				}
+			}
+			return false;
 		}
 		return false;
 	}
@@ -2125,6 +2978,8 @@ namespace
 	 *  per-item CVar is inert and we'd end up labelling colors that
 	 *  aren't on screen. Early-return empty in that case. */
 	static void BuildLegendRows(
+		const FPanelCtx& Ctx,
+		const FComposableCameraContextStackSnapshot& StackSnapshot,
 		TArray<TPair<FString, FLinearColor>>& OutTransitionRows,
 		TArray<TPair<FString, FLinearColor>>& OutNodeRows)
 	{
@@ -2133,25 +2988,38 @@ namespace
 			return;
 		}
 
-		const bool bShowAllTransitions = FComposableCameraViewportDebug::ShouldShowAllTransitionGizmos();
-		const bool bShowAllNodes       = FComposableCameraViewportDebug::ShouldShowAllNodeGizmos();
-
-		// Universal entries first (both lead the transition column).
-		if (AnyTransitionEnabled())
-		{
-			OutTransitionRows.Add({ TEXT("Source pose"), CLegendSource });
-			OutTransitionRows.Add({ TEXT("Target pose"), CLegendTarget });
-		}
+		const bool bShowAllTransitions = IsCVarEnabled(TEXT("CCS.Debug.Viewport.Transitions.All"));
+		const bool bShowAllNodes       = IsCVarEnabled(TEXT("CCS.Debug.Viewport.Nodes.All"));
+		const AComposableCameraCameraBase* RunningCamera = Ctx.PCM ? Ctx.PCM->GetRunningCamera() : nullptr;
+		TArray<TPair<FString, FLinearColor>> TransitionRows;
 
 		for (const FComposableCameraViewportDebugLegendEntry& E : FComposableCameraViewportDebug::GetLegendEntries())
 		{
-			const bool bEnabled = E.bIsTransition
-				? (bShowAllTransitions || IsCVarEnabled(E.CVarName))
-				: (bShowAllNodes       || IsCVarEnabled(E.CVarName));
+			const bool bEnabled = IsLegendEntryEnabledByCVar(E, bShowAllTransitions, bShowAllNodes);
 			if (!bEnabled) { continue; }
 
-			auto& TargetList = E.bIsTransition ? OutTransitionRows : OutNodeRows;
-			TargetList.Add({ E.Label, FComposableCameraViewportDebugColors::ToLinearColor(E.Color) });
+			if (E.bIsTransition)
+			{
+				if (!IsLegendEntryRelevantToActiveTransitions(E, StackSnapshot)) { continue; }
+				TransitionRows.Add({ E.Label, FComposableCameraViewportDebugColors::ToLinearColor(E.Color) });
+			}
+			else
+			{
+				if (!IsLegendEntryRelevantToRunningCamera(E, RunningCamera)) { continue; }
+				OutNodeRows.Add({ E.Label, FComposableCameraViewportDebugColors::ToLinearColor(E.Color) });
+			}
+		}
+
+		// Universal source/target colors are painted by standard transition
+		// debug only when a relevant transition row can also draw.
+		if (TransitionRows.Num() > 0)
+		{
+			OutTransitionRows.Add({ TEXT("Source pose"), CLegendSource });
+			OutTransitionRows.Add({ TEXT("Target pose"), CLegendTarget });
+			for (TPair<FString, FLinearColor>& Row : TransitionRows)
+			{
+				OutTransitionRows.Add(MoveTemp(Row));
+			}
 		}
 	}
 
@@ -2195,6 +3063,7 @@ namespace
 	{
 		UCanvas* Canvas = Ctx.Canvas;
 		UFont*   Font   = Ctx.BodyFont;
+		const float MaxY = BodyPos.Y + BodySize.Y;
 
 		constexpr float KSwatchSize = 10.f;
 		constexpr float KSwatchGap  = 4.f;
@@ -2210,6 +3079,7 @@ namespace
 		// Column headers. Skip for empty columns so the layout doesn't
 		// show an orphan "Transitions" / "Nodes" label above a blank list.
 		float Y = BodyPos.Y;
+		if (Y + KLineH > MaxY) { return; }
 		if (TransRows.Num() > 0)
 		{
 			DrawTextLineClipped(Canvas, Font, TEXT("Transitions"),
@@ -2231,6 +3101,7 @@ namespace
 			float RowY = Y;
 			for (int32 i = StartIdx; i < EndExclusive; ++i)
 			{
+				if (RowY + KLineH > MaxY) { break; }
 				const TPair<FString, FLinearColor>& Row = Rows[i];
 
 				// Color swatch aligned to the text baseline. Vertically
@@ -2259,8 +3130,8 @@ namespace
 	//
 	// Splits the body area in two equal columns separated by KPadding, then
 	// walks `R.PoseGroups`: indices [0..PoseLeftGroupCount) render into the
-	// left column, the rest into the right. Each group emits `-- Header --`
-	// in CLabel followed by its KV lines; the Value-column X is computed
+	// left column, the rest into the right. Each group has a tinted header
+	// and KV rows; the Value-column X is computed
 	// per-group from the widest label in that group so values align cleanly
 	// within a group without pushing short-label groups' values far right.
 	//
@@ -2294,12 +3165,15 @@ namespace
 			for (int32 GI = StartIdx; GI < EndExclusive; ++GI)
 			{
 				const FPoseGroup& G = R.PoseGroups[GI];
-
-				// Group header. Matches the `-- Section --` style used by
-				// the Running Camera region for visual consistency.
+				const float GroupH = (1 + G.Lines.Num()) * KLineH;
+				const float VisibleH = FMath::Min(GroupH, MaxY - Y);
+				if (VisibleH <= 0.f) { return; }
+				DrawFilledRect(Canvas, FVector2D(ColX, Y),
+					FVector2D(ColumnW, VisibleH),
+					FLinearColor(0.12f, 0.22f, 0.34f, 0.16f));
 				if (Y + KLineH > MaxY) { return; }
-				const FString Header = FString::Printf(TEXT("-- %s --"), *G.Header);
-				DrawTextLineClipped(Canvas, Font, Header, ColX, Y, ColRightX, CLabel);
+				DrawTextLineClipped(Canvas, Font, G.Header,
+					ColX + 6.f, Y, ColRightX - 4.f, CLabel);
 				Y += KLineH;
 
 				// Per-group label alignment. Proportional font means measure
@@ -2311,15 +3185,15 @@ namespace
 					MaxLabelPx = FMath::Max(MaxLabelPx,
 						MeasureTextWidth(Canvas, Font, L.Label));
 				}
-				const float ValueX = ColX + MaxLabelPx + KLabelValueGap;
+				const float ValueX = ColX + 6.f + MaxLabelPx + KLabelValueGap;
 
 				for (const FPanelLine& L : G.Lines)
 				{
 					if (Y + KLineH > MaxY) { return; }
 					DrawTextLineClipped(Canvas, Font, L.Label,
-						ColX, Y, ValueX, L.Color);
+						ColX + 6.f, Y, ValueX - 3.f, CNeutral);
 					DrawTextLineClipped(Canvas, Font, L.Value,
-						ValueX, Y, ColRightX, L.Color);
+						ValueX, Y, ColRightX - 4.f, L.Color);
 					Y += KLineH;
 				}
 			}
@@ -2865,7 +3739,7 @@ namespace
 		const bool bWantLegend = CVarPanelLegend.GetValueOnGameThread() != 0;
 		if (bWantLegend)
 		{
-			BuildLegendRows(LegendTransRows, LegendNodeRows);
+			BuildLegendRows(Ctx, StackSnapshot, LegendTransRows, LegendNodeRows);
 		}
 		const float LegendH = bWantLegend
 			? ComputeLegendBodyHeight(LegendTransRows, LegendNodeRows)
@@ -2937,7 +3811,9 @@ namespace
 			if (R.bIsStackAndTree)      { RawH = R.StackBodyHeight; }
 			else if (R.bIsLegend)       { RawH = R.LegendBodyHeight; }
 			else if (R.bIsPose)         { RawH = R.PoseBodyHeight; }
+			else if (R.bIsActions)      { RawH = R.ActionsBodyHeight; }
 			else if (R.bIsPatches)      { RawH = R.PatchesBodyHeight; }
+			else if (R.bIsModifiers)    { RawH = R.ModifiersBodyHeight; }
 			else                        { RawH = R.Lines.Num() * KLineH; }
 			return RawH + KPadding * 2.f;
 		};
@@ -2948,9 +3824,42 @@ namespace
 			TotalH += KTitleBarH + RegionBodyH(R) + KInterRegionGap;
 		}
 		if (TotalH > 0.f) { TotalH -= KInterRegionGap; } // trim trailing gap
-		// Clamp to screen.
 		const float MaxH = ScreenH - 2.f * KMargin;
-		const float PanelH = FMath::Min(TotalH + KPadding * 2.f, MaxH);
+		if (MaxH < KTitleBarH + KPadding * 2.f) { return; }
+		const bool bNeedsPages = TotalH + KPadding * 2.f > MaxH;
+		const float FooterH = bNeedsPages ? KLineH + 2.f : 0.f;
+		const float PageBudget = MaxH - KPadding * 2.f - FooterH;
+		if (PageBudget < KTitleBarH + KPadding * 2.f) { return; }
+		TArray<TPair<int32, int32>, TInlineAllocator<9>> Pages;
+		int32 PageStart = 0;
+		float PageUsedH = 0.f;
+		for (int32 RegionIndex = 0; RegionIndex < Regions.Num(); ++RegionIndex)
+		{
+			const float RegionH = KTitleBarH + RegionBodyH(Regions[RegionIndex]);
+			const float NeededH = PageUsedH > 0.f
+				? RegionH + KInterRegionGap : RegionH;
+			if (PageUsedH > 0.f && PageUsedH + NeededH > PageBudget)
+			{
+				Pages.Add(TPair<int32, int32>(PageStart, RegionIndex));
+				PageStart = RegionIndex;
+				PageUsedH = 0.f;
+			}
+			PageUsedH += PageUsedH > 0.f
+				? RegionH + KInterRegionGap : RegionH;
+		}
+		Pages.Add(TPair<int32, int32>(PageStart, Regions.Num()));
+		const int32 SelectedPage = FMath::Clamp(
+			CVarPanelPage.GetValueOnGameThread(), 0, Pages.Num() - 1);
+		const TPair<int32, int32> Page = Pages[SelectedPage];
+		float SelectedContentH = 0.f;
+		for (int32 RegionIndex = Page.Key; RegionIndex < Page.Value; ++RegionIndex)
+		{
+			if (SelectedContentH > 0.f) { SelectedContentH += KInterRegionGap; }
+			SelectedContentH += KTitleBarH + RegionBodyH(Regions[RegionIndex]);
+		}
+		const bool bPageClipped = SelectedContentH > PageBudget;
+		const float PanelH = FMath::Min(
+			SelectedContentH + KPadding * 2.f + FooterH, MaxH);
 
 		// Panel backdrop + outer border.
 		DrawFilledRect(Canvas, FVector2D(PanelX, PanelY), FVector2D(PanelW, PanelH), CPanelBG);
@@ -2961,13 +3870,15 @@ namespace
 		const float RegionX = PanelX + KPadding;
 		const float RegionW = PanelW - 2.f * KPadding;
 
-		for (const FRegionLines& R : Regions)
+		for (int32 RegionIndex = Page.Key; RegionIndex < Page.Value; ++RegionIndex)
 		{
+			const FRegionLines& R = Regions[RegionIndex];
 			const float BodyH = RegionBodyH(R);
-			const float RegionH = KTitleBarH + BodyH;
+			const float RemainingH = PanelY + PanelH - KPadding - FooterH - CursorY;
+			const float RegionH = FMath::Min(KTitleBarH + BodyH, RemainingH);
 
 			// Clip if we're out of vertical room.
-			if (CursorY + KTitleBarH > PanelY + PanelH - KPadding) { break; }
+			if (RegionH < KTitleBarH) { break; }
 
 			// Title bar only. The content area below reads straight through
 			// the outer panel BG (single-layer translucency, game stays visible).
@@ -2981,7 +3892,13 @@ namespace
 
 			// Body: structured tree, legend, or flat text lines.
 			const FVector2D BodyPos(RegionX + KPadding, CursorY + KTitleBarH + KPadding);
-			const FVector2D BodySize(RegionW - 2.f * KPadding, BodyH - 2.f * KPadding);
+			const FVector2D BodySize(RegionW - 2.f * KPadding,
+				FMath::Max(0.f, RegionH - KTitleBarH - 2.f * KPadding));
+			if (BodySize.Y < KLineH)
+			{
+				CursorY += RegionH + KInterRegionGap;
+				continue;
+			}
 			if (R.bIsStackAndTree)
 			{
 				DrawStackAndTreeStructured(Ctx, StackSnapshot, BodyPos, BodySize);
@@ -2994,14 +3911,25 @@ namespace
 			{
 				DrawPoseStructured(Ctx, R, BodyPos, BodySize);
 			}
+			else if (R.bIsActions)
+			{
+				DrawActionsStructured(
+					Ctx, R.ActionSnapshot, BodyPos, BodySize);
+			}
 			else if (R.bIsPatches)
 			{
 				DrawPatchesStructured(Ctx, R.PatchSnapshots, BodyPos, BodySize);
+			}
+			else if (R.bIsModifiers)
+			{
+				DrawModifiersStructured(Ctx, R.ModifierSnapshot, BodyPos, BodySize);
 			}
 			else
 			{
 				const float MaxBodyY = BodyPos.Y + BodySize.Y;
 				const float BodyRightX = BodyPos.X + BodySize.X;
+				const bool bRunningCamera = R.Title == TEXT("Running Camera");
+				const bool bWarnings = R.Title.StartsWith(TEXT("Warnings"));
 
 				// Two-pass render with per-group Value-column alignment.
 				//
@@ -3064,24 +3992,61 @@ namespace
 				{
 					if (LineY + KLineH > MaxBodyY) { break; }
 					const FPanelLine& L = R.Lines[i];
+					const bool bSection = bRunningCamera
+						&& L.Label.IsEmpty() && L.Value.StartsWith(TEXT("-- "));
+					const bool bNode = bRunningCamera
+						&& L.Label.IsEmpty() && L.Value.StartsWith(TEXT("  ["));
+					if (bSection || bNode || bWarnings)
+					{
+						DrawFilledRect(Canvas, FVector2D(BodyPos.X, LineY),
+							FVector2D(BodySize.X, KLineH),
+							bWarnings
+								? FLinearColor(0.42f, 0.08f, 0.08f, 0.14f)
+								: FLinearColor(0.12f, 0.22f, 0.34f, 0.18f));
+						if (bWarnings)
+						{
+							DrawFilledRect(Canvas, FVector2D(BodyPos.X, LineY + 1.f),
+								FVector2D(2.f, KLineH - 2.f), L.Color);
+						}
+					}
 					if (L.Label.IsEmpty())
 					{
-						DrawTextLineClipped(Canvas, Ctx.BodyFont, L.Value,
-							BodyPos.X, LineY, BodyRightX, L.Color);
+						FString Display = L.Value;
+						if (bSection)
+						{
+							Display.RemoveFromStart(TEXT("-- "));
+							Display.RemoveFromEnd(TEXT(" --"));
+						}
+						DrawTextLineClipped(Canvas, Ctx.BodyFont, Display,
+							BodyPos.X + (bSection || bNode ? 6.f : 0.f),
+							LineY, BodyRightX - 4.f, L.Color);
 					}
 					else
 					{
 						const float VX = RowValueX[i];
 						DrawTextLineClipped(Canvas, Ctx.BodyFont, L.Label,
-							BodyPos.X, LineY, VX, L.Color);
+							BodyPos.X + (bWarnings ? 6.f : 0.f), LineY,
+							VX - 3.f, bWarnings ? L.Color : CLabel);
 						DrawTextLineClipped(Canvas, Ctx.BodyFont, L.Value,
-							VX, LineY, BodyRightX, L.Color);
+							VX, LineY, BodyRightX - 4.f,
+							bWarnings ? CNeutral : L.Color);
 					}
 					LineY += KLineH;
 				}
 			}
 
 			CursorY += RegionH + KInterRegionGap;
+		}
+		if (bNeedsPages)
+		{
+			const FString Footer = FString::Printf(
+				TEXT("Page %d/%d  |  CCS.Debug.Panel.Page %d-%d%s"),
+				SelectedPage + 1, Pages.Num(), 0, Pages.Num() - 1,
+				bPageClipped ? TEXT("  |  block clipped") : TEXT(""));
+			DrawTextLineClipped(Canvas, Ctx.BodyFont, Footer,
+				PanelX + KPadding * 2.f,
+				PanelY + PanelH - KPadding - FooterH + 1.f,
+				PanelX + PanelW - KPadding * 2.f, CLabel);
 		}
 	}
 } // anonymous namespace

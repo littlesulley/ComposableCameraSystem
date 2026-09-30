@@ -39,6 +39,14 @@ bool UComposableCameraNodeGraph::ConsumePinContextMenuRequested()
 	return bWasRequested;
 }
 
+void UComposableCameraNodeGraph::RequestShowRuntimeDebug(UComposableCameraNodeGraphNode* GraphNode)
+{
+	if (GraphNode)
+	{
+		RequestRuntimeDebugDelegate.Broadcast(GraphNode);
+	}
+}
+
 void UComposableCameraNodeGraph::BuildVariableLookup(TMap<FGuid, FVariableLookupInfo>& OutLookup) const
 {
 	OutLookup.Reset();

@@ -14,6 +14,10 @@ class UComposableCameraStartGraphNode;
 class UComposableCameraBeginPlayStartGraphNode;
 class UComposableCameraOutputGraphNode;
 
+DECLARE_MULTICAST_DELEGATE_OneParam(
+	FOnComposableCameraRequestRuntimeDebug,
+	UComposableCameraNodeGraphNode*);
+
 /**
  * EdGraph subclass that represents the visual node graph for a Camera Type Asset.
  * Each node in this graph corresponds to a node template in the type asset's NodeTemplates array.
@@ -61,6 +65,15 @@ public:
 	 * right-click rather than a genuine selection change.
 	 */
 	bool ConsumePinContextMenuRequested();
+
+	/** Broadcast a transient editor request to reveal one node in Runtime Debug. */
+	void RequestShowRuntimeDebug(UComposableCameraNodeGraphNode* GraphNode);
+
+	/** Schema-to-toolkit bridge for runtime-debug navigation requests. */
+	FOnComposableCameraRequestRuntimeDebug& OnRequestShowRuntimeDebug()
+	{
+		return RequestRuntimeDebugDelegate;
+	}
 
 	/**
 	 * Reentrancy guard set while RebuildFromTypeAsset is executing. The toolkit's
@@ -150,6 +163,9 @@ private:
 	 */
 	UPROPERTY(Transient)
 	bool bPinContextMenuRequested = false;
+
+	/** Non-serialized UI request channel. Toolkit removes its binding on close. */
+	FOnComposableCameraRequestRuntimeDebug RequestRuntimeDebugDelegate;
 
 	/** Denormalized per-variable metadata used by the exec-chain phases to
 	 * translate a variable's `FGuid` to its name + data-block slot size when

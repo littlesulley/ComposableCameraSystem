@@ -6,6 +6,7 @@
 #include "Cameras/ComposableCameraCameraBase.h"
 #include "UObject/Object.h"
 #include "UObject/UnrealType.h"
+#include "Templates/Function.h"
 #include "Blueprint/BlueprintExceptionInfo.h"
 #include "Nodes/ComposableCameraNodePinTypes.h"
 #include "ComposableCameraCameraNodeBase.generated.h"
@@ -46,9 +47,9 @@ struct FComposableCameraNodePinBinding
 	 *  keep the enum alive via a non-UPROPERTY cache. */
 	TWeakObjectPtr<UEnum> EnumType;
 
-	/** For PinType == Enum: the backing FProperty, captured when the binding
-	 *  table is built. Used to narrow-cast the int64 value from the data block
-	 *  into the property's actual underlying width. nullptr for non-Enum pins. */
+	/** Backing FProperty captured when the binding table is built. Enum dispatch
+	 *  uses it to narrow-cast canonical int64 values; object and struct dispatch
+	 *  use it for reflected type validation. */
 	const FProperty* BackingProperty = nullptr;
 
 	/** Byte offset of the backing UPROPERTY into the node UObject (via FProperty::GetOffset_ForInternal). */
@@ -67,6 +68,14 @@ struct FComposableCameraNodePinBindingTable
 {
 	/** All input pins that have a matched top-level UPROPERTY on the node. */
 	TArray<FComposableCameraNodePinBinding> InputBindings;
+};
+
+/** Cached pin/property identity for an active Modifier override. */
+struct FComposableCameraModifierPinOverrideBinding
+{
+	FName PinName;
+	const FProperty* Property = nullptr;
+	int32 FieldOffset = INDEX_NONE;
 };
 
 /**
@@ -153,8 +162,12 @@ public:
 	void Initialize(AComposableCameraCameraBase* InOwningCamera, AComposableCameraPlayerCameraManager* InPlayerCameraManager);
 	void TickNode(float DeltaTime, const FComposableCameraPose CurrentCameraPose, FComposableCameraPose& OutCameraPose);
 	
-	UFUNCTION(BlueprintPure, Category = "ComposableCameraSystem|Node")
+	UFUNCTION(BlueprintPure, Category = "ComposableCameraSystem|Node",
+		meta = (DeprecatedFunction, DeprecationMessage = "Use GetOwningCameraTags instead."))
 	FGameplayTag GetOwningCameraTag() const;
+
+	UFUNCTION(BlueprintPure, Category = "ComposableCameraSystem|Node")
+	FGameplayTagContainer GetOwningCameraTags() const;
 
 	UFUNCTION(BlueprintPure, Category = "ComposableCameraSystem|Node")
 	AComposableCameraCameraBase* GetOwningCamera() const { return OwningCamera; }
@@ -299,6 +312,68 @@ public:
 	 */
 	void ResolveAllInputPins();
 
+	/**
+	 * Run a one-shot Custom Modifier after initialization and retain only the
+	 * non-wired pin-backed properties it actually changes. Wired inputs may
+	 * still be waiting for BeginPlay compute output and stay live.
+	 * Called at camera activation, never from the evaluation hot path.
+	 */
+	void ApplyCustomModifierWithPinOwnership(TFunctionRef<void()> ApplyModifier);
+
+	/**
+	 * Marks one top-level property as a PCM modifier override. Matching input
+	 * pins no longer write this field during initialization or tick, so the
+	 * modifier remains higher priority than authored wires and parameters.
+	 * Called only while a camera is constructed / reactivated.
+	 */
+	void RegisterModifierOverrideFieldOffset(int32 FieldOffset);
+
+	/** Returns true when a PCM modifier already owns this field for this camera instance. */
+	bool HasModifierOverrideFieldOffset(int32 FieldOffset) const;
+
+	/**
+	 * Register a modifier override with both property and pin identity.
+	 * In-place values and changed one-shot Custom fields use the same lookup so
+	 * explicit GetInputPinValue calls honor their ownership.
+	 */
+	void RegisterInPlaceModifierOverride(const FProperty* Property, FName PinName);
+
+	/** Release an in-place override so the live lower pin layer is visible again. */
+	void UnregisterInPlaceModifierOverride(int32 FieldOffset);
+
+	/**
+	 * Event-time lookup used while a Modifier binding plan is built. Returns
+	 * the exact top-level input pin whose name matches Property.
+	 */
+	bool FindInputPinForModifierProperty(
+		const FProperty* Property,
+		FComposableCameraNodePinDeclaration& OutPin) const;
+
+	/**
+	 * Copy the lower RuntimeDataBlock value into Property on Destination.
+	 * Modifier state uses this for discrete values and live exit targets.
+	 */
+	bool TryCopyUnderlyingInputPinToProperty(
+		const FComposableCameraNodePinDeclaration& Pin,
+		const FProperty* Property,
+		UObject* Destination) const;
+
+	/**
+	 * Non-pin properties are rejected by default. A node can opt a specific
+	 * live-read or reconfigurable property into in-place Modifier ownership.
+	 * Called only when building a binding plan, never per frame.
+	 */
+	virtual bool SupportsInPlaceModifierProperty(FName PropertyName) const
+	{
+		return false;
+	}
+
+	/** Notify a node after an in-place value write. Default: live-read property, no cache work. */
+	void NotifyModifierPropertyChanged(FName PropertyName)
+	{
+		OnModifierPropertyChanged(PropertyName);
+	}
+
 protected:
 	/**
 	 * Opt-out hook for the auto-resolve-before-tick behavior. Override and return
@@ -310,10 +385,24 @@ protected:
 	 */
 	virtual bool ShouldAutoResolveInputPins() const { return true; }
 
+	/** Override when a supported Modifier property owns derived runtime caches. */
+	virtual void OnModifierPropertyChanged(FName PropertyName) {}
+
 private:
 	/** Set to true after the first TickNode call. Cleared by Initialize() so
 	 *  re-activation re-triggers OnFirstTickNode on the new first frame. */
 	bool bHasHadFirstTick = false;
+
+	/**
+	 * Field offsets protected from per-frame pin auto-resolution by the active
+	 * PCM modifier. Inline storage covers normal modifier sizes without a heap
+	 * allocation; populated only during camera construction.
+	 */
+	TArray<int32, TInlineAllocator<4>> ModifierOverrideFieldOffsets;
+
+	/** Explicit pin reader cache shared by in-place and one-shot Custom modifiers. */
+	TArray<FComposableCameraModifierPinOverrideBinding, TInlineAllocator<4>>
+		InPlaceModifierPinOverrides;
 
 #if CPUPROFILERTRACE_ENABLED
 	/** Cached class name for the one-shot spec ID registration on first tick. */
@@ -342,9 +431,17 @@ public:
 
 	// --- Pin Value Accessors (C++ template) ------------------------------
 
-	/** Read an input pin's resolved value. Checks wired -> exposed ->default. */
+	/** Read a Modifier-owned value first, then wired -> exposed ->default. */
 	template<typename T>
 	T GetInputPinValue(FName PinName) const;
+
+	/** Read only the lower pin layer, ignoring active in-place Modifier ownership. */
+	template<typename T>
+	bool TryResolveUnderlyingInputPin(FName PinName, T& OutValue) const
+	{
+		return RuntimeDataBlock
+			&& RuntimeDataBlock->TryResolveInputPin<T>(RuntimeNodeIndex, PinName, OutValue);
+	}
 
 	/** Write an output pin's value to the RuntimeDataBlock. */
 	template<typename T>
@@ -739,6 +836,99 @@ public:
 template<typename T>
 T UComposableCameraCameraNodeBase::GetInputPinValue(FName PinName) const
 {
+	for (const FComposableCameraModifierPinOverrideBinding& Override : InPlaceModifierPinOverrides)
+	{
+		if (Override.PinName != PinName || !Override.Property)
+		{
+			continue;
+		}
+
+		const void* ValuePtr = Override.Property->ContainerPtrToValuePtr<void>(this);
+		if constexpr (std::is_same_v<T, bool>)
+		{
+			if (const FBoolProperty* BoolProperty = CastField<FBoolProperty>(Override.Property))
+			{
+				return BoolProperty->GetPropertyValue(ValuePtr);
+			}
+		}
+		else if constexpr (std::is_same_v<T, int32> || std::is_same_v<T, int64>)
+		{
+			const FNumericProperty* NumericProperty = nullptr;
+			if (const FEnumProperty* EnumProperty = CastField<FEnumProperty>(Override.Property))
+			{
+				NumericProperty = EnumProperty->GetUnderlyingProperty();
+			}
+			else
+			{
+				NumericProperty = CastField<FNumericProperty>(Override.Property);
+			}
+			if (NumericProperty)
+			{
+				const int64 Value =
+					NumericProperty->GetSignedIntPropertyValue(ValuePtr);
+				return static_cast<T>(Value);
+			}
+		}
+		else if constexpr (std::is_same_v<T, float>)
+		{
+			if (const FFloatProperty* FloatProperty = CastField<FFloatProperty>(Override.Property))
+			{
+				return FloatProperty->GetPropertyValue(ValuePtr);
+			}
+		}
+		else if constexpr (std::is_same_v<T, double>)
+		{
+			if (const FDoubleProperty* DoubleProperty = CastField<FDoubleProperty>(Override.Property))
+			{
+				return DoubleProperty->GetPropertyValue(ValuePtr);
+			}
+		}
+		else if constexpr (std::is_same_v<T, FName>)
+		{
+			if (const FNameProperty* NameProperty = CastField<FNameProperty>(Override.Property))
+			{
+				return NameProperty->GetPropertyValue(ValuePtr);
+			}
+		}
+		else if constexpr (std::is_pointer_v<T>
+			&& std::is_base_of_v<UObject, std::remove_pointer_t<T>>)
+		{
+			if (const FObjectPropertyBase* ObjectProperty =
+				CastField<FObjectPropertyBase>(Override.Property))
+			{
+				return Cast<std::remove_pointer_t<T>>(
+					ObjectProperty->GetObjectPropertyValue(ValuePtr));
+			}
+		}
+		else if constexpr (std::is_same_v<T, FVector2D>
+			|| std::is_same_v<T, FVector>
+			|| std::is_same_v<T, FVector4>
+			|| std::is_same_v<T, FRotator>
+			|| std::is_same_v<T, FTransform>)
+		{
+			if (const FStructProperty* StructProperty =
+				CastField<FStructProperty>(Override.Property);
+				StructProperty
+				&& StructProperty->Struct == TBaseStructure<T>::Get())
+			{
+				T Result {};
+				StructProperty->Struct->CopyScriptStruct(&Result, ValuePtr);
+				return Result;
+			}
+		}
+		else if constexpr (TModels_V<CStaticStructProvider, T>)
+		{
+			if (const FStructProperty* StructProperty =
+				CastField<FStructProperty>(Override.Property);
+				StructProperty && StructProperty->Struct == T::StaticStruct())
+			{
+				T Result;
+				StructProperty->Struct->CopyScriptStruct(&Result, ValuePtr);
+				return Result;
+			}
+		}
+	}
+
 	if (RuntimeDataBlock)
 	{
 		T Result{};

@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "Core/ComposableCameraParameterBlock.h"
+#include "Templates/Function.h"
 
 class AComposableCameraCameraBase;
 class UComposableCameraTypeAsset;
@@ -61,4 +62,15 @@ namespace UE::ComposableCameras
 		AComposableCameraCameraBase* Camera,
 		UComposableCameraTypeAsset* TypeAsset,
 		const FComposableCameraParameterBlock& ParameterBlock);
+
+	/**
+	 * PCM-only variant. Runs PreInitializeNodeCallback after node templates and
+	 * runtime data are prepared, but before InitializeNodes builds node-local
+	 * caches. The callback must not retain the camera pointer.
+	 */
+	COMPOSABLECAMERASYSTEM_API void ConstructCameraFromTypeAsset(
+		AComposableCameraCameraBase* Camera,
+		UComposableCameraTypeAsset* TypeAsset,
+		const FComposableCameraParameterBlock& ParameterBlock,
+		TFunctionRef<void(AComposableCameraCameraBase*)> PreInitializeNodeCallback);
 }

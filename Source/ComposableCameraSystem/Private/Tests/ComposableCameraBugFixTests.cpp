@@ -10,6 +10,7 @@
 #include "Cameras/ComposableCameraCameraBase.h"
 #include "DataAssets/ComposableCameraTypeAsset.h"
 #include "Debug/ComposableCameraViewportDebug.h"
+#include "Debug/ComposableCameraViewportDebugLegendUtils.h"
 #include "Interpolator/ComposableCameraIIRInterpolator.h"
 #include "Interpolator/ComposableCameraSimpleSpringInterpolator.h"
 #include "Nodes/ComposableCameraCollisionPushNode.h"
@@ -18,6 +19,10 @@
 #include "Nodes/ComposableCameraSetRotationNode.h"
 #include "Nodes/ComposableCameraScreenSpacePivotNode.h"
 #include "Nodes/ComposableCameraSpiralNode.h"
+#include "Nodes/ComposableCameraSplineNode.h"
+#include "Transitions/ComposableCameraLinearTransition.h"
+#include "Transitions/ComposableCameraSmoothTransition.h"
+#include "Transitions/ComposableCameraSplineTransition.h"
 #include "Core/ComposableCameraRuntimeDataBlock.h"
 #include "Components/SceneComponent.h"
 #include "Misc/AutomationTest.h"
@@ -44,6 +49,18 @@ namespace
 		Root->RegisterComponent();
 		Actor->SetActorLocationAndRotation(Location, Rotation);
 		return Actor;
+	}
+
+	const FComposableCameraViewportDebugLegendEntry* FindLegendEntryByLabel(const TCHAR* Label)
+	{
+		for (const FComposableCameraViewportDebugLegendEntry& Entry : FComposableCameraViewportDebug::GetLegendEntries())
+		{
+			if (Entry.Label && FCString::Strcmp(Entry.Label, Label) == 0)
+			{
+				return &Entry;
+			}
+		}
+		return nullptr;
 	}
 }
 
@@ -92,6 +109,44 @@ bool FViewportDebugLegendUsesSharedGizmoColorsTest::RunTest(const FString& Param
 	UTEST_EQUAL("Spline node legend red matches its 3D sphere", LegendColor.R, SplineColor.R);
 	UTEST_EQUAL("Spline node legend green matches its 3D sphere", LegendColor.G, SplineColor.G);
 	UTEST_EQUAL("Spline node legend blue matches its 3D sphere", LegendColor.B, SplineColor.B);
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FViewportDebugLegendMatchesRuntimeClassesTest,
+	"System.Engine.ComposableCameraSystem.Debug.ViewportLegend.MatchesRuntimeClasses",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FViewportDebugLegendMatchesRuntimeClassesTest::RunTest(const FString& Parameters)
+{
+	const FComposableCameraViewportDebugLegendEntry* LookAtEntry = FindLegendEntryByLabel(TEXT("LookAt"));
+	UTEST_TRUE("LookAt legend entry exists", LookAtEntry != nullptr);
+	UTEST_TRUE("LookAt entry matches LookAt node class",
+		ComposableCameraViewportDebugLegend::EntryMatchesClass(*LookAtEntry, UComposableCameraLookAtNode::StaticClass()));
+	UTEST_FALSE("LookAt entry does not match Spline node class",
+		ComposableCameraViewportDebugLegend::EntryMatchesClass(*LookAtEntry, UComposableCameraSplineNode::StaticClass()));
+
+	const FComposableCameraViewportDebugLegendEntry* SplineNodeEntry = FindLegendEntryByLabel(TEXT("Spline (node)"));
+	UTEST_TRUE("Spline node legend entry exists", SplineNodeEntry != nullptr);
+	UTEST_TRUE("Spline node entry matches Spline node class",
+		ComposableCameraViewportDebugLegend::EntryMatchesClass(*SplineNodeEntry, UComposableCameraSplineNode::StaticClass()));
+	UTEST_FALSE("Spline node entry does not match LookAt node class",
+		ComposableCameraViewportDebugLegend::EntryMatchesClass(*SplineNodeEntry, UComposableCameraLookAtNode::StaticClass()));
+
+	const FComposableCameraViewportDebugLegendEntry* SmoothEntry = FindLegendEntryByLabel(TEXT("Smooth"));
+	UTEST_TRUE("Smooth transition legend entry exists", SmoothEntry != nullptr);
+	UTEST_TRUE("Smooth transition entry matches Smooth transition class",
+		ComposableCameraViewportDebugLegend::EntryMatchesClass(*SmoothEntry, UComposableCameraSmoothTransition::StaticClass()));
+	UTEST_FALSE("Smooth transition entry does not match Linear transition class",
+		ComposableCameraViewportDebugLegend::EntryMatchesClass(*SmoothEntry, UComposableCameraLinearTransition::StaticClass()));
+
+	const FComposableCameraViewportDebugLegendEntry* SplineTransitionEntry = FindLegendEntryByLabel(TEXT("Spline (trans.)"));
+	UTEST_TRUE("Spline transition legend entry exists", SplineTransitionEntry != nullptr);
+	UTEST_TRUE("Spline transition entry matches Spline transition class name",
+		ComposableCameraViewportDebugLegend::EntryMatchesClassName(*SplineTransitionEntry, UComposableCameraSplineTransition::StaticClass()->GetName()));
+	UTEST_FALSE("Spline transition entry does not match Smooth transition class name",
+		ComposableCameraViewportDebugLegend::EntryMatchesClassName(*SplineTransitionEntry, UComposableCameraSmoothTransition::StaticClass()->GetName()));
 
 	return true;
 }

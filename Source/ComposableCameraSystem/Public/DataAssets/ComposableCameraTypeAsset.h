@@ -316,11 +316,16 @@ public:
 
 	// --- Camera Identity ---------------------------------------------------
 
-	/** Tag for this camera type. Propagated to spawned camera instances so
+	/** Tags for this camera type. Propagated to spawned camera instances so
 	 *  modifiers can distinguish different cameras at runtime. Mirrors
-	 *  AComposableCameraCameraBase::CameraTag. The TypeAsset carries it so
-	 *  designers don't need to subclass the camera in Blueprint just to set a tag. */
+	 *  AComposableCameraCameraBase::CameraTags. The TypeAsset carries them so
+	 *  designers don't need to subclass the camera in Blueprint just to set tags. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Camera")
+	FGameplayTagContainer CameraTags;
+
+	/** Legacy single tag. Migrated into CameraTags during PostLoad. */
+	UPROPERTY(BlueprintReadOnly, Category = "Camera",
+		meta = (DeprecatedProperty, DeprecationMessage = "Use CameraTags instead."))
 	FGameplayTag CameraTag;
 
 	/** Whether cameras of this type preserve the previous camera's pose when

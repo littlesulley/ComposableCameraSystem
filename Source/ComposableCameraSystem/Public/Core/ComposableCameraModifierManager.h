@@ -13,9 +13,26 @@ class UComposableCameraCameraNodeBase;
 class UComposableCameraModifierBase;
 class UComposableCameraNodeModifierDataAsset;
 class UComposableCameraTransitionBase;
+class UComposableCameraModifierTransitionBase;
 class AComposableCameraPlayerCameraManager;
 
 using namespace ComposableCameraModifier;
+
+/** Result of one effective-Modifier selection pass for the current camera. */
+struct FComposableCameraModifierUpdateResult
+{
+	bool bChanged = false;
+	bool bRequiresCameraReactivation = false;
+	/** First legacy edge that requested reactivation; diagnostic only. */
+	FString ReactivationReason;
+	UComposableCameraTransitionBase* CameraTransition = nullptr;
+	/**
+	 * Compatibility summary for callers that still force one value transition
+	 * over an entire update. PCM production evaluation derives property-local
+	 * Enter/Replace/Exit transitions directly from the effective assets.
+	 */
+	UComposableCameraModifierTransitionBase* ModifierTransition = nullptr;
+};
 
 /**
  * An actor managing all camera modifiers.
@@ -26,7 +43,7 @@ class COMPOSABLECAMERASYSTEM_API UComposableCameraModifierManager : public UObje
 	GENERATED_BODY()
 
 public:
-	// FModifierEntry holds raw UObject* (Modifier / Asset) inside a non-reflected
+	// FModifierEntry holds TObjectPtr references inside a non-reflected
 	// nested TMap. Without this override the GC would not see those references -
 	// callers that pass a transiently-rooted asset to AddModifier would see it
 	// collected and the next UpdateEffectiveModifiers / ApplyModifiers would
@@ -39,18 +56,23 @@ public:
 public:
 	struct FComposableCameraModifierData
 	{
-		// All modifiers.
-		T_CameraModifier ModifierData;
+		// All registered candidates grouped by exact target node class. Each
+		// candidate's CameraTagQuery is evaluated when the active camera changes.
+		T_NodeModifierArray ModifierData;
 
-		// Effective modifiers that are used by current camera. For each node type, the modifier with the highest priority is tracked.
-		T_NodeModifier EffectiveModifiers;
+		// Effective modifiers used by the current camera. Generic Node Type
+		// entries compete per property. NAME_None stores the legacy whole-node
+		// Custom Modifier winner when that branch wins the node-class bucket.
+		T_EffectiveModifier EffectiveModifiers;
 
 	public:
-		// Update EffectiveModifiers for current camera and return if any modifier is changed in the list and the transition for new camera instance.
-		std::pair<bool, UComposableCameraTransitionBase*> UpdateEffectiveModifiers(AComposableCameraCameraBase* Camera);
+		// Update EffectiveModifiers and classify the change as legacy
+		// reactivation or opt-in same-instance value mutation.
+		FComposableCameraModifierUpdateResult UpdateEffectiveModifiers(
+			AComposableCameraCameraBase* Camera);
 
 		// Get current effective modifiers.
-		T_NodeModifier& GetEffectiveModifiers()
+		T_EffectiveModifier& GetEffectiveModifiers()
 		{
 			return EffectiveModifiers;
 		}
@@ -65,4 +87,5 @@ public:
 
 private:
 	FComposableCameraModifierData ModifierData;
+	uint64 NextRegistrationOrder = 1;
 };

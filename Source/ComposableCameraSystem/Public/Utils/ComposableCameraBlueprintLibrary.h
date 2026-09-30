@@ -20,6 +20,7 @@ class ULevelSequence;
 class UComposableCameraTypeAsset;
 class UComposableCameraModifierBase;
 class UComposableCameraActionBase;
+class UComposableCameraActionTypeAsset;
 class AComposableCameraCameraBase;
 class UDataTable;
 class UComposableCameraPatchTypeAsset;
@@ -191,14 +192,29 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "ComposableCameraSystem|Camera", meta = (WorldContext = "WorldContextObject"))
 	static void RemoveModifier(const UObject* WorldContextObject, AComposableCameraPlayerCameraManager* PlayerCameraManager, UComposableCameraNodeModifierDataAsset* ModifierAsset);
 	
-	/** Add a camera action. Multiple actions of the same class are not allowed.
+	/** Add a camera action. Each call creates a separate instance.
 	 * @param WorldContextObject World context object. \n
 	 * @param PlayerCameraManager The player camera manager, must be a ComposableCameraPlayerCameraManager. \n
 	 * @param ActionClass The class of action you want to add. \n
-	 * @param bOnlyForCurrentCamera If this action is only valid for current running camera. If true, the action will expire when the current camera is blended out.
+	 * @param bOnlyForCurrentCamera If true, bind only to the current camera; it may keep ticking as a blend source.
 	 */
 	UFUNCTION(BlueprintCallable, Category = "ComposableCameraSystem|Camera", meta = (WorldContext = "WorldContextObject", DeterminesOutputType = "ActionClass"))
 	static UComposableCameraActionBase* AddAction(const UObject* WorldContextObject, AComposableCameraPlayerCameraManager* PlayerCameraManager, TSubclassOf<UComposableCameraActionBase> ActionClass, bool bOnlyForCurrentCamera = false);
+
+	/** Add a duplicated Action template with caller values applied before registration.
+	 * The custom K2 node supplies typed pins; this raw entry accepts C++ blocks. */
+	UFUNCTION(BlueprintCallable, BlueprintInternalUseOnly, Category = "ComposableCameraSystem|Action",
+		meta = (WorldContext = "WorldContextObject"))
+	static UComposableCameraActionBase* AddActionFromAsset(
+		const UObject* WorldContextObject,
+		AComposableCameraPlayerCameraManager* PlayerCameraManager,
+		UComposableCameraActionTypeAsset* ActionAsset,
+		bool bOnlyForCurrentCamera,
+		const FComposableCameraParameterBlock& Parameters);
+
+	/** Remove one instance by the handle returned from AddAction/AddActionFromAsset. */
+	UFUNCTION(BlueprintCallable, Category = "ComposableCameraSystem|Action")
+	static void RemoveActionInstance(UComposableCameraActionBase* Action);
 
 	/** Expire a camera action.
 	 * @param WorldContextObject World context object. \n

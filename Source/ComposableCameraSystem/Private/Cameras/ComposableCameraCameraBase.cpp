@@ -12,9 +12,12 @@
 #include "Engine/PostProcessUtils.h"
 #include "Engine/Scene.h"
 #include "Modifiers/ComposableCameraModifierBase.h"
+#include "Modifiers/ComposableCameraModifierRuntimeState.h"
+#include "DataAssets/ComposableCameraModifierDataAsset.h"
 #include "Nodes/ComposableCameraCameraNodeBase.h"
 #include "Nodes/ComposableCameraComputeNodeBase.h"
 #include "Utils/ComposableCameraDebugFormatUtils.h"
+#include "UObject/UnrealType.h"
 
 namespace ComposableCameraPosePrivate
 {
@@ -297,6 +300,8 @@ void AComposableCameraCameraBase::EndPlay(const EEndPlayReason::Type EndPlayReas
 	OnActionPreTick.Clear();
 	OnActionPostTick.Clear();
 
+	PreCameraTickActions.Reset();
+	PostCameraTickActions.Reset();
 	PreNodeTickActions.Reset();
 	PostNodeTickActions.Reset();
 }
@@ -304,13 +309,7 @@ void AComposableCameraCameraBase::EndPlay(const EEndPlayReason::Type EndPlayReas
 void AComposableCameraCameraBase::Initialize(AComposableCameraPlayerCameraManager* Manager)
 {
 	CameraManager = Manager;
-
-	// Cache the gameplay-tag string for per-tick Insights scope naming.
-	// `FGameplayTag::ToString` allocates an FString; the previous code
-	// regenerated it every TickCamera, paying one heap alloc per camera
-	// per frame just for the dynamic trace label. CameraTag is
-	// EditDefaultsOnly, so caching once here is safe.
-	CameraTagTraceName = CameraTag.ToString();
+	RefreshCameraTags();
 
 	// Per-node initialization is factored out so type-asset cameras can run it
 	// later, once OnTypeAssetCameraConstructed has populated CameraNodes.
@@ -325,6 +324,24 @@ void AComposableCameraCameraBase::Initialize(AComposableCameraPlayerCameraManage
 	{
 		Manager->BindCameraActionsForNewCamera(this);
 	}
+}
+
+void AComposableCameraCameraBase::RefreshCameraTags()
+{
+	if (CameraTags.IsEmpty() && CameraTag.IsValid())
+	{
+		CameraTags.AddTag(CameraTag);
+	}
+	CameraTag = CameraTags.IsEmpty() ? FGameplayTag::EmptyTag : CameraTags.First();
+
+	// Cache the gameplay-tag string for per-tick Insights scope naming.
+	// `FGameplayTagContainer::ToStringSimple` allocates an FString; the previous code
+	// regenerated it every TickCamera, paying one heap alloc per camera
+	// per frame just for the dynamic trace label. CameraTags is
+	// EditDefaultsOnly, so caching once here is safe.
+	CameraTagsTraceName = CameraTags.IsEmpty()
+		? FString(TEXT("(none)"))
+		: CameraTags.ToStringSimple();
 }
 
 void AComposableCameraCameraBase::InitializeNodes()
@@ -356,8 +373,35 @@ void AComposableCameraCameraBase::InitializeNodes()
 	}
 }
 
-void AComposableCameraCameraBase::ApplyModifiers(const T_NodeModifier& Modifiers)
+void AComposableCameraCameraBase::ApplyModifiers(const T_NodeModifier& Modifiers,
+	bool bApplyNodeTemplateModifiers, bool bApplyLegacyBlueprintModifiers)
 {
+	if (bApplyNodeTemplateModifiers)
+	{
+		bool bHasInPlaceModifier = false;
+		for (const auto& Pair : Modifiers)
+		{
+			const FModifierEntry& Entry = Pair.Value;
+			if (Entry.Asset
+				&& Entry.Asset->ApplyMode
+					== EComposableCameraModifierApplyMode::ModifyExistingInstance)
+			{
+				bHasInPlaceModifier = true;
+				break;
+			}
+		}
+
+		if (bHasInPlaceModifier)
+		{
+			if (!ModifierRuntimeState)
+			{
+				ModifierRuntimeState =
+					NewObject<UComposableCameraModifierRuntimeState>(this);
+			}
+			ModifierRuntimeState->ApplyInitialModifiers(this, Modifiers);
+		}
+	}
+
 	for (UComposableCameraCameraNodeBase* Node : CameraNodes)
 	{
 		if (!Node)
@@ -367,11 +411,150 @@ void AComposableCameraCameraBase::ApplyModifiers(const T_NodeModifier& Modifiers
 		
 		if (const FModifierEntry* Modifier = Modifiers.Find(Node->GetClass()))
 		{
-			if (Modifier->Modifier)
+			if (Modifier->Modifier
+				&& Modifier->Asset
+				&& Modifier->Asset->ApplyMode
+					== EComposableCameraModifierApplyMode::ReactivateCamera)
 			{
-				Modifier->Modifier->ApplyModifier(Node);
+				const bool bUsesNodeTemplate = Modifier->Modifier->UsesNodeTemplateOverride();
+				if ((bUsesNodeTemplate && !bApplyNodeTemplateModifiers)
+					|| (!bUsesNodeTemplate && !bApplyLegacyBlueprintModifiers))
+				{
+					continue;
+				}
+				Modifier->Modifier->ApplyModifierToNode(Node);
 			}
 		}
+	}
+}
+
+void AComposableCameraCameraBase::ApplyEffectiveModifiers(
+	const T_EffectiveModifier& Modifiers,
+	bool bApplyNodeTemplateModifiers,
+	bool bApplyLegacyBlueprintModifiers)
+{
+	if (bApplyNodeTemplateModifiers)
+	{
+		bool bHasInPlaceModifier = false;
+		for (const auto& NodePair : Modifiers)
+		{
+			for (const auto& PropertyPair : NodePair.Value)
+			{
+				const FModifierEntry& Entry = PropertyPair.Value;
+				if (Entry.Asset
+					&& Entry.Asset->ApplyMode
+						== EComposableCameraModifierApplyMode::ModifyExistingInstance)
+				{
+					bHasInPlaceModifier = true;
+					break;
+				}
+			}
+			if (bHasInPlaceModifier)
+			{
+				break;
+			}
+		}
+
+		if (bHasInPlaceModifier)
+		{
+			if (!ModifierRuntimeState)
+			{
+				ModifierRuntimeState =
+					NewObject<UComposableCameraModifierRuntimeState>(this);
+			}
+			ModifierRuntimeState->ApplyInitialEffectiveModifiers(
+				this, Modifiers);
+		}
+	}
+
+	for (UComposableCameraCameraNodeBase* Node : CameraNodes)
+	{
+		if (!Node)
+		{
+			continue;
+		}
+
+		const T_PropertyModifier* PropertyModifiers =
+			Modifiers.Find(Node->GetClass());
+		if (!PropertyModifiers)
+		{
+			continue;
+		}
+
+		if (const FModifierEntry* WholeNodeModifier =
+			PropertyModifiers->Find(NAME_None))
+		{
+			if (WholeNodeModifier->Modifier
+				&& WholeNodeModifier->Asset
+				&& WholeNodeModifier->Asset->ApplyMode
+					== EComposableCameraModifierApplyMode::ReactivateCamera
+				&& bApplyLegacyBlueprintModifiers)
+			{
+				WholeNodeModifier->Modifier->ApplyModifierToNode(Node);
+			}
+			continue;
+		}
+
+		if (!bApplyNodeTemplateModifiers)
+		{
+			continue;
+		}
+		for (const auto& PropertyModifier : *PropertyModifiers)
+		{
+			const FModifierEntry& Entry = PropertyModifier.Value;
+			if (!PropertyModifier.Key.IsNone()
+				&& Entry.Modifier
+				&& Entry.Asset
+				&& Entry.Asset->ApplyMode
+					== EComposableCameraModifierApplyMode::ReactivateCamera)
+			{
+				Entry.Modifier->ApplyModifierPropertyToNode(
+					Node, PropertyModifier.Key);
+			}
+		}
+	}
+}
+
+void AComposableCameraCameraBase::ReconcileInPlaceEffectiveModifiersFromAssets(
+	const T_EffectiveModifier& Modifiers)
+{
+	if (!ModifierRuntimeState)
+	{
+		ModifierRuntimeState = NewObject<UComposableCameraModifierRuntimeState>(this);
+	}
+	ModifierRuntimeState->ReconcileEffectiveModifiersFromAssets(
+		this, Modifiers);
+}
+
+void AComposableCameraCameraBase::ReconcileInPlaceModifiersFromAssets(
+	const T_NodeModifier& Modifiers)
+{
+	if (!ModifierRuntimeState)
+	{
+		ModifierRuntimeState = NewObject<UComposableCameraModifierRuntimeState>(this);
+	}
+	ModifierRuntimeState->ReconcileModifiersFromAssets(this, Modifiers);
+}
+
+void AComposableCameraCameraBase::ReconcileInPlaceModifiers(
+	const T_NodeModifier& Modifiers,
+	UComposableCameraModifierTransitionBase* TransitionOverride)
+{
+	if (!ModifierRuntimeState)
+	{
+		ModifierRuntimeState = NewObject<UComposableCameraModifierRuntimeState>(this);
+	}
+	ModifierRuntimeState->ReconcileModifiers(
+		this, Modifiers, TransitionOverride);
+}
+
+void AComposableCameraCameraBase::BuildModifierDebugSnapshot(
+	TArray<FComposableCameraModifierPropertyDebugSnapshot>& Out) const
+{
+	Out.Reset();
+	if (ModifierRuntimeState)
+	{
+		ModifierRuntimeState->BuildDebugSnapshot(Out);
 	}
 }
 
@@ -464,59 +647,31 @@ void AComposableCameraCameraBase::BeginPlayCamera()
 
 namespace
 {
-	// Fire every node-scoped action whose TargetNodeClass matches Node's class.
+	// Fire camera-scoped actions, or node-scoped actions whose exact target
+	// class matches this node.
 	// Pose is passed as the same in/out slot (matching TickNode's convention -
 	// actions mutate the pose in place and the next node/action sees the update).
 	//
-	// `Action->OnExecute` is allowed to call `PCM->AddCameraAction(...)` /
-	// `RemoveCameraAction(...)`, which routes to
-	// `AComposableCameraCameraBase::RegisterNodeAction` /
-	// `UnregisterNodeAction` and mutates the very `PreNodeTickActions` /
-	// `PostNodeTickActions` array we'd be iterating. The PCM-level
-	// `bIsUpdatingActions` reentrancy gate covers the PCM `CameraActions`
-	// TSet but does not cover the camera-side TArrays. Register/Unregister
-	// happen unconditionally inside the public Add/Remove paths. Iterating
-	// a stable snapshot decouples "what fires this broadcast" from "what
-	// gets registered for next broadcast"; AddUnique-induced reallocation
-	// or RemoveSingleSwap-induced re-ordering during OnExecute can no
-	// longer invalidate the iteration. New registrations made during
-	// OnExecute take effect on the NEXT broadcast (matches the PCM
-	// pending-add semantics for symmetry).
-	//
-	// Snapshot stores `TWeakObjectPtr<UComposableCameraActionBase>`, not
-	// raw pointers. `Action->OnExecute` is a `BlueprintNativeEvent`, so
-	// the body can run arbitrary BP that triggers GC mid-loop (sync
-	// `LoadObject`, async-load completion, BP exception unwind, slow BP
-	// that yields to the engine for a tick). A re-entrant
-	// `RemoveCameraAction(SiblingAction)` from inside one OnExecute drops
-	// the sibling from `CameraActions` TSet AND from this NodeActions
-	// array. So the next GC pass legitimately reclaims the sibling and
-	// any later `Action->TargetNodeClass` deref against our raw snapshot
-	// reads freed memory. Weak ptr survives the reclaim cleanly; the
-	// per-iteration `Pin() + IsValid` check skips reclaimed entries.
-	//
-	// `TInlineAllocator<8>` keeps the snapshot on the stack for the
-	// typical "0- actions targeting this node class" case; oversized
-	// cases spill once.
-	FORCEINLINE void BroadcastNodeActions(
-		const TArray<UComposableCameraActionBase*>& NodeActions,
-		UComposableCameraCameraNodeBase* Node,
+	// Blueprint callbacks may add/remove actions or trigger GC. Snapshot weak
+	// pointers before iterating; additions start at the next broadcast, and
+	// removed/reclaimed actions are skipped safely. Inline storage covers the
+	// typical small action list.
+	FORCEINLINE void BroadcastActions(
+		const TArray<TWeakObjectPtr<UComposableCameraActionBase>>& Actions,
+		AComposableCameraCameraBase* Camera,
+		UClass* NodeClass,
 		float DeltaTime,
 		FComposableCameraPose& InOutPose)
 	{
-		if (NodeActions.Num() == 0)
+		if (Actions.IsEmpty())
 		{
 			return;
 		}
 
-		UClass* NodeClass = Node->GetClass();
-
-		// Build a weak-ptr snapshot. Convert from the live raw-pointer
-		// array up-front so the loop body can iterate without touching
-		// `NodeActions` (which `OnExecute` may mutate).
+		// A callback may add or remove actions while this broadcast runs.
 		TArray<TWeakObjectPtr<UComposableCameraActionBase>, TInlineAllocator<8>> Snapshot;
-		Snapshot.Reserve(NodeActions.Num());
-		for (UComposableCameraActionBase* Action : NodeActions)
+		Snapshot.Reserve(Actions.Num());
+		for (const TWeakObjectPtr<UComposableCameraActionBase>& Action : Actions)
 		{
 			Snapshot.Emplace(Action);
 		}
@@ -530,12 +685,35 @@ namespace
 				// the action was destroyed by an unrelated path).
 				continue;
 			}
-			if (Action->TargetNodeClass == NodeClass)
+			if (!NodeClass || Action->TargetNodeClass == NodeClass)
 			{
-				Action->OnExecute(DeltaTime, InOutPose, InOutPose);
+				Action->ExecuteForCamera(Camera, DeltaTime, InOutPose, InOutPose);
 			}
 		}
 	}
+}
+
+void AComposableCameraCameraBase::RegisterCameraAction(UComposableCameraActionBase* Action)
+{
+	if (!Action)
+	{
+		return;
+	}
+	if (Action->ExecutionType == EComposableCameraActionExecutionType::PreCameraTick)
+	{
+		PreCameraTickActions.AddUnique(TWeakObjectPtr<UComposableCameraActionBase>(Action));
+	}
+	else if (Action->ExecutionType == EComposableCameraActionExecutionType::PostCameraTick)
+	{
+		PostCameraTickActions.AddUnique(TWeakObjectPtr<UComposableCameraActionBase>(Action));
+	}
+}
+
+void AComposableCameraCameraBase::UnregisterCameraAction(UComposableCameraActionBase* Action)
+{
+	const TWeakObjectPtr<UComposableCameraActionBase> WeakAction(Action);
+	PreCameraTickActions.RemoveSingleSwap(WeakAction);
+	PostCameraTickActions.RemoveSingleSwap(WeakAction);
 }
 
 void AComposableCameraCameraBase::RegisterNodeAction(UComposableCameraActionBase* Action)
@@ -554,11 +732,11 @@ void AComposableCameraCameraBase::RegisterNodeAction(UComposableCameraActionBase
 
 	if (Action->ExecutionType == EComposableCameraActionExecutionType::PreNodeTick)
 	{
-		PreNodeTickActions.AddUnique(Action);
+		PreNodeTickActions.AddUnique(TWeakObjectPtr<UComposableCameraActionBase>(Action));
 	}
 	else if (Action->ExecutionType == EComposableCameraActionExecutionType::PostNodeTick)
 	{
-		PostNodeTickActions.AddUnique(Action);
+		PostNodeTickActions.AddUnique(TWeakObjectPtr<UComposableCameraActionBase>(Action));
 	}
 }
 
@@ -568,8 +746,9 @@ void AComposableCameraCameraBase::UnregisterNodeAction(UComposableCameraActionBa
 	{
 		return;
 	}
-	PreNodeTickActions.RemoveSingleSwap(Action);
-	PostNodeTickActions.RemoveSingleSwap(Action);
+	const TWeakObjectPtr<UComposableCameraActionBase> WeakAction(Action);
+	PreNodeTickActions.RemoveSingleSwap(WeakAction);
+	PostNodeTickActions.RemoveSingleSwap(WeakAction);
 }
 
 DECLARE_CYCLE_STAT(TEXT("Camera TickCamera"), STAT_CCS_Camera_TickCamera, STATGROUP_CCS);
@@ -595,7 +774,7 @@ FComposableCameraPose AComposableCameraCameraBase::TickCamera(float DeltaTime)
 	TRACE_CPUPROFILER_EVENT_SCOPE(CCS_Camera_TickCamera);
 	// Read the cached trace name from Initialize. Never allocate a fresh
 	// FString here on the per-tick hot path.
-	TRACE_CPUPROFILER_EVENT_SCOPE_STR(*CameraTagTraceName);
+	TRACE_CPUPROFILER_EVENT_SCOPE_STR(*CameraTagsTraceName);
 
 	// Per-frame memoization. Under the snapshot-DAG evaluation topology,
 	// a single camera can be reached via multiple paths in one frame
@@ -613,6 +792,11 @@ FComposableCameraPose AComposableCameraCameraBase::TickCamera(float DeltaTime)
 		return CameraPose;
 	}
 
+	if (ModifierRuntimeState && ModifierRuntimeState->HasBindings())
+	{
+		ModifierRuntimeState->BeginCameraTick(DeltaTime);
+	}
+
 #if WITH_EDITOR
 	ClearNodeDebugFlags();
 #endif
@@ -620,6 +804,7 @@ FComposableCameraPose AComposableCameraCameraBase::TickCamera(float DeltaTime)
 	FComposableCameraPose NewCameraPose = CameraPose;
 
 	// Execute pre-tick actions.
+	BroadcastActions(PreCameraTickActions, this, nullptr, DeltaTime, NewCameraPose);
 	OnActionPreTick.Broadcast(DeltaTime, NewCameraPose, NewCameraPose);
 
 	// Do something before camera tick begins.
@@ -648,9 +833,13 @@ FComposableCameraPose AComposableCameraCameraBase::TickCamera(float DeltaTime)
 					UComposableCameraCameraNodeBase* Node = CameraNodes[Entry.CameraNodeIndex];
 					if (Node)
 					{
-						BroadcastNodeActions(PreNodeTickActions, Node, DeltaTime, NewCameraPose);
+						BroadcastActions(PreNodeTickActions, this, Node->GetClass(), DeltaTime, NewCameraPose);
+						if (ModifierRuntimeState)
+						{
+							ModifierRuntimeState->ApplyForNode(Node);
+						}
 						Node->TickNode(DeltaTime, NewCameraPose, NewCameraPose);
-						BroadcastNodeActions(PostNodeTickActions, Node, DeltaTime, NewCameraPose);
+						BroadcastActions(PostNodeTickActions, this, Node->GetClass(), DeltaTime, NewCameraPose);
 					}
 				}
 				break;
@@ -695,17 +884,27 @@ FComposableCameraPose AComposableCameraCameraBase::TickCamera(float DeltaTime)
 			UComposableCameraCameraNodeBase* Node = CameraNodes[LegIdx];
 			if (Node)
 			{
-				BroadcastNodeActions(PreNodeTickActions, Node, DeltaTime, NewCameraPose);
+				BroadcastActions(PreNodeTickActions, this, Node->GetClass(), DeltaTime, NewCameraPose);
+				if (ModifierRuntimeState)
+				{
+					ModifierRuntimeState->ApplyForNode(Node);
+				}
 				Node->TickNode(DeltaTime, NewCameraPose, NewCameraPose);
-				BroadcastNodeActions(PostNodeTickActions, Node, DeltaTime, NewCameraPose);
+				BroadcastActions(PostNodeTickActions, this, Node->GetClass(), DeltaTime, NewCameraPose);
 			}
 		}
+	}
+
+	if (ModifierRuntimeState)
+	{
+		ModifierRuntimeState->EndCameraTick();
 	}
 
 	// Do something when camera tick finishes.
 	OnPostTick.Broadcast(DeltaTime, NewCameraPose, NewCameraPose);
 
 	// Execute post-tick actions.
+	BroadcastActions(PostCameraTickActions, this, nullptr, DeltaTime, NewCameraPose);
 	OnActionPostTick.Broadcast(DeltaTime, NewCameraPose, NewCameraPose);
 
 	// Cache camera pose.
@@ -745,6 +944,186 @@ UComposableCameraCameraNodeBase* AComposableCameraCameraBase::GetNodeByClass(
 
 #if WITH_EDITOR
 
+namespace ComposableCameraDebugSnapshotPrivate
+{
+	FString ExportPropertyValue(const FProperty* Property, const void* Container)
+	{
+		if (!Property || !Container)
+		{
+			return TEXT("(unavailable)");
+		}
+
+		FString Value;
+		Property->ExportTextItem_Direct(
+			Value,
+			Property->ContainerPtrToValuePtr<void>(Container),
+			nullptr,
+			nullptr,
+			PPF_None);
+		return Value;
+	}
+
+	bool TryExportPropertyPath(
+		const UObject* RootObject,
+		FName PropertyPath,
+		FString& OutValue,
+		int32& OutTopLevelFieldOffset)
+	{
+		OutTopLevelFieldOffset = INDEX_NONE;
+		if (!RootObject || PropertyPath.IsNone())
+		{
+			return false;
+		}
+
+		FString ParentName;
+		FString ChildName;
+		if (!PropertyPath.ToString().Split(TEXT("."), &ParentName, &ChildName))
+		{
+			const FProperty* Property = FindFProperty<FProperty>(RootObject->GetClass(), PropertyPath);
+			if (!Property || !Property->HasAnyPropertyFlags(CPF_Edit))
+			{
+				return false;
+			}
+			OutTopLevelFieldOffset = Property->GetOffset_ForInternal();
+			OutValue = ExportPropertyValue(Property, RootObject);
+			return true;
+		}
+
+		const FObjectPropertyBase* ParentProperty = CastField<FObjectPropertyBase>(
+			FindFProperty<FProperty>(RootObject->GetClass(), FName(*ParentName)));
+		if (!ParentProperty)
+		{
+			return false;
+		}
+		OutTopLevelFieldOffset = ParentProperty->GetOffset_ForInternal();
+
+		const UObject* Subobject = ParentProperty->GetObjectPropertyValue(
+			ParentProperty->ContainerPtrToValuePtr<void>(RootObject));
+		const FProperty* ChildProperty = Subobject
+			? FindFProperty<FProperty>(Subobject->GetClass(), FName(*ChildName))
+			: nullptr;
+		if (!ChildProperty || !ChildProperty->HasAnyPropertyFlags(CPF_Edit))
+		{
+			return false;
+		}
+
+		OutValue = ExportPropertyValue(ChildProperty, Subobject);
+		return true;
+	}
+
+	FString FormatResolvedInputValue(
+		const FComposableCameraRuntimeDataBlock& DataBlock,
+		int32 Offset,
+		const FComposableCameraNodePinDeclaration& Pin)
+	{
+		const UScriptStruct* StructType = Pin.StructType.Get();
+		if (Pin.PinType != EComposableCameraPinType::Struct || !StructType)
+		{
+			return ComposableCameraDebug::FormatTypedValue(
+				DataBlock, Offset, Pin.PinType, Pin.EnumType);
+		}
+
+		const void* StructMemory = nullptr;
+		if (DataBlock.IsStructSlotOffset(Offset))
+		{
+			if (const FInstancedStruct* Slot = DataBlock.TryGetStructSlot(Offset, StructType))
+			{
+				StructMemory = Slot->GetMemory();
+			}
+		}
+		else
+		{
+			const FComposableCameraRuntimeDataBlock::FSlotShape* Shape = DataBlock.SlotShapes.Find(Offset);
+			const int32 StructSize = StructType->GetStructureSize();
+			if (Shape
+				&& Shape->PinType == EComposableCameraPinType::Struct
+				&& Shape->StructType.Get() == StructType
+				&& Shape->Size == StructSize
+				&& Offset >= 0
+				&& Offset + StructSize <= DataBlock.Storage.Num())
+			{
+				StructMemory = DataBlock.Storage.GetData() + Offset;
+			}
+		}
+
+		if (!StructMemory)
+		{
+			return TEXT("(no data)");
+		}
+
+		FString Value;
+		StructType->ExportText(
+			Value, StructMemory, nullptr, nullptr, PPF_None, nullptr);
+		return Value;
+	}
+
+	void AppendRemainingEditableProperties(
+		const UObject* Object,
+		const FString& NamePrefix,
+		const FString& DisplayPrefix,
+		const TSet<FName>& DeclaredParameterNames,
+		TArray<FComposableCameraNodeParameterDebugValue>& OutValues,
+		bool bSkipNodeBaseProperties)
+	{
+		if (!Object)
+		{
+			return;
+		}
+
+		for (TFieldIterator<FProperty> PropIt(Object->GetClass()); PropIt; ++PropIt)
+		{
+			const FProperty* Property = *PropIt;
+			if (!Property || !Property->HasAnyPropertyFlags(CPF_Edit))
+			{
+				continue;
+			}
+			if (bSkipNodeBaseProperties
+				&& Property->GetOwnerClass() == UComposableCameraCameraNodeBase::StaticClass())
+			{
+				continue;
+			}
+
+			const FString PropertyName = NamePrefix + Property->GetName();
+			const FName ParameterName(*PropertyName);
+			const FString PropertyDisplayName = DisplayPrefix + Property->GetDisplayNameText().ToString();
+
+			if (Property->HasAnyPropertyFlags(CPF_InstancedReference))
+			{
+				const FObjectPropertyBase* ObjectProperty = CastField<FObjectPropertyBase>(Property);
+				const UObject* Subobject = ObjectProperty
+					? ObjectProperty->GetObjectPropertyValue(ObjectProperty->ContainerPtrToValuePtr<void>(Object))
+					: nullptr;
+				if (Subobject)
+				{
+					AppendRemainingEditableProperties(
+						Subobject,
+						PropertyName + TEXT("."),
+						PropertyDisplayName + TEXT(" > "),
+						DeclaredParameterNames,
+						OutValues,
+						/*bSkipNodeBaseProperties=*/false);
+				}
+				else if (!DeclaredParameterNames.Contains(ParameterName))
+				{
+					OutValues.Add({ ParameterName, PropertyDisplayName, TEXT("null") });
+				}
+				continue;
+			}
+
+			if (DeclaredParameterNames.Contains(ParameterName))
+			{
+				continue;
+			}
+
+			OutValues.Add({
+				ParameterName,
+				PropertyDisplayName,
+				ExportPropertyValue(Property, Object)
+			});
+		}
+	}
+}
+
 void AComposableCameraCameraBase::ClearNodeDebugFlags()
 {
 	for (UComposableCameraCameraNodeBase* Node : CameraNodes)
@@ -779,20 +1158,82 @@ FComposableCameraDebugSnapshot AComposableCameraCameraBase::SnapshotDebugState()
 		Entry.bWasTicked = Node->bDebugWasTickedThisFrame;
 		Entry.PoseAfterNode = Node->DebugPoseAfterTick;
 
+		TArray<FComposableCameraNodePinDeclaration> Pins;
+		Node->GatherAllPinDeclarations(Pins);
+		TSet<FName> DeclaredParameterNames;
+		DeclaredParameterNames.Reserve(Pins.Num());
+
+		// Capture declared input parameters first. Resolved RuntimeDataBlock slots
+		// are the current source of truth for wires, exposed parameters, defaults,
+		// and nodes that opt out of auto-resolution. Modifier-owned fields outrank
+		// those slots and are read from the live runtime property instead. Pins
+		// without either source fall back to their declaration default.
+		for (const FComposableCameraNodePinDeclaration& Pin : Pins)
+		{
+			if (Pin.Direction != EComposableCameraPinDirection::Input)
+			{
+				continue;
+			}
+
+			DeclaredParameterNames.Add(Pin.PinName);
+			FString PropertyValue;
+			int32 TopLevelFieldOffset = INDEX_NONE;
+			const bool bHasPropertyValue = ComposableCameraDebugSnapshotPrivate::TryExportPropertyPath(
+				Node, Pin.PinName, PropertyValue, TopLevelFieldOffset);
+			const bool bModifierOwnsProperty = bHasPropertyValue
+				&& Node->HasModifierOverrideFieldOffset(TopLevelFieldOffset);
+
+			int32 ResolvedOffset = INDEX_NONE;
+			const bool bHasResolvedValue = OwnedRuntimeDataBlock
+				&& OwnedRuntimeDataBlock->IsValid()
+				&& OwnedRuntimeDataBlock->ResolveInputPinOffset(i, Pin.PinName, ResolvedOffset);
+
+			FString Formatted;
+			if (bHasResolvedValue
+				&& !bModifierOwnsProperty
+				&& Pin.PinType != EComposableCameraPinType::Delegate)
+			{
+				Formatted = ComposableCameraDebugSnapshotPrivate::FormatResolvedInputValue(
+					*OwnedRuntimeDataBlock, ResolvedOffset, Pin);
+			}
+			else if (bHasPropertyValue)
+			{
+				Formatted = MoveTemp(PropertyValue);
+			}
+			else
+			{
+				Formatted = Pin.DefaultValueString;
+			}
+
+			const FString DisplayName = Pin.DisplayName.IsEmpty()
+				? FName::NameToDisplayString(Pin.PinName.ToString(), /*bIsBool=*/false)
+				: Pin.DisplayName.ToString();
+			Entry.ParameterValues.Add({ Pin.PinName, DisplayName, MoveTemp(Formatted) });
+		}
+
+		// Add editable node properties that are not declared as input pins. This
+		// keeps Details-only arrays, curves, and other non-pin parameters visible.
+		ComposableCameraDebugSnapshotPrivate::AppendRemainingEditableProperties(
+			Node,
+			FString(),
+			FString(),
+			DeclaredParameterNames,
+			Entry.ParameterValues,
+			/*bSkipNodeBaseProperties=*/true);
+
 		// Read output pin values from the data block.
 		if (OwnedRuntimeDataBlock && OwnedRuntimeDataBlock->IsValid())
 		{
-			TArray<FComposableCameraNodePinDeclaration> Pins;
-			const_cast<UComposableCameraCameraNodeBase*>(Node)->GatherAllPinDeclarations(Pins);
-
 			for (const FComposableCameraNodePinDeclaration& Pin : Pins)
 			{
-				if (Pin.Direction == EComposableCameraPinDirection::Output)
+				if (Pin.Direction != EComposableCameraPinDirection::Output)
 				{
-					FString Formatted = ComposableCameraDebug::FormatOutputPinValue(
-						*OwnedRuntimeDataBlock, i, Pin.PinName, Pin.PinType, Pin.EnumType);
-					Entry.OutputPinValues.Emplace(Pin.PinName, MoveTemp(Formatted));
+					continue;
 				}
+
+				FString Formatted = ComposableCameraDebug::FormatOutputPinValue(
+					*OwnedRuntimeDataBlock, i, Pin.PinName, Pin.PinType, Pin.EnumType);
+				Entry.OutputPinValues.Emplace(Pin.PinName, MoveTemp(Formatted));
 			}
 		}
 

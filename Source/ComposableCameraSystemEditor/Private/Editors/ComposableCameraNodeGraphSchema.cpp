@@ -639,7 +639,7 @@ void UComposableCameraNodeGraphSchema::GetContextMenuActions(class UToolMenu* Me
 	// add the pin quick-actions if the pin is an exposable
 	// camera-node data input.
 	//
-	// node-only -> add the node-body actions (Delete).
+	// node-only -> add runtime-debug and/or Delete node-body actions.
 	//
 	// neither->nothing (the graph-level palette is built elsewhere, in
 	// GetGraphContextActions).
@@ -672,7 +672,7 @@ void UComposableCameraNodeGraphSchema::GetContextMenuActions(class UToolMenu* Me
 		return;
 	}
 
-	if (ClickedNode && ClickedNode->CanUserDeleteNode())
+	if (ClickedNode)
 	{
 		BuildNodeContextMenuActions(Menu, ClickedNode);
 	}
@@ -735,8 +735,54 @@ void UComposableCameraNodeGraphSchema::BuildPinContextMenuActions(UToolMenu* Men
 void UComposableCameraNodeGraphSchema::BuildNodeContextMenuActions(UToolMenu* Menu,
 	const UEdGraphNode* ClickedNode)
 {
-	// Callers already verified: non-null ClickedNode, no ClickedPin,
-	// CanUserDeleteNode() == true. The dispatcher owns that classification.
+	// Caller already verified: non-null ClickedNode and no ClickedPin.
+	// Runtime-debug navigation applies only to active camera nodes. Delete
+	// remains available only for user-deletable nodes.
+	if (const UComposableCameraNodeGraphNode* CameraNode =
+		Cast<UComposableCameraNodeGraphNode>(ClickedNode))
+	{
+		if (!CameraNode->NodeTemplate ||
+			!CameraNode->NodeTemplate->IsA<UComposableCameraComputeNodeBase>())
+		{
+			FToolMenuSection& DebugSection = Menu->AddSection(
+				"ComposableCameraRuntimeDebug",
+				LOCTEXT("RuntimeDebugSectionLabel", "Runtime Debug"));
+			const TWeakObjectPtr<UComposableCameraNodeGraphNode> WeakCameraNode(
+				const_cast<UComposableCameraNodeGraphNode*>(CameraNode));
+
+			DebugSection.AddMenuEntry(
+				"ShowRuntimeDebugInformation",
+				LOCTEXT("ShowRuntimeDebugInformation", "Show Debug Information"),
+				LOCTEXT("ShowRuntimeDebugInformationTooltip",
+					"Open Runtime Debug, reveal this active node, and expand its values."),
+				FSlateIcon(FAppStyle::GetAppStyleSetName(), "Icons.Info"),
+				FUIAction(
+					FExecuteAction::CreateLambda([WeakCameraNode]()
+					{
+						UComposableCameraNodeGraphNode* Node = WeakCameraNode.Get();
+						if (!Node || !Node->DebugState.bHasRuntimeData || !Node->DebugState.bIsActive)
+						{
+							return;
+						}
+						if (UComposableCameraNodeGraph* Graph =
+							Cast<UComposableCameraNodeGraph>(Node->GetGraph()))
+						{
+							Graph->RequestShowRuntimeDebug(Node);
+						}
+					}),
+					FCanExecuteAction::CreateLambda([WeakCameraNode]()
+					{
+						const UComposableCameraNodeGraphNode* Node = WeakCameraNode.Get();
+						return Node && Node->DebugState.bHasRuntimeData && Node->DebugState.bIsActive;
+					})));
+		}
+	}
+
+	if (!ClickedNode->CanUserDeleteNode())
+	{
+		return;
+	}
+
 	//
 	// The FGenericCommands::Delete binding routes through the graph editor's
 	// command list (see FComposableCameraTypeAssetEditorToolkit::CreateGraphEditorCommands),

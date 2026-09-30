@@ -66,6 +66,64 @@ UComposableCameraDirector* UComposableCameraContextStack::EnsureContext(
 	return NewDirector;
 }
 
+FName UComposableCameraContextStack::PushTemporaryContext(
+	AComposableCameraPlayerCameraManager* PlayerCameraManager,
+	FName DebugNameHint)
+{
+	if (Entries.IsEmpty())
+	{
+		UE_LOG(LogComposableCameraSystem, Warning, TEXT(
+			"Cannot push a temporary camera context without a base context to restore."));
+		return NAME_None;
+	}
+
+	FString HintToken = DebugNameHint.IsNone()
+		? TEXT("Scoped")
+		: DebugNameHint.ToString();
+	for (int32 CharacterIndex = 0; CharacterIndex < HintToken.Len(); ++CharacterIndex)
+	{
+		TCHAR& Character = HintToken[CharacterIndex];
+		if (!FChar::IsAlnum(Character) && Character != TEXT('_'))
+		{
+			Character = TEXT('_');
+		}
+	}
+	HintToken.LeftInline(48, EAllowShrinking::No);
+	FName ContextName;
+	do
+	{
+		++NextTemporaryContextSerial;
+		ContextName = FName(*FString::Printf(
+			TEXT("__CCS_Temporary_%s_%llu"),
+			*HintToken,
+			NextTemporaryContextSerial));
+	}
+	while (IsContextNameInUse(ContextName));
+
+	const FName DirectorName = MakeUniqueObjectName(
+		PlayerCameraManager ? static_cast<UObject*>(PlayerCameraManager) : GetTransientPackage(),
+		UComposableCameraDirector::StaticClass(),
+		*FString::Printf(TEXT("Director_%s"), *ContextName.ToString()));
+	UComposableCameraDirector* NewDirector = NewObject<UComposableCameraDirector>(
+		PlayerCameraManager,
+		UComposableCameraDirector::StaticClass(),
+		DirectorName);
+	if (!NewDirector)
+	{
+		return NAME_None;
+	}
+
+	FComposableCameraContextEntry& NewEntry = Entries.AddDefaulted_GetRef();
+	NewEntry.Director = NewDirector;
+	NewEntry.ContextName = ContextName;
+
+	UE_LOG(LogComposableCameraSystem, Log, TEXT(
+		"Pushed temporary camera context '%s'. Stack depth: %d."),
+		*ContextName.ToString(),
+		Entries.Num());
+	return ContextName;
+}
+
 void UComposableCameraContextStack::PopContext(
 	FName ContextName,
 	AComposableCameraPlayerCameraManager* PlayerCameraManager,
@@ -509,4 +567,18 @@ int32 UComposableCameraContextStack::FindContextIndex(FName ContextName) const
 		}
 	}
 	return INDEX_NONE;
+}
+
+bool UComposableCameraContextStack::IsContextNameInUse(FName ContextName) const
+{
+	if (FindContextIndex(ContextName) != INDEX_NONE)
+	{
+		return true;
+	}
+
+	return PendingDestroyEntries.ContainsByPredicate(
+		[ContextName](const FComposableCameraContextEntry& Entry)
+		{
+			return Entry.ContextName == ContextName;
+		});
 }

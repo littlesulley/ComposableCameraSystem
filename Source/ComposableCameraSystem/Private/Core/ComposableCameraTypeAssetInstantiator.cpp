@@ -17,6 +17,16 @@ namespace UE::ComposableCameras
 		UComposableCameraTypeAsset* TypeAsset,
 		const FComposableCameraParameterBlock& ParameterBlock)
 	{
+		auto NoPreInitializeCallback = [](AComposableCameraCameraBase*) {};
+		ConstructCameraFromTypeAsset(Camera, TypeAsset, ParameterBlock, NoPreInitializeCallback);
+	}
+
+	void ConstructCameraFromTypeAsset(
+		AComposableCameraCameraBase* Camera,
+		UComposableCameraTypeAsset* TypeAsset,
+		const FComposableCameraParameterBlock& ParameterBlock,
+		TFunctionRef<void(AComposableCameraCameraBase*)> PreInitializeNodeCallback)
+	{
 		if (!Camera || !TypeAsset)
 		{
 			return;
@@ -24,7 +34,12 @@ namespace UE::ComposableCameras
 
 		// Propagate camera-identity fields from the type asset onto the spawned
 		// instance so modifiers and context-stack resume logic see the right values.
-		Camera->CameraTag = TypeAsset->CameraTag;
+		Camera->CameraTags = TypeAsset->CameraTags;
+		if (Camera->CameraTags.IsEmpty() && TypeAsset->CameraTag.IsValid())
+		{
+			Camera->CameraTags.AddTag(TypeAsset->CameraTag);
+		}
+		Camera->RefreshCameraTags();
 		Camera->bDefaultPreserveCameraPose = TypeAsset->bDefaultPreserveCameraPose;
 
 		// Stamp the source type asset and parameter block onto the camera so that
@@ -255,6 +270,11 @@ namespace UE::ComposableCameras
 			}
 			Camera->ComputeNodes = MoveTemp(Reordered);
 		}
+
+		// Give the PCM a narrow pre-initialize seam after CameraNodes is populated
+		// and every node has its RuntimeDataBlock. Generic node-property modifiers
+		// use this to replace values before OnInitialize builds per-node caches.
+		PreInitializeNodeCallback(Camera);
 
 		// Run per-node Initialize now that CameraNodes is populated and every node is
 		// wired to the RuntimeDataBlock. Director::ActivateNewCamera already called

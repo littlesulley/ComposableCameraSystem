@@ -21,7 +21,9 @@ class UComposableCameraNodeModifierDataAsset;
 class UComposableCameraModifierManager;
 class UComposableCameraDirector;
 class UComposableCameraContextStack;
+class UComposableCameraActionTypeAsset;
 class UComposableCameraTransitionBase;
+struct FComposableCameraParameterBlock;
 struct FComposableCameraRuntimeDataBlock;
 struct FDisplayDebugManager;
 	
@@ -90,6 +92,20 @@ public:
 		const FComposableCameraParameterBlock& Parameters,
 		FName ContextName = NAME_None);
 
+	/**
+	 * Transactionally activate a Type Asset inside a new temporary Context.
+	 * Captures the current Director before the push so entry transitions retain
+	 * the correct reference source. Failure pops the empty Context and returns
+	 * the previously running camera with OutTemporaryContextName = NAME_None.
+	 */
+	AComposableCameraCameraBase* ActivateNewCameraFromTypeAssetInTemporaryContext(
+		UComposableCameraTypeAsset* CameraTypeAsset,
+		UComposableCameraTransitionDataAsset* TransitionOverride,
+		const FComposableCameraActivateParams& ActivationParams,
+		const FComposableCameraParameterBlock& Parameters,
+		FName DebugNameHint,
+		FName& OutTemporaryContextName);
+
 	AComposableCameraCameraBase* ReactivateCurrentCamera(UComposableCameraTransitionBase* Transition);
 
 	// Resume a given camera with a given transition.
@@ -99,7 +115,22 @@ public:
 	const TSet<UComposableCameraActionBase*>& GetCameraActions();
 	void AddModifier(UComposableCameraNodeModifierDataAsset* ModifierAsset);
 	void RemoveModifier(UComposableCameraNodeModifierDataAsset* ModifierAsset);
+	/**
+	 * Applies a source-owned modifier-set replacement.
+	 *
+	 * Set bReactivateCurrentCamera false when a new Camera Type activation will
+	 * immediately follow. The new camera construction path resolves and applies
+	 * the updated Modifier set, avoiding an unnecessary intermediate activation.
+	 */
+	void ReplaceModifiers(
+		TConstArrayView<UComposableCameraNodeModifierDataAsset*> ModifierAssetsToRemove,
+		TConstArrayView<UComposableCameraNodeModifierDataAsset*> ModifierAssetsToAdd,
+		bool bReactivateCurrentCamera = true);
+	/** Recompute ModifierManager selection without rebuilding or mutating the running camera. */
+	void RefreshEffectiveModifierSelection();
 	void ApplyModifiers(AComposableCameraCameraBase* Camera, bool bRefreshModifierData = false);
+	/** Last modifier-selection decision for this exact running camera; debug only. */
+	FString GetRunningCameraModifierDecision() const;
 
 	// Called when modifier is added or removed. When this happens, the modifier data will be refreshed and the current running camera may be re-activated.
 	void OnModifierChanged();
@@ -107,6 +138,10 @@ public:
 	
 	// ~~~~ Actions.
 	UComposableCameraActionBase* AddCameraAction(TSubclassOf<UComposableCameraActionBase> ActionClass, bool bOnlyForCurrentCamera);
+	UComposableCameraActionBase* AddCameraActionFromAsset(
+		UComposableCameraActionTypeAsset* ActionAsset,
+		const FComposableCameraParameterBlock& Parameters,
+		bool bOnlyForCurrentCamera);
 	UComposableCameraActionBase* FindCameraAction(TSubclassOf<UComposableCameraActionBase> ActionClass);
 	/** Public API: fully remove an action. Unbind from RunningCamera AND drop
 	 *  it from the `CameraActions` TSet so neither `FindCameraAction` returns
@@ -241,6 +276,8 @@ private:
 	 *  can finish the deferred-add path without duplicating the dispatch
 	 *  switch. No-op if Action or RunningCamera is null. */
 	void BindCameraActionToRunningCamera(UComposableCameraActionBase* Action);
+	UComposableCameraActionBase* RegisterCameraActionInstance(
+		UComposableCameraActionBase* Action, bool bOnlyForCurrentCamera);
 
 	// Update camera actions.
 	void UpdateActions(float DeltaTime);
@@ -371,9 +408,9 @@ public:
 	 *  constructed actions here instead of mutating `CameraActions`
 	 *  immediately; the post-loop sweep (after the removals sweep) drains
 	 *  this list, adding to `CameraActions` AND binding to RunningCamera in
-	 *  one shot. Net effect: an Action's `OnCanExecute` callback is allowed
-	 *  to call `PCM->AddCameraAction(...)` without invalidating the range-
-	 *  for iterator over `CameraActions`. The newly-added Action takes
+	 *  one shot. This also protects future re-entrant additions during
+	 *  `UpdateActions` from invalidating its `CameraActions` iterator.
+	 *  The newly-added Action takes
 	 *  effect on the NEXT frame's UpdateActions tick (it does not
 	 *  retroactively join the iteration that spawned it).
 	 *
@@ -382,9 +419,8 @@ public:
 	 *  the GC-visible `CameraActions` TSet for the duration of the
 	 *  function. Pending-add entries are freshly `NewObject`ed and have
 	 *  NOT been registered into any reflected container yet. A GC pass
-	 *  triggered re-entrantly from inside an Action's `OnCanExecute`
-	 *  (sync `LoadObject`, BP exception during eval, slow Blueprint that
-	 *  yields, etc.) would reclaim the half-constructed Action and the
+	 *  triggered during a future re-entrant action update would reclaim
+	 *  the half-constructed Action and the
 	 *  post-loop drain would then read a dangling pointer. The
 	 *  TObjectPtr inside a UPROPERTY array makes the Action root-
 	 *  reachable for the whole gap, closing that window without
@@ -403,6 +439,9 @@ private:
 	UPROPERTY(Transient)
 	TObjectPtr<UComposableCameraModifierManager> ModifierManager;
 
+	FString LastModifierDecision;
+	TWeakObjectPtr<AComposableCameraCameraBase> LastModifierDecisionCamera;
+
 	UPROPERTY(Transient)
 	FMinimalViewInfo LastDesiredView;
 
@@ -418,8 +457,8 @@ private:
 	 *  unbind half + queues the action into `CameraActionsRemovalScratch`
 	 *  instead of mutating the TSet directly. UpdateActions then does a
 	 *  single post-loop sweep that drains the scratch with `Remove`. Without
-	 *  this gate, an `Action->OnCanExecute` callback that calls
-	 *  `PCM->RemoveCameraAction(this)` would mutate the very TSet the caller
+	 *  this gate, a re-entrant `PCM->RemoveCameraAction` call would mutate
+	 *  the very TSet the caller
 	 *  is iterating, invalidating the range-for's hash buckets and crashing
 	 *  on the next advance. Outside UpdateActions, RemoveCameraAction is
 	 *  the regular "unbind + drop from TSet" public API. */
