@@ -104,6 +104,12 @@ FComposableCameraEditorStyle::FComposableCameraEditorStyle()
 	Set("ClassThumbnail.ComposableCameraNodeModifierDataAsset",
 		new IMAGE_BRUSH_SVG("Icons/ContentBrowser-ComposableCameraModifier", Icon64x64));
 
+	// Camera Action Asset
+	Set("ClassIcon.ComposableCameraActionTypeAsset",
+		new IMAGE_BRUSH_SVG("Icons/ContentBrowser-ComposableCameraAction", Icon16x16));
+	Set("ClassThumbnail.ComposableCameraActionTypeAsset",
+		new IMAGE_BRUSH_SVG("Icons/ContentBrowser-ComposableCameraAction", Icon64x64));
+
 	// Transition Data Asset
 	Set("ClassIcon.ComposableCameraTransitionDataAsset",
 		new IMAGE_BRUSH_SVG("Icons/ContentBrowser-ComposableCameraTransition", Icon16x16));

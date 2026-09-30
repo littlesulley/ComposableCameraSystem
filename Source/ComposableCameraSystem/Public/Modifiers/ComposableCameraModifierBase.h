@@ -58,8 +58,16 @@ public:
 	/** Applies checked NodeTemplate properties, or the legacy Blueprint callback. */
 	void ApplyModifierToNode(UComposableCameraCameraNodeBase* Node);
 
+	/** Applies one checked NodeTemplate property. Used by per-property selection. */
+	bool ApplyModifierPropertyToNode(
+		UComposableCameraCameraNodeBase* Node,
+		FName PropertyName);
+
 	/** Shared runtime/editor eligibility rule for a node property. */
 	static bool IsNodePropertyOverridable(const FProperty* Property);
+
+	/** True when the property has a built-in continuous value blender. */
+	static bool IsNodePropertyContinuouslyBlendable(const FProperty* Property);
 
 	/**
 	 * Legacy extension point. New modifier assets do not need a Blueprint class

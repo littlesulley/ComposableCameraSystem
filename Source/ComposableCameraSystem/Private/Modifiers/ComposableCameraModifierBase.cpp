@@ -45,6 +45,33 @@ bool UComposableCameraModifierBase::IsNodePropertyOverridable(const FProperty* P
 		&& !Property->HasMetaData(TEXT("NoModifierOverride"));
 }
 
+bool UComposableCameraModifierBase::IsNodePropertyContinuouslyBlendable(const FProperty* Property)
+{
+	if (!Property)
+	{
+		return false;
+	}
+
+	if (Property->IsA<FFloatProperty>() || Property->IsA<FDoubleProperty>())
+	{
+		return true;
+	}
+
+	const FStructProperty* StructProperty = CastField<FStructProperty>(Property);
+	if (!StructProperty)
+	{
+		return false;
+	}
+
+	const UScriptStruct* Struct = StructProperty->Struct;
+	return Struct == TBaseStructure<FVector2D>::Get()
+		|| Struct == TBaseStructure<FVector>::Get()
+		|| Struct == TBaseStructure<FVector4>::Get()
+		|| Struct == TBaseStructure<FRotator>::Get()
+		|| Struct == TBaseStructure<FTransform>::Get()
+		|| Struct == TBaseStructure<FLinearColor>::Get();
+}
+
 void UComposableCameraModifierBase::ApplyModifierToNode(UComposableCameraCameraNodeBase* Node)
 {
 	if (!Node)
@@ -56,7 +83,8 @@ void UComposableCameraModifierBase::ApplyModifierToNode(UComposableCameraCameraN
 	{
 		if (CustomModifier && CustomModifier != this)
 		{
-			CustomModifier->ApplyModifier(Node);
+			Node->ApplyCustomModifierWithPinOwnership(
+				[this, Node]() { CustomModifier->ApplyModifier(Node); });
 		}
 		return;
 	}
@@ -64,7 +92,8 @@ void UComposableCameraModifierBase::ApplyModifierToNode(UComposableCameraCameraN
 	if (!NodeTemplate)
 	{
 		// Preserve existing user-authored Modifier Blueprint behavior.
-		ApplyModifier(Node);
+		Node->ApplyCustomModifierWithPinOwnership(
+			[this, Node]() { ApplyModifier(Node); });
 		return;
 	}
 
@@ -75,33 +104,51 @@ void UComposableCameraModifierBase::ApplyModifierToNode(UComposableCameraCameraN
 
 	for (const FName PropertyName : OverrideProperties)
 	{
-		FProperty* Property = FindFProperty<FProperty>(Node->GetClass(), PropertyName);
-		if (!IsNodePropertyOverridable(Property))
-		{
-			continue;
-		}
-		const int32 FieldOffset = Property->GetOffset_ForInternal();
-		if (Node->HasModifierOverrideFieldOffset(FieldOffset))
-		{
-			continue;
-		}
-
-		if (FObjectPropertyBase* ObjectProperty = CastField<FObjectPropertyBase>(Property);
-			ObjectProperty && Property->HasAnyPropertyFlags(CPF_InstancedReference))
-		{
-			// Instanced subobjects cannot be shallow-copied: the runtime node must
-			// own its own duplicate rather than reference an asset subobject.
-			UObject* SourceObject = ObjectProperty->GetObjectPropertyValue_InContainer(NodeTemplate);
-			UObject* DuplicatedObject = SourceObject
-				? StaticDuplicateObject(SourceObject, Node)
-				: nullptr;
-			ObjectProperty->SetObjectPropertyValue_InContainer(Node, DuplicatedObject);
-		}
-		else
-		{
-			Property->CopyCompleteValue_InContainer(Node, NodeTemplate);
-		}
-
-		Node->RegisterModifierOverrideFieldOffset(FieldOffset);
+		ApplyModifierPropertyToNode(Node, PropertyName);
 	}
+}
+
+bool UComposableCameraModifierBase::ApplyModifierPropertyToNode(
+	UComposableCameraCameraNodeBase* Node,
+	FName PropertyName)
+{
+	if (!Node
+		|| !UsesNodeTemplateOverride()
+		|| NodeTemplate->GetClass() != Node->GetClass()
+		|| !OverrideProperties.Contains(PropertyName))
+	{
+		return false;
+	}
+
+	FProperty* Property = FindFProperty<FProperty>(Node->GetClass(), PropertyName);
+	if (!IsNodePropertyOverridable(Property))
+	{
+		return false;
+	}
+
+	const int32 FieldOffset = Property->GetOffset_ForInternal();
+	if (Node->HasModifierOverrideFieldOffset(FieldOffset))
+	{
+		return false;
+	}
+
+	if (FObjectPropertyBase* ObjectProperty = CastField<FObjectPropertyBase>(Property);
+		ObjectProperty && Property->HasAnyPropertyFlags(CPF_InstancedReference))
+	{
+		// Instanced subobjects cannot be shallow-copied: the runtime node must
+		// own its own duplicate rather than reference an asset subobject.
+		UObject* SourceObject =
+			ObjectProperty->GetObjectPropertyValue_InContainer(NodeTemplate);
+		UObject* DuplicatedObject = SourceObject
+			? StaticDuplicateObject(SourceObject, Node)
+			: nullptr;
+		ObjectProperty->SetObjectPropertyValue_InContainer(Node, DuplicatedObject);
+	}
+	else
+	{
+		Property->CopyCompleteValue_InContainer(Node, NodeTemplate);
+	}
+
+	Node->RegisterModifierOverrideFieldOffset(FieldOffset);
+	return true;
 }

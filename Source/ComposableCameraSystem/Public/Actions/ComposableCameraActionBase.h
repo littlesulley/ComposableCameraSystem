@@ -8,7 +8,9 @@
 #include "ComposableCameraActionBase.generated.h"
 
 class AComposableCameraPlayerCameraManager;
+class AComposableCameraCameraBase;
 class UComposableCameraCameraNodeBase;
+struct FComposableCameraPose;
 
 UENUM(BlueprintType, meta = (Bitflags, UseEnumValuesAsMaskValuesInEditor = "true"))
 enum class EComposableCameraActionExpirationType : uint8
@@ -77,9 +79,17 @@ public:
 	float Duration { 1.f };
 
 public:
+	// Advance frame-based expiration. Pose-dependent Condition is checked at the
+	// camera execution hook, where the local pose is available. The pose
+	// parameter remains for existing C++ callers; it is not read here.
 	bool OnCanExecute(float DeltaTime, const FComposableCameraPose& CurrentCameraPose);
+	void ExecuteForCamera(AComposableCameraCameraBase* Camera, float DeltaTime,
+		const FComposableCameraPose& CurrentCameraPose, FComposableCameraPose& OutCameraPose);
 	
-	// Predicate checking whether this action can be executed. If false, this action will get expired. Only get called when ExpirationType has Condition on.
+	// Predicate checked once per PCM update at this action's hook. Persistent
+	// actions use the running camera; current-camera-only actions use their
+	// bound camera. CurrentCameraPose is that camera's local pose at the hook.
+	// False expires the action. Only called when Condition is enabled.
 	UFUNCTION(BlueprintNativeEvent, DisplayName = "CanExecute", Category = "ComposableCameraSystem|Action")
 	bool CanExecute(float DeltaTime, const FComposableCameraPose& CurrentCameraPose);
 	virtual bool CanExecute_Implementation(float DeltaTime, const FComposableCameraPose& CurrentCameraPose) { return true; }
@@ -116,6 +126,7 @@ private:
 	bool bCanExecuteDuration { true };
 	bool bCanExecuteManual { true };
 	bool bCanExecuteCondition { true };
+	bool bConditionCheckedThisUpdate { false };
 
 	float ElapsedTime { 0.f };
 };

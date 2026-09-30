@@ -13,7 +13,12 @@
  *   2. Context Stack & Evaluation Tree
  *   3. Running Camera  . Class, tag, lifetime, nodes, parameters, variables
  *   4. Actions
- *   5. Modifiers       . Count (phase 1)
+ *   5. Modifiers       . Target groups, winner state, scope, blend
+ *   6. Patches         . Lifecycle, source, progress, expiration
+ *   7. Warnings        . Recent captured logs, when present
+ *   8. Legend          . Active viewport gizmo colors, when present
+ * Regions are paged with `CCS.Debug.Panel.Page` when viewport height is
+ * insufficient. A single oversized region is clipped to the panel bounds.
  *
  * Rendering goes through UDebugDrawService's "Game" channel with a static
  * delegate registered at module startup. While disabled the draw function

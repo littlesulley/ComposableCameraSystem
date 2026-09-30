@@ -89,10 +89,47 @@ void FComposableCameraModifierDetails::CustomizeDetails(IDetailLayoutBuilder& De
 		return;
 	}
 
+	const TSharedPtr<IPropertyHandle> ApplyModeHandle = DetailBuilder.GetProperty(
+		GET_MEMBER_NAME_CHECKED(UComposableCameraNodeModifierDataAsset, ApplyMode));
+	if (ApplyModeHandle.IsValid() && ApplyModeHandle->IsValidHandle())
+	{
+		const TWeakPtr<IPropertyUtilities> LocalWeakUtilities = WeakPropertyUtilities;
+		ApplyModeHandle->SetOnPropertyValueChanged(FSimpleDelegate::CreateLambda(
+			[LocalWeakUtilities]()
+			{
+				RefreshDetails(LocalWeakUtilities);
+			}));
+	}
+
 	IDetailCategoryBuilder& Category = DetailBuilder.EditCategory(
 		TEXT("Node Override"),
 		LOCTEXT("NodeOverrideCategory", "Node Override"),
 		ECategoryPriority::Important);
+
+	if (const UComposableCameraNodeModifierDataAsset* Asset = ModifierAsset.Get();
+		Asset
+		&& Asset->ApplyMode == EComposableCameraModifierApplyMode::ModifyExistingInstance)
+	{
+		const bool bHasCustomModifier = Asset->Modifiers.ContainsByPredicate(
+			[](const TObjectPtr<UComposableCameraModifierBase>& Modifier)
+			{
+				return Modifier && Modifier->bUseCustomModifierClass;
+			});
+		if (bHasCustomModifier)
+		{
+			Category.AddCustomRow(LOCTEXT("InPlaceCustomModifierErrorFilter", "In-place Custom Modifier error"))
+			.WholeRowContent()
+			[
+				SNew(STextBlock)
+				.Text(LOCTEXT("InPlaceCustomModifierError",
+					"Modify Existing Instance supports Node Type overrides only. "
+					"Custom Modifier Class entries are skipped at runtime."))
+				.ColorAndOpacity(FLinearColor(1.f, 0.25f, 0.1f))
+				.AutoWrapText(true)
+				.Font(IDetailLayoutBuilder::GetDetailFontBold())
+			];
+		}
+	}
 
 	TSharedRef<FDetailArrayBuilder> ModifiersBuilder = MakeShared<FDetailArrayBuilder>(
 		ModifiersHandle.ToSharedRef(),
@@ -351,6 +388,23 @@ void FComposableCameraModifierDetails::AddGenericModifierRows(
 	}
 
 	const TArray<UObject*> ExternalObjects { NodeTemplate };
+	TSet<FName> InPlaceInputProperties;
+	{
+		TArray<FComposableCameraNodePinDeclaration> Pins;
+		NodeTemplate->GatherAllPinDeclarations(Pins);
+		for (const FComposableCameraNodePinDeclaration& Pin : Pins)
+		{
+			if (Pin.Direction == EComposableCameraPinDirection::Input
+				&& Pin.PinType != EComposableCameraPinType::Delegate)
+			{
+				InPlaceInputProperties.Add(Pin.PinName);
+			}
+		}
+	}
+	const bool bInPlaceMode = ModifierAsset.IsValid()
+		&& ModifierAsset->ApplyMode
+			== EComposableCameraModifierApplyMode::ModifyExistingInstance;
+
 	for (TFieldIterator<FProperty> PropertyIt(NodeTemplate->GetClass()); PropertyIt; ++PropertyIt)
 	{
 		FProperty* Property = *PropertyIt;
@@ -360,6 +414,10 @@ void FComposableCameraModifierDetails::AddGenericModifierRows(
 		}
 
 		const FName PropertyName = Property->GetFName();
+		const bool bInPlaceSupported = InPlaceInputProperties.Contains(PropertyName)
+			|| NodeTemplate->SupportsInPlaceModifierProperty(PropertyName);
+		const bool bContinuous =
+			UComposableCameraModifierBase::IsNodePropertyContinuouslyBlendable(Property);
 		FAddPropertyParams AddParams;
 		AddParams.UniqueId(FName(*FString::Printf(
 			TEXT("Modifier_%d_%s"), ArrayIndex, *PropertyName.ToString())));
@@ -412,13 +470,38 @@ void FComposableCameraModifierDetails::AddGenericModifierRows(
 				.ToolTipText(Property->GetToolTipText())
 				.Font(IDetailLayoutBuilder::GetDetailFont())
 			]
+
+			+ SHorizontalBox::Slot()
+			.AutoWidth()
+			.VAlign(VAlign_Center)
+			.Padding(8.f, 0.f, 0.f, 0.f)
+			[
+				SNew(STextBlock)
+				.Visibility(bInPlaceMode ? EVisibility::Visible : EVisibility::Collapsed)
+				.Text(bInPlaceSupported
+					? (bContinuous
+						? LOCTEXT("InPlaceBlendBadge", "Blend")
+						: LOCTEXT("InPlaceStepBadge", "Step"))
+					: LOCTEXT("InPlaceUnsupportedBadge", "Unsupported"))
+				.ColorAndOpacity(bInPlaceSupported
+					? FSlateColor::UseSubduedForeground()
+					: FSlateColor(FLinearColor(1.f, 0.25f, 0.1f)))
+				.ToolTipText(bInPlaceSupported
+					? LOCTEXT("InPlaceSupportedTooltip",
+						"Runtime binding is cached when the effective Modifier changes.")
+					: LOCTEXT("InPlaceUnsupportedTooltip",
+						"Add a matching input pin or opt this node property into runtime mutation."))
+				.Font(IDetailLayoutBuilder::GetDetailFont())
+			]
 		]
 		.ValueContent()
 		[
 			SNew(SBox)
-			.IsEnabled_Lambda([WeakModifier, PropertyHandle, PropertyName]()
+			.IsEnabled_Lambda([WeakModifier, PropertyHandle, PropertyName,
+				bInPlaceMode, bInPlaceSupported]()
 			{
 				return PropertyHandle.IsValid() && PropertyHandle->IsEditable()
+					&& (!bInPlaceMode || bInPlaceSupported)
 					&& GetOverrideCheckState(WeakModifier, PropertyName) == ECheckBoxState::Checked;
 			})
 			[ValueWidget.ToSharedRef()]

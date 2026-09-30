@@ -1,6 +1,7 @@
 // Copyright 2026 Sulley. All Rights Reserved.
 
 #include "Core/ComposableCameraPlayerCameraManager.h"
+#include "DataAssets/ComposableCameraActionTypeAsset.h"
 #include "Cameras/ComposableCameraCameraBase.h"
 #include "ComposableCameraSystemModule.h"
 #include "Actions/ComposableCameraActionBase.h"
@@ -1051,7 +1052,7 @@ void AComposableCameraPlayerCameraManager::OnTypeAssetCameraConstructed(AComposa
 			// initialization; legacy Blueprint callbacks keep their old post-init
 			// execution timing in Director::ActivateNewCamera.
 			ModifierManager->GetModifierData().UpdateEffectiveModifiers(ConstructedCamera);
-			ConstructedCamera->ApplyModifiers(
+			ConstructedCamera->ApplyEffectiveModifiers(
 				ModifierManager->GetModifierData().EffectiveModifiers,
 				/* bApplyNodeTemplateModifiers = */ true,
 				/* bApplyLegacyBlueprintModifiers = */ false);
@@ -1184,6 +1185,8 @@ void AComposableCameraPlayerCameraManager::RefreshEffectiveModifierSelection()
 	{
 		return;
 	}
+	LastModifierDecision.Reset();
+	LastModifierDecisionCamera.Reset();
 	if (IsValid(RunningCamera))
 	{
 		(void)ModifierManager->GetModifierData().UpdateEffectiveModifiers(RunningCamera);
@@ -1209,7 +1212,7 @@ void AComposableCameraPlayerCameraManager::ApplyModifiers(AComposableCameraCamer
 	}
 
 	const auto& Modifiers = ModifierManager->GetModifierData().EffectiveModifiers;
-	Camera->ApplyModifiers(Modifiers);
+	Camera->ApplyEffectiveModifiers(Modifiers);
 }
 
 void AComposableCameraPlayerCameraManager::OnModifierChanged()
@@ -1219,17 +1222,47 @@ void AComposableCameraPlayerCameraManager::OnModifierChanged()
 		return;
 	}
 
-	auto [bChanged, Transition] = ModifierManager->GetModifierData().UpdateEffectiveModifiers(RunningCamera);
+	const FComposableCameraModifierUpdateResult UpdateResult =
+		ModifierManager->GetModifierData().UpdateEffectiveModifiers(RunningCamera);
+	LastModifierDecisionCamera = RunningCamera;
+	LastModifierDecision = UpdateResult.bChanged
+		? TEXT("Effective Modifier Changed")
+		: TEXT("No Effective Change");
 
-	if (bChanged && !RunningCamera->bIsTransient /* Modifiers are only applicable for non-transient cameras. */)
+	if (UpdateResult.bChanged
+		&& !RunningCamera->bIsTransient /* Modifiers are only applicable for non-transient cameras. */)
 	{
+		if (!UpdateResult.bRequiresCameraReactivation)
+		{
+			LastModifierDecision = TEXT("In Place: Property Winner Changed");
+			RunningCamera->ReconcileInPlaceEffectiveModifiersFromAssets(
+				ModifierManager->GetModifierData().EffectiveModifiers);
+			return;
+		}
+
+		UComposableCameraTransitionBase* Transition = UpdateResult.CameraTransition;
 		if (!Transition && RunningCamera->EnterTransition)
 		{
 			Transition = DuplicateObject(RunningCamera->EnterTransition, this);
 		}
-
 		RunningCamera = ReactivateCurrentCamera(Transition);
+		LastModifierDecisionCamera = RunningCamera;
+		LastModifierDecision = UpdateResult.ReactivationReason.IsEmpty()
+			? TEXT("Reactivated: Legacy Modifier Changed")
+			: FString::Printf(TEXT("Reactivated: %s"),
+				*UpdateResult.ReactivationReason);
 	}
+	else if (UpdateResult.bChanged)
+	{
+		LastModifierDecision = TEXT("Transient Camera: Modifier Skipped");
+	}
+}
+
+FString AComposableCameraPlayerCameraManager::GetRunningCameraModifierDecision() const
+{
+	return RunningCamera && LastModifierDecisionCamera.Get() == RunningCamera
+		? LastModifierDecision
+		: FString();
 }
 
 void AComposableCameraPlayerCameraManager::BindCameraActionToRunningCamera(UComposableCameraActionBase* Action)
@@ -1241,10 +1274,8 @@ void AComposableCameraPlayerCameraManager::BindCameraActionToRunningCamera(UComp
 	switch (Action->ExecutionType)
 	{
 	case EComposableCameraActionExecutionType::PreCameraTick:
-		RunningCamera->OnActionPreTick.AddDynamic(Action, &UComposableCameraActionBase::OnExecute);
-		break;
 	case EComposableCameraActionExecutionType::PostCameraTick:
-		RunningCamera->OnActionPostTick.AddDynamic(Action, &UComposableCameraActionBase::OnExecute);
+		RunningCamera->RegisterCameraAction(Action);
 		break;
 	case EComposableCameraActionExecutionType::PreNodeTick:
 	case EComposableCameraActionExecutionType::PostNodeTick:
@@ -1260,16 +1291,40 @@ UComposableCameraActionBase* AComposableCameraPlayerCameraManager::AddCameraActi
 	{
 		return nullptr;
 	}
+	return RegisterCameraActionInstance(
+		NewObject<UComposableCameraActionBase>(this, ActionClass),
+		bOnlyForCurrentCamera);
+}
 
-	UComposableCameraActionBase* Action = NewObject<UComposableCameraActionBase>(this, ActionClass);
+UComposableCameraActionBase* AComposableCameraPlayerCameraManager::AddCameraActionFromAsset(
+	UComposableCameraActionTypeAsset* ActionAsset,
+	const FComposableCameraParameterBlock& Parameters,
+	bool bOnlyForCurrentCamera)
+{
+	return RegisterCameraActionInstance(
+		IsValid(ActionAsset) ? ActionAsset->CreateAction(this, Parameters) : nullptr,
+		bOnlyForCurrentCamera);
+}
+
+UComposableCameraActionBase* AComposableCameraPlayerCameraManager::RegisterCameraActionInstance(
+	UComposableCameraActionBase* Action, bool bOnlyForCurrentCamera)
+{
+	if (!IsValid(Action))
+	{
+		return nullptr;
+	}
+	if ((Action->ExpirationType & static_cast<uint8>(EComposableCameraActionExpirationType::Duration))
+		&& Action->Duration <= 0.f)
+	{
+		return nullptr;
+	}
 	Action->bOnlyForCurrentCamera = bOnlyForCurrentCamera;
 	Action->PlayerCameraManager = this;
 
 	if (bIsUpdatingActions)
 	{
 		// Re-entrant call from inside `UpdateActions`'s range-for over
-		// `CameraActions` (an Action's `OnCanExecute` callback added a new
-		// action). Mutating the TSet now would invalidate the iterator.
+		// `CameraActions`. Mutating the TSet now would invalidate the iterator.
 		// Defer to the post-loop pending-add sweep. Add to TSet + Bind
 		// happen there, so the new Action takes effect on the NEXT frame
 		// (it does not retroactively join the iteration that spawned it,
@@ -1306,6 +1361,7 @@ void AComposableCameraPlayerCameraManager::UnbindCameraActionFromCamera(UComposa
 	}
 	RunningCamera->OnActionPreTick.RemoveDynamic(Action, &UComposableCameraActionBase::OnExecute);
 	RunningCamera->OnActionPostTick.RemoveDynamic(Action, &UComposableCameraActionBase::OnExecute);
+	RunningCamera->UnregisterCameraAction(Action);
 	RunningCamera->UnregisterNodeAction(Action);
 }
 
@@ -1376,13 +1432,9 @@ void AComposableCameraPlayerCameraManager::BindCameraActionsForNewCamera(ACompos
 		switch (Action->ExecutionType)
 		{
 		case EComposableCameraActionExecutionType::PreCameraTick:
-			{
-				Camera->OnActionPreTick.AddDynamic(Action, &UComposableCameraActionBase::OnExecute);
-				break;
-			}
 		case EComposableCameraActionExecutionType::PostCameraTick:
 			{
-				Camera->OnActionPostTick.AddDynamic(Action, &UComposableCameraActionBase::OnExecute);
+				Camera->RegisterCameraAction(Action);
 				break;
 			}
 		case EComposableCameraActionExecutionType::PreNodeTick:
@@ -1721,9 +1773,8 @@ void AComposableCameraPlayerCameraManager::UpdateActions(float DeltaTime)
 	// `TObjectPtr<>` element type because its entries have NOT yet been
 	// registered in any reflected container -`NewObject`-fresh actions
 	// the re-entrant `AddCameraAction` produced. A GC pass triggered
-	// re-entrantly from inside an Action's `OnCanExecute` (sync
-	// `LoadObject`, BP exception during eval, slow Blueprint that yields)
-	// would otherwise reclaim the half-constructed action. The TObjectPtr
+	// during a future re-entrant action update would otherwise reclaim
+	// the half-constructed action. The TObjectPtr
 	// inside the UPROPERTY array keeps it root-reachable for the entire
 	// gap. Same `Reset()` at entry/exit applies.
 	CameraActionsRemovalScratch.Reset();
@@ -1731,16 +1782,13 @@ void AComposableCameraPlayerCameraManager::UpdateActions(float DeltaTime)
 
 	// `bIsUpdatingActions` lets BOTH the public `RemoveCameraAction` AND
 	// the public `AddCameraAction` know they're being called re-entrantly
-	// from inside our range-for (an Action's `OnCanExecute` callback can
-	// legitimately call `PCM->RemoveCameraAction(this)`, remove a sibling,
-	// or spawn a new action via `PCM->AddCameraAction(...)`). When set:
+	// from inside our range-for. When set:
 	//   * Remove: skips the `CameraActions.Remove(...)` step (would invalidate
 	//     this iterator) and queues into `CameraActionsRemovalScratch`.
 	//   * Add: skips `CameraActions.Add(...)` + the bind to RunningCamera and
 	//     queues into `CameraActionsPendingAddScratch`; both happen in the
 	//     post-loop sweep so the new Action takes effect next frame.
-	// `TGuardValue` resets the flag on every exit path including any throw
-	// from a Blueprint-implemented Action callback.
+	// `TGuardValue` resets the flag on every exit path.
 	TGuardValue<bool> UpdateScope(bIsUpdatingActions, true);
 
 	for (UComposableCameraActionBase* Action : CameraActions)
@@ -1872,19 +1920,27 @@ void AComposableCameraPlayerCameraManager::BuildModifierDebugString(FDisplayDebu
 	for (const auto& EffectiveModifier : EffectiveModifiers)
 	{
 		const auto& NodeClass = EffectiveModifier.Key;
-		const auto& Modifier = EffectiveModifier.Value;
 		
 		AddText(EffectiveModifiersString, TEXT("%s[Camera Node] %s:\n"), *GetIndentString(), *NodeClass->GetName());
 			
 		++IndentLevel;
 		
-		if (Modifier.Asset && Modifier.Modifier)
+		for (const auto& PropertyModifier : EffectiveModifier.Value)
 		{
-			AddText(EffectiveModifiersString, TEXT("%s[Modifier] %s from [Asset] %s with priority %d\n"), 
-				*GetIndentString(), 
-				*Modifier.Modifier->GetName(),
-				*Modifier.Asset->GetName(),
-				Modifier.Asset->Priority);
+			const auto& Modifier = PropertyModifier.Value;
+			if (Modifier.Asset && Modifier.Modifier)
+			{
+				const FString PropertyLabel = PropertyModifier.Key.IsNone()
+					? FString(TEXT("Whole Node"))
+					: PropertyModifier.Key.ToString();
+				AddText(EffectiveModifiersString,
+					TEXT("%s[Property] %s -> [Modifier] %s from [Asset] %s with priority %d\n"),
+					*GetIndentString(),
+					*PropertyLabel,
+					*Modifier.Modifier->GetName(),
+					*Modifier.Asset->GetName(),
+					Modifier.Asset->Priority);
+			}
 		}
 		
 		--IndentLevel;

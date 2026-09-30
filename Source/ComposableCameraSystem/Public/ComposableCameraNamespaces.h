@@ -3,6 +3,7 @@
 
 #include "Containers/Array.h"
 #include "Containers/Map.h"
+#include "CoreTypes.h"
 #include "GameplayTagContainer.h"
 #include "Templates/SubclassOf.h"
 #include "UObject/ObjectPtr.h"
@@ -22,6 +23,7 @@ namespace ComposableCameraModifier
 		// deprecated under incremental GC and emits C4996.
 		TObjectPtr<UComposableCameraModifierBase> Modifier;
 		TObjectPtr<UComposableCameraNodeModifierDataAsset> Asset;
+		uint64 RegistrationOrder = 0;
 
 		bool operator==(const FModifierEntry& Other) const
 		{
@@ -36,4 +38,11 @@ namespace ComposableCameraModifier
 
 	using T_NodeModifier = TMap<T_NodeClass, FModifierEntry>;
 	using T_NodeModifierArray = TMap<T_NodeClass, TArray<FModifierEntry>>;
+
+	/**
+	 * Effective generic modifiers are resolved per property. NAME_None is
+	 * reserved for the legacy whole-node Custom Modifier winner.
+	 */
+	using T_PropertyModifier = TMap<FName, FModifierEntry>;
+	using T_EffectiveModifier = TMap<T_NodeClass, T_PropertyModifier>;
 }

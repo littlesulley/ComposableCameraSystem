@@ -394,23 +394,10 @@ const FComposableCameraNodePinBindingTable& UComposableCameraCameraNodeBase::Get
 		Binding.PinType = MappedType;
 		Binding.StructType = MappedStruct;
 		Binding.EnumType = MappedEnum;
-		// BackingProperty is needed by the auto-resolve loop's runtime dispatch:
-		// Enum uses it to narrow-cast int64 storage into the actual property
-		// width (FByteProperty / FEnumProperty); Struct uses it to look up
-		// the FStructProperty's UScriptStruct for CopyScriptStruct dispatch
-		// (POD bytes vs FInstancedStruct slot); Actor / Object use it as the
-		// FObjectPropertyBase to call SetObjectPropertyValue (TObjectPtr-
-		// correct write + GC-token bookkeeping; see the matching dispatch
-		// in ResolveAllInputPins). Other primitive types (Bool / Int32 /
-		// Float / Vector / etc.) resolve via the templated TryResolveInputPin<T>
-		// path and write directly through static_cast, no FProperty needed.
-		Binding.BackingProperty =
-			(MappedType == EComposableCameraPinType::Enum
-				|| MappedType == EComposableCameraPinType::Struct
-				|| MappedType == EComposableCameraPinType::Actor
-				|| MappedType == EComposableCameraPinType::Object)
-				? *FoundProperty
-				: nullptr;
+		// Keep the backing property for every type. Auto-resolution needs it
+		// only for complex dispatch, while in-place Modifier explicit pin reads
+		// also use it for primitive property access without reflection.
+		Binding.BackingProperty = *FoundProperty;
 		Binding.FieldOffset = (*FoundProperty)->GetOffset_ForInternal();
 		NewTable->InputBindings.Add(MoveTemp(Binding));
 	}
@@ -609,6 +596,76 @@ void UComposableCameraCameraNodeBase::ResolveAllInputPins()
 	}
 }
 
+void UComposableCameraCameraNodeBase::ApplyCustomModifierWithPinOwnership(
+	TFunctionRef<void()> ApplyModifier)
+{
+	// Custom callbacks run once, after the activation ParameterBlock and node
+	// initialization have resolved their input pins. Snapshot only pin-backed
+	// fields so we can preserve actual callback changes without freezing the
+	// other inputs on this node.
+	struct FPinValueBeforeModifier
+	{
+		const FProperty* Property = nullptr;
+		FName PinName;
+		void* Value = nullptr;
+	};
+
+	TArray<FPinValueBeforeModifier, TInlineAllocator<8>> BeforeValues;
+	if (RuntimeDataBlock)
+	{
+		const FComposableCameraNodePinBindingTable& Table = GetOrBuildPinBindings();
+		BeforeValues.Reserve(Table.InputBindings.Num());
+		for (const FComposableCameraNodePinBinding& Binding : Table.InputBindings)
+		{
+			// A wired source may not have produced its first value yet (BeginPlay
+			// compute nodes run after this callback). Do not freeze its initial
+			// zero/placeholder value as a one-shot modifier result.
+			const FComposableCameraPinKey Key{ RuntimeNodeIndex, Binding.PinName };
+			if (RuntimeDataBlock->InputPinSourceOffsets.Contains(Key))
+			{
+				continue;
+			}
+
+			const FProperty* Property = Binding.BackingProperty;
+			if (!Property || HasModifierOverrideFieldOffset(Binding.FieldOffset)
+				|| Property->GetSize() <= 0)
+			{
+				continue;
+			}
+
+			void* Value = FMemory::Malloc(Property->GetSize(), Property->GetMinAlignment());
+			Property->InitializeValue(Value);
+			Property->CopyCompleteValue(
+				Value, Property->ContainerPtrToValuePtr<void>(this));
+			BeforeValues.Add({ Property, Binding.PinName, Value });
+		}
+	}
+
+	ApplyModifier();
+
+	for (const FPinValueBeforeModifier& Before : BeforeValues)
+	{
+		bool bChanged = false;
+		for (int32 ArrayIndex = 0; ArrayIndex < Before.Property->ArrayDim; ++ArrayIndex)
+		{
+			const void* Current = Before.Property->ContainerPtrToValuePtr<void>(this, ArrayIndex);
+			const uint8* Old = static_cast<const uint8*>(Before.Value)
+				+ ArrayIndex * Before.Property->GetElementSize();
+			if (!Before.Property->Identical(Current, Old))
+			{
+				bChanged = true;
+				break;
+			}
+		}
+		if (bChanged)
+		{
+			RegisterInPlaceModifierOverride(Before.Property, Before.PinName);
+		}
+		Before.Property->DestroyValue(Before.Value);
+		FMemory::Free(Before.Value);
+	}
+}
+
 void UComposableCameraCameraNodeBase::RegisterModifierOverrideFieldOffset(int32 FieldOffset)
 {
 	if (FieldOffset >= 0)
@@ -620,6 +677,280 @@ void UComposableCameraCameraNodeBase::RegisterModifierOverrideFieldOffset(int32 
 bool UComposableCameraCameraNodeBase::HasModifierOverrideFieldOffset(int32 FieldOffset) const
 {
 	return ModifierOverrideFieldOffsets.Contains(FieldOffset);
+}
+
+void UComposableCameraCameraNodeBase::RegisterInPlaceModifierOverride(
+	const FProperty* Property,
+	FName PinName)
+{
+	if (!Property)
+	{
+		return;
+	}
+
+	const int32 FieldOffset = Property->GetOffset_ForInternal();
+	RegisterModifierOverrideFieldOffset(FieldOffset);
+
+	if (PinName.IsNone())
+	{
+		return;
+	}
+
+	for (FComposableCameraModifierPinOverrideBinding& Existing : InPlaceModifierPinOverrides)
+	{
+		if (Existing.FieldOffset == FieldOffset)
+		{
+			Existing.PinName = PinName;
+			Existing.Property = Property;
+			return;
+		}
+	}
+
+	InPlaceModifierPinOverrides.Add({ PinName, Property, FieldOffset });
+}
+
+void UComposableCameraCameraNodeBase::UnregisterInPlaceModifierOverride(int32 FieldOffset)
+{
+	ModifierOverrideFieldOffsets.RemoveSingle(FieldOffset);
+	InPlaceModifierPinOverrides.RemoveAll(
+		[FieldOffset](const FComposableCameraModifierPinOverrideBinding& Binding)
+		{
+			return Binding.FieldOffset == FieldOffset;
+		});
+}
+
+bool UComposableCameraCameraNodeBase::FindInputPinForModifierProperty(
+	const FProperty* Property,
+	FComposableCameraNodePinDeclaration& OutPin) const
+{
+	if (!Property)
+	{
+		return false;
+	}
+
+	TArray<FComposableCameraNodePinDeclaration> Pins;
+	GatherAllPinDeclarations(Pins);
+	for (const FComposableCameraNodePinDeclaration& Pin : Pins)
+	{
+		if (Pin.Direction == EComposableCameraPinDirection::Input
+			&& Pin.PinName == Property->GetFName())
+		{
+			OutPin = Pin;
+			return true;
+		}
+	}
+	return false;
+}
+
+bool UComposableCameraCameraNodeBase::TryCopyUnderlyingInputPinToProperty(
+	const FComposableCameraNodePinDeclaration& Pin,
+	const FProperty* Property,
+	UObject* Destination) const
+{
+	if (!RuntimeDataBlock || !Property || !Destination)
+	{
+		return false;
+	}
+
+	void* const ValuePtr = Property->ContainerPtrToValuePtr<void>(Destination);
+	switch (Pin.PinType)
+	{
+	case EComposableCameraPinType::Bool:
+	{
+		bool Value = false;
+		if (!RuntimeDataBlock->TryResolveInputPin<bool>(RuntimeNodeIndex, Pin.PinName, Value))
+		{
+			return false;
+		}
+		if (const FBoolProperty* BoolProperty = CastField<FBoolProperty>(Property))
+		{
+			BoolProperty->SetPropertyValue(ValuePtr, Value);
+			return true;
+		}
+		return false;
+	}
+	case EComposableCameraPinType::Int32:
+	{
+		int32 Value = 0;
+		if (!RuntimeDataBlock->TryResolveInputPin<int32>(RuntimeNodeIndex, Pin.PinName, Value))
+		{
+			return false;
+		}
+		if (const FIntProperty* IntProperty = CastField<FIntProperty>(Property))
+		{
+			IntProperty->SetPropertyValue(ValuePtr, Value);
+			return true;
+		}
+		ComposableCameraSystem::Private::WriteEnumInt64ToProperty(Property, ValuePtr, Value);
+		return Property->IsA<FEnumProperty>() || Property->IsA<FByteProperty>();
+	}
+	case EComposableCameraPinType::Float:
+	{
+		float Value = 0.f;
+		if (const FFloatProperty* FloatProperty = CastField<FFloatProperty>(Property);
+			FloatProperty
+			&& RuntimeDataBlock->TryResolveInputPin<float>(
+				RuntimeNodeIndex, Pin.PinName, Value))
+		{
+			FloatProperty->SetPropertyValue(ValuePtr, Value);
+			return true;
+		}
+		return false;
+	}
+	case EComposableCameraPinType::Double:
+	{
+		double Value = 0.0;
+		if (const FDoubleProperty* DoubleProperty = CastField<FDoubleProperty>(Property);
+			DoubleProperty
+			&& RuntimeDataBlock->TryResolveInputPin<double>(
+				RuntimeNodeIndex, Pin.PinName, Value))
+		{
+			DoubleProperty->SetPropertyValue(ValuePtr, Value);
+			return true;
+		}
+		return false;
+	}
+	case EComposableCameraPinType::Vector2D:
+	{
+		FVector2D Value = FVector2D::ZeroVector;
+		if (RuntimeDataBlock->TryResolveInputPin<FVector2D>(
+			RuntimeNodeIndex, Pin.PinName, Value))
+		{
+			*static_cast<FVector2D*>(ValuePtr) = Value;
+			return true;
+		}
+		return false;
+	}
+	case EComposableCameraPinType::Vector3D:
+	{
+		FVector Value = FVector::ZeroVector;
+		if (RuntimeDataBlock->TryResolveInputPin<FVector>(
+			RuntimeNodeIndex, Pin.PinName, Value))
+		{
+			*static_cast<FVector*>(ValuePtr) = Value;
+			return true;
+		}
+		return false;
+	}
+	case EComposableCameraPinType::Vector4:
+	{
+		FVector4 Value = FVector4(0.f, 0.f, 0.f, 0.f);
+		if (RuntimeDataBlock->TryResolveInputPin<FVector4>(
+			RuntimeNodeIndex, Pin.PinName, Value))
+		{
+			*static_cast<FVector4*>(ValuePtr) = Value;
+			return true;
+		}
+		return false;
+	}
+	case EComposableCameraPinType::Rotator:
+	{
+		FRotator Value = FRotator::ZeroRotator;
+		if (RuntimeDataBlock->TryResolveInputPin<FRotator>(
+			RuntimeNodeIndex, Pin.PinName, Value))
+		{
+			*static_cast<FRotator*>(ValuePtr) = Value;
+			return true;
+		}
+		return false;
+	}
+	case EComposableCameraPinType::Transform:
+	{
+		FTransform Value = FTransform::Identity;
+		if (RuntimeDataBlock->TryResolveInputPin<FTransform>(
+			RuntimeNodeIndex, Pin.PinName, Value))
+		{
+			*static_cast<FTransform*>(ValuePtr) = Value;
+			return true;
+		}
+		return false;
+	}
+	case EComposableCameraPinType::Actor:
+	{
+		AActor* Value = nullptr;
+		if (!RuntimeDataBlock->TryResolveInputPin<AActor*>(
+			RuntimeNodeIndex, Pin.PinName, Value))
+		{
+			return false;
+		}
+		AssignObjectPropertyChecked(
+			CastField<FObjectPropertyBase>(Property),
+			ValuePtr, Value, TEXT("Modifier Actor"), Pin.PinName);
+		return true;
+	}
+	case EComposableCameraPinType::Object:
+	{
+		UObject* Value = nullptr;
+		if (!RuntimeDataBlock->TryResolveInputPin<UObject*>(
+			RuntimeNodeIndex, Pin.PinName, Value))
+		{
+			return false;
+		}
+		AssignObjectPropertyChecked(
+			CastField<FObjectPropertyBase>(Property),
+			ValuePtr, Value, TEXT("Modifier Object"), Pin.PinName);
+		return true;
+	}
+	case EComposableCameraPinType::Name:
+	{
+		FName Value = NAME_None;
+		if (const FNameProperty* NameProperty = CastField<FNameProperty>(Property);
+			NameProperty
+			&& RuntimeDataBlock->TryResolveInputPin<FName>(
+				RuntimeNodeIndex, Pin.PinName, Value))
+		{
+			NameProperty->SetPropertyValue(ValuePtr, Value);
+			return true;
+		}
+		return false;
+	}
+	case EComposableCameraPinType::Enum:
+	{
+		int64 Value = 0;
+		if (!RuntimeDataBlock->TryResolveInputPin<int64>(
+			RuntimeNodeIndex, Pin.PinName, Value))
+		{
+			return false;
+		}
+		ComposableCameraSystem::Private::WriteEnumInt64ToProperty(Property, ValuePtr, Value);
+		return Property->IsA<FEnumProperty>() || Property->IsA<FByteProperty>();
+	}
+	case EComposableCameraPinType::Struct:
+	{
+		const FStructProperty* StructProperty = CastField<FStructProperty>(Property);
+		if (!StructProperty || StructProperty->Struct != Pin.StructType)
+		{
+			return false;
+		}
+
+		int32 Offset = INDEX_NONE;
+		if (!RuntimeDataBlock->ResolveInputPinOffset(RuntimeNodeIndex, Pin.PinName, Offset))
+		{
+			return false;
+		}
+		if (RuntimeDataBlock->IsStructSlotOffset(Offset))
+		{
+			if (const FInstancedStruct* Slot =
+				RuntimeDataBlock->TryGetStructSlot(Offset, StructProperty->Struct))
+			{
+				StructProperty->Struct->CopyScriptStruct(ValuePtr, Slot->GetMemory());
+				return true;
+			}
+			return false;
+		}
+
+		const int32 Size = StructProperty->Struct->GetStructureSize();
+		if (Size <= 0 || Offset < 0 || Offset + Size > RuntimeDataBlock->Storage.Num())
+		{
+			return false;
+		}
+		FMemory::Memcpy(ValuePtr, RuntimeDataBlock->Storage.GetData() + Offset, Size);
+		return true;
+	}
+	case EComposableCameraPinType::Delegate:
+	default:
+		return false;
+	}
 }
 
 // --- Subobject Pin Helpers ----------------------------------------------

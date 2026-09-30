@@ -11,7 +11,8 @@ namespace
 {
 	void AddModifierEntries(
 		T_NodeModifierArray& NodeModifierData,
-		UComposableCameraNodeModifierDataAsset* ModifierAsset)
+		UComposableCameraNodeModifierDataAsset* ModifierAsset,
+		uint64& NextRegistrationOrder)
 	{
 		for (UComposableCameraModifierBase* Modifier : ModifierAsset->Modifiers)
 		{
@@ -23,7 +24,8 @@ namespace
 			}
 
 			TArray<FModifierEntry>& NodeModifiers = NodeModifierData.FindOrAdd(NodeClass);
-			const FModifierEntry Entry { Modifier, ModifierAsset };
+			const FModifierEntry Entry {
+				Modifier, ModifierAsset, NextRegistrationOrder++ };
 			if (!NodeModifiers.Contains(Entry))
 			{
 				NodeModifiers.Add(Entry);
@@ -58,31 +60,81 @@ namespace
 	void SelectBestModifiers(
 		const T_NodeModifierArray& Candidates,
 		const FGameplayTagContainer& CameraTags,
-		T_NodeModifier& InOutEffectiveModifiers)
+		T_EffectiveModifier& OutEffectiveModifiers)
 	{
 		for (const auto& NodeModifier : Candidates)
 		{
 			const T_NodeClass& NodeClass = NodeModifier.Key;
 			const TArray<FModifierEntry>& Modifiers = NodeModifier.Value;
 
-			int32 BestPriority = TNumericLimits<int32>::Lowest();
-			if (const FModifierEntry* Existing = InOutEffectiveModifiers.Find(NodeClass))
+			// Preserve the legacy Custom Modifier boundary. If the same
+			// node-class candidate that would previously have won is Custom,
+			// keep one whole-node winner instead of composing unknown side
+			// effects with property overrides.
+			const FModifierEntry* BestNodeEntry = nullptr;
+			int32 BestNodePriority = TNumericLimits<int32>::Lowest();
+			for (const FModifierEntry& Modifier : Modifiers)
 			{
-				if (Existing->Asset)
+				if (Modifier.Modifier
+					&& Modifier.Asset
+					&& Modifier.Asset->MatchesCameraTags(CameraTags)
+					&& Modifier.Asset->Priority >= BestNodePriority)
 				{
-					BestPriority = Existing->Asset->Priority;
+					BestNodeEntry = &Modifier;
+					BestNodePriority = Modifier.Asset->Priority;
+				}
+			}
+			if (!BestNodeEntry)
+			{
+				continue;
+			}
+
+			T_PropertyModifier& EffectiveProperties =
+				OutEffectiveModifiers.FindOrAdd(NodeClass);
+			if (!BestNodeEntry->Modifier->UsesNodeTemplateOverride())
+			{
+				EffectiveProperties.Add(NAME_None, *BestNodeEntry);
+				continue;
+			}
+
+			// Generic Node Type entries expose their ownership explicitly.
+			// Resolve each property independently so disjoint lower-priority
+			// candidates can coexist while overlaps retain existing priority
+			// and tie behavior (later registered candidate wins on >=).
+			for (const FModifierEntry& Modifier : Modifiers)
+			{
+				if (!Modifier.Modifier
+					|| !Modifier.Asset
+					|| !Modifier.Modifier->UsesNodeTemplateOverride()
+					|| !Modifier.Asset->MatchesCameraTags(CameraTags))
+				{
+					continue;
+				}
+
+				for (const FName PropertyName
+					: Modifier.Modifier->OverrideProperties)
+				{
+					if (PropertyName.IsNone())
+					{
+						continue;
+					}
+
+					const FModifierEntry* Existing =
+						EffectiveProperties.Find(PropertyName);
+					const int32 ExistingPriority =
+						Existing && Existing->Asset
+							? Existing->Asset->Priority
+							: TNumericLimits<int32>::Lowest();
+					if (Modifier.Asset->Priority >= ExistingPriority)
+					{
+						EffectiveProperties.FindOrAdd(PropertyName) = Modifier;
+					}
 				}
 			}
 
-			for (const FModifierEntry& Modifier : Modifiers)
+			if (EffectiveProperties.IsEmpty())
 			{
-				if (Modifier.Modifier && Modifier.Asset
-					&& Modifier.Asset->MatchesCameraTags(CameraTags)
-					&& Modifier.Asset->Priority >= BestPriority)
-				{
-					BestPriority = Modifier.Asset->Priority;
-					InOutEffectiveModifiers.FindOrAdd(NodeClass) = Modifier;
-				}
+				OutEffectiveModifiers.Remove(NodeClass);
 			}
 		}
 	}
@@ -114,7 +166,10 @@ void UComposableCameraModifierManager::AddReferencedObjects(UObject* InThis, FRe
 
 	for (auto& EffectivePair : This->ModifierData.EffectiveModifiers)
 	{
-		AddEntryRefs(EffectivePair.Value);
+		for (auto& PropertyPair : EffectivePair.Value)
+		{
+			AddEntryRefs(PropertyPair.Value);
+		}
 	}
 
 	Super::AddReferencedObjects(InThis, Collector);
@@ -127,7 +182,8 @@ void UComposableCameraModifierManager::AddModifier(UComposableCameraNodeModifier
 		return;
 	}
 
-	AddModifierEntries(ModifierData.ModifierData, ModifierAsset);
+	AddModifierEntries(
+		ModifierData.ModifierData, ModifierAsset, NextRegistrationOrder);
 }
 
 void UComposableCameraModifierManager::RemoveModifier(UComposableCameraNodeModifierDataAsset* ModifierAsset)
@@ -142,14 +198,20 @@ void UComposableCameraModifierManager::RemoveModifier(UComposableCameraNodeModif
 
 DECLARE_CYCLE_STAT(TEXT("ModifierManager UpdateEffective"), STAT_CCS_ModifierManager_UpdateEffectiveModifiers, STATGROUP_CCS);
 
-std::pair<bool, UComposableCameraTransitionBase*>
+FComposableCameraModifierUpdateResult
 UComposableCameraModifierManager::FComposableCameraModifierData::UpdateEffectiveModifiers(AComposableCameraCameraBase* Camera)
 {
 	SCOPE_CYCLE_COUNTER(STAT_CCS_ModifierManager_UpdateEffectiveModifiers);
 	TRACE_CPUPROFILER_EVENT_SCOPE(CCS_ModifierManager_UpdateEffectiveModifiers);
 
+	FComposableCameraModifierUpdateResult Result;
+	if (!Camera)
+	{
+		return Result;
+	}
+
 	// Build new effective camera modifiers.
-	T_NodeModifier NewEffectiveModifiers {};
+	T_EffectiveModifier NewEffectiveModifiers {};
 	SelectBestModifiers(ModifierData, Camera->CameraTags, NewEffectiveModifiers);
 
 	// Filter invalid for camera node ownership
@@ -166,76 +228,158 @@ UComposableCameraModifierManager::FComposableCameraModifierData::UpdateEffective
 		NewEffectiveModifiers.Remove(Key);
 	}
 	
-	bool bModifierChanged = false;
-	UComposableCameraTransitionBase* Transition = nullptr;
-	int BestPriorityForTransition = TNumericLimits<int32>::Lowest();
+	int32 BestCameraTransitionPriority = TNumericLimits<int32>::Lowest();
+	int32 BestModifierTransitionPriority = TNumericLimits<int32>::Lowest();
+	uint64 BestCameraTransitionOrder = 0;
+	uint64 BestModifierTransitionOrder = 0;
+	bool bBestCameraTransitionEntering = false;
+	bool bBestModifierTransitionEntering = false;
 
-	// Compare with old effective modifiers and determine if anything is changed.
-	for (const auto& NodeModifiers : EffectiveModifiers)
+	auto ConsiderChange = [&Result, Camera, &BestCameraTransitionPriority,
+		&BestModifierTransitionPriority, &BestCameraTransitionOrder,
+		&BestModifierTransitionOrder, &bBestCameraTransitionEntering,
+		&bBestModifierTransitionEntering](
+			const FModifierEntry& Entry,
+			bool bEntering,
+			FName PropertyName)
 	{
-		const T_NodeClass& NodeClass = NodeModifiers.Key;
-		const FModifierEntry& OldModifier = NodeModifiers.Value;
-		
-		if (!NewEffectiveModifiers.Contains(NodeClass))
+		if (!Entry.Asset)
 		{
-			bModifierChanged = true;
+			return;
+		}
 
-			if (OldModifier.Asset->Priority > BestPriorityForTransition)
+		Result.bChanged = true;
+		if (Entry.Asset->ApplyMode == EComposableCameraModifierApplyMode::ReactivateCamera)
+		{
+			if (!Result.bRequiresCameraReactivation)
 			{
-				Transition = OldModifier.Asset->OverrideExitTransition.Get()
-						   ? OldModifier.Asset->OverrideExitTransition.Get()
-						   : Camera->EnterTransition;
-				BestPriorityForTransition = OldModifier.Asset->Priority;
+				Result.ReactivationReason = FString::Printf(
+					TEXT("Legacy %s: %s%s%s"),
+					bEntering ? TEXT("Enter") : TEXT("Exit"),
+					*Entry.Asset->GetName(),
+					PropertyName.IsNone() ? TEXT("") : TEXT("."),
+					PropertyName.IsNone() ? TEXT("") : *PropertyName.ToString());
+			}
+			Result.bRequiresCameraReactivation = true;
+			const bool bHigherRank =
+				Entry.Asset->Priority > BestCameraTransitionPriority
+				|| (Entry.Asset->Priority == BestCameraTransitionPriority
+					&& ((bEntering && !bBestCameraTransitionEntering)
+						|| (bEntering == bBestCameraTransitionEntering
+							&& Entry.RegistrationOrder
+								> BestCameraTransitionOrder)));
+			if (bHigherRank)
+			{
+				Result.CameraTransition = bEntering
+					? Entry.Asset->OverrideEnterTransition.Get()
+					: Entry.Asset->OverrideExitTransition.Get();
+				if (!Result.CameraTransition)
+				{
+					Result.CameraTransition = Camera->EnterTransition;
+				}
+				BestCameraTransitionPriority = Entry.Asset->Priority;
+				BestCameraTransitionOrder = Entry.RegistrationOrder;
+				bBestCameraTransitionEntering = bEntering;
+			}
+			return;
+		}
+
+		const bool bHigherRank =
+			Entry.Asset->Priority > BestModifierTransitionPriority
+				|| (Entry.Asset->Priority == BestModifierTransitionPriority
+					&& ((bEntering && !bBestModifierTransitionEntering)
+						|| (bEntering == bBestModifierTransitionEntering
+							&& Entry.RegistrationOrder
+								> BestModifierTransitionOrder)));
+		if (bHigherRank)
+		{
+			Result.ModifierTransition = bEntering
+				? Entry.Asset->OverrideEnterValueTransition.Get()
+				: Entry.Asset->OverrideExitValueTransition.Get();
+			BestModifierTransitionPriority = Entry.Asset->Priority;
+			BestModifierTransitionOrder = Entry.RegistrationOrder;
+			bBestModifierTransitionEntering = bEntering;
+		}
+	};
+
+	const auto ConsiderReplacement = [&ConsiderChange](
+		const FModifierEntry& OldModifier,
+		const FModifierEntry& NewModifier,
+		FName PropertyName)
+	{
+		const int32 NewPriority = NewModifier.Asset
+			? NewModifier.Asset->Priority
+			: TNumericLimits<int32>::Lowest();
+		const int32 OldPriority = OldModifier.Asset
+			? OldModifier.Asset->Priority
+			: TNumericLimits<int32>::Lowest();
+		if (NewPriority >= OldPriority)
+		{
+			ConsiderChange(NewModifier, true, PropertyName);
+			if (OldModifier.Asset
+				&& NewModifier.Asset
+				&& OldModifier.Asset->ApplyMode
+					!= NewModifier.Asset->ApplyMode)
+			{
+				ConsiderChange(OldModifier, false, PropertyName);
 			}
 		}
 		else
 		{
-			const FModifierEntry& NewModifier = NewEffectiveModifiers[NodeClass];
-			if (NewModifier.Modifier != OldModifier.Modifier)
+			ConsiderChange(OldModifier, false, PropertyName);
+			if (OldModifier.Asset
+				&& NewModifier.Asset
+				&& OldModifier.Asset->ApplyMode
+					!= NewModifier.Asset->ApplyMode)
 			{
-				bModifierChanged = true;
+				ConsiderChange(NewModifier, true, PropertyName);
+			}
+		}
+	};
 
-				if (NewModifier.Asset->Priority > BestPriorityForTransition)
-				{
-					Transition = NewModifier.Asset->OverrideEnterTransition.Get()
-							   ? NewModifier.Asset->OverrideEnterTransition.Get()
-							   : Camera->EnterTransition;
-					BestPriorityForTransition = NewModifier.Asset->Priority;
-				}
-				
-				// Theoretically this branch will never be reached because NewModifier always has a higher priority then OldModifier.
-				else if (OldModifier.Asset->Priority > BestPriorityForTransition) 
-				{
-					Transition = OldModifier.Asset->OverrideExitTransition.Get()
-							   ? OldModifier.Asset->OverrideExitTransition.Get()
-							   : Camera->EnterTransition;
-					BestPriorityForTransition = OldModifier.Asset->Priority;
-				}
+	// Compare old and new winners per (exact node class, property).
+	for (const auto& NodeModifiers : EffectiveModifiers)
+	{
+		const T_NodeClass& NodeClass = NodeModifiers.Key;
+		const T_PropertyModifier* NewProperties =
+			NewEffectiveModifiers.Find(NodeClass);
+
+		for (const auto& PropertyModifier : NodeModifiers.Value)
+		{
+			const FName PropertyName = PropertyModifier.Key;
+			const FModifierEntry& OldModifier = PropertyModifier.Value;
+			const FModifierEntry* NewModifier =
+				NewProperties ? NewProperties->Find(PropertyName) : nullptr;
+			if (!NewModifier)
+			{
+				ConsiderChange(OldModifier, false, PropertyName);
+			}
+			else if (*NewModifier != OldModifier)
+			{
+				ConsiderReplacement(OldModifier, *NewModifier, PropertyName);
 			}
 		}
 	}
 
-	// See if there are newly added modifiers.
+	// See if there are newly effective property winners.
 	for (const auto& NodeModifiers : NewEffectiveModifiers)
 	{
 		const T_NodeClass& NodeClass = NodeModifiers.Key;
-		const FModifierEntry& NewModifier = NodeModifiers.Value;
+		const T_PropertyModifier* OldProperties =
+			EffectiveModifiers.Find(NodeClass);
 
-		if (!EffectiveModifiers.Contains(NodeClass))
+		for (const auto& PropertyModifier : NodeModifiers.Value)
 		{
-			bModifierChanged = true;
-
-			if (NewModifier.Asset->Priority > BestPriorityForTransition)
+			if (!OldProperties
+				|| !OldProperties->Contains(PropertyModifier.Key))
 			{
-				Transition = NewModifier.Asset->OverrideEnterTransition.Get()
-						   ? NewModifier.Asset->OverrideEnterTransition.Get()
-						   : Camera->EnterTransition;
-				BestPriorityForTransition = NewModifier.Asset->Priority;
+				ConsiderChange(
+					PropertyModifier.Value, true, PropertyModifier.Key);
 			}
 		}
 	}
 
 	EffectiveModifiers = MoveTemp(NewEffectiveModifiers);
 	
-	return { bModifierChanged, Transition };
+	return Result;
 }

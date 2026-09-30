@@ -1,6 +1,6 @@
 # ComposableCameraSystem Design
 
-Updated: 2026-07-22
+Updated: 2026-09-28
 
 This document describes the current runtime architecture of the UE 5.6
 ComposableCameraSystem plugin. It is intentionally compact. Implementation
@@ -11,8 +11,9 @@ Shot authoring details live in `ShotBasedKeyframing.md`.
 
 - Compose camera behavior from small nodes, not subclasses.
 - Keep mode switching separate from per-camera blending.
-- Keep transitions pose-only. A transition blends two poses. It does not own
-  cameras, directors, or contexts.
+- Keep Evaluation Tree transitions pose-only. A camera transition blends two
+  poses. Modifier value transitions are a separate scalar-timing system owned
+  by one camera instance; they never enter the Evaluation Tree.
 - Keep camera type data in assets. Graph assets compile into runtime data
   layouts and execution chains.
 - Keep gameplay and Sequencer evaluation on compatible camera code paths.
@@ -46,6 +47,7 @@ PCM::UpdateCamera
        -> active Director::Evaluate
             -> EvaluationTree::Evaluate
                  -> CameraBase::TickCamera on leaves
+                     -> optional camera-owned Modifier value overlays
                  -> transition nodes blend source and target poses
                  -> finished transitions collapse
             -> PatchManager::Apply on tree output
@@ -176,12 +178,14 @@ It owns:
 - source type asset.
 - source parameter block.
 - current and last frame pose.
+- optional transient in-place Modifier runtime state.
 
 Runtime node execution:
 
 ```text
 input pose
   -> pre-node actions
+  -> optional cached Modifier property operation
   -> node tick
   -> post-node actions
   -> optional set-variable entries
@@ -237,6 +241,13 @@ Built-in transition families include linear, smooth, ease, cubic, inertialized,
 cylindrical, spline, path-guided, dynamic deocclusion, composition-preserving,
 and view-target.
 
+`UComposableCameraModifierTransitionBase` is intentionally outside this
+hierarchy. It produces only a normalized scalar weight for property
+interpolation inside one camera. It does not receive poses, own a camera, or
+create an Evaluation Tree node. Linear, smooth-step, smoother-step, ease, and
+curve timing are available without forwarding pose-dependent transition
+algorithms into the property domain.
+
 Composition-preserving transitions preserve subject composition in the driving
 rotation space. At transition start they capture the subject's source-camera
 local offset. Each tick a nested driving transition computes rotation `R'` and
@@ -250,7 +261,9 @@ pose to avoid a collapse-frame snap.
 
 ## 10. Modifiers and Actions
 
-Modifiers live at the PCM level and are applied after context evaluation.
+Modifier selection lives at the PCM level. Legacy reactivation is initiated
+there; opt-in in-place values are consumed inside the selected camera's node
+evaluation.
 
 `UComposableCameraNodeModifierDataAsset` stores fixed base-wrapper entries.
 Each wrapper's first choice selects one of two mutually exclusive branches:
@@ -260,12 +273,28 @@ instanced user-authored `UComposableCameraModifierBase` subclass.
 Each camera and camera type asset owns an `FGameplayTagContainer`. The modifier
 asset's `FGameplayTagQuery` scopes the whole asset: an empty query means every
 camera; a non-empty query supports nested ALL / ANY / NONE expressions against
-the camera's complete tag container. Registered candidates are grouped only by
-target node class. Matching candidates then compete by priority.
-At camera construction, the manager matches the template's exact node class
-and copies only checked properties onto the runtime node. Node-class metadata
-and transient fields are never modifier inputs. This keeps a modifier additive:
-unchecked node values continue to come from the camera type asset.
+the camera's complete tag container. Registered candidates remain bucketed by
+exact target node class, but Node Type candidates compete independently for
+each checked property. Priority resolves overlapping ownership; equal priority
+preserves the existing later-registration-wins rule. Therefore two assets may
+simultaneously modify disjoint properties on the same node class. A candidate
+may be effective for all, some, or none of its checked properties.
+
+Custom Modifier callbacks keep a whole-node lane: when the same candidate that
+would have won the legacy node-class election is Custom, it remains the single
+winner for that node-class bucket and is not composed with Node Type entries.
+The callback runs once after the activation parameters have reached the node.
+Non-wired pin-backed properties it actually changes become owned by that
+Modifier for this camera instance; untouched and wired pins continue following
+their normal sources. Wired outputs may first be produced during BeginPlay,
+after the Custom callback, so their pre-BeginPlay values are not frozen.
+This gives a one-shot Custom addition the same effective priority whether its
+base value came from the type asset or from a K2 activation parameter. Later
+changes to that owned pin do not recompute the addition.
+At camera construction, the manager matches exact node class and copies each
+effective property from its winning template onto every matching runtime node.
+Node-class metadata and transient fields are never modifier inputs. Unchecked
+node values continue to come from the camera type asset.
 
 Checked properties are a higher-priority authored layer than the target node's
 graph wires and exposed parameters. The node's pin resolver skips those exact
@@ -274,12 +303,56 @@ tick. Type-asset construction applies data-driven modifiers before node
 initialization, so interpolator and solver caches are built from override values.
 
 Custom wrappers read the nested modifier's `NodeClass`, always retain the legacy
-post-initialize phase, and invoke its `ApplyModifier` event. Existing assets that stored
+post-initialize phase, and invoke its `ApplyModifier` event. The runtime compares
+non-wired pin-backed fields before and after that event, then protects changed fields
+from later pin resolution. Existing assets that stored
 Blueprint modifier subclasses directly in the array migrate those objects into
 Custom Modifier Class wrappers during load, preserving `NodeClass`, custom
 fields, and their `ApplyModifier` event path.
 Legacy camera `CameraTag` fields migrate into the new container. Legacy modifier
 `CameraTags` lists migrate into an ANY query, preserving their OR intent.
+
+Each Modifier asset selects one runtime application mode:
+
+- `ReactivateCamera` is value zero and preserves the existing behavior for all
+  previously saved assets. A change reconstructs the current camera and uses
+  the existing pose transition path.
+- `ModifyExistingInstance` is explicit opt-in. The manager changes only the
+  running camera's transient Modifier state; no camera is spawned, destroyed,
+  or inserted into the Evaluation Tree.
+
+In-place Node Type entries build property bindings only when effective Modifier
+selection changes. Every matching node instance receives an independent
+binding, identified by runtime node plus property/pin rather than parameter
+name alone. Pin-backed properties form a logical overlay above wire, exposed
+parameter, per-instance default, and class default values. The lower
+RuntimeDataBlock layer remains untouched and live, so removing the Modifier
+reveals the current K2/wire value rather than a type-asset template snapshot.
+Explicit `GetInputPinValue` readers consult the same node-local ownership cache
+as automatic pin resolution.
+
+Each effective `(exact node class, property)` edge is diffed independently
+rather than assigned one update-wide transition. A newly owned property uses
+its winning asset's Enter Value Transition; a property whose winner changed
+uses the new winner's Replace Value Transition; a removed winner uses the old
+winner's Exit Value Transition. Null Replace preserves legacy priority
+selection: desired Enter when desired priority is at least previous priority,
+otherwise previous Exit. A zero-duration Replace is explicitly immediate. A
+property with no current winner keeps any exit already in progress, so an
+unrelated property election cannot restart its clock.
+
+Continuous built-in value types interpolate per node immediately before that
+node resolves pins and ticks. Discrete values switch once at the transition's
+configured weight. Non-pin properties are rejected unless the node explicitly
+opts them into runtime mutation; this prevents changing initialization-only
+configuration without rebuilding its cache. Nodes that opt in a cached
+property can rebuild derived state through `OnModifierPropertyChanged`.
+
+Camera construction still applies effective values before node initialization.
+The in-place transition exists only for changes to an already-running camera.
+Custom Blueprint Modifier callbacks remain `ReactivateCamera`-only because
+arbitrary side effects cannot be automatically interpolated or reverted.
+Mixed effective changes reactivate when any changed entry uses the legacy mode.
 
 Actions are runtime objects registered on the PCM. They can target:
 
@@ -289,6 +362,27 @@ Actions are runtime objects registered on the PCM. They can target:
 - action-specific expiration.
 
 Built-in actions include move-to, reset-pitch, and rotate-to.
+`UComposableCameraActionTypeAsset` owns an instanced Action template. One
+Blueprint Action class can therefore supply logic to many assets with distinct
+defaults. `AddActionFromAsset` duplicates the template for every activation,
+applies caller parameter values to compatible editable Blueprint-visible subclass fields,
+then registers the new Action on the PCM. A connected K2 input can carry a live
+Actor or other context-dependent value. Unconnected inputs leave the asset
+default intact. Existing class-based `AddAction` and `CanExecute` / `OnExecute`
+logic remain available. The returned Action instance is a handle; Blueprint
+`RemoveActionInstance` removes that exact instance when several share one class.
+Instant and Duration expiration count PCM update frames, even when no camera or
+matching node executes the action. Actions with Duration enabled and a
+non-positive Duration are rejected when added; a later invalid duration also
+prevents execution.
+Manual expiration is also checked by the PCM before evaluation. Pose-dependent
+Condition is checked at the Action's actual camera or node hook against that
+camera's local pose at that stage, not the previous PCM blended output. A
+global Action may run on multiple cameras during a blend; the running camera's
+first matching hook determines its per-update Condition and global expiration.
+Source-camera hooks do not expire a global Action for reaching their own target.
+An Action bound only to its original camera uses that camera's hook, even if it
+becomes a transition source after the running camera changes.
 
 ## 11. Camera Patches
 
@@ -381,6 +475,13 @@ Available debug surfaces include:
 Snapshots resolve pointers to display data early so UI consumers do not deref
 runtime-owned objects later.
 
+The Modifier panel also reads a display-only snapshot from each active
+in-place property binding: current node value, target template (or live lower
+layer on exit), and transition phase/progress. The PCM retains the last
+modifier-selection decision only for the camera it affected, including the
+first legacy enter/exit edge that required reactivation. Neither diagnostic
+path changes modifier ownership or camera evaluation.
+
 Per-node editor snapshots include the pose after evaluation, output-pin values,
 and owned strings for every current node parameter. Declared inputs are emitted
 before remaining editable properties, so both pin-backed values and
@@ -463,7 +564,8 @@ Layer changes are edge-triggered. Spatial membership is a set: entering an
 overlapping Layer does not exit Layers that still cover the player. Every
 active Layer contributes duplicated Modifier candidates. Removing one Layer
 removes only its candidates; Modifier asset priority continues to resolve
-same-node conflicts inside the modifier manager.
+same-property conflicts inside the modifier manager; disjoint properties on
+the same node class compose.
 
 Every Camera-bearing Layer pushes its own collision-free temporary Context.
 Its readable hint contains `Mesh`, Layer name, and Layer GUID. Entering a
@@ -501,6 +603,21 @@ replaceable bake optimizations.
 - Base context is never popped.
 - Inter-context blends use captured tree snapshots, not live director recursion.
 - Evaluation tree transition nodes are pose-only.
+- Modifier value transitions never create Evaluation Tree nodes or own camera
+  lifecycle.
+- In-place Modifier binding state cannot be discarded until exit restores the
+  current lower layer and unregisters node ownership. Null and zero-duration
+  exits still release during the next normal node evaluation.
+- In-place Modifier transition ownership is property-local. Simultaneous
+  Enter, Replace, and Exit bindings may use different assets and clocks.
+- Node Type Modifier selection is property-local. Disjoint properties on one
+  exact node class may have different effective assets; overlapping properties
+  still resolve by asset priority and registration order.
+- Custom Modifier callbacks remain whole-node winners because arbitrary
+  Blueprint side effects cannot be safely composed with other Modifier entries.
+  Only their changed non-wired pin-backed fields acquire one-shot pin ownership.
+- Existing Modifier assets default to `ReactivateCamera`; in-place mutation is
+  explicit opt-in.
 - Patch overlays run after tree evaluation.
 - Graph assets are durable source. `EditorGraph` is transient.
 - Runtime data-block slot shape and byte bounds must both be valid.

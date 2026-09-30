@@ -1,6 +1,6 @@
 # ComposableCameraSystem Tech Notes
 
-Updated: 2026-07-22
+Updated: 2026-09-28
 
 Purpose: compact implementation reference. Keep this file current when code
 patterns, public APIs, hot-path rules, node catalogs, or gotchas change.
@@ -167,7 +167,81 @@ recursive ALL / ANY / NONE query editor and token-stream evaluator. Empty query
 means all cameras; non-empty query calls `Matches` against the full camera tag
 container. The manager stores every candidate in one node-class bucket and
 filters queries only when rebuilding `EffectiveModifiers`; no global bucket or
-tag sentinel exists. Higher priority wins among matching candidates.
+tag sentinel exists. Effective Node Type selection is a nested
+`NodeClass -> PropertyName -> FModifierEntry` map. Each checked property elects
+its own matching winner by asset priority; equal priority uses monotonic
+registration order, preserving later-registration-wins behavior. Disjoint
+properties therefore compose even when their winners come from different
+assets. The selected entry keeps its registration order in the non-reflected
+manager data. Equal-priority transition summaries prefer entering edges over
+exiting edges, then later registration, preserving the legacy
+desired-wins-on-equal replacement rule.
+
+`NAME_None` is reserved as the whole-node key. If the legacy node-class winner
+is a Custom Modifier, the effective map contains only that key for the class.
+This prevents arbitrary Blueprint side effects from being silently composed
+with property entries whose overlap cannot be discovered.
+
+`EComposableCameraModifierApplyMode` is serialized on the Modifier asset.
+`ReactivateCamera = 0` is the compatibility default. It keeps
+`ApplyModifierToNode`, `ModifierOverrideFieldOffsets`, and camera reactivation
+unchanged. `ModifyExistingInstance` routes selection changes into the running
+camera's transient `UComposableCameraModifierRuntimeState`. Its durable timing
+fields are Enter, Replace, and Exit Value Transition. Null Enter/Exit means
+immediate; null Replace preserves the legacy priority rule by selecting desired
+Enter when desired priority is at least previous priority, otherwise previous
+Exit. Duration zero expresses an explicitly immediate Replace.
+
+The in-place state duplicates one baseline node per affected runtime node and
+caches one binding per checked property. Binding construction performs all
+reflection and pin discovery. Per-frame work uses cached `FProperty*`, field
+offset, pin identity, blend kind, transition weight, and source/target node
+snapshots. Each binding also stores its current winning Modifier and asset, so
+one runtime node may be driven by several assets without sharing transition
+state. Multiple nodes of the same exact class receive separate states.
+
+Pin-backed bindings register an in-place pin/property identity on the node.
+`ResolveAllInputPins` continues to skip the owned field, while explicit
+`GetInputPinValue<T>` returns the current modifier-owned property. The lower
+RuntimeDataBlock remains unchanged and is accessed through
+`TryResolveUnderlyingInputPin` / `TryCopyUnderlyingInputPinToProperty`.
+Removal unregisters ownership before the normal node tick resolves the latest
+wire/exposed/default value.
+Null and zero-duration runtime exits keep their pending binding until
+`ApplyForNode` calls `ReleaseProperty`; only the camera-construction
+`bImmediate` path may apply and prune that binding synchronously.
+
+Continuous built-in types are Float, Double, Vector2D/3D/4D, Rotator,
+Transform, and LinearColor. Rotator uses quaternion slerp; Transform uses
+`FTransform::Blend`. Other supported pin-backed values switch once at
+`DiscreteSwitchWeight`. Non-pin properties require the node's
+`SupportsInPlaceModifierProperty` opt-in. `OnModifierPropertyChanged` is the
+cache-rebuild hook for opted-in configuration. Initial camera construction
+suppresses this hook because normal node initialization follows immediately.
+
+`UComposableCameraModifierTransitionBase` is a stateless timing template with
+duration, linear/smooth/smoother/ease/custom-curve weight, and a discrete switch
+threshold. Each binding stores elapsed time, so disjoint or interrupted
+property changes can coexist without mutable transition-template state.
+`ReconcileNode` resolves the desired entry for each existing binding by property
+name. New ownership selects desired Enter, a changed winner selects desired
+Replace, and removed ownership selects previous Exit. Unowned bindings keep
+their already-running exit unchanged. Newly selected properties create new
+bindings with their own winning Modifier/asset pair. The PCM production path
+calls `ReconcileInPlaceEffectiveModifiersFromAssets` with the
+`T_EffectiveModifier` shape. The original
+`ReconcileInPlaceModifiersFromAssets(T_NodeModifier)` and
+`ReconcileInPlaceModifiers(T_NodeModifier, Transition)` signatures remain
+unambiguous source-compatibility paths for focused tests and external C++.
+`FComposableCameraModifierUpdateResult::ModifierTransition`
+remains only a compatibility summary and no longer drives PCM evaluation.
+Reflection, node duplication, and binding-array growth happen only on Modifier
+selection edges, never inside camera/node evaluation.
+
+Custom Modifier Class entries are invalid in `ModifyExistingInstance`: editor
+shows an error and runtime skips the entry with a warning. A mixed selection
+change uses legacy camera reactivation when any changed old/new asset requires
+it.
 
 Legacy single camera `CameraTag` properties remain hidden serialized fields.
 Type-asset `PostLoad` and runtime construction migrate them into `CameraTags`.
@@ -176,10 +250,12 @@ Legacy modifier `CameraTags` containers remain hidden and migrate during
 
 In Node Type mode, `GetTargetNodeClass` prefers the template's class. In Custom
 mode, target lookup uses the nested modifier's `NodeClass` and execution stays
-post-initialize. Matching
-stays exact, same as node-scoped actions. `ApplyModifierToNode` reflects only during camera
-construction / reactivation, never in the per-frame tick. It validates every
-stored name through `IsNodePropertyOverridable`, then copies that one property.
+post-initialize. Matching stays exact, same as node-scoped actions.
+`ApplyModifierPropertyToNode` is the per-property construction path;
+`ApplyModifierToNode` retains the whole-wrapper compatibility path. Reflection
+runs only during camera construction / reactivation, never in the per-frame
+tick. Each selected name is validated through `IsNodePropertyOverridable`, then
+that one property is copied.
 An instanced-object property duplicates its source subobject into the runtime
 node; other property types use normal `FProperty` copy semantics. It then
 registers the target field offset in the node's inline modifier-override list.
@@ -187,6 +263,16 @@ The PCM-only `ConstructCameraFromTypeAsset` overload invokes a synchronous
 pre-initialize callback after node/data-block setup; generic modifiers run in
 that callback, before `InitializeNodes` builds interpolator / solver caches.
 Custom Blueprint `ApplyModifier` callbacks keep their original post-init timing.
+`ApplyCustomModifierWithPinOwnership` snapshots the node's cached non-wired pin-backed
+`FProperty` values at activation, executes the callback once, and registers
+only changed property/pin identities. The snapshot uses reflected property
+copy/identity/destruction so struct and object pins remain valid. This work
+never runs in the evaluation hot path. A changed field then survives later
+`ResolveAllInputPins` calls and explicit pin reads, while untouched inputs
+remain live. Wired pins are excluded because BeginPlay compute outputs may be
+uninitialized until after the callback. K2 activation
+values and type-asset defaults are both valid bases for the one-shot callback;
+later changes to an owned input do not reapply the callback.
 
 `ResolveAllInputPins` skips registered modifier field offsets. This makes a
 checked modifier property higher priority than the same node's graph wire or
@@ -222,13 +308,20 @@ engine-provided Gameplay Tags query customization.
 
 Camera tick:
 
-1. Start from current camera pose.
-2. Walk `FullExecChain`.
-3. Run node pre-actions.
-4. Tick node.
-5. Run node post-actions.
-6. Apply set-variable entries.
-7. Store pose and frame cache.
+1. Pass the per-frame memoization guard.
+2. Advance active Modifier value clocks once.
+3. Start from current camera pose.
+4. Walk `FullExecChain`.
+5. Run node pre-actions.
+6. Apply cached in-place Modifier operations for this node.
+7. Tick node.
+8. Run node post-actions.
+9. Apply set-variable entries.
+10. Store pose and frame cache.
+
+No in-place state means one null/empty branch and the legacy order/result is
+unchanged. A reference DAG that reaches the same camera twice still advances
+Modifier clocks once because the existing camera memoization guard runs first.
 
 `TickWithInputPose` is used by patches and Sequencer patch overlays. It lets a
 patch node graph consume the upstream pose instead of synthesizing from the
@@ -460,6 +553,49 @@ Runtime debug:
 - flattened DFS tree snapshots.
 - patch snapshots from PCM path and Sequencer path.
 - runtime panel and pose history panel.
+- Modifier panel rows use one structured group per exact target node class.
+  Candidates appear once and are sorted by status, priority, then asset name.
+  `ACTIVE`, `PARTIAL`, `UNSUPPORTED`, `SHADOWED`, `FILTERED`, `NO NODE`, and
+  `DESTROYED` expose selection outcome directly. `PARTIAL` means the candidate
+  won only a subset of its authored properties. Each two-line card puts the compact
+  TagQuery scope beside the Modifier name, then shows
+  enter/replace/exit Blend on its own clipped full-width row. Apply mode and
+  priority remain on the identity row. Below the candidate cards, active
+  in-place bindings show one two-line row per property: owner and transition
+  phase/time progress, then clipped current and target values. Exiting pin
+  bindings label the target `Live Lower`; non-pin exits label it `Baseline`.
+  Bindings remain visible during exit even after their last registered
+  candidate is removed. A `Last Change` row reports the PCM's last selection
+  decision for this exact camera; reactivation names the first changed legacy
+  asset and property that required a new instance.
+  Canvas labels use measured pixel width plus a fixed gap. Every right-aligned
+  field shares a content-right safety inset so text shadows and glyph bearings
+  cannot touch or cross the group/region edge;
+  fixed-width label columns can overlap proportional-font values. Do not return
+  to duplicated `Effective` plus `All` text lists: they hide the reason a
+  candidate lost and waste vertical space.
+- Action panel rows use compact two-line cards. Identity, camera scope, and
+  optional node target share the first line with the execution phase; expiration
+  rules use one measured label/value row below. The source `TSet` has no display
+  order, so snapshots sort by execution phase, identity, then stable object key
+  before drawing.
+  Missing targets use problem coloring without changing action execution.
+- Patch panel rows use lifecycle-colored cards. The identity row separates phase,
+  asset/source/Sequencer host, and layer into clipped columns; Alpha and
+  meaningful Time values keep their progress bars; expiration rules use a
+  measured label/value row. Patch snapshots retain manager/Sequencer producer
+  order rather than sorting by display text. Actions, Modifiers, and Patches
+  share the same content-right safety inset.
+- Current Pose groups use compact two-column cards; context headers and Running
+  Camera section/node rows use tinted backgrounds without side rails. Warning
+  entries keep their severity rail. Tree connectors and Legend swatches retain
+  their specialized layouts.
+  The common body line, title, margins, and gaps use a compact density. The
+  height pass packs whole regions into viewport-height pages; select a page
+  with `CCS.Debug.Panel.Page` (zero-based). A single region taller than the
+  viewport is clipped inside its border and marked in the page footer rather
+  than drawing beyond the screen. All region renderers must honor the supplied
+  body height, including Legend rows.
 - `CCS.Dump.*`.
 - viewport debug draw CVars.
 - viewport gizmo colors live in `FComposableCameraViewportDebugColors`; the
@@ -822,13 +958,41 @@ Base classes:
 - `UComposableCameraCompositionPreservingTransition`
 - `UComposableCameraViewTargetTransition`
 
+Modifier-value timing:
+
+- `UComposableCameraModifierTransitionBase`
+
 ## 18. Built-In Actions and Interpolators
 
 Actions:
 
+- `UComposableCameraActionTypeAsset` duplicates an instanced Blueprint or C++
+  Action template before registration. Pin-compatible subclass properties with
+  both Edit and BlueprintVisible flags become K2 inputs; base lifecycle fields stay on
+  the asset. ParameterBlock values are checked against reflected field types,
+  then written once to the duplicate. Object references use reflected setters
+  and remain GC-visible through the Action's UPROPERTY fields. The K2 node
+  returns the instance handle; `RemoveActionInstance` removes that one Action
+  even when other assets instantiate the same class.
 - `UComposableCameraMoveToAction`
 - `UComposableCameraResetPitchAction`
 - `UComposableCameraRotateToAction`
+
+Action lifetime is checked once per PCM update before context evaluation.
+Instant consumes one update frame; Duration accumulates update DeltaTime even
+when no target executes. `AddCameraAction` rejects a Duration-enabled action
+whose authored Duration is non-positive. `OnCanExecute` rejects the same invalid
+value if C++ changes it after registration.
+`OnCanExecute` handles only Instant, Duration, and Manual. Camera-local weak
+action lists dispatch the four execution stages with mutation-safe snapshots.
+At the running camera's first matching hook each PCM update,
+`ExecuteForCamera` calls the Blueprint `CanExecute` Condition with that stage's
+local pose. False removes the Action immediately and skips `OnExecute`.
+Source-camera hooks during a blend cannot expire a global Action; the running
+camera controls completion. A current-camera-only Action instead checks its
+bound camera, including when that camera becomes a transition source. A
+Condition Action with no matching hook is not condition-checked until it can
+execute.
 
 Interpolators:
 
@@ -842,12 +1006,26 @@ Interpolators:
 Existing test files include:
 
 - `ComposableCameraBugFixTests.cpp`
+- `ComposableCameraActionTests.cpp` (non-positive Duration guard; Condition uses
+  the executing camera's local pose; Action asset parameters stay instance-local).
+  Class-based default-value tests use dedicated reflected fixture classes;
+  mutating an initialized CDO does not reliably simulate authored defaults
+  on instances made by `NewObject`.
 - `ComposableCameraCompositionPreservingTransitionTests.cpp`
 - `ComposableCameraComputePositionBetweenActorsNodeTests.cpp`
 - `ComposableCameraShotSolverTests.cpp`
 - `ComposableCameraPivotLookAheadNodeTests.cpp`
 - `ComposableCameraLockOnAimPointNodeTests.cpp`
 - `ComposableCameraModifierPropertyOverrideTests.cpp`
+  - legacy property-copy/pin priority.
+  - in-place live lower-layer enter/exit.
+  - every matching same-class node instance.
+  - apply-mode compatibility default, mixed-mode reactivation, and null-safe
+    reflection classification.
+  - property-local Enter/Replace/Exit routing across partially overlapping
+    override sets.
+  - per-property winner composition, overlap priority, removal fallback,
+    construction application, and Custom whole-node compatibility.
 - `ComposableCameraDebugSnapshotTests.cpp`
 - `ComposableCameraNodeGraphSyncTests.cpp`
 - `ComposableCameraNodeRuntimeTooltipTests.cpp`
@@ -882,6 +1060,9 @@ Rules:
 - No `LoadSynchronous`.
 - No FString formatting in per-frame loops.
 - No container mutation that can reallocate during iteration.
+- In-place Modifier binding creation, reflection, and node snapshots happen on
+  selection edges. Per-frame value application uses preallocated arrays and
+  cached property operations.
 - Snapshot mutable callback lists before invoking Blueprint callbacks.
 - Use weak pointers in snapshots that can survive arbitrary Blueprint work.
 - Cache soft object resolution outside the eval path.
@@ -891,6 +1072,23 @@ Rules:
 - `EnsureContext` means "exists and top", not merely "exists".
 - `ReferenceLeaf` captures tree topology. It is not a live director pointer.
 - Same camera UObject can be reached twice in one frame through snapshots.
+- Modifier value clocks must advance after the camera memoization guard, not
+  before it.
+- Removing an in-place pin override must unregister node ownership before the
+  normal pin resolver runs; copying a type-asset value back is incorrect for
+  K2/wire-driven inputs.
+- A pending in-place Modifier exit is work, not dead state. Do not erase its
+  binding during normal reconcile; `ApplyForNode` must first restore the lower
+  layer and unregister ownership.
+- If neither the previous nor desired effective Modifier owns a still-bound
+  property, keep its existing Exit state. Restarting it from an unrelated
+  selection edge changes both duration and source snapshot.
+- Do not collapse effective Node Type entries back to one winner per node
+  class. Registration is node-class-bucketed, but selection and runtime
+  ownership are keyed by `(exact node class, property name)`.
+- Custom Modifier callbacks use the reserved `NAME_None` whole-node lane. They
+  cannot safely participate in property composition because Blueprint side
+  effects do not declare the fields they mutate.
 - A patch evaluator is a transient camera actor, not a node grafted into the
   main camera.
 - Patch activation override booleans are semantic. Zero is a valid value.
@@ -911,6 +1109,10 @@ Rules:
   a real distance.
 - UE automation `UTEST_EQUAL` has no `FName` overload in UE 5.6. Use
   `UTEST_TRUE(NameA == NameB)` or compare strings when testing `FName`.
+- UE5.6 LWC math aliases such as `FVector`, `FVector2D`, `FVector4`,
+  `FRotator`, and `FTransform` do not expose a member `T::StaticStruct()`.
+  Generic reflection code for built-in structs must use
+  `TBaseStructure<T>::Get()`.
 - Interpolator `Run()` returns an absolute value, not a delta. If a scalar
   damping helper computes only `Target - Current` progress, add it back to the
   current value before returning; Spline, FocusPull, and VolumeConstraint reset

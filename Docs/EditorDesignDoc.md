@@ -1,6 +1,6 @@
 # ComposableCameraSystem Editor Design
 
-Updated: 2026-07-22
+Updated: 2026-09-28
 
 This document describes the current editor module. It replaces the old
 phase-by-phase implementation plan. Runtime architecture lives in
@@ -235,10 +235,24 @@ UncookedOnly contains custom Blueprint nodes:
 - `UK2Node_ActivateComposableCamera`.
 - `UK2Node_ActivateComposableCameraFromDataTable`.
 - `UK2Node_AddCameraPatch`.
+- `UK2Node_AddCameraAction`.
 - `UK2Node_PlayCutsceneSequence`.
 
 These nodes generate typed pins from selected assets. They must refresh pins
 when the asset changes and compile to runtime Blueprint library calls.
+`UK2Node_AddCameraAction` reads the selected Composable Camera Action asset's
+instanced Action template. It shows pin-compatible editable Blueprint-visible
+fields declared below ActionBase as optional advanced pins. Only connected
+pins enter a parameter block; the asset template supplies every unconnected
+default. A variable-driven asset input has no static parameter pins but may
+still activate an asset at runtime.
+The node expands to `AddActionFromAsset` in the runtime Blueprint library.
+Composable Camera Action assets use the normal Details editor, not the camera
+node graph. The Content Browser displays that name without the internal
+`TypeAsset` suffix. A camera silhouette with an indigo action bolt is registered
+as both class icon and thumbnail through `FComposableCameraEditorStyle`.
+The Add Camera Action K2 node title uses the same indigo (`#665AE5`) as the asset,
+distinguishing it from the default Blueprint function-node blue.
 
 Important activation data:
 
@@ -537,6 +551,7 @@ Rewind Debugger trace ingestion:
 Editor asset tooling exists for:
 
 - camera type asset.
+- action type asset (inline Action template, Content Browser factory and asset definition).
 - patch type asset.
 - transition data asset.
 - transition table.
@@ -578,6 +593,30 @@ queries can nest ALL / ANY / NONE expressions against a camera type asset's
 not graph state. Legacy single camera tags and modifier tag lists migrate on
 load and remain hidden from new authoring. This follows GameplayCameras'
 `GameplayCameras/Public/Transitions/GameplayTagTransitionConditions.h` pattern.
+
+Modifier Details exposes `Application Mode` above the wrapper array:
+
+- `Reactivate Camera` is the compatibility default. Existing pose Enter/Exit
+  Transition fields are visible.
+- `Modify Existing Instance` is explicit opt-in. Pose Transition fields are
+  hidden and Modifier Value Enter/Replace/Exit Transition fields are visible.
+  Replace applies only to properties checked by both the old and new winning
+  Modifiers. Null Replace shows `Legacy`: desired Enter wins when desired
+  priority is at least previous priority, otherwise previous Exit. Authors use
+  a zero-duration Replace to request an explicitly immediate handoff.
+
+In in-place mode, each Node Type property row carries one compact capability
+label. `Blend` means a built-in continuous value blender exists. `Step` means
+the property switches once at the transition threshold. `Unsupported` means
+the property has neither a matching top-level input pin nor a node-provided
+runtime-mutation opt-in; its value widget stays disabled without deleting the
+authored legacy value. Custom Modifier Class wrappers produce an error banner
+because arbitrary Blueprint side effects cannot be interpolated or reverted.
+Switching application mode never clears either transition family, node
+templates, checked-property names, or Custom Modifier data.
+
+This state remains direct durable Modifier-asset data. It does not participate
+in graph `SyncToTypeAsset` / `RebuildFromTypeAsset`.
 
 When adding an asset class, update:
 
@@ -680,6 +719,8 @@ Future mesh reduction belongs only on the right side of this boundary.
   save/load stability.
 - Graph node GUIDs are durable identity.
 - Runtime asset data, not transient graph data, is saved truth.
+- Modifier application-mode authoring never enters the Camera Type graph
+  round-trip.
 - Build messages must point to authorable fixes.
 - K2 generated pins must match runtime asset exposed surfaces.
 - Sequencer sections must not block-load assets on eval path.

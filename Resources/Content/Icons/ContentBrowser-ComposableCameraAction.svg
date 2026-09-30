@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="48" height="48" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Camera silhouette shared with the other Composable Camera asset icons. -->
+  <rect x="3" y="16" width="22" height="18" rx="2.5" fill="white"/>
+  <path d="M27 19 L34 15 L34 36 L27 32 Z" fill="white"/>
+  <!-- Indigo action bolt, matching the asset's Content Browser color. -->
+  <circle cx="37" cy="37" r="9" fill="white"/>
+  <path d="M39.5 29 L33 37 H37 L35 44 L42 34.5 H38.5 L41 29 Z" fill="#665AE5"/>
+</svg>

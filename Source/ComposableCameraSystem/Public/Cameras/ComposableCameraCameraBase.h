@@ -15,6 +15,9 @@
 #include "ComposableCameraCameraBase.generated.h"
 
 class UComposableCameraModifierManager;
+class UComposableCameraModifierRuntimeState;
+struct FComposableCameraModifierPropertyDebugSnapshot;
+class UComposableCameraModifierTransitionBase;
 class UComposableCameraTransitionBase;
 struct FComposableCameraDebugSnapshot;
 class UComposableCameraActionBase;
@@ -404,6 +407,35 @@ public:
 		bool bApplyNodeTemplateModifiers = true,
 		bool bApplyLegacyBlueprintModifiers = true);
 
+	/** Production per-property effective selection path. */
+	void ApplyEffectiveModifiers(const T_EffectiveModifier& Modifiers,
+		bool bApplyNodeTemplateModifiers = true,
+		bool bApplyLegacyBlueprintModifiers = true);
+
+	/**
+	 * Reconcile opt-in in-place Modifier assets without camera reactivation.
+	 * Production path resolves Enter/Replace/Exit timing per property from the
+	 * old and new effective Modifier assets.
+	 */
+	void ReconcileInPlaceEffectiveModifiersFromAssets(
+		const T_EffectiveModifier& Modifiers);
+
+	/** Legacy one-entry-per-node compatibility path. */
+	void ReconcileInPlaceModifiersFromAssets(
+		const T_NodeModifier& Modifiers);
+
+	/**
+	 * Compatibility/test path forcing one transition for every changed
+	 * property. Existing C++ callers retain the previous behavior.
+	 */
+	void ReconcileInPlaceModifiers(
+		const T_NodeModifier& Modifiers,
+		UComposableCameraModifierTransitionBase* TransitionOverride);
+
+	/** Snapshot in-place property values for the runtime debug panel. */
+	void BuildModifierDebugSnapshot(
+		TArray<FComposableCameraModifierPropertyDebugSnapshot>& Out) const;
+
 	/**
 	 * Runs the BeginPlay compute chain: walks ComputeNodes in order and calls
 	 * ExecuteBeginPlay on each. Called exactly once per activation from
@@ -460,21 +492,15 @@ public:
 	FOnActionPreTick  OnActionPreTick;
 	FOnActionPostTick OnActionPostTick;
 
-	/**
-	 * Node-scoped actions fired around each node's TickNode. The PCM registers
-	 * actions here when their ExecutionType is PreNodeTick / PostNodeTick (see
-	 * AComposableCameraPlayerCameraManager::AddCameraAction /
-	 * BindCameraActionsForNewCamera). Matching is by exact class (Node->GetClass()
-	 * == Action->TargetNodeClass), same rule as the Modifier system.
-	 *
-	 * These are NOT UPROPERTY. Ownership lives on the PCM's CameraActions
-	 * UPROPERTY TSet, which is the GC root. This camera-local view is just a
-	 * hot-path iteration cache; the PCM clears it via UnregisterNodeAction when
-	 * an action expires, and EndPlay clears it defensively.
-	 */
-	TArray<UComposableCameraActionBase*> PreNodeTickActions;
-	TArray<UComposableCameraActionBase*> PostNodeTickActions;
+	/** Camera-local action views. The PCM owns actions; these weak lists only
+	 * dispatch them at the matching stage. Node targets match exact class. */
+	TArray<TWeakObjectPtr<UComposableCameraActionBase>> PreCameraTickActions;
+	TArray<TWeakObjectPtr<UComposableCameraActionBase>> PostCameraTickActions;
+	TArray<TWeakObjectPtr<UComposableCameraActionBase>> PreNodeTickActions;
+	TArray<TWeakObjectPtr<UComposableCameraActionBase>> PostNodeTickActions;
 
+	void RegisterCameraAction(UComposableCameraActionBase* Action);
+	void UnregisterCameraAction(UComposableCameraActionBase* Action);
 	void RegisterNodeAction(UComposableCameraActionBase* Action);
 	void UnregisterNodeAction(UComposableCameraActionBase* Action);
 	
@@ -655,6 +681,10 @@ public:
 	 * Nodes hold raw pointers into this block. They never outlive the camera.
 	 */
 	TUniquePtr<FComposableCameraRuntimeDataBlock> OwnedRuntimeDataBlock;
+
+	/** Per-camera baselines and value transitions for opt-in in-place Modifiers. */
+	UPROPERTY(Transient)
+	TObjectPtr<UComposableCameraModifierRuntimeState> ModifierRuntimeState;
 
 	/**
 	 * The type asset that was used to construct this camera.

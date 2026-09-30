@@ -2,6 +2,7 @@
 
 #include "Utils/ComposableCameraBlueprintLibrary.h"
 
+#include "Actions/ComposableCameraActionBase.h"
 #include "AsyncActions/AsyncPlayCutsceneSequence.h"
 #include "Cameras/ComposableCameraCameraBase.h"
 #include "ComposableCameraSystemModule.h"
@@ -230,6 +231,28 @@ UComposableCameraActionBase* UComposableCameraBlueprintLibrary::AddAction(const 
 	}
 
 	return nullptr;
+}
+
+UComposableCameraActionBase* UComposableCameraBlueprintLibrary::AddActionFromAsset(
+	const UObject* WorldContextObject,
+	AComposableCameraPlayerCameraManager* PlayerCameraManager,
+	UComposableCameraActionTypeAsset* ActionAsset,
+	bool bOnlyForCurrentCamera,
+	const FComposableCameraParameterBlock& Parameters)
+{
+	return PlayerCameraManager
+		? PlayerCameraManager->AddCameraActionFromAsset(ActionAsset, Parameters,
+			bOnlyForCurrentCamera)
+		: nullptr;
+}
+
+void UComposableCameraBlueprintLibrary::RemoveActionInstance(
+	UComposableCameraActionBase* Action)
+{
+	if (IsValid(Action) && IsValid(Action->PlayerCameraManager))
+	{
+		Action->PlayerCameraManager->RemoveCameraAction(Action);
+	}
 }
 
 void UComposableCameraBlueprintLibrary::ExpireAction(const UObject* WorldContextObject,
