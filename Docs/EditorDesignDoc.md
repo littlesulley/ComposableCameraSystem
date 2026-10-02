@@ -1,6 +1,6 @@
 # ComposableCameraSystem Editor Design
 
-Updated: 2026-09-28
+Updated: 2026-10-02
 
 This document describes the current editor module. It replaces the old
 phase-by-phase implementation plan. Runtime architecture lives in
@@ -32,6 +32,22 @@ Main areas:
 
 UncookedOnly module adds K2 nodes and graph pin widgets used in editor/PIE.
 
+### Global Tools Menu
+
+Global tools share **Tools -> Composable Camera System** in the Level Editor.
+The submenu contains four sections:
+
+- Editors: Composable Camera System Edit Window and Shot Editor.
+- Mesh Camera Layers: Edit Mesh Camera Layers and Show Mesh Camera Layers.
+- Viewport Camera: Copy Active Viewport Camera Transform and Key Active
+  Viewport Camera Transform To Sequencer.
+- Sequencer: Key Spawn Tracks From Camera Cuts.
+
+The two global Nomad spawners hide their automatic Window menu entries to avoid
+duplicate launchers. Tools menu launchers focus existing tab instances; opening
+Shot Editor this way preserves its active Shot. Contextual asset, graph, and
+Sequencer entry points continue to supply their own authoring context.
+
 ## 3. Asset Editor
 
 `FComposableCameraTypeAssetEditorToolkit` is the main editor for:
@@ -47,6 +63,7 @@ Current surfaces:
 - runtime debug tab, default-open in the left editor stack.
 - runtime previewer tab, opened from the Window menu.
 - debug instance picker / graph overlay.
+- Live Edit toolbar entry targeting this toolkit's selected Debug instance.
 - toolbar command to open Shot Editor for selected composition framing node.
 
 The toolkit uses `FBaseAssetToolkit`. It owns graph commands, selection sync,
@@ -236,10 +253,16 @@ UncookedOnly contains custom Blueprint nodes:
 - `UK2Node_ActivateComposableCameraFromDataTable`.
 - `UK2Node_AddCameraPatch`.
 - `UK2Node_AddCameraAction`.
+- `UK2Node_AddCameraModifier`.
 - `UK2Node_PlayCutsceneSequence`.
 
-These nodes generate typed pins from selected assets. They must refresh pins
-when the asset changes and compile to runtime Blueprint library calls.
+Asset-parameter nodes generate typed pins from selected assets and must refresh
+those pins when the asset changes. K2 nodes compile to runtime Blueprint library
+calls.
+`UK2Node_AddCameraPatch` uses the Patch asset's warm-orange title color
+(`#E08020`, sRGB 224/128/32), keeping Patch identity consistent between
+Blueprint graphs and the Content Browser.
+
 `UK2Node_AddCameraAction` reads the selected Composable Camera Action asset's
 instanced Action template. It shows pin-compatible editable Blueprint-visible
 fields declared below ActionBase as optional advanced pins. Only connected
@@ -252,7 +275,18 @@ node graph. The Content Browser displays that name without the internal
 `TypeAsset` suffix. A camera silhouette with an indigo action bolt is registered
 as both class icon and thumbnail through `FComposableCameraEditorStyle`.
 The Add Camera Action K2 node title uses the same indigo (`#665AE5`) as the asset,
-distinguishing it from the default Blueprint function-node blue.
+distinguishing it from the default Blueprint function-node blue. Its node icon
+is `ClassIcon.CameraComponent`, matching the camera activation and Patch nodes.
+
+`UK2Node_AddCameraModifier` exposes exec input/output, `PlayerCameraManager`, and
+`ModifierAsset`. Its title uses the Modifier asset's purple (`#A05AC8`) and the
+camera component icon. A literal asset selection adds the asset name to the
+title; a variable-driven asset keeps the generic title. Modifier settings stay
+on the asset, so this node does not generate parameter override pins.
+It expands to the existing `UComposableCameraBlueprintLibrary::AddModifier`.
+That function is `BlueprintInternalUseOnly`: new graph menus offer the custom
+node, while previously saved function-call nodes retain their function reference
+and runtime behavior.
 
 Important activation data:
 
@@ -387,6 +421,138 @@ The effective actor can come from:
 Bone picker UX must degrade safely when the target is not a skeletal mesh.
 
 ## 16. Runtime Debug From Editor
+
+### Composable Camera System Edit Window
+
+- A single-instance global Nomad tab, registered by the editor module, appears
+  in **Tools -> Composable Camera System** as
+  **Composable Camera System Edit Window**. It can float or dock through the
+  standard Unreal tab manager; its stable tab ID is
+  `ComposableCameraSystemEditWindow`.
+- A newly opened window starts on **Welcome**, with a short introduction,
+  Documentation (`https://sulley.cc/ComposableCameraSystem-Docs/`), GitHub
+  (`https://github.com/littlesulley/ComposableCameraSystem`), YouTube tutorial
+  (`https://www.youtube.com/watch?v=yAWaHS36mmw`), and Bilibili tutorial
+  (`https://www.bilibili.com/video/BV1s8EF6tEZp/`) resource links. Links open in
+  the system browser only when clicked. Welcome also provides Open Shot Editor.
+- **Welcome / Debugging / Live Editing** navigation switches between three pages. Only choosing
+  Debugging reveals the console controls; returning to Welcome preserves the
+  in-window search and section state. Each entry into Debugging rediscovers
+  registered `CCS.*` console objects, replacing the former Refresh button.
+  Boolean/legacy debug switches use checkboxes, integers/floats use numeric
+  inputs, strings use text inputs, and one-shot commands use Run buttons with
+  optional arguments. Variables use compact label/value rows; command rows
+  wrap their argument input and Run button. Console names and full help live
+  in row tooltips rather than repeating as a visible second line.
+- Six common controls appear first within their existing sections: 3D viewport
+  debug, All node gizmos, All transition gizmos, Camera HUD, Pose History, and
+  Freeze pose history. Their names use bold text with a small neutral **Common**
+  badge. The badge denotes frequency, while the checkbox/On/Off retains state;
+  node/transition colors remain reserved for matching runtime visualization.
+- Search matches label, console name, and help. Collapsible groups separate
+  viewport controls, camera HUD/history, node gizmos, transition gizmos, trace,
+  runtime inspection, editor actions, and other controls. All groups start
+  collapsed; searching expands matching groups without changing the user's
+  stored expansion choices. Node/transition accents reuse the runtime viewport
+  legend colors. Live group hints explain
+  the 3D master gate and the All-gizmos override of individual Off switches.
+- Values read directly from the live registry and writes use console priority.
+  Console edits and UI edits stay synchronized. The UI exposes no per-variable
+  Reset, bulk Reset, or bulk Disable actions.
+- CVars affect the whole editor process, including all PIE instances. Command
+  buttons use an Auto world (game/PIE first, editor fallback) or an explicitly
+  selected game world. World selection lives inside Runtime Inspection and
+  appears only with multiple game worlds or an existing explicit selection;
+  a single game world uses Auto and displays its target name. Without PIE, the
+  section provides a start-PIE hint. `CCS.Dump.*` requires a game world. An ended
+  explicit PIE world remains unavailable rather than silently targeting
+  another instance.
+- The Debugging page retains owned console metadata and weak world references only.
+  It resolves console objects by name on access, tolerating unregistration.
+  Module shutdown clears/closes its live tab before unregistering the spawner.
+  Explicit world resolution verifies that its engine world context still exists;
+  tearing-down worlds cannot receive runtime dump commands, even before GC.
+  Command feedback confirms invocation; Output Log reports the actual result.
+- Open Shot Editor focuses its existing tab without clearing its active Shot.
+  Output Log is also reachable directly. This global control window complements
+  the context-bound runtime observers below.
+
+### PIE Live Editing
+
+- Select one camera from PIE-world sections. The asset editor Live Edit toolbar
+  opens the same page for its selected Debug instance, using per-toolkit menu
+  context. Pending asset changes require Apply or Reset before switching cameras.
+- Two sections share a resizable vertical splitter. The upper **Node Chain**
+  shows Start, executed camera nodes, and Output left to right using the same
+  graph node widgets, title colors and exec connections as Camera Type Asset.
+  It supports graph pan/zoom and single-node selection. The graph is a transient,
+  read-only presentation with exec pins only; it has no owning type asset and
+  never participates in authoring sync. FullExecChain supplies node order;
+  legacy assets use ExecutionOrder. Off-chain dependencies and BeginPlay nodes
+  do not appear.
+- The lower **Runtime Parameters** section displays the selected node's native
+  Details view. The first executed node is selected on camera binding; clicking
+  Start/Output or empty space shows a selection hint. When selected, its header
+  shows only the node display name, matching Node Chain. Switching nodes retains
+  their typed proxies, trial overrides and pending defaults. Details scroll/search stays
+  inside this section, and pending proxies remain viewable, read-only after PIE.
+- Apply to Asset and Reset Trial share 132x28 dimensions, text styling and padding.
+  Both explicitly center their content horizontally and vertically; container
+  alignment alone does not center SButton's fill-aligned text content.
+  Apply uses blue while Reset uses the normal button color. Both sit in the top
+  action bar. Reset Trial stays available while any runtime trial override remains,
+  including after Apply. Apply marks the source dirty; normal Save persists it.
+- All editable authoring properties are discovered by reflection, including
+  arrays, structures, curves, object references and inline/instanced subobjects.
+  Base node metadata, transient state and read-only outputs are excluded.
+  Edit conditions remain native Details behavior. No CCSLiveEdit opt-in is used.
+- Native Details edit independent typed proxies. Nested object events resolve
+  back to their root node parameter, including objects inside structs/containers.
+  Accepted-value snapshots and canonical signatures compare owned subobject
+  contents rather than proxy object paths. Runtime/source objects are never
+  directly bound to the Details view.
+- A dedicated trial layer overrides wire/variable, caller and Modifier inputs.
+  Their underlying storage continues updating. Reset removes the trial and
+  reveals the current driver. Apply writes authoring fallback values while
+  preserving those drivers. Refresh rebuilds only the edited node's cached
+  configuration; that node's temporal state may restart.
+- Apply preflights all edited defaults against source changes, resolves graph
+  nodes by template identity, and handles source-array reordering. Source graph
+  nodes are modified in one transaction; instanced values receive fresh owned
+  duplicates, with destination flags and sibling reference remapping. Direct and
+  compound defaults are updated, pins reconstructed
+  under the graph sync guard, then SyncToTypeAsset runs once. Existing node GUIDs
+  remain stable. The whole runtime node is never copied into the asset.
+- Preflight uses isolated candidates and remaps only edited root properties and
+  their owned subobjects. Failure leaves source data and editing/accepted proxies
+  intact. Source changes, unmappable edited references, and removal/retyping of
+  wired or exposed pins reject the entire commit. Both open graphs and closed
+  assets' serialized camera/variable connections are checked. An undriven schema
+  change may proceed; only obsolete compound overrides under that edited root
+  are pruned transactionally.
+- Visible defaults populate DefaultValue/DefaultObject/DefaultTextValue from one
+  authored string. Normal pin reconstruction retains persistent pin defaults;
+  PostEditUndo reconstructs defaults from restored authoring data while preserving
+  links. SyncToTypeAsset rejects callbacks during GIsTransacting, so node-by-node
+  Undo/Redo reconstruction cannot overwrite restored durable asset state. Apply's
+  final graph notification also runs under the sync guard. A successful full
+  Reset captures fresh source conflict snapshots for subsequent trials.
+- Actor references map between the selected PIE world and their editor
+  counterparts. Trial writes reject references without a counterpart in the
+  selected world, including actors from another PIE world. A spawned PIE-only
+  actor in the selected world without a saved counterpart can be
+  trialled but cannot be committed as an asset default. PrePIEEnded detaches
+  runtime references and clears unmappable PIE references in every typed proxy.
+  Pending defaults remain available while the window stays open.
+- Closing the window drops the editor trial record; its independent runtime
+  trial layer lasts until the camera is destroyed. FGCObject tracks editor
+  proxies; the runtime layer owns its own transient reflected storage.
+  The window also collects its transient presentation graph and its node proxies.
+  Details/global delegates are cleared when the window is destroyed.
+  Slate paint reads copied labels and cached editability.
+- The update distinction follows UE5.6 GameplayCameras
+  Public/IGameplayCamerasLiveEditManager.h: property edits and post-build reloads
+  are separate notifications. CCS preserves its own evaluator and frame cache.
 
 Type asset editor can inspect runtime instances.
 

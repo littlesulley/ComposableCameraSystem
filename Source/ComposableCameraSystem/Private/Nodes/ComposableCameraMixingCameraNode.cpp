@@ -168,6 +168,19 @@ void UComposableCameraMixingCameraNode::GetPinDeclarations_Implementation(TArray
 }
 
 
+#if WITH_EDITOR
+void UComposableCameraMixingCameraNode::OnLiveEditRefresh(FName PropertyName)
+{
+	if (PropertyName != GET_MEMBER_NAME_CHECKED(UComposableCameraMixingCameraNode, Cameras)) return;
+	for (AComposableCameraCameraBase* Child : CameraInstances)
+	{
+		if (IsValid(Child)) Child->Destroy();
+	}
+	CameraInstances.Reset();
+	OnInitialize();
+}
+#endif
+
 void UComposableCameraMixingCameraNode::BeginDestroy()
 {
 	Super::BeginDestroy();

@@ -26,6 +26,9 @@ public:
 	virtual void OnInitialize_Implementation() override;
 	virtual void OnTickNode_Implementation(float DeltaTime, const FComposableCameraPose& CurrentCameraPose, FComposableCameraPose& OutCameraPose) override;
 	virtual void BeginDestroy() override;
+#if WITH_EDITOR
+	virtual void OnLiveEditRefresh(FName PropertyName) override;
+#endif
 	virtual void GetPinDeclarations_Implementation(TArray<FComposableCameraNodePinDeclaration>& OutPins) const override;
 
 public:
@@ -39,7 +42,7 @@ public:
 
 	// Controls how fast the camera updates its velocity.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Instanced, Category = InputParameters)
-	UComposableCameraInterpolatorBase* Interpolator;
+	TObjectPtr<UComposableCameraInterpolatorBase> Interpolator;
 	
 private:
 	UPROPERTY()

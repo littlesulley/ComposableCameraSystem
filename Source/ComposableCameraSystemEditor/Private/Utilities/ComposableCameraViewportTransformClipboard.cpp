@@ -2,6 +2,8 @@
 
 #include "Utilities/ComposableCameraViewportTransformClipboard.h"
 
+#include "Utilities/ComposableCameraEditorToolsMenu.h"
+
 #include "ComposableCameraSystemEditorModule.h"
 #include "Editor.h"
 #include "EditorViewportClient.h"
@@ -614,14 +616,14 @@ void FComposableCameraViewportTransformClipboard::RegisterMenus()
 {
 	FLevelEditorModule& LevelEditorModule = FModuleManager::LoadModuleChecked<FLevelEditorModule>("LevelEditor");
 	FToolMenuOwnerScoped OwnerScoped(ViewportTransformToolMenuOwner);
-	UToolMenu* Menu = UToolMenus::Get()->ExtendMenu("LevelEditor.MainMenu.Tools");
+	UToolMenu* Menu = UToolMenus::Get()->ExtendMenu(FComposableCameraEditorToolsMenu::MenuName);
 	if (!Menu)
 	{
 		return;
 	}
 
-	FToolMenuSection& Section = Menu->FindOrAddSection("ComposableCameraSystem");
-	Section.Label = LOCTEXT("ComposableCameraSystemSection", "Composable Camera System");
+	FToolMenuSection& Section = Menu->FindOrAddSection(TEXT("Viewport"));
+	Section.Label = LOCTEXT("ViewportSection", "Viewport Camera");
 	Section.AddEntry(FToolMenuEntry::InitMenuEntryWithCommandList(FComposableCameraViewportTransformCommands::Get().CopyActiveViewportCameraTransform,
 		LevelEditorModule.GetGlobalLevelEditorActions(),
 		TAttribute<FText>(),

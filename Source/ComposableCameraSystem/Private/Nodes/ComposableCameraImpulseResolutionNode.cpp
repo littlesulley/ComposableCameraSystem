@@ -115,6 +115,14 @@ void UComposableCameraImpulseResolutionNode::GetPinDeclarations_Implementation(T
 	OutPins.Add(PinDecl);
 }
 
+#if WITH_EDITOR
+void UComposableCameraImpulseResolutionNode::OnLiveEditRefresh(FName PropertyName)
+{
+	// Keep the collision component and overlap registrations. Only rebuild configuration.
+	Interpolator_T = Interpolator ? Interpolator->BuildVector3dInterpolator() : nullptr;
+}
+#endif
+
 void UComposableCameraImpulseResolutionNode::BeginDestroy()
 {
 	Super::BeginDestroy();

@@ -312,6 +312,16 @@ public:
 	 */
 	void ResolveAllInputPins();
 
+#if WITH_EDITOR
+	/** Copy a configuration field with fresh owned subobjects. Event-time only. */
+	static void CopyLiveEditProperty(FProperty* Property, UObject* Source, UObject* Destination);
+	/** PIE trial layer. Event-time setup only; values remain separate from all authored/driven layers. */
+	void SetLiveEditProperty(FProperty* Property, UComposableCameraCameraNodeBase* Values);
+	void RemoveLiveEditProperty(FName PropertyName);
+	bool HasLiveEditProperty(FName PropertyName) const;
+	void RefreshLiveEditState(FName PropertyName);
+#endif
+
 	/**
 	 * Run a one-shot Custom Modifier after initialization and retain only the
 	 * non-wired pin-backed properties it actually changes. Wired inputs may
@@ -388,6 +398,11 @@ protected:
 	/** Override when a supported Modifier property owns derived runtime caches. */
 	virtual void OnModifierPropertyChanged(FName PropertyName) {}
 
+#if WITH_EDITOR
+	/** Default refresh rebuilds cached configuration. Resource-owning nodes can specialize cleanup. */
+	virtual void OnLiveEditRefresh(FName PropertyName) { OnInitialize(); }
+#endif
+
 private:
 	/** Set to true after the first TickNode call. Cleared by Initialize() so
 	 *  re-activation re-triggers OnFirstTickNode on the new first frame. */
@@ -403,6 +418,18 @@ private:
 	/** Explicit pin reader cache shared by in-place and one-shot Custom modifiers. */
 	TArray<FComposableCameraModifierPinOverrideBinding, TInlineAllocator<4>>
 		InPlaceModifierPinOverrides;
+
+#if WITH_EDITORONLY_DATA
+	UPROPERTY(Transient, DuplicateTransient)
+	TObjectPtr<UComposableCameraCameraNodeBase> LiveEditValues;
+#endif
+#if WITH_EDITOR
+	TArray<FComposableCameraModifierPinOverrideBinding> LiveEditProperties;
+	TArray<FComposableCameraModifierPinOverrideBinding> LiveEditPinProperties;
+	TMap<FName, const FObjectPropertyBase*> LiveEditSubobjectPins;
+	bool bLiveEditValuesApplied = false;
+	void SwapLiveEditValues();
+#endif
 
 #if CPUPROFILERTRACE_ENABLED
 	/** Cached class name for the one-shot spec ID registration on first tick. */
@@ -431,7 +458,7 @@ public:
 
 	// --- Pin Value Accessors (C++ template) ------------------------------
 
-	/** Read a Modifier-owned value first, then wired -> exposed ->default. */
+	/** Read PIE trial -> Modifier -> wired -> exposed -> default. */
 	template<typename T>
 	T GetInputPinValue(FName PinName) const;
 
@@ -836,95 +863,125 @@ public:
 template<typename T>
 T UComposableCameraCameraNodeBase::GetInputPinValue(FName PinName) const
 {
-	for (const FComposableCameraModifierPinOverrideBinding& Override : InPlaceModifierPinOverrides)
+	// A trial supersedes Modifier / wire / parameter layers without changing their storage.
+	const int32 LayerCount =
+#if WITH_EDITOR
+		2;
+#else
+		1;
+#endif
+	for (int32 Layer = 0; Layer < LayerCount; ++Layer)
 	{
-		if (Override.PinName != PinName || !Override.Property)
+		const UObject* ValueObject = this;
+		TConstArrayView<FComposableCameraModifierPinOverrideBinding> Overrides = InPlaceModifierPinOverrides;
+#if WITH_EDITOR
+		if (Layer == 0)
 		{
-			continue;
+			Overrides = LiveEditPinProperties;
+			ValueObject = bLiveEditValuesApplied ? this : LiveEditValues.Get();
 		}
+#endif
+		for (const FComposableCameraModifierPinOverrideBinding& Override : Overrides)
+		{
+			if (Override.PinName != PinName || !Override.Property || !ValueObject)
+			{
+				continue;
+			}
 
-		const void* ValuePtr = Override.Property->ContainerPtrToValuePtr<void>(this);
-		if constexpr (std::is_same_v<T, bool>)
-		{
-			if (const FBoolProperty* BoolProperty = CastField<FBoolProperty>(Override.Property))
+			const UObject* PinObject = ValueObject;
+#if WITH_EDITOR
+			if (Layer == 0)
 			{
-				return BoolProperty->GetPropertyValue(ValuePtr);
+				if (const FObjectPropertyBase* const* Parent = LiveEditSubobjectPins.Find(PinName))
+				{
+					PinObject = (*Parent)->GetObjectPropertyValue_InContainer(ValueObject);
+				}
 			}
-		}
-		else if constexpr (std::is_same_v<T, int32> || std::is_same_v<T, int64>)
-		{
-			const FNumericProperty* NumericProperty = nullptr;
-			if (const FEnumProperty* EnumProperty = CastField<FEnumProperty>(Override.Property))
+#endif
+			if (!PinObject) continue;
+			const void* ValuePtr = Override.Property->ContainerPtrToValuePtr<void>(PinObject);
+			if constexpr (std::is_same_v<T, bool>)
 			{
-				NumericProperty = EnumProperty->GetUnderlyingProperty();
+				if (const FBoolProperty* BoolProperty = CastField<FBoolProperty>(Override.Property))
+				{
+					return BoolProperty->GetPropertyValue(ValuePtr);
+				}
 			}
-			else
+			else if constexpr (std::is_same_v<T, int32> || std::is_same_v<T, int64>)
 			{
-				NumericProperty = CastField<FNumericProperty>(Override.Property);
+				const FNumericProperty* NumericProperty = nullptr;
+				if (const FEnumProperty* EnumProperty = CastField<FEnumProperty>(Override.Property))
+				{
+					NumericProperty = EnumProperty->GetUnderlyingProperty();
+				}
+				else
+				{
+					NumericProperty = CastField<FNumericProperty>(Override.Property);
+				}
+				if (NumericProperty)
+				{
+					const int64 Value =
+						NumericProperty->GetSignedIntPropertyValue(ValuePtr);
+					return static_cast<T>(Value);
+				}
 			}
-			if (NumericProperty)
+			else if constexpr (std::is_same_v<T, float>)
 			{
-				const int64 Value =
-					NumericProperty->GetSignedIntPropertyValue(ValuePtr);
-				return static_cast<T>(Value);
+				if (const FFloatProperty* FloatProperty = CastField<FFloatProperty>(Override.Property))
+				{
+					return FloatProperty->GetPropertyValue(ValuePtr);
+				}
 			}
-		}
-		else if constexpr (std::is_same_v<T, float>)
-		{
-			if (const FFloatProperty* FloatProperty = CastField<FFloatProperty>(Override.Property))
+			else if constexpr (std::is_same_v<T, double>)
 			{
-				return FloatProperty->GetPropertyValue(ValuePtr);
+				if (const FDoubleProperty* DoubleProperty = CastField<FDoubleProperty>(Override.Property))
+				{
+					return DoubleProperty->GetPropertyValue(ValuePtr);
+				}
 			}
-		}
-		else if constexpr (std::is_same_v<T, double>)
-		{
-			if (const FDoubleProperty* DoubleProperty = CastField<FDoubleProperty>(Override.Property))
+			else if constexpr (std::is_same_v<T, FName>)
 			{
-				return DoubleProperty->GetPropertyValue(ValuePtr);
+				if (const FNameProperty* NameProperty = CastField<FNameProperty>(Override.Property))
+				{
+					return NameProperty->GetPropertyValue(ValuePtr);
+				}
 			}
-		}
-		else if constexpr (std::is_same_v<T, FName>)
-		{
-			if (const FNameProperty* NameProperty = CastField<FNameProperty>(Override.Property))
+			else if constexpr (std::is_pointer_v<T>
+				&& std::is_base_of_v<UObject, std::remove_pointer_t<T>>)
 			{
-				return NameProperty->GetPropertyValue(ValuePtr);
+				if (const FObjectPropertyBase* ObjectProperty =
+					CastField<FObjectPropertyBase>(Override.Property))
+				{
+					return Cast<std::remove_pointer_t<T>>(
+						ObjectProperty->GetObjectPropertyValue(ValuePtr));
+				}
 			}
-		}
-		else if constexpr (std::is_pointer_v<T>
-			&& std::is_base_of_v<UObject, std::remove_pointer_t<T>>)
-		{
-			if (const FObjectPropertyBase* ObjectProperty =
-				CastField<FObjectPropertyBase>(Override.Property))
+			else if constexpr (std::is_same_v<T, FVector2D>
+				|| std::is_same_v<T, FVector>
+				|| std::is_same_v<T, FVector4>
+				|| std::is_same_v<T, FRotator>
+				|| std::is_same_v<T, FTransform>)
 			{
-				return Cast<std::remove_pointer_t<T>>(
-					ObjectProperty->GetObjectPropertyValue(ValuePtr));
+				if (const FStructProperty* StructProperty =
+					CastField<FStructProperty>(Override.Property);
+					StructProperty
+					&& StructProperty->Struct == TBaseStructure<T>::Get())
+				{
+					T Result {};
+					StructProperty->Struct->CopyScriptStruct(&Result, ValuePtr);
+					return Result;
+				}
 			}
-		}
-		else if constexpr (std::is_same_v<T, FVector2D>
-			|| std::is_same_v<T, FVector>
-			|| std::is_same_v<T, FVector4>
-			|| std::is_same_v<T, FRotator>
-			|| std::is_same_v<T, FTransform>)
-		{
-			if (const FStructProperty* StructProperty =
-				CastField<FStructProperty>(Override.Property);
-				StructProperty
-				&& StructProperty->Struct == TBaseStructure<T>::Get())
+			else if constexpr (TModels_V<CStaticStructProvider, T>)
 			{
-				T Result {};
-				StructProperty->Struct->CopyScriptStruct(&Result, ValuePtr);
-				return Result;
-			}
-		}
-		else if constexpr (TModels_V<CStaticStructProvider, T>)
-		{
-			if (const FStructProperty* StructProperty =
-				CastField<FStructProperty>(Override.Property);
-				StructProperty && StructProperty->Struct == T::StaticStruct())
-			{
-				T Result;
-				StructProperty->Struct->CopyScriptStruct(&Result, ValuePtr);
-				return Result;
+				if (const FStructProperty* StructProperty =
+					CastField<FStructProperty>(Override.Property);
+					StructProperty && StructProperty->Struct == T::StaticStruct())
+				{
+					T Result;
+					StructProperty->Struct->CopyScriptStruct(&Result, ValuePtr);
+					return Result;
+				}
 			}
 		}
 	}

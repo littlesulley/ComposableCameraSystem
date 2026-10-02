@@ -1,6 +1,6 @@
 # ComposableCameraSystem Tech Notes
 
-Updated: 2026-09-28
+Updated: 2026-10-02
 
 Purpose: compact implementation reference. Keep this file current when code
 patterns, public APIs, hot-path rules, node catalogs, or gotchas change.
@@ -33,6 +33,14 @@ UncookedOnly module: `Source/ComposableCameraSystemUncookedOnly`
 
 - custom K2 nodes.
 - graph pin widgets and pin type helpers.
+
+`UK2Node_AddCameraModifier` is a fixed-pin wrapper around the existing
+`UComposableCameraBlueprintLibrary::AddModifier` function. It forwards exec,
+PCM, and asset pins with `MovePinLinksToIntermediate`, preserving both literal
+asset defaults and connected values; the intermediate function call resolves
+WorldContext through its metadata. The raw function is `BlueprintInternalUseOnly`
+to hide its menu entry without removing existing Blueprint calls. The wrapper
+reads its title from the asset pin and needs no separate serialized asset cache.
 
 ## 2. Runtime Data Block
 
@@ -547,6 +555,59 @@ new.
 
 ## 15. Debug
 
+Global editor tools menu:
+
+- `FComposableCameraEditorToolsMenu` owns the Level Editor's
+  `Tools -> Composable Camera System` submenu and its two editor launchers.
+  Other tool registrars extend its shared `MenuName` in dedicated sections,
+  retaining their own command lists, checked/enabled predicates, menu owners,
+  and startup callback handles. Register the shared menu before contributors;
+  unregister contributors before the shared owner. Menu callbacks and entries
+  are removed at module shutdown through ToolMenus ownership.
+- Global Nomad tab spawners use Hidden menu type. Explicit ToolMenus actions
+  call `TryInvokeTab`, preserving singleton tabs and the Shot Editor context.
+
+Editor console controls:
+
+- `FComposableCameraSystemEditWindow` registers a global Nomad tab through
+  `FGlobalTabmanager`; `SComposableCameraSystemEditWindow` uses `SWidgetSwitcher`
+  for Welcome (default) and opt-in Debugging pages. Welcome resource links use
+  `SHyperlink` and `FPlatformProcess::LaunchURL` with owned fixed URLs. Browsing
+  resources and switching pages do not modify CVars. Module shutdown
+  clears/closes the live tab and unregisters its spawner, releasing value
+  attributes before code unload. Its launcher belongs to the shared CCS Tools
+  submenu.
+- `FComposableCameraConsoleControls` discovers `CCS.*` through
+  `IConsoleManager::ForEachConsoleObjectThatStartsWith`. It stores names/help,
+  never borrowed `IConsoleObject*` pointers. Reads, writes, resets, and command
+  dispatch resolve a live object each time; unregistered and read-only variables
+  cannot be edited. Values are not mirrored in a second settings object.
+- Native bool variables are toggles. Existing int32 switch names plus the
+  exported viewport legend supply legacy toggle metadata. Unknown int32/float
+  variables remain numeric; they must not be guessed as booleans from their
+  current value. Multi-color legend entries produce one control per CVar.
+- UI writes use `ECVF_SetByConsole`. The adapter's programmatic ResetValue
+  still reads `GetDefaultValue()`, but the window has no Reset or bulk actions.
+  Every transition from Welcome into Debugging rediscovers controls; live
+  values remain registry attributes. Collapsed section choices survive page
+  switches and search, while matching search groups expand temporarily.
+  Compact label/value rows keep console names/help in tooltips.
+- The window keeps an exact-name presentation priority list for the six common
+  debugging switches. It sorts its owned controls by group, common priority,
+  then console name on discovery. The same list selects `NormalFontBold` and a
+  small neutral Common badge; other labels use `NormalFont`. No control is
+  duplicated, and priority/badges do not change registry values or legend colors.
+- Commands execute their registered delegate via `IConsoleCommand::Execute`.
+  `FParse::Token` preserves quoted arguments. A weak selected world or live
+  Auto resolution provides world context; runtime dumps reject editor and
+  tearing-down worlds. Explicit UI selections must still have an engine world
+  context, so ending PIE does not silently retarget commands to another instance.
+  The selector lives in Runtime Inspection and appears only for multiple game
+  worlds or an explicit selection; a single game world resolves automatically.
+  Execute's bool reports dispatch, not success of its void command delegate.
+  Discovery and row construction occur on Debugging entry/search events, not in
+  camera Tick. Slate value attributes keep existing rows live.
+
 Runtime debug:
 
 - `FComposableCameraContextStackSnapshot`.
@@ -653,6 +714,90 @@ Runtime debug:
   debug text will remain at stale world positions while the sphere moves.
 
 Editor debug:
+
+- FComposableCameraLiveEditSession is an Editor-module FGCObject. Runtime
+  camera/nodes and source identities are weak; editing, baseline and accepted
+  authoring proxies are manually collected. Copy editable fields only.
+  CameraNodes contains legacy raw pointers; NodeTemplates uses TObjectPtr.
+- Scope/order comes from CameraNode entries in FullExecChain, with ExecutionOrder
+  as the legacy fallback. Do not treat SetVariable source indices as executed
+  nodes. Binding eagerly creates all proxies so every Start node is available.
+- `SComposableCameraLiveEditPanel` collects a transient `UComposableCameraNodeGraph`
+  through FGCObject. Its read-only SGraphEditor reuses existing camera graph node
+  factories but has no owning type asset, sync callback or authoring commands.
+  Only exec pins connect the horizontal chain; measured title widths determine
+  spacing. A vertical SSplitter separates this canvas from the selected native
+  Details view. Selection maps through runtime node indices and never replaces
+  editing proxies. Editability refresh restores the selected session index after
+  scanning other nodes. After PIE, cached labels/proxies remain inspectable with
+  property editing disabled. Selected-node headers use only the display name
+  resolved by the shared graph-node naming helper, with no prefix, sequence or
+  template index. Equal SBox dimensions and content padding give Apply
+  and Reset matching geometry; only Apply adds the blue color.
+  Set both SButton content HAlign/VAlign to Center: the default Fill alignment
+  expands the generated text block, whose text remains left-aligned. Centering
+  the containing horizontal-box slot only positions the button itself. Stable
+  widget tags let layout automation locate these actions independently of labels.
+- Editable authoring properties are discovered without metadata opt-in.
+  Native Details handles nested structs/arrays/object pickers. CopyLiveEditProperty
+  copies a root value and duplicates its owned instanced references with unique
+  names, a duplication seed and destination propagation flags. Two archive passes
+  remap root pointers, then owned sibling references. Ordinary InstanceSubobjects
+  may reuse same-name objects without copying updated contents; never use it as
+  a repeated configuration-copy contract. Canonical signatures recurse
+  through owned objects, structs, arrays/maps/sets; unordered entries sort before
+  comparison. Nested object events resolve their top-level authoring parameter.
+- Each runtime node owns editor-only transient trial storage and precomputed
+  property/pin bindings. Resolve the normal input layer, then exchange each
+  overridden reflected value around node FirstTick/Tick and exchange it back.
+  Memswap moves relocatable reflected storage without array/struct allocation;
+  bitfield booleans require reflected Get/Set rather than swapping shared bytes.
+  Explicit pin readers consult trial -> Modifier -> underlying pin storage.
+  Compound pins resolve their trial subobject container through cached bindings.
+  AutoApplySubobjectPinValues skips active trial roots during refresh; schema
+  declaration still includes every compound pin.
+- Editing/removing a trial refreshes cached configuration at event time. The
+  default OnLiveEditRefresh invokes initialization; FirstTick is rearmed.
+  Node temporal state may restart. MixingCamera only rebuilds its child camera
+  list for Cameras changes, destroying previous children first. ImpulseResolution
+  rebuilds its interpolator while retaining the existing collision component.
+  ControlRotate BindActionValue already deduplicates bindings in UE5.6.
+- Trial storage never writes source wire/parameter slots or Modifier-owned values.
+  Reset removes it and reveals current lower values. Apply rebases pending-save
+  state while retaining runtime overrides. Never invalidate gameplay DAG cache.
+- Actor references remap to the selected PIE world and back to authoring actors.
+  Reject trial writes for missing selected-world counterparts; reject Apply for
+  unmapped PIE-only references; clear those references before
+  teardown. Walk only owned proxy subobjects, never external asset/actor graphs.
+- Validate references by serializing only the edited reflected root into an
+  editor-only reference-remapping archive. Weak/lazy/soft references retain their
+  reference kind; missing references clear on teardown. Rehash reflected maps
+  and sets after replacement. Apply remaps isolated authoring candidates, never
+  its live editing proxy during preflight. Unedited caller/runtime references
+  must not enter authoring validation.
+- Apply resolves source nodes by template identity, preflights conflicts, modifies
+  asset/graph/template in one transaction, copies changed properties and owned
+  subobjects, updates direct/compound defaults and reconstructs pins under the
+  graph sync guard, then SyncToTypeAsset. Source wires and caller values survive.
+- Compare prospective pin declarations with existing wired/exposed pin names,
+  directions and complete FEdGraphPinType before any authoring mutation. If the
+  graph is closed, inspect durable camera and variable connection records.
+  Reject the whole commit for driver loss; prune obsolete undriven compound
+  overrides only under the edited root, after GraphNode::Modify.
+- Native object/text pin widgets use separate default fields. Populate them with
+  UEdGraphSchema_K2::GetPinDefaultValuesFromString without a new edit event.
+  ReconstructPins keeps its existing default-preservation behavior for ordinary
+  callers; PostEditUndo passes false to use restored authored defaults instead.
+  SyncToTypeAsset must skip GIsTransacting callbacks: transaction restoration
+  restores both durable asset and transient graph, and per-node PostEditUndo
+  notifications must not synchronize partially reconstructed pins. Apply's final
+  notification holds the sync guard to avoid a redundant toolkit sync.
+  Complete Reset rebases source conflict snapshots after Undo/concurrent edits.
+- Live Edit toolbar handlers use FToolUIAction and per-toolkit menu context.
+  The panel displays the ordered Start chain above one selected native Details
+  view, with equal-size Apply to Asset / Reset Trial actions.
+  Cache row editability outside Slate paint and refresh it when runtime identity
+  changes; keep the selected index stable while refreshing other node models.
 
 - selected runtime instance picker in type asset editor.
 - graph overlay of live node data.
@@ -1030,6 +1175,23 @@ Existing test files include:
 - `ComposableCameraNodeGraphSyncTests.cpp`
 - `ComposableCameraNodeRuntimeTooltipTests.cpp`
 - `ComposableCameraRuntimeDebugPanelTests.cpp`
+- `ComposableCameraConsoleControlsTests.cpp` (full registry discovery/type
+  coverage, console/UI synchronization, registered-default reset, read-only
+  and unregistered-object handling, quoted arguments and world-aware dispatch).
+- `ComposableCameraLiveEditTests.cpp` (independent trial storage, current-driver
+  Reset, wire/Modifier override priority, Start-only scope and exec order,
+  all editable property types, owned subobject/array/curve persistence,
+  component reuse during refresh, instance isolation, actor world validation,
+  GC/PIE teardown, read-only chain topology, selected Details binding and trial
+  preservation across node selection, enabled/disabled action text centering at
+  multiple layout scales,
+  atomic source conflict, scoped-reference atomic save, driven-pin schema-loss
+  rejection, obsolete undriven override cleanup, same-class node identity after
+  reordering, frame memoization, asset Undo/Redo and subsequent trials, object pin
+  picker Undo/rebuild consistency, durable graph/variable/compute-chain
+  preservation with toolkit-equivalent sync callbacks, and vector/rotator/enum
+  default round trips). LiveEdit tests are added but await IDE compilation and
+  editor execution; source inspection does not certify compatibility.
 - `ComposableCameraSetRotationNodeTests.cpp`
 - `ComposableCameraMeshSurfaceTests.cpp`
 - `ComposableCameraMeshProfileTests.cpp`

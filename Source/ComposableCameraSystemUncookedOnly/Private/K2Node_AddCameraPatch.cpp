@@ -112,14 +112,8 @@ FText UK2Node_AddCameraPatch::GetNodeTitle(ENodeTitleType::Type TitleType) const
 
 FLinearColor UK2Node_AddCameraPatch::GetNodeTitleColor() const
 {
-	// Same teal as UK2Node_ActivateComposableCamera. The two K2 nodes share the
-	// same opt-in override / dynamic pin model and should read as siblings in
-	// the graph; the warm-orange Patch identity stays scoped to the Content
-	// Browser asset (thumbnail + AssetDefinition color in EditorDesignDoc Section 22),
-	// so authors see "this is a Patch *asset*" there but "this is a sibling of
-	// Activate Camera" on the K2 node where the visual cue actually matters
-	// for graph reading.
-	return FLinearColor::FromSRGBColor(FColor(20, 150, 140));
+	// Match the Patch asset's warm-orange Content Browser color.
+	return FLinearColor(FColor(224, 128, 32));
 }
 
 FSlateIcon UK2Node_AddCameraPatch::GetIconAndTint(FLinearColor& OutColor) const

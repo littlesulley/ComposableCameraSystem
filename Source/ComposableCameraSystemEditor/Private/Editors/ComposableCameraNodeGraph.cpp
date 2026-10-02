@@ -242,8 +242,11 @@ void UComposableCameraNodeGraph::SyncToTypeAsset()
 	// Do not let a sync run while we're rebuilding - the graph is in a
 	// transient, partially-drained state. See the comment in
 	// RebuildFromTypeAsset for why this matters.
-	if (bIsRebuildingFromTypeAsset)
+	if (bIsRebuildingFromTypeAsset || GIsTransacting)
 	{
+		// Undo/Redo restores asset and graph together. Node PostEditUndo callbacks
+		// notify the toolkit while other nodes are still reconstructing their
+		// pins; writing that intermediate graph would overwrite restored data.
 		return;
 	}
 	if (bIsSyncingToTypeAsset)

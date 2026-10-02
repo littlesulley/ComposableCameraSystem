@@ -1,6 +1,6 @@
 # Execution Flow Examples
 
-Updated: 2026-09-28
+Updated: 2026-10-02
 
 This file gives compact end-to-end flows. Keep examples current with source.
 
@@ -414,7 +414,45 @@ Camera Tick
 Another call site can pass a different Actor to the same asset. Each Action
 instance keeps its own value and execution state; the asset remains unchanged.
 
-## 11. When To Add Examples
+## 11. PIE Camera Trial To Asset Default
+
+```text
+Debug picker -> Live Edit toolbar (or global Live Editing page)
+  -> select PIE world/camera -> snapshot connected Start execution order
+  -> display read-only horizontal Node Chain: Start -> nodes -> Output
+  -> select node -> lower Runtime Parameters section shows its native Details
+  -> switching nodes retains prior trials and pending defaults
+Native Details edit (scalar / array / struct / owned subobject)
+  -> route event to root authoring parameter
+  -> update separate per-node trial storage -> refresh that node's caches
+Next normal node evaluation
+  -> normal Modifier/wire/input resolution continues
+  -> exchange trial values in -> FirstTick/Tick -> exchange lower values back
+  -> preserve camera/transition instances and same-frame DAG cache
+Apply to Asset
+  -> create isolated candidates -> remap edited roots only
+  -> preflight source changes, authoring references, wired/exposed pin survival
+       -> any failure retains source and trial unchanged
+  -> copy edited fields/owned objects into original graph templates
+  -> update direct/compound defaults -> prune obsolete undriven compound overrides
+  -> reconstruct pins under sync guard -> SyncToTypeAsset once
+  -> normal Save; live trial remains active
+Reset Trial
+  -> remove trial bindings -> rebuild node caches from current drivers
+  -> panel shows current driver values -> rebase source conflict snapshots
+Undo/Redo
+  -> restore source asset + graph state -> rebuild visible pin defaults/links
+  -> graph notifications cannot sync while GIsTransacting
+```
+
+BeginPlay and disconnected/data-only nodes are excluded. Editing a cached node
+may restart that node's temporal state; it does not recreate the camera.
+Apply stores authoring defaults, preserving wires, caller overrides and Modifier
+configuration. Pending-save state and active-trial state are independent.
+PrePIEEnded detaches runtime targets; typed pending defaults remain until Apply,
+Reset or window close. PIE-only actor references cannot be saved as defaults.
+
+## 12. When To Add Examples
 
 Add a new flow when a feature crosses at least two major systems, for example:
 

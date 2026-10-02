@@ -50,7 +50,7 @@ void FComposableCameraShotEditor::RegisterTabSpawner()
 			"set anchor + distance + lens. Open via the 'Open Shot Editor' button on a "
 			"CompositionFramingNode in the Camera Type Asset Editor."))
 		.SetMenuType(ETabSpawnerMenuType::Hidden); // Hidden from "Window" menu;
-		// the editor opens contextually from nodes, Sequencer sections, or assets.
+		// the shared CCS Tools menu and contextual node/section/asset actions open it.
 
 	// Bind the runtime -> editor delegate hook so node CallInEditor buttons
 	// route into OpenForShot.

@@ -33,6 +33,7 @@
 #include "Editors/ComposableCameraNodeGraphPinFactory.h"
 #include "Editors/ComposableCameraGraphNodeFactory.h"
 #include "Editors/ComposableCameraShotEditor.h"
+#include "Editors/ComposableCameraSystemEditWindow.h"
 #include "Sequencer/ComposableCameraLevelSequenceComponentTrackEditor.h"
 #include "Sequencer/ComposableCameraPatchTrackEditor.h"
 #include "Sequencer/ComposableCameraShotTrackEditor.h"
@@ -40,6 +41,7 @@
 #include "Trace/ComposableCameraRewindDebuggerTrack.h"
 #include "Trace/ComposableCameraTraceModule.h"
 #include "TraceServices/ModuleService.h"
+#include "Utilities/ComposableCameraEditorToolsMenu.h"
 #include "Utilities/ComposableCameraLevelSequenceSpawnTrackTool.h"
 #include "Utilities/ComposableCameraMeshLayerTool.h"
 #include "Utilities/ComposableCameraViewportTransformClipboard.h"
@@ -141,6 +143,7 @@ void FComposableCameraSystemEditorModule::StartupModule()
 	RegisterNodeGraphPinFactory();
 	RegisterGraphNodeFactory();
 	RegisterSequencerTrackEditor();
+	FComposableCameraEditorToolsMenu::Register();
 	FComposableCameraLevelSequenceSpawnTrackTool::Register();
 	FComposableCameraMeshLayerTool::Register();
 	FComposableCameraViewportTransformClipboard::Register();
@@ -150,6 +153,7 @@ void FComposableCameraSystemEditorModule::StartupModule()
 	// FGlobalTabmanager + binds the runtime-side FOpenShotEditor delegate
 	// so node CallInEditor buttons route into OpenForShot.
 	FComposableCameraShotEditor::RegisterTabSpawner();
+	FComposableCameraSystemEditWindow::RegisterTabSpawner();
 
 	// Cache every Sequencer that opens so the Shot Editor's preview can
 	// resolve per-section TargetActorOverrides (FMovieSceneObjectBindingID)
@@ -179,10 +183,12 @@ void FComposableCameraSystemEditorModule::ShutdownModule()
 	}
 	ActiveSequencers.Reset();
 
+	FComposableCameraSystemEditWindow::UnregisterTabSpawner();
 	FComposableCameraShotEditor::UnregisterTabSpawner();
 	FComposableCameraViewportTransformClipboard::Unregister();
 	FComposableCameraMeshLayerTool::Unregister();
 	FComposableCameraLevelSequenceSpawnTrackTool::Unregister();
+	FComposableCameraEditorToolsMenu::Unregister();
 	UnregisterSequencerTrackEditor();
 	UnregisterGraphNodeFactory();
 	UnregisterNodeGraphPinFactory();
