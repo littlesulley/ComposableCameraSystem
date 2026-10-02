@@ -2563,3 +2563,392 @@
   affected. Duration / Condition may still retire a Patch independently.
   Director `DestroyAll` already traverses instances directly; Sequencer uses a
   separate overlay map. Keep those paths and individual-handle behavior intact.
+
+## 2026-10-02 - PIE trial must preserve gameplay camera frame memoization
+
+- Symptom: pre-compilation review found that a trial property write could make
+  a shared camera evaluate twice in one frame, advancing state twice.
+- Trigger / repro: evaluate a gameplay camera once; apply a live trial before
+  another evaluation path reaches the same camera in that frame; evaluate it
+  again. Both same-frame calls must return the first evaluated pose.
+- Why it happens / root cause: the initial editor prototype reused
+  `InvalidateTickCache`, whose documented scope is non-DAG external evaluators
+  such as Sequencer. Gameplay live edits do not own the snapshot DAG's cache.
+- Touched files: `Source/ComposableCameraSystemEditor/Private/Editors/ComposableCameraLiveEditSession.cpp`,
+  `Source/ComposableCameraSystemEditor/Private/Tests/ComposableCameraLiveEditTests.cpp`,
+  `Docs/DesignDoc.md`, `Docs/TechDoc.md`, `Docs/BugLog.md`.
+- Fix: trial writes change input values only. Normal evaluation consumes them
+  next frame; no camera rebuild, activation, or cache invalidation occurs.
+- Regression-test name:
+  `ComposableCameraSystem.Editor.LiveEdit.PreservesFrameMemoization`.
+  Added, not executed: compile and run in Rider / Visual Studio and the editor.
+- Avoid next time: verify the documented owner/scope of a cache bypass before
+  borrowing it for a tool. Exercise edits between repeated same-frame reads.
+- Possible conflicts: damping, spline progress, Action hooks, transient camera
+  lifetime, and property-transition clocks rely on one camera tick per frame.
+  Existing Sequencer-owned cache invalidation remains unchanged.
+
+## 2026-10-02 - PIE trial reset must retain a newly Modifier-owned literal
+
+- Superseded later on 2026-10-02: requested trial-over-driver behavior now uses
+  an independent evaluation layer. Reset removes that layer immediately even
+  for slotless Modifier-owned fields. The named regression was updated to
+  verify restoration of the current driver rather than blocked restoration.
+
+- Symptom: pre-compilation review found that Reset could drop a pending trial
+  record without restoring its original literal value.
+- Trigger / repro: trial an unwired FOV with no default/exposed data slot;
+  let a Modifier acquire that property; press Reset while the Modifier owns it.
+- Why it happens / root cause: restoring a property directly would overwrite
+  the active Modifier, but no lower slot exists to restore underneath it. The
+  initial reset loop cleared pending state even when the runtime write failed.
+- Touched files: `Source/ComposableCameraSystemEditor/Private/Editors/ComposableCameraLiveEditSession.h`,
+  `Source/ComposableCameraSystemEditor/Private/Editors/ComposableCameraLiveEditSession.cpp`,
+  `Source/ComposableCameraSystemEditor/Private/Widgets/SComposableCameraLiveEditPanel.cpp`,
+  `Source/ComposableCameraSystemEditor/Private/Tests/ComposableCameraLiveEditTests.cpp`,
+  `Docs/EditorDesignDoc.md`, `Docs/TechDoc.md`, `Docs/BugLog.md`.
+- Fix: existing lower slots can reset without touching the Modifier-owned
+  member. Slotless resets return failure and retain trial values until ownership
+  releases or PIE ends; UI reports the pending reset rather than success.
+- Regression-test name:
+  `ComposableCameraSystem.Editor.LiveEdit.ParameterAndModifierOwnership`.
+  Added, not executed: compile and run in Rider / Visual Studio and the editor.
+- Avoid next time: treat restore success and record disposal as separate steps;
+  test ownership changes between trial creation and Reset.
+- Possible conflicts: generic and Custom Modifier field ownership must remain
+  higher priority. This tool does not unregister their bindings or change
+  modifier transition/lifecycle behavior.
+
+## 2026-10-02 - PIE live-edit binding assumed a smart runtime node pointer
+
+- Symptom: UE5.6 Editor-module compilation fails with C2228 in
+  `ComposableCameraLiveEditSession.cpp:133`, followed by C3536, C2737 and C2446.
+- Trigger / repro: compile `UE5_6Editor` in Rider / Visual Studio with the
+  PIE live-edit implementation. The local build log records the failing target
+  as this UE5_6 project using UE5.6.1.
+- Why it happens / root cause: the binding loop used `.Get()` on an element of
+  the existing `TArray<UComposableCameraCameraNodeBase*> CameraNodes`, assuming
+  it had the same `TObjectPtr` representation as asset `NodeTemplates`.
+  The three subsequent errors are cascades from the invalid initializer.
+- Touched files:
+  `Source/ComposableCameraSystemEditor/Private/Editors/ComposableCameraLiveEditSession.cpp`,
+  `Source/ComposableCameraSystemEditor/Private/Tests/ComposableCameraLiveEditTests.cpp`,
+  `Docs/TechDoc.md`, `Docs/BugLog.md`.
+- Fix: read the runtime array element directly into a typed local pointer.
+  Preserve the weak session references and the existing runtime container API.
+- Regression-test name:
+  `ComposableCameraSystem.Editor.LiveEdit.DefaultsAndSlotShapes`.
+  Strengthened binding checks for the selected camera and selectable runtime
+  node, with early failure before dereferencing an unbound editing proxy.
+- Verification blocker: this syntax error requires an IDE compilation pass
+  before automation can execute. Project rules forbid shell builds/tests.
+  Recompile `UE5_6Editor` in Rider / Visual Studio, then run the named test.
+- Avoid next time: inspect the exact container declaration before extracting
+  an element. Related history: 2026-07-15 generic Modifier pointer-expression
+  compilation failures; raw pointers and `TObjectPtr` cannot be interchanged
+  by assuming identical member functions.
+- Possible conflicts: no runtime layout, node ownership, pin resolution,
+  Modifier behavior, or source-asset serialization changes. Other `CameraNodes`
+  consumers continue to use the existing raw-pointer API.
+
+## 2026-10-02 - Generic PIE cache refresh must retain owned runtime resources
+
+- Symptom: source review of the expanded all-parameter refresh path found that
+  rerunning ordinary initialization could add collision components or duplicate
+  MixingCamera child actors every time a parameter changed.
+- Trigger / repro: edit ImpulseResolution VelocityDamping / Interpolator several
+  times and Reset; count its sphere components. Edit MixingCamera Cameras, then
+  switch mixing enum parameters repeatedly; count owned child cameras.
+- Why it happens / root cause: OnInitialize builds derived caches but also
+  creates lifetime resources. It is not an idempotent generic refresh contract.
+  Existing MixingCamera initialization appends to CameraInstances and ordinary
+  ImpulseResolution initialization always allocates another sphere.
+- Touched files: node base, MixingCamera and ImpulseResolution headers/cpps;
+  `Private/Tests/ComposableCameraLiveEditTests.cpp` in the Editor module;
+  `Docs/DesignDoc.md`, `Docs/EditorDesignDoc.md`, `Docs/TechDoc.md`,
+  `Docs/ExecutionFlowExamples.md`, `Docs/BugLog.md`.
+- Fix: editor-only OnLiveEditRefresh defaults to initialization, while resource
+  owners specialize it. ImpulseResolution only rebuilds its typed interpolator;
+  MixingCamera destroys/clears children and rebuilds them only for Cameras edits.
+  Trial values are restored to the underlying layer after event-time refresh.
+- Regression-test name:
+  `ComposableCameraSystem.Editor.LiveEdit.RefreshReusesImpulseComponent`.
+  Added, not run. Project rules require IDE compilation and editor automation.
+  MixingCamera manual verification requires a PCM-backed PIE context: edit its
+  Cameras array repeatedly, Reset, and confirm no obsolete children remain;
+  changing MixMode must preserve child count and identities.
+- Avoid next time: distinguish configuration caches from lifetime resources;
+  audit every initialization override before adding a generic refresh caller.
+- Possible conflicts: overlaps, input bindings, occlusion-material restoration,
+  nested camera lifetime and interpolator state. UE5.6 BindActionValue already
+  deduplicates action bindings; OcclusionFade initialization restores its previous
+  overrides. Camera DAG memoization and Modifier clocks are unchanged.
+
+## 2026-10-02 - Compound pin refresh overwrote nested PIE trial values
+
+- Symptom: an inline interpolator Speed edit could revert to the lower pin
+  default while refreshing the edited node's typed interpolator.
+- Trigger / repro: Start -> PivotDamping; set UpwardInterpolator to IIR Speed=2,
+  start PIE, then change Speed to 7 in Live Editing. Refresh and tick the node.
+- Why it happens / root cause: the trial suppression guard was placed in pin
+  declaration rather than AutoApplySubobjectPinValues. Refresh applied lower
+  compound defaults into the trial-owned object before rebuilding its cache.
+- Related history / blast radius: reviewed the resource-refresh entry above and
+  compound pin consumers. Declaration must continue reporting the full schema;
+  only applying lower values to an actively overridden root must be suppressed.
+- Touched files: CameraNodeBase.cpp, ComposableCameraLiveEditTests.cpp,
+  TechDoc.md and BugLog.md.
+- Fix: move the guard into AutoApplySubobjectPinValues. Cache refresh retains
+  all children of the trial root; normal initialization and Reset still resolve
+  the lower configuration.
+- Regression-test name:
+  `ComposableCameraSystem.Editor.LiveEdit.NestedObjectsArraysAndCurveRoundTrip`.
+  Checks Speed=7 before and after tick and saved compound default reconstruction.
+  Added, not run; compile and run through IDE/editor per project rules.
+- Avoid next time: test nested values across both refresh and execution; place
+  precedence checks in mutation paths, never schema discovery.
+- Possible conflicts: interpolator cache construction and compound pin defaults.
+  No changes to wire storage, shipping execution or graph declaration behavior.
+
+## 2026-10-02 - PIE trial actor references escaped the selected world
+
+- Symptom: a reference picked from another PIE world could enter a selected
+  camera's trial; an editor actor without a PIE counterpart could remain live.
+- Trigger / repro: run two PIE worlds, select a camera in one and assign an
+  actor from the other to ActorsForDynamicFoV; repeat with an unmapped editor actor.
+- Why it happens / root cause: world remapping treated any PIE reference as
+  already mapped and ignored missing mappings when writing runtime trials.
+- Related history / blast radius: reviewed pending-trial lifetime and resource
+  entries above; audited candidate writes, Apply preflight and PIE detachment.
+- Touched files: ComposableCameraLiveEditSession.cpp,
+  ComposableCameraLiveEditTests.cpp, EditorDesignDoc.md, TechDoc.md and BugLog.md.
+- Fix: require the selected PIE world. Resolve counterparts by actor GUID when
+  needed; reject missing actor/component mappings before creating an override,
+  and restore the accepted proxy value. Selected-world spawned actors still
+  support trials but cannot be saved as defaults without an editor counterpart.
+- Regression-test name: `ComposableCameraSystem.Editor.LiveEdit.WorldReferenceScope`.
+  Covers cross-world rejection, accepted-value rollback, selected-world trials,
+  blocked asset write and clearing unmappable references on PIE end. Added, not
+  run; IDE/editor compilation and automation required.
+- Avoid next time: world type alone does not prove instance identity; validate
+  every mapping result before copying references into a runtime owner.
+- Possible conflicts: Actor/component pickers and multi-PIE sessions. Remapping
+  walks owned proxy objects only; it never edits external actors or assets.
+
+## 2026-10-02 - Repeated nested trial copies reused stale subobjects
+
+- Symptom: the second nested edit could keep the first trial value; Apply could
+  retain an older source interpolator value, and rollback could restore a stale
+  accepted snapshot.
+- Trigger / repro: Start -> PivotDamping, IIR Speed=2. Trial Speed=7, then 9;
+  force a rejected edit to 11 by ending PIE. Verify runtime/rollback=9, Apply,
+  then verify source and rebuilt compound default=9.
+- Why it happens / root cause: CopyCompleteValue followed by InstanceSubobjects
+  finds an existing same-name destination subobject and reuses it without
+  copying the new source contents. It is an initialization operation, not a
+  repeated deep-copy contract. Plain duplication can also propagate RF_Transient
+  from an editor proxy into a saved asset's child object.
+- Related history / blast radius: checked the nested-refresh and resource
+  entries above; audited all CopyValue / SetLiveEditProperty consumers. The same
+  copy routine serves runtime trials, editor baselines/accepted snapshots,
+  rollback, Reset and authoring commits.
+- Touched files: CameraNodeBase.h/.cpp, ComposableCameraLiveEditSession.cpp,
+  ComposableCameraLiveEditTests.cpp, DesignDoc.md, EditorDesignDoc.md, TechDoc.md
+  and BugLog.md.
+- Fix: editor-only CopyLiveEditProperty duplicates owned references in the
+  selected property with unique names, seeds owner/shared-object mappings and
+  applies destination propagation flags. Two reference-replacement passes bind
+  the new roots and remap their sibling references. All consumers share it.
+- Regression-test name:
+  `ComposableCameraSystem.Editor.LiveEdit.NestedObjectsArraysAndCurveRoundTrip`.
+  Now covers two edits, rejected-edit rollback, latest saved contents, destination
+  ownership and absence of transient flags on the saved child. Added, not run;
+  project rules require IDE compilation and editor automation.
+- Avoid next time: inspect instancing semantics before treating them as copying;
+  always test a second write and a transient-to-authoring ownership round trip.
+- Possible conflicts: inline subobjects, structs/containers holding instanced
+  values, Undo references and GC. Copies occur only at editor event time, never
+  in frame evaluation. External assets and actors are not duplicated.
+
+## 2026-10-02 - Unedited runtime references blocked unrelated trial saves
+
+- Symptom: editing FOV could fail because an unchanged runtime-only actor lived
+  in ActorsForDynamicFoV; failed Apply could also remap the live editing proxy.
+- Trigger / repro: populate the runtime actor array from a caller, including an
+  actor in another PIE world; bind, edit only FOV and Apply. Then edit a selected
+  PIE-only actor plus FOV and verify rejection leaves both source and proxy intact.
+- Why / root cause: runtime writes and Apply remapped/validated the entire proxy;
+  Apply performed that mutation before its source-conflict checks.
+- History / blast radius: reviewed actor world-scope, owned-copy and atomic-source
+  conflict entries above; audited Bind, WriteRuntimeProperty, Apply, Reset and
+  DetachRuntime and all RemapWorldReferences consumers.
+- Touched files: ComposableCameraLiveEditSession.cpp, ComposableCameraLiveEditTests.cpp,
+  DesignDoc.md, EditorDesignDoc.md, TechDoc.md, ExecutionFlowExamples.md, BugLog.md.
+- Fix: serialize/remap only selected root properties and their owned subobjects.
+  Runtime writes use isolated typed candidates; Apply uses GC-rooted authoring
+  candidates, validates every changed root before any source write and never
+  mutates editing proxies on failure. Rehash maps/sets after reference changes.
+- Regression-test name:
+  `ComposableCameraSystem.Editor.LiveEdit.ChangedReferenceScopeAndAtomicSave`.
+  Added, not compiled/run; full IDE compile and editor automation required.
+- Avoid next time: validation scope must match commit scope; preflight must not
+  mutate working copies. Include unrelated caller-driven references in tests.
+- Possible conflicts: actor/component, weak/lazy/soft references and nested
+  containers; counterpart-world rejection remains intact. External objects are
+  neither traversed nor edited.
+
+## 2026-10-02 - Reset retained obsolete source-conflict snapshots after Undo
+
+- Symptom: after Apply -> Undo -> Reset, subsequent trials could never Apply even
+  though the user had explicitly discarded the previous trial.
+- Trigger / repro: FOV 79 -> trial 101 -> Apply -> Undo -> Reset -> trial 112 -> Apply.
+- Why / root cause: Reset cleared runtime overrides and proxy baselines but left
+  SourceValues / SourceDefaults pointing at the undone authoring state.
+- History / blast radius: reviewed atomic conflict and trial/Modifier ownership
+  history; checked all Reset, Bind and Apply consumers and camera-switch gating.
+- Touched files: ComposableCameraLiveEditSession.cpp, ComposableCameraLiveEditTests.cpp,
+  DesignDoc.md, EditorDesignDoc.md, TechDoc.md, ExecutionFlowExamples.md, BugLog.md.
+- Fix: only after a complete Reset succeeds, capture current source signatures
+  for every bound node. Failed resets keep their original conflict state.
+- Regression-test name: `ComposableCameraSystem.Editor.LiveEdit.AssetUndo` now
+  covers Undo/Redo visible defaults and a new trial after Undo/Reset. Added, not
+  compiled/run; requires IDE compile and editor execution.
+- Avoid next time: treat Reset as a new source baseline, not just clearing dirty
+  flags; test continued editing after Undo, not merely one Undo/Redo pair.
+- Possible conflicts: concurrent source edits and runtime identity loss. Apply's
+  conflict checks still reject unreset pending edits.
+
+## 2026-10-02 - Native pin defaults diverged from authored defaults
+
+- Symptom: an object picker could show an old or empty object after Apply;
+  reconstructed Undo/Redo pins could retain defaults from another transaction.
+- Trigger / repro: expose HitchcockZoom.FOVDeltaCurve as a pin, author curve A,
+  trial curve B, Apply, Undo, Redo, and rebuild the graph. Compare template,
+  RuntimePinOverrides and the native picker after each operation.
+- Why / root cause: default allocation/setters updated only DefaultValue, while
+  native object/text widgets use DefaultObject / DefaultTextValue. Reconstruction
+  moved all old persistent defaults over freshly allocated restored defaults.
+- History / blast radius: audited all SetPinDefaultOverride and camera-node
+  ReconstructPins consumers, native K2 default decoding, copy/paste and Undo.
+- Touched files: ComposableCameraNodeGraphNode.h/.cpp,
+  ComposableCameraLiveEditTests.cpp, EditorDesignDoc.md, TechDoc.md, BugLog.md.
+- Fix: decode all visible default fields from the same authored string. Normal
+  reconstruction preserves its existing defaults; PostEditUndo reconstructs
+  restored authoring defaults while preserving matching links.
+- Regression-test names:
+  `ComposableCameraSystem.Editor.LiveEdit.ObjectPinDefaultsUndoRoundTrip`,
+  `ComposableCameraSystem.Editor.LiveEdit.AssetUndo`. Added, not compiled/run;
+  IDE/editor verification must include existing graph sync/copy-paste tests.
+- Avoid next time: compare visible widget values with durable values, including
+  object pointers and Undo/reopen; a string alone is not every pin's UI value.
+- Possible conflicts: normal Details, exposed pins and copy/paste. Their default
+  reconstruction semantics remain unchanged; only Undo opts out of old defaults.
+
+## 2026-10-02 - Applying schema changes could silently remove existing drivers
+
+- Symptom: replacing/removing an interpolator could remove a wired or exposed
+  compound pin; undriven removed pins could retain obsolete override records.
+- Trigger / repro: wire or expose PivotDamping.UpwardInterpolator.Speed, trial
+  UpwardInterpolator=None, Apply. Repeat with the graph closed. With no driver,
+  author Speed=4, remove the root, Apply, then Undo.
+- Why / root cause: Apply validated values but not prospective declarations;
+  ReconstructPins legitimately breaks unmatched pins, and old override records
+  were not pruned when their root no longer declared those compound pins.
+- History / blast radius: reviewed source conflict/identity and compound-refresh
+  history; audited graph pin reconstruction, exposure and durable camera/variable
+  connections in both open-graph and closed-asset paths.
+- Touched files: ComposableCameraLiveEditSession.cpp,
+  ComposableCameraNodeGraphNode.h/.cpp, ComposableCameraLiveEditTests.cpp,
+  DesignDoc.md, EditorDesignDoc.md, TechDoc.md, ExecutionFlowExamples.md, BugLog.md.
+- Fix: reject the entire Apply before mutation when candidate name, direction,
+  complete pin type or visibility would lose an existing wire/exposure. Permit
+  undriven changes and transactionally prune only obsolete compound overrides
+  beneath the edited root through a graph-node accessor.
+- Regression-test names:
+  `ComposableCameraSystem.Editor.LiveEdit.RejectsDrivenPinSchemaLoss`,
+  `ComposableCameraSystem.Editor.LiveEdit.PreservesAuthoringGraphAndDrivers`.
+  Added, not compiled/run; compile in IDE and execute in editor.
+- Avoid next time: preflight schema consequences before invoking a reconstruct
+  that intentionally drops unmatched pins. Test closed assets and subsequent Undo.
+- Possible conflicts: variable Get/Set wires, exposed parameters, instanced
+  configuration and Pin-as-Pin overrides. Default edits with unchanged pin shapes
+  remain allowed; runtime trial schema changes remain allowed.
+
+## 2026-10-02 - Undo graph notifications could resynchronize intermediate pins
+
+- Symptom: an open toolkit's node PostEditUndo notifications could synchronize
+  a partly reconstructed graph back into the asset while a transaction restored it.
+- Trigger / repro: open an asset with camera wires, a variable getter, an exposed
+  input and a BeginPlay chain; Apply two node defaults, Undo and Redo. Attach the
+  toolkit-equivalent graph-change -> SyncToTypeAsset handler in automation.
+- Why / root cause: SyncToTypeAsset guarded rebuild/sync reentry but not
+  GIsTransacting; graph-node Undo callbacks notify separately as pins reconstruct.
+- History / blast radius: reviewed graph rebuild reentry and Details coalescing
+  history; inspected UE5.6 transaction restoration and all graph-sync entry points.
+- Touched files: ComposableCameraNodeGraph.cpp, ComposableCameraLiveEditSession.cpp,
+  ComposableCameraLiveEditTests.cpp, DesignDoc.md, EditorDesignDoc.md, TechDoc.md,
+  ExecutionFlowExamples.md, BugLog.md.
+- Fix: SyncToTypeAsset refuses Undo/Redo-time callbacks; the transaction restores
+  both asset and graph. Apply's final notification holds its sync guard to avoid
+  a second toolkit sync. Ordinary editing transactions still synchronize normally.
+- Regression-test name:
+  `ComposableCameraSystem.Editor.LiveEdit.PreservesAuthoringGraphAndDrivers`.
+  Compares unchanged durable fields, camera/variable wires, template identity,
+  GUID/layout, caller slots and BeginPlay state across Apply/Undo/Redo/rebuild.
+  Added, not compiled/run; existing graph-sync suite also needs editor execution.
+- Avoid next time: test transactions with production notification callbacks;
+  testing a graph without its owning toolkit misses synchronous reentry.
+- Possible conflicts: graph Undo/Redo and Details rebuild scopes. Only transaction
+  restoration is gated; ordinary editing and subsequent explicit sync remain valid.
+
+## 2026-10-02 - Live-edit curve test used an obsolete field type
+
+- Symptom: the new curve round-trip test assigned/compared UCurveFloat* directly
+  to CameraOffset.ForwardOffsetDeltaByPitchCurve, which is FRuntimeFloatCurve.
+- Compiler evidence: the local UnrealBuildTool Log.txt completed at 13:54:44
+  for UE5_6.uproject / UE_5.6. Its complete error list contains C2679 at old
+  test line 517 (assignment), C2678 at old line 520 (comparison), and cascading
+  C2661 at line 520 (TestTrue). Current test source was modified afterward and
+  contains the corrected ExternalCurve / EditorCurveData operations; a fresh
+  IDE compile is still required to verify the fix and newer review changes.
+- Trigger / repro: full IDE compile with WITH_DEV_AUTOMATION_TESTS enabled.
+- Why / root cause: test assumed the old pointer field instead of reading the
+  current node declaration; FRuntimeFloatCurve has separate ExternalCurve and
+  EditorCurveData members.
+- History / blast radius: checked current CameraOffset declaration and all new
+  curve test consumers; runtime curve evaluation needs no change.
+- Touched files: ComposableCameraLiveEditTests.cpp and BugLog.md.
+- Fix: edit/assert ExternalCurve and an inline key through EditorCurveData.
+- Regression-test name:
+  `ComposableCameraSystem.Editor.LiveEdit.NestedObjectsArraysAndCurveRoundTrip`.
+  Corrected, not compiled/run; full IDE compile and editor execution required.
+- Avoid next time: verify tests against current declarations before handoff;
+  exercise both inline and external data for native curve structs.
+- Possible conflicts: none to runtime curve behavior; change is test-only.
+
+## 2026-10-02 - Live Editing action labels were not centered
+
+- Symptom: Apply to Asset and Reset Trial text sits left of each button's center;
+  the shorter Reset label makes the offset more obvious.
+- Trigger / repro: open the global Edit Window's Live Editing page and compare
+  the labels with their equal-size button bounds, including disabled Reset Trial.
+- Why / root cause: equal-size SBox containers and parent-slot VAlign centered
+  the button widgets only. SButton defaults to HAlign_Fill / VAlign_Fill; its
+  generated STextBlock retains left text justification across the wider content
+  area. Explicit content alignment was omitted in the preceding UI layout change.
+- History / blast radius: reviewed prior Shot Editor toolbar placement history;
+  checked both action callsites and UE5.6 SButton/SBorder construction. The defect
+  is local to Live Editing content layout, independent of trial/asset commands.
+- Touched files: SComposableCameraLiveEditPanel.cpp, ComposableCameraLiveEditTests.cpp,
+  EditorDesignDoc.md, TechDoc.md, BugLog.md.
+- Fix: explicitly set both buttons' content HAlign and VAlign to Center while
+  retaining their shared dimensions/padding and existing action delegates.
+- Regression-test name:
+  `ComposableCameraSystem.Editor.LiveEdit.ActionButtonTextAlignment`.
+  Arranges the actual tagged buttons and checks text-content centers in enabled
+  and disabled states at layout scales 1.0 and 1.5. Added, not compiled/run.
+  Compile in Rider/Visual Studio and run automation in Unreal Editor; reopen the
+  window to inspect the new construction settings and font appearance.
+- Avoid next time: verify content geometry as well as outer button dimensions;
+  shorter labels expose Fill/left alignment that longer labels can conceal.
+- Possible conflicts: none to camera evaluation, trial state, Apply/Reset, or Undo.

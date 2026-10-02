@@ -105,6 +105,9 @@ public:
 	virtual void OnInitialize_Implementation() override;
 	virtual void OnTickNode_Implementation(float DeltaTime, const FComposableCameraPose& CurrentCameraPose, FComposableCameraPose& OutCameraPose) override;
 	virtual void BeginDestroy() override;
+#if WITH_EDITOR
+	virtual void OnLiveEditRefresh(FName PropertyName) override;
+#endif
 	virtual void GetPinDeclarations_Implementation(TArray<FComposableCameraNodePinDeclaration>& OutPins) const override;
 
 	// Calls PCM::CreateNewCamera during OnInitialize to spawn child cameras for

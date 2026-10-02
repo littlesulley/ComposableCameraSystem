@@ -15,6 +15,17 @@
 
 #define LOCTEXT_NAMESPACE "ComposableCameraNodeGraphNode"
 
+namespace
+{
+	void SetVisiblePinDefault(UEdGraphPin& Pin, const FString& Value)
+	{
+		// Object/text widgets read separate fields. Keep all three representations
+		// derived from the same authored string without firing another edit event.
+		GetDefault<UEdGraphSchema_K2>()->GetPinDefaultValuesFromString(Pin.PinType, Pin.GetOwningNodeUnchecked(), Value,
+			Pin.DefaultValue, Pin.DefaultObject, Pin.DefaultTextValue);
+	}
+}
+
 // PN_ExecIn / PN_ExecOut are defined on UComposableCameraGraphNodeBase
 // (see ComposableCameraGraphNodeBase.cpp). This subclass inherits them
 // and references them by their unqualified names below.
@@ -68,7 +79,7 @@ void UComposableCameraNodeGraphNode::AllocateDefaultPins()
 			{
 				if (Override->bHasDefaultOverride)
 				{
-					NewPin->DefaultValue = Override->DefaultValueOverride;
+					SetVisiblePinDefault(*NewPin, Override->DefaultValueOverride);
 				}
 			}
 		}
@@ -249,7 +260,7 @@ void UComposableCameraNodeGraphNode::PostEditUndo()
 	// matching logic in ReconstructPins will carry any LinkedTo that the
 	// transaction restored onto the freshly-created pins, so wires on the
 	// other side reconnect at the same time.
-	ReconstructPins();
+	ReconstructPins(false);
 
 	if (UEdGraph* Graph = GetGraph())
 	{
@@ -257,7 +268,7 @@ void UComposableCameraNodeGraphNode::PostEditUndo()
 	}
 }
 
-void UComposableCameraNodeGraphNode::ReconstructPins()
+void UComposableCameraNodeGraphNode::ReconstructPins(bool bPreservePinDefaults)
 {
 	Modify();
 
@@ -280,6 +291,9 @@ void UComposableCameraNodeGraphNode::ReconstructPins()
 	// each wire to point at NewPin, so the graph stays consistent.
 	for (UEdGraphPin* NewPin: Pins)
 	{
+		const FString AuthoredValue = NewPin->DefaultValue;
+		const TObjectPtr<UObject> AuthoredObject = NewPin->DefaultObject;
+		const FText AuthoredText = NewPin->DefaultTextValue;
 		for (UEdGraphPin*& OldPin: OldPins)
 		{
 			// Match on (PinName, Direction, PinType). If the type changed for a
@@ -292,6 +306,14 @@ void UComposableCameraNodeGraphNode::ReconstructPins()
 				&& OldPin->PinType == NewPin->PinType)
 			{
 				NewPin->MovePersistentDataFromOldPin(*OldPin);
+				if (!bPreservePinDefaults)
+				{
+					// Undo keeps restored wire identity but rebuilds visible defaults
+					// from restored authoring data, not later pin objects.
+					NewPin->DefaultValue = AuthoredValue;
+					NewPin->DefaultObject = AuthoredObject;
+					NewPin->DefaultTextValue = AuthoredText;
+				}
 				OldPin = nullptr; // consumed - don't match again
 				break;
 			}
@@ -608,7 +630,7 @@ void UComposableCameraNodeGraphNode::SetPinDefaultOverride(FName PinName, const 
 	// widget shows the new value without waiting for a full ReconstructPins.
 	if (UEdGraphPin* Pin = FindPin(PinName, EGPD_Input))
 	{
-		Pin->DefaultValue = NewDefault;
+		SetVisiblePinDefault(*Pin, NewDefault);
 	}
 
 	if (UEdGraph* OwningGraph = GetGraph())
@@ -618,6 +640,20 @@ void UComposableCameraNodeGraphNode::SetPinDefaultOverride(FName PinName, const 
 			TypeAsset->MarkPackageDirty();
 		}
 	}
+}
+
+void UComposableCameraNodeGraphNode::PruneObsoletePinOverrides(FName RootName)
+{
+	if (!NodeTemplate) return;
+	TArray<FComposableCameraNodePinDeclaration> Declarations;
+	NodeTemplate->GatherAllPinDeclarations(Declarations);
+	const FString Prefix = RootName.ToString() + TEXT(".");
+	Modify();
+	RuntimePinOverrides.RemoveAll([&](const FComposableCameraPinOverride& Override)
+	{
+		return Override.PinName.ToString().StartsWith(Prefix)
+			&& !Declarations.ContainsByPredicate([&](const auto& Pin) { return Pin.PinName == Override.PinName; });
+	});
 }
 
 void UComposableCameraNodeGraphNode::SetPinAsPin(FName PinName, bool bNewAsPin)
@@ -723,7 +759,7 @@ UEdGraphPin* UComposableCameraNodeGraphNode::CreatePinFromDeclaration(const FCom
 		if (!Declaration.DefaultValueString.IsEmpty() && Direction == EGPD_Input
 			&& Declaration.PinType != EComposableCameraPinType::Delegate)
 		{
-			NewPin->DefaultValue = Declaration.DefaultValueString;
+			SetVisiblePinDefault(*NewPin, Declaration.DefaultValueString);
 		}
 	}
 

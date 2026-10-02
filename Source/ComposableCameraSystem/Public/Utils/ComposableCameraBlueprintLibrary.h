@@ -176,12 +176,13 @@ public:
 		const UObject* WorldContextObject,
 		AComposableCameraPlayerCameraManager* PlayerCameraManager);
 
-	/** Add a modifier data asset.
+	/** Add a modifier data asset. The Add Camera Modifier K2 node is the palette entry;
+	 * this internal function remains available to existing Blueprint nodes and C++.
 	 * @param WorldContextObject World context object. \n
 	 * @param PlayerCameraManager The player camera manager, must be a ComposableCameraPlayerCameraManager. \n
 	 * @param ModifierAsset Data asset for modifiers to add.
 	 */
-	UFUNCTION(BlueprintCallable, Category = "ComposableCameraSystem|Camera", meta = (WorldContext = "WorldContextObject"))
+	UFUNCTION(BlueprintCallable, BlueprintInternalUseOnly, Category = "ComposableCameraSystem|Camera", meta = (WorldContext = "WorldContextObject"))
 	static void AddModifier(const UObject* WorldContextObject, AComposableCameraPlayerCameraManager* PlayerCameraManager, UComposableCameraNodeModifierDataAsset* ModifierAsset);
 
 	/** Remove a modifier data asset.

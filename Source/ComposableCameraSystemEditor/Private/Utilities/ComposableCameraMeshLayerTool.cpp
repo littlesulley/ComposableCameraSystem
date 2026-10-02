@@ -2,6 +2,8 @@
 
 #include "Utilities/ComposableCameraMeshLayerTool.h"
 
+#include "Utilities/ComposableCameraEditorToolsMenu.h"
+
 #include "ComposableCameraEditorStyle.h"
 #include "Components/LineBatchComponent.h"
 #include "Containers/Ticker.h"
@@ -319,14 +321,14 @@ void FComposableCameraMeshLayerTool::Unregister()
 void FComposableCameraMeshLayerTool::RegisterMenus()
 {
 	FToolMenuOwnerScoped OwnerScoped(MeshLayerToolMenuOwner);
-	UToolMenu* Menu = UToolMenus::Get()->ExtendMenu(TEXT("LevelEditor.MainMenu.Tools"));
+	UToolMenu* Menu = UToolMenus::Get()->ExtendMenu(FComposableCameraEditorToolsMenu::MenuName);
 	if (!Menu)
 	{
 		return;
 	}
 
-	FToolMenuSection& Section = Menu->FindOrAddSection(TEXT("ComposableCameraSystem"));
-	Section.Label = LOCTEXT("Section", "Composable Camera System");
+	FToolMenuSection& Section = Menu->FindOrAddSection(TEXT("MeshLayers"));
+	Section.Label = LOCTEXT("Section", "Mesh Camera Layers");
 	Section.AddMenuEntry(
 		TEXT("ComposableCameraMeshLayerEdit"),
 		LOCTEXT("Edit", "Edit Mesh Camera Layers"),

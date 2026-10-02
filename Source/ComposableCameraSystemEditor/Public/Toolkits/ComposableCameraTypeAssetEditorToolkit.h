@@ -159,6 +159,8 @@ private:
 	// Toolbar Actions 
 
 	void OnBuild();
+	static void StaticOnLiveEditingClicked(const FToolMenuContext& Context);
+	static bool StaticCanLiveEdit(const FToolMenuContext& Context);
 
 	// Widget Builders 
 

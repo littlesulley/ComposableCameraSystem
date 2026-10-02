@@ -5,6 +5,9 @@
 #include "Cameras/ComposableCameraCameraBase.h"
 #include "Core/ComposableCameraRuntimeDataBlock.h"
 #include "ComposableCameraSystemModule.h"
+#if WITH_EDITOR
+#include "Serialization/ArchiveReplaceObjectRef.h"
+#endif
 
 namespace
 {
@@ -173,6 +176,10 @@ void UComposableCameraCameraNodeBase::TickNode(float DeltaTime, const FComposabl
 		ResolveAllInputPins();
 	}
 
+#if WITH_EDITOR
+	SwapLiveEditValues();
+#endif
+
 	// OnFirstTickNode fires exactly once per activation, after pins are resolved
 	// but before the main tick. The correct place to seed state from live pin values.
 	if (!bHasHadFirstTick)
@@ -186,8 +193,146 @@ void UComposableCameraCameraNodeBase::TickNode(float DeltaTime, const FComposabl
 #if WITH_EDITOR
 	DebugPoseAfterTick = OutCameraPose;
 	bDebugWasTickedThisFrame = true;
+	SwapLiveEditValues(); // Restore the current driven layer; never restore a stale trial baseline.
 #endif
 }
+
+#if WITH_EDITOR
+void UComposableCameraCameraNodeBase::CopyLiveEditProperty(FProperty* Property, UObject* Source, UObject* Destination)
+{
+	Property->CopyCompleteValue(Property->ContainerPtrToValuePtr<void>(Destination), Property->ContainerPtrToValuePtr<void>(Source));
+	if (!Property->HasAnyPropertyFlags(CPF_InstancedReference | CPF_ContainsInstancedReference)) return;
+
+	// Ordinary InstanceSubobjects can reuse a same-name destination without copying
+	// the latest source contents. Give each edited configuration a fresh owned copy.
+	TMap<UObject*, UObject*> Replacements;
+	Replacements.Add(Source, Destination);
+	for (TPropertyValueIterator<FObjectPropertyBase> It(Source->GetClass(), Source); It; ++It)
+	{
+		if (!It.Key()->HasAnyPropertyFlags(CPF_InstancedReference)) continue;
+		TArray<const FProperty*> Chain;
+		It.GetPropertyChain(Chain);
+		if (Chain.IsEmpty() || Chain.Last() != Property) continue;
+		UObject* Child = It.Key()->GetObjectPropertyValue(It.Value());
+		if (!Child || !Child->IsIn(Source) || Replacements.Contains(Child)) continue;
+
+		TMap<UObject*, UObject*> Created;
+		FObjectDuplicationParameters Params = InitStaticDuplicateObjectParams(Child, Destination,
+			MakeUniqueObjectName(Destination, Child->GetClass(), Child->GetFName()));
+		Params.FlagMask &= ~(RF_Transient | RF_Public | RF_Standalone | RF_ArchetypeObject | RF_Transactional);
+		Params.ApplyFlags |= Destination->GetMaskedFlags(RF_PropagateToSubObjects);
+		Params.DuplicationSeed = Replacements;
+		Params.CreatedObjects = &Created;
+		UObject* Copy = StaticDuplicateObjectEx(Params);
+		Replacements.Append(Created);
+		Replacements.Add(Child, Copy);
+	}
+	FArchiveReplaceObjectRef<UObject> Replace(Destination, Replacements,
+		EArchiveReplaceObjectFlags::IgnoreOuterRef | EArchiveReplaceObjectFlags::IgnoreArchetypeRef);
+	// The first pass replaces root pointers. A second pass walks the fresh owned
+	// objects too, fixing references to siblings copied later in this operation.
+	FArchiveReplaceObjectRef<UObject> ReplaceChildren(Destination, Replacements,
+		EArchiveReplaceObjectFlags::IgnoreOuterRef | EArchiveReplaceObjectFlags::IgnoreArchetypeRef);
+}
+
+void UComposableCameraCameraNodeBase::SetLiveEditProperty(FProperty* Property, UComposableCameraCameraNodeBase* Values)
+{
+	if (!Property || !Values || Values->GetClass() != GetClass() || bLiveEditValuesApplied) return;
+	if (!LiveEditValues)
+	{
+		LiveEditValues = NewObject<UComposableCameraCameraNodeBase>(this, GetClass(), NAME_None, RF_Transient);
+	}
+	CopyLiveEditProperty(Property, Values, LiveEditValues.Get());
+	if (!HasLiveEditProperty(Property->GetFName()))
+	{
+		LiveEditProperties.Add({ Property->GetFName(), Property, Property->GetOffset_ForInternal() });
+	}
+	LiveEditPinProperties = LiveEditProperties;
+	LiveEditSubobjectPins.Reset();
+	TArray<FComposableCameraNodePinDeclaration> Pins;
+	LiveEditValues->GatherAllPinDeclarations(Pins);
+	for (const FComposableCameraModifierPinOverrideBinding& Root : LiveEditProperties)
+	{
+		const FObjectPropertyBase* Parent = CastField<FObjectPropertyBase>(Root.Property);
+		UObject* Subobject = Parent ? Parent->GetObjectPropertyValue_InContainer(LiveEditValues.Get()) : nullptr;
+		if (!Subobject) continue;
+		for (const FComposableCameraNodePinDeclaration& Pin : Pins)
+		{
+			FString ParentName, ChildName;
+			if (!Pin.PinName.ToString().Split(TEXT("."), &ParentName, &ChildName) || FName(*ParentName) != Root.PinName) continue;
+			if (FProperty* Child = FindFProperty<FProperty>(Subobject->GetClass(), FName(*ChildName)))
+			{
+				LiveEditPinProperties.Add({ Pin.PinName, Child, Child->GetOffset_ForInternal() });
+				LiveEditSubobjectPins.Add(Pin.PinName, Parent);
+			}
+		}
+	}
+}
+
+void UComposableCameraCameraNodeBase::RemoveLiveEditProperty(FName Name)
+{
+	if (!bLiveEditValuesApplied)
+	{
+		LiveEditProperties.RemoveAll([Name](const FComposableCameraModifierPinOverrideBinding& Binding) { return Binding.PinName == Name; });
+		const FProperty* Root = FindFProperty<FProperty>(GetClass(), Name);
+		const FObjectPropertyBase* Parent = CastField<FObjectPropertyBase>(Root);
+		LiveEditPinProperties.RemoveAll([this, Name, Parent](const FComposableCameraModifierPinOverrideBinding& Binding)
+		{
+			const FObjectPropertyBase* const* Found = LiveEditSubobjectPins.Find(Binding.PinName);
+			return Binding.PinName == Name || (Found && *Found == Parent);
+		});
+		for (auto It = LiveEditSubobjectPins.CreateIterator(); It; ++It)
+		{
+			if (It.Value() == Parent) It.RemoveCurrent();
+		}
+		if (LiveEditProperties.IsEmpty()) LiveEditValues = nullptr;
+	}
+}
+
+bool UComposableCameraCameraNodeBase::HasLiveEditProperty(FName Name) const
+{
+	return LiveEditProperties.ContainsByPredicate([Name](const FComposableCameraModifierPinOverrideBinding& Binding) { return Binding.PinName == Name; });
+}
+
+void UComposableCameraCameraNodeBase::SwapLiveEditValues()
+{
+	if (!LiveEditValues || LiveEditProperties.IsEmpty()) return;
+	for (const FComposableCameraModifierPinOverrideBinding& Binding : LiveEditProperties)
+	{
+		void* Runtime = Binding.Property->ContainerPtrToValuePtr<void>(this);
+		void* Trial = Binding.Property->ContainerPtrToValuePtr<void>(LiveEditValues.Get());
+		if (const FBoolProperty* Bool = CastField<FBoolProperty>(Binding.Property))
+		{
+			for (int32 Index = 0; Index < Binding.Property->ArrayDim; ++Index)
+			{
+				void* RuntimeElement = static_cast<uint8*>(Runtime) + Index * Binding.Property->GetElementSize();
+				void* TrialElement = static_cast<uint8*>(Trial) + Index * Binding.Property->GetElementSize();
+				const bool Previous = Bool->GetPropertyValue(RuntimeElement);
+				Bool->SetPropertyValue(RuntimeElement, Bool->GetPropertyValue(TrialElement));
+				Bool->SetPropertyValue(TrialElement, Previous);
+			}
+		}
+		else
+		{
+			// UE reflected value storage is relocatable. Swap owned array/struct/object
+			// storage rather than copying/allocating complex values every frame.
+			FMemory::Memswap(Runtime, Trial, Binding.Property->GetSize());
+		}
+	}
+	bLiveEditValuesApplied = !bLiveEditValuesApplied;
+}
+
+void UComposableCameraCameraNodeBase::RefreshLiveEditState(FName PropertyName)
+{
+	if (bLiveEditValuesApplied) return;
+	ResolveAllInputPins();
+	SwapLiveEditValues();
+	AutoApplySubobjectPinValues();
+	bHasHadFirstTick = false;
+	OnLiveEditRefresh(PropertyName); // Rebuild only this node's derived state, at editor event time.
+	SwapLiveEditValues();
+}
+#endif
 
 FGameplayTag UComposableCameraCameraNodeBase::GetOwningCameraTag() const
 {
@@ -273,6 +418,10 @@ void UComposableCameraCameraNodeBase::AutoApplySubobjectPinValues()
 		{
 			continue;
 		}
+#if WITH_EDITOR
+		// The whole trial subobject owns its edited children during cache refresh.
+		if (bLiveEditValuesApplied && HasLiveEditProperty(Property->GetFName())) continue;
+#endif
 		if (ModifierOverrideFieldOffsets.Contains(Property->GetOffset_ForInternal()))
 		{
 			// Whole-subobject modifier overrides own their authored values. Do not

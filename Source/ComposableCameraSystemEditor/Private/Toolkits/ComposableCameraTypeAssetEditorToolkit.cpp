@@ -6,6 +6,7 @@
 #include "Editors/ComposableCameraNodeGraph.h"
 #include "Editors/ComposableCameraNodeGraphNode.h"
 #include "Editors/ComposableCameraRuntimePreviewerViewportClient.h"
+#include "Editors/ComposableCameraSystemEditWindow.h"
 #include "Editors/ComposableCameraVariableGraphNode.h"
 #include "Editors/ComposableCameraNodeGraphSchema.h"
 #include "Nodes/ComposableCameraCameraNodeBase.h"
@@ -383,6 +384,16 @@ void FComposableCameraTypeAssetEditorToolkit::RegisterToolbar()
 		&FComposableCameraTypeAssetEditorToolkit::MakeDebugInstancePickerWidget);
 	Section.AddEntry(DebugEntry);
 
+	FToolUIAction LiveEditingAction;
+	LiveEditingAction.ExecuteAction = FToolMenuExecuteAction::CreateStatic(
+		&FComposableCameraTypeAssetEditorToolkit::StaticOnLiveEditingClicked);
+	LiveEditingAction.CanExecuteAction = FToolMenuCanExecuteAction::CreateStatic(
+		&FComposableCameraTypeAssetEditorToolkit::StaticCanLiveEdit);
+	Section.AddEntry(FToolMenuEntry::InitToolBarButton(
+		"LiveEditing", LiveEditingAction, LOCTEXT("LiveEditLabel", "Live Edit"),
+		LOCTEXT("LiveEditTooltip", "Open PIE live tuning for this editor's selected Debug camera instance."),
+		FSlateIcon(FAppStyle::GetAppStyleSetName(), "ClassIcon.CameraComponent")));
+
 	// "Shot Editor" entry - opens the Shot Editor tab for the
 	// currently selected CompositionFraming graph node in this editor.
 	// FToolUIAction (vs FUIAction) so handlers receive the FToolMenuContext
@@ -405,6 +416,26 @@ void FComposableCameraTypeAssetEditorToolkit::RegisterToolbar()
 			"Disabled when no Composition Framing node is selected."),
 		FSlateIcon(FAppStyle::GetAppStyleSetName(), "ClassIcon.CameraComponent")
 	));
+}
+
+void FComposableCameraTypeAssetEditorToolkit::StaticOnLiveEditingClicked(const FToolMenuContext& Context)
+{
+	if (const auto* MenuContext = Context.FindContext<UComposableCameraTypeAssetEditorMenuContext>())
+	{
+		if (const auto Toolkit = MenuContext->Toolkit.Pin())
+		{
+			if (Toolkit->DebuggedCamera.IsValid()) FComposableCameraSystemEditWindow::OpenLiveEditing(Toolkit->DebuggedCamera.Get());
+		}
+	}
+}
+
+bool FComposableCameraTypeAssetEditorToolkit::StaticCanLiveEdit(const FToolMenuContext& Context)
+{
+	if (const auto* MenuContext = Context.FindContext<UComposableCameraTypeAssetEditorMenuContext>())
+	{
+		if (const auto Toolkit = MenuContext->Toolkit.Pin()) return Toolkit->bIsPIEActive && Toolkit->DebuggedCamera.IsValid();
+	}
+	return false;
 }
 
 void FComposableCameraTypeAssetEditorToolkit::InitToolMenuContext(FToolMenuContext& MenuContext)

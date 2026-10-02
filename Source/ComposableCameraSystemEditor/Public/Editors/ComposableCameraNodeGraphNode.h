@@ -149,8 +149,8 @@ public:
 	 * PostEditUndo triggers a full node reconstruct. */
 	virtual void PostEditUndo() override;
 
-	/** Rebuild pins from the node template's pin declarations. */
-	void ReconstructPins();
+	/** Rebuild pins, preserving links. Undo uses false to rebuild defaults from restored authoring data. */
+	void ReconstructPins(bool bPreservePinDefaults = true);
 
 	/** Check if a specific input pin is exposed as a camera parameter. */
 	bool IsInputPinExposed(FName PinName) const;
@@ -193,6 +193,9 @@ public:
 	 * pins - callers that want the graph to reflect the change should call
 	 * ReconstructPins themselves. */
 	void SetPinDefaultOverride(FName PinName, const FString& NewDefault);
+
+	/** Remove overrides for compound pins no longer declared under an edited root. Transactional; does not rebuild pins. */
+	void PruneObsoletePinOverrides(FName RootName);
 
 	/** Toggle the bAsPin state for PinName, creating a sparse entry if needed.
 	 * When turning bAsPin off on a pin that is currently wired or exposed as

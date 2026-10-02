@@ -1,6 +1,6 @@
 # ComposableCameraSystem Design
 
-Updated: 2026-09-28
+Updated: 2026-10-02
 
 This document describes the current runtime architecture of the UE 5.6
 ComposableCameraSystem plugin. It is intentionally compact. Implementation
@@ -265,6 +265,12 @@ Modifier selection lives at the PCM level. Legacy reactivation is initiated
 there; opt-in in-place values are consumed inside the selected camera's node
 evaluation.
 
+Blueprint authors add Modifier assets through `Add Camera Modifier`, a custom
+K2 node forwarding the existing PCM and asset inputs to `AddModifier`.
+The raw library function is hidden from new-node menus but retained for saved
+Blueprint calls and C++; Modifier registration and application semantics stay
+unchanged.
+
 `UComposableCameraNodeModifierDataAsset` stores fixed base-wrapper entries.
 Each wrapper's first choice selects one of two mutually exclusive branches:
 Node Type mode owns a concrete built-in or Blueprint node template plus a sparse
@@ -488,6 +494,43 @@ before remaining editable properties, so both pin-backed values and
 Details-only node settings are inspectable. The editor uses this data for a
 runtime-parameter hover section and an active-node Runtime Debug panel without
 retaining or dereferencing live runtime node pointers from Slate.
+
+PIE live tuning is an editor-owned session for the connected Start chain.
+FullExecChain camera entries (or legacy ExecutionOrder) determine scope and
+order. BeginPlay compute nodes, disconnected nodes, and SetVariable data
+dependencies are not editing targets. All editable authoring properties are
+included automatically; no per-field metadata whitelist exists.
+
+A transient per-node trial layer supersedes graph wires, activation parameters
+and Modifiers while that node executes. Normal pin / Modifier resolution still
+updates the underlying layer. Reflected value storage is exchanged before
+FirstTick / Tick and restored afterward, so Reset removes the override and
+resumes the current driver rather than restoring a stale baseline. Typed pin
+getters consult the trial first, including compound subobject pins. The Editor
+path exchanges preallocated storage without per-frame allocation. Shipping
+builds contain no trial state or evaluation branch.
+
+Editing refreshes only the affected node's derived configuration at event time.
+Its Initialize / FirstTick state may restart; the camera, context, transition and
+DAG memoization remain intact. Resource-owning nodes specialize refresh:
+MixingCamera replaces child cameras only when its Cameras configuration changes;
+ImpulseResolution retains its collision component and rebuilds its interpolator.
+
+Apply to Asset preflights all edits on isolated authoring candidates, copies authoring properties and owned
+subobjects into the original templates using fresh destination-owned duplicates
+without inheriting proxy transient flags, updates direct/compound pin defaults,
+and SyncToTypeAsset commits one Undo transaction. Wires, caller overrides and
+Modifiers remain unchanged. A configuration change that removes or retypes an
+existing wired/exposed pin rejects the entire Apply before authoring mutation.
+Only changed fields undergo reference remapping; unrelated caller-populated
+runtime references cannot block a scalar save. Undo/Redo restores asset and graph
+together without graph callbacks synchronizing intermediate reconstruction.
+Trial and pending-save state are independent:
+Apply keeps the live trial; Reset remains available afterward. Editor/PIE actor
+counterparts are remapped; a runtime-only actor reference cannot become a saved
+default. A complete Reset rebases conflict snapshots against current source data,
+including source values restored by Undo. Proxies release unmappable PIE
+references at PrePIEEnded.
 
 Viewport gizmo colors are centralized in the runtime debug palette. The bottom
 Legend panel reads the same metadata as the 3D draw sites, so swatches match the

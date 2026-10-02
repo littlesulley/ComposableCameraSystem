@@ -2,6 +2,8 @@
 
 #include "Utilities/ComposableCameraLevelSequenceSpawnTrackTool.h"
 
+#include "Utilities/ComposableCameraEditorToolsMenu.h"
+
 #include "Algo/AnyOf.h"
 #include "ComposableCameraSystemEditorModule.h"
 #include "Bindings/MovieSceneSpawnableBinding.h"
@@ -646,14 +648,14 @@ void FComposableCameraLevelSequenceSpawnTrackTool::RegisterMenus()
 {
 	FLevelEditorModule& LevelEditorModule = FModuleManager::LoadModuleChecked<FLevelEditorModule>("LevelEditor");
 	FToolMenuOwnerScoped OwnerScoped(SpawnTrackToolMenuOwner);
-	UToolMenu* Menu = UToolMenus::Get()->ExtendMenu("LevelEditor.MainMenu.Tools");
+	UToolMenu* Menu = UToolMenus::Get()->ExtendMenu(FComposableCameraEditorToolsMenu::MenuName);
 	if (!Menu)
 	{
 		return;
 	}
 
-	FToolMenuSection& Section = Menu->FindOrAddSection("ComposableCameraSystem");
-	Section.Label = LOCTEXT("ComposableCameraSystemSection", "Composable Camera System");
+	FToolMenuSection& Section = Menu->FindOrAddSection(TEXT("Sequencer"));
+	Section.Label = LOCTEXT("SequencerSection", "Sequencer");
 	Section.AddEntry(FToolMenuEntry::InitMenuEntryWithCommandList(FComposableCameraLevelSequenceSpawnTrackCommands::Get().KeySpawnTracksFromCameraCuts,
 		LevelEditorModule.GetGlobalLevelEditorActions(),
 		TAttribute<FText>(),

@@ -16,6 +16,8 @@
 #include "Kismet2/BlueprintEditorUtils.h"
 #include "Kismet2/CompilerResultsLog.h"
 #include "Nodes/ComposableCameraNodePinTypes.h"
+#include "Styling/AppStyle.h"
+#include "Textures/SlateIcon.h"
 #include "UObject/SoftObjectPath.h"
 #include "UObject/UObjectGlobals.h"
 #include "UObject/UnrealType.h"
@@ -226,6 +228,12 @@ FText UK2Node_AddCameraAction::GetNodeTitle(ENodeTitleType::Type TitleType) cons
 FLinearColor UK2Node_AddCameraAction::GetNodeTitleColor() const
 {
 	return FLinearColor(FColor(102, 90, 229));
+}
+
+FSlateIcon UK2Node_AddCameraAction::GetIconAndTint(FLinearColor& OutColor) const
+{
+	OutColor = FLinearColor(.823f, .823f, .823f);
+	return FSlateIcon(FAppStyle::GetAppStyleSetName(), "ClassIcon.CameraComponent");
 }
 
 void UK2Node_AddCameraAction::GetMenuActions(
