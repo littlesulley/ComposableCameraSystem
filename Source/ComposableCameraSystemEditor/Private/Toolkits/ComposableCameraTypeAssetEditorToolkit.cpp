@@ -1,6 +1,7 @@
 // Copyright 2026 Sulley. All Rights Reserved.
 
 #include "Toolkits/ComposableCameraTypeAssetEditorToolkit.h"
+#include "ComposableCameraEditorStyle.h"
 #include "DataAssets/ComposableCameraTypeAsset.h"
 #include "EditorHooks/EditorHooks.h"
 #include "Editors/ComposableCameraNodeGraph.h"
@@ -392,7 +393,8 @@ void FComposableCameraTypeAssetEditorToolkit::RegisterToolbar()
 	Section.AddEntry(FToolMenuEntry::InitToolBarButton(
 		"LiveEditing", LiveEditingAction, LOCTEXT("LiveEditLabel", "Live Edit"),
 		LOCTEXT("LiveEditTooltip", "Open PIE live tuning for this editor's selected Debug camera instance."),
-		FSlateIcon(FAppStyle::GetAppStyleSetName(), "ClassIcon.CameraComponent")));
+		FSlateIcon(FComposableCameraEditorStyle::Get()->GetStyleSetName(),
+			"ComposableCamera.EditWindow", "ComposableCamera.EditWindow.Small")));
 
 	// "Shot Editor" entry - opens the Shot Editor tab for the
 	// currently selected CompositionFraming graph node in this editor.

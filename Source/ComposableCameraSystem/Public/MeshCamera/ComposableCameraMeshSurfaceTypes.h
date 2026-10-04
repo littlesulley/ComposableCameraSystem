@@ -67,6 +67,48 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraMeshSurfaceRuntimeData
 		double& OutRayDistance) const;
 };
 
+UENUM()
+enum class EComposableCameraMeshShapeType : uint8
+{
+	Rectangle,
+	Circle,
+	Polygon
+};
+
+/** Document-local affine coordinates for a bounded circular eraser. */
+USTRUCT()
+struct COMPOSABLECAMERASYSTEM_API FComposableCameraMeshEraseStamp
+{
+	GENERATED_BODY()
+
+	UPROPERTY() FVector Center = FVector::ZeroVector;
+	UPROPERTY() FVector AxisX = FVector::ForwardVector;
+	UPROPERTY() FVector AxisY = FVector::RightVector;
+	UPROPERTY() FVector AxisZ = FVector::UpVector;
+	UPROPERTY() double Radius = 150.0;
+	UPROPERTY() double Depth = 100.0;
+};
+
+/** Retained editor source; rectangle/circle use two controls, polygons use vertices. */
+USTRUCT()
+struct COMPOSABLECAMERASYSTEM_API FComposableCameraMeshAuthoredShape
+{
+	GENERATED_BODY()
+
+	UPROPERTY() FGuid ShapeId;
+	UPROPERTY() FGuid LayerId;
+	UPROPERTY() EComposableCameraMeshShapeType Type = EComposableCameraMeshShapeType::Rectangle;
+	UPROPERTY() TArray<FVector2D> ControlPoints;
+	UPROPERTY() FVector PlaneOrigin = FVector::ZeroVector;
+	UPROPERTY() FVector PlaneNormal = FVector::UpVector;
+	UPROPERTY() double SampleSpacing = 100.0;
+	UPROPERTY() double ProjectionDistance = 100.0;
+	UPROPERTY() double MinimumFloorNormalZ = 0.25;
+	UPROPERTY() int32 CircleSegments = 64;
+	/** Reapplied when controls change, so editing never resurrects erased coverage. */
+	UPROPERTY() TArray<FComposableCameraMeshEraseStamp> Erasures;
+};
+
 /** Full-fidelity tool source. Future simplification must never overwrite it. */
 USTRUCT()
 struct COMPOSABLECAMERASYSTEM_API FComposableCameraMeshSurfaceAuthoringData
@@ -83,17 +125,34 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraMeshSurfaceAuthoringData
 	UPROPERTY()
 	TArray<FGuid> TriangleLayerIds;
 
+#if WITH_EDITORONLY_DATA
+	/** Empty in legacy documents; invalid GUID denotes freehand brush geometry. */
+	UPROPERTY()
+	TArray<FGuid> TriangleShapeIds;
+
+	UPROPERTY()
+	TArray<FComposableCameraMeshAuthoredShape> Shapes;
+#endif
+
 	void Reset()
 	{
 		Vertices.Reset();
 		Indices.Reset();
 		TriangleLayerIds.Reset();
+#if WITH_EDITORONLY_DATA
+		TriangleShapeIds.Reset();
+		Shapes.Reset();
+#endif
 	}
 
 	bool IsConsistent() const
 	{
 		return Indices.Num() % 3 == 0
-			&& TriangleLayerIds.Num() == Indices.Num() / 3;
+			&& TriangleLayerIds.Num() == Indices.Num() / 3
+#if WITH_EDITORONLY_DATA
+			&& (TriangleShapeIds.IsEmpty() || TriangleShapeIds.Num() == TriangleLayerIds.Num())
+#endif
+			;
 	}
 };
 

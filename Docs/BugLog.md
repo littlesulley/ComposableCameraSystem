@@ -2952,3 +2952,762 @@
 - Avoid next time: verify content geometry as well as outer button dimensions;
   shorter labels expose Fill/left alignment that longer labels can conceal.
 - Possible conflicts: none to camera evaluation, trial state, Apply/Reset, or Undo.
+
+## 2026-10-03 - Mesh Profile Context regression test called a nonexistent PCM API
+
+- Symptom: C2039 for PushCameraContext at MeshProfileEffectsTests.cpp lines 134
+  and 201 blocks UE5_6Editor compilation.
+- Trigger / repro: compile the Mesh Profile changes in Rider/Visual Studio with
+  WITH_DEV_AUTOMATION_TESTS enabled.
+- Why / root cause: test setup assumed a PCM push API without checking the
+  current declaration. Named activation owns the public path into EnsureContext.
+- History / blast radius: reviewed context position/lifecycle and obsolete test
+  API entries in this log; searched all PushCameraContext callers and inspected
+  ActivateNewCamera overloads, named activation, and PopCameraContext.
+- Touched files: ComposableCameraMeshProfileEffectsTests.cpp, TechDoc.md, BugLog.md.
+- Fix: create/switch test Contexts through ActivateNewCamera(..., ContextName)
+  and assert active names and restoration after pop. No PCM API added.
+- Regression-test name:
+  `ComposableCameraSystem.MeshCamera.ExclusiveProfileDispatchAndCleanup`.
+  Updated; not compiled/run. Compile UE5_6Editor in the IDE and run the test in
+  the editor, including original-manager Patch cleanup after a real Context switch.
+- Avoid next time: verify test setup methods against current declarations and
+  exercise the production activation path instead of inventing a push helper.
+- Possible conflicts: test setup only; Context registration is scoped/restored
+  with TGuardValue. Runtime Context behavior and Blueprint APIs are unchanged.
+
+## 2026-10-03 - Mesh Action object picker mixed TObjectPtr and raw class operands
+
+- Symptom: C2445 at ParameterTableRowCustomization.cpp line 589 prevents the
+  editor module from compiling.
+- Trigger / repro: compile the Action Object parameter asset-picker branch with
+  UE5.6's FObjectPropertyBase::PropertyClass declaration.
+- Why / root cause: PropertyClass is TObjectPtr<UClass>; the conditional's other
+  operand is UClass*. Bidirectional conversions make the common type ambiguous.
+- History / blast radius: reviewed prior TObjectPtr test/type mismatches; audited
+  every PropertyClass conditional and the shared customization's callers. The
+  failing branch is specific to Mesh Action Object inputs.
+- Touched files: ComposableCameraParameterTableRowCustomization.cpp,
+  ComposableCameraTestObjects.h, ComposableCameraMeshProfileCustomizationTests.cpp,
+  TechDoc.md, BugLog.md.
+- Fix: use PropertyClass.Get() so both conditional operands are UClass*.
+- Regression-test name:
+  `ComposableCameraSystem.Editor.MeshCamera.ActionObjectParameterPicker`.
+  Added a reflected Object input to the existing Action fixture and check that
+  actual generated Details contains SObjectPropertyEntryBox without creating
+  an override. Not compiled/run; close the editor, compile in Rider/Visual Studio,
+  then run editor automation and inspect an Action Profile with an Object input.
+- Avoid next time: normalize pointer wrappers at native/Slate argument boundaries;
+  include Actor, Object and Delegate inputs in the generated-parameter UI tests.
+- Possible conflicts: fixture gains an exposable Object property; existing tests
+  target fields by name and do not depend on the fixture's exposed-property count.
+  Runtime camera evaluation and parameter serialization are unchanged.
+
+## 2026-10-04 - Mesh Profile Type edits left the previous family in Details
+
+- Symptom: selecting Modifier still displays Camera assets/parameters; the
+  legacy mixed-Profile confirmation row also remains after Type acknowledges it.
+- Trigger / repro: open a Camera Mesh Profile, change Type to Modifier, Action,
+  or Patch in the same Details panel without reopening the asset. For a legacy
+  mixed Profile, change Type or click its confirmation button.
+- Why / root cause: both callbacks used PropertyUtilities.RequestRefresh.
+  UE5.6's real Details view can redraw the tree without rebuilding the class
+  customization, which selects its family when the layout is constructed.
+  The test row generator rebuilds for either refresh request, masking the issue.
+- History / blast radius: reviewed prior Mesh Profile duplication and Context
+  ownership entries, Type migration, the shared parameter wrapper, and both
+  PropertyEditor implementations. Runtime dispatch already reads the new Type;
+  this defect affects the authoring panel and migration feedback.
+- Touched files: ComposableCameraMeshProfileCustomization.cpp,
+  ComposableCameraMeshProfileCustomizationTests.cpp, EditorDesignDoc.md,
+  TechDoc.md, BugLog.md.
+- Fix: request a deferred full rebuild with RequestForceRefresh for Type edits
+  and legacy confirmation. Inactive serialized configuration remains intact.
+- Regression-test name:
+  `ComposableCameraSystem.Editor.MeshCamera.ProfileTypeRefresh`.
+  Edits one real Details view through Modifier -> Action -> Patch -> Camera Type,
+  waits for editor ticks, and checks exclusive asset fields and hidden Context.
+  Added, not compiled/run. Compile UE5_6Editor in Rider/Visual Studio, run editor
+  automation, then repeat switching and legacy confirmation in an asset panel.
+- Avoid next time: test changes on the actual long-lived view; use deferred full
+  rebuilds whenever a selector changes the set of authored widgets.
+- Possible conflicts: layout rebuild releases obsolete widgets/delegates on the
+  next tick. No changes to runtime ownership, parameter schemas, or serialization.
+
+## 2026-10-04 - Flattened Camera fields leaked a second Activation section
+
+- Symptom: Camera Type displays both Activation Params and Activation. Context
+  Name, Is Transient and Life Time also leak into other Profile families.
+- Trigger / repro: open any Camera Mesh Profile. Expand advanced settings and
+  compare both Activation sections; select another Type and inspect Camera rows.
+- Why / root cause: Camera has ShowOnlyInnerProperties, so PropertyEditor places
+  its children into default category rows before class customization. Hiding the
+  parent alone does not hide those independent rows. Explicitly adding selected
+  fields suppresses only those fields, leaving omitted ones in the default layout.
+- History / blast radius: reviewed the July 20 Camera-parent duplication fix and
+  current Context/lifetime ownership policy; inspected default struct flattening,
+  HideProperty and custom AddProperty behavior. DataTable uses the same row schema
+  but does not use this Profile class customization.
+- Touched files: ComposableCameraMeshProfileCustomization.cpp,
+  ComposableCameraMeshProfileCustomizationTests.cpp, EditorDesignDoc.md,
+  TechDoc.md, BugLog.md.
+- Fix: hide config parents plus immediate struct children, then add only the
+  selected family. Camera renders one custom Activation group with its four
+  supported fields. Do not recursively hide Modifier elements or transform fields.
+- Regression-test name:
+  `ComposableCameraSystem.Editor.MeshCamera.ProfileDetailsLayout`.
+  Extended to reject the default Camera ActivationParams row and raw Action
+  bindings, require one Camera Activation group, and retain existing family,
+  Context/lifetime, parameter and InitialTransform checks. Not compiled/run;
+  compile in the IDE, run editor automation, and inspect all four Type panels.
+- Avoid next time: when suppressing a flattened struct, hide its independent
+  child rows as well; assert omitted fields and group counts in layout tests.
+- Possible conflicts: DataTable row layout, shared schemas, Modifier array
+  expansion, activation semantics and serialized data remain unchanged.
+
+## 2026-10-04 - Mesh Brush release could leave a captured stroke active
+
+- Symptom: a Brush drag may remain active after release when Alt is held, or
+  after viewport focus is lost; subsequent hover movement can continue painting.
+- Trigger / repro: begin a left-mouse Brush stroke, press Alt before releasing
+  left mouse, then move without buttons. Also test focus loss during a drag.
+- Why / root cause: release cleanup was inside the same !IsAltPressed condition
+  used to begin painting. The mode had no focus-loss cleanup for captured state.
+- History / blast radius: inspected brush spacing/erase and prior mode close
+  lifecycle entries. New Shape drag input shares the same capture lifecycle;
+  modifier state should gate beginning an operation, not finishing it.
+- Touched files: ComposableCameraMeshLayerEdMode.h/.cpp,
+  ComposableCameraMeshLayerShapeTests.cpp, EditorDesignDoc.md, TechDoc.md,
+  ExecutionFlowExamples.md, BugLog.md.
+- Fix: release active Brush input before checking modifier keys; LostFocus and
+  explicit draft cancellation clear captured state. Already committed brush
+  triangles remain in the working document.
+- Regression-test name:
+  `ComposableCameraSystem.Editor.MeshCamera.ShapeInteraction`.
+  Checks release independently of viewport/modifier access and focus-loss draft
+  cleanup. Added, not compiled/run. IDE compile + editor automation required;
+  manually repeat the Alt-release and focus-loss strokes in a Level viewport.
+- Avoid next time: process captured-input teardown before begin-operation guards;
+  cover release, focus loss and tool teardown for every new drag tool.
+- Possible conflicts: Alt navigation keeps its ordinary begin behavior; draft
+  cancellation does not discard already authored triangles or affect runtime.
+
+## 2026-10-04 - Active Shape draft could hide validation feedback
+
+- Symptom: a failed Polygon confirmation can show only live vertex count,
+  hiding the reason that the draft could not be committed.
+- Trigger / repro: while a Polygon draft remains active, confirm a crossing or
+  zero-area outline, or exceed the shape density/vertex limit.
+- Why / root cause: the initial Shape status implementation selected either
+  live measurements or feedback. Invalid Polygon drafts intentionally remain
+  active for correction, so that choice hid their validation feedback.
+- History / blast radius: checked all new Shape result branches and status
+  consumers. Rectangle/Circle clear their draft after release; Polygon retains
+  its points. Both paths need the same visible result messages.
+- Touched files: ComposableCameraMeshLayerEdMode.cpp,
+  ComposableCameraMeshLayerShapeTests.cpp, EditorDesignDoc.md, TechDoc.md, BugLog.md.
+- Fix: render measurements and feedback as separate status fields, and report
+  the Polygon vertex cap explicitly.
+- Regression-test name:
+  `ComposableCameraSystem.Editor.MeshCamera.ShapeInteraction`.
+  Checks the actual formatted status while a draft and feedback coexist.
+  Added, not compiled/run. Compile in the IDE and inspect a rejected Polygon
+  in the editor while correcting points with Backspace.
+- Avoid next time: retained draft state and failure feedback must coexist;
+  validation should never depend on whether a preview is still active.
+- Possible conflicts: display-only feedback; no change to existing triangles,
+  Layer GUIDs, runtime selection, bake or serialization.
+
+## 2026-10-04 - Mesh authoring could not Undo or Redo
+
+- Symptom: Ctrl+Z/Y cannot restore painted regions, completed Shapes or Layer edits.
+- Trigger / repro: open Edit Mesh Camera Layers, draw a rectangle or drag a
+  multi-stamp brush stroke, then press Ctrl+Z followed by Ctrl+Y. Edit Layer
+  properties, delete/reorder a Layer, and repeat.
+- Why / root cause: source was a native FEdMode member outside UObject transaction
+  serialization; settings lacked RF_Transactional and mutations lacked scoped
+  transactions. Layer Details pointed at array memory with a non-owning struct
+  scope, so it could not record an owning document and could become stale on undo.
+- History / blast radius: reviewed graph Undo intermediate-callback resync,
+  stale reset baselines, mesh mode lifetime/capture and all source/bake consumers.
+  Inspected UE5.6 PropertyEditor transaction ordering and FEditorUndoClient.
+- Touched files: ComposableCameraMeshLayerToolSettings.h/.cpp,
+  ComposableCameraMeshLayerEdMode.h/.cpp, ComposableCameraMeshLayerModeToolkit.h/.cpp,
+  ComposableCameraMeshLayerShapeTests.cpp, DesignDoc.md, EditorDesignDoc.md,
+  TechDoc.md, ExecutionFlowExamples.md, BugLog.md.
+- Fix: reflected transactional source/revision on the settings UObject; scoped
+  Layer/Shape edits and one transaction per whole stroke. Stable UObject Details
+  proxy records its source owner before changes. Final undo callbacks rebuild
+  caches/proxy; property callbacks reject GIsTransacting so PostEditUndo cannot
+  reauthor intermediate state. Revision checkpoints restore saved/unsaved state. Cancelled
+  and no-op strokes discard their transactions; shortcuts route to Unreal Undo.
+- Regression-test name: `ComposableCameraSystem.Editor.MeshCamera.DocumentUndoRedo`.
+  Covers drawing, actual multi-stamp erase, save checkpoint, Layer create/delete,
+  restored geometry/masks/GUIDs and a real Details property handle. Added, not run.
+  Compile in Rider/VS, run editor automation, and manually repeat shortcuts in
+  viewport and toolkit (including after Save and after focus loss).
+- Avoid next time: put authoritative mutable source in reflected transactional
+  storage; test subsequent editing and Save checkpoints, not only one Undo pair.
+- Possible conflicts: global editor transaction ordering, Details notifications,
+  array relocation and mode teardown. No actor save transaction or graph sync is
+  introduced; runtime sees only the last explicitly saved document.
+
+## 2026-10-04 - Completed Shapes lost their editable source
+
+- Symptom: drawing a Shape succeeds but clicking it cannot select or adjust it.
+- Trigger / repro: commit Rectangle/Circle/Polygon, try to move/resize a corner
+  or vertex, save, reopen the tool, and try again.
+- Why / root cause: confirmation appended projected triangles and discarded the
+  controls. Neither durable Shape identity nor triangle-to-Shape ownership existed.
+- History / blast radius: audited authoring Reset/IsConsistent, storage copy/bake,
+  brush append, orphan pruning, erase, visualization and legacy fixture consumers.
+- Touched files: ComposableCameraMeshSurfaceTypes.h,
+  ComposableCameraMeshLayerShapes.h/.cpp, ComposableCameraMeshLayerEdMode.h/.cpp,
+  ComposableCameraMeshLayerToolSettings.h/.cpp, ComposableCameraMeshLayerModeToolkit.h/.cpp,
+  ComposableCameraMeshLayerShapeTests.cpp and four design/tech/flow docs, BugLog.md.
+- Fix: persist editor-only GUID/control/projection records and triangle ownership;
+  Select ray-picks actual geometry, hit proxies identify controls, drag previews
+  remain transient, validated replacement preserves identity, and numeric Details
+  edits position/size/radius/vertices. Delete removes selected source and mesh.
+- Regression-test name: `ComposableCameraSystem.Editor.MeshCamera.ShapeEditingAndErase`
+  and `DocumentUndoRedo`. Covers picking, reflected save/reload, replacement,
+  rectangle/circle/polygon controls, cancel and deletion. Added, not compiled/run.
+  IDE compilation and viewport control picking/reopen verification remain required.
+- Avoid next time: retain the source representation whenever later editing is
+  expected; generated triangles cannot reconstruct original authored controls.
+- Possible conflicts: editor source layout and legacy documents. Empty ownership
+  arrays remain valid; legacy triangle-only regions support erase but cannot
+  recover lost Shape controls. Cooked query layout remains unchanged.
+
+## 2026-10-04 - Erase was hidden and removed whole triangles by centroid
+
+- Symptom: Shape tools expose no Erase action; a small brush can miss coverage
+  inside a large triangle or remove far more coverage than its footprint.
+- Trigger / repro: draw a large rectangle with coarse sampling, erase a small
+  circle inside it away from triangle centroids, then adjust that Shape.
+- Why / root cause: bErase was visible only for Brush and deletion tested only
+  each triangle centroid. There was no geometric subtraction or retained cut source.
+- History / blast radius: reviewed existing component-seam projection, brush
+  release cleanup, runtime nearest-surface queries and both mesh ownership arrays.
+- Touched files: ComposableCameraMeshLayerShapes.h/.cpp,
+  ComposableCameraMeshLayerToolSettings.h/.cpp, ComposableCameraMeshLayerEdMode.h/.cpp,
+  ComposableCameraMeshLayerShapeTests.cpp, DesignDoc.md, EditorDesignDoc.md,
+  TechDoc.md, ExecutionFlowExamples.md, BugLog.md.
+- Fix: independent Erase tool under Drawing, preserving temporary Shift erase.
+  Subtract a bounded 32-sided circular prism and interpolate surviving fragments.
+  Preserve ownership/other Layers; retain document-local cuts on affected Shapes
+  and replay them on rebuild. Identical retained cuts are idempotent.
+- Regression-test name: `ComposableCameraSystem.Editor.MeshCamera.ShapeEditingAndErase`
+  and `DocumentUndoRedo`. Covers a hole in two large triangles, unaffected
+  neighboring coverage/other Layer, repeated cut, reopened mask replay and whole
+  stroke Undo/Redo. Added, not compiled/run; IDE/editor execution required.
+- Avoid next time: test erasure against triangle interiors/edges independent of
+  tessellation density, and preserve subtraction when regenerating authored mesh.
+- Possible conflicts: dense source fragment growth, document transforms,
+  overlapping Layer coverage and later Shape edits. Cut records remain in document
+  coordinates, projection depth isolates other surface heights, and cook only
+  receives final clipped triangles.
+
+## 2026-10-04 - Mesh toolkit used the wrong Details API and property header
+
+- Symptom: UE5.6 compilation reports C2039 for
+  `LayerDetailsView->RequestForceRefresh()` and C1083 for `IPropertyHandle.h`.
+- Trigger / repro: compile ComposableCameraSystemEditor in Rider/Visual Studio
+  after adding Shape selection Details and the DocumentUndoRedo regression.
+- Why / root cause: the deferred method from IPropertyUtilities was called on
+  IDetailsView; the interface type name was also assumed to be its header name.
+  UE5.6 IDetailsView exports ForceRefresh, and IPropertyHandle is declared by
+  PropertyHandle.h. These exact API/header contracts were not verified.
+- History / blast radius: reviewed the 2026-07-15 Generic Modifier compile entry
+  for the same nonexistent header, Profile deferred-refresh history, and all
+  RequestForceRefresh consumers. Existing Profile customizations correctly call
+  IPropertyUtilities and need no change. Selection edits can request refresh from
+  property notifications, so simply making refresh synchronous would risk reentry.
+- Touched files: ComposableCameraMeshLayerModeToolkit.h/.cpp,
+  ComposableCameraMeshLayerShapeTests.cpp, EditorDesignDoc.md, TechDoc.md, BugLog.md.
+- Fix: include PropertyHandle.h. Queue/coalesce toolkit requests on a one-shot
+  FTSTicker callback and invoke the actual IDetailsView::ForceRefresh API there.
+  Capture the toolkit weakly and remove the ticker on destruction.
+- Regression-test name:
+  `ComposableCameraSystem.Editor.MeshCamera.SelectionDetailsRefresh` checks actual
+  deferred layout rebuilding, repeated-request coalescing and pending-close
+  lifetime. `DocumentUndoRedo` compiles against the correct property header and
+  exercises actual property handles. Added/updated, not compiled or run by Codex.
+- Test blocker / manual verification: command-line builds and editor test runs
+  are prohibited by project instructions. Recompile in Rider/VS, then run both
+  editor tests and select/edit Shapes through Undo/Redo in the viewport.
+- Avoid next time: check the exact receiver's exported API and actual header
+  path in the target engine; search BugLog before reusing remembered names.
+- Possible conflicts: property callback reentry, deferred toolkit teardown,
+  Profile customizations and Undo notifications. Deferral is preserved; other
+  PropertyUtilities consumers, authored geometry and runtime bake remain unchanged.
+
+## 2026-10-04 - Selection Details regression used a nonexistent layout header
+
+- Symptom: C1083 at ComposableCameraMeshLayerShapeTests.cpp(9), unable to open
+  IDetailLayoutBuilder.h.
+- Trigger / repro: rebuild the Editor module after correcting PropertyHandle.h
+  and the toolkit Details refresh API; compilation reaches the next invalid include.
+- Why / root cause: the new regression copied the interface name into an include
+  filename. UE5.6 declares IDetailLayoutBuilder in DetailLayoutBuilder.h. The
+  preceding correction audited the reported include rather than the complete list.
+- History / blast radius: reviewed the 2026-07-15 and preceding 2026-10-04 header
+  failures; searched every layout-builder include in the plugin and checked the
+  engine's actual PropertyEditor/Public files. Existing customizations and Profile
+  tests already use DetailLayoutBuilder.h correctly.
+- Touched files: ComposableCameraMeshLayerShapeTests.cpp, TechDoc.md, BugLog.md.
+- Fix: use DetailLayoutBuilder.h and check every quoted include in this test
+  against the target plugin/UE5.6 source files.
+- Regression-test name: `ComposableCameraSystem.Editor.MeshCamera.SelectionDetailsRefresh`
+  compilation gate, followed by its existing actual Details-view regression.
+- Test blocker / manual verification: a missing-header failure precedes automation
+  execution; project instructions prohibit command-line compilation/tests. Header
+  existence and diff checks run here; Rider/VS recompilation and editor automation
+  must confirm the full translation unit.
+- Avoid next time: verify all newly introduced header paths in one pass against
+  the target engine; never infer filenames from interface names.
+- Possible conflicts: include-only correction in editor automation; no runtime,
+  reflection, authoring data or UI behavior changes.
+
+## 2026-10-04 - Mesh drawing and editing tools shared one mixed options panel
+
+- Symptom: Draw variants, Select and Erase were peers in one Drawing Tool enum;
+  selected Shape controls appeared even when a different tool was active.
+- Trigger / repro: open Mesh Camera Layers, inspect the Drawing Tool dropdown,
+  select a completed Shape, then switch to Brush or Erase. Tool modes have no
+  separate top-level controls and the Shape/delete panel remains visible.
+- Why / root cause: toolkit rendered the complete viewport dispatch enum through
+  default Details and combined Layer/Shape properties in one unfiltered proxy view.
+- History / blast radius: reviewed the prior Drawing consolidation, retained
+  Shape/Erase source, document Undo and deferred Details refresh entries. Audited
+  every Tool dispatch consumer; its enum values and existing input behavior stay
+  intact. Mode changes still cancel drafts and finish strokes, without dirtying source.
+- Touched files: ComposableCameraMeshLayerToolSettings.h/.cpp,
+  ComposableCameraMeshLayerModeToolkit.h/.cpp, ComposableCameraMeshLayerEdMode.h,
+  ComposableCameraMeshLayerShapeTests.cpp, EditorDesignDoc.md, TechDoc.md,
+  ExecutionFlowExamples.md, BugLog.md.
+- Fix: parallel Draw/Select/Erase buttons below Layer properties. Draw contains
+  only Brush/Rectangle/Circle/Polygon and remembers its previous variant. Filter
+  tool options by mode; split Layer/Shape proxy views and show Shape editing only
+  in Select. Deferred refresh updates all three views together.
+- Regression-test name: `ComposableCameraSystem.Editor.MeshCamera.ToolPanels`
+  covers actual Details filtering/widget visibility, draft cancellation and
+  preservation of Shape identity/revision plus remembered Draw type.
+  `SelectionDetailsRefresh` retains the deferred/coalesced refresh regression.
+- Test blocker / manual verification: project instructions prohibit shell builds
+  and editor test runs. Restart/rebuild in Rider/VS, run both tests in the editor,
+  then switch all three buttons, draw/edit/erase and exercise Undo/Redo manually.
+- Avoid next time: distinguish top-level interactions from creation variants;
+  inspect visible fields against the active mode rather than the backing enum alone.
+- Possible conflicts: draft/stroke lifetime on switching, nested property visibility,
+  Undo callbacks and shared proxy ownership. UI modes are native/nontransactional;
+  source storage, authored Shape GUIDs and runtime bake are unchanged.
+
+## 2026-10-04 - Mesh numeric dragging rebuilt captured widgets and could block Undo
+
+- Symptom: Draw/Select/Erase option sliders are difficult to drag; later Erase
+  Undo/Redo appears unavailable even though the brush stroke has a scoped transaction.
+- Trigger / repro: drag a tool numeric value across multiple editor ticks, then
+  erase a region and try Ctrl+Z/Y. Also queue a Details refresh just before dragging.
+- Why / root cause: ToolSettings dispatched OnToolSettingsChanged for every
+  Interactive property notification. The mode cancelled input and refreshed all
+  Details, replacing the captured numeric widget. UE5.6 SPropertyEditorNumeric
+  owns transaction completion on release/final SetValue; losing that callback
+  can leave the editor transaction active. UTransBuffer::CanUndo/CanRedo refuse
+  active transactions, affecting later authoring actions across all tool modes.
+- History / blast radius: reviewed deferred Details refresh, document transactions,
+  retained Erase masks and mixed-tool layout entries; audited every property
+  callback, input release, CancelInteraction, Begin/FinishStroke and geometry commit.
+  Erase already begins a stroke and updates revision through PaintAtHover. The old
+  regression called EraseBrushStamp directly and manually supplied revision changes,
+  so it did not check the actual mutation/dirty-state path.
+- Touched files: ComposableCameraMeshLayerToolSettings.cpp,
+  ComposableCameraMeshLayerModeToolkit.h/.cpp, ComposableCameraMeshLayerShapeTests.cpp,
+  DesignDoc.md, EditorDesignDoc.md, TechDoc.md, ExecutionFlowExamples.md, BugLog.md.
+- Fix: skip Interactive settings callbacks, preserve the final commit notification,
+  and keep the refresh ticker pending while an editor transaction is active. This
+  protects both new and already queued requests without ending unrelated transactions.
+- Regression-test name: `ComposableCameraSystem.Editor.MeshCamera.ToolSliderTransactions`
+  reproduces native numeric property-handle Begin/Interactive/final-commit behavior
+  across editor ticks in all three modes; checks stable layout, one final rebuild
+  and completed transactions. `DocumentUndoRedo` now uses PaintAtHover for multi-stamp
+  Erase and checks Shape adjustment/deletion and Rectangle/Circle/Polygon source
+  creation. Existing SelectionDetailsRefresh retains deferral/coalescing/close checks.
+- Test blocker / manual verification: project instructions prohibit shell builds
+  and test execution. Rebuild/restart through Rider/VS, run the three editor tests,
+  then physically drag sliders, draw with Brush/all Shapes, move/resize Shapes,
+  delete and erase through Undo/Redo. Collision-floor input requires an actual Level.
+- Avoid next time: defer refresh until an interaction finishes, not merely until
+  the next tick; test an already queued refresh and use the same mutation path as UI.
+- Possible conflicts: global editor transaction state, Undo restoration and toolkit
+  teardown. Pending work remains weakly owned and cancellable on close; source data,
+  save checkpoints and the existing stroke transaction grouping remain intact.
+
+## 2026-10-04 - Selected Shape exposed internal toggles and a stretched delete action
+
+- Symptom: Shape Type/Position have checkboxes and Delete Selected Shape occupies
+  the full panel width below the Shape fields.
+- Trigger / repro: choose Select and click a retained Shape; inspect and toggle
+  the checkboxes, then inspect the delete button's placement and width.
+- Why / root cause: a simple EditCondition on hidden bHasShape automatically
+  creates PropertyNode's legacy edit-condition toggle. The delete SButton lived
+  in a default fill-aligned vertical slot after the Shape Details view.
+- History / blast radius: reviewed stable proxy ownership and mode-specific
+  filtering; audited all bHasShape consumers and selected Shape property metadata.
+  Shape presence is derived from the selected GUID and must not be authored by users.
+- Touched files: ComposableCameraMeshLayerToolSettings.h,
+  ComposableCameraMeshLayerModeToolkit.cpp, ComposableCameraMeshLayerShapeTests.cpp,
+  EditorDesignDoc.md, TechDoc.md, BugLog.md.
+- Fix: HideEditConditionToggle on every selected Shape field. Move deletion into
+  the first Select Options custom row with left-aligned content-sized width;
+  enable it only with a valid selected Shape and capture the toolkit weakly.
+- Regression-test name: `ComposableCameraSystem.Editor.MeshCamera.ToolPanels`
+  checks engine-recognized toggle metadata and existing real property visibility;
+  `DocumentUndoRedo` covers deletion with cut-source Undo/Redo.
+- Test blocker / manual verification: rendered button alignment and physical
+  checkbox absence require the editor UI; no shell editor/test runs are allowed.
+  After a full rebuild, select/deselect Rectangle/Circle/Polygon, confirm no
+  internal-state toggles, and check deletion above snapping in Select Options.
+- Avoid next time: hide toggles for derived selection-state conditions; choose
+  destructive-action placement and content width explicitly.
+- Possible conflicts: Shape field visibility, disabled/read-only type display,
+  selection clearing and deferred toolkit teardown. Conditions still control
+  visibility; source selection and document transaction ownership are unchanged.
+
+## 2026-10-04 - Brush and Erase rebuilt the whole preview on every stamp
+
+- Symptom: dragging Brush or Erase becomes very slow on a populated mesh Layer
+  document; erasing empty space can still stall mouse movement.
+- Trigger / repro: author a large/dense region with multiple Layers, then drag
+  Brush and Erase across a small area. Repeat Erase over already empty coverage.
+- Why / root cause: PaintAtHover called RefreshDocumentState for each changed
+  stamp, invalidating whole-document rasterization and rebuilding Shape controls
+  plus redrawing every viewport. Erase allocated polygon buffers for all source
+  triangles/clip planes and copied all retained mask histories. Failed stamps did
+  not update spacing state, so empty-region movement retried at every mouse event.
+- History / blast radius: reviewed resolved visualization/color de-duplication,
+  cross-component floor projection, retained cuts, brush release, document Undo
+  and numeric transaction refresh entries. Audited authoring/runtime visualization,
+  preview/PIE mesh callers, all erase consumers and save/undo/cancel paths.
+- Touched files: ComposableCameraMeshLayerEdMode.h/.cpp,
+  ComposableCameraMeshLayerRendering.h/.cpp, ComposableCameraMeshLayerShapes.h/.cpp,
+  ComposableCameraMeshLayerVisualizationTests.cpp,
+  ComposableCameraMeshLayerShapeTests.cpp, DesignDoc.md, EditorDesignDoc.md,
+  TechDoc.md, ExecutionFlowExamples.md, BugLog.md.
+- Fix: retained sparse grid lookup and regional rasterization during strokes,
+  with dense-cell index repair, stacked-surface/Layer resolution and sub-cell
+  fallback preserved. Track complete changed-triangle bounds for erasure.
+  Reject far triangles in brush coordinates; use bounded inline clipping scratch,
+  reserved output and transfer retained Shape source only on real changes.
+  Space all attempts, update dirty state immediately, invalidate only the active
+  viewport per stamp, and refresh full preview/controls once on release. Grid
+  growth is bounded by an early-rebuild threshold. Whole-stroke transactions remain.
+- Regression-test names: `ComposableCameraSystem.Editor.MeshCamera.IncrementalVisualization`,
+  `ComposableCameraSystem.Editor.MeshCamera.EraseBroadPhase`,
+  `ComposableCameraSystem.Editor.MeshCamera.StrokeVisualizationRefresh`.
+  They compare full/regional results (remote cells, stacked floors, Layer fallback,
+  tiny fragments, grid growth and empty source), count expensive clipping work,
+  and exercise actual Erase/release/no-op spacing. Existing DocumentUndoRedo and
+  ResolvedVisualization remain required.
+- Test blocker / manual verification: project rules prohibit shell compilation,
+  editor launch and automation runs. Tests added, not compiled/run. Compile in
+  Rider/VS with UE closed, reopen, run these editor tests, and compare Brush/Erase
+  dragging on the same dense Level. Real collision traces and perceived viewport
+  frame time require that IDE/editor smoke test; no measured speedup claimed.
+- Avoid next time: cache dirtiness must distinguish local input from full document
+  changes; exclude distant geometry before allocating clip work; test no-op input
+  and preview equivalence rather than relying on wall-clock thresholds.
+- Possible conflicts: sparse-cell swap indices, stacked surfaces, partial-grid
+  fallbacks, cancellation/release redraw, preview memory and document growth.
+  Cache is native/disposable; serialized layout, saved coverage and runtime query
+  data are unchanged. No unrelated editor transaction is closed.
+
+## 2026-10-04 - Mesh preview expanded outlines into square grid steps
+
+- Symptom: painted Layer silhouettes have obvious square stair steps; small
+  regions/erase holes can be displayed as whole cells or disappear from preview.
+- Trigger / repro: paint a curved/diagonal boundary or erase a narrow hole, then
+  inspect its filled overlay. Add distant coverage to coarsen the document-wide
+  preview grid and compare the same nearby outline. Check Edit, Show and PIE.
+- Why / root cause: the visualization sampled each triangle at cell centers and
+  drew complete square quads for winning samples, including a centroid fallback
+  for sub-cell triangles. Its spatial-index resolution became the silhouette
+  resolution. Whole-cell Layer ownership also discarded lower coverage in the
+  uncovered portion of an upper Layer's boundary cell.
+- History / blast radius: reviewed prior alpha de-duplication, top-row priority,
+  PIE ownership/teardown, retained Erase and regional preview performance entries.
+  Audited native cache readers, Edit/Show rendering and PIE mesh export. Keeping
+  the old squares at lower resolution would worsen the reported boundary defect.
+- Touched files: ComposableCameraMeshLayerRendering.h/.cpp,
+  ComposableCameraMeshLayerVisualizationTests.cpp, ComposableCameraMeshLayerShapes.cpp
+  (changed-bounds comment), ComposableCameraMeshLayerModeToolkit.cpp (requested UI),
+  DesignDoc.md, EditorDesignDoc.md, TechDoc.md, ExecutionFlowExamples.md, BugLog.md.
+- Fix: normalize triangle winding and clip coverage to actual cell polygons.
+  Resolve geometric coverage/Layer priority by convex subtraction inside each
+  height bucket. Cache boundary patches and fan-triangulate them for editor/PIE;
+  retain full-cell coplanar quad/early-out paths and regional cache updates.
+  Offset meshes along document Z to preserve coincident shared XY edges. Remove
+  centroid expansion. Button layout also now uses centered fixed 125 x 24 Slate
+  units, Delete aligned with Shape Grid Size, and a green Save footer action.
+- Regression-test names: `ComposableCameraSystem.Editor.MeshCamera.VisualizationBoundary`
+  covers sloped oblique edges, reversed winding, runtime preview, coarser grids
+  and a small Erase hole. `ComposableCameraSystem.Editor.MeshCamera.VisualizationPartialOverlap`
+  checks exact areas and same-cell point ownership, duplicate stamps, insertion
+  order and disabling an upper row. IncrementalVisualization now compares actual
+  patch coverage; ResolvedVisualization checks source area/uncovered corners.
+- Test blocker / manual verification: project rules prohibit shell builds/editor
+  test runs. Tests added/updated but not compiled/run here. Close UE, compile in
+  Rider/VS, reopen and run these mesh visualization regressions plus existing
+  stroke/Undo tests. Compare Brush/Erase dragging on the same dense Level and
+  inspect diagonal/curved edges, tiny holes, stacked floors, Layer overlap, Show
+  and PIE. Verify button alignment/centering/green style at the user's editor DPI.
+- Avoid next time: use spatial cells only as a cache/index; test emitted mesh
+  area and uncovered points, not just cell counts. A preview simplification must
+  preserve outlines and within-cell ownership rather than grow coverage.
+- Possible conflicts: boundary-patch memory/fragmentation, same-height tolerance,
+  alpha partition, sparse-cell swap repair, and PIE mesh export. Cache remains
+  editor-only/disposable; serialized source, bake, runtime queries and document
+  transactions are unchanged. Polygon complexity still reflects authored circle
+  segments and floor sampling; this fix removes grid-shaped preview expansion.
+
+## 2026-10-04 - Preview rebuild reported uninitialized dirty-grid coordinates
+
+- Symptom: MSVC C4701 for DirtyMin/DirtyMax in BuildResolvedVisualization,
+  repeated for authoring, incremental authoring and runtime-preview instantiations.
+- Trigger / repro: compile ComposableCameraMeshLayerRendering.cpp in the UE5.6
+  Editor target after introducing regional preview updates; inspect the warnings
+  at StartX/EndX and the equivalent Y-coordinate clamp expressions.
+- Why / root cause: FIntPoint's default constructor deliberately does not
+  initialize X/Y. The variables were assigned only in the regional branch; full
+  rebuilds select triangle bounds instead. The later conditional expressions
+  depend on the same flag, but MSVC did not establish that branch correlation.
+  No actual uninitialized read was demonstrated on the full-rebuild path.
+- History / blast radius: reviewed regional rebuild, exact boundary preview and
+  sparse-grid index-repair entries; audited every dirty-bound read and all three
+  BuildResolvedVisualization callers. No additional use escapes the regional guard.
+- Touched files: ComposableCameraMeshLayerRendering.cpp,
+  ComposableCameraMeshLayerVisualizationTests.cpp, TechDoc.md, BugLog.md.
+- Fix: explicitly initialize both FIntPoint values to (0,0). Regional work still
+  overwrites them before removal/clamping, while full rebuilds ignore them.
+- Regression-test name: `ComposableCameraSystem.Editor.MeshCamera.IncrementalVisualization`
+  adds invalid dirty-bound fallback on an existing cache with distant coverage
+  and compares full patch/index results. Existing initial-build, growth-rebuild,
+  regional paint/erase and empty-source cases retain branch coverage.
+- Test blocker / manual verification: command-line builds/tests are prohibited.
+  Recompile through Rider/VS and confirm C4701 disappears for all three template
+  instantiations; run IncrementalVisualization in the editor. Test updated, not run.
+- Avoid next time: explicitly initialize UE math locals whose default constructor
+  leaves storage unspecified, even when correlated guards prevent inactive reads.
+- Possible conflicts: initialized zeros must never truncate a full rebuild;
+  the regression checks remote coverage. Preview partition, grid resolution,
+  serialized data and Undo/Redo behavior remain unchanged.
+
+## 2026-10-04 - Brush release repeated full preview work and Erase rebuilt remote geometry
+
+- Symptom: Brush stalls after releasing the mouse; Erase is substantially slower
+  on populated Layers, especially a small cut inside a large authored triangle.
+- Trigger / repro: paint a long stroke on an existing dense document, then release.
+  Erase a small region of a large Shape or overlapping brush source and release;
+  compare input responsiveness with an empty document and repeat over empty space.
+- Why / root cause: FinishStroke called RefreshDocumentState after successful
+  stamps had already updated the preview, invalidating the full cache for the
+  next Render and rebuilding unchanged Shape controls. Erase copied/re-emitted
+  every unaffected source triangle into a new document and dirtied the complete
+  bounds of cut source triangles. Exact preview subtraction also split disjoint
+  polygons along unrelated supporting edge lines, growing patch fragmentation.
+- History / blast radius: reviewed the earlier regional brush optimization,
+  exact-outline preview, dirty-bound warning, retained masks, source Undo and
+  PIE/alpha ownership entries. Full release regridding was originally intentional
+  for sampled quads; clipped boundaries now retain their outline at any cache
+  size. Audited FinishStroke/revert/focus/tool-switch/Undo/Save, every erase caller,
+  Layer/Shape GUID ownership, optional legacy Shape IDs and preview mesh consumers.
+- Touched files: ComposableCameraMeshLayerEdMode.cpp,
+  ComposableCameraMeshLayerShapes.cpp, ComposableCameraMeshLayerRendering.cpp,
+  ComposableCameraMeshLayerModeToolkit.cpp, ComposableCameraMeshLayerShapeTests.cpp,
+  ComposableCameraMeshLayerVisualizationTests.cpp, DesignDoc.md, EditorDesignDoc.md,
+  TechDoc.md, ExecutionFlowExamples.md, BugLog.md.
+- Fix: successful release retains current coverage/control caches and closes
+  its transaction before redrawing viewports. Revert/Undo and structural edits
+  still invalidate source-dependent caches. Erase scans backward, swap-removes
+  only cut triangles in parallel index/ownership arrays, appends surviving pieces
+  and preserves other vertices/Shape buffers. Dirty bounds follow removed
+  polygons; remote union coverage is retained despite source retessellation.
+  Convex separation checks avoid clipping/fragmenting disjoint or touching pairs.
+  Save now uses a static rounded green button style at the requested fixed size.
+- Regression-test names: `ComposableCameraSystem.Editor.MeshCamera.StrokeVisualizationRefresh`
+  drives actual mouse release, retains the cache, closes the transaction and
+  checks a subsequent cancelled stroke. EraseBroadPhase checks reserved-buffer
+  reuse, original vertices, cut-sized bounds, ownership and no-op source stability.
+  `ComposableCameraSystem.Editor.MeshCamera.EraseLocalVisualization` checks bounded
+  cell work for a small cut in a large triangle, remote cache retention, lower-Layer
+  reveal and optional legacy ownership. DisjointPreviewPatches checks exactly two
+  unfragmented disjoint footprints despite repeats. IncrementalVisualization now
+  compares Layer area and bidirectional interior coverage rather than tessellation
+  identity, with 1.e-3 cm^2 area and 1.e-3 cm height tolerances for float source
+  roundoff. Existing
+  DocumentUndoRedo, ShapeEditingAndErase and visualization boundary/overlap tests
+  remain required. Added/updated here, not compiled or run.
+- Test blocker / manual verification: project instructions require Rider/VS builds
+  and editor test runs; no command-line build/editor/test execution here. Compile,
+  reopen the tool and run these mesh tests. On the same dense Level, compare Brush
+  release, continued Erase, repeated empty erasing, cancellation and Undo/Redo.
+  Verify small holes, Layer reveal, saved/reloaded source and Show/PIE preview.
+  Check rounded Save styling at editor DPI. No measured speedup is claimed.
+- Avoid next time: cache validity must follow actual coverage changes, not input
+  release or source tessellation identity. Preserve untouched buffers; reject
+  nonintersecting convex footprints before creating split fragments.
+- Possible conflicts: unordered triangle swap-removal must move ownership with
+  its index triplet; newly appended fragments must not be recut within the stamp.
+  Shared vertices cannot be overwritten. Unreferenced source vertices remain in
+  transient working data until Save's existing orphan cleanup compacts them
+  (erase-to-empty clears them immediately), so long editing sessions can retain
+  extra source capacity. Whole-stroke transactions, mask replay, saved data format,
+  runtime query semantics, Layer order and PIE rendering are preserved.
+
+## 2026-10-04 - Erase retessellation could change overlapping Shape selection
+
+- Symptom: review of the in-place erase optimization found that Select could
+  choose an older overlapping Shape after a nearby cut. Caught before handoff.
+- Trigger / repro: create two overlapping Shapes in one Layer on the same slope,
+  erase a small part of both, then click their untouched overlap. Add a newer
+  Shape on a lower floor to check nearest-surface precedence separately.
+- Why / root cause: picking broke equal-distance ties by reverse triangle order.
+  Swap-removal and fragment append reorder triangles independently of retained
+  Shape records. Comparing squared distances with a fixed epsilon also makes
+  the same-surface tolerance depend on the ray origin, exposing float cut roundoff.
+- History / blast radius: reviewed Shape editing/erase, retained masks and the
+  preceding release/erase performance fix. Audited FindShapeOnRay consumers,
+  Shape create/edit/delete record order, triangle ownership, legacy missing
+  ownership and Undo restoration. Runtime spatial queries do not call this helper.
+- Touched files: ComposableCameraMeshLayerShapes.cpp,
+  ComposableCameraMeshLayerShapeTests.cpp, EditorDesignDoc.md, TechDoc.md, BugLog.md.
+- Fix: nearest actual ray-hit distance wins. Same-surface hits within 0.001
+  document units prefer the later retained Shape record, independent of triangle
+  positions. Missing records retain the existing reverse-traversal fallback.
+- Regression-test name: `ComposableCameraSystem.Editor.MeshCamera.ErasePickingOrder`
+  checks later-Shape selection before/after a cut, an unpickable erased hole,
+  preserved masks/ownership and a newer lower floor losing to the nearer surface.
+  Added here, not compiled or run.
+- Test blocker / manual verification: project requires Rider/VS compilation and
+  editor automation runs. Compile and run the test, then pick overlapping Shapes
+  before/after Erase and Undo/Redo on a sloped surface.
+- Avoid next time: selection priority must follow retained identity/order, never
+  mutable tessellation order. Distance tolerances need explicit linear units.
+- Possible conflicts: separate surfaces farther than the tolerance still select
+  the nearest hit. Shape edit/recreate and Undo preserve their existing record
+  ordering; Layer filtering, erase masks and source serialization stay unchanged.
+
+## 2026-10-04 - Shape confirmation blocked before any filled region appeared
+
+- Symptom: Rectangle/Circle release and Polygon confirmation took several seconds
+  before filled coverage appeared. The footer also repeated Saved/Unsaved state.
+- Trigger / repro: draw a large densely sampled region on a populated document;
+  release Rectangle/Circle or close a Polygon. Observe delayed fill and a stalled
+  viewport; confirm that smaller spacing increases work.
+- Why / root cause: CommitShape synchronously called CommitEditedShape, performing
+  all vertex/midpoint/centroid collision queries in the input callback. Successful
+  source mutation invalidated the entire resolved cache, so the next Render did
+  more blocking work. GetStatusText always prepended document state.
+- History / blast radius: checked projection limits/gaps, draft validation,
+  retained Shape controls, exact preview coverage and the previous Brush/Erase
+  release fixes. Audited every projection consumer, creation/edit transactions,
+  tool/focus/Layer callbacks, Undo/Redo, Save/close, World lifetime and render paths.
+  Existing control/Details edits keep their transaction semantics; runtime and
+  serialized fields remain unchanged.
+- Touched files: ComposableCameraMeshLayerShapes.h/.cpp,
+  ComposableCameraMeshLayerEdMode.h/.cpp, ComposableCameraMeshLayerRendering.h/.cpp,
+  ComposableCameraMeshLayerModeToolkit.cpp, ComposableCameraMeshLayerShapeTests.cpp,
+  DesignDoc.md, EditorDesignDoc.md, TechDoc.md, ExecutionFlowExamples.md, BugLog.md.
+- Fix: validate/prepare the bounded outline and queue a small captured-plane fill
+  immediately. Resume new-region projection with cached leaf/sample state, at most
+  256 new queries / a soft 4 ms per editor frame. Exact coverage runs on worker-owned
+  plain snapshots; no World queries or UObject/mode access occur off-thread.
+  The editor consumes only ready results and commits source plus ready coverage
+  together in one creation transaction. Existing source edits cause coverage
+  rebasing with retained projected geometry; stale results never overwrite edits.
+  Queued regions preserve order and survive tool/focus changes. Explicit cancel,
+  Undo, Layer structural changes, lost World and exit discard pending work without
+  joining workers. Save/Brush/Erase wait for completion. Document state moves to
+  tooltips; empty footer text collapses without leading newlines.
+- Regression-test names: `ComposableCameraSystem.Editor.MeshCamera.ShapeProjectionBudget`
+  checks per-resume query caps, partially paused leaves, sample-cache reuse,
+  projected heights, floor gaps and density rejection. `ComposableCameraSystem.Editor.MeshCamera.ShapeCreationPreview`
+  checks immediate filled outlines for Rectangle/Circle/concave Polygon, consecutive
+  queueing, focus/options/cancellation, lost World, Save/mutation gating, footer
+  text and atomic completion Undo/Redo. Existing ShapeProjectionAndLimits,
+  ShapeInteraction, ShapeEditingAndErase, DocumentUndoRedo and visualization tests
+  remain required. Added/updated here, not compiled or run.
+- Test blocker / manual verification: project requires Rider/VS compilation and
+  editor test runs. Header changes require a full editor restart/build. On an actual
+  Level, confirm immediate provisional fill and responsive input for all three
+  shapes, then exact terrain/gap/Layer coverage, consecutive type switches, Save
+  after completion and creation Undo/Redo. While a worker runs, edit an existing
+  Shape and verify rebasing preserves that edit; cancel/change Layer/exit and
+  confirm late results never reappear. Actual mode/World collision/worker timing
+  cannot be verified by the pure fixtures alone; no latency measurement is claimed.
+- Avoid next time: collision and coverage work must not accumulate in release or
+  Render. Retain immutable job settings, budget game-thread queries, resolve plain
+  snapshots off-thread, and validate document identity before publishing results.
+- Possible conflicts: initial fill follows the captured plane and can temporarily
+  cover gaps/overlaps until exact results replace it; it never enters saved source.
+  One collision query, snapshot copy and final transaction serialization can exceed
+  the soft query budget. Cancelled workers may finish on their private snapshots;
+  they have no callback or reference to the mode. Pending authoring events allocate
+  buffers; steady camera evaluation and the authored sampling contract are unchanged.
+
+## 2026-10-05 - Failed package Save could replace a Discard baseline
+
+- Symptom: restoring mesh Layer edits from the storage actor after a cancelled or
+  failed Save would restore unsaved edits instead of the previous saved document.
+  Undo could return working source to its clean revision while actor data from
+  the failed attempt remained applied.
+- Trigger / repro: open Mesh Camera Layers, edit a Layer or paint/erase coverage,
+  click Save, then cancel/fail package checkout or saving. Click Discard, including
+  after undoing working edits back to the clean revision. Repeat before the first
+  successful Save when the attempt creates a hidden storage actor.
+- Why / root cause: Save calls SetAuthoringData before PromptForCheckoutAndSave.
+  The old mode retained only a SavedRevision GUID, with no independent saved
+  document payload and no failed-save actor tracking. Reading the actor therefore
+  cannot identify the last successful save. Source revision alone cannot detect
+  actor data already applied by failed IO.
+- History / blast radius: reviewed DocumentUndoRedo, stroke cancellation/cache
+  retention, queued Shape cancellation/lifetime, saved revision checkpoints and
+  Shot Editor discard history. Audited initialization, Save/exit, final Undo
+  callbacks, GC references, Layer/Shape proxy refresh, storage source/runtime bake
+  and native UE5.6 transaction/EditorDestroyActor APIs. No global Undo reset or
+  package dirty clearing is introduced.
+- Touched files: ComposableCameraMeshLayerEdMode.h/.cpp,
+  ComposableCameraMeshLayerModeToolkit.h/.cpp, ComposableCameraMeshLayerShapeTests.cpp,
+  DesignDoc.md, EditorDesignDoc.md, TechDoc.md, ExecutionFlowExamples.md, BugLog.md.
+- Fix: add the requested same-sized rounded Discard action to Save's right. Keep
+  an independent nontransactional transient checkpoint, GC-tracked through the
+  mode and reflected Layer references. Initialize it from the normalized opening
+  document and advance only on successful Save. Discard cancels active/pending
+  work, restores full document/revision in one scoped transaction and refreshes
+  caches/Details. A retained weak failed-save actor restores checkpoint source or
+  is removed if that attempt created it; final Undo callbacks compare reflected
+  actor source/Layer data to recompute rollback state. Button enablement stays
+  constant-time, clean Discard disables, and tool preferences remain unchanged.
+- Regression-test name: `ComposableCameraSystem.Editor.MeshCamera.DiscardWorkingDocument`.
+  Covers initial/latest checkpoints, Layer identity/properties/asset references,
+  projected triangles/ownership, Shape controls/retained cuts, Discard Undo/Redo,
+  preferences, selection/feedback/cache refresh, pending/draft cancellation,
+  unfinished actual Erase transaction cancellation, simulated existing-actor
+  failed-Save rollback, clean-source Undo with dirty actor, and repeated Discard
+  after Undo, including actor-only geometry rollback Undo/Redo with unchanged
+  Layer properties. Added, not compiled or run.
+- Test blocker / manual verification: compile only in Rider/VS; header changes
+  require a full editor restart/build. Run the editor automation test. Actual
+  checkout/package-save dialogs and new-actor external-package lifetime cannot be
+  validated by the pure fixture. In a real Level, cancel/fail Save before and
+  after the first successful Save, Discard, Undo/Redo and save again. Confirm the
+  failed-attempt-created actor disappears, Undo restores it, and late cancelled
+  Shape jobs never return. Confirm both buttons' dimensions at editor DPI.
+- Avoid next time: successful persistence owns the checkpoint; applied actor
+  memory is not proof of disk Save. Check both working source and failed-save
+  actor state, retain asset references through GC, and test Undo across checkpoints.
+- Possible conflicts: failed saves leave packages dirty; Discard intentionally
+  preserves editor-wide package state and does not write disk. Partial package
+  IO is not a disk rollback. Undo of Discard restores committed source and any
+  affected actor data, not unfinished drafts/jobs. Runtime bake uses existing
+  SetAuthoringData; graph synchronization and camera evaluation are unchanged.

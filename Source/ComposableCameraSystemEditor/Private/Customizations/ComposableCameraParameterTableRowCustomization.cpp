@@ -4,6 +4,13 @@
 
 #include "DataAssets/ComposableCameraParameterTableRow.h"
 #include "DataAssets/ComposableCameraTypeAsset.h"
+#include "DataAssets/ComposableCameraMeshProfile.h"
+#include "DataAssets/ComposableCameraActionTypeAsset.h"
+#include "DataAssets/ComposableCameraPatchTypeAsset.h"
+#include "Actions/ComposableCameraActionBase.h"
+#include "PropertyCustomizationHelpers.h"
+#include "AssetRegistry/AssetData.h"
+#include "UObject/UnrealType.h"
 #include "DetailLayoutBuilder.h"
 #include "DetailWidgetRow.h"
 #include "IDetailChildrenBuilder.h"
@@ -38,6 +45,7 @@ void FComposableCameraParameterTableRowCustomization::UnbindAssetChangeDelegate(
 		AssetChangedDelegateHandle.Reset();
 	}
 	WatchedTypeAsset.Reset();
+	WatchedActionAsset.Reset();
 }
 
 TSharedRef<IPropertyTypeCustomization> FComposableCameraParameterTableRowCustomization::MakeInstance()
@@ -96,6 +104,10 @@ void FComposableCameraParameterTableRowCustomization::CustomizeChildren(TSharedR
 	}
 
 	CameraTypeHandle = RowPropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FComposableCameraParameterTableRow, CameraType));
+	const TSharedPtr<IPropertyHandle> PatchAssetHandle = RowPropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FComposableCameraMeshPatchConfig, PatchAsset));
+	const TSharedPtr<IPropertyHandle> ActionAssetHandle = RowPropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FComposableCameraMeshActionConfig, ActionAsset));
+	if (PatchAssetHandle.IsValid()) { CameraTypeHandle = PatchAssetHandle; }
+	if (ActionAssetHandle.IsValid()) { CameraTypeHandle = ActionAssetHandle; }
 	ValuesHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FComposableCameraExposedParameterValues, Values));
 
 	if (!CameraTypeHandle.IsValid() || !ValuesHandle.IsValid())
@@ -112,16 +124,23 @@ void FComposableCameraParameterTableRowCustomization::CustomizeChildren(TSharedR
 	// is fine here - this is an editor panel, not a hot path, and DataTable
 	// edits are rare.
 	UComposableCameraTypeAsset* TypeAsset = nullptr;
+	UComposableCameraActionTypeAsset* ActionAsset = nullptr;
 	{
 		TArray<void*> RawData;
 		CameraTypeHandle->AccessRawData(RawData);
 		if (RawData.Num() == 1 && RawData[0] != nullptr)
 		{
-			TSoftObjectPtr<UComposableCameraTypeAsset>* SoftPtr =
-				static_cast<TSoftObjectPtr<UComposableCameraTypeAsset>*>(RawData[0]);
-			if (SoftPtr)
+			if (ActionAssetHandle.IsValid())
 			{
-				TypeAsset = SoftPtr->LoadSynchronous();
+				ActionAsset = static_cast<TSoftObjectPtr<UComposableCameraActionTypeAsset>*>(RawData[0])->LoadSynchronous();
+			}
+			else if (PatchAssetHandle.IsValid())
+			{
+				TypeAsset = static_cast<TSoftObjectPtr<UComposableCameraPatchTypeAsset>*>(RawData[0])->LoadSynchronous();
+			}
+			else
+			{
+				TypeAsset = static_cast<TSoftObjectPtr<UComposableCameraTypeAsset>*>(RawData[0])->LoadSynchronous();
 			}
 		}
 	}
@@ -132,15 +151,18 @@ void FComposableCameraParameterTableRowCustomization::CustomizeChildren(TSharedR
 	// Capture a weak PropertyUtilities for the refresh callback instead of
 	// capturing `this`, so the lambda stays valid even if the customization
 	// is rebuilt.
-	if (TypeAsset)
+	if (TypeAsset || ActionAsset)
 	{
 		WatchedTypeAsset = TypeAsset;
+		WatchedActionAsset = ActionAsset;
+		const TWeakObjectPtr<UObject> WeakAsset = TypeAsset ? static_cast<UObject*>(TypeAsset) : ActionAsset;
+		const TWeakObjectPtr<UObject> WeakTemplate = ActionAsset ? ActionAsset->ActionTemplate.Get() : nullptr;
 		TWeakPtr<IPropertyUtilities> WeakUtils = PropertyUtilities;
 
 		AssetChangedDelegateHandle = FCoreUObjectDelegates::OnObjectPropertyChanged.AddLambda(
-			[WeakAsset = WatchedTypeAsset, WeakUtils](UObject* Object, FPropertyChangedEvent&)
+			[WeakAsset, WeakTemplate, WeakUtils](UObject* Object, FPropertyChangedEvent&)
 			{
-				if (Object && Object == WeakAsset.Get())
+				if (Object && (Object == WeakAsset.Get() || Object == WeakTemplate.Get()))
 				{
 					if (TSharedPtr<IPropertyUtilities> Utils = WeakUtils.Pin())
 					{
@@ -153,20 +175,54 @@ void FComposableCameraParameterTableRowCustomization::CustomizeChildren(TSharedR
 	IDetailGroup& ParamsGroup = ChildBuilder.AddGroup(TEXT("ExposedParameters"),
 		LOCTEXT("ExposedParametersGroup", "Exposed Parameters"));
 
-	if (!TypeAsset)
+	if (!TypeAsset && !(ActionAsset && ActionAsset->ActionTemplate))
 	{
 		ParamsGroup.AddWidgetRow()
 		.WholeRowContent()
 		[SNew(STextBlock)
 			.Text(LOCTEXT("NoCameraTypeSelected",
-				"Select a Camera Type to see its exposed parameters."))
+				"Select an asset to see its parameters."))
 			.Font(IDetailLayoutBuilder::GetDetailFontItalic())
 			.ColorAndOpacity(FSlateColor::UseSubduedForeground())];
 		return;
 	}
 
-	const TArray<FComposableCameraExposedParameter>& Exposed = TypeAsset->GetExposedParameters();
-	const TArray<FComposableCameraInternalVariable>& ExposedVars = TypeAsset->ExposedVariables;
+	TArray<FComposableCameraExposedParameter> ActionParameters;
+	TMap<FName, FString> ActionDefaults;
+	const TArray<FComposableCameraInternalVariable> NoVariables;
+	if (ActionAsset && ActionAsset->ActionTemplate)
+	{
+		const UObject* Template = ActionAsset->ActionTemplate;
+		for (TFieldIterator<FProperty> It(Template->GetClass()); It; ++It)
+		{
+			const FProperty* Property = *It;
+			if (!UComposableCameraActionTypeAsset::IsExposableProperty(Property)) { continue; }
+			FComposableCameraExposedParameter Parameter;
+			UScriptStruct* StructType = nullptr;
+			UEnum* EnumType = nullptr;
+			if (!TryMapPropertyToPinType(Property, Parameter.PinType, StructType, EnumType)) { continue; }
+			Parameter.ParameterName = Property->GetFName();
+			Parameter.StructType = StructType;
+			Parameter.EnumType = EnumType;
+			Parameter.DisplayName = Property->GetDisplayNameText();
+			Parameter.Tooltip = Property->GetToolTipText();
+			Parameter.bRequired = false;
+			FString Default;
+			if (const FObjectPropertyBase* ObjectProperty = CastField<FObjectPropertyBase>(Property))
+			{
+				const UObject* Value = ObjectProperty->GetObjectPropertyValue_InContainer(Template);
+				Default = Value ? Value->GetPathName() : TEXT("None");
+			}
+			else
+			{
+				Property->ExportTextItem_Direct(Default, Property->ContainerPtrToValuePtr<void>(Template), nullptr, nullptr, PPF_None);
+			}
+			ActionDefaults.Add(Parameter.ParameterName, MoveTemp(Default));
+			ActionParameters.Add(MoveTemp(Parameter));
+		}
+	}
+	const TArray<FComposableCameraExposedParameter>& Exposed = TypeAsset ? TypeAsset->GetExposedParameters() : ActionParameters;
+	const TArray<FComposableCameraInternalVariable>& ExposedVars = TypeAsset ? TypeAsset->ExposedVariables : NoVariables;
 
 	if (Exposed.Num() == 0)
 	{
@@ -174,7 +230,7 @@ void FComposableCameraParameterTableRowCustomization::CustomizeChildren(TSharedR
 		.WholeRowContent()
 		[SNew(STextBlock)
 			.Text(LOCTEXT("NoExposedParameters",
-				"This camera type has no exposed parameters."))
+				"This asset has no exposed parameters."))
 			.Font(IDetailLayoutBuilder::GetDetailFontItalic())
 			.ColorAndOpacity(FSlateColor::UseSubduedForeground())];
 	}
@@ -186,7 +242,7 @@ void FComposableCameraParameterTableRowCustomization::CustomizeChildren(TSharedR
 			const EComposableCameraPinType PinType = Param.PinType;
 			UScriptStruct* StructType = Param.StructType;
 			UEnum* EnumType = Param.EnumType;
-			const FString ParamDefault = TypeAsset->GetExposedParameterDefaultValue(Param);
+			const FString ParamDefault = TypeAsset ? TypeAsset->GetExposedParameterDefaultValue(Param) : ActionDefaults.FindRef(ParamName);
 
 			const FText DisplayName = Param.DisplayName.IsEmpty()
 				? FText::FromName(ParamName)
@@ -199,6 +255,8 @@ void FComposableCameraParameterTableRowCustomization::CustomizeChildren(TSharedR
 					GetFormatHint(PinType, StructType, EnumType));
 
 			ParamsGroup.AddWidgetRow()
+			.FilterString(DisplayName)
+			.RowTag(ParamName)
 			.NameContent()
 			[SNew(SHorizontalBox)
 				+ SHorizontalBox::Slot()
@@ -206,16 +264,17 @@ void FComposableCameraParameterTableRowCustomization::CustomizeChildren(TSharedR
 				.VAlign(VAlign_Center)
 				.Padding(0.f, 0.f, 4.f, 0.f)
 				[SNew(SCheckBox)
-					.IsChecked_Lambda([this, ParamName]()
+					.IsEnabled(!Param.bRequired)
+					.IsChecked_Lambda([this, ParamName, bRequired = Param.bRequired]()
 					{
-						return IsParameterOverridden(ParamName)
+						return bRequired || IsParameterOverridden(ParamName)
 							? ECheckBoxState::Checked: ECheckBoxState::Unchecked;
 					})
 					.OnCheckStateChanged(FOnCheckStateChanged::CreateSP(this,
 						&FComposableCameraParameterTableRowCustomization::OnOverrideToggled,
 						ParamName, ParamDefault))
 					.ToolTipText(LOCTEXT("OverrideCheckboxTooltip",
-						"When checked, the value in this row overrides the default from the camera type asset."))]
+						"Override this parameter's default from the selected asset."))]
 				+ SHorizontalBox::Slot()
 				.FillWidth(1.f)
 				.VAlign(VAlign_Center)
@@ -227,9 +286,9 @@ void FComposableCameraParameterTableRowCustomization::CustomizeChildren(TSharedR
 			.MinDesiredWidth(200.f)
 			.MaxDesiredWidth(600.f)
 			[SNew(SBox)
-				.IsEnabled_Lambda([this, ParamName]()
+				.IsEnabled_Lambda([this, ParamName, bRequired = Param.bRequired]()
 				{
-					return IsParameterOverridden(ParamName);
+					return bRequired || IsParameterOverridden(ParamName);
 				})
 				[BuildTypedValueWidget(ParamName, PinType, StructType, EnumType, ParamDefault)]];
 		}
@@ -276,6 +335,8 @@ void FComposableCameraParameterTableRowCustomization::CustomizeChildren(TSharedR
 					GetFormatHint(PinType, StructType, EnumType));
 
 			VarsGroup.AddWidgetRow()
+			.FilterString(DisplayName)
+			.RowTag(VarName)
 			.NameContent()
 			[SNew(SHorizontalBox)
 				+ SHorizontalBox::Slot()
@@ -335,7 +396,11 @@ void FComposableCameraParameterTableRowCustomization::CustomizeChildren(TSharedR
 		TArray<FName> OrphanNames;
 		for (const TPair<FName, FString>& Entry: Wrapper->Values)
 		{
-			if (!KnownNames.Contains(Entry.Key))
+			const FComposableCameraExposedParameter* ActionParameter = ActionParameters.FindByPredicate(
+				[&Entry](const FComposableCameraExposedParameter& Parameter) { return Parameter.ParameterName == Entry.Key; });
+			const bool bRequiresBinding = ActionParameter && (ActionParameter->PinType == EComposableCameraPinType::Actor
+				|| ActionParameter->PinType == EComposableCameraPinType::Delegate);
+			if (!KnownNames.Contains(Entry.Key) || bRequiresBinding)
 			{
 				OrphanNames.Add(Entry.Key);
 			}
@@ -349,6 +414,28 @@ void FComposableCameraParameterTableRowCustomization::CustomizeChildren(TSharedR
 				Wrapper->Values.Remove(Name);
 			}
 			ValuesHandle->NotifyPostChange(EPropertyChangeType::ArrayRemove);
+		}
+	}
+	if (FComposableCameraMeshActionConfig* Action = GetActionConfigPtr())
+	{
+		const TSharedPtr<IPropertyHandle> BindingsHandle = RowPropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FComposableCameraMeshActionConfig, Bindings));
+		TArray<FName> Removed;
+		for (const auto& Entry : Action->Bindings)
+		{
+			const FProperty* Property = ActionAsset && ActionAsset->ActionTemplate
+				? FindFProperty<FProperty>(ActionAsset->ActionTemplate->GetClass(), Entry.Key) : nullptr;
+			const FObjectPropertyBase* ObjectProperty = CastField<FObjectPropertyBase>(Property);
+			if (!KnownNames.Contains(Entry.Key) || !(Property && (Property->IsA<FDelegateProperty>()
+				|| (ObjectProperty && ObjectProperty->PropertyClass->IsChildOf(AActor::StaticClass())))))
+			{
+				Removed.Add(Entry.Key);
+			}
+		}
+		if (!Removed.IsEmpty() && BindingsHandle.IsValid())
+		{
+			BindingsHandle->NotifyPreChange();
+			for (FName Name : Removed) { Action->Bindings.Remove(Name); }
+			BindingsHandle->NotifyPostChange(EPropertyChangeType::ArrayRemove);
 		}
 	}
 }
@@ -369,20 +456,13 @@ FComposableCameraExposedParameterValues* FComposableCameraParameterTableRowCusto
 	return static_cast<FComposableCameraExposedParameterValues*>(RawData[0]);
 }
 
-FComposableCameraParameterTableRow* FComposableCameraParameterTableRowCustomization::GetRowPtr() const
+FComposableCameraMeshActionConfig* FComposableCameraParameterTableRowCustomization::GetActionConfigPtr() const
 {
-	if (!RowPropertyHandle.IsValid())
-	{
-		return nullptr;
-	}
-
-	TArray<void*> RawData;
-	RowPropertyHandle->AccessRawData(RawData);
-	if (RawData.Num() != 1 || RawData[0] == nullptr)
-	{
-		return nullptr;
-	}
-	return static_cast<FComposableCameraParameterTableRow*>(RawData[0]);
+	const FStructProperty* Property = RowPropertyHandle.IsValid() ? CastField<FStructProperty>(RowPropertyHandle->GetProperty()) : nullptr;
+	if (!Property || Property->Struct != FComposableCameraMeshActionConfig::StaticStruct()) { return nullptr; }
+	TArray<void*> Data;
+	RowPropertyHandle->AccessRawData(Data);
+	return Data.Num() == 1 ? static_cast<FComposableCameraMeshActionConfig*>(Data[0]) : nullptr;
 }
 
 void FComposableCameraParameterTableRowCustomization::RequestRefresh()
@@ -395,6 +475,7 @@ void FComposableCameraParameterTableRowCustomization::RequestRefresh()
 
 bool FComposableCameraParameterTableRowCustomization::IsParameterOverridden(FName ParameterName) const
 {
+	if (const FComposableCameraMeshActionConfig* Action = GetActionConfigPtr(); Action && Action->Bindings.Contains(ParameterName)) { return true; }
 	if (const FComposableCameraExposedParameterValues* Wrapper = GetWrapperPtr())
 	{
 		return Wrapper->Values.Contains(ParameterName);
@@ -406,6 +487,25 @@ void FComposableCameraParameterTableRowCustomization::OnOverrideToggled(ECheckBo
 	FName ParameterName,
 	FString DefaultValue)
 {
+	if (FComposableCameraMeshActionConfig* Action = GetActionConfigPtr(); Action && WatchedActionAsset.IsValid() && WatchedActionAsset->ActionTemplate)
+	{
+		const FProperty* Property = FindFProperty<FProperty>(WatchedActionAsset->ActionTemplate->GetClass(), ParameterName);
+		const FObjectPropertyBase* ObjectProperty = CastField<FObjectPropertyBase>(Property);
+		const bool bRuntimeBinding = Property && (Property->IsA<FDelegateProperty>()
+			|| (ObjectProperty && ObjectProperty->PropertyClass->IsChildOf(AActor::StaticClass())));
+		if (bRuntimeBinding)
+		{
+			const TSharedPtr<IPropertyHandle> Handle = RowPropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FComposableCameraMeshActionConfig, Bindings));
+			if (!Handle.IsValid()) { return; }
+			const FScopedTransaction Transaction(LOCTEXT("ToggleBinding", "Toggle Mesh Parameter Binding"));
+			Handle->NotifyPreChange();
+			if (NewState == ECheckBoxState::Checked) { Action->Bindings.FindOrAdd(ParameterName); }
+			else { Action->Bindings.Remove(ParameterName); }
+			Handle->NotifyPostChange(EPropertyChangeType::ValueSet);
+			Handle->NotifyFinishedChangingProperties();
+			return;
+		}
+	}
 	FComposableCameraExposedParameterValues* Wrapper = GetWrapperPtr();
 	if (!Wrapper || !ValuesHandle.IsValid())
 	{
@@ -477,6 +577,19 @@ TSharedRef<SWidget> FComposableCameraParameterTableRowCustomization::BuildTypedV
 	UEnum* EnumType,
 	const FString& DefaultValue)
 {
+	if (GetActionConfigPtr() && (PinType == EComposableCameraPinType::Actor || PinType == EComposableCameraPinType::Delegate))
+	{
+		return BuildRuntimeBindingWidget(ParameterName, PinType == EComposableCameraPinType::Delegate, DefaultValue);
+	}
+	if (GetActionConfigPtr() && PinType == EComposableCameraPinType::Object)
+	{
+		const FObjectPropertyBase* Property = WatchedActionAsset.IsValid() && WatchedActionAsset->ActionTemplate
+			? FindFProperty<FObjectPropertyBase>(WatchedActionAsset->ActionTemplate->GetClass(), ParameterName) : nullptr;
+		return SNew(SObjectPropertyEntryBox)
+			.AllowedClass(Property ? Property->PropertyClass.Get() : UObject::StaticClass())
+			.ObjectPath_Lambda([this, ParameterName, DefaultValue]() { return GetParameterString(ParameterName, DefaultValue); })
+			.OnObjectChanged_Lambda([this, ParameterName](const FAssetData& Asset) { SetParameterString(ParameterName, Asset.IsValid() ? Asset.GetSoftObjectPath().ToString() : TEXT("None")); });
+	}
 	switch (PinType)
 	{
 	// Bool 
@@ -772,6 +885,79 @@ TSharedRef<SWidget> FComposableCameraParameterTableRowCustomization::BuildTypedV
 			.ClearKeyboardFocusOnCommit(false);
 	}
 	}
+}
+
+void FComposableCameraParameterTableRowCustomization::SetRuntimeBinding(
+	FName Name, const FComposableCameraMeshParameterBinding& Binding)
+{
+	FComposableCameraMeshActionConfig* Action = GetActionConfigPtr();
+	if (!Action) { return; }
+	const TSharedPtr<IPropertyHandle> Handle = RowPropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FComposableCameraMeshActionConfig, Bindings));
+	if (!Handle.IsValid()) { return; }
+	const FScopedTransaction Transaction(LOCTEXT("EditBinding", "Edit Mesh Parameter Binding"));
+	Handle->NotifyPreChange();
+	Action->Bindings.Add(Name, Binding);
+	Handle->NotifyPostChange(EPropertyChangeType::ValueSet);
+	Handle->NotifyFinishedChangingProperties();
+}
+
+TSharedRef<SWidget> FComposableCameraParameterTableRowCustomization::BuildRuntimeBindingWidget(FName Name, bool bDelegate, const FString& DefaultValue)
+{
+	TSharedRef<SVerticalBox> Box = SNew(SVerticalBox);
+	Box->AddSlot().AutoHeight()
+	[
+		SNew(STextBlock)
+		.Text(FText::FromString(DefaultValue))
+		.Visibility_Lambda([this, Name]() { return IsParameterOverridden(Name) ? EVisibility::Collapsed : EVisibility::Visible; })
+	];
+	Box->AddSlot().AutoHeight()
+	[
+		SNew(SEnumComboBox, StaticEnum<EComposableCameraMeshParameterSource>())
+		.Visibility_Lambda([this, Name]() { return IsParameterOverridden(Name) ? EVisibility::Visible : EVisibility::Collapsed; })
+		.CurrentValue_Lambda([this, Name]()
+		{
+			const FComposableCameraMeshActionConfig* Action = GetActionConfigPtr();
+			return static_cast<int32>(Action ? Action->Bindings.FindRef(Name).Source : EComposableCameraMeshParameterSource::None);
+		})
+		.OnEnumSelectionChanged_Lambda([this, Name](int32 Value, ESelectInfo::Type)
+		{
+			if (const FComposableCameraMeshActionConfig* Action = GetActionConfigPtr())
+			{
+				FComposableCameraMeshParameterBinding Binding = Action->Bindings.FindRef(Name);
+				Binding.Source = static_cast<EComposableCameraMeshParameterSource>(Value);
+				SetRuntimeBinding(Name, Binding);
+			}
+		})
+	];
+	if (bDelegate)
+	{
+		Box->AddSlot().AutoHeight()
+		[
+			SNew(SEditableTextBox)
+			.Visibility_Lambda([this, Name]() { return IsParameterOverridden(Name) ? EVisibility::Visible : EVisibility::Collapsed; })
+			.IsEnabled_Lambda([this, Name]()
+			{
+				const FComposableCameraMeshActionConfig* Action = GetActionConfigPtr();
+				return Action && Action->Bindings.FindRef(Name).Source != EComposableCameraMeshParameterSource::None;
+			})
+			.HintText(LOCTEXT("DelegateFunction", "Matching function name on selected source"))
+			.Text_Lambda([this, Name]()
+			{
+				const FComposableCameraMeshActionConfig* Action = GetActionConfigPtr();
+				return Action ? FText::FromName(Action->Bindings.FindRef(Name).FunctionName) : FText::GetEmpty();
+			})
+			.OnTextCommitted_Lambda([this, Name](const FText& Text, ETextCommit::Type)
+			{
+				if (const FComposableCameraMeshActionConfig* Action = GetActionConfigPtr())
+				{
+					FComposableCameraMeshParameterBinding Binding = Action->Bindings.FindRef(Name);
+					Binding.FunctionName = FName(*Text.ToString());
+					SetRuntimeBinding(Name, Binding);
+				}
+			})
+		];
+	}
+	return Box;
 }
 
 // Multi-Component Numeric Widget 
@@ -1094,6 +1280,17 @@ TSharedRef<SWidget> FComposableCameraParameterTableRowCustomization::BuildStruct
 
 FText FComposableCameraParameterTableRowCustomization::GetFormatHint(EComposableCameraPinType PinType, UScriptStruct* StructType, UEnum* EnumType) const
 {
+	if (GetActionConfigPtr())
+	{
+		if (PinType == EComposableCameraPinType::Actor)
+		{
+			return LOCTEXT("HintMeshActor", "Choose a per-player source compatible with this Actor input, or None.");
+		}
+		if (PinType == EComposableCameraPinType::Delegate)
+		{
+			return LOCTEXT("HintMeshDelegate", "Choose a per-player source and a function matching this Delegate's signature, or None.");
+		}
+	}
 	switch (PinType)
 	{
 	case EComposableCameraPinType::Bool:

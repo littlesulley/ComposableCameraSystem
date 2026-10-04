@@ -12,6 +12,9 @@ class AComposableCameraPlayerCameraManager;
 class APlayerController;
 class UComposableCameraMeshProfile;
 class UComposableCameraNodeModifierDataAsset;
+class UComposableCameraActionBase;
+class UComposableCameraPatchHandle;
+class UComposableCameraPatchManager;
 
 /** Queries loaded local surface documents and applies their Profile effects. */
 UCLASS()
@@ -20,6 +23,7 @@ class COMPOSABLECAMERASYSTEM_API UComposableCameraMeshWorldSubsystem : public UT
 	GENERATED_BODY()
 
 public:
+	static void AddReferencedObjects(UObject* InThis, FReferenceCollector& Collector);
 	virtual void Initialize(FSubsystemCollectionBase& Collection) override;
 	virtual void Deinitialize() override;
 	virtual void Tick(float DeltaTime) override;
@@ -47,6 +51,7 @@ protected:
 	virtual bool DoesSupportWorldType(const EWorldType::Type WorldType) const override;
 
 private:
+	friend class FComposableCameraMeshProfileDispatchTest;
 	struct FActiveLayerState
 	{
 		TWeakObjectPtr<AComposableCameraMeshSurfaceStorageActor> StorageActor;
@@ -56,6 +61,10 @@ private:
 		TArray<TWeakObjectPtr<UComposableCameraNodeModifierDataAsset>, TInlineAllocator<4>> ModifierInstances;
 		/** One temporary Context per active Camera-bearing Layer. */
 		FName OwnedCameraContextName = NAME_None;
+		TWeakObjectPtr<UComposableCameraActionBase> ActionInstance;
+		TWeakObjectPtr<UComposableCameraPatchManager> PatchManager;
+		/** Manually GC-tracked by AddReferencedObjects; the Patch instance owns only a weak handle. */
+		TObjectPtr<UComposableCameraPatchHandle> PatchHandle = nullptr;
 	};
 
 	struct FPlayerLayerState

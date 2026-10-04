@@ -1,6 +1,6 @@
 # Execution Flow Examples
 
-Updated: 2026-10-02
+Updated: 2026-10-05
 
 This file gives compact end-to-end flows. Keep examples current with source.
 
@@ -243,20 +243,77 @@ Tools -> Edit Mesh Camera Layers
   -> click Layer row
        -> stable Layer GUID becomes current paint target
        -> selected Layer struct appears in Details
-  -> Layer CRUD / projected brush paint / erase
+  -> below Layer properties: one horizontal Draw / Select / Erase button row
+  -> Draw: Drawing Type menu = Brush / Rectangle / Circle / Polygon
+       -> restore the last drawing type when returning from Select/Erase
+       -> show only its brush/shape/surface options below the buttons
+       -> Brush: paint / temporary Shift erase
+       -> Rectangle/Circle: drag -> outline preview -> release
+       -> Polygon: click vertices -> preview -> Enter/close/double-click
+       -> optional document XY grid snap + live dimensions
+       -> Esc / Backspace / tool or Layer change / focus loss manages draft
+  -> shape confirmation
+       -> validate simple outline -> triangulate -> bounded subdivision
+       -> reject excessive density before tracing
+       -> show small captured-plane filled preview immediately
+       -> project vertices/midpoints/centroids in resumable per-frame batches
+       -> compute resolved coverage from source/cache snapshots on a worker
+       -> if source revision changed, rebase coverage without repeating projection
+       -> retain Shape GUID + controls + local projection settings
+       -> install successful source + ready coverage in one creation transaction
+       -> report omitted floor samples; failed commits preserve existing data
+       -> tool/focus changes preserve released regions; explicit cancel/Undo/Layer
+          structural changes/exit discard pending fills without waiting on workers
+  -> Select: ray-pick active Layer Shape -> drag interior / control or edit Details
+       -> show edit snapping and Shape Details/delete; hide Draw menu/Erase options
+       -> preview only -> validate/project -> replay retained erasures
+       -> replace matching Shape geometry, preserving identity
+  -> Erase: circular-prism subtraction on active Layer triangles
+       -> show radius/depth options; hide Draw menu and selected Shape panel
+       -> reject distant triangles in brush coordinates before clipping
+       -> retain fragment heights and ownership -> remember cuts on affected Shapes
+  -> drag a numeric option in Draw / Select / Erase
+       -> PropertyEditor opens slider transaction
+       -> interactive values update without rebuilding Details
+       -> any queued Details refresh waits while transaction is active
+       -> release/final commit closes transaction -> refresh once
+       -> source Undo/Redo remains available after subsequent authoring operations
+  -> Delete: remove selected Shape source and owned triangles
+  -> Layer CRUD / projected brush paint
        -> ring projection accepts compatible floor across component seams
-       -> invalidate resolved visualization cache
-       -> collapse repeat coverage to one surface cell
-       -> first enabled Layer in top-to-bottom list order wins each visual cell
+       -> each stamp (including no-op attempts) respects brush spacing
+       -> Brush/Erase update affected resolved grid cells; retain remote cells
+       -> Erase replaces cut triangles in place; dirty cells follow the removed footprint
+       -> release retains current cache/controls, ends transaction and redraws viewports
+       -> Layer changes / existing Shape edits invalidate the full visualization cache
+       -> new Shape creation installs its already computed coverage cache
+       -> clip source footprints to grid cells; retain actual boundary polygons
+       -> partition repeated/overlapping coverage within each surface-height cell
+       -> first enabled Layer owns each covered point; lower rows fill uncovered parts
+       -> collapse fully covered coplanar single-Layer cells to quads
        -> disposable filled-color viewport overlay without alpha stacking
+  -> Ctrl+Z / Ctrl+Y
+       -> restore transactional document (one whole stroke / committed edit)
+       -> final Undo client refreshes Layer/Shape Details and viewport caches
+       -> compare document revision with last successful Save checkpoint
   -> Save
        -> create hidden storage actor if missing
-       -> copy full authoring triangles with stable Layer GUIDs
+       -> compact unused/orphaned source vertices and triangles
+       -> copy authoring triangles, Shape controls/ownership and retained erasures
        -> resolve GUIDs to runtime Layer indices
        -> save Level / external actor package
+       -> on success, replace independent saved-document checkpoint
+  -> Discard (right of Save)
+       -> revert unfinished stroke and cancel draft / queued creation jobs
+       -> restore latest successful Save (opening document if never saved)
+       -> restore failed-save actor data / remove failed-attempt-created actor
+       -> clear Shape selection and refresh Details / viewport caches
+       -> one Undo restores committed discarded edits; Redo discards again
+       -> no package Save and no editor-wide history reset
 
 close Edit mode tab
   -> request edit-mode deletion
+  -> discard uncommitted shape draft
   -> optional dirty-data save prompt
   -> invalidate Level viewports
   -> no Layer overlay remains
@@ -284,50 +341,58 @@ MeshWorldSubsystem.Tick
   -> pawn position downward query across loaded storage actors
   -> nearest surface; return every enabled Layer covering that surface
   -> diff current membership against per-player ActiveLayers
-  -> each entered Layer duplicates its Modifier templates under PCM
-  -> PCM.ReplaceModifiers(..., false)
-       -> outer and inner candidates remain registered together
-  -> each entered Camera Layer captures the currently active Director
-  -> push unique temporary Context named from Mesh + Layer name + GUID
-  -> activate that Layer's CameraType + Transition + ActivationParams there
-       -> reference source = captured current Director
-       -> construct camera from Type Asset
-       -> resolve new effective Modifiers by camera tags
-       -> apply typed exposed parameter/variable overrides
-  -> Action / Patch reserved: no runtime calls yet
+  -> each entered Layer dispatches its Profile.Type exactly once
+       -> CameraType: capture currently active Director
+            -> push unique temporary Context from Mesh + Layer name + GUID
+            -> activate CameraType + Transition + supported Activation fields
+            -> reference source = captured current Director
+            -> construct Camera, resolve active Modifier candidates by tags
+            -> apply exposed parameter/variable overrides
+       -> Modifier: duplicate templates under PCM
+            -> PCM.ReplaceModifiers(..., true) once
+       -> Action: reflect K2-exposable template properties
+            -> parse overrides and resolve per-player Actor/Delegate sources
+            -> PCM.AddCameraActionFromAsset; record exact instance
+       -> Patch: parse exposed parameter/variable overrides
+            -> active Director.PatchManager.AddPatch; record manager + handle
+  -> unchanged membership: no reactivation, loads, or retrigger
+  -> pending legacy mixed Profile: warn, skip until Type confirmed
 ```
 
-Layer Profile has no CameraType:
+Layer exit:
 
 ```text
-duplicate modifier templates
-  -> PCM.ReplaceModifiers(..., false)
-  -> PCM.OnModifierChanged once
+CameraType -> pop only owned temporary Context; resume lower Camera
+Modifier -> remove only owned duplicates; refresh active selection
+Action -> remove only recorded instance, if still registered
+Patch -> original manager.ExpirePatch(recorded handle); retain exit envelope
+Natural Action/Patch expiry -> no retrigger while Layer remains active
 ```
 
 Nested Camera Layers:
 
 ```text
 enter outer red Layer
-  -> add red Modifiers
   -> push red temporary Context and activate red CameraType
 enter inner yellow Layer
-  -> keep red Layer active; add yellow Modifiers
-  -> if yellow has CameraType, push yellow temporary Context
-  -> otherwise keep red Context active
+  -> keep red Layer active
+  -> yellow CameraType Profile pushes yellow temporary Context
 exit yellow
-  -> remove only yellow Modifiers
-  -> pop only yellow Context, if any
+  -> pop only yellow Context
   -> resume original red camera instance
   -> refresh ModifierManager selection without rebuilding red
 exit red
-  -> remove red Modifiers
   -> pop red Context
   -> resume original gameplay camera instance
 
 Camera construction failure
   -> immediately pop empty temporary Context
   -> leave gameplay camera unchanged
+
+Independent Action/Patch Layers overlapping red
+  -> trigger on entry against current PCM/Director
+  -> do not push Camera Contexts
+  -> exit removes exact owned effects; other same-class/asset effects survive
 ```
 
 Starting inside works through the same first subsystem tick. Streamed storage

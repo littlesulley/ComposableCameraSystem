@@ -1,6 +1,6 @@
 # ComposableCameraSystem Design
 
-Updated: 2026-10-02
+Updated: 2026-10-05
 
 This document describes the current runtime architecture of the UE 5.6
 ComposableCameraSystem plugin. It is intentionally compact. Implementation
@@ -586,9 +586,8 @@ tool-authored local triangles
   -> every enabled layer on the nearest surface
   -> one active scope per Layer
   -> UComposableCameraMeshProfile per scope
-       -> Camera activation configuration
-       -> camera-tag-filtered Modifier assets
-       -> reserved Action / Patch sections
+       -> selected Type: CameraType / Modifier / Action / Patch
+       -> exactly one effect family per Profile
 ```
 
 The storage actor is `NotPlaceable`, excluded from Scene Outliner, and created
@@ -596,16 +595,22 @@ only by the tool. Its actor transform is the document anchor. A document saved
 inside a streamed Level or Level Instance therefore follows that source instead
 of baking world coordinates.
 
-Profiles expose four ordered authoring sections: Camera, Modifier, Action, and
-Patch. Camera embeds `FComposableCameraParameterTableRow`, so it carries one
-Camera Type, Context Name, Transition Override, Activation Params, and typed
-overrides for the selected Type's exposed parameters/variables. Modifier keeps
-the existing asset-template array. Action and Patch are visible reserved
-sections with no runtime data in this version.
+Profiles select one `EComposableCameraMeshProfileType`. Details displays only
+that family's asset and settings; other configurations stay serialized for
+later reuse but never execute. Camera embeds `FComposableCameraParameterTableRow`
+and Patch uses the same exposed parameter/variable schema and typed parser.
+Action exposes precisely the subclass properties accepted by its K2 node's
+`IsExposableProperty` rule, keeping unoverridden template defaults. Modifier
+uses its existing asset-template array without a second parameter schema.
+
+Action Actor and Delegate inputs resolve per local player at Layer entry from
+Pawn, PlayerController, CameraManager, StorageActor, RunningCamera, or None.
+Delegate bindings additionally name a signature-compatible function on that
+source. These are typed bindings, not persistent references to world actors.
 
 Layer changes are edge-triggered. Spatial membership is a set: entering an
 overlapping Layer does not exit Layers that still cover the player. Every
-active Layer contributes duplicated Modifier candidates. Removing one Layer
+active Modifier Layer contributes duplicated Modifier candidates. Removing one Layer
 removes only its candidates; Modifier asset priority continues to resolve
 same-property conflicts inside the modifier manager; disjoint properties on
 the same node class compose.
@@ -614,9 +619,8 @@ Every Camera-bearing Layer pushes its own collision-free temporary Context.
 Its readable hint contains `Mesh`, Layer name, and Layer GUID. Entering a
 nested Camera Layer therefore suspends, rather than replaces, the outer
 Layer's Director and camera instance. Exiting the nested Layer pops only its
-Context and resumes the exact outer camera. A Layer without Camera Type pushes
-no Context, so the current lower camera remains active while its Modifiers are
-added. Exiting the final Camera-bearing Layer restores the gameplay Context.
+Context and resumes the exact outer camera. Modifier, Action, and Patch Profiles
+push no Context. Exiting the final Camera-bearing Layer restores the gameplay Context.
 After an active pop, ModifierManager selection is recomputed without rebuilding
 the resumed camera, releasing removed candidates while preserving node state.
 The embedded row's authored `ContextName` is ignored and hidden for Mesh
@@ -630,10 +634,80 @@ reference-source path. The configured transition therefore blends from the
 camera currently visible at that nesting depth.
 
 Mesh Layer presence owns camera lifetime. The subsystem therefore forces its
-scoped Camera activation to non-transient regardless of the embedded row's
-transient fields. Failed construction immediately pops the empty temporary
-Context before falling back to modifier refresh; it cannot strand an empty
-stack entry or overwrite the gameplay camera.
+scoped Camera activation to non-transient with unlimited lifetime regardless
+of the embedded row's fields; those fields are hidden in Profile Details.
+Failed construction immediately pops the empty temporary Context; it cannot
+strand an empty stack entry or overwrite the gameplay camera.
+
+Action entry registers one Action through the PCM and records the exact
+instance. Exit removes only that instance, preserving external same-class
+Actions. Patch entry records the active Director's PatchManager and a strongly
+GC-tracked handle. Exit expires that exact Patch on its original manager,
+even after the active Context changes, respecting the Patch exit envelope.
+Asset-driven natural expiration remains valid; neither effect restarts while
+the player stays inside the Layer.
+
+Profile schema uses a custom version. Legacy Camera-only and Modifier-only
+assets migrate automatically. A legacy asset containing both retains all
+settings and requires an explicit Type selection/confirmation before runtime
+entry. New saves preserve the selection and pending migration flag.
+
+The editor authors regions with Brush, dragged Rectangle/Circle, or clicked
+simple Polygon outlines. Shape points use the Level document's XY coordinates;
+optional grid snapping supports precise boundaries. On confirmation the editor
+shows a provisional captured-plane fill immediately. Compatible-floor projection
+continues in bounded batches on the editor thread; a worker resolves coverage on
+plain snapshots. New source and ready coverage install together in one creation
+transaction after revision validation. Existing edits cannot be overwritten by
+stale results. Pending fills are disposable, excluded from saved source, and
+Save waits for them to complete. Existing control/Details edits retain their
+synchronous projection transaction. Sampling and final runtime coverage are unchanged.
+Editor-only source retains Shape GUID, Layer GUID, controls, projection plane and
+sampling settings, plus per-triangle Shape ownership. Select moves regions or
+their controls; numeric Details edits replace only that Shape's projected mesh.
+Saved documents retain these controls for later editing. Legacy triangle-only
+documents remain valid; their old regions have no recoverable Shape controls.
+
+The transient working UObject stores Layer definitions, full authoring source and
+a revision GUID in Unreal editor transactions. One paint/erase stroke or confirmed
+Shape edit is one Undo step. Undo/Redo restores source before refreshing Details
+and visualization; dirty state compares against the last successful Save revision.
+Numeric property widgets remain alive throughout interactive dragging. Details
+rebuilding waits until the editor transaction finishes, preserving the release
+callback that closes it and keeping source Undo/Redo available.
+Save copies the document into the hidden actor and rebuilds cooked query data.
+The editor retains an independent, GC-tracked checkpoint of the normalized opening
+document and replaces it only after successful package Save. Discard restores that
+checkpoint in one Undo step, including Layers, geometry, retained Shape controls
+and erasures. It cancels unfinished strokes/drafts and queued creation work first;
+tool preferences and unrelated editor history remain intact. Failed package Save
+does not advance the checkpoint. If it already applied data to a storage actor,
+Discard restores that actor as well, or removes the actor created by the failed
+attempt. Discard itself performs no package Save.
+
+Brush/Erase update only affected cells in the editor's resolved visualization
+cache during a stroke. Release retains that current cache and the unchanged
+controls, closes the transaction and redraws other viewports. Grid resolution
+can coarsen on substantial growth but is not recomputed merely for release.
+No-op stamps obey brush spacing. Erase dirties only removed coverage, preserving
+the cached union elsewhere despite changed source tessellation.
+This scheduling changes only disposable editor preview work, not authored
+coverage, transaction grouping or runtime queries.
+
+The preview grid indexes affected regions; it does not define their outline.
+Boundary cells retain clipped source polygons, with repeat coverage merged and
+Layer priority resolved per covered point. Fully covered coplanar cells use a
+quad fast path. Editor and PIE meshes share these disposable patches, preserving
+the silhouette even when the spatial index coarsens. Serialized data is unchanged.
+
+Erase subtracts a bounded circular prism from the active Layer's triangles,
+interpolating fragment heights and preserving Shape ownership. Only cut triangles
+are replaced; shared/untouched vertices and Shape controls stay in place. Save
+compacts unreferenced vertices left by interactive cuts. A Shape retains
+affected erase stamps in document-local coordinates; rebuilding its controls
+reapplies these cuts at their authored locations. Delete removes the whole selected
+Shape. Neither operation affects triangles owned by other Layers. Shape metadata
+is editor-only; runtime still queries the baked triangles with Layer indices.
 
 Authoring triangles and runtime triangles are separate serialized fields.
 Runtime data is always rebuilt from authoring data. The MVP performs a linear
@@ -671,9 +745,10 @@ replaceable bake optimizations.
   never become the source for the next edit.
 - Mesh surface vertices are storage-actor local. Do not bake world-space
   Level Instance transforms into the document.
-- Mesh Layer entry must not reactivate once for Modifier replacement and a
-  second time for Camera activation. Update candidates first; let the new
-  Camera construction resolve them.
+- One Mesh Profile dispatches exactly one effect family. Unselected serialized
+  configuration cannot contribute effects.
+- Mesh Action/Patch cleanup uses exact owned instances, never class or asset
+  identity; natural expiry never causes repeated entry.
 - Every Mesh Camera Layer owns a separate temporary Context. A Layer exit
   pops only that Context; lower Mesh and external gameplay Contexts remain
   intact.

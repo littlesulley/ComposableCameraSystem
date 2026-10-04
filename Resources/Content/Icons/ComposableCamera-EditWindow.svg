@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="48" height="48" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Open tuning panel, with space for the editing pencil. -->
+  <path d="M38 18V9C38 6.8 36.2 5 34 5H8C5.8 5 4 6.8 4 9V37C4 39.2 5.8 41 8 41H18"
+        stroke="white" stroke-width="3.5" stroke-linecap="round"/>
+  <!-- Two controls stay legible in the 16-pixel menu brush. -->
+  <path d="M11 15H30M11 26H25" stroke="white" stroke-width="3" stroke-linecap="round"/>
+  <rect x="16" y="10.5" width="5" height="9" rx="1.5" fill="#40C0B4"/>
+  <rect x="12" y="21.5" width="5" height="9" rx="1.5" fill="#40C0B4"/>
+  <!-- Editing pencil: shaft, separate cap, and pointed nib. -->
+  <path d="M25 35L36 24L42 30L31 41Z" fill="#40C0B4"/>
+  <path d="M38 22L39.5 20.5C40.3 19.7 41.7 19.7 42.5 20.5L45.5 23.5C46.3 24.3 46.3 25.7 45.5 26.5L44 28Z" fill="white"/>
+  <path d="M23.5 37L29 42.5L22 44Z" fill="white"/>
+</svg>

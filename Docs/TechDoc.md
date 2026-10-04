@@ -1,6 +1,6 @@
 # ComposableCameraSystem Tech Notes
 
-Updated: 2026-10-02
+Updated: 2026-10-05
 
 Purpose: compact implementation reference. Keep this file current when code
 patterns, public APIs, hot-path rules, node catalogs, or gotchas change.
@@ -566,6 +566,14 @@ Global editor tools menu:
   are removed at module shutdown through ToolMenus ownership.
 - Global Nomad tab spawners use Hidden menu type. Explicit ToolMenus actions
   call `TryInvokeTab`, preserving singleton tabs and the Shot Editor context.
+- The root Tools submenu resolves `ComposableCamera.Tools` and `.Small` from
+  `FComposableCameraEditorStyle`, using `Icons/ComposableCamera-Tools.svg` at
+  20/16 pixels. Its operator/camera/exhaust artwork uses basic vector shapes
+  with a transparent background for compact menus.
+- `FComposableCameraEditorStyle` registers `ComposableCamera.EditWindow` and
+  `.Small` vector brushes from `Icons/ComposableCamera-EditWindow.svg` at 20/16
+  pixels. Live Edit, the Tools Edit Window launcher and its Nomad tab resolve
+  this same tuning-panel-and-pencil icon through the plugin style set.
 
 Editor console controls:
 
@@ -1363,23 +1371,26 @@ query uses two linear triangle passes. A later BVH/tile index may replace
 traversal without changing actor, profile, or tool contracts.
 
 `UComposableCameraMeshProfile` stores an embedded
-`FComposableCameraParameterTableRow Camera` plus the existing Modifier asset
-array. `FComposableCameraParameterTableRow::BuildParameterBlock` is the shared
-string-to-typed block path for both DataTable and Mesh Profile activation;
-do not duplicate parameter/default/orphan handling in new callers.
+`FComposableCameraParameterTableRow Camera`, the existing Modifier asset array,
+and Action/Patch configuration structs, gated by one serialized Type enum.
+`FComposableCameraParameterTableRow::BuildParameterBlock` is the shared
+string-to-typed block path for DataTable, Mesh Camera and Mesh Patch activation;
+do not duplicate Camera/Patch schema handling in new callers.
+Action uses `IsExposableProperty` + `TryMapPropertyToPinType`, identical to K2
+Action exposure. Unspecified properties remain on the duplicated template.
+String-compatible overrides use `ApplyStringValue`; Actor/Delegate use a
+separate serialized binding map resolved at Layer entry, with Actor class and
+Delegate signature checks. Explicit None clears the respective value.
 
 Layer Profile Modifier assets are templates. The subsystem duplicates them with the
 player camera manager as Outer. This prevents mesh removal from unregistering
-the same asset instance owned by another gameplay system. When a Profile also
-activates a Camera Type, `ReplaceModifiers(..., false)` updates candidates
-without reactivating the old camera. `OnTypeAssetCameraConstructed` resolves and
-applies those candidates to the new camera. Failed Camera activation explicitly
-falls back to `OnModifierChanged`. Modifier-only Layer edges update candidates,
-then refresh the currently active camera once.
+the same asset instance owned by another gameplay system. Only Modifier Profiles
+install candidates: entry uses `ReplaceModifiers(..., true)` once, exit removes
+its duplicated instances. A Camera Profile cannot also install Modifiers.
 
 The subsystem stores an active set keyed by storage actor plus Layer GUID. Each
-active Layer owns its duplicated Modifier instances. Every Camera-bearing Layer
-also owns a separate temporary Context; entering a nested Layer pushes above
+active Layer records only its selected effect's ownership. Every Camera-bearing Layer
+owns a separate temporary Context; entering a nested Layer pushes above
 the outer Context, and exit pops only that Layer. Lower camera instances retain
 their Director/tree state and resume in place. A Camera-less Layer creates no
 Context. Debug hints use `Mesh_<LayerName>_<LayerGuid>`; the context stack
@@ -1394,40 +1405,311 @@ When an active Layer Context pops, the resumed lower camera already contains
 the correct pre-entry properties. `RefreshEffectiveModifierSelection` updates
 only ModifierManager bookkeeping so removed duplicated assets are released;
 calling `OnModifierChanged` there would rebuild and reset the resumed camera.
-Camera Type and Transition soft references sync-load only on a Profile edge,
+Action ownership is weak because the PCM's registered set owns the instance.
+PatchManager ownership is weak because the original Director owns it. The
+Patch handle is `TObjectPtr` inside a non-reflected active-state struct and is
+traced through the subsystem's `AddReferencedObjects`; Patch instances hold
+only weak handles. Exit calls original manager `ExpirePatch` and releases the
+handle, preserving exit duration and unrelated instances. Already expired
+Actions/Patches clean up idempotently and never re-enter on unchanged membership.
+Camera Type, Transition, Action and Patch soft references sync-load only on a Profile edge,
 never on the per-frame unchanged fast path.
+
+`CCSMeshProfile` custom version 1 preserves original Camera/Modifier field names.
+Pre-versioned assets select their sole configured family automatically. Mixed
+legacy configuration sets serialized `bNeedsTypeSelection`; changing Type or
+the transactional confirmation button clears it. Pending Profiles are skipped
+once on entry with a warning; both configurations remain available.
 
 Editor technique:
 
-- Mesh Profile Details has ordered Camera, Modifier, Action, and Patch
-  categories. Camera hides its parent property row and explicitly adds the four
-  relevant children of its embedded parameter row, so the existing exposed-value
+- Mesh Profile Details hides every config parent and each struct's immediate
+  children before explicitly adding only the selected Type's relevant rows.
+  `ShowOnlyInnerProperties` promotes children into default categories independently
+  of their parent; `HideProperty(parent)` alone does not suppress those rows.
+  Do not recursively hide array elements or nested value fields: selected
+  Modifier arrays and InitialTransform still need their default child layouts.
+  Camera's existing exposed-value
   customization still reaches the sibling CameraType without emitting a second
   trailing Camera field. ContextName is omitted because Layer identity creates
-  the runtime Context. Action/Patch currently show reserved messages only.
-- Tool works on a transient document.
+  the runtime Context. bIsTransient/LifeTime are omitted because Mesh forces
+  non-transient unlimited activation. Transition and supported Activation fields
+  are advanced. Only the custom `Activation` group appears for Camera; the
+  default `ActivationParams` row is hidden. Camera picker rejects Patch subclasses.
+- Type change and legacy confirmation use `RequestForceRefresh`, which rebuilds
+  the real Details view on the next editor tick. `RequestRefresh` may only redraw
+  its tree and leave class customization tied to the previous Type. A property
+  row generator rebuilds for either request, so fresh row-generator tests alone
+  cannot cover an open panel's Type switching. `ProfileTypeRefresh` edits through
+  the real Details view's Type handle and waits for normal editor ticks; it
+  never forces refresh itself. Its latent state traces the transient Profile
+  through `FGCObject` and keeps callbacks weak to avoid lifetime cycles.
+- The wrapper customization finds the parent's CameraType, PatchAsset or
+  ActionAsset. Action reflection supplies a temporary schema/default map; all
+  families reuse typed widgets and transactions. Action binding maps have
+  `EditAnywhere` so PropertyEditor builds handles, but the raw map row is never
+  added. Unchecked bindings display template defaults, not a runtime source.
+  When a same-name Action property changes between a literal and Actor/Delegate,
+  prune the old representation as well as unknown keys so override toggles cannot
+  stay checked because of a stale value in the other map.
+- Parameter rows provide filter labels and stable row tags. Source asset or
+  Action template changes refresh weakly captured PropertyUtilities; destruction
+  removes the global property-change delegate. Multi-selection never edits an
+  arbitrary first object's parameters.
+- `ProfileTypeMigration`, `ProfileSerialization`, `ActionProfileParameters`,
+  `ExclusiveProfileDispatchAndCleanup`, `ProfileDetailsLayout`,
+  `ProfileTypeRefresh`, and `GeneratedProfileParameters` automation cover migration, serialization,
+  default/override behavior, exact cleanup after Context switches, handle GC,
+  selected-family UI, and generated schema. Run in the IDE/editor after compilation.
+- Named Context test setup uses `PCM.ActivateNewCamera(..., ContextName)`, which
+  routes through `ContextStack.EnsureContext`; PCM has no PushCameraContext API.
+  Object-picker `AllowedClass` conditionals explicitly use `PropertyClass.Get()`
+  so both operands are UClass pointers rather than mixing TObjectPtr and raw
+  pointers. `ActionObjectParameterPicker` checks the actual generated widget.
+- Tool works on an RF_Transactional transient settings UObject. UPROPERTY source,
+  Layer array, active index and revision GUID restore together. Tool preferences
+  are NonTransactional. Successful Save records a revision checkpoint outside
+  the Undo data; dirty state compares the restored revision against that checkpoint.
+- `EComposableCameraMeshDrawTool` remains the viewport dispatch state for
+  Brush/Rectangle/Circle/Polygon/Select/Erase. Native EComposableCameraMeshToolMode
+  groups it into Draw/Select/Erase for a uniform SSegmentedControl below Layer
+  properties. The Draw menu has only the four drawing types; settings remembers
+  the last drawing type across Select/Erase. Switching modes cancels drafts/ends
+  strokes before changing dispatch state and does not modify document revision.
+  Tool/surface options retain Category=Drawing internally; an instanced Details
+  customization labels it Draw/Select/Erase Options. A root-property visibility
+  filter removes the old Tool enum and unrelated options; EditConditionHides
+  still gates drawing variants. Select exposes snapping; Erase exposes radius/depth.
+  Select Options adds Delete Selected Shape as its first custom row. NameContent
+  places it in the left label column, aligned with Shape Grid Size's label.
+  SBox fixes it to 125 x 24 Slate units with centered text; the same-sized numeric
+  widget stays in ValueContent. The property handle's native value
+  widget retains its normal transaction/slider callbacks. Delete captures the
+  toolkit weakly. Save uses the same dimensions and a static-lifetime FButtonStyle
+  with FSlateRoundedBoxBrush green fills, 5-unit corners and explicit hover/pressed/
+  disabled states. White text stays centered; no brush allocation happens per UI
+  tick. An adjacent Discard uses the same sizing/corner radius with neutral fills
+  and an 8-unit horizontal gap. Selection-only EditConditions use HideEditConditionToggle to prevent
+  PropertyNode from exposing the hidden bHasShape cache as a user checkbox.
+  SSegmentedControl slot ToolTip attributes contain mode help; Drawing Type's
+  ToolTipText and menu-entry tooltips use explicit draw-tool instructions, so an
+  inactive option explains its own gesture. The compact footer joins only
+  nonempty draft measurements and validation feedback, collapsing when empty.
+  Saved/Unsaved state and document path/counts live in footer/Save tooltips;
+  successful shape edits clear feedback. `OnToolSettingsChanged` cancels an
+  active draft but preserves already released creation jobs without dirtying source;
+  actual Layer edits still use `OnLayerDataChanged`. All delegates unbind on exit.
+- Discard uses a separate nontransactional transient ToolSettings UObject as the
+  normalized opening/latest-successful-Save checkpoint. The mode's
+  AddReferencedObjects keeps its reflected Layer Profile references alive even
+  when current edits remove those assets. Capture copies only Layers, source,
+  active Layer and revision; it runs on initialization and successful package
+  Save, never failed Save or Undo. Discard reverts an active stroke before closing
+  interaction, drops queued jobs without waiting, then records committed source
+  restoration in one scoped transaction. Brush/grid/projection preferences remain
+  untouched. No-op/draft-only Discard creates no transaction; final refresh
+  rebuilds overlays/proxy and invalidates disposable coverage. A failed Save's
+  exact actor identity is retained weakly, with a flag recording whether that
+  attempt created it. Discard restores existing actor source/runtime data or uses
+  UWorld::EditorDestroyActor for the newly created actor, in the same transaction.
+  Undo/Redo compares the retained actor's reflected Layer/source structs against
+  the checkpoint only in the final Undo callback, updating the pending-rollback
+  flag. No deep comparison runs in button enablement or viewport rendering.
+  This keeps Discard available if Undo restores clean source while failed-save
+  actor data remains applied, and prevents repeated no-op actor transactions.
+  Editor-wide Undo and unrelated package dirty state are never reset.
+- `ComposableCameraMeshLayerShapes.cpp` validates simple outlines, removes
+  redundant collinear points, normalizes winding, and calls GeometryCore's
+  `PolygonTriangulation::TriangulateSimplePolygon(..., false)`. GeometryCore is
+  an editor-private module dependency. Longest-edge subdivision preserves the
+  outline and bounds sampling edges by ShapeSampleSpacing. A preflight limit of
+  16384 leaves rejects excessive work before collision traces; outlines cap at
+  256 points. Allocation occurs on authoring events/pending creation work, outside
+  runtime camera evaluation. Render traverses cached preview outlines/fills.
+- Projection caches samples by document XY. Copy cached values before inserting
+  further entries: TMap insertion may relocate its storage. Vertices, midpoints
+  and centroid must resolve compatible floor before a leaf is emitted. Document
+  Up traces are bounded around the initial hit plane; collision component
+  identity remains irrelevant. Fine curvature/gaps below spacing are sampled
+  approximations. Partial floor coverage is reported; failure leaves OutData
+  untouched. Successful commit saves FComposableCameraMeshAuthoredShape and fills
+  TriangleShapeIds alongside triangle Layer GUIDs. Replacement removes only the
+  matching Shape GUID's mesh. Empty ownership arrays are accepted for legacy source.
+  Shapes and TriangleShapeIds live under WITH_EDITORONLY_DATA; baked runtime
+  triangles and Layer indices continue through the existing storage/query contract.
+  FProjectedShapeBuild separates bounded outline/subdivision preparation from
+  resumable collision samples. A leaf can pause between any of its seven samples;
+  successful and failed samples remain cached. BuildProjectedShape wraps this same
+  builder synchronously for existing Shape edits and pure geometry consumers.
+  New creation queues a small captured-plane outline fill immediately, then
+  FEdMode::Tick advances only the head job once per GFrameCounter, capped at 256
+  new queries / a soft 4 ms query-work budget. Collision remains on the game thread.
+  Snapshot copy and final transaction serialization are additional bounded-event
+  work, not covered by that query budget. Source/cache snapshots and GUID/enabled
+  Layer flags go to Async(ThreadPool); no World, UObject or mode pointer goes to
+  the worker. Only a ready future is consumed; cancellation discards it without
+  joining. Atomic cancellation skips queued work before it starts. A completed
+  worker can finish on its owned snapshots after cancellation, with no callback
+  into the mode. Source revision mismatch reruns coverage on current source using
+  retained projected geometry. Ready results wait for active drags/transactions;
+  completion installs source/cache in one creation Undo step on the editor thread.
+  Queued fills survive tool changes and focus loss; explicit cancellation, Undo,
+  Layer structural changes, lost World and exit discard them. Save and Brush/Erase
+  mutation wait for completion. Preview fill is provisional on the captured plane;
+  sampled holes, terrain heights and resolved Layer priority become visible at
+  completion. ShapeProjectionBudget checks query bounds, cache reuse, leaf resumes
+  and floor gaps. ShapeCreationPreview checks immediate fills for all three types,
+  queue/cancel/focus/settings behavior, Save/mutation gating and atomic Undo/Redo.
+  Actual viewport timing and worker rebase/cancel races require editor smoke tests.
+- Rectangle/Circle drafts use drag/release; Polygon uses clicks/Enter or closure,
+  with Backspace/Esc. Tool/Layer changes and LostFocus cancel drafts. Mouse release
+  ends captured Brush input before checking Alt, so modifiers cannot strand a
+  stroke. Dimensions and errors are separate status fields. `ShapeGeometry`,
+  `ShapeProjectionAndLimits` and `ShapeInteraction` cover actual runtime boundary
+  queries, concave winding, terrain samples, density rejection before projection,
+  grid/anchor mapping and draft lifecycle. Compile/run in the IDE/editor.
 - Layer selection is GUID-based. A selected `SListView` row updates the private
   paint index; the index is not exposed in Details.
-- Selected Layer properties use an `IStructureDetailsView` over a non-owning
-  `FStructOnScope`. Detach that scope before any Layer-array add/delete/reorder
-  that could relocate elements, then bind it to the newly selected element.
+- Selected Layer/Shape properties use separate filtered views of
+  UComposableCameraMeshLayerSelection, a stable UObject proxy. Root-property
+  filtering includes parent chains so nested Layer and Shape fields cannot leak
+  into each other's panels. Shape Details/delete controls appear only in Select.
+  The tool-options visibility delegate captures settings weakly. PreEditChange
+  calls Modify on the settings document
+  inside PropertyEditor's transaction; PostEditChangeProperty applies completed
+  values to source. It never references array-element memory. Final FEditorUndoClient
+  callbacks repopulate it after restoration. Toolkit refresh requests coalesce
+  into a weakly bound one-shot FTSTicker callback calling IDetailsView::ForceRefresh
+  for the Layer, Shape and tool-options views together;
+  the ticker returns true while GEditor::IsTransactionActive, leaving the request
+  pending until slider/stroke completion. ToolSettings PostEditChangeProperty skips
+  Interactive changes; the final commit dispatches its normal callback. This also
+  protects a refresh requested before capture. UE5.6 SPropertyEditorNumeric opens
+  one transaction, sets InteractiveChange|NotTransactable while dragging, and
+  closes it on final SetValue/release. Replacing its widget during those updates
+  can lose the final callback. UTransBuffer::CanUndo refuses any active transaction,
+  so the resulting symptom can appear in Draw, Select or Erase. Never work around
+  that by force-closing arbitrary editor transactions.
+  toolkit destruction removes pending work. UE5.6 IDetailsView does not expose
+  IPropertyUtilities::RequestForceRefresh. Use PropertyHandle.h for IPropertyHandle.
+  IDetailLayoutBuilder is declared by DetailLayoutBuilder.h; its interface name
+  is not a valid header filename. Audit all includes in newly added tests together
+  because C1083 stops compilation before later missing headers can be reported.
+- Select ray-tests actual triangles to resolve Shape GUID. Editor hit proxies
+  identify individual controls. Nearest ray-hit distance wins; hits within 0.001
+  document units prefer the later retained Shape record, rather than triangle
+  position. This preserves overlap selection after erase swap-removal and float
+  retessellation. ErasePickingOrder covers this tie, hole picking and nearest-floor
+  precedence. Dragging changes only cached preview controls;
+  release validates/projects, preserves GUID and erase masks, then transactionally
+  replaces geometry. Cached Shape overlays avoid ordinary Render allocations;
+  hit-proxy allocation occurs only in the editor picking pass.
+- BeginStroke keeps one FScopedTransaction until release/focus loss, calls Modify
+  once and captures cancellation source/revision. No-op strokes cancel their
+  transaction; Esc/right mouse restores the capture and cancels it. Layer CRUD,
+  toggles and Shape commits use independent scoped transactions. Details commits
+  use their existing transaction. Undo/Redo refreshes caches without reauthoring
+  source during restoration, consistent with the graph Undo reentry invariant.
+  Both source-settings and selection-proxy property callbacks reject GIsTransacting:
+  UObject PostEditUndo can otherwise route back through ordinary PostEditChangeProperty
+  and generate a new revision or reproject partially restored controls.
+- EraseShapeGeometry subtracts a 32-sided circular prism by convex half-space
+  splitting, triangulates surviving fragments and preserves interpolated Z and
+  both ownership GUIDs. Local affine axes preserve world brush dimensions under
+  the document anchor. Affected Shapes retain document-local erasure stamps;
+  rebuild reapplies them. Identical retained cuts are skipped to prevent float
+  roundoff from repeatedly shaving a boundary. Other Layer geometry survives.
+  Brush-coordinate min/max tests reject far triangles before polygon scratch.
+  Original vertices use a fixed array; at most 37 clipped vertices fit inline
+  capacity 40, and at most 34 outside pieces fit inline scratch. Walk original
+  triangles downward so swap-removal moves only already processed source or new
+  fragments into the current slot; never recut appended fragments in that stamp.
+  Remove index triplets and Layer/optional Shape GUID entries together, then append
+  surviving fragments. Rejected/uncut triangles and existing vertex/Shape buffers
+  are not copied. Shared vertex indices remain valid. Unused vertices accumulate
+  during interaction and are compacted by Save's existing RemoveOrphanedTriangles
+  path; erase-to-empty clears them. This trades transient source capacity for
+  avoiding document-wide allocation/copy on each stamp, not a serialized-format change.
+  Optional work statistics count candidate/rejected triangles without timing
+  thresholds. Changed bounds use the actual removed polygon footprint. Outside
+  the cut the cached union remains valid, even though source triangulation differs;
+  float source emission can introduce submillimeter boundary roundoff.
+- `ShapeEditingAndErase` covers real ray picking/runtime coverage, small eraser
+  holes in large triangles, Layer isolation, reflected source save/reload, mask
+  replay, control editing and deletion. `DocumentUndoRedo` exercises real editor
+  transactions, save checkpoints, multi-stamp erasure, Layer deletion and the
+  actual Details property handle. Compile and run in the IDE/editor.
+  `SelectionDetailsRefresh` exercises the real Details view and toolkit refresh,
+  checks deferred/coalesced layout rebuilding, and closes with a pending request.
+  `ToolPanels` checks actual Details properties and mode-specific widget visibility,
+  draft cancellation, preserved Shape/revision, and restored drawing type.
+  `ToolSliderTransactions` uses real numeric property handles and editor ticks to
+  reproduce the native slider lifecycle in all three modes, including a refresh
+  queued before capture, one final rebuild and no abandoned transaction.
+  `DocumentUndoRedo` now erases through PaintAtHover instead of manually changing
+  revision after a geometry-helper call; it also checks edited controls, deletion
+  with retained cuts and independent Circle/Polygon creation Undo/Redo.
 - Save copies source into the hidden Level actor.
 - Bake drops orphaned Layer GUID triangles and resolves remaining GUIDs to
   compact indices.
 - Brush-ring traces accept compatible floor hits across collision-component
   boundaries. Component identity is not surface identity; floor normal and
   bounded projection remain the geometric filters.
-- Authoring and preview visualization rasterize saved triangles into a separate
-  anchor-local cell cache. Each same-surface cell emits once. The first enabled
-  Layer in top-to-bottom list order resolves the visual winner before
-  `FDynamicMeshBuilder` submission, so transparent color never accumulates from
-  repeat stamps or lower rows. Query and save structures remain untouched.
-- Edit mode invalidates this cache after geometry or Layer changes. Read-only
-  Preview builds one cache per loaded storage actor and releases all caches on
-  mode exit.
+- Authoring and preview visualization clip saved triangles into a separate
+  anchor-local cell cache. Normalize source winding to counterclockwise XY,
+  clip against the four cell half-planes and interpolate XYZ at intersections.
+  Each height bucket stores non-overlapping convex FResolvedSurfacePatch polygons.
+  Incoming coverage subtracts earlier/same-priority footprints; a higher Layer
+  subtracts its footprint from lower patches. Repeated stamps therefore do not
+  deepen alpha, while partially covered cells can show multiple Layers without
+  whole-square expansion. Single-Layer coplanar full cells collapse to one quad
+  and skip redundant coverage. Cached boundary polygons preserve the silhouette
+  regardless of cell size; there is no centroid fallback.
+  Convex separating-edge checks precede subtraction for disjoint/touching pairs,
+  retaining polygons without needless splits along unrelated supporting lines.
+  Inline polygon/patch storage favors common cells; complex boundaries can grow
+  on authoring events.
+  Cell center/normal/Layer fields summarize the height bucket for lookup/removal,
+  not its entire visible ownership. Both FDynamicMeshBuilder and PIE mesh export
+  iterate patches with variable vertex/triangle counts. Offset along document Z,
+  rather than each patch normal, to keep adjacent XY edges coincident. No clipping
+  or union work happens per render frame. Query/save structures remain untouched.
+  VisualizationBoundary and VisualizationPartialOverlap cover boundary fidelity,
+  sub-cell holes, both windings, runtime export and geometric Layer/alpha partition.
+- Layer/existing-Shape changes invalidate the full visualization. New Shape
+  creation computes regional coverage on snapshots and installs the ready cache.
+  During brush
+  strokes, UpdateAuthoringVisualization removes affected grid entries, repairs
+  indices after dense-cell swap removal, and rasterizes only triangles/cells
+  overlapping those entries. Existing same-surface tolerance and Layer ordering
+  still resolve coverage at each height. A retained CellsByGrid map avoids
+  recreating remote lookups; local/full equivalence compares per-Layer area and
+  bidirectional interior probes within each height cell, with 1.e-3 cm^2 area
+  and 1.e-3 cm height tolerances for FVector3f cut roundoff. Equivalent coverage
+  need not retain the same tessellation. Cell size remains stable across release; desired growth above
+  1.25x cached size can trigger an early regrid;
+  full rebuild then restores the normal bounds-derived resolution. Invalid/empty
+  source clears both cells and lookup. These allocations are editor authoring
+  event work; runtime camera evaluation is unchanged.
+  Initialize native FIntPoint dirty bounds explicitly: its default constructor
+  leaves coordinates unspecified, and MSVC can report C4701 across the separate
+  full/regional branches. Regional work overwrites both bounds before clamping;
+  full rebuilds ignore them and retain distant coverage, including invalid-bound
+  fallbacks checked by IncrementalVisualization.
+  PaintAtHover spaces failed attempts too, updates revision immediately, refreshes
+  the active viewport and defers global redraw to FinishStroke. Release
+  retains the current visualization and controls, closes its transaction and
+  redraws other viewports. Undo/cancellation and Layer/Shape edits still rebuild
+  source-dependent caches; Save compacts unused source vertices. Read-only Preview
+  builds one cache per storage actor and releases caches on exit.
+  `IncrementalVisualization`, `EraseBroadPhase`
+  and `StrokeVisualizationRefresh` cover equivalence, work bounds and lifecycle.
+  EraseLocalVisualization checks cut-sized cell work and retained remote coverage;
+  DisjointPreviewPatches checks bounded cache fragmentation. EraseBroadPhase also
+  verifies reserved source buffers/vertices survive and no-op cuts preserve counts.
 - PIE cannot use `FEdMode::Render`: that callback draws only Level Editor
   viewports and resolves the editor world. The Show command therefore builds
-  the same resolved cell meshes into non-zero, per-storage BatchIDs on each PIE
+  the same resolved patch meshes into non-zero, per-storage BatchIDs on each PIE
   world's `WorldPersistent` `ULineBatchComponent`. One persistent submission
   per Layer avoids frame-over-frame alpha accumulation; `ClearBatch` removes
   only CCS-owned geometry. A ticker handles already-running PIE, multi-PIE
@@ -1443,9 +1725,11 @@ Editor technique:
   Exit guards against close-callback re-entry and explicitly redraws Level
   viewports. Preview toggle first deactivates edit mode, then activates preview.
 - Register custom Level Editor modes with a resolved normal/small icon pair
-  from `FComposableCameraEditorStyle`; reuse that pair for related ToolMenus
-  entries. Passing default `FSlateIcon()` leaves the active-mode icon slot
-  blank even when the mode name renders correctly.
+  from `FComposableCameraEditorStyle`. Passing default `FSlateIcon()` to mode
+  registration leaves the active-mode icon slot blank even when the mode name
+  renders correctly. The Edit/Show Mesh Camera Layers ToolMenus entries use
+  `FSlateIcon()` intentionally for text-only toggles; their mode registrations
+  keep the resolved icon pair.
 - Read-only preview is a separate legacy editor mode and never exposes storage
   actor details. Its PIE companion is rendering-only and never changes data.
 - Geometry optimization must consume authoring data and emit runtime data. It

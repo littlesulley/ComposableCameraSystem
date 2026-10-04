@@ -13,9 +13,11 @@ class IStructureDetailsView;
 class FDetailWidgetRow;
 class FPropertyEditorModule;
 struct FComposableCameraExposedParameterValues;
-struct FComposableCameraParameterTableRow;
 class FStructOnScope;
 class UComposableCameraTypeAsset;
+class UComposableCameraActionTypeAsset;
+struct FComposableCameraMeshActionConfig;
+struct FComposableCameraMeshParameterBinding;
 class UScriptStruct;
 class UEnum;
 
@@ -33,22 +35,20 @@ class UEnum;
  * routes it through us.
  *
  * BEHAVIOR:
- * 1. Walks up via GetParentHandle() to locate the sibling CameraType on
- * the parent row, sync-loads it, and iterates its ExposedParameters.
+ * 1. Locates the sibling CameraType, PatchAsset, or ActionAsset and builds
+ * the same parameter schema as its K2 node.
  * 2. Generates one row per exposed parameter/variable. Each row has a
  * checkbox (override toggle) and a type-appropriate value widget:
  * checkbox/spinner/vector components/transform rows for typed values,
  * inline IStructureDetailsView for Struct types. The widget is
  * disabled when the checkbox is unchecked (using the asset's default).
- * 3. Entries whose keys are not present on the current CameraType are
- * grouped into a collapsed "Orphaned" section so swapping CameraType
- * doesn't silently destroy values. Users can remove them explicitly.
+ * 3. Removes entries absent from the selected asset's exposed schema.
  * 4. When the parent row's CameraType changes, the customization forces a
  * details-panel refresh so the per-parameter widgets rebuild against
  * the new exposed parameter list.
  *
- * The TMap<FName,FString> is the ground truth; this customization is a typed
- * view over it. Values serialized here remain authorable by hand.
+ * Scalar/struct/asset overrides use TMap<FName,FString>. Mesh Action Actor
+ * and Delegate inputs use typed per-player runtime bindings instead.
  */
 class COMPOSABLECAMERASYSTEMEDITOR_API FComposableCameraParameterTableRowCustomization: public IPropertyTypeCustomization
 {
@@ -73,9 +73,9 @@ private:
 	 * point at exactly one instance (multi-select degrades to read-only). */
 	FComposableCameraExposedParameterValues* GetWrapperPtr() const;
 
-	/** Returns the first raw row pointer by walking up to the parent handle.
-	 * Used to locate the sibling CameraType field at the row level. */
-	FComposableCameraParameterTableRow* GetRowPtr() const;
+	FComposableCameraMeshActionConfig* GetActionConfigPtr() const;
+	TSharedRef<SWidget> BuildRuntimeBindingWidget(FName Name, bool bDelegate, const FString& DefaultValue);
+	void SetRuntimeBinding(FName Name, const FComposableCameraMeshParameterBinding& Binding);
 
 	/** Force-refresh the details view so CustomizeChildren runs again after a
 	 * CameraType change on the parent row. */
@@ -156,6 +156,7 @@ private:
 	/** Weak reference to the currently watched type asset so we can filter
 	 * the global OnObjectPropertyChanged broadcast. */
 	TWeakObjectPtr<UComposableCameraTypeAsset> WatchedTypeAsset;
+	TWeakObjectPtr<UComposableCameraActionTypeAsset> WatchedActionAsset;
 
 	/** Keeps FStructOnScope instances alive for inline struct detail views. */
 	TArray<TSharedPtr<FStructOnScope>> StructScopes;

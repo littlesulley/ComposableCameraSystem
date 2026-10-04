@@ -6,7 +6,7 @@
 
 class FPropertyEditorModule;
 
-/** Four-section Details layout for UComposableCameraMeshProfile. */
+/** Selected-family Details layout for UComposableCameraMeshProfile. */
 class COMPOSABLECAMERASYSTEMEDITOR_API FComposableCameraMeshProfileCustomization final
 	: public IDetailCustomization
 {

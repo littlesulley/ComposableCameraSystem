@@ -6,9 +6,22 @@
 #include "Actions/ComposableCameraActionBase.h"
 #include "Nodes/ComposableCameraCameraNodeBase.h"
 #include "Transitions/ComposableCameraTransitionBase.h"
+#include "GameFramework/PlayerController.h"
 #include "ComposableCameraTestObjects.generated.h"
 
 class AComposableCameraPlayerCameraManager;
+
+DECLARE_DYNAMIC_DELEGATE(FComposableCameraMeshTestCallback);
+
+UCLASS(Hidden, MinimalAPI)
+class AComposableCameraMeshBindingTestController : public APlayerController
+{
+	GENERATED_BODY()
+public:
+	int32 CallbackCount = 0;
+	UFUNCTION()
+	void NotifyMeshAction() { ++CallbackCount; }
+};
 
 /**
  * A controllable transition for testing. Allows tests to manually set finished state
@@ -51,7 +64,7 @@ protected:
 	}
 };
 
-/** Reflection fixture for Action asset Actor parameters. */
+/** Reflection fixture for Action asset Actor, Object and Delegate parameters. */
 UCLASS(Hidden, MinimalAPI)
 class UComposableCameraActionAssetTestAction : public UComposableCameraActionBase
 {
@@ -60,6 +73,12 @@ class UComposableCameraActionAssetTestAction : public UComposableCameraActionBas
 public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Test")
 	TObjectPtr<AActor> TargetActor;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Test")
+	TObjectPtr<UObject> AssetObject;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Test")
+	FComposableCameraMeshTestCallback Callback;
 };
 
 /** Authored class defaults for the class-based Action duration regression. */

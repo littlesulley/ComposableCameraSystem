@@ -125,6 +125,18 @@ FComposableCameraEditorStyle::FComposableCameraEditorStyle()
 	Set("ClassThumbnail.ComposableCameraShotAsset",
 		new IMAGE_BRUSH_SVG("Icons/ContentBrowser-ComposableCameraShot", Icon64x64));
 
+	// Global Tools submenu: camera operator, teal lens and orange exhaust.
+	Set("ComposableCamera.Tools",
+		new IMAGE_BRUSH_SVG("Icons/ComposableCamera-Tools", Icon20x20));
+	Set("ComposableCamera.Tools.Small",
+		new IMAGE_BRUSH_SVG("Icons/ComposableCamera-Tools", Icon16x16));
+
+	// Shared Live Edit / global Edit Window icon: tuning controls and a pencil.
+	Set("ComposableCamera.EditWindow",
+		new IMAGE_BRUSH_SVG("Icons/ComposableCamera-EditWindow", Icon20x20));
+	Set("ComposableCamera.EditWindow.Small",
+		new IMAGE_BRUSH_SVG("Icons/ComposableCamera-EditWindow", Icon16x16));
+
 	// Mesh Camera Layer editor mode. The Level Editor mode selector uses the
 	// normal brush, while compact menus and toolbars request the small brush.
 	Set("MeshCameraLayers.Mode",

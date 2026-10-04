@@ -70,6 +70,7 @@ public class ComposableCameraSystemEditor : ModuleRules
             new string[]
             {
                 "ClassViewer",
+                "GeometryCore",
                 "GameplayTags"
             }
         );

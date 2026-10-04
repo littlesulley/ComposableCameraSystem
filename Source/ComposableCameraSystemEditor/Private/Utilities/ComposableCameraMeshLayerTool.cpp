@@ -333,7 +333,7 @@ void FComposableCameraMeshLayerTool::RegisterMenus()
 		TEXT("ComposableCameraMeshLayerEdit"),
 		LOCTEXT("Edit", "Edit Mesh Camera Layers"),
 		LOCTEXT("EditTooltip", "Open the Level-local mesh camera layer painting tool."),
-		GetMeshLayerModeIcon(),
+		FSlateIcon(),
 		FUIAction(
 			FExecuteAction::CreateStatic(&FComposableCameraMeshLayerTool::ToggleEditMode),
 			FCanExecuteAction(),
@@ -343,7 +343,7 @@ void FComposableCameraMeshLayerTool::RegisterMenus()
 		TEXT("ComposableCameraMeshLayerPreview"),
 		LOCTEXT("Preview", "Show Mesh Camera Layers"),
 		LOCTEXT("PreviewTooltip", "Toggle read-only rendering for all loaded mesh camera layers, including PIE."),
-		GetMeshLayerModeIcon(),
+		FSlateIcon(),
 		FUIAction(
 			FExecuteAction::CreateStatic(&FComposableCameraMeshLayerTool::TogglePreviewMode),
 			FCanExecuteAction(),

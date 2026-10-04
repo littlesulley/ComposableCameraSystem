@@ -2,6 +2,7 @@
 
 #include "Utilities/ComposableCameraEditorToolsMenu.h"
 
+#include "ComposableCameraEditorStyle.h"
 #include "Editors/ComposableCameraShotEditor.h"
 #include "Editors/ComposableCameraSystemEditWindow.h"
 #include "Framework/Docking/TabManager.h"
@@ -59,14 +60,16 @@ void FComposableCameraEditorToolsMenu::RegisterMenus()
 		LOCTEXT("Submenu", "Composable Camera System"),
 		LOCTEXT("SubmenuTooltip", "Camera editors, mesh layers, viewport tools and Sequencer utilities."),
 		FNewToolMenuChoice(), false,
-		FSlateIcon(FAppStyle::GetAppStyleSetName(), "ClassIcon.CameraComponent"));
+		FSlateIcon(FComposableCameraEditorStyle::Get()->GetStyleSetName(),
+			"ComposableCamera.Tools", "ComposableCamera.Tools.Small"));
 
 	UToolMenu* Menu = UToolMenus::Get()->RegisterMenu(MenuName);
 	FToolMenuSection& Windows = Menu->FindOrAddSection(TEXT("Windows"), LOCTEXT("Windows", "Editors"));
 	Windows.AddMenuEntry(TEXT("ComposableCameraSystemEditWindow"),
 		LOCTEXT("EditWindow", "Composable Camera System Edit Window"),
 		LOCTEXT("EditWindowTooltip", "Open the camera welcome page, learning resources and debugging tools."),
-		FSlateIcon(FAppStyle::GetAppStyleSetName(), "ClassIcon.CameraComponent"),
+		FSlateIcon(FComposableCameraEditorStyle::Get()->GetStyleSetName(),
+			"ComposableCamera.EditWindow", "ComposableCamera.EditWindow.Small"),
 		FUIAction(FExecuteAction::CreateStatic(&OpenEditorTab, FComposableCameraSystemEditWindow::TabId)));
 	Windows.AddMenuEntry(TEXT("ComposableCameraShotEditor"),
 		LOCTEXT("ShotEditor", "Shot Editor"),

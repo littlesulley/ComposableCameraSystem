@@ -2,9 +2,9 @@
 
 #include "Editors/ComposableCameraSystemEditWindow.h"
 
+#include "ComposableCameraEditorStyle.h"
 #include "Framework/Application/SlateApplication.h"
 #include "Framework/Docking/TabManager.h"
-#include "Styling/AppStyle.h"
 #include "Widgets/Docking/SDockTab.h"
 #include "Widgets/SComposableCameraSystemEditWindow.h"
 #include "Widgets/SNullWidget.h"
@@ -24,7 +24,8 @@ void FComposableCameraSystemEditWindow::RegisterTabSpawner()
 		FOnSpawnTab::CreateStatic(&FComposableCameraSystemEditWindow::SpawnTab))
 		.SetDisplayName(LOCTEXT("Title", "Composable Camera System Edit Window"))
 		.SetTooltipText(LOCTEXT("Tooltip", "Welcome, learning resources and live CCS debugging tools."))
-		.SetIcon(FSlateIcon(FAppStyle::GetAppStyleSetName(), "ClassIcon.CameraComponent"))
+		.SetIcon(FSlateIcon(FComposableCameraEditorStyle::Get()->GetStyleSetName(),
+			"ComposableCamera.EditWindow", "ComposableCamera.EditWindow.Small"))
 		.SetMenuType(ETabSpawnerMenuType::Hidden); // Explicit entry in the shared CCS Tools submenu.
 }
 

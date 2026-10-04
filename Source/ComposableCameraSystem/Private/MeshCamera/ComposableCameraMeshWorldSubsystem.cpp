@@ -3,9 +3,12 @@
 #include "MeshCamera/ComposableCameraMeshWorldSubsystem.h"
 
 #include "Core/ComposableCameraContextStack.h"
+#include "Core/ComposableCameraDirector.h"
 #include "Core/ComposableCameraParameterBlock.h"
 #include "Core/ComposableCameraPlayerCameraManager.h"
 #include "DataAssets/ComposableCameraMeshProfile.h"
+#include "DataAssets/ComposableCameraActionTypeAsset.h"
+#include "DataAssets/ComposableCameraPatchTypeAsset.h"
 #include "DataAssets/ComposableCameraModifierDataAsset.h"
 #include "DataAssets/ComposableCameraTransitionDataAsset.h"
 #include "DataAssets/ComposableCameraTypeAsset.h"
@@ -14,6 +17,23 @@
 #include "GameFramework/PlayerController.h"
 #include "MeshCamera/ComposableCameraMeshProfileState.h"
 #include "MeshCamera/ComposableCameraMeshSurfaceStorageActor.h"
+#include "Patches/ComposableCameraPatchHandle.h"
+#include "Patches/ComposableCameraPatchManager.h"
+#include "Actions/ComposableCameraActionBase.h"
+#include "UObject/GCObject.h"
+
+void UComposableCameraMeshWorldSubsystem::AddReferencedObjects(UObject* InThis, FReferenceCollector& Collector)
+{
+	UComposableCameraMeshWorldSubsystem* Subsystem = CastChecked<UComposableCameraMeshWorldSubsystem>(InThis);
+	for (FPlayerLayerState& State : Subsystem->PlayerStates)
+	{
+		for (FActiveLayerState& Layer : State.ActiveLayers)
+		{
+			Collector.AddReferencedObject(Layer.PatchHandle);
+		}
+	}
+	Super::AddReferencedObjects(InThis, Collector);
+}
 
 void UComposableCameraMeshWorldSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 {
@@ -288,44 +308,89 @@ void UComposableCameraMeshWorldSubsystem::EnterLayer(
 	{
 		return;
 	}
-
-	TArray<UComposableCameraNodeModifierDataAsset*, TInlineAllocator<4>> NewModifiers;
-	NewModifiers.Reserve(Profile->ModifierAssets.Num());
-	for (UComposableCameraNodeModifierDataAsset* SourceAsset : Profile->ModifierAssets)
+	if (Profile->NeedsTypeSelection())
 	{
-		if (SourceAsset)
+		UE_LOG(LogComposableCameraSystem, Warning, TEXT("Mesh Layer '%s' skipped: legacy mixed Profile '%s' needs Type confirmation."),
+			*Layer.LayerName.ToString(), *Profile->GetPathName());
+		return;
+	}
+
+	switch (Profile->Type)
+	{
+	case EComposableCameraMeshProfileType::CameraType:
+		break;
+	case EComposableCameraMeshProfileType::Modifier:
+	{
+		TArray<UComposableCameraNodeModifierDataAsset*, TInlineAllocator<4>> NewModifiers;
+		NewModifiers.Reserve(Profile->ModifierAssets.Num());
+		for (UComposableCameraNodeModifierDataAsset* SourceAsset : Profile->ModifierAssets)
 		{
-			if (UComposableCameraNodeModifierDataAsset* Instance =
-				DuplicateObject<UComposableCameraNodeModifierDataAsset>(SourceAsset, CameraManager))
+			if (IsValid(SourceAsset))
 			{
-				NewModifiers.Add(Instance);
-				LayerState.ModifierInstances.Add(Instance);
+				UComposableCameraNodeModifierDataAsset* Instance = DuplicateObject<UComposableCameraNodeModifierDataAsset>(SourceAsset, CameraManager);
+				if (Instance)
+				{
+					NewModifiers.Add(Instance);
+					LayerState.ModifierInstances.Add(Instance);
+				}
 			}
 		}
+		if (!NewModifiers.IsEmpty())
+		{
+			CameraManager->ReplaceModifiers(TConstArrayView<UComposableCameraNodeModifierDataAsset*>(), NewModifiers, true);
+		}
+		return;
 	}
-	if (!NewModifiers.IsEmpty())
+	case EComposableCameraMeshProfileType::Action:
 	{
-		CameraManager->ReplaceModifiers(
-			TConstArrayView<UComposableCameraNodeModifierDataAsset*>(),
-			NewModifiers,
-			false);
+		if (UComposableCameraActionTypeAsset* Asset = Profile->Action.ActionAsset.LoadSynchronous())
+		{
+			FComposableCameraParameterBlock Parameters;
+			Profile->Action.BuildParameterBlock(*Asset, State.PlayerController.Get(), CameraManager, Layer.StorageActor.Get(), Parameters);
+			LayerState.ActionInstance = CameraManager->AddCameraActionFromAsset(Asset, Parameters, Profile->Action.bOnlyForCurrentCamera);
+		}
+		else if (!Profile->Action.ActionAsset.IsNull())
+		{
+			UE_LOG(LogComposableCameraSystem, Warning, TEXT("Mesh Layer '%s' could not load ActionAsset '%s'."),
+				*Layer.LayerName.ToString(), *Profile->Action.ActionAsset.ToSoftObjectPath().ToString());
+		}
+		return;
+	}
+	case EComposableCameraMeshProfileType::Patch:
+	{
+		const UComposableCameraContextStack* Stack = CameraManager->GetContextStack();
+		UComposableCameraDirector* Director = Stack ? Stack->GetActiveDirector() : nullptr;
+		UComposableCameraPatchManager* Manager = Director ? Director->GetPatchManager() : nullptr;
+		if (UComposableCameraPatchTypeAsset* Asset = Profile->Patch.PatchAsset.LoadSynchronous(); Asset && Manager)
+		{
+			FComposableCameraParameterBlock Parameters;
+			Profile->Patch.BuildParameterBlock(*Asset, Parameters);
+			LayerState.PatchHandle = Manager->AddPatch(Asset, Profile->Patch.ActivationParams, Parameters);
+			LayerState.PatchManager = Manager;
+		}
+		else if (!Profile->Patch.PatchAsset.IsNull())
+		{
+			UE_LOG(LogComposableCameraSystem, Warning, TEXT("Mesh Layer '%s' could not activate PatchAsset '%s': asset or active PatchManager unavailable."),
+				*Layer.LayerName.ToString(), *Profile->Patch.PatchAsset.ToSoftObjectPath().ToString());
+		}
+		return;
+	}
+	default:
+		UE_LOG(LogComposableCameraSystem, Warning, TEXT("Mesh Profile '%s' has an invalid Type."), *Profile->GetPathName());
+		return;
 	}
 
 	UComposableCameraTypeAsset* CameraType = Profile->Camera.CameraType.IsNull()
 		? nullptr
 		: Profile->Camera.CameraType.LoadSynchronous();
-	if (!CameraType)
+	if (!CameraType || CameraType->IsA<UComposableCameraPatchTypeAsset>())
 	{
 		if (!Profile->Camera.CameraType.IsNull())
 		{
 			UE_LOG(LogComposableCameraSystem, Warning, TEXT(
-				"Mesh Layer '%s' could not load CameraType '%s'."),
+				"Mesh Layer '%s' requires a valid CameraType asset (Patch assets use the Patch Profile Type): '%s'."),
 				*Layer.LayerName.ToString(),
 				*Profile->Camera.CameraType.ToSoftObjectPath().ToString());
-		}
-		if (!NewModifiers.IsEmpty())
-		{
-			CameraManager->OnModifierChanged();
 		}
 		return;
 	}
@@ -366,10 +431,6 @@ void UComposableCameraMeshWorldSubsystem::EnterLayer(
 		|| LayerState.OwnedCameraContextName.IsNone())
 	{
 		LayerState.OwnedCameraContextName = NAME_None;
-		if (!NewModifiers.IsEmpty())
-		{
-			CameraManager->OnModifierChanged();
-		}
 	}
 }
 
@@ -377,6 +438,21 @@ void UComposableCameraMeshWorldSubsystem::ExitLayer(
 	FActiveLayerState& LayerState,
 	AComposableCameraPlayerCameraManager* CameraManager)
 {
+	if (CameraManager)
+	{
+		if (UComposableCameraActionBase* Action = LayerState.ActionInstance.Get())
+		{
+			CameraManager->RemoveCameraAction(Action);
+		}
+	}
+	if (UComposableCameraPatchManager* Manager = LayerState.PatchManager.Get())
+	{
+		Manager->ExpirePatch(LayerState.PatchHandle);
+	}
+	LayerState.ActionInstance.Reset();
+	LayerState.PatchHandle = nullptr;
+	LayerState.PatchManager.Reset();
+
 	if (!CameraManager)
 	{
 		LayerState.ModifierInstances.Reset();
