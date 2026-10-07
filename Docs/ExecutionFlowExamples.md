@@ -1,6 +1,6 @@
 # Execution Flow Examples
 
-Updated: 2026-10-05
+Updated: 2026-10-08
 
 This file gives compact end-to-end flows. Keep examples current with source.
 
@@ -240,6 +240,20 @@ Authoring:
 Tools -> Edit Mesh Camera Layers
   -> current Level selected as document scope
   -> load hidden storage actor into transient working document
+  -> StartResident captures original source + GUID/enabled flags on editor thread
+       -> native worker builds authoring index -> early index/grid-size delivery
+       -> saved version-1 preview: validate/load exact polygons; skip spatial clipping
+       -> legacy/invalid cache: resolve complete exact coverage with original triangle order
+       -> prepare whole shared native document, including bounds
+       -> native canceled jobs are freed off the editor thread
+       -> stationary Ticks install early index, then one whole-scene document update
+       -> no spatial view ordering or per-frame Tile publication for initial Edit load
+       -> preserve opening-edited regions; remove untouched obsolete regions in one pass
+       -> consume complete base cache; keep incrementally edited early index
+       -> panel focus and Brush/Erase retain loading
+       -> Undo/Discard/structural replacement/exit cancel base and local feedback together
+       -> Save consumes resident coverage before compaction; remaining legacy snapshots cancel
+       -> Render never resolves or uploads the full document; drafts/controls remain interactive
   -> click Layer row
        -> stable Layer GUID becomes current paint target
        -> selected Layer struct appears in Details
@@ -248,15 +262,19 @@ Tools -> Edit Mesh Camera Layers
        -> restore the last drawing type when returning from Select/Erase
        -> show only its brush/shape/surface options below the buttons
        -> Brush: paint / temporary Shift erase
-       -> Rectangle/Circle: drag -> outline preview -> release
+       -> Rectangle/Circle: drag -> immediate planar fill + budgeted temporary projection -> release
        -> Polygon: click vertices -> preview -> Enter/close/double-click
        -> optional document XY grid snap + live dimensions
        -> Esc / Backspace / tool or Layer change / focus loss manages draft
   -> shape confirmation
+       -> pick/project through owning Layer Channel (default Visibility)
+       -> Layer edits cancel pending fills; Channel changes affect later authoring
        -> validate simple outline -> triangulate -> bounded subdivision
        -> reject excessive density before tracing
        -> show small captured-plane filled preview immediately
        -> project vertices/midpoints/centroids in resumable per-frame batches
+       -> compare interior hits with corner interpolation; refine curvature/support
+       -> emit curved leaves using shared edge samples and projected centroids
        -> compute resolved coverage from source/cache snapshots on a worker
        -> if source revision changed, rebase coverage without repeating projection
        -> retain Shape GUID + controls + local projection settings
@@ -266,7 +284,7 @@ Tools -> Edit Mesh Camera Layers
           structural changes/exit discard pending fills without waiting on workers
   -> Select: ray-pick active Layer Shape -> drag interior / control or edit Details
        -> show edit snapping and Shape Details/delete; hide Draw menu/Erase options
-       -> preview only -> validate/project -> replay retained erasures
+       -> Interactive temporary fill; source/history unchanged -> final budgeted replacement -> replay erasures
        -> replace matching Shape geometry, preserving identity
   -> Erase: circular-prism subtraction on active Layer triangles
        -> show radius/depth options; hide Draw menu and selected Shape panel
@@ -278,31 +296,106 @@ Tools -> Edit Mesh Camera Layers
        -> any queued Details refresh waits while transaction is active
        -> release/final commit closes transaction -> refresh once
        -> source Undo/Redo remains available after subsequent authoring operations
-  -> Delete: remove selected Shape source and owned triangles
+  -> Delete: cancel queued replacements for selected Shape identity
+       -> remove its source and owned triangles
+       -> fused regional coverage/publication removes fill; retain remote geometry
   -> Layer CRUD / projected brush paint
-       -> ring projection accepts compatible floor across component seams
-       -> each stamp (including no-op attempts) respects brush spacing
-       -> Brush/Erase update affected resolved grid cells; retain remote cells
+       -> hover and interior projection use the same owning Layer Channel
+       -> retain tangent-plane outline; trace document-Up across component seams
+       -> refine curved brush interior; cap stamp work and retain relative-world precision
+       -> mouse callbacks queue each spacing-qualified attempt with captured options/Shift state
+       -> process all accepted attempts FIFO, including no-ops; do not replace with the latest cursor
+       -> once per editor frame: share soft 4 ms across projection/cut/ready publication
+       -> prewarm disposable 128-triangle block bounds after source invalidation
+       -> Brush appends only new stamp triangles into retained resolved coverage
+       -> Erase rejects remote blocks; empty indexed candidates skip the extra native rollback copy
+       -> Erase visits candidates in original descending order; safely contained triangles skip plane splitting
+       -> near-boundary triangles retain the exact 32-gon/depth subtraction and height interpolation
        -> Erase replaces cut triangles in place; dirty cells follow the removed footprint
-       -> release retains current cache/controls, ends transaction and redraws viewports
-       -> Layer changes / existing Shape edits invalidate the full visualization cache
+       -> refresh removal/swap-tail/fragment block bounds
+       -> capture new Brush tail or whole-cell Erase candidates; never snapshot a partial mutation
+       -> filter coarse regional candidates by enabled GUID and triangle XY bounds before snapshot allocation
+       -> while opening: wait for early native index, including empty source; keep base job alive
+       -> queue primary exact FIFO deltas to await base, never full-rebuild merely because loading is dirty
+       -> independent fixed-grid feedback resolves current complete touched regions, including old neighbors/Erase holes
+       -> publish feedback immediately; mark touched regions so late base cannot overwrite them
+       -> base complete: stop feedback job, retain visible buffers, resume exact primary FIFO from base
+       -> transfer the retained coverage cache to one native worker; no whole-cache clone
+       -> process immutable mixed/Erase inputs in original order; merge adjacent append-only work
+       -> prepared jobs own at most eight waiting inputs; keep the remaining queue intact
+       -> start/publish completed coverage inputs while the next Erase source task is partial
+       -> coverage never snapshots or reads that partial live source; checkpoint capture still waits
+       -> resolve whole dirty cells on the worker, retaining remote cells and per-mutation grid policy
+       -> keep original sampling, height bands, Layer priority and clipping precision
+       -> yield between scene queries/original cut triangles; background coverage checks cancellation between work batches
+       -> Render retains the last complete fill while source/coverage is in progress
+       -> release continues queued work, then retains cache/controls, ends transaction and redraws
+       -> second press while source pending queues separate deferred stroke with its own Undo
+       -> coverage/publication progresses independently during the held stroke and after release
+       -> coverage worker prepares touched tiles directly; no second worker gap
+       -> assemble each region at its last input in the owned batch; publish completed prefixes through long backlogs
+       -> full/regrid batch publishes its latest complete document; exact region keys avoid distant gaps
+       -> workers prepare shared vertex/index buffers and bounds; identical content retains existing GPU geometry
+       -> Save/tool/focus/close boundaries flush accepted stamps before continuing
+       -> pre-edit callbacks flush before Layer arrays/options change or Layer transactions begin
+       -> reordering/deleting/toggling never moves indices under pending coverage
+       -> stroke and subsequent Layer change retain separate Undo entries
+       -> Esc/right mouse/Discard drop tasks and restore the whole stroke checkpoint
+       -> Ctrl+Z drops latest deferred stroke/pending Shape or cancels live draft/unfinished stroke
+       -> completed edits use engine Undo
+       -> Ctrl+Y preserves source-only boundary completion
+       -> close stroke transaction -> engine Undo/Redo -> cancel old native generation
+       -> Undo/Redo/Discard/cancel first try exact editable history for restored DocumentRevision
+       -> complete checkpoints share immutable tile buffers/colors and own exact coverage/index
+       -> record by moving polygons and copying the small native block index, no whole coverage copy on the editor thread
+       -> compare tile presence/buffer/color -> queue changed tiles immediately under the existing publication budget
+       -> empty remembered source clears old tiles in that pass; unchanged remote buffers stay intact
+       -> restore editable coverage/index immediately; a complete checkpoint needs no document rebuild
+       -> next Brush/Erase retains pending restore tiles and uses the restored base
+       -> one native worker copy of resolved coverage -> existing append/regional edits; history stays immutable
+       -> changed brush tiles supersede their old restore tiles and publish ahead of remaining restoration
+       -> untouched distant restore tiles/removals remain queued; no partial-tile replacement or duplicate full upload
+       -> display-only checkpoint fallback rebuilds index/coverage without republishing meshes
+       -> history miss/eviction falls back to the opening-Edit progressive rebuild flow
+       -> keep saved checkpoint/current revision; cap other history to 32 revisions and soft 128 MiB retained buffers/coverage/index
+       -> cancel obsolete streams/jobs; retired native buffers/history free off-thread
+       -> structural Layer changes invalidate; Name/Profile/Channel reuse geometry; Color updates material
        -> new Shape creation installs its already computed coverage cache
        -> clip source footprints to grid cells; retain actual boundary polygons
-       -> partition repeated/overlapping coverage within each surface-height cell
+       -> index all elevations in each XY cell
+       -> clip pairwise overlap by actual plane-height band, independent of cell center
        -> first enabled Layer owns each covered point; lower rows fill uncovered parts
        -> collapse fully covered coplanar single-Layer cells to quads
-       -> disposable filled-color viewport overlay without alpha stacking
+       -> persistent Edit fill grouped by Layer and 32 x 32 coverage-cell tiles
+       -> mutation uploads vertices/indices; ordinary viewport frames reuse buffers
+       -> coverage worker directly prepares complete touched tiles, including empty removal
+       -> coalesce display versions without dropping FIFO source samples
+       -> ready regions supersede older assembly; retain remote restoration/buffers
+       -> same-capacity topology/position updates reuse GPU buffers; growth recreates
+       -> color updates material parameters without geometry replacement
+       -> document-wide changes / grid resize invalidate all tiles
+       -> ready worker-installed Shape coverage also invalidates its GPU fill
+       -> preserve float color/alpha, fan geometry, offset and disabled backface culling
+       -> PDI draws only drafts, outlines and controls (fill fallback on unavailable publication)
   -> Ctrl+Z / Ctrl+Y
        -> restore transactional document (one whole stroke / committed edit)
        -> final Undo client refreshes Layer/Shape Details and viewport caches
+       -> reset source block index, including restoration with unchanged counts
        -> compare document revision with last successful Save checkpoint
   -> Save
+       -> finish accepted interaction; complete resident opening / exact FIFO coverage
        -> create hidden storage actor if missing
-       -> compact unused/orphaned source vertices and triangles
+       -> compact unused/orphaned source through shared vertex-ID remapping
+       -> keep no-op source/index; invalidate index only if geometry changes
        -> copy authoring triangles, Shape controls/ownership and retained erasures
-       -> resolve GUIDs to runtime Layer indices
+       -> unchanged geometry/GUID rows: reuse runtime triangles/BVH
+       -> otherwise remap shared vertices, resolve runtime Layer rows and select BVH medians
+       -> unchanged geometry/rows/enabled policy: compare exact cache without allocation, retain matching stored preview
+       -> otherwise serialize current exact coverage; cache miss resolves once and retains it
+       -> editor coverage remains stripped from cooked packages
        -> save Level / external actor package
        -> on success, replace independent saved-document checkpoint
+       -> log finalize/runtime/preview/packages/checkpoint milliseconds
   -> Discard (right of Save)
        -> revert unfinished stroke and cancel draft / queued creation jobs
        -> restore latest successful Save (opening document if never saved)
@@ -314,19 +407,97 @@ Tools -> Edit Mesh Camera Layers
 close Edit mode tab
   -> request edit-mode deletion
   -> discard uncommitted shape draft
+  -> destroy transient Level-owned fill actor/components; engine releases render buffers
   -> optional dirty-data save prompt
   -> invalidate Level viewports
-  -> no Layer overlay remains
+  -> notify preview coordinator that actual Edit Exit has finished
+  -> Show requested: next preview ticker restores read-only mode from saved data
+  -> Show off: no Layer overlay remains
+
+Show already on -> open Edit (menu or mode selector)
+  -> retain checked Show intent
+  -> suspend read-only editor/PIE fill and release its caches
+  -> Edit alone displays its transient working document
+  -> close Edit: wait for actual deferred Exit and save/discard handling
+  -> next preview ticker restores read-only mode, using saved coverage or legacy progressive fallback
+  -> explicitly turning Show off during Edit cancels this restoration and keeps Edit open
 
 Tools -> Show Mesh Camera Layers
   -> deactivate Edit mode if active
-  -> activate read-only Preview mode
-  -> build one resolved cache per loaded storage actor
-  -> Level Editor viewport: Preview EdMode draws filled overlays
-  -> each PIE world's persistent LineBatchComponent
-       -> submit the same resolved Layer meshes once under unique BatchIDs
-       -> streaming/transform ticker maintains per-actor cache
-  -> PrePIEEnded / Show off / Edit mode / module unload clears PIE batches
+  -> record Show-on intent; activate read-only Preview mode after actual Edit Exit
+  -> snapshot triangle arrays/Layer metadata per loaded storage actor
+  -> worker loads saved coverage in one batch without spatial resolution
+  -> legacy/invalid cache: worker clips/resolves/exports; no World or UObject access
+       -> compute global bounds/cell size; bin triangles into 32x32-cell tiles
+       -> resolve tiles near captured view first; no distance exclusion
+       -> try an 8x8-cell final startup region; exclude it from the remaining regular tile
+       -> resolve all competing Layers per tile, then enqueue final geometry immediately
+       -> game thread adopts batches while remaining tiles are still resolving
+       -> terminal marker follows all queued batches, with total triangle accounting
+       -> exact snapshots reuse bounded local-geometry cache across Show/editor/PIE
+       -> cached tiles copy/publish individually in the new view's order
+       -> same-count source/Layer changes miss cache; fitted World vertices never enter it
+  -> Level Editor: worker prepares bounded native meshes
+       -> one-sided editor material: disconnected reverse faces at identical heights/XY
+       -> <=1024 total triangles per chunk including both windings; no duplicate for two-sided material
+       -> core ticker / Preview EdMode Tick share one AdvancePreview per engine frame
+       -> stationary/throttled views do not gate ready results; never wait
+       -> soft 2 ms checked between registrations, <=16 chunks/frame safety cap
+       -> source-Level temporary Actor uses non-selectable persistent GeomMaterial meshes
+       -> visible in normal editor and Game View (G)
+       -> RF_DuplicateTransient + bIgnoreInPIE prevent editor copies entering PIE
+       -> invalidate static views on publication and two following frames, then stop
+       -> while PlayWorld exists: cancel unfinished editor builds, retain displayed components
+       -> on return: restart interrupted documents; completed caches survive
+       -> PIE-ending cannot block editor resumption after PlayWorld clears
+  -> PIE: worker exports each tile mesh and reserves that batch's projection-cache capacity
+  -> queue disposable PIE floor fitting per storage document
+       -> reuse source-XYZ samples within each batch; retain XY boundaries and source data
+       -> fit/publish current batch before adopting its successor, without waiting for the document future
+       -> all-object hits -> nearest eligible upward-facing floor
+         -> Visibility-blocking collision or rendered opaque/masked StaticMesh
+         -> include WorldDynamic/PhysicsBody; reject non-rendered volumes and Pawns
+         -> clear highest rendered StaticMesh within 10 world cm above that fixed floor
+         -> preserve distinct storeys; no chained lifts or authored-data changes
+       -> all PIE worlds share soft 4 ms fitting / 2048-query safety cap per tick
+       -> discovery/upload cannot spend that fitting budget
+       -> discover/prune all documents, then resume round-robin fitting
+         -> <=64 queries per document visit; next tick starts at unserved job
+       -> publish fitted chunks before whole-document completion
+         -> first document chunk <=64 triangles, later chunks <=1024 across tile batches
+         -> soft 2 ms / 16-chunk safety cap globally, one per round-robin visit
+         -> separate saved publication position prevents document starvation
+         -> source PIE Level owns construction Actor and persistent components
+         -> depth-tested, two-sided fill; opaque characters occlude it
+       -> fitting completes; continue bounded publication until all tails appear
+         -> keep existing chunks; no whole-document consolidation upload
+         -> initialize persistent mesh buffers once; ordinary drawing reuses them
+         -> streaming ticker maintains weak per-storage cache
+         -> transform changes move Actor without rebuilding geometry
+  -> after any editor/PIE preview chunk is published, weak-register its Actor for view routing
+       -> ordinary view families in that world use LandscapeLODOverride=0 by default
+       -> near/far terrain stays at the same LOD; cached mesh height/depth policy stays unchanged
+       -> captures/unrelated worlds opt out; no global CVar or Landscape asset mutation
+       -> Show off / last Actor removal / PIE ending leaves later view-family LOD untouched
+       -> CCS.Editor.MeshLayers.StabilizeLandscapeLOD=0 opts out while keeping Show on
+  -> CCS.MeshLayers.DebugNextQuery in the PIE game console on request
+       -> arm one weak world-scoped request; do not query or read a Pawn
+       -> next actual business Query/Update reports caller policy/origin and failure reason
+       -> NativeRay reports original-segment saved intersection and signed blocker separation
+       -> compare actual blocking surface with nearby enabled native source heights
+       -> report loaded-but-unregistered documents without repairing their registration
+       -> consume once; later calls resume silent operation; Show is not required
+  -> CCS.Editor.MeshLayers.DumpPIEPreview on request
+       -> log pending state, triangle counts and floor-fitting statistics
+       -> log geometry reuse and elapsed worker preparation/adoption wait
+       -> if a player Pawn exists, compare source/submitted/floor heights at its feet
+         -> complex/simple hits, Actor/component identities and StaticMesh candidates
+         -> submitted triangle intersections distinguish absent from buried coverage
+  -> PrePIEEnded / Show off / Edit mode / module unload
+       -> cancel background geometry/fitting and destroy preview Actors; toggles never wait
+       -> module unload drains cancelled jobs and joins its owned pool before unloading code
+       -> module unload also drains in-flight render families before releasing the view extension
+       -> unregister owned primitives before PIE Scene release
        -> teardown routing stays disabled until next PostPIEStarted
 ```
 
@@ -334,14 +505,28 @@ Runtime:
 
 ```text
 storage actor BeginPlay
+  -> prepare local-space BVH if load did not already build it
   -> register with MeshWorldSubsystem
+  -> preload each enabled Layer's selected Profile family asynchronously
 
-MeshWorldSubsystem.Tick
-  -> each local PlayerController + CCS PCM
-  -> pawn position downward query across loaded storage actors
-  -> nearest surface; return every enabled Layer covering that surface
+business obtains its current supporting ground
+  -> ordinary Character Walking: CurrentFloor.HitResult, after IsWalkableFloor
+  -> custom movement/NavWalking: business-selected valid ground FHitResult
+  -> GroundQueryParams: SurfaceTolerance only (default 5 cm)
+business -> MeshWorldSubsystem.QueryMeshLayer / QueryMeshLayers
+  -> validate blocking nonpenetrating ground and live same-world Component
+  -> use ImpactPoint XY, not capsule center Location
+  -> exact saved-triangle/BVH query within ground Z +/- tolerance
+  -> validate each Layer's own intersection; never search outside the ground band
+  -> report saved triangle SurfacePosition and absolute ground height separation
+  -> return data only; no effects or scene traces
+
+business -> MeshWorldSubsystem.UpdateMeshLayers(explicit local PC, GroundHit, GroundQueryParams)
+  -> same ground matching; invalid/missed ground exits old membership
   -> diff current membership against per-player ActiveLayers
-  -> each entered Layer dispatches its Profile.Type exactly once
+  -> ready new Layers enter bottom-to-top; pending lower Layers delay higher entries
+  -> recheck membership on each business call; leaving cancels pending entry
+  -> each ready entered Layer dispatches its Profile.Type exactly once
        -> CameraType: capture currently active Director
             -> push unique temporary Context from Mesh + Layer name + GUID
             -> activate CameraType + Transition + supported Activation fields
@@ -367,6 +552,9 @@ Modifier -> remove only owned duplicates; refresh active selection
 Action -> remove only recorded instance, if still registered
 Patch -> original manager.ExpirePatch(recorded handle); retain exit envelope
 Natural Action/Patch expiry -> no retrigger while Layer remains active
+business stops integration -> ClearMeshLayers(explicit PC); no polling resumes it
+PC/PCM EndPlay / document unregister -> release owned scopes without new entries
+Last storage using a Profile unregisters -> cancel/release its preload resources
 ```
 
 Nested Camera Layers:
@@ -395,8 +583,45 @@ Independent Action/Patch Layers overlapping red
   -> exit removes exact owned effects; other same-class/asset effects survive
 ```
 
-Starting inside works through the same first subsystem tick. Streamed storage
-actors register and unregister with their owning Level lifecycle.
+Starting inside works on the first explicit Update. The subsystem has no Tick.
+Streamed storage registers/unregisters with its Level lifecycle. An upper GroundHit
+cannot match a lower painted floor outside SurfaceTolerance, even if the upper
+floor has no Layer. Each Layer must intersect the short segment at ground XY.
+No SurfaceId is added and saved geometry does not change.
+
+Example business-side C++ integration, after movement, for ordinary Character Walking:
+
+```cpp
+// GroundQueryParams is configured once and reused.
+MeshGroundQueryParams.SurfaceTolerance = 5.0;
+
+if (Movement->MovementMode == MOVE_Walking && Movement->CurrentFloor.IsWalkableFloor())
+{
+    MeshSubsystem->UpdateMeshLayers(LocalPlayerController,
+        Movement->CurrentFloor.HitResult, MeshGroundQueryParams);
+}
+else
+{
+    // This business policy exits on jumping/losing ground.
+    MeshSubsystem->ClearMeshLayers(LocalPlayerController);
+}
+
+// Also Clear on disable/unpossess when this integration stops making calls.
+```
+
+QueryMeshLayers uses the same GroundHit/params and only returns Layer data.
+GroundHit.ImpactPoint is the sample location. The caller supplies current contact,
+walkability and any custom movement/airborne behavior. A business scene Trace/Sweep
+can use its own Channel/Profile, distance, complex collision and ignored Actors;
+those are not fields of the Layer query. The plugin adds no implicit scene trace.
+
+Blueprint: after movement, inspect CurrentFloor/WalkableFloor, pass its HitResult
+to Update Mesh Layers with local PlayerController and Make Mesh Ground Query Params.
+Clear on loss of ground or integration shutdown according to the business policy.
+Old WorldPosition and collision-policy pins/Make struct nodes need refreshing or
+recreation after a full IDE build and editor restart. SurfaceTolerance bounds height
+matching; large values can merge nearby floors. Existing documents and Layer
+authoring Channel remain compatible and receive no per-triangle fields.
 
 ## 8. In-Place Modifier Value Transition
 

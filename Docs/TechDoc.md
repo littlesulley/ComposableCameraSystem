@@ -1,6 +1,6 @@
 # ComposableCameraSystem Tech Notes
 
-Updated: 2026-10-05
+Updated: 2026-10-08
 
 Purpose: compact implementation reference. Keep this file current when code
 patterns, public APIs, hot-path rules, node catalogs, or gotchas change.
@@ -474,6 +474,12 @@ Expiration:
 - Condition through patch asset `CanRemain`.
 - `bExpireOnCameraChange`.
 
+`ExpirePatch` and `ExpireAll` share `ExpirePatchInstance`. Bulk cleanup walks
+`ActivePatches` directly, even after a caller-owned weak handle is collected.
+Already Exiting/Expired instances retain their current duration and clock;
+non-negative overrides apply only when starting an exit. Removal and evaluator
+destruction remain in `Apply`'s sweep.
+
 Sequencer patch sections use a separate overlay map on
 `UComposableCameraLevelSequenceComponent`. They sort by effective layer index,
 apply latest parameter bags, tick evaluators, and blend by section envelope
@@ -585,6 +591,13 @@ Editor console controls:
   clears/closes the live tab and unregisters its spawner, releasing value
   attributes before code unload. Its launcher belongs to the shared CCS Tools
   submenu.
+- Debugging adds a Show Mesh Layers checkbox row to Viewport visualization,
+  using the standard label/On/Off styling. The checked/text attributes read
+  `FComposableCameraMeshLayerTool::IsPreviewModeActive`; a changed requested state
+  calls `TogglePreviewMode`. Reuse the Tools menu action and live state rather
+  than mirroring the preview flag or routing this editor mode through a CVar.
+  Row construction filters its action name, label and help against search and
+  includes it in section/total counts, including when no console rows match.
 - `FComposableCameraConsoleControls` discovers `CCS.*` through
   `IConsoleManager::ForEachConsoleObjectThatStartsWith`. It stores names/help,
   never borrowed `IConsoleObject*` pointers. Reads, writes, resets, and command
@@ -1201,11 +1214,41 @@ Existing test files include:
   default round trips). LiveEdit tests are added but await IDE compilation and
   editor execution; source inspection does not certify compatibility.
 - `ComposableCameraSetRotationNodeTests.cpp`
-- `ComposableCameraMeshSurfaceTests.cpp`
+- `ComposableCameraPatchTests.cpp` (bulk expiration after handle GC,
+  duration override, repeated expiration, partial enter, and immediate exit).
+- `ComposableCameraMeshSurfaceTests.cpp` (BVH/linear equivalence, disabled and
+  invalid Layers, nearest-floor overlap, edge tolerance, root-bounds rejection,
+  triangle-predicate pruning, rebuild/reset, transformed documents, and real
+  Undo/Redo with an isolated transaction buffer).
+- `ComposableCameraMeshProfileEffectsTests.cpp` (selected-family preload,
+  pending entry/leave and overlap order, one-time dispatch, shared document
+  ownership, GC retention/release). The 2026-10-05 editor report passed Patch
+  expiration, BVH equivalence/pruning, transformed document Undo/Redo,
+  SurfaceLayerSet, and ExclusiveProfileDispatchAndCleanup. The corrected
+  preload fixture awaits IDE compilation and another editor run.
 - `ComposableCameraMeshProfileTests.cpp`
 - `ComposableCameraMeshProfileCustomizationTests.cpp`
 - `ComposableCameraMeshLayerToolSettingsTests.cpp`
-- `ComposableCameraMeshLayerVisualizationTests.cpp`
+- `ComposableCameraMeshLayerVisualizationTests.cpp` (resolved coverage, budgeted
+  PIE floor fitting, Pawn exclusion, stacked-floor isolation, Visibility response
+  filtering, WorldDynamic/PhysicsBody floor support, complex collision on an
+  ordinary Actor's StaticMesh child, construction statistics, cancellation,
+  persistent mesh fidelity, depth testing, two-sided rendering without duplicate
+  geometry, GC ownership, transform-only reuse, document scheduling, explicit
+  point diagnostics for submitted/absent/buried scaled stacked coverage and cleanup).
+  PIEPreviewOccludingFloor reproduces visible Visibility-ignoring ground above
+  painted collision, verifies submitted height and unchanged native camera data,
+  and covers hidden/translucent rejection, stacked-floor isolation and the fixed
+  occluder promotion band.
+  The user's 2026-10-05 editor log reports success for PIEPreviewSurfaceProjection,
+  PIEPreviewProgressiveMeshes, PIEPreviewPersistentMeshes and PIEPreviewWorldRouting
+  at 16:35 Hong Kong time, after the collision-eligibility fix. Runtime diagnostic
+  command output also confirmed preview submission in the main Level and a
+  starved Level Instance. The user subsequently identified the missing patch on
+  LevelBlock in the main Level, so starvation does not establish that patch's
+  cause. The new PIEPreviewScheduling fixture and expanded StaticMesh/point
+  sampling cases await IDE compilation/editor execution; frame-time
+  improvement requires a PIE measurement on the affected Level.
 
 Codex must not invoke Unreal automation from shell in this project. Run tests
 inside Rider or Visual Studio / Unreal Editor.
@@ -1341,34 +1384,251 @@ For this project:
 
 ## 23. Mesh Camera Surface Query
 
+2026-10-07 editor latency update: Save builds FComposableCameraMeshSurfaceEditorPreview
+version 1 from already resolved exact editing coverage, avoiding a redundant full
+clipping pass. An unchanged actor preview survives metadata saves; missing exact
+coverage resolves once and remains available after Save. MatchesEditorPreview
+checks grid/bounds/cell positions/normals/GUIDs/full-coverage flags and exact patch
+vertices against the current CPU cache without allocation, at Save only. A version
+number alone cannot preserve corrupt/stale actor coverage. Actor storage is WITH_EDITORONLY_DATA;
+stable GUIDs map back to current Layer rows. LoadEditorPreview validates version,
+finite grid/bounds/vertices and enabled patch ownership before replacing output.
+Production Edit uses StartResident: build the authoring index first, emit it early,
+then prepare one complete shared geometry document. Valid saved coverage skips
+clipping; legacy coverage reuses the already built index for bounds. Saved and
+legacy documents use the same whole-scene installation, with no initial Tile cursor.
+Show's saved-cache path exports one document batch and terminal accounting;
+non-streaming callers receive one complete result. Legacy/invalid cache retains
+source-resolution fallback. Show/PIE component publication stays budgeted; no cold spatial
+clipping is needed for cached documents. SetAuthoringData clears stored coverage
+when geometry/GUID row order/enabled policy changes. Other metadata retains it.
+RebuildRuntimeData always clears it. All mutations increment EditorDataRevision;
+both PostEditUndo overloads invalidate
+Show/PIE through that transient counter. Cached pixels cannot override query data.
+
+FMeshLayerStrokeCoverage::EnablePreparedPreview prepares native complete touched
+tiles in bounded owned batches, including empty results for Erase. Every coverage
+input still executes; each region is assembled after its final input in that batch.
+The maximum eight waiting inputs bounds the delay before another completed prefix
+can publish. A full batch emits its latest whole state. Mode consumes
+these publications before retiring their future. QueuePreparedRegion supersedes
+older waiting/active assembly for the same tile while preserving remote restore
+work. This removes the second tile snapshot/worker gap from Brush/Erase. Append
+merge size is capped at 4096 triangles on this path; FIFO source and exact height/
+priority operations remain unchanged. The legacy QueueUpdate worker is fallback.
+
+FMeshLayerAuthoringIndex uses a hierarchy over 128-triangle source-order blocks.
+Nodes union per-Layer 3D/projected bounds. Append/Erase refresh affected leaves and
+ancestors; root bounds reproduce enabled source bounds. Pruned DFS yields ascending
+visual candidates and descending Erase candidates, preserving exact source order.
+Interleaved wide bounds can still degrade traversal. Count guards cannot detect
+same-count rewrites; replacement/Undo and geometry-changing compaction reset the index. Native checkpoint
+copies now include the hierarchy, not only flat blocks.
+
+Edit proxies allocate power-of-two vertex/index capacity (minimum 64). Same-capacity
+updates retain proxy/factory/resources, copy changed native attributes into CPU
+buffers and LockBuffer/Memcpy/UnlockBuffer only used RHI ranges. DrawVertexCount and
+DrawIndexCount exclude padding. Capacity growth requests render-state recreation;
+dynamic updates skip dirty render state to avoid sending larger data to an old proxy.
+SetFillColor updates only the colored material proxy. GeometryRevision changes only
+for geometry. Replacing the colored proxy lets FMaterialRenderProxy's destructor
+release its uniform cache; do not explicitly invalidate it immediately before
+destruction. UE5.6's InvalidateUniformExpressionCache requires a boolean argument;
+there is no zero-argument overload. Alpha matches the existing 0.12..0.5 clamp.
+Stable rendering traverses no vertices. Reference: GeometryFramework/Private/Components/MeshRenderBufferSet.cpp::
+TransferVertexUpdateToGPU and Engine/Private/StaticMesh.cpp::InitFromDynamicVertex.
+Resident preparation moves arrays into FEditPreviewGeometry and computes bounds
+on the worker. FSharedEditPreviewGeometry::bUseLayerColor selects current metadata
+at publication; historical captures default false and retain exact remembered colors.
+Proxy creation captures shared native geometry; CreateRenderThreadResources copies/pads CPU
+vertex/index buffers and calls the UE5.6 public InitFromDynamicVertex(RHICmdList,
+VertexFactory, Vertices) overload plus IndexBuffer.InitResource(RHICmdList).
+The engine invokes this before adding the primitive to its render scene. Updates
+and destruction follow engine command ordering. The editor thread owns
+component registration; no initial vertex traversal remains there. Component row
+removal looks up region/Layer keys up to the maximum observed row count, avoiding
+O(region-count squared) scans while still removing rows after structural deletions.
+
+Shape live preview has one immutable source/coverage base per drag, one active
+projection and latest waiting input. Immediate bounded planar fill follows input;
+initial document/restoration publication finishes before temporary surface tiles
+replace it. Planar feedback stays visible while the authoritative base loads.
+Temporary surface projection allows 4096 triangles, with editor-thread queries
+limited to 256/3 ms per advance. Native workers resolve complete dirty tiles from
+the original base, excluding replaced Shape triangles and reapplying erasures.
+Old/new/previously published footprints clear stale temporary fill. WorkingData,
+DocumentRevision and history remain untouched. Cancel restores document buffers;
+release/final Details uses the existing budgeted final Shape builder (16384 limit)
+and commits source/coverage/prepared native fill together.
+Dirty footprints are resolved separately; candidates cover complete edge cells,
+including neighbors outside the outline. Sparse scratch bounds never reserve the
+empty gap between old/new positions, including an empty original document.
+Name/Profile/Channel reuse geometry; Color updates material parameters during Interactive.
+Metadata document GUIDs alias the same checkpoint; checkpoint Revision represents
+geometry provenance, not every alias's document GUID.
+Intermediate property transactions do not create per-tick preview histories;
+the completed bookend shares coverage once. Channel cancels pending
+projection. Repeated Details pre-edit events retain the live drag base.
+Delete cancels queued replacements for its Shape identity before source removal;
+its affected coverage uses fused regional publication instead of a full rebuild.
+
+Rapid released-then-pressed strokes queue separate captured inputs; source FIFO and
+transactions finish in Tick, with no normal-press unlimited drain. Append-only
+cancel truncates to starting counts; first Erase makes one original-source snapshot.
+Ctrl+Z removes the latest deferred stroke or pending Shape, cancels a live draft,
+or cancels an unfinished active stroke before ordinary engine Undo.
+Explicit Save/focus/tool/close retain flush semantics.
+Save completes resident loading and exact FIFO coverage before compaction can
+invalidate their index-count snapshot. RemoveOrphanedTriangles uses a vertex-ID
+remap, preserving existing sharing rather than expanding every triangle; source
+order, Layer GUIDs, Shape GUIDs/controls/erasures and exact positions persist.
+No-op compaction retains source allocation and authoring index. Runtime baking
+uses the same remap principle; no positional welding or reflected format change.
+SetAuthoringData compares geometry and GUID row order once at this mutation
+boundary. Consistent source with unchanged geometry/rows and an existing index reuses runtime triangles
+and BVH; a genuinely empty source may reuse empty output. Nonempty source with
+missing runtime output rebuilds; inconsistent ownership retains the prior empty-output fallback. Enabled changes retain BVH, but invalidate saved
+coverage; query filtering reads live enabled state. Shape controls/ownership copy
+independently of geometry. Native queries still see current Name/Profile metadata.
+PrepareSavePreview reads immutable checkpoint or mutable exact coverage directly,
+without copying/reclipping the whole editable cache. A miss resolves once, keeps
+the result and invalidates only display/history labeling until publication finishes.
+CCS_MeshLayers_Save and CCS_MeshLayers_SavePreview expose CPU scopes. The Save ms
+log separates finalize (interaction completion/normalization/coverage/compaction),
+runtime (actor lookup/Modify/bake), preview (saved polygon conversion), packages
+(dirty notification, UE checkout/serialization/I/O, including any modal wait),
+and checkpoint (successful baseline copy/history). Pending source/proxy work,
+transaction snapshots, package writes and checkpoint copies can still cost time.
+Package scope and failed-save/Discard/Undo checkpoint behavior remain unchanged.
+Regressions: SavePreparation and MedianPartitionEquivalence; IDE execution pending.
+All Level views redraw during asynchronous progress and two following frames.
+Edit compute and native retirement share a module-owned two-thread pool. Normal
+close cancels without waiting; unregister stops mode producers, joins pools and
+flushes rendering before DLL unload. The same-DLL unload regression needs an
+external host harness. Unreal transaction serialization, source/cache snapshots,
+checkpoint memory accounting, indivisible queries/uploads and PIE fitting remain
+costs outside hard latency guarantees. New regressions: SavedPreview,
+FusedStrokePreview, RealtimeEditing and AuthoringHierarchy; IDE execution pending.
+
 Runtime types:
 
-- `FComposableCameraMeshLayerDefinition`: GUID, name, profile, enabled state,
-  debug color. Array index is editor display order; index zero is topmost.
-- `FComposableCameraMeshSurfaceAuthoringData`: editor-only full source using
-  one stable Layer GUID per triangle.
-- `FComposableCameraMeshSurfaceRuntimeData`: cooked indexed triangles using
-  one Layer array index per triangle.
-- `AComposableCameraMeshSurfaceStorageActor`: hidden, `NotPlaceable`,
-  Level-local serialization anchor.
-- `UComposableCameraMeshWorldSubsystem`: loaded-storage registration,
-  per-local-player query, profile switching.
+- FComposableCameraMeshLayerDefinition: GUID, name, Profile, authoring Channel,
+  enabled state and debug color. Row zero is topmost.
+- FComposableCameraMeshGroundQueryParams: SurfaceTolerance only, default 5 cm.
+  The former trace mode, Channels/Profile, distance, complex and ignored-Actor
+  fields are removed. Business owns ground discovery and collision policy.
+- FComposableCameraMeshSurfaceAuthoringData: full source with one Layer GUID per triangle.
+- FComposableCameraMeshSurfaceRuntimeData: cooked triangles with one Layer index per triangle.
+- AComposableCameraMeshSurfaceStorageActor: hidden Level-local serialization anchor.
+- UComposableCameraMeshWorldSubsystem: non-ticking registration, passive queries
+  and explicit per-local-player Update/Clear. No SurfaceId/provenance arrays are added.
 
-MVP query:
+Ground matching:
 
 ```text
-player world position
-  -> each storage actor inverse transform
-  -> local downward ray against indexed triangles
-  -> nearest surface
-  -> collect every enabled Layer within SameSurfaceTolerance
-  -> top-to-bottom Layer-order results
+business ground FHitResult + GroundQueryParams
+  -> require non-penetrating blocking hit and live same-world Component
+  -> validate finite ImpactPoint and nonnegative finite SurfaceTolerance
+  -> original ground XY, world-Z ray from Z+tolerance to Z-tolerance
+  -> per-document inverse transform, bounds/BVH pruning and exact triangle intersection
+  -> native QueryLayers uses entire segment as its overlap interval
+  -> independently require abs(each Layer hit Z - ground Z) <= tolerance
+  -> deduplicate by storage actor + Layer GUID; sort top row first
+  -> return saved SurfacePosition and absolute ground separation as VerticalDistance
 ```
 
-No `UStaticMesh` or collision query mesh is involved. Query outputs use inline
-capacity for 16 overlapping Layers; deeper overlap may allocate. The current
-query uses two linear triangle passes. A later BVH/tile index may replace
-traversal without changing actor, profile, or tool contracts.
+The caller's physical ground selects the admissible height band even when that
+floor has no painted Layer. Missing/penetrating/expired/wrong-world ground returns
+empty; there is no geometry-only fallback or downward search for another floor.
+No scene collision query or Pawn lookup is performed. GroundHit.ImpactPoint is
+used rather than capsule sweep Location. Business checks walkability and freshness,
+and chooses handling for jumping or custom movement. Ordinary Character Walking
+can reuse CurrentFloor.HitResult after IsWalkableFloor; NavWalking needs its own
+appropriate ground source. This validates coverage and height, not source Component
+ownership. An incorrect supplied floor or large tolerance can still select another
+storey; simple collision can differ from the authored complex/render surface.
+
+Each document's QueryLayers is called once, with origin ground+tolerance and both
+length and native overlap tolerance equal to 2*tolerance. This groups every enabled
+Layer in the bounded ground interval, including Layers on opposite sides of ground,
+rather than pruning at the first Layer plus only one tolerance. Each Layer retains
+its own nearest triangle hit from the upper endpoint and is explicitly height-checked.
+Zero tolerance is an exact point-height match, using the native zero-length ray
+predicate. Nonfinite/overflowed interval endpoints fail. SurfacePosition is never
+replaced by the supplied ground point; VerticalDistance is abs(sourceZ-groundZ).
+Low-level storage QueryLayers still reports distance from its own ray origin.
+
+Native acceleration still uses two passes internally. RebuildSpatialIndex creates
+a balanced native-only BVH with up to eight triangles per leaf, median splits and
+preorder subtree escape indices. std::nth_element selects the median using cached
+triangle-box centers and the original triangle-ID tie-break, replacing complete
+sorting at every subtree. Expected comparison cost becomes O(N log N), rather
+than repeated full-sort O(N log-squared N); no timing or worst-case guarantee is claimed.
+The native permutation changes only traversal order, never serialized topology.
+Traversal uses no heap-backed stack. Optional
+OutLayerRayDistances records each Layer's minimum ray distance, independent of
+visitation order, and remains aligned with sorted Layer indices. This prevents one
+Layer borrowing another Layer's intersection. Bounds padding matches the triangle
+predicate's barycentric edge tolerance. Enabled state is read from live Layer data.
+
+Storage PostLoad, missing-index BeginPlay, RebuildRuntimeData and both PostEditUndo
+hooks prepare acceleration outside queries. Same-count Undo must rebuild; count
+guards alone cannot validate an old cache. Direct geometry edits rebuild the index.
+Standalone data without an index retains a linear reference path. Serialized field layout,
+exact triangle positions/order, local/document transforms and cooked format remain compatible; old documents need
+no reauthoring or additional per-triangle memory. OutTriangleTests and
+CCS_MeshSurface_Query remain the pruning/Insights diagnostics.
+
+QueryMeshLayersInline and Update reuse inline capacity for 16 Layers. Deeper overlap
+may allocate; Blueprint QueryMeshLayers reuses caller output capacity, with first/
+growth copies allowed to allocate. Stable ownership introduces no new heap work.
+No physics query parameters or collision Profile response arrays are created.
+
+CCS.MeshLayers.DebugNextQuery in a Game/PIE console arms one weak-world request.
+Only the next real business call in that world consumes it, including invalid input.
+Reports show GroundHit component/ImpactPoint, tolerance, registration and outcomes:
+InvalidGroundHit, StartPenetrating, GroundComponentUnavailable, GroundWorldMismatch,
+InvalidNumericInput, NoRegisteredDocuments, NoLayerOnGround or MatchedGround.
+Each Match retains its saved SurfaceZ and signed SourceMinusGroundCm. A wide
+300-10000 cm native document probe can show a different storey; it explains source
+heights only and never changes membership, registration or geometry. Invalid Update
+ownership is diagnosed before query. Formatting/probes run only when explicitly
+armed and are omitted in Shipping. Show visualization is independent.
+
+UpdateMeshLayers takes an explicit local PlayerController, GroundHit and the same
+GroundQueryParams, then diffs membership and manages Profile effects. Invalid/missed
+ground exits old scopes. Query creates no player state/effects. True reports
+geometric membership even while assets are pending. ClearMeshLayers is idempotent
+and removes only owned effects. Stopping Updates without Clear leaves effects active.
+PC/PCM EndPlay, document unregister and teardown retain their existing cleanup;
+manager replacement unbinds the old owner. No automatic ground polling is added.
+Blueprint callers must refresh/recreate old Query/Update and Make QueryParams nodes
+after a full IDE build/restart, reconnect GroundHit and use Make Mesh Ground Query
+Params. No deprecated world-position query wrapper silently restores old semantics.
+
+Registration/rebuild preloads the selected Profile family's soft asset paths
+through `UAssetManager::GetStreamableManager().RequestAsyncLoad`. One cache
+entry per Profile retains its handle; a manually GC-tracked `TObjectPtr` mirror
+also retains already-resident assets. Disabled Layers and inactive families do
+not request assets. Shared documents retain the entry until the last user
+unregisters; world teardown cancels handles and clears retained references.
+Dedicated servers retain geometric queries but skip these presentation preloads.
+
+An isolated automation world without a GameMode does not dispatch Actor
+BeginPlay merely by calling `UWorld::BeginPlay`. The preload test therefore
+calls storage `DispatchBeginPlay`, verifies registration before direct cache
+helpers, and checks that live rebuilding does not duplicate registration.
+Its Camera asset contains a valid node; both Camera and Action soft references
+must survive GC through the preload cache, and entry must actually own a
+temporary Camera Context rather than only record Layer membership.
+
+`UpdatePlayerLayers` checks readiness only for newly entering Layers. A pending
+lower Layer delays higher new entries so bottom-to-top dispatch stays stable.
+Each explicit Update revalidates spatial membership and then uses soft-pointer `Get`, never
+`LoadSynchronous`. Failed completed requests follow the normal one-time failure
+path. No completion delegate captures a player/actor or activates an effect.
+Request/reconciliation allocations occur only at registration/configuration
+edges. Stable active membership never requests or resolves assets again.
 
 `UComposableCameraMeshProfile` stores an embedded
 `FComposableCameraParameterTableRow Camera`, the existing Modifier asset array,
@@ -1412,8 +1672,22 @@ traced through the subsystem's `AddReferencedObjects`; Patch instances hold
 only weak handles. Exit calls original manager `ExpirePatch` and releases the
 handle, preserving exit duration and unrelated instances. Already expired
 Actions/Patches clean up idempotently and never re-enter on unchanged membership.
-Camera Type, Transition, Action and Patch soft references sync-load only on a Profile edge,
-never on the per-frame unchanged fast path.
+Camera Type, Transition, Action and Patch assets are preloaded asynchronously; entry
+uses resident soft-pointer Get. No asynchronous completion dispatches an effect.
+
+Regression tests: GroundHitQuery covers real Pawn ground traces, unpainted/painted
+upper floors, capsule sweep contact versus center, retained hit without scene
+retrace, public/inline agreement, result reset, penetrating/missing/expired/
+wrong-world ground and invalid/overflowed numerics. GroundHitGeometry covers both
+tolerance endpoints, outside-band exclusion, zero tolerance, exact coverage rather
+than AABB overlap, slopes, disabled Layers, repeated-GUID documents and transformed
+storage. NativeRayPrecision retains per-Layer nearest intersections, indexed/linear
+equivalence, pruning and miss-output reset. NextQueryDiagnostics checks one-shot/
+cross-world consumption, height evidence and read-only document discovery.
+ManualUpdateAndClear retains passive querying, no automatic Tick/Pawn lookup,
+stable effect identity, external-effect preservation, pending preload cancellation,
+invalid tolerance/missing-ground exit, unload and PC/PCM lifetime cleanup.
+Existing Profile dispatch/preload/context tests retain their ownership implementation.
 
 `CCSMeshProfile` custom version 1 preserves original Camera/Modifier field names.
 Pre-versioned assets select their sole configured family automatically. Mixed
@@ -1470,6 +1744,26 @@ Editor technique:
   Layer array, active index and revision GUID restore together. Tool preferences
   are NonTransactional. Successful Save records a revision checkpoint outside
   the Undo data; dirty state compares the restored revision against that checkpoint.
+- Layer TraceChannel is an EditAnywhere/BlueprintReadWrite `TEnumAsByte<ECollisionChannel>`
+  with Channel as its display name and ECC_Visibility as the native initializer.
+  Include Engine/EngineTypes.h before the generated header. This is the same field
+  pattern as Epic GameplayCameras/Public/Nodes/Collision/CollisionPushCameraNode.h;
+  Engine/Private/Collision/CollisionProfile.cpp assigns project channel display
+  names and unhides configured enum entries. No custom picker or enum remapping
+  is needed. UE tagged-property loading leaves the Visibility initializer intact
+  when reading older records without TraceChannel; no custom version is required.
+  TraceLayerSurface resolves the owning Layer GUID and validates the channel, then
+  forwards to the World's native channel trace without allocating. All four editor
+  pick/projection sites use it, including deferred creation and edited controls.
+  Preserve per-task normal/depth settings. Layer edits already cancel pending jobs,
+  so changing Channel cannot mix old/new projections in one released Shape.
+  Whole-struct proxy/storage/checkpoint copies preserve the field automatically;
+  plain worker snapshots omit it because those workers never perform physics queries.
+  Changing Channel does not reconstruct existing geometry or change runtime BVH
+  membership. PIE floor occlusion is separately filtered by rendered surface/Visibility.
+  LayerTraceChannel uses real complex StaticMesh traces above a different floor,
+  real Brush/Shape projection, tagged round-trip and a writer omitting the new field
+  to reproduce legacy data. DocumentUndoRedo/DocumentDiscard cover Details and rollback.
 - `EComposableCameraMeshDrawTool` remains the viewport dispatch state for
   Brush/Rectangle/Circle/Polygon/Select/Erase. Native EComposableCameraMeshToolMode
   groups it into Draw/Select/Erase for a uniform SSegmentedControl below Layer
@@ -1528,10 +1822,28 @@ Editor technique:
   runtime camera evaluation. Render traverses cached preview outlines/fills.
 - Projection caches samples by document XY. Copy cached values before inserting
   further entries: TMap insertion may relocate its storage. Vertices, midpoints
-  and centroid must resolve compatible floor before a leaf is emitted. Document
-  Up traces are bounded around the initial hit plane; collision component
-  identity remains irrelevant. Fine curvature/gaps below spacing are sampled
-  approximations. Partial floor coverage is reported; failure leaves OutData
+  and centroid must resolve compatible floor before a leaf is emitted. Compare
+  all three edge-midpoint hits and the centroid against corner interpolation:
+  positional error above 1 world cm bisects the longest edge until 2.5 cm edges /
+  16 refinement levels. Draw divides its local error and minimum-edge thresholds
+  by the anchor's maximum absolute scale, a conservative world-error bound under
+  nonuniform scale. Mixed-support leaves refine to 10 cm edges; completely
+  missing samples are dropped. Unresolved error reports partial support, never a
+  bridge across a discontinuity. All successes/failures remain in the sample map.
+  Store accepted leaves until every query finishes, then recursively walk their
+  cached dyadic edge samples and fan curved boundaries around the projected
+  centroid. Both sides use the same edge points even after unequal refinement;
+  otherwise moving a hanging vertex to the floor creates a vertical crack.
+  Coplanar boundaries retain the original triangle. Final emission is resumable
+  under the same soft time budget; output and refinement queues have explicit
+  triangle/work caps. New topology can increase authored/baked triangle memory
+  in curved areas, without adding per-triangle fields or SurfaceId.
+  This uses the split/reproject separation described by Epic's read-only
+  GeometryProcessing DynamicMesh/Public/Remesher.h; no engine implementation is
+  copied and all World callbacks remain on the game thread. Document-Up traces
+  are bounded around the initial hit plane; collision component identity remains
+  irrelevant. Features not observed by the samples remain approximate.
+  Partial floor coverage is reported; failure leaves OutData
   untouched. Successful commit saves FComposableCameraMeshAuthoredShape and fills
   TriangleShapeIds alongside triangle Layer GUIDs. Replacement removes only the
   matching Shape GUID's mesh. Empty ownership arrays are accepted for legacy source.
@@ -1540,13 +1852,14 @@ Editor technique:
   FProjectedShapeBuild separates bounded outline/subdivision preparation from
   resumable collision samples. A leaf can pause between any of its seven samples;
   successful and failed samples remain cached. BuildProjectedShape wraps this same
-  builder synchronously for existing Shape edits and pure geometry consumers.
+  builder synchronously for explicit geometry consumers/tests. Normal Shape
+  control/Details completion uses the budgeted replacement task.
   New creation queues a small captured-plane outline fill immediately, then
   FEdMode::Tick advances only the head job once per GFrameCounter, capped at 256
   new queries / a soft 4 ms query-work budget. Collision remains on the game thread.
   Snapshot copy and final transaction serialization are additional bounded-event
   work, not covered by that query budget. Source/cache snapshots and GUID/enabled
-  Layer flags go to Async(ThreadPool); no World, UObject or mode pointer goes to
+  Layer flags go to the owned Edit pool; no World, UObject or mode pointer goes to
   the worker. Only a ready future is consumed; cancellation discards it without
   joining. Atomic cancellation skips queued work before it starts. A completed
   worker can finish on its owned snapshots after cancellation, with no callback
@@ -1620,6 +1933,14 @@ Editor technique:
   rebuild reapplies them. Identical retained cuts are skipped to prevent float
   roundoff from repeatedly shaving a boundary. Other Layer geometry survives.
   Brush-coordinate min/max tests reject far triangles before polygon scratch.
+  Reuse those corner dot products for conservative full containment: all corners
+  must lie inside the disk bounded by Radius*cos(pi/32) minus a numerical margin,
+  and inside the depth slab minus that margin. This disk fits every radial plane,
+  even with nonorthogonal affine axes; convexity then contains the entire triangle.
+  Using Radius itself would erase retained slivers between the circle and 32-gon.
+  Safely contained triangles skip plane splitting but retain the same removed-area
+  threshold, dirty footprint, descending swap-removal and ownership/mask updates.
+  InteriorTriangles counts these real removals and is included in ClippedTriangles.
   Original vertices use a fixed array; at most 37 clipped vertices fit inline
   capacity 40, and at most 34 outside pieces fit inline scratch. Walk original
   triangles downward so swap-removal moves only already processed source or new
@@ -1634,6 +1955,15 @@ Editor technique:
   thresholds. Changed bounds use the actual removed polygon footprint. Outside
   the cut the cached union remains valid, even though source triangulation differs;
   float source emission can introduce submillimeter boundary roundoff.
+  FEraseGeometryBuild::Begin returns false for invalid source/stamps or empty
+  indexed candidates and leaves a finished no-op builder. The queued painting
+  path captures the native stroke rollback source only after successful Begin,
+  before any Advance mutation. This avoids that extra full copy in empty regions;
+  Settings::Modify transaction serialization and the first candidate-bearing
+  stroke snapshot remain event costs. CCS_MeshLayers_EraseBegin and
+  CCS_MeshLayers_EraseSourceSnapshot separate setup/copy from EraseGeometry.
+  ContinuousErasePreview and EraseInteriorFastPath cover held-stroke scheduling,
+  immutable completed input, boundary preservation, affine axes and empty candidates.
 - `ShapeEditingAndErase` covers real ray picking/runtime coverage, small eraser
   holes in large triangles, Layer isolation, reflected source save/reload, mask
   replay, control editing and deletion. `DocumentUndoRedo` exercises real editor
@@ -1652,13 +1982,28 @@ Editor technique:
 - Save copies source into the hidden Level actor.
 - Bake drops orphaned Layer GUID triangles and resolves remaining GUIDs to
   compact indices.
-- Brush-ring traces accept compatible floor hits across collision-component
-  boundaries. Component identity is not surface identity; floor normal and
-  bounded projection remain the geometric filters.
+- Brush constructs its existing tangent-plane radius/segment outline, then uses
+  the same bounded adaptive builder. Initial spacing is half-radius clamped to
+  10..100 world cm; each stamp caps emitted triangles at 4096 and reports density
+  failure instead of adding a truncated mesh. Document-Up traces stabilize XY on
+  curved floors and accept compatible hits across collision-component boundaries.
+  Project callbacks return positions relative to the world-space center for
+  centimeter error checks and FVector3f emission; convert to document local only
+  after restoring that center in double precision. Absolute world float emission
+  would lose small height details far from the origin. Captured Brush stamps use
+  FProjectedShapeBuild::Advance under the stroke's shared frame budget; the legacy
+  synchronous geometry entry points remain for existing callers/tests. Pending Draw
+  creation retains its existing per-frame query/time budget. Floor normal,
+  owning Layer Channel and bounded projection remain the geometric filters.
 - Authoring and preview visualization clip saved triangles into a separate
   anchor-local cell cache. Normalize source winding to counterclockwise XY,
   clip against the four cell half-planes and interpolate XYZ at intersections.
-  Each height bucket stores non-overlapping convex FResolvedSurfacePatch polygons.
+  Each XY cell stores convex FResolvedSurfacePatch polygons at every elevation.
+  Before subtraction, derive the subject-minus-cut plane-height gradient and
+  clip the cut footprint to abs(height difference) <= 5 local units. Constant
+  height differences fast-reject separated storeys. The overlap band is evaluated
+  in the actual footprint, never by extrapolating planes to the grid center;
+  a band crossing a cell subtracts only its matching portion.
   Incoming coverage subtracts earlier/same-priority footprints; a higher Layer
   subtracts its footprint from lower patches. Repeated stamps therefore do not
   deepen alpha, while partially covered cells can show multiple Layers without
@@ -1669,19 +2014,28 @@ Editor technique:
   retaining polygons without needless splits along unrelated supporting lines.
   Inline polygon/patch storage favors common cells; complex boundaries can grow
   on authoring events.
-  Cell center/normal/Layer fields summarize the height bucket for lookup/removal,
+  Cell center/normal/Layer fields summarize a dominant patch for lookup/removal,
   not its entire visible ownership. Both FDynamicMeshBuilder and PIE mesh export
   iterate patches with variable vertex/triangle counts. Offset along document Z,
   rather than each patch normal, to keep adjacent XY edges coincident. No clipping
   or union work happens per render frame. Query/save structures remain untouched.
   VisualizationBoundary and VisualizationPartialOverlap cover boundary fidelity,
   sub-cell holes, both windings, runtime export and geometric Layer/alpha partition.
-- Layer/existing-Shape changes invalidate the full visualization. New Shape
+  VisualizationUnevenSurface adds grid-center false separation and band crossing,
+  repeat/priority/coarse-grid checks and stacked coverage. ShapeCurvatureAndSeams
+  and UnevenBrushProjection check saved intersections and shared-edge continuity,
+  including real curved StaticMesh collision and far-origin Brush precision.
+- Structural Layer changes invalidate full visualization; Shape replacements update affected coverage. New Shape
   creation computes regional coverage on snapshots and installs the ready cache.
-  During brush
-  strokes, UpdateAuthoringVisualization removes affected grid entries, repairs
+  During Brush strokes, AppendAuthoringVisualization adds only new source-tail
+  triangles into retained resolved cells in original source order. Its precondition
+  is an already-current cache for the unchanged prefix and Layer settings; full
+  invalidation/regrid falls back to the original complete resolver. During Erase,
+  UpdateAuthoringVisualization removes affected grid entries, repairs
   indices after dense-cell swap removal, and rasterizes only triangles/cells
-  overlapping those entries. Existing same-surface tolerance and Layer ordering
+  overlapping those entries. Indexed candidate bounds cover whole dirty cells,
+  rather than just the cut footprint, so surviving edges and lower Layers return.
+  Pairwise surface-height tolerance and Layer ordering
   still resolve coverage at each height. A retained CellsByGrid map avoids
   recreating remote lookups; local/full equivalence compares per-Layer area and
   bidirectional interior probes within each height cell, with 1.e-3 cm^2 area
@@ -1691,17 +2045,326 @@ Editor technique:
   full rebuild then restores the normal bounds-derived resolution. Invalid/empty
   source clears both cells and lookup. These allocations are editor authoring
   event work; runtime camera evaluation is unchanged.
+  FMeshLayerAuthoringIndex is a disposable native Edit cache, never serialized
+  or copied into runtime data. Each 128-triangle block stores per-Layer 3D and
+  nondegenerate projected bounds. Hierarchical traversal prunes nonintersecting Layer bounds,
+  followed by original exact tests on candidate triangles; scattered/interleaved
+  geometry can still approach a full scan. Enabled projected boxes reproduce
+  full resolver bounds without walking all source vertices on each stamp.
+  Brush refreshes the tail/new blocks. Erase visits candidates in descending
+  source order, marks removal and swap-tail blocks plus appended fragments, then
+  refreshes those blocks after mutation. Conservative brush-space AABB rejection
+  handles rotated/scaled/sheared axes; exact prism clipping is unchanged.
+  Counts are a cheap validity guard, not a content hash: same-count rewrites,
+  source replacement and compaction must Reset the index. One Edit mode owns
+  one source/index pair; worker snapshots and other callers use the default
+  unindexed path. Source work builds the index on invalidation. Its allocations
+  and candidate arrays belong to editor authoring events, outside camera evaluation.
+  SourceTriangleTests and ConsideredTriangles expose bounded work to regressions;
+  BrushAppendCoverage, IndexedEraseCoverage and IndexedEraseEquivalence compare
+  against the original full/unindexed results. Insights scopes separate
+  CCS_MeshLayers_BrushProjection, EraseGeometry, CoverageUpdate and
+  AuthoringIndexBuild/AuthoringIndexRefresh (all with CCS_MeshLayers_ prefix).
+  MouseMove queues every spacing-qualified stamp, retaining its point/normal,
+  Layer/channel, Shift mode, radius, segments and projection/floor-normal options.
+  AdvancePainting runs once per GFrameCounter across viewports, with a shared soft
+  4 ms budget for projection, clipping and ready preview publication. Samples run
+  FIFO with no overwrite, interpolation or spacing change. FEraseGeometryBuild
+  yields between descending original candidates; index refresh and Shape masks
+  finalize only after all candidates. Coverage is independently owned by
+  FMeshLayerStrokeCoverage: completed source mutations capture compact new-triangle
+  tails or indexed regional candidates in ascending original order, with full
+  document bounds and planned cell size. Regional snapshot capture retains
+  only enabled triangles whose XY bounds intersect the complete dirty cells:
+  filter the coarse leaf candidates before Reserve/copy, so
+  remote/disabled members do not inflate allocation or worker replay. Keep
+  inclusive bounds and original order; do not use a centroid or cut-only footprint.
+  FAuthoringVisualizationUpdate accepts
+  these bounds separately from snapshot geometry, so an empty local snapshot
+  clears only dirty cells, and a small snapshot cannot shrink the document grid.
+  Record the original grid growth/empty-document policy per source mutation.
+  The worker receives the coverage cache by move, without copying all cells per
+  stamp. It runs the same clear/RasterizeTriangle/ResolveCoverage operations with
+  cancellation checks every 256 operations, outside the editor's 4 ms budget.
+  Only adjacent append-only inputs at one grid resolution merge. Erase and mixed
+  operations keep separate immutable inputs in exact order: replaying their dirty
+  union against only the latest source could change same-Layer height winners.
+  AdvanceStrokeCoverage starts pending completed inputs even while StrokeTask
+  contains the next partial Erase. Advance never reads live authoring data/index;
+  queued inputs were captured after the preceding mutation and index refresh.
+  Removing this start barrier does not permit partial-source snapshots or change
+  source FIFO, grid policy, layer identity or the completed-history guards.
+  A full rebuild replaces obsolete waiting inputs. Layer snapshots contain only
+  GUID/enabled state; no asset references or UObject/World/index accesses occur on
+  this worker. Do not let Render replace a worker-owned cache or partial source.
+  Prepared jobs consume at most eight pending coverage inputs via a queue cursor;
+  no repeated front-removal or loss of later inputs. A per-job region plan records
+  each region's final input. Resolve every operation, then assemble only regions
+  reaching that point. Disjoint regions publish independently; full/regrid jobs
+  emit their latest complete cache at the job's end. This coalesces display assembly,
+  not source edits or coverage replay, and bounds long-backlog publication gaps.
+  PrepareEditPreviewTiles accepts exact region keys, deduplicates them and retains
+  empty removals, without building the rectangle between distant footprints.
+  Normal and opening prepared outputs use immutable shared geometry with bounds
+  computed on the worker. SetSharedGeometry compares bounds plus exact indices,
+  positions, tangents, normals, colors and UVs for unchanged content; it retains
+  the existing identity/revision and retires redundant native buffers off-thread.
+  Changed content still updates capacity-reusing GPU buffers. No hash-only shortcut
+  can discard a real edit. Coverage prepares native complete touched tiles in the
+  same worker. No polygon
+  copy/second-worker stage precedes normal Brush/Erase publication. Regional
+  publication coalesces waiting versions, ignores superseded active assembly and
+  retains remote restoration. Legacy QueueUpdate/LaunchQueuedTileWork is fallback.
+  Ordinary AdvanceQueuedUpdates never waits; explicit zero-budget boundaries may
+  drain legacy assembly.
+  A shared atomic lifetime flag stops detached workers between cells/patches, so
+  repeated cancellation/regrid does not finish obsolete large tile builds.
+  ToolSettings::OnBeforeEdit runs before native Layer mutation/transactions and
+  Details PreEditChange (suppressed during GIsTransacting). The mode flushes the
+  pending stroke first; toolkit enabled toggles invoke the same boundary. Never
+  rely only on post-change delegates: reordered/removed Layer indices would already
+  invalidate resumable coverage, and nested transactions would merge two user edits.
+  Native authoring tasks/scratch allocate on mutation only, never camera evaluation.
+  Zero budgets mean unlimited: exhausted finite budgets must remain positive on
+  builder calls, including when setup consumed the final fraction of a frame.
+  Release finishes queued source samples over subsequent ticks and closes one
+  transaction independently of derived coverage/tile publication. Mode Tick also
+  services both queues when not painting; a new stroke keeps the pending jobs and
+  does not wait for it. Explicit boundaries still drain both source and display.
+  Save/focus/tool/close boundaries flush; Esc/Discard restore the checkpoint and
+  cancel coverage/tile assembly. PostUndo discards tasks without overwriting restored source.
+  BudgetedStroke, BudgetedCoverage and BudgetedEditPreview check exact source,
+  independent full coverage, release/cancel/flush and buffer reuse. UE5.6 references:
+  LandscapeEdModeTools.h's MouseMove/Tick/EndTool and MeshSculptToolBase.cpp /
+  MeshVertexSculptTool.cpp's pending stamps and regional render notification.
+  Its completed per-stamp TriangleROI/precompute notification during a held stroke
+  provides the display scheduling reference; engine code remains read-only.
+  Checkpoints, candidate/index setup, single queries/polygon operations and completed
+  source/tile snapshot capture and upload remain indivisible. Coverage snapshots
+  duplicate local source triangles; mixed/Erase inputs retain operation order and
+  their memory depends on the outstanding backlog. Adjacent Brush inputs merge,
+  while full invalidation removes obsolete waiting operations. Tile snapshots
+  duplicate touched resolved polygons; assembly is editor-only background work.
+  AsyncStrokeCoverage and QueuedEditPreviewBatch test ownership/order and exact
+  batch output; BudgetedStroke checks source completion without waiting for either
+  display stage. Insights adds CCS_MeshLayers_StrokeCoverageSnapshot and
+  CCS_MeshLayers_StrokeCoverageWorker to isolate capture versus background time.
+  CCS_MeshLayers_StrokePreviewPlan isolates batch planning. Completed native
+  CoverageUpdates/PreparedTiles counters test reduced assembly without flaky timing
+  assertions. ErasePreviewBatch, RegionalSnapshotFiltering and BudgetedEditPreview
+  cover bounded coalescing, source ownership/order, exact output/bounds, empty/full
+  replacement and shared geometry reuse. Single coverage operations, source
+  clipping/copies, exact unchanged-buffer comparison and uploads remain costs.
+  Explicit boundaries can take longer if a backlog
+  exists. Validate actual Level timings; the soft budget is not a hard frame bound.
   Initialize native FIntPoint dirty bounds explicitly: its default constructor
   leaves coordinates unspecified, and MSVC can report C4701 across the separate
   full/regional branches. Regional work overwrites both bounds before clamping;
   full rebuilds ignore them and retain distant coverage, including invalid-bound
   fallbacks checked by IncrementalVisualization.
-  PaintAtHover spaces failed attempts too, updates revision immediately, refreshes
-  the active viewport and defers global redraw to FinishStroke. Release
-  retains the current visualization and controls, closes its transaction and
-  redraws other viewports. Undo/cancellation and Layer/Shape edits still rebuild
-  source-dependent caches; Save compacts unused source vertices. Read-only Preview
+  QueuePaintAtHover spaces failed attempts too. Each completed source mutation
+  updates revision; Tick refreshes all Level viewports during progress and two tail frames. Release retains visualization/controls,
+  closes its transaction after every accepted stamp and
+  redraws other viewports. Undo/cancellation restore a matching complete native
+  checkpoint or invalidate caches; Layer/Shape edits invalidate their derived
+  state. Save compacts unused source vertices. Read-only Preview
   builds one cache per storage actor and releases caches on exit.
+- Edit fill retains GPU buffers through an editor-only UMeshComponent scene
+  proxy, rather than calling FDynamicMeshBuilder per Layer/view/frame. Its
+  FStaticMeshVertexBuffers, FDynamicMeshIndexBuffer32 and FLocalVertexFactory are
+  initialized on capacity growth, updated in place for smaller changes,
+  and released with proxy teardown on the render thread. The installed UE5.6 Engine/Private/StaticMesh.cpp::InitFromDynamicVertex
+  and read-only ProceduralMeshComponent scene-proxy resource lifecycle provide
+  the engine API reference; no reference-plugin source is copied.
+  Ordinary GetDynamicMeshElements only creates engine-owned mesh batch/uniform
+  descriptors referencing those buffers; these small per-view engine allocations
+  remain necessary, with no cell traversal, vertex copies or GPU mesh upload.
+  Include PrimitiveUniformShaderParametersBuilder.h directly when constructing
+  the builder: PrimitiveSceneProxy.h and SceneManagement.h only forward-declare
+  it in UE5.6. Component locals must avoid inherited names such as Bounds;
+  use VertexBounds for the temporary geometry box to avoid C4458.
+  FMeshLayerEditPreview partitions resolved patches by Layer row and 32-cell XY
+  tiles. Full updates walk cells once. Regional updates look up every cell in
+  touched tiles through CellsByGrid, remove emptied components and retain remote
+  buffers. Negative coordinates use floor, not integer truncation. Grid resize,
+  invalid bounds and document-wide changes refresh all tiles.
+  Keep bEditPreviewDirty separate from bVisualizationDirty: a worker-installed
+  new-Shape coverage cache still needs uploading. Brush/Erase queue complete tile
+  snapshots and coalesce pending publication independently from source edits. The
+  legacy BeginUpdate/AdvanceUpdate path retains fixed-coverage resumable assembly
+  for synchronous callers; queued workers reuse its complete-tile publisher after
+  native vertex/index construction. Exact render-attribute/color
+  comparison skips unchanged buffers, without changing 32-cell tile size/draw count.
+  Full updates bin cell indices in original source-cache order; regional updates
+  retain their row-major grid lookup. Undo/cancellation/Discard restore matching
+  coverage and buffers together, or invalidate uncached versions. Layer/Shape
+  changes invalidate obsolete coverage/publication.
+  Empty coverage is a completed cache. Check Level/actor readiness without
+  allocating, and preserve PDI fallback if publication fails.
+  AppendVisualizationPatch retains the PDI fan, document-Z offset, packed tangent
+  basis, zero UVs and white vertices. FColoredMaterialRenderProxy receives the
+  exact clamped FLinearColor, avoiding gamma/byte conversion and MID shader
+  changes. Backface culling remains disabled; no extra geometry doubles opacity.
+  Engine-owned scene-proxy teardown releases render resources; no per-toggle
+  FlushRenderingCommands or manually retained raw render pointers are used.
+  Ownerless components and global strong UObject references are forbidden.
+  The Level-owned actor is transient/duplicate-transient, ignores PIE duplication,
+  remains visible in G view and creates no collision/picking/nav/shadow/ray-tracing
+  work. Capture views and temporal primitive occlusion are excluded. It does not
+  register with Show's Landscape LOD extension. Existing small PDI drafts and
+  controls remain unchanged. Insights scopes CCS_MeshLayers_EditPreviewUpdate
+  and CCS_MeshLayers_EditBufferBuild occur only on mutations, not stable frames.
+  EditPreviewPersistentBuffers/RegionalUpdates/Invalidation cover actual component
+  and proxy identity, linear color, local heights, Layer ordering, empty cells,
+  mode-render resource counts and cleanup. Real pixels/FPS require Editor checks;
+  opening Edit and uncached Undo/Redo/Discard resolution run on native workers,
+  as do interactive coverage/assembly. Each completed component upload remains indivisible.
+  Edit restoration first tries native editable history keyed by DocumentRevision.
+  Components own shared immutable FEditPreviewGeometry (vertices, indices, local
+  bounds); SetGeometry preserves identical buffers and moves changed arrays into
+  a new buffer. RememberRevision stores shared references, component keys,
+  cell size and exact linear colors, plus an immutable FEditPreviewCheckpoint with
+  the complete resolved polygons/grid and authoring broad phase. RememberPreview
+  moves the coverage cache, copies the native block hierarchy and accounts for
+  nested native allocations once per completed mutation. Reset the moved-from
+  visualization's scalar bounds/cell size too: moving its arrays alone leaves old
+  valid bounds, which must not mask the retained immutable base. Only a complete
+  display/cache of the matching source revision is eligible, including explicit
+  focus/save stroke completion. Never
+  capture partially published/worker-owned coverage or relabel old display after
+  Settings has already been changed by engine Undo. PrepareUndo and PostUndo
+  invalidate provenance before clearing interactions/source-only stamp completion.
+  QueueRestoreRevision compares pointers/colors/presence and queues changed spatial
+  tiles with all their saved Layer rows; absent rows clear during the same budgeted
+  publication. Reuse native buffers and their bounds directly, retaining remote
+  proxies and exact render attributes. No coverage clipping, scene tracing,
+  geometry copying or mesh worker sits ahead of that restoration. Allocations here
+  are one-time mutation/checkpoint metadata and necessary component/proxy updates,
+  not stable frame evaluation. Keep at most 32 checkpoints and a soft 128 MiB unique
+  historical-buffer/coverage/index budget, excluding the current checkpoint and
+  live buffers. Saved/current revisions are protected; their irreducible memory
+  may exceed the soft limit. Shared tiles count
+  once. Retire evicted history and replaced native buffers off-thread; no UObject/
+  render resources go with them. Cache misses retain the progressive rebuild fallback.
+  A complete restored checkpoint installs coverage/index before accepting Brush,
+  with no document rebuild. GetVisualization reads its immutable cache until a
+  stroke result replaces it. FMeshLayerStrokeCoverage::UseCheckpoint hands only
+  native shared data to its worker. The first mutation copies resolved cells/grid
+  there (linear in cells/patches, no scene trace or full clipping), applies the
+  existing append/regional operation and returns a mutable cache; following queued
+  operations reuse it. No checkpoint is modified by worker or source edits. Cancel,
+  eviction, replacement and teardown retire large native data off-thread. Stable
+  frames neither capture nor copy caches; editor mutation snapshots/index metadata
+  and necessary component publication are the allocation exceptions here.
+  BeginStroke retains unfinished historical publication when its editable base is
+  available. QueueUpdate removes only unpublished restore versions of touched
+  tiles, retaining distant restore/removal rows. Those tile workers can start while
+  restoration is still ready, and completed stroke tiles publish ahead of remaining
+  history. Full/regridded coverage still supersedes the whole queue.
+  Display-only checkpoints retain FMeshLayerDocumentBuild's bPublishPreview=false
+  cache reconstruction fallback; tiny startup regions never replace complete
+  historical buffers. Saved-source compaction can invalidate the checkpoint index
+  counts without altering coverage; the existing IsCurrent check rebuilds the
+  broad phase before the next source edit. Uncached/evicted versions still rebuild.
+  RevisionEditPreviewHistory, ImmediateRestorationDisplay and
+  RestoredPreviewImmediateStroke cover restoration plus subsequent real editing,
+  exact full-resolver equivalence and no whole-document first-Brush snapshot.
+  Read-only UE5.6 reference: MeshModelingTools/Private/MeshVertexSculptTool.cpp,
+  OnBeginStroke/WaitForPendingUndoRedo, EndChange, OnDynamicMeshComponentChanged
+  and FastNotifyTriangleVerticesUpdated; LandscapeEditor/Private/
+  LandscapeEdModeTools.h, TLandscapeEditCache::SetCachedData.
+  The plugin keeps its existing UObject source transaction; it applies the regional
+  display-update principle without adopting Modeling's source-change format/waits.
+  FMeshLayerDocumentBuild owns original triangle arrays (retaining index vertex
+  counts) and only Layer GUID/enabled metadata. Production StartResident builds
+  the index, emits it early, then validates saved polygons or resolves complete
+  legacy coverage. One whole shared native geometry document includes prepared
+  bounds. PublishPreparedDocument installs all regions in one editor/scene update
+  and removes absent regions in one component pass. Internal 32-cell regions remain
+  for local updates, not progressive initial load. Start/StartSaved and progressive
+  queues remain for explicit compatibility consumers/tests.
+  During opening, BeginStroke retains the base. Input waits unconditionally for
+  IndexReady, even when an empty/equal-count index appears current. Append/Erase
+  update the installed index; final completion cannot replace it with an older copy.
+  Primary FIFO inputs capture append tails or whole-cell candidates but do not launch
+  until the complete base cache arrives. Loading's bVisualizationDirty must not force
+  a full-source snapshot per stamp. OpeningRegionCoverage runs independently with
+  bRegionOnly, fixed OpeningCellSize, complete render-region bounds and INDEX_NONE
+  replacement. It captures current candidates, including old neighbors, and never
+  regrids or copies the missing base. Shared prepared regions publish immediately;
+  empty output clears Erase regions. OpeningEditedRegions records every mutated
+  region before worker completion. Base publication skips all these regions,
+  including erased/empty ones; untouched regions appear together. Consume the base,
+  cancel provisional work before primary deltas launch, and move its cache into
+  Visualization. Primary FIFO then converges to current source. A touched region
+  whose feedback was still pending waits for its primary delta rather than showing
+  stale base. Metadata retags the load and selects current colors; structural
+  replacement, Undo/Discard/exit cancel base and feedback together.
+  Retire unused terminal index copies and skipped stale prepared regions on the
+  native pool too; otherwise their final release can recreate a completion hitch.
+  Retire old coverage caches and canceled native futures/snapshots/ready geometry
+  on a worker to avoid replacing compute stalls with bulk-deallocation stalls.
+  Workers hold native source/options/geometry only. Engine components own geometry
+  and proxy lifecycle; resource initialization/update/release run on the render thread.
+  AdvanceDocumentPreview schedules/polls in Tick, independently of view movement.
+  Render never builds the index/cache or calls full Update. Brush source work and
+  native opening coexist; snapshots follow complete mutations. Unchanged tool/focus
+  boundaries retain opening. Cancel/Undo/Discard and structural replacement detach
+  obsolete generations; normal Brush/Erase does not.
+  Save first consumes resident coverage, then compacts source. Any remaining
+  legacy pending snapshot is canceled, preserving an unchanged historical display
+  restoration if present; no-op compaction keeps the current index.
+  Compaction may rewrite index counts without touching the revision, so revision
+  validation alone is insufficient at that boundary. Viewport Undo/Redo
+  uses PrepareUndo: finish every accepted stamp without queuing/consuming derived
+  coverage or meshes, close the transaction, then restore source and rebuild.
+  Checkpoints, Settings::Modify serialization and linear triangle snapshot copies
+  remain editor-thread work. Allocation is confined to document mutation, native
+  workers and necessary component publication, not stable per-frame camera evaluation.
+  ResidentLoadingAndBrush covers withheld base during Brush/Erase, cached/legacy
+  whole publication, stale-base protection, FIFO convergence, metadata, proxies and
+  cancellation. AsyncDocumentPreviewBuild/ProgressiveEditPreview cover standalone
+  progressive APIs. RestoredDocumentPreview/BudgetedStroke cover exact attributes,
+  native ownership, compaction and source-only Undo. Region preparation can reorder cells
+  and buffer indices; it does not change triangles, normals, UVs, color or coverage.
+  Read-only Preview's `FPreviewGeometryBuild` snapshots only triangle arrays and enabled/color/identity
+  Layer metadata; no query BVH, Profile, World, Actor or mode pointer reaches the
+  dedicated low-priority ThreadPool worker. Create this single-thread pool during
+  module registration, keeping thread creation off Show activation and avoiding
+  shared-pool saturation across many documents. `BuildRuntimeVisualizationTiles`
+  computes the same global cell size as full resolution, bins triangles into
+  32-by-32-cell tiles and sorts by captured local view origin. Before PIE's first camera-cache update,
+  use the possessed Pawn location as the ordering focus. No business Query/Update
+  call runs automatically. Each tile resolves
+  all candidates in source order through the shared RasterizeTriangle/ResolveCoverage
+  path, then exports final meshes immediately. No approximate first-pass overlay
+  or density change is involved. A per-job SPSC queue carries completed batches
+  before the worker future is ready. First try an 8-by-8-cell region near the
+  focus; if occupied, publish it and exclude its cells from the remainder of the
+  regular tile. No provisional geometry or overlap is introduced. Editor
+  jobs also build native topology in chunks of at most 1024 triangles; PIE jobs
+  preallocate the source-XYZ projection hash instead. Destroy intermediate grid
+  storage on the worker, and move only ready outputs to the game thread.
+  `TakeResult` drains queued batches before consuming its terminal future.
+  Recheck the queue after future readiness: the worker can finish/enqueue between
+  the initial dequeue and readiness check. `bComplete=false` keeps the handle
+  alive; the terminal marker closes it with total triangle accounting. Editor
+  adoption appends rather than overwrites unsubmitted native chunks. PIE fits/
+  publishes each batch before adopting its successor, with per-batch hash
+  preallocation. Carry the already-published flag across batches so only the
+  first document chunk uses the 64-triangle size. Normal Reset/toggle never Wait.
+  Cancellation checks between triangles/grid rows/export cells/native chunks let
+  abandoned work exit. A main-thread registry owns orphan workers until ready;
+  once a cancelled job is ready, dispose its abandoned output queue on the owned
+  worker so large native batches are not freed inside the preview Tick.
+  module shutdown cancels and drains it after both modes/ticker release caches,
+  then joins/destroys the owned pool. Future readiness alone happens before
+  AsyncPool destroys its callable, so waiting on futures without joining the pool
+  can still leave plugin template/lambda code executing during DLL unload.
+  A new generation owns a distinct handle and cannot publish a cancelled result.
+  Initial array snapshot copies remain game-thread construction work; the expensive
+  clipping and topology pass does not. AsyncPreviewBuild compares both outputs
+  against synchronous clipping and checks cancellation/replacement/coverage.
   `IncrementalVisualization`, `EraseBroadPhase`
   and `StrokeVisualizationRefresh` cover equivalence, work bounds and lifecycle.
   EraseLocalVisualization checks cut-sized cell work and retained remote coverage;
@@ -1709,21 +2372,263 @@ Editor technique:
   verifies reserved source buffers/vertices survive and no-op cuts preserve counts.
 - PIE cannot use `FEdMode::Render`: that callback draws only Level Editor
   viewports and resolves the editor world. The Show command therefore builds
-  the same resolved patch meshes into non-zero, per-storage BatchIDs on each PIE
-  world's `WorldPersistent` `ULineBatchComponent`. One persistent submission
-  per Layer avoids frame-over-frame alpha accumulation; `ClearBatch` removes
-  only CCS-owned geometry. A ticker handles already-running PIE, multi-PIE
-  worlds, streaming add/remove, and transform changes.
+  the same resolved patch meshes into a transient Actor in each source PIE
+  Level. Each visible chunk has a `UDynamicMeshComponent` and a persistent MID
+  using DebugMeshMaterial's Color parameter. This material depth-tests and is
+  two-sided; opaque characters occlude the preview, with no duplicated backface
+  geometry. Read-only editor preview uses persistent native chunks with GeomMaterial,
+  which disables depth testing; Edit retains persistent fill with PDI drafts/controls.
+  PDI explicitly disables backface culling, but GeometryFramework's persistent
+  DrawBatch follows the material's one-sided culling. Capture GeomMaterial's
+  IsTwoSided on the game thread and pass only a bool to the worker. When needed,
+  BuildNativePreviewMeshes appends identical disconnected vertices and triangles
+  with reversed winding; sharing those vertices can reject non-manifold faces.
+  Halve the source chunk allowance so both windings together remain at most 1024
+  triangles. Expected/rejected native counts include both faces; resolved source
+  counts remain unchanged. Keep reverse faces off for two-sided editor materials
+  and for PIE, avoiding double translucency. No vertex-height correction, shader
+  compilation or per-frame geometry rebuild is needed for this visibility fix.
+  EditorPreviewBackfaces checks paired positions/opposite normals with slopes,
+  both source windings, shared vertices, mirrored transforms and short tails;
+  AsyncPreviewBuild/EditorPreviewPublication cover worker/publication face counts.
+  Matching the editor depth policy in PIE hides the floor-fitting defect by
+  drawing over characters.
+  Instead, fit a disposable copy of cached vertices before uploading it. The Editor
+  module privately depends on GeometryFramework; no authored asset or runtime
+  camera API changes. Editor publication runs in AdvancePreview from the core
+  Show ticker and EdMode Tick, guarded once per GFrameCounter rather than once
+  per viewport. A soft 2 ms budget and a 16-chunk safety cap are shared across
+  loaded editor documents. UEditorEngine::Tick skips viewport Tick while Slate
+  throttles expensive tasks unless bNeedsRedraw is already set, so worker
+  completion must not depend solely on FEditorViewportClient::Tick. Successful
+  publication plus two following core frames invalidate static Level viewports;
+  completed stable caches stop redrawing. While PlayWorld exists, unfinished
+  editor builds cancel and retain displayed components; interrupted documents
+  restart on return. PIE geometry avoids queuing behind redundant editor work.
+  Completed caches survive; PIE-ending cannot block resumption after PlayWorld clears.
+  Prepared native meshes move into components; no full Layer native build runs on
+  the game thread. Temporary editor Actors are transient, non-duplicatable and
+  have non-selectable components. Keep Hidden In Game and bIsEditorOnlyActor false
+  so an explicitly requested Show overlay also appears in editor Game View (G).
+  FPrimitiveSceneProxy::IsShown rejects Hidden In Game through DrawInGame, and
+  rejects editor-only owners whenever the view family's Game show flag is enabled.
+  Visibility is separate from PIE duplication: RF_DuplicateTransient causes the
+  engine duplicate writer to serialize a null reference, while bIgnoreInPIE also
+  rejects PIE actor/Level streaming inclusion. Do not use a visibility flag to
+  prevent duplicated editor overlays over the separately fitted PIE preview.
+  EditorPreviewPublication tests actual render-proxy draw relevance in ordinary
+  editor/Game View families, with negative controls for both old flags, plus
+  duplication policy, ownership, package dirtiness, material/color and teardown.
+  Rendering flushes are confined to tests and module unload; ordinary preview
+  work keeps its asynchronous budgets.
+  The dedicated single worker retains at most four resolved local-mesh snapshots
+  under a 64 MiB buffer budget, evicting least-recently used entries. Exact vertex,
+  index, triangle-Layer and Layer identity/enabled/color comparisons happen there,
+  outside the game thread. Same-count changes cannot falsely reuse old output.
+  Tiled vs complete layouts also participate in identity. Tiled entries retain
+  mesh centers; hits sort indices near the new view and copy/publish each mesh
+  independently rather than copying the entire output before the first batch.
+  Editor native conversion and PIE projection-cache reserve still run per request;
+  expensive coverage resolution/export are reused. Each caller receives a mesh
+  copy, so PIE fitting never changes the cached master. Transform/World/collision
+  are intentionally excluded from local geometry identity and remain caller-owned.
+  Snapshot creation copies only geometry/metadata, with Profile fields left null.
+  Normal toggle/streaming cleanup cancels handles but keeps bounded native reuse;
+  unload joins the pool before clearing this worker-only cache. Cold or oversize
+  documents still need bounds/binning and first-tile preparation before visibility,
+  but never wait for whole-document clipping/export. One serial worker can still
+  queue separate documents; camera distance never culls a tile.
+  AsyncPreviewBuild checks editor-to-PIE reuse; PreviewGeometryCacheInvalidation
+  checks vertex/index/ownership/color/enabled changes against full reference
+  meshes. StationaryPreviewPublication checks no-camera-input publication and
+  redraw quiescence; PreviewPublicationBudget uses simulated elapsed work to
+  distinguish cheap-loop safety caps from expensive-upload time expiry.
+  StreamingPreviewGeometry checks triangle multiset equivalence on slopes,
+  overlaps, distinct storeys, negative coordinates and disabled bounds, plus
+  first-tile cancellation/focus, batch-before-terminal ordering, snapshots and
+  editor-to-PIE cached streaming. PIEPreviewProgressiveMeshes also verifies startup
+  chunk size is not repeated on later geometry batches.
+- Landscape LOD morphing is view-dependent, whereas saved triangles and fitted
+  preview chunks are fixed. The user's r.ForceLOD 0 comparison restores distant
+  coverage. FMeshLayerPreviewViewExtension therefore sets each eligible family's
+  LandscapeLODOverride to 0 in BeginRenderViewFamily on the game thread. UE5.6
+  Renderer/Private/SceneRenderBuilder.cpp calls this before creating the scene
+  renderer; Landscape/Private/LandscapeRender.cpp::GetViewLodOverride and
+  FLandscapeComponentSceneProxy::ComputeLODForView consume that family override.
+  This retains scene depth/character occlusion without moving the preview or
+  changing Landscape UPROPERTYs, r.ForceLOD or StaticMesh LOD. A fresh family
+  naturally preserves normal LOD after Show off, without save/restore mutations.
+  The extension is initialized in the Editor module's PostEngineInit phase.
+  It is active only while Show is requested, the opt-out CVar remains enabled,
+  and a live published preview belongs to the actual Editor/PIE scene world.
+  PIE ending, asset/Game worlds and scene/reflection/planar captures are excluded.
+  A weak Actor list updates/prunes only at publication/cleanup; view callbacks
+  reuse it without allocation, queries, resource uploads or render-thread UObject
+  access. In-flight families retain extension references, so module Unregister
+  disables it and FlushRenderingCommands before releasing the instance. Ordinary
+  Show/PIE teardown never flush. The default-1 editor control is
+  CCS.Editor.MeshLayers.StabilizeLandscapeLOD; 0 opts out while leaving Show on.
+  All Landscape in an eligible family uses LOD 0, increasing distant terrain
+  rendering cost. PreviewLandscapeLODStability checks real callback routing,
+  capture opt-out, lifecycle, near/far origins, unchanged height/global CVar and
+  no package dirtiness. It cannot establish pixel output or frame times; test
+  the user's terrain after restoring the global diagnostic r.ForceLOD to -1.
+- `FPIEPreviewSurfaceProjection` advances only during construction. A source-XYZ
+  map is reserved before processing, shares samples across meshes and preserves
+  stacked-height identity. `ProjectPIEPreviewVertex` queries all collision object
+  types along document Up, within 100 world cm of the approximate floor, then
+  selects the nearest eligible upward-facing hit. It accepts Visibility-blocking
+  collision and rendered StaticMesh collision with at least one opaque/masked
+  material, even if Visibility is Ignore/Overlap. Component/owner visibility and
+  ShouldRender gate the rendered-mesh case; null material slots use the engine's
+  opaque fallback. Non-rendered Ignore/Overlap volumes, initial penetration and
+  Pawns remain excluded. A second pass promotes to the highest rendered StaticMesh
+  at most 10 world cm above the nearest floor. Anchor that pass to the original
+  nearest height so hit order cannot chain several small lifts across storeys.
+  Merely accepting a slab is insufficient: underlying Landscape may still be
+  nearer to the authored source and bury the overlay. Authoring picks and PIE
+  scene occlusion are different policies; never mutate source Layers or floor
+  collision responses to reconcile them. The 10 cm band handles nearby overlapping
+  surfaces, not arbitrary upper floors. A fully submitted overlay can still be
+  buried: the newer point log has native Z=-7.070, submitted Z=-5.570 and slab Z=0,
+  beyond the former 5 cm limit. PIEPreviewOccludingFloor covers both 1.992 and
+  7.070 cm gaps, unchanged native query height, a rejected 60 cm storey and
+  out-of-band promotion. Raising this preview limit must not expand runtime Layer
+  membership or disable scene depth. Restricting PIE to WorldStatic silently
+  misses WorldDynamic/PhysicsBody Blueprint floors. Keep object multi queries
+  plus eligibility filtering, because a channel
+  multi query stops at its first blocking hit and can miss the nearest stacked
+  floor below a Pawn or another floor. It changes only local Z and adds
+  `VisualizationSurfaceOffset` once. Misses retain source positions; exact XY
+  boundaries, indices, colors and source data are preserved. UE5.6 object multi
+  queries return all matching hits, allowing nearest-floor selection even below
+  another floor. CollisionQueryFilterCallback::CalcQueryHitType implements this
+  object-query policy. Query buffers are reused.
+- All pending documents/worlds share a 2048-query safety cap and a soft 4 ms fitting
+  budget per ticker invocation, checked between vertices. Charge elapsed time
+  around Advance only; a deadline started before world discovery can starve
+  fitting even when it performs no work. A single physics query, initial
+  clipping/allocation or mesh upload is outside that soft bound. A captured
+  anchor transform keeps a pending job consistent; the finished Actor uses the
+  latest anchor transform. Fitting buffers are released after upload or
+  cancellation. Stable frames do no projection work. Collision fitting
+  cannot guarantee contact with shader displacement or curvature between
+  vertices, and does not track moving floors after completion.
+- Discover/prune every loaded document before spending fitting/publication
+  budgets. `RunPIEPreviewWorkRoundRobin` retains independent positions for the
+  two phases. Fitting uses at most 64 actual queries per visit; publication
+  consumes at most one ready chunk. On budget exhaustion retain the unserved
+  index for the next tick. Skip inactive/unfinished-chunk jobs; stop after a
+  complete skipped cycle instead of spinning. A single pending document can
+  use repeated visits up to the existing global budget. Sequential Actor-order
+  processing can consume every frame's budget on one large document and keep
+  later Levels at zero queries/components despite working progressive output.
+  Reuse a weak-key scratch array; reserve extra capacity only when document
+  count grows, and never retain TMap value pointers across discovery/pruning.
+  Stable ticks reuse capacity and issue no floor queries. Clearing caches also
+  clears scratch storage and both saved positions. Streaming changes normalize
+  indices to the current job count. PIEPreviewScheduling exercises real fitting
+  and chunk extraction across unequal documents plus resumable/empty queues.
+- `TakeReadyMeshes` consumes fitted triangle prefixes without waiting for the
+  whole document. It remaps vertex IDs into an initial chunk of at most 64
+  triangles, then chunks of at most 1024. Incomplete chunks wait until full,
+  while completed Layer meshes flush short
+  tails. A consumed cursor prevents repeat geometry. Across all worlds, at most
+  a soft 2 ms budget and a 16-chunk safety cap bound component publication. Previously
+  published components remain intact while later chunks fit. On completion,
+  continue draining ready tails under the same soft 2 ms / 16-chunk publication
+  budget, then release fitting buffers. `IsPublicationComplete` must be checked
+  separately from `IsComplete`: the final fitting visit can finish while many
+  ready chunks still await upload. Keep completed chunks persistent; do not replace
+  them with a synchronous whole-Layer upload that stalls at load completion.
+  More components/draw calls remain, but each upload and its culling bounds stay
+  small. Chunk/remap/component allocations are construction-only. Keep
+  an existing construction Actor weakly tracked if append fails so cache release
+  still unregisters it. Reset discards publication cursors along with fitting.
+  C++ condition declarations remain in scope in both branches of an if/else.
+  Use distinct names for a remap lookup pointer and a newly inserted vertex ID;
+  redeclaring the condition name in the else body causes MSVC C2373.
+  PIEPreviewSurfaceProjection covers both remap insertion and shared-ID reuse.
+- `CCS.Editor.MeshLayers.DumpPIEPreview` inspects cached preview components only on
+  explicit command execution. It logs pending state, submitted/expected triangles,
+  ReusedGeometry, FirstGeometrySec (first nonempty batch adoption, -1 while waiting)
+  and GeometryWaitSec (elapsed until all batches are adopted, including worker
+  queue/preparation and intervening fitting/publication, not CPU-only timing),
+  query/miss counts, accepted non-static floors and signed floor correction in
+  world cm (range includes zero). A completed cache should have `Pending=0` and
+  matching triangle counts; misses retain source positions and can still be
+  buried by rendered ground. Count rejected FDynamicMesh3::AppendTriangle results
+  and log a warning during component construction rather than silently discarding
+  topology errors. Diagnostic allocations and mesh inspection are outside Tick.
+  TMap range-for elements are TPair values with Key/Value fields; only explicit
+  map iterators expose Key()/Value(). Calling Pair.Key() treats the weak key as
+  a function and causes C2064; inside UE_LOG, format-validation template errors
+  then cascade from that invalid argument. Fix the argument before changing the
+  format string. ConsoleControls.MeshLayerPreviewDump checks diagnostic command
+  registration, editor classification and dispatch without a selected world;
+  compilation guards the argument expressions in the populated-cache log.
+- Aggregate document statistics cannot localize a missing patch. On that same
+  explicit command, sample the first player Pawn's collision foot point in each
+  cached PIE world. Log accepted complex/simple fitting results and raw complex
+  hit identities/responses; also enumerate nearby StaticMesh bounds candidates
+  to expose components that collision queries never hit. These bounds are only
+  candidates, not proof of rendered triangle coverage. Compare native Layer
+  heights (query origin foot +100 cm, downward range 600 cm) with submitted
+  DynamicMesh triangle intersections (world-Z segment foot +/-500 cm, nearest
+  height). `DepthComparable` guards the floor-height delta when either coverage
+  or an accepted complex hit is absent. Mesh diagnostics include material blend
+  mode and ShouldRender state. A submitted but buried mesh differs from
+  missing submitted geometry; `Pending=1` may explain the latter during loading.
+  `SamplePIEPreviewActor` reads component transforms and mesh data without editing
+  them. Its O(triangle count) scan, candidate enumeration, logs and temporary
+  arrays execute only on request, never in the preview ticker. The regression
+  fixture checks scaled/rotated stacked surfaces, absent coverage and buried
+  coverage. The floor fixture uses an ordinary Actor, SceneComponent root and
+  scaled child StaticMesh with complex queries. Asset names or Blueprint node
+  references alone do not establish active PIE transforms, collision settings
+  or connected material displacement; diagnose the actual point first.
+- A persistent debug batch is only persistent CPU data, not persistent GPU mesh
+  buffers. UE5.6 `Engine/Private/Components/LineBatchComponent.cpp` rebuilds an
+  FDynamicMeshBuilder for every mesh/view/frame. GeometryFramework's
+  `Private/Components/DynamicMeshSceneProxy.h` initializes/uploads render buffer
+  sets on mesh changes; `BaseDynamicMeshSceneProxy.cpp::DrawBatch` references
+  those buffers during drawing. PIE preview uses this engine-owned component
+  path to avoid repeated vertex/index construction and uploads. Geometry/MID
+  allocations occur on cache creation; stable drawing reuses them. Movement
+  updates only the Actor transform, including per-component culling bounds.
+  Collision/cooking updates, navigation, component ticking, shadows and ray
+  tracing are disabled. Creation/build/ticker Insights scopes use the
+  CCS_MeshLayers_PIEPreview prefix.
 - Never register an ownerless editor-created `UPrimitiveComponent` into a PIE
   world and retain it through a global `TStrongObjectPtr`: `EndPlayMap` can
   release the world's `FScene` before a later ticker/GC pass drops that object.
-  Use a world-owned renderer or tear it down on `PrePIEEnded`. Mesh preview
-  does both: its batcher belongs to `UWorld`, `PrePIEEnded` clears all BatchIDs,
-  and `PostPIEStarted` re-enables routing. Editor-module placement excludes
-  Shipping.
+  PIE previews use Level-owned transient Actors, actor-owned instance components
+  and component-owned material references; global caches are weak only.
+  `PrePIEEnded` destroys preview Actors before scene release, while
+  `PostPIEStarted` re-enables routing. Show off/Edit entry/module unload and disappeared
+  storage also cancel pending fitting and destroy only the associated preview
+  Actors. Source Level unload
+  owns them independently of polling. Existing external debug batches are never
+  cleared. Empty documents are initialized caches rather than repeated builds.
+  Editor-module placement and PIE-only creation exclude Shipping. Do not attach
+  these meshes to the hidden storage actor: owner hidden state would suppress
+  the preview.
 - Closing the mode's primary tab routes back to `FEdMode::RequestDeletion`.
   Exit guards against close-callback re-entry and explicitly redraws Level
-  viewports. Preview toggle first deactivates edit mode, then activates preview.
+  viewports. Keep Show intent separate from the read-only mode's active flag.
+  Edit Enter notifies the tool coordinator, disables preview view routing and
+  releases PIE caches while retaining requested intent. Actual Edit Exit clears
+  the pause only after document handling and render cleanup. The existing
+  preview ticker restores a missing read-only mode outside that Exit stack,
+  guarded by both the Enter/Exit pause and active Edit flag, editor-world cleanup
+  and engine shutdown. UE5.6 EditorModeManager.cpp::DeactivateModeAtIndex removes
+  ActiveScriptableModes immediately, while Tick::ExitAllModesPendingDeactivate
+  runs Exit later; testing only IsModeActive is insufficient. Preview-on still
+  deactivates Edit in one click, with activation deferred until cleanup finishes.
+  Show-off during Edit clears intent without closing Edit or resuming later.
+  PreviewModeResumeAfterEdit exercises real menu, selector and toolkit-close
+  paths, the pending-Exit interval and explicit off; the test requires an idle
+  Level Editor outside PIE and restores its created modes on completion.
 - Register custom Level Editor modes with a resolved normal/small icon pair
   from `FComposableCameraEditorStyle`. Passing default `FSlateIcon()` to mode
   registration leaves the active-mode icon slot blank even when the mode name

@@ -5,6 +5,7 @@
 #include "Cameras/ComposableCameraCameraBase.h"
 
 #include "Editors/ComposableCameraShotEditor.h"
+#include "Utilities/ComposableCameraMeshLayerTool.h"
 #include "Engine/Engine.h"
 #include "Engine/World.h"
 #include "Framework/Docking/TabManager.h"
@@ -222,7 +223,7 @@ void SComposableCameraSystemEditWindow::RefreshControls()
 		const int32 PriorityB = GetCommonControlPriority(B.Name);
 		return PriorityA == PriorityB ? A.Name < B.Name : PriorityA < PriorityB;
 	});
-	Status = FText::Format(LOCTEXT("Discovered", "{0} controls"), FText::AsNumber(Controls.Num()));
+	Status = FText::Format(LOCTEXT("Discovered", "{0} controls"), FText::AsNumber(Controls.Num() + 1));
 	RebuildGroups();
 }
 
@@ -289,6 +290,46 @@ void SComposableCameraSystemEditWindow::RebuildGroups()
 				&& !Control.Label.Contains(SearchText) && !Control.Help.Contains(SearchText))) continue;
 			Rows->AddSlot().AutoHeight().Padding(0, 1)[BuildControl(Control)];
 			++Count;
+		}
+		if (Group == EComposableCameraConsoleControlGroup::Viewport)
+		{
+			const FText Label = LOCTEXT("ShowMeshLayers", "Show Mesh Layers");
+			const FText Help = LOCTEXT("MeshLayersTooltip", "Toggle read-only mesh camera layer visualization in the editor and all PIE worlds. Shares the Tools menu switch and works independently of 3D viewport debug.");
+			if (SearchText.IsEmpty() || FString(TEXT("ShowMeshLayers")).Contains(SearchText)
+				|| Label.ToString().Contains(SearchText) || Help.ToString().Contains(SearchText))
+			{
+				Rows->AddSlot().AutoHeight().Padding(0, 1)
+				[
+					SNew(SBorder).Padding(FMargin(6, 3)).BorderImage(FAppStyle::GetBrush("ToolPanel.DarkGroupBorder"))
+					.ToolTipText(Help)
+					[
+						SNew(SHorizontalBox)
+						+ SHorizontalBox::Slot().FillWidth(1).VAlign(VAlign_Center).Padding(0, 0, 8, 0)
+						[SNew(STextBlock).AutoWrapText(true).Text(Label).ColorAndOpacity(FLinearColor::White)
+							.Font(FAppStyle::GetFontStyle("NormalFont"))]
+						+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
+						[
+							SNew(SCheckBox)
+							.IsChecked_Lambda([]()
+							{
+								return FComposableCameraMeshLayerTool::IsPreviewModeActive() ? ECheckBoxState::Checked : ECheckBoxState::Unchecked;
+							})
+							.OnCheckStateChanged_Lambda([](ECheckBoxState State)
+							{
+								if ((State == ECheckBoxState::Checked) != FComposableCameraMeshLayerTool::IsPreviewModeActive())
+								{
+									FComposableCameraMeshLayerTool::TogglePreviewMode();
+								}
+							})
+							[SNew(STextBlock).Text_Lambda([]()
+							{
+								return FComposableCameraMeshLayerTool::IsPreviewModeActive() ? LOCTEXT("On", "On") : LOCTEXT("Off", "Off");
+							})]
+						]
+					]
+				];
+				++Count;
+			}
 		}
 		if (Count == 0) continue;
 		VisibleCount += Count;

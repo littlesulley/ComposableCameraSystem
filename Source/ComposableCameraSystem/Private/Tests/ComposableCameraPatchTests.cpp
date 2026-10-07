@@ -73,15 +73,44 @@ bool FComposableCameraPatchExpireAllWithoutHandleTest::RunTest(const FString& /*
 		TestEqual(TEXT("Both patches remain registered before bulk expiration"),
 			Manager->GetActivePatchCount(), 2);
 
-		Manager->ExpireAll();
+		Manager->ExpireAll(0.4f);
 		TestTrue(TEXT("Retained-handle patch starts fading out"),
 			RetainedHandle->GetPhase() == EComposableCameraPatchPhase::Exiting);
 		TestTrue(TEXT("Handle-free patch also starts fading out"),
 			ReleasedInstance->Phase == EComposableCameraPatchPhase::Exiting);
+		TestEqual(TEXT("Handle-free patch receives the duration override"), ReleasedInstance->ExitDuration, 0.4f);
+		(void)Manager->Apply(0.2f, FComposableCameraPose{});
+		TestEqual(TEXT("Both patches survive the first half of the exit"), Manager->GetActivePatchCount(), 2);
+		Manager->ExpireAll(0.f);
+		TestEqual(TEXT("Repeated bulk expiration preserves the running exit duration"), ReleasedInstance->ExitDuration, 0.4f);
+		TestEqual(TEXT("Repeated bulk expiration does not reset the exit clock"), ReleasedInstance->ElapsedInPhase, 0.2f);
 		(void)Manager->Apply(0.25f, FComposableCameraPose{});
 		TestEqual(TEXT("Bulk expiration removes both patches after the exit envelope"),
 			Manager->GetActivePatchCount(), 0);
 		TestFalse(TEXT("Handle-free patch evaluator is destroyed"), ReleasedEvaluator.IsValid());
+
+		Params.EnterDuration = 0.4f;
+		TStrongObjectPtr<UComposableCameraPatchHandle> EnteringHandle(
+			Manager->AddPatch(Asset, Params, FComposableCameraParameterBlock{}));
+		if (!TestTrue(TEXT("Entering patch exists"), EnteringHandle.IsValid())) return false;
+		(void)Manager->Apply(0.1f, FComposableCameraPose{});
+		UComposableCameraPatchInstance* EnteringInstance = EnteringHandle->GetInstance();
+		const float EnterAlpha = EnteringInstance->CurrentAlpha;
+		Manager->ExpireAll();
+		TestTrue(TEXT("Partially entered patch starts its exit"), EnteringInstance->Phase == EComposableCameraPatchPhase::Exiting);
+		TestEqual(TEXT("Exit starts at the partial enter alpha"), EnteringInstance->ExitStartAlpha, EnterAlpha);
+		(void)Manager->Apply(0.25f, FComposableCameraPose{});
+		TestEqual(TEXT("Partially entered patch is removed after its exit"), Manager->GetActivePatchCount(), 0);
+
+		Params.EnterDuration = 0.f;
+		TStrongObjectPtr<UComposableCameraPatchHandle> ImmediateHandle(
+			Manager->AddPatch(Asset, Params, FComposableCameraParameterBlock{}));
+		if (!TestTrue(TEXT("Immediate-cut patch exists"), ImmediateHandle.IsValid())) return false;
+		(void)Manager->Apply(0.f, FComposableCameraPose{});
+		Manager->ExpireAll(0.f);
+		TestTrue(TEXT("Zero exit override expires immediately"), ImmediateHandle->GetPhase() == EComposableCameraPatchPhase::Expired);
+		(void)Manager->Apply(0.f, FComposableCameraPose{});
+		TestEqual(TEXT("Immediate cut is swept normally"), Manager->GetActivePatchCount(), 0);
 		return true;
 	}();
 

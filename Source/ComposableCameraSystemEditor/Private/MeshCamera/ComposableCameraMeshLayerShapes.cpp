@@ -6,6 +6,8 @@
 #include "Algo/Reverse.h"
 #include "CompGeom/PolygonTriangulation.h"
 #include "MeshCamera/ComposableCameraMeshSurfaceTypes.h"
+#include "MeshCamera/ComposableCameraMeshLayerAuthoringIndex.h"
+#include "ProfilingDebugging/CpuProfilerTrace.h"
 
 namespace UE::ComposableCamera::MeshEditor
 {
@@ -13,6 +15,9 @@ namespace UE::ComposableCamera::MeshEditor
 	{
 		constexpr int32 MaxOutlinePoints = 256;
 		constexpr int32 MaxShapeTriangles = 16384;
+		constexpr double MinimumRefinementEdge = 2.5;
+		constexpr double MissingSurfaceRefinementEdge = 10.0;
+		constexpr int32 MaxRefinementDepth = 16;
 		constexpr double PointTolerance = 0.001;
 
 		bool HasValidTriangle(const FComposableCameraMeshSurfaceAuthoringData& Data, int32 Triangle)
@@ -169,15 +174,22 @@ namespace UE::ComposableCamera::MeshEditor
 		return Result;
 	}
 
-	bool EraseShapeGeometry(FComposableCameraMeshSurfaceAuthoringData& Data, const FGuid& LayerId,
-		const FComposableCameraMeshEraseStamp& Stamp, bool bRememberForShapes, FEraseGeometryStats* OutStats, FBox2D* OutChangedBounds)
+	bool FEraseGeometryBuild::Begin(const FComposableCameraMeshSurfaceAuthoringData& Data, const FGuid& LayerId,
+		const FComposableCameraMeshEraseStamp& Stamp, bool bRememberForShapes, FMeshLayerAuthoringIndex* SourceIndex)
 	{
-		if (OutStats) { *OutStats = {}; }
-		if (OutChangedBounds) { *OutChangedBounds = FBox2D(ForceInit); }
+		TRACE_CPUPROFILER_EVENT_SCOPE(CCS_MeshLayers_EraseBegin);
+		Planes.Reset(); Candidates.Reset(); ErasedShapes.Reset(); AlreadyErasedShapes.Reset(); Stats = {};
+		ChangedBounds = FBox2D(ForceInit); bChanged = false; bFinished = true; WorkIndex = 0;
 		if (!Data.IsConsistent() || Stamp.Radius <= 0.0 || Stamp.Depth <= 0.0) { return false; }
+		EraseStamp = Stamp; EraseLayer = LayerId; bRemember = bRememberForShapes; bIndexed = SourceIndex != nullptr;
+		OriginalTriangleCount = Data.TriangleLayerIds.Num();
+		if (SourceIndex)
+		{
+			if (!SourceIndex->IsCurrent(Data)) { SourceIndex->Build(Data); }
+			SourceIndex->FindEraseCandidates(Stamp, LayerId, Candidates);
+		}
+		if (OriginalTriangleCount == 0 || (bIndexed && Candidates.IsEmpty())) { return false; }
 		// Subtract a 32-sided circular prism. Split in local 3D, preserving height.
-		struct FCutPlane { FVector Normal; double Limit; };
-		TArray<FCutPlane, TInlineAllocator<34>> Planes;
 		Planes.Add({Stamp.AxisZ, Stamp.Depth});
 		Planes.Add({-Stamp.AxisZ, Stamp.Depth});
 		for (int32 Side = 0; Side < 32; ++Side)
@@ -185,9 +197,7 @@ namespace UE::ComposableCamera::MeshEditor
 			const double Angle = (Side + 0.5) * 2.0 * UE_DOUBLE_PI / 32;
 			Planes.Add({Stamp.AxisX * FMath::Cos(Angle) + Stamp.AxisY * FMath::Sin(Angle), Stamp.Radius * FMath::Cos(UE_DOUBLE_PI / 32)});
 		}
-		const bool bHasShapeIds = !Data.TriangleShapeIds.IsEmpty();
-		TSet<FGuid> ErasedShapes;
-		TSet<FGuid> AlreadyErasedShapes;
+		bHasShapeIds = !Data.TriangleShapeIds.IsEmpty();
 		if (bRememberForShapes)
 		{
 			for (const auto& Shape : Data.Shapes)
@@ -200,8 +210,25 @@ namespace UE::ComposableCamera::MeshEditor
 				})) { AlreadyErasedShapes.Add(Shape.ShapeId); }
 			}
 		}
-		bool bChanged = false;
-		auto Emit = [&Data, bHasShapeIds](TConstArrayView<FVector> Polygon, const FGuid& Layer, const FGuid& Owner)
+		bFinished = false;
+		return true;
+	}
+
+	bool FEraseGeometryBuild::Advance(FComposableCameraMeshSurfaceAuthoringData& Data, FMeshLayerAuthoringIndex* SourceIndex,
+		int32 MaxTriangles, double TimeBudgetSeconds)
+	{
+		TRACE_CPUPROFILER_EVENT_SCOPE(CCS_MeshLayers_EraseGeometry);
+		if (bFinished || MaxTriangles <= 0) { return bFinished; }
+		check(!bIndexed || SourceIndex);
+		const auto& Stamp = EraseStamp; const FGuid& LayerId = EraseLayer;
+		FEraseGeometryStats* OutStats = &Stats;
+		FBox2D* OutChangedBounds = &ChangedBounds;
+		// The disk inside the 32-gon's apothem is a conservative containment test,
+		// including nonorthogonal document axes. A margin keeps near-plane roundoff on exact clipping.
+		const double InteriorMargin = FMath::Max3(1.0, Stamp.Radius, Stamp.Depth) * UE_DOUBLE_KINDA_SMALL_NUMBER;
+		const double InteriorRadiusSquared = FMath::Square(FMath::Max(0.0, Planes[2].Limit - InteriorMargin));
+		const double InteriorDepth = FMath::Max(0.0, Stamp.Depth - InteriorMargin);
+		auto Emit = [&Data, bEmitShapeIds = bHasShapeIds](TConstArrayView<FVector> Polygon, const FGuid& Layer, const FGuid& Owner)
 		{
 			for (int32 Index = 1; Index + 1 < Polygon.Num(); ++Index)
 			{
@@ -210,19 +237,27 @@ namespace UE::ComposableCamera::MeshEditor
 				Data.Vertices.Add(FVector3f(Polygon[0])); Data.Vertices.Add(FVector3f(Polygon[Index])); Data.Vertices.Add(FVector3f(Polygon[Index + 1]));
 				Data.Indices.Append({Base, Base + 1, Base + 2});
 				Data.TriangleLayerIds.Add(Layer);
-				if (bHasShapeIds) { Data.TriangleShapeIds.Add(Owner); }
+				if (bEmitShapeIds) { Data.TriangleShapeIds.Add(Owner); }
 			}
 		};
 		// Descending source indices: swap-removal can move only an already processed
 		// triangle or a new fragment into the current slot. Never recut new fragments.
-		for (int32 Triangle = Data.TriangleLayerIds.Num() - 1; Triangle >= 0; --Triangle)
+		const int32 WorkCount = bIndexed ? Candidates.Num() : OriginalTriangleCount;
+		const double Started = FPlatformTime::Seconds();
+		int32 Processed = 0;
+		for (; WorkIndex < WorkCount; ++WorkIndex)
 		{
+			if (Processed >= MaxTriangles || (TimeBudgetSeconds > 0.0 && FPlatformTime::Seconds() - Started >= TimeBudgetSeconds)) { return false; }
+			++Processed;
+			const int32 Triangle = bIndexed ? Candidates[WorkIndex] : OriginalTriangleCount - 1 - WorkIndex;
+			if (OutStats) { ++OutStats->ConsideredTriangles; }
 			if (!HasValidTriangle(Data, Triangle)) { continue; }
 			const FGuid Owner = Data.TriangleShapeIds.IsValidIndex(Triangle) ? Data.TriangleShapeIds[Triangle] : FGuid();
 			const int32 Offset = Triangle * 3;
 			const FVector Original[] = {FVector(Data.Vertices[Data.Indices[Offset]]), FVector(Data.Vertices[Data.Indices[Offset + 1]]), FVector(Data.Vertices[Data.Indices[Offset + 2]])};
 			const FGuid Layer = Data.TriangleLayerIds[Triangle];
 			bool bOutside = Layer != LayerId || AlreadyErasedShapes.Contains(Owner);
+			FVector BrushCorners[] = {FVector::ZeroVector, FVector::ZeroVector, FVector::ZeroVector};
 			// Cheap brush-space bounds reject distant triangles before polygon allocation.
 			for (int32 AxisIndex = 0; AxisIndex < 3 && !bOutside; ++AxisIndex)
 			{
@@ -231,6 +266,7 @@ namespace UE::ComposableCamera::MeshEditor
 				const double A = FVector::DotProduct(Original[0] - Stamp.Center, Axis);
 				const double B = FVector::DotProduct(Original[1] - Stamp.Center, Axis);
 				const double C = FVector::DotProduct(Original[2] - Stamp.Center, Axis);
+				BrushCorners[0][AxisIndex] = A; BrushCorners[1][AxisIndex] = B; BrushCorners[2][AxisIndex] = C;
 				bOutside = FMath::Min3(A, B, C) > Limit || FMath::Max3(A, B, C) < -Limit;
 			}
 			if (bOutside)
@@ -239,14 +275,21 @@ namespace UE::ComposableCamera::MeshEditor
 				continue;
 			}
 			if (OutStats) { ++OutStats->ClippedTriangles; }
+			bool bEntirelyInside = true;
+			for (const FVector& Corner : BrushCorners)
+			{
+				bEntirelyInside &= FMath::Square(Corner.X) + FMath::Square(Corner.Y) < InteriorRadiusSquared
+					&& FMath::Abs(Corner.Z) < InteriorDepth;
+			}
 			// A triangle clipped by 34 planes has at most 37 vertices. Inline scratch
 			// avoids the old heap allocation on every plane of every candidate triangle.
 			using FCutPolygon = TArray<FVector, TInlineAllocator<40>>;
 			FCutPolygon Inside;
 			Inside.Append(Original, UE_ARRAY_COUNT(Original));
 			TArray<FCutPolygon, TInlineAllocator<34>> OutsidePieces;
-			for (const FCutPlane& Plane : Planes)
+			for (int32 PlaneIndex = 0; !bEntirelyInside && PlaneIndex < Planes.Num(); ++PlaneIndex)
 			{
+				const FCutPlane& Plane = Planes[PlaneIndex];
 				if (Inside.Num() < 3) { break; }
 				FCutPolygon NextInside, Outside;
 				for (int32 Index = 0; Index < Inside.Num(); ++Index)
@@ -270,6 +313,7 @@ namespace UE::ComposableCamera::MeshEditor
 				RemovedArea += FVector::CrossProduct(Inside[Index] - Inside[0], Inside[Index + 1] - Inside[0]).Size();
 			}
 			if (RemovedArea <= 1.e-6) { continue; }
+			if (bEntirelyInside) { ++Stats.InteriorTriangles; }
 			bChanged = true;
 			if (OutChangedBounds)
 			{
@@ -278,16 +322,25 @@ namespace UE::ComposableCamera::MeshEditor
 				for (const FVector& Point : Inside) { *OutChangedBounds += FVector2D(Point.X, Point.Y); }
 			}
 			if (Owner.IsValid()) { ErasedShapes.Add(Owner); }
+			if (SourceIndex)
+			{
+				SourceIndex->MarkChanged(Triangle, Triangle + 1);
+				SourceIndex->MarkChanged(Data.TriangleLayerIds.Num() - 1, Data.TriangleLayerIds.Num());
+			}
 			Data.Indices.RemoveAtSwap(Offset, 3, EAllowShrinking::No);
 			Data.TriangleLayerIds.RemoveAtSwap(Triangle, 1, EAllowShrinking::No);
 			if (bHasShapeIds) { Data.TriangleShapeIds.RemoveAtSwap(Triangle, 1, EAllowShrinking::No); }
+			const int32 FirstFragment = Data.TriangleLayerIds.Num();
 			for (const FCutPolygon& Piece : OutsidePieces) { Emit(Piece, Layer, Owner); }
+			if (SourceIndex) { SourceIndex->MarkChanged(FirstFragment, Data.TriangleLayerIds.Num()); }
 		}
-		if (!bChanged) { return false; }
+		bFinished = true;
+		if (!bChanged) { return true; }
 		// Retain untouched vertices/triangles and Shape buffers. Save's existing
 		// orphan cleanup compacts unused vertices, outside interactive brush work.
 		if (Data.Indices.IsEmpty()) { Data.Vertices.Reset(); }
-		if (bRememberForShapes)
+		if (SourceIndex) { SourceIndex->RefreshChanged(Data); }
+		if (bRemember)
 		{
 			for (FComposableCameraMeshAuthoredShape& Shape : Data.Shapes)
 			{
@@ -295,6 +348,17 @@ namespace UE::ComposableCamera::MeshEditor
 			}
 		}
 		return true;
+	}
+
+	bool EraseShapeGeometry(FComposableCameraMeshSurfaceAuthoringData& Data, const FGuid& LayerId,
+		const FComposableCameraMeshEraseStamp& Stamp, bool bRememberForShapes, FEraseGeometryStats* OutStats, FBox2D* OutChangedBounds,
+		FMeshLayerAuthoringIndex* SourceIndex)
+	{
+		FEraseGeometryBuild Build;
+		if (Build.Begin(Data, LayerId, Stamp, bRememberForShapes, SourceIndex)) { Build.Advance(Data, SourceIndex); }
+		if (OutStats) { *OutStats = Build.GetStats(); }
+		if (OutChangedBounds) { *OutChangedBounds = Build.GetChangedBounds(); }
+		return Build.HasChanged();
 	}
 
 	FVector2D SnapShapePoint(const FVector2D& Point, double GridSize)
@@ -323,14 +387,54 @@ namespace UE::ComposableCamera::MeshEditor
 		}
 	}
 
-	EShapeBuildResult FProjectedShapeBuild::Begin(TConstArrayView<FVector2D> Outline, double SampleSpacing, const FGuid& LayerId)
+	void FProjectedShapeBuild::SplitTriangle(const FTriangle& Triangle, FTriangle& First, FTriangle& Second)
 	{
-		Points.Reset(); OutlineIndices.Reset(); Leaves.Reset(); Samples.Reset(); Data.Reset();
-		LeafIndex = SampleIndex = SkippedCount = 0;
+		const double AB = (Triangle.B - Triangle.A).SizeSquared();
+		const double BC = (Triangle.C - Triangle.B).SizeSquared();
+		const double CA = (Triangle.A - Triangle.C).SizeSquared();
+		const int32 Depth = Triangle.RefinementDepth + 1;
+		if (AB >= BC && AB >= CA)
+		{
+			const FVector2D Mid = (Triangle.A + Triangle.B) * 0.5;
+			First = {Triangle.A, Mid, Triangle.C, Depth}; Second = {Mid, Triangle.B, Triangle.C, Depth};
+		}
+		else if (BC >= CA)
+		{
+			const FVector2D Mid = (Triangle.B + Triangle.C) * 0.5;
+			First = {Triangle.B, Mid, Triangle.A, Depth}; Second = {Mid, Triangle.C, Triangle.A, Depth};
+		}
+		else
+		{
+			const FVector2D Mid = (Triangle.C + Triangle.A) * 0.5;
+			First = {Triangle.C, Mid, Triangle.B, Depth}; Second = {Mid, Triangle.A, Triangle.B, Depth};
+		}
+	}
+
+	void FProjectedShapeBuild::AppendEdgeSamples(const FVector2D& Start, const FVector2D& End,
+		TArray<FVector, TInlineAllocator<16>>& Boundary, int32 Depth) const
+	{
+		const FVector2D Mid = (Start + End) * 0.5;
+		const FSample* Middle = Samples.Find(Mid);
+		if (Depth < MaxRefinementDepth && Middle && Middle->bValid && Mid != Start && Mid != End)
+		{
+			AppendEdgeSamples(Start, Mid, Boundary, Depth + 1);
+			AppendEdgeSamples(Mid, End, Boundary, Depth + 1);
+		}
+		else { Boundary.Add(Samples.FindChecked(Start).Position); }
+	}
+
+	EShapeBuildResult FProjectedShapeBuild::Begin(TConstArrayView<FVector2D> Outline, double SampleSpacing, const FGuid& LayerId,
+		int32 MaxTriangles, double SurfaceErrorTolerance)
+	{
+		Points.Reset(); OutlineIndices.Reset(); Leaves.Reset(); Completed.Reset(); Samples.Reset(); Data.Reset();
+		LeafIndex = EmissionIndex = SampleIndex = SkippedCount = ValidSampleCount = 0;
+		TriangleLimit = FMath::Clamp(MaxTriangles, 1, MaxShapeTriangles);
+		ApproximationError = SurfaceErrorTolerance;
 		bLeafValid = true; bFinished = true;
 		Result = EShapeBuildResult::InvalidOutline;
 		Layer = LayerId;
-		if (!LayerId.IsValid() || !FMath::IsFinite(SampleSpacing) || SampleSpacing < 10.0 || !PrepareOutline(Outline, Points))
+		if (!LayerId.IsValid() || !FMath::IsFinite(SampleSpacing) || SampleSpacing < 10.0
+			|| !FMath::IsFinite(ApproximationError) || ApproximationError <= 0.0 || !PrepareOutline(Outline, Points))
 		{
 			return EShapeBuildResult::InvalidOutline;
 		}
@@ -354,27 +458,15 @@ namespace UE::ComposableCamera::MeshEditor
 			const double CA = (Triangle.A - Triangle.C).SizeSquared();
 			if (FMath::Max3(AB, BC, CA) > MaxEdgeSquared)
 			{
-				if (AB >= BC && AB >= CA)
-				{
-					const FVector2D Mid = (Triangle.A + Triangle.B) * 0.5;
-					Pending.Add({Triangle.A, Mid, Triangle.C}); Pending.Add({Mid, Triangle.B, Triangle.C});
-				}
-				else if (BC >= CA)
-				{
-					const FVector2D Mid = (Triangle.B + Triangle.C) * 0.5;
-					Pending.Add({Triangle.B, Mid, Triangle.A}); Pending.Add({Mid, Triangle.C, Triangle.A});
-				}
-				else
-				{
-					const FVector2D Mid = (Triangle.C + Triangle.A) * 0.5;
-					Pending.Add({Triangle.C, Mid, Triangle.B}); Pending.Add({Mid, Triangle.A, Triangle.B});
-				}
+				FTriangle First, Second;
+				SplitTriangle(Triangle, First, Second);
+				Pending.Add(First); Pending.Add(Second);
 			}
 			else
 			{
-				Leaves.Add(Triangle);
+				Leaves.Add({Triangle.A, Triangle.B, Triangle.C});
 			}
-			if (Leaves.Num() + Pending.Num() > MaxShapeTriangles) { Result = EShapeBuildResult::TooComplex; return Result; }
+			if (Leaves.Num() + Pending.Num() > TriangleLimit) { Result = EShapeBuildResult::TooComplex; return Result; }
 		}
 		// Density is bounded before the first collision query; release creates only
 		// the small outline preview. Projection resumes under a per-frame budget.
@@ -392,7 +484,7 @@ namespace UE::ComposableCamera::MeshEditor
 		while (LeafIndex < Leaves.Num())
 		{
 			if (TimeBudgetSeconds > 0.0 && FPlatformTime::Seconds() - Started >= TimeBudgetSeconds) { return false; }
-			const FTriangle& Triangle = Leaves[LeafIndex];
+			const FTriangle Triangle = Leaves[LeafIndex];
 			const FVector2D Locations[] = {Triangle.A, Triangle.B, Triangle.C,
 				(Triangle.A + Triangle.B) * 0.5, (Triangle.B + Triangle.C) * 0.5,
 				(Triangle.C + Triangle.A) * 0.5, (Triangle.A + Triangle.B + Triangle.C) / 3.0};
@@ -406,19 +498,76 @@ namespace UE::ComposableCamera::MeshEditor
 				Samples.Add(Point, Sample); ++Queries;
 			}
 			bLeafValid &= Sample.bValid;
-			if (SampleIndex < 3) { CurrentVertices[SampleIndex] = Sample.Position; }
+			ValidSampleCount += Sample.bValid ? 1 : 0;
+			CurrentVertices[SampleIndex] = Sample.Position;
 			++SampleIndex;
-			// Match the synchronous floor test: always resolve the three corners,
-			// then stop querying midpoints/centroid as soon as the leaf is invalid.
-			if (SampleIndex < 3 || (bLeafValid && SampleIndex < static_cast<int32>(UE_ARRAY_COUNT(Locations)))) { continue; }
-			if (!bLeafValid) { ++SkippedCount; }
-			else
+			if (SampleIndex < static_cast<int32>(UE_ARRAY_COUNT(Locations))) { continue; }
+			double Error = 0.0;
+			if (bLeafValid)
+			{
+				for (int32 Edge = 0; Edge < 3; ++Edge)
+				{
+					Error = FMath::Max(Error, FVector::Distance(CurrentVertices[3 + Edge],
+						(CurrentVertices[Edge] + CurrentVertices[(Edge + 1) % 3]) * 0.5));
+				}
+				Error = FMath::Max(Error, FVector::Distance(CurrentVertices[6],
+					(CurrentVertices[0] + CurrentVertices[1] + CurrentVertices[2]) / 3.0));
+			}
+			const double LongestEdgeSquared = FMath::Max3((Triangle.B - Triangle.A).SizeSquared(),
+				(Triangle.C - Triangle.B).SizeSquared(), (Triangle.A - Triangle.C).SizeSquared());
+			const double MinimumEdge = (bLeafValid ? MinimumRefinementEdge : MissingSurfaceRefinementEdge) * ApproximationError;
+			if ((bLeafValid ? Error > ApproximationError : ValidSampleCount > 0)
+				&& LongestEdgeSquared > FMath::Square(MinimumEdge) && Triangle.RefinementDepth < MaxRefinementDepth)
+			{
+				if (Leaves.Num() + 2 > TriangleLimit * 2)
+				{
+					Result = EShapeBuildResult::TooComplex; bFinished = true; return true;
+				}
+				FTriangle First, Second;
+				SplitTriangle(Triangle, First, Second);
+				Leaves.Add(First); Leaves.Add(Second);
+			}
+			else if (bLeafValid && Error <= ApproximationError) { Completed.Add(Triangle); }
+			else { ++SkippedCount; }
+			++LeafIndex; SampleIndex = ValidSampleCount = 0; bLeafValid = true;
+		}
+		// Emit only after all refinement samples are known. Both sides of a shared
+		// edge use every cached midpoint, avoiding curved-surface T-junction cracks.
+		while (EmissionIndex < Completed.Num())
+		{
+			if (TimeBudgetSeconds > 0.0 && FPlatformTime::Seconds() - Started >= TimeBudgetSeconds) { return false; }
+			const FTriangle& Triangle = Completed[EmissionIndex++];
+			TArray<FVector, TInlineAllocator<16>> Boundary;
+			AppendEdgeSamples(Triangle.A, Triangle.B, Boundary);
+			AppendEdgeSamples(Triangle.B, Triangle.C, Boundary);
+			AppendEdgeSamples(Triangle.C, Triangle.A, Boundary);
+			const FVector Center = Samples.FindChecked((Triangle.A + Triangle.B + Triangle.C) / 3.0).Position;
+			const FVector Corners[] = {Samples.FindChecked(Triangle.A).Position,
+				Samples.FindChecked(Triangle.B).Position, Samples.FindChecked(Triangle.C).Position};
+			const FVector Normal = FVector::CrossProduct(Corners[1] - Corners[0], Corners[2] - Corners[0]).GetSafeNormal();
+			bool bPlanar = !Normal.IsNearlyZero() && FMath::Abs(FVector::DotProduct(Center - Corners[0], Normal)) <= 1.e-6;
+			for (const FVector& Vertex : Boundary) { bPlanar &= FMath::Abs(FVector::DotProduct(Vertex - Corners[0], Normal)) <= 1.e-6; }
+			const int32 AddedTriangles = bPlanar ? 1 : Boundary.Num();
+			if (Data.TriangleLayerIds.Num() + AddedTriangles > TriangleLimit)
+			{
+				Result = EShapeBuildResult::TooComplex; bFinished = true; return true;
+			}
+			if (bPlanar)
 			{
 				const int32 Base = Data.Vertices.Num();
-				for (const FVector& Vertex : CurrentVertices) { Data.Vertices.Add(FVector3f(Vertex)); }
+				for (const FVector& Corner : Corners) { Data.Vertices.Add(FVector3f(Corner)); }
 				Data.Indices.Append({Base, Base + 1, Base + 2}); Data.TriangleLayerIds.Add(Layer);
 			}
-			++LeafIndex; SampleIndex = 0; bLeafValid = true;
+			else
+			{
+				const int32 Base = Data.Vertices.Add(FVector3f(Center));
+				for (const FVector& Vertex : Boundary) { Data.Vertices.Add(FVector3f(Vertex)); }
+				for (int32 Edge = 0; Edge < Boundary.Num(); ++Edge)
+				{
+					Data.Indices.Append({Base, Base + Edge + 1, Base + (Edge + 1) % Boundary.Num() + 1});
+					Data.TriangleLayerIds.Add(Layer);
+				}
+			}
 		}
 		bFinished = true;
 		Result = Data.Indices.IsEmpty() ? EShapeBuildResult::NoSurface
@@ -428,10 +577,10 @@ namespace UE::ComposableCamera::MeshEditor
 
 	EShapeBuildResult BuildProjectedShape(TConstArrayView<FVector2D> Outline, double SampleSpacing,
 		const FGuid& LayerId, TFunctionRef<bool(const FVector2D&, FVector&)> Project,
-		FComposableCameraMeshSurfaceAuthoringData& OutData)
+		FComposableCameraMeshSurfaceAuthoringData& OutData, int32 MaxTriangles, double SurfaceErrorTolerance)
 	{
 		FProjectedShapeBuild Build;
-		const EShapeBuildResult Started = Build.Begin(Outline, SampleSpacing, LayerId);
+		const EShapeBuildResult Started = Build.Begin(Outline, SampleSpacing, LayerId, MaxTriangles, SurfaceErrorTolerance);
 		if (Started != EShapeBuildResult::Success) { return Started; }
 		Build.Advance(Project, MAX_int32);
 		const EShapeBuildResult Result = Build.GetResult();

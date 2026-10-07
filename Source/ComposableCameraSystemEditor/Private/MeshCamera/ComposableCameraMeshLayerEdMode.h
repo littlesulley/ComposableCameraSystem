@@ -15,7 +15,14 @@ class UComposableCameraMeshLayerToolSettings;
 class UComposableCameraMeshLayerSelection;
 class ULevel;
 class UWorld;
+namespace UE::ComposableCamera::MeshEditor { class FMeshLayerEditPreview; class FMeshLayerAuthoringIndex; class FMeshLayerStrokeCoverage; class FMeshLayerDocumentBuild; }
+namespace UE::ComposableCamera::MeshEditor { struct FEditPreviewCheckpoint; }
+namespace UE::ComposableCamera::MeshEditor { struct FPreparedEditPreview; }
 struct FComposableCameraMeshShapeCreationTask;
+struct FComposableCameraMeshStrokeTask;
+struct FComposableCameraMeshLiveShapeTask;
+struct FComposableCameraMeshLiveShapeBase;
+struct FCollisionQueryParams;
 enum class EComposableCameraMeshDrawTool : uint8;
 
 class FComposableCameraMeshLayerEdMode : public FEdMode, public FEditorUndoClient
@@ -55,6 +62,7 @@ public:
 	void RequestCloseFromToolkit();
 
 private:
+	friend struct FComposableCameraMeshStrokeTask;
 	friend class FComposableCameraMeshLayerModeToolkit;
 	friend class FComposableCameraMeshShapeInteractionTest;
 	friend class FComposableCameraMeshShapeEditingTest;
@@ -63,13 +71,43 @@ private:
 	friend class FComposableCameraMeshStrokeRefreshTest;
 	friend class FComposableCameraMeshShapeCreationTest;
 	friend class FComposableCameraMeshDiscardTest;
+	friend class FComposableCameraMeshLayerTraceChannelTest;
+	friend class FComposableCameraMeshUnevenBrushTest;
+	friend class FComposableCameraMeshEditPreviewInvalidationTest;
+	friend class FComposableCameraMeshBudgetedStrokeTest;
+	friend class FComposableCameraMeshContinuousEraseTest;
+	friend class FComposableCameraMeshDocumentPreviewTest;
+	friend class FComposableCameraMeshRestorationDisplayTest;
+	friend class FComposableCameraMeshRestoredStrokeTest;
+	friend class FComposableCameraMeshRealtimeEditingTest;
+	friend class FComposableCameraMeshResidentLoadingTest;
+	friend class FComposableCameraMeshSavePreparationTest;
+	FComposableCameraMeshSurfaceEditorPreview PrepareSavePreview(bool& bOutReusedCoverage);
+	void QueuePaintAtHover(FEditorViewportClient* ViewportClient);
+	void AdvancePainting(int32 MaxOperations = MAX_int32, double TimeBudgetSeconds = 0.004, bool bUpdatePreview = true);
+	void AdvanceStrokeCoverage(bool bFlush);
+	void AdvanceDocumentPreview(const FVector2D& LocalFocus = FVector2D::ZeroVector, bool bWait = false);
+	void CancelDocumentBuild();
+	void AdvanceOpeningRegions();
+	void QueueOpeningRegion(const FBox2D& DirtyBounds);
+	void PrepareUndo();
+	void RememberPreview();
+	const UE::ComposableCamera::MeshEditor::FResolvedSurfaceVisualization& GetVisualization() const;
+	void RetireEditingCheckpoint();
+	bool UpdateCachedPreview(const FBox2D* DirtyBounds = nullptr);
 	void CancelInteraction();
 	void ResetInteraction();
 	bool QueueShapeCreation(FComposableCameraMeshAuthoredShape Shape, UWorld* World);
 	void AdvanceShapeCreation();
+	void CancelPendingShapes();
+	void RetirePendingShape(int32 Index);
+	void RequestLiveShapePreview(FComposableCameraMeshAuthoredShape Shape);
+	void AdvanceLiveShapePreview();
+	void CancelLiveShapePreview();
 	const UE::ComposableCamera::MeshEditor::FResolvedSurfaceLayerMesh& GetPendingShapePreview(int32 Index) const;
 	void ApplyCreatedShape(FComposableCameraMeshSurfaceAuthoringData Data,
-		UE::ComposableCamera::MeshEditor::FResolvedSurfaceVisualization Resolved, const FGuid& ShapeId, bool bPartial);
+		UE::ComposableCamera::MeshEditor::FResolvedSurfaceVisualization Resolved, const FGuid& ShapeId, bool bPartial,
+		UE::ComposableCamera::MeshEditor::FPreparedEditPreview* Prepared = nullptr, bool bFull = true);
 	void BeginShape();
 	void UpdateShapePreview();
 	bool CommitShape(TConstArrayView<FVector2D> Outline);
@@ -82,8 +120,10 @@ private:
 	void ApplySelectedShape(const FPropertyChangedEvent& Event);
 	void HandleToolSettingsChanged();
 	void UpdateEditPreview();
-	void FinishStroke(bool bRevert = false);
+	void FinishStroke(bool bRevert = false, bool bKeepPreview = false);
 	void BeginStroke();
+	void StartDeferredStroke();
+	void CaptureStrokeSourceBeforeErase();
 	void RefreshDocumentState();
 	void RebuildShapeOverlays();
 	bool InitializeWorkingDocument();
@@ -92,6 +132,9 @@ private:
 	AComposableCameraMeshSurfaceStorageActor* FindStorageActor() const;
 	AComposableCameraMeshSurfaceStorageActor* FindOrCreateStorageActor();
 	bool UpdateHoverHit(FEditorViewportClient* ViewportClient);
+	/** Resolve by owning Layer GUID, never by whichever row happens to be selected. */
+	bool TraceLayerSurface(const UWorld& World, const FGuid& LayerId, const FVector& Start, const FVector& End,
+		const FCollisionQueryParams& QueryParams, FHitResult& OutHit) const;
 	bool PaintAtHover(FEditorViewportClient* ViewportClient);
 	bool AddProjectedBrushStamp(const FHitResult& CenterHit, const FGuid& LayerId);
 	bool EraseBrushStamp(const FHitResult& CenterHit, const FGuid& LayerId, FBox2D* OutDirtyBounds = nullptr);
@@ -115,6 +158,13 @@ private:
 	FVector2D EditDragStart = FVector2D::ZeroVector;
 	int32 EditControlIndex = INDEX_NONE;
 	bool bEditingShape = false;
+	FComposableCameraMeshAuthoredShape LiveShape;
+	UE::ComposableCamera::MeshEditor::FResolvedSurfaceLayerMesh LiveDraftFill;
+	TUniquePtr<FComposableCameraMeshLiveShapeTask> LiveShapeTask;
+	TSharedPtr<const FComposableCameraMeshLiveShapeBase, ESPMode::ThreadSafe> LiveShapeBase;
+	bool bLiveShapeRequested = false, bLiveShapeVisible = false;
+	FBox2D LivePublishedBounds = FBox2D(ForceInit);
+	uint64 LastLiveShapeTickFrame = MAX_uint64;
 	struct FShapeOverlay
 	{
 		FGuid ShapeId;
@@ -126,8 +176,46 @@ private:
 	uint64 LastShapeTickFrame = MAX_uint64;
 	TUniquePtr<FScopedTransaction> StrokeTransaction;
 	FComposableCameraMeshSurfaceAuthoringData StrokeStartData;
+	int32 StrokeStartVertices = 0, StrokeStartIndices = 0, StrokeStartShapeIds = 0;
+	bool bStrokeSourceSnapshot = false;
 	FGuid StrokeStartRevision;
+	struct FStrokeStamp
+	{
+		FGuid LayerId;
+		FVector Center = FVector::ZeroVector, Normal = FVector::UpVector;
+		double Radius = 0.0, ProjectionDistance = 0.0, MinimumFloorNormalZ = 0.0;
+		int32 Segments = 12;
+		ECollisionChannel Channel = ECC_Visibility;
+		bool bErase = false;
+	};
+	TArray<FStrokeStamp> QueuedStamps;
+	struct FDeferredStroke
+	{
+		TArray<FStrokeStamp> Stamps;
+		FVector LastPosition = FVector::ZeroVector;
+		bool bHasLastPosition = false, bReleased = false;
+	};
+	TArray<FDeferredStroke> DeferredStrokes;
+	int32 QueuedStampIndex = 0;
+	TUniquePtr<FComposableCameraMeshStrokeTask> StrokeTask;
+	uint64 LastStrokeTickFrame = MAX_uint64;
+	bool bStrokeReleased = false;
 	UE::ComposableCamera::MeshEditor::FResolvedSurfaceVisualization Visualization;
+	TSharedPtr<const UE::ComposableCamera::MeshEditor::FEditPreviewCheckpoint, ESPMode::ThreadSafe> EditingCheckpoint;
+	TUniquePtr<UE::ComposableCamera::MeshEditor::FMeshLayerEditPreview> EditPreview;
+	TUniquePtr<UE::ComposableCamera::MeshEditor::FMeshLayerAuthoringIndex> AuthoringIndex;
+	TUniquePtr<UE::ComposableCamera::MeshEditor::FMeshLayerStrokeCoverage> StrokeCoverage;
+	TUniquePtr<UE::ComposableCamera::MeshEditor::FMeshLayerDocumentBuild> DocumentBuild;
+	TUniquePtr<UE::ComposableCamera::MeshEditor::FMeshLayerStrokeCoverage> OpeningRegionCoverage;
+	UE::ComposableCamera::MeshEditor::FResolvedSurfaceVisualization OpeningRegionVisualization;
+	TSet<FIntPoint> OpeningEditedRegions;
+	double OpeningCellSize = 10.0;
+	bool bOpeningIndexInstalled = false;
+	uint64 LastDocumentTickFrame = MAX_uint64;
+	uint64 LastRedrawFrame = MAX_uint64;
+	int32 PendingRedrawFrames = 0;
+	FGuid PreviewRevision;
+	bool bHistoricalPreview = false;
 	FHitResult HoverHit;
 	FHitResult ShapeStartHit;
 	FGuid ShapeLayerId;
@@ -144,5 +232,6 @@ private:
 	bool bPainting = false;
 	bool bDirty = false;
 	bool bVisualizationDirty = true;
+	bool bEditPreviewDirty = true;
 	bool bExiting = false;
 };

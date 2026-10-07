@@ -19,6 +19,7 @@ class COMPOSABLECAMERASYSTEM_API AComposableCameraMeshSurfaceStorageActor : publ
 public:
 	AComposableCameraMeshSurfaceStorageActor();
 
+	virtual void PostLoad() override;
 	virtual void BeginPlay() override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
@@ -40,12 +41,18 @@ public:
 
 #if WITH_EDITOR
 	virtual bool IsListedInSceneOutliner() const override { return false; }
+	virtual void PostEditUndo() override;
+	virtual void PostEditUndo(TSharedPtr<ITransactionObjectAnnotation> TransactionAnnotation) override;
 #endif
 
 #if WITH_EDITORONLY_DATA
 	const FComposableCameraMeshSurfaceAuthoringData& GetAuthoringData() const { return AuthoringData; }
+	const FComposableCameraMeshSurfaceEditorPreview& GetEditorPreview() const { return EditorPreview; }
+	void SetEditorPreview(FComposableCameraMeshSurfaceEditorPreview&& InPreview) { EditorPreview = MoveTemp(InPreview); }
+	/** Content identity, independent of actor lifetime or array counts. Never serialized. */
+	uint64 GetEditorDataRevision() const { return EditorDataRevision; }
 
-	/** Copies tool source, then rebuilds disposable cooked query data. */
+	/** Copies tool source. Metadata reuses query acceleration and, when coverage policy is unchanged, saved preview. */
 	void SetAuthoringData(
 		const TArray<FComposableCameraMeshLayerDefinition>& InLayers,
 		const FComposableCameraMeshSurfaceAuthoringData& InAuthoringData);
@@ -54,6 +61,8 @@ public:
 #endif
 
 private:
+	void RebuildQueryResources(bool bRebuildSpatialIndex = true);
+
 	UPROPERTY()
 	TArray<FComposableCameraMeshLayerDefinition> LayerDefinitions;
 
@@ -63,5 +72,9 @@ private:
 #if WITH_EDITORONLY_DATA
 	UPROPERTY()
 	FComposableCameraMeshSurfaceAuthoringData AuthoringData;
+	/** Disposable resolved coverage baked by Save. Stripped from cooked packages. */
+	UPROPERTY()
+	FComposableCameraMeshSurfaceEditorPreview EditorPreview;
+	uint64 EditorDataRevision = 0;
 #endif
 };

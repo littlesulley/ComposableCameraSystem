@@ -2527,11 +2527,10 @@
   overlap scene content, but it no longer competes with the diagnostic HUD and
   can be collapsed to the small Tools button.
 
-## 2026-09-29 - Bulk Patch expiration depends on caller retaining its handle (open)
+## 2026-09-29 - Bulk Patch expiration depends on caller retaining its handle
 
-- Status: found by source review; runtime fix intentionally not implemented in
-  this Patch architecture assessment. The regression below is expected to fail
-  against the current implementation; it has not been compiled or run.
+- Status: fixed in source on 2026-10-05; see the follow-up entry below.
+  Regression and runtime fix await IDE compilation and editor execution.
 - Symptom: `ExpireAllPatchesOnContext` can leave a live Patch and its evaluator
   running after the caller has discarded the handle returned by `AddCameraPatch`.
 - Trigger / repro: add a Manual-only Patch, let its enter envelope finish,
@@ -2547,7 +2546,7 @@
   caller-owned access object rather than the manager's live instance.
 - Touched files: `Docs/BugLog.md`,
   `Source/ComposableCameraSystem/Private/Tests/ComposableCameraPatchTests.cpp`.
-- Proposed fix (not applied): share instance-level expiration logic between
+- Initial proposed fix (applied on 2026-10-05): share instance-level expiration logic between
   `ExpirePatch` and `ExpireAll`; preserve exit-duration overrides and idempotency.
   Do not make handle retention a requirement for context-wide cleanup.
 - Regression-test name:
@@ -3711,3 +3710,3027 @@
   IO is not a disk rollback. Undo of Discard restores committed source and any
   affected actor data, not unfinished drafts/jobs. Runtime bake uses existing
   SetAuthoringData; graph synchronization and camera evaluation are unchanged.
+
+## 2026-10-05 - Bulk Patch expiration skips instances after public handle GC
+
+- Status: fixed; user-reported editor automation passed on 2026-10-05.
+- Symptom: context-wide expiration leaves Manual-only Patches/evaluators alive
+  when the caller no longer retains their handles.
+- Trigger / repro: add two Manual Patches, retain only one handle, finish their
+  enter phase, collect garbage, call `ExpireAll`, and evaluate beyond the exit.
+  Previously only the retained-handle Patch exited; both must exit.
+- Why it happens / root cause: manager-owned cleanup delegated through the
+  instance's weak, caller-owned handle. A collected handle caused an early
+  return even though the instance remained strongly registered.
+- Touched files: `Source/ComposableCameraSystem/Private/Patches/ComposableCameraPatchManager.cpp`,
+  `Source/ComposableCameraSystem/Private/Tests/ComposableCameraPatchTests.cpp`, `Docs/DesignDoc.md`,
+  `Docs/TechDoc.md`, `Docs/BugLog.md`.
+- Fix: shared `ExpirePatchInstance` handles the envelope state and duration
+  override. `ExpireAll` calls it directly for manager-owned instances;
+  `ExpirePatch` resolves its handle then uses the same helper. Exiting/Expired
+  instances remain idempotent; `Apply` retains removal/evaluator teardown.
+- Regression-test name: `ComposableCameraSystem.Patches.ExpireAllWithoutRetainedHandle`.
+  Expanded coverage includes actual handle GC, duration override, repeated
+  expiration without clock reset, partial-enter alpha, and zero-duration exit.
+- Verification: source/consumer review and `git diff --check`; the user's
+  2026-10-05 editor result shows the named regression succeeded. No shell build
+  or automation has been run by Codex.
+- Avoid next time: cleanup APIs traverse owned state directly; optional public
+  access handles must not control lifetime. Test GC plus envelope idempotency.
+- Possible conflicts: Blueprint context cleanup, individual handles and Mesh
+  Patch exit share this helper; duration/condition expiration and Sequencer's
+  separate overlay map remain unchanged. The original 2026-09-29 issue is the
+  same root cause, now fixed rather than bypassed through stronger handles.
+
+## 2026-10-05 - Storage Undo requires rebuilding the new native BVH cache
+
+- Status: caught during source review of the new acceleration, guarded before
+  handoff. User-reported editor regression passed on 2026-10-05.
+- Symptom: restored regions could miss a ray if triangles changed position
+  without changing their counts while native bounds still describe the edit.
+- Trigger / repro: save a storage actor transaction, move every triangle
+  outside the original ray while preserving vertex/index counts, then Undo.
+  Query the original region; Redo must make that ray miss again.
+- Why it happens / root cause: Unreal transactions restore reflected geometry,
+  while the disposable native BVH does not participate in serialization.
+  Cardinality checks cannot detect same-count spatial changes. Actor annotated
+  Undo uses a separate virtual overload from plain `PostEditUndo`.
+- Touched files: `Source/ComposableCameraSystem/Public/MeshCamera/ComposableCameraMeshSurfaceStorageActor.h`,
+  `Source/ComposableCameraSystem/Private/MeshCamera/ComposableCameraMeshSurfaceStorageActor.cpp`,
+  `Source/ComposableCameraSystem/Private/Tests/ComposableCameraMeshSurfaceTests.cpp`,
+  `Docs/DesignDoc.md`, `Docs/TechDoc.md`, `Docs/EditorDesignDoc.md`, `Docs/BugLog.md`.
+- Fix: both actor Undo overloads retain `Super` restoration and rebuild query
+  resources. A live storage also refreshes selected-family preload resources.
+- Regression-test name:
+  `System.Engine.ComposableCameraSystem.MeshCamera.SpatialIndexTransformedDocument`.
+  Uses actual Undo/Redo with its own `UTransBuffer`, a rotated/scaled document,
+  and same-count translation; preserves the user's original transaction buffer.
+- Verification: source/UE5.6 API inspection and whitespace checks; the user's
+  2026-10-05 editor result shows the transformed-document and BVH-pruning
+  regressions succeeded. Existing Mesh authoring Undo/Discard tests remain a
+  separate check. No shell build/automation was run by Codex.
+- Avoid next time: every disposable derived cache needs explicit load, rebuild
+  and transaction-restoration seams; count checks alone are insufficient.
+- Possible conflicts: Mesh Save/Discard actor restoration and the 2026-10-04
+  authoring Undo work. Layer/Shape GUIDs and authored fields remain unchanged;
+  acceleration and preload caches never become transaction source data.
+
+## 2026-10-05 - Preload regression assumed Storage BeginPlay in a GameMode-less world
+
+- Status: corrected in source; IDE compilation and editor rerun pending.
+- Symptom: `ProfilePreloadMembershipAndLifetime` reported zero shared preload
+  entries instead of two at registration and after the first document unload;
+  Camera entry also logged an unavailable CameraType asset after GC.
+- Trigger / repro: run the named regression in editor automation. Its helper
+  creates a Game world without a GameMode, calls World BeginPlay, spawns two
+  storage actors, sets authoring data, and expects automatic registration.
+- Why it happens / root cause: UE5.6 World BeginPlay routes Actor BeginPlay
+  through GameMode StartPlay. With no GameMode, the actors never begin play,
+  so storage registration and live-rebuild preload refresh do not run. Direct
+  EnsureProfilePreload calls later mask the missing lifecycle for only the
+  Action asset; the soft-referenced Camera can be collected. The Camera
+  fixture also had no nodes, and membership-only assertions could pass even
+  when no temporary Camera Context was created.
+- History / blast radius: reviewed the prior Mesh test API, temporary Context
+  ownership, soft-reference GC, Patch-handle GC, and native-cache Undo entries.
+  Checked every FMeshProfileTestWorld consumer, storage BeginPlay/rebuild/end,
+  registration/reconciliation, and the UE5.6 World/Actor dispatch implementations.
+- Touched files: `Source/ComposableCameraSystem/Private/Tests/ComposableCameraMeshProfileEffectsTests.cpp`,
+  `Docs/TechDoc.md`, `Docs/BugLog.md`.
+- Fix: dispatch BeginPlay explicitly on the two storage actors; assert begun
+  play, two registrations, and shared preloads before calling direct cache
+  helpers. Check live rebuild deduplication. Add a valid Camera node, verify
+  Camera and Action cache retention through GC, and assert a real temporary
+  Context and camera switch on ready entry. Keep the shared test-world helper
+  and production lifecycle unchanged.
+- Regression-test name: `ComposableCameraSystem.MeshCamera.ProfilePreloadMembershipAndLifetime`.
+  Expanded existing regression; the user's preceding run reproduced the defect.
+  Corrected source has not yet been compiled or executed.
+- Verification / blocker: project rules require IDE compilation and editor
+  automation. Compile UE5_6Editor in Rider/Visual Studio, then rerun the named
+  regression and ExclusiveProfileDispatchAndCleanup in the Automation panel.
+- Avoid next time: assert fixture lifecycle and registered ownership before
+  invoking private helpers. Validate actual effect construction, not only
+  membership or restoration to an unchanged camera. Soft references alone do
+  not retain transient test assets through GC.
+- Possible conflicts: test-only correction; existing shared world consumers,
+  production async requests, query acceleration, and Patch expiration are not
+  changed. Null-transition cut warnings are separate expected test behavior.
+
+## 2026-10-05 - Mesh Layer PIE visualization rebuilds debug mesh buffers every frame
+
+- Status: fixed in source; IDE compilation, editor regression and frame-time
+  comparison pending.
+- Symptom: enabling Show Mesh Camera Layers causes sustained heavy frame-rate
+  loss throughout PIE, rather than only a startup/toggle stall.
+- Trigger / repro: load a Level with substantial painted Layer coverage, enable
+  Show Mesh Camera Layers, enter PIE, and compare `stat unit` at a fixed camera
+  position with Show off/on. The user confirmed that the drop persists for the
+  entire PIE session.
+- Why it happens / root cause: the preview submitted resolved cell meshes once
+  to the persistent LineBatcher, but persistence covered only its CPU mesh
+  arrays. UE5.6 FLineBatcherSceneProxy::GetDynamicMeshElements fills a new
+  FDynamicMeshBuilder per mesh/view/frame, creating/uploading all vertices and
+  indices repeatedly. Large resolved grids magnify render-thread work. Moving
+  storage also rebuilt the resolved visualization instead of changing a mesh
+  transform.
+- History / blast radius: reviewed the missing-PIE-preview, hidden-storage
+  rendering, scene-release crash, boundary fidelity, Layer partition and regional
+  cache entries. Audited rendering/export callers, Show/Edit/module teardown,
+  streaming/transform ticker, and UE5.6 LineBatchComponent/GeometryFramework
+  rendering/lifetime implementations. Keep the pre-teardown cleanup guarantee
+  from 2026-07-22; only its renderer backend is superseded.
+- Touched files: `Source/ComposableCameraSystemEditor/ComposableCameraSystemEditor.Build.cs`,
+  `Private/MeshCamera/ComposableCameraMeshLayerPIEPreview.h/.cpp`,
+  `Private/MeshCamera/ComposableCameraMeshLayerRendering.h`,
+  `Private/Utilities/ComposableCameraMeshLayerTool.cpp`,
+  `Private/Tests/ComposableCameraMeshLayerVisualizationTests.cpp` within that
+  editor module; `Docs/EditorDesignDoc.md`, `Docs/DesignDoc.md`, `Docs/TechDoc.md`,
+  `Docs/ExecutionFlowExamples.md`, and `Docs/BugLog.md`.
+- Fix: replace debug mesh batches with engine DynamicMesh components using
+  persistent render buffers. A transient Actor in the source PIE Level owns
+  components and color materials; global caches retain weak references only.
+  Movement updates Actor transforms without mesh changes. Disable collision,
+  cooking updates, navigation, ticking, shadows and ray tracing. Cache empty
+  documents. Destroy preview Actors on PrePIEEnded/Show off/Edit/module unload
+  or disappeared storage; Level ownership also handles streamed-Level removal.
+  Preserve resolved geometry, color/alpha and independent external debug draws.
+- Regression-test names:
+  `ComposableCameraSystem.Editor.MeshCamera.PIEPreviewPersistentMeshes` and
+  `ComposableCameraSystem.Editor.MeshCamera.PIEPreviewWorldRouting`.
+  New regression creates actual PIE Actor/components, compares exported mesh
+  counts/local positions/material colors, performs GC, applies 120 transform
+  changes with zero mesh-change events, and checks independent unregistration
+  plus preservation of unrelated debug geometry. Not compiled/executed yet.
+- Verification / blocker: project rules prohibit shell builds/editor runs.
+  Close UE, compile UE5_6Editor in Rider/Visual Studio after the new private
+  GeometryFramework module dependency, restart, and run the named regressions
+  plus VisualizationBoundary/VisualizationPartialOverlap. Automated ownership
+  checks cannot measure rendered frame time or the full PrePIEEnded/FScene
+  release sequence: compare fixed-position Show off/on `stat unit`, then
+  stop/restart PIE, toggle during PIE, test SIE/multiple PIE worlds and streamed
+  Level removal. Insights creation/build scopes should occur on discovery,
+  not on each steady frame or document transform update.
+- Avoid next time: inspect the render-thread implementation before treating a
+  persistent debug draw as a cached render mesh. Separate geometry lifetime
+  from Actor transforms and couple resource ownership to the Level/PIE lifecycle.
+- Possible conflicts: do not recreate the 2026-07-22 ownerless strong-component
+  scene-release bug; do not inherit the storage actor's hidden-in-game state.
+  Persistent geometry still consumes GPU work and translucent fill rate; actual
+  gains require measurement on the affected Level. Camera evaluation, query
+  BVH, selected-family preloading, Patch lifecycle and serialized data are not
+  changed by this renderer fix.
+
+## 2026-10-05 - PIE Mesh Layer overlay lost patches behind the rendered floor
+
+- Status: the disabled-depth workaround below is superseded by the following
+  entry, "PIE Mesh Layer overlay draws over the character". The user demonstrated
+  its foreground-occlusion regression; current PIE restores depth testing and
+  fits disposable preview vertices instead.
+- Symptom: some colored Layer patches disappear in PIE while editing displays
+  them correctly; camera effects still work. User confirmed the defect is PIE-only.
+- Trigger / repro: paint or load Layers on non-flat terrain, enable Show Mesh
+  Layers, compare the same area in the editor and PIE. Collision-sampled triangles
+  can sit slightly below the rendered terrain between their projected vertices.
+- Why it happens / root cause: editor PDI uses GeomMaterial, whose serialized
+  bDisableDepthTest is true. PIE used DebugMeshMaterial, which depth-tests. A
+  1.5 cm document-Z offset cannot guarantee that approximate triangles clear the
+  rendered floor. Native components also lack PDI's disabled backface culling;
+  GeomMaterial is one-sided, so changing only its parent would lose the reverse view.
+- History / blast radius: reviewed boundary/within-cell ownership, alpha
+  de-duplication, PIE world routing, hidden storage, pre-teardown cleanup and
+  persistent-mesh frame-time entries. Audited Edit/Show/PIE draw and mesh-export
+  consumers. Read UE5.6 DynamicMesh rendering/duplicate-triangle behavior and
+  inspected the installed engine materials' serialized bool properties.
+- Touched files: ComposableCameraMeshLayerPIEPreview.cpp,
+  ComposableCameraMeshLayerVisualizationTests.cpp, DesignDoc.md,
+  EditorDesignDoc.md, TechDoc.md and BugLog.md.
+- Fix: PIE reuses editor GeomMaterial and its Color parameter. One-sided
+  materials get a disconnected reverse-winding mesh copy; two-sided materials
+  get only the original mesh. Construction remains once per preview, with
+  transform-only updates and existing Level ownership/PrePIEEnded cleanup.
+- Regression-test name:
+  `ComposableCameraSystem.Editor.MeshCamera.PIEPreviewPersistentMeshes` now
+  asserts the actual material parent and depth policy, preserved front positions,
+  reverse-winding positions/counts, color/alpha, no geometry writes on movement,
+  GC ownership and independent cleanup. The old material fails the policy checks.
+- Test blocker / manual verification: project instructions require Rider/VS
+  compilation and Unreal Editor automation. Tests updated, not compiled or run
+  here. Compile in the IDE, run the named regression plus PIEPreviewWorldRouting,
+  then compare the reported terrain area in Edit/Show/PIE from above and below.
+  Check Show off/on frame times and stop/restart PIE for resource cleanup.
+- Avoid next time: renderer replacements must preserve material depth and
+  backface policy as well as CPU geometry, color and resource lifetime.
+- Possible conflicts: this is a debug overlay, so opaque scene geometry no
+  longer occludes PIE Layers, matching editor behavior. One-sided-material
+  backfaces increase cached vertices/indices once; they must not be rebuilt per
+  frame or submitted twice with a two-sided material. Layer priority, floor
+  sampling, authored/runtime data, queries and camera behavior are unchanged.
+
+## 2026-10-05 - PIE Mesh Layer overlay draws over the character
+
+- Status: fixed in source; IDE compilation, editor automation and visual
+  verification pending.
+- Follow-up: its whole-document publication gate is replaced by progressive
+  chunk publication in the next entry. The depth-tested material and static
+  floor-fitting policy remain in use.
+- Symptom: colored Mesh Layer visualization appears to float over the player
+  during PIE and tints foreground character geometry.
+- Trigger / repro: enable Show Mesh Layers on a painted floor, enter PIE, and
+  view the character in front of that floor. This followed the workaround for
+  PIE-only missing patches recorded immediately above.
+- Why it happens / root cause: GeomMaterial disables depth testing. Reusing its
+  editor overlay policy bypassed the approximate floor geometry problem, but
+  also drew through opaque foreground actors. The screenshot reflects missing
+  occlusion, not an Actor transform moving above the character.
+- History / blast radius: reviewed the previous missing-patch workaround,
+  sustained LineBatch frame loss, source-Level ownership/PrePIEEnded cleanup,
+  hidden storage, Layer boundaries, alpha partition and document-Z offset.
+  Audited rendering exports, PIE factory/ticker/cleanup and automation consumers.
+  Checked UE5.6 object-multi-query filtering and DynamicMesh/material APIs.
+- Touched files:
+  - Source/ComposableCameraSystemEditor/Private/MeshCamera/ComposableCameraMeshLayerPIEPreview.cpp/.h
+  - Source/ComposableCameraSystemEditor/Private/MeshCamera/ComposableCameraMeshLayerRendering.cpp/.h
+  - Source/ComposableCameraSystemEditor/Private/Utilities/ComposableCameraMeshLayerTool.cpp
+  - Source/ComposableCameraSystemEditor/Private/Tests/ComposableCameraMeshLayerVisualizationTests.cpp
+  - Docs/DesignDoc.md, EditorDesignDoc.md, TechDoc.md, ExecutionFlowExamples.md and BugLog.md
+- Fix: restore depth-tested, two-sided DebugMeshMaterial and remove reverse-side
+  mesh duplication. Before creating persistent meshes, fit disposable cached
+  vertices to the nearest upward-facing static collision within +/-100 world cm
+  along document Up, excluding Pawns. Preserve local XY, topology, color and
+  source data; apply the existing 1.5 cm local-Z offset once. Misses retain their
+  source positions. Shared source-XYZ samples preserve common boundaries and
+  stacked floors. All PIE worlds/documents share 256 queries and a soft 4 ms
+  per-ticker construction budget. Completed meshes reuse buffers without further
+  floor queries. Show off/Edit/PIE teardown/unload cancel pending construction
+  through the existing cache release path; Actor ownership remains Level-bound.
+- Regression-test names:
+  `ComposableCameraSystem.Editor.MeshCamera.PIEPreviewSurfaceProjection`,
+  `ComposableCameraSystem.Editor.MeshCamera.PIEPreviewPersistentMeshes` and
+  `ComposableCameraSystem.Editor.MeshCamera.PIEPreviewWorldRouting`.
+  Projection tests cover budget deferral, shared vertices, retained XY/topology/
+  colors, cancellation, Pawn rejection, nearest stacked floors, misses and scaled
+  anchors. Persistent meshes assert depth testing and two-sided material without
+  geometry duplication, GC ownership, transform-only reuse and cleanup.
+- Test blocker / manual verification: project rules prohibit shell builds and
+  editor automation. Tests added/updated, not compiled or executed here. Close
+  UE, compile UE5_6Editor in Rider/Visual Studio and restart; run the named tests.
+  Walk through the reported area: the character must occlude floor colors and
+  previous missing patches must remain visible. Check stacked/sloped floors,
+  Show off and stopping PIE during fitting, repeated PIE, and Show off/on
+  `stat unit` at a fixed camera position after initial construction completes.
+- Avoid next time: verify opaque foreground occlusion as well as buried-floor
+  visibility when changing debug renderers. Fix display geometry instead of
+  bypassing depth testing; bound initialization work and test cancellation.
+- Possible conflicts / limits: fitting requires nearby static collision and
+  cannot guarantee contact with render-only displacement or curvature between
+  vertices. Unsupported vertices retain authored preview height; moving floors
+  are not resampled after completion. Large documents appear after multiple
+  fitting frames; the soft time budget cannot bound one physics query, initial
+  clipping or final upload. Runtime queries, camera evaluation, serialized data,
+  Layer ownership and editor PDI rendering remain unchanged.
+
+## 2026-10-05 - Show Mesh Layers appears blank while PIE floor fitting is pending
+
+- Status: fixed in source; IDE compilation and affected-Level timing/appearance
+  verification pending. User had not waited 10-20 seconds, so indefinite
+  non-progress was not established.
+- Symptom: enable Show Mesh Layers before PIE; no Mesh visualization appears
+  during the initial play period after adding budgeted floor fitting.
+- Trigger / repro: load a large painted document, enable Show, enter PIE and
+  inspect the initial frames while fitting still has unprocessed vertices.
+  The old path creates no preview Actor until the complete document is fitted.
+- Why it happens / root cause: a 256-query per-tick construction budget was
+  combined with an all-or-nothing publication gate. Large caches therefore draw
+  nothing throughout their entire fitting job. Additionally, the 4 ms deadline
+  began before world discovery and cache building, allowing unrelated scanning
+  work to spend the budget before fitting advances. Existing tests checked final
+  mesh correctness and query deferral, but not visibility during construction.
+- History / blast radius: reviewed PIE-only missing patches, disabled-depth
+  character overdraw, persistent-buffer frame loss, ownership/PrePIEEnded cleanup,
+  Layer partition and shared-boundary projection. Audited fitting, factory,
+  ticker, transform updates, cancellation and all native-mesh consumers. Keep
+  the depth-tested material; restoring disabled depth would regress occlusion.
+- Touched files:
+  - Source/ComposableCameraSystemEditor/Private/MeshCamera/ComposableCameraMeshLayerPIEPreview.cpp/.h
+  - Source/ComposableCameraSystemEditor/Private/Utilities/ComposableCameraMeshLayerTool.cpp
+  - Source/ComposableCameraSystemEditor/Private/Tests/ComposableCameraMeshLayerVisualizationTests.cpp
+  - Docs/DesignDoc.md, EditorDesignDoc.md, TechDoc.md, ExecutionFlowExamples.md and BugLog.md
+- Fix: publish fitted triangle prefixes in an initial chunk of at most 64
+  triangles, then chunks of at most 1024, with a global limit of two chunk
+  publications per tick. Remap only ready vertex IDs, retain exact fitted
+  positions/color/topology, and consume each
+  triangle once. A Level-owned construction Actor keeps previous chunks visible
+  while later ones fit. At completion, create the final one-component-per-Layer
+  Actor and unregister/destroy construction components. Stable frames retain
+  the prior persistent-buffer behavior. Measure only Advance time against the
+  shared 4 ms fitting budget; discovery/clipping/uploads cannot starve it.
+  Cancellation clears unpublished chunk cursors and destroys published chunks
+  through existing cache release. Failed append preserves the old weak Actor
+  reference so subsequent release can still unregister it.
+- Regression-test name:
+  `ComposableCameraSystem.Editor.MeshCamera.PIEPreviewProgressiveMeshes`.
+  The fixture spans several chunks, advances with bounded queries, creates real
+  registered PIE components from its first batch, before the whole document
+  completes, and checks publication limits, exact triangle coverage/no duplicates,
+  fitted positions,
+  short tails, existing Actor/component reuse, one-component final consolidation
+  and cancellation before completion. The previous implementation cannot publish
+  those early components. Run PIEPreviewSurfaceProjection,
+  PIEPreviewPersistentMeshes and PIEPreviewWorldRouting alongside it.
+- Test blocker / manual verification: project rules prohibit shell compilation
+  and editor automation. Static review only; the tests have not run here. Close
+  UE, compile UE5_6Editor in Rider/Visual Studio and restart. Enable Show before
+  PIE, then during PIE; inspect initial partial coverage and final coverage.
+  Repeat with Show off or stop PIE during construction, then start another PIE.
+  Confirm characters occlude the overlay and the previously missing floor areas
+  remain visible. Compare steady-state `stat unit` after consolidation.
+- Avoid next time: bounded initialization needs observable partial output as
+  well as eventual completion. Test incomplete-job publication, and charge work
+  budgets only to the work they govern. Temporary partitioning must consolidate
+  so startup scheduling cannot multiply permanent render components/draw calls.
+- Possible conflicts / limits: complete coverage still depends on cache size
+  and collision-query cost; no fixed first-visible or completion time is claimed.
+  Initial cache building, chunk upload and final consolidation are outside the
+  soft projection-time budget. Chunks reuse final mesh/material policy, so
+  character occlusion, Layer color partition, source data, camera effects and
+  Scene cleanup remain unchanged. Static collision/render-geometry differences
+  remain subject to the previous floor-fitting limitations.
+
+## 2026-10-05 - PIE preview chunk remap fails to compile with C2373
+
+- Symptom: UE5_6Editor compilation fails at
+  ComposableCameraMeshLayerPIEPreview.cpp:114 with MSVC C2373, referencing the
+  condition declaration at line 111.
+- Trigger / repro: compile the progressive PIE preview change in Rider/Visual
+  Studio; the editor-module unity translation unit includes TakeReadyMeshes.
+- Why it happens / root cause: the if condition declares `const int32* Vertex`.
+  Its scope includes the else body, where `const int32 Vertex` was declared
+  again. Different branches do not give that condition variable separate scope.
+- History / blast radius: reviewed the progressive-publication and prior
+  floor-fitting entries; searched all TakeReadyMeshes callers and the remap
+  declarations. The fix changes local names only, without API, geometry,
+  publication, allocation or lifecycle changes.
+- Touched files: ComposableCameraMeshLayerPIEPreview.cpp,
+  ComposableCameraMeshLayerVisualizationTests.cpp, TechDoc.md and BugLog.md.
+- Fix: use ExistingVertexIndex for the lookup pointer and NewVertexIndex for
+  the newly inserted ID. Both branches retain their prior map/array operations.
+- Regression-test name:
+  `ComposableCameraSystem.Editor.MeshCamera.PIEPreviewSurfaceProjection`.
+  Its first fixture now uses a two-triangle quad with shared IDs, plus a repeated
+  unused position and a separate stacked height. It checks that insertion and
+  reuse produce four output vertices and preserve the fan indices, while five
+  distinct positions are sampled across the source fixtures.
+- Verification / blocker: the compiler error itself is guarded by compiling
+  the editor translation unit. Project rules prohibit shell compilation/tests;
+  source and whitespace checks only here. Recompile UE5_6Editor in the IDE, then
+  run PIEPreviewSurfaceProjection and PIEPreviewProgressiveMeshes in the editor.
+- Avoid next time: name condition lookup pointers separately from insertion
+  results, and remember that an if condition's scope covers its else branch.
+- Possible conflicts: none expected; no header, reflection, module, data layout,
+  material or serialized changes. This is a local compiler correction.
+
+## 2026-10-05 - PIE floor fitting excludes non-static Blueprint floor collision
+
+- Status: collision eligibility fixed in source; IDE compilation and affected
+  Level verification pending. The reported missing patch's actual object type
+  has not been inspected, so this mismatch is not yet proven to explain every
+  remaining hole.
+- Symptom: progressive Mesh Layer loading works, but a flat region still lacks
+  color in PIE, even when approached. Editor visualization and camera effects
+  work. User identifies the ground as a Static Mesh or Blueprint floor.
+- Trigger / repro: author a Layer on a Visibility-blocking WorldDynamic or
+  PhysicsBody floor, with cached preview height slightly below that floor;
+  enable Show Mesh Layers and enter PIE. The old fitting query never samples
+  that floor. Also place a nearer WorldStatic query volume that ignores or
+  overlaps Visibility: the old object-only filter can select it as ground.
+- Why it happens / root cause: authoring uses complex Visibility traces, while
+  PIE queried AllStaticObjects (WorldStatic only). Collision object type and
+  channel response are separate constraints. Missing eligible floors leave
+  source vertices unchanged and can bury depth-tested overlays. Existing
+  projection tests used only WorldStatic ground, missing this parity defect.
+- History / blast radius: reviewed prior PIE-only holes, character overdraw,
+  progressive publication, persistent rendering, chunk-remap compilation and
+  pre-teardown ownership entries. The user's existing editor log reports all
+  four PIEPreview tests passed at 2026-10-05 16:01 Hong Kong time before this
+  fix. Audited authoring traces, projection consumers, component construction,
+  cache reset/cancellation and Debugging console discovery. Keep depth testing
+  and progressive persistent buffers to avoid reintroducing those regressions.
+- Touched files:
+  - Source/ComposableCameraSystemEditor/Private/MeshCamera/ComposableCameraMeshLayerPIEPreview.cpp/.h
+  - Source/ComposableCameraSystemEditor/Private/Utilities/ComposableCameraMeshLayerTool.cpp
+  - Source/ComposableCameraSystemEditor/Private/Tests/ComposableCameraMeshLayerVisualizationTests.cpp
+  - Docs/DesignDoc.md, EditorDesignDoc.md, TechDoc.md, ExecutionFlowExamples.md and BugLog.md
+- Fix: query all object types, then choose the nearest upward-facing hit that
+  blocks Visibility. Reject Ignore/Overlap, initial penetration and Pawns,
+  including custom WorldStatic Pawns. Preserve the existing query budget,
+  shared samples, local XY, one surface offset and source-height fallback.
+  Add construction counters and the explicit editor command
+  `CCS.Editor.MeshLayers.DumpPIEPreview`: log pending state, actual/expected
+  triangles, queries, misses, accepted non-static floors and signed world-space
+  height corrections. Count/log rejected native triangle insertions rather
+  than silently losing their diagnostic evidence. No steady-state traces/logs.
+- Regression-test name:
+  `ComposableCameraSystem.Editor.MeshCamera.PIEPreviewSurfaceProjection`.
+  Expanded physics fixture verifies WorldDynamic/PhysicsBody floors, closer
+  Visibility Ignore/Overlap surfaces, Pawn rejection and diagnostic query/miss/
+  non-static-hit counts. Existing stacked-floor, scale and topology assertions
+  remain. The former query misses both non-static floors and selects the
+  Visibility-ignoring surface; the new assertions expose both failures.
+- Verification / blocker: project rules prohibit shell compilation/editor
+  automation. Source review and whitespace checks only here. Close UE, build
+  UE5_6Editor in Rider/Visual Studio, restart, and run the four PIEPreview tests.
+  Enable Show, enter PIE and revisit the flat missing patch after loading.
+  If it persists, execute `CCS.Editor.MeshLayers.DumpPIEPreview` in Output Log
+  and return its `PIE Mesh Layers:` lines, including any triangle warning.
+  `Pending=0` distinguishes completion; equal triangle counts distinguish
+  submitted coverage from mesh insertion failure. Miss counts describe the
+  whole document, not a particular location.
+- Avoid next time: match authoring channel eligibility explicitly; object type
+  alone cannot describe floor visibility. Test different object types and
+  channel responses, and expose construction/submission counts before making
+  another material or offset change.
+- Possible conflicts / limits: all-object queries may collect more hits during
+  initial fitting; shared query/time budgets still apply. Collision is sampled
+  once, so render-only displacement, missing complex collision and moving floors
+  remain limitations. This does not change runtime camera queries, serialized
+  Layer data, authoring tools, material depth policy or Level-owned cleanup.
+
+## 2026-10-05 - PIE preview diagnostic log fails to compile with C2064
+
+- Symptom: ComposableCameraMeshLayerTool.cpp:83 UE_LOG fails with C2064,
+  followed by C2131, C2971 and C2672 in FormatStringSan template validation.
+- Trigger / repro: compile UE5_6Editor in Rider/Visual Studio after adding
+  CCS.Editor.MeshLayers.DumpPIEPreview. The document-specific log is compiled
+  even when no PIE preview cache exists at runtime.
+- Why it happens / root cause: DumpPIEPreviewCaches uses a TMap range-for loop.
+  Its Pair is a TPair, whose Key is a TWeakObjectPtr field. Pair.Key().Get()
+  incorrectly calls the field as a zero-argument function. UE_LOG format
+  validation also cannot form a constant result from the invalid argument;
+  those template diagnostics are secondary to C2064.
+- History / blast radius: reviewed the prior chunk-remap C2373 and floor
+  eligibility/diagnostic entries. Searched all Pair.Key() occurrences in plugin
+  source and audited the diagnostic callback, command registration and editor
+  dispatch adapter. This was the only incorrect field call found.
+- Touched files: ComposableCameraMeshLayerTool.cpp,
+  ComposableCameraConsoleControlsTests.cpp, TechDoc.md and BugLog.md.
+- Fix: access Pair.Key.Get(). Existing format, weak ownership, cache iteration,
+  floor fitting and mesh submission remain unchanged.
+- Regression-test name:
+  ComposableCameraSystem.Editor.Debug.ConsoleControls.MeshLayerPreviewDump.
+  Verifies real diagnostic registration, editor-action classification and
+  dispatch without a selected game world. The reported compile error itself
+  is guarded by compiling the callback's translation unit; a runtime test
+  cannot execute an uncompilable implementation.
+- Verification / blocker: project rules prohibit shell compilation and Unreal
+  automation. Static checks only here. Recompile UE5_6Editor in the IDE and run
+  the named test. In PIE with Show enabled, execute
+  CCS.Editor.MeshLayers.DumpPIEPreview and verify per-document lines include
+  object paths plus triangle/projection statistics. Return those lines if the
+  original flat-floor hole persists.
+- Avoid next time: distinguish range-for TPair fields from explicit TMap
+  iterator accessors. For macro errors, inspect the first failing argument
+  expression before altering includes, casts or format strings.
+- Possible conflicts: none expected. No header, reflection, public API,
+  serialized data, material or lifecycle changes; compiler correction only.
+
+## 2026-10-05 - Large first PIE preview document starves a Level Instance
+
+- Status: scheduling fixed in source; IDE compilation and affected-Level
+  verification pending. The live diagnostic output demonstrates starvation of
+  the House document. The user subsequently clarified that the reported missing
+  patch is on LevelBlock, an ordinary Actor with a StaticMesh child in the main
+  Level. Starvation is an independent finding, not the established cause of that
+  missing patch; the earlier diagnosis over-attributed aggregate statistics.
+- Symptom: a later document stays at zero fitting queries and components while
+  the first document progresses. Camera effects remain independent of this
+  visualization job.
+- Trigger / repro: load a large main-Level storage document and a later Level
+  Instance document, enable Show, enter PIE before the first job completes,
+  and inspect the latter Level. The user's 16:35:39 Hong Kong log shows the
+  main-Level CCS_IndoorSurfaceData_0 pending with 57 components,
+  57,408/182,237 triangles and 77,312 queries (zero misses), while the House
+  Level Instance's CCS_MeshSurfaceData_0 is pending with zero components,
+  0/18,315 triangles and zero queries.
+- Why it happens / root cause: the ticker discovers and processes each storage
+  Actor sequentially. The first large pending document consumes the shared
+  256-query/time budget every tick, so the next Actor never starts fitting.
+  Sharing a limit does not make scheduling fair. Chunk publication likewise
+  allows an earlier document to consume both publication slots. Existing
+  progressive tests covered only one document.
+- History / blast radius: reviewed progressive output, fitting-budget accounting,
+  hidden storage/Level-owned teardown, collision eligibility, foreground
+  occlusion and diagnostic compilation entries. All four prior PIEPreview
+  tests passed in the user's 16:35 editor run. Audited ticker discovery, cache
+  creation/pruning, fitting, chunk extraction, consolidation, weak ownership,
+  source-Level unloading and all projection/factory consumers.
+- Touched files:
+  - Source/ComposableCameraSystemEditor/Private/MeshCamera/ComposableCameraMeshLayerPIEPreview.cpp/.h
+  - Source/ComposableCameraSystemEditor/Private/Utilities/ComposableCameraMeshLayerTool.cpp
+  - Source/ComposableCameraSystemEditor/Private/Tests/ComposableCameraMeshLayerVisualizationTests.cpp
+  - Docs/DesignDoc.md, EditorDesignDoc.md, TechDoc.md, ExecutionFlowExamples.md and BugLog.md
+- Fix: discover/prune all documents first, then run separate resumable
+  round-robin fitting and publication phases. Each fitting visit uses at most
+  64 actual queries; each publication visit takes one ready chunk. Preserve
+  the unserved job index when the global budget expires. Skip inactive jobs
+  and stop after one entirely skipped cycle; a single active document may
+  receive repeated visits. Reuse reserved weak-key scratch storage, normalize
+  saved indices when streaming changes the queue and reset both positions on
+  Show off/Edit/PIE teardown/module unload. Preserve the existing 256-query,
+  soft 4 ms and two-publication global limits, depth-tested material, fitting
+  semantics and final one-component-per-Layer consolidation.
+- Regression-test name:
+  ComposableCameraSystem.Editor.MeshCamera.PIEPreviewScheduling.
+  Advances real fitting jobs with a 5,000-triangle first document and a
+  512-triangle second document under a shared budget. Both receive queries
+  and publish fitted first chunks while both remain incomplete. A one-chunk
+  publication budget resumes at the second job next tick. A single active job
+  retains the full global query budget through repeated visits. Further cases check
+  budget suspension, skipped-cycle termination, changed/empty queues.
+- Verification / blocker: project rules prohibit shell compilation and Unreal
+  automation. Static review/whitespace checks only here. Header change requires
+  closing UE, compiling UE5_6Editor in Rider/Visual Studio and restarting.
+  Run all five PIEPreview tests. Enable Show, enter the affected House Level
+  Instance in PIE and execute CCS.Editor.MeshLayers.DumpPIEPreview after a few
+  frames: its query count should increase and fitted chunks should submit
+  before the main-Level job finishes. Check stopping/toggling Show during
+  fitting and repeat PIE for clean queue reset.
+- Avoid next time: every bounded shared-work system needs an explicit fairness
+  policy and multi-job tests. Test a small later job behind a large earlier one,
+  and save independent positions when different budgets govern different phases.
+- Possible conflicts / limits: no runtime camera, serialized data, Layer
+  ownership or material-policy changes. Stable frames allocate no scheduling
+  buffers or issue floor queries. Existing limitations for collision/render
+  geometry differences and unbounded individual query/upload cost remain;
+  this fix does not promise an exact first-visible or completion time.
+
+## 2026-10-05 - Missing PIE overlay on an unchanged LevelBlock StaticMesh child
+
+- Status: affected-point diagnostic output now establishes submitted geometry
+  beneath the LevelBlock slab. See the following confirmed-cause entry for the
+  source fix and exact regression. The diagnostic-only change compiled and ran
+  in the user's PIE session; the new fitting fix still awaits IDE verification.
+- Symptom: part of the Mesh Layer overlay remains invisible in PIE on flat
+  LevelBlock ground, even when approached. Editor visualization and camera
+  behavior work. LevelBlock is an ordinary Actor containing a StaticMesh; the
+  user confirms no PIE position, scale or mesh changes. House is unrelated.
+- Trigger / repro: paint/save Layers on the LevelBlock surface, enable Show Mesh
+  Layers, enter PIE and stand inside the missing colored patch. Compare the
+  same ground in the editor. No Construction Script/BeginPlay change is needed
+  according to the user.
+- Initial diagnosis: root cause was not established. Existing diagnostics count
+  queries/triangles for entire documents and cannot identify whether triangles
+  covering this specific position are absent, still pending or submitted below
+  the actual floor. The House starvation finding does not answer this question.
+  StaticMesh/Blueprint asset references alone do not prove live collision or
+  material behavior. Do not assume non-static collision, actor motion, shader
+  displacement or a House dependency without affected-point evidence.
+- History / blast radius: reviewed all preceding PIE missing-patch, floor fitting,
+  foreground occlusion, progressive output, scheduling, teardown and diagnostic
+  compiler entries. Audited projection, preview creation/mesh ownership, native
+  Layer query, command dispatch, and their test consumers. Point inspection is
+  read-only and command-only; it does not change fitting or rendering policy.
+- Touched files:
+  - Source/ComposableCameraSystemEditor/Private/MeshCamera/ComposableCameraMeshLayerPIEPreview.cpp/.h
+  - Source/ComposableCameraSystemEditor/Private/Utilities/ComposableCameraMeshLayerTool.cpp
+  - Source/ComposableCameraSystemEditor/Private/Tests/ComposableCameraMeshLayerVisualizationTests.cpp
+  - Docs/EditorDesignDoc.md, TechDoc.md, ExecutionFlowExamples.md and BugLog.md
+- Diagnostic change: extend CCS.Editor.MeshLayers.DumpPIEPreview to probe the
+  player Pawn's collision foot point. Log complex/simple floor results, raw
+  complex hit identity/height/normal/response, nearby StaticMesh bounds candidates,
+  mesh/material assets, native Layer height and submitted DynamicMesh height.
+  Guard the preview-minus-floor delta with DepthComparable. Geometry inspection
+  reads triangles and transforms without rewriting mesh data, changing materials
+  or raising the overlay. No authored LevelBlock asset changes.
+- Regression-test names:
+  ComposableCameraSystem.Editor.MeshCamera.PIEPreviewSurfaceProjection now checks
+  an ordinary Actor with SceneComponent root and scaled child StaticMesh using
+  real complex queries. PIEPreviewPersistentMeshes checks submitted coverage at
+  a point under a scaled/rotated stacked document, no coverage outside geometry,
+  and submitted but buried geometry. These guard the diagnostic and floor cases;
+  they do not yet reproduce the exact project-specific rendering failure.
+- Initial verification / blocker: project rules prohibit shell Unreal compilation,
+  editor launch and automation. No live Unreal inspection tool is available in
+  this session; affected-point measurements have not been supplied. Close UE,
+  compile UE5_6Editor in Rider/Visual Studio, restart, and run the expanded tests.
+  In PIE stand on the missing LevelBlock area, then execute
+  CCS.Editor.MeshLayers.DumpPIEPreview and inspect its PIE Mesh Layers lines.
+  Pending=1 must be considered before classifying missing submitted coverage as
+  final loss. Compare floor and submitted heights only with DepthComparable=1.
+  Capturing the actual floor/component and geometry at this point is required
+  before selecting the rendering fix and adding its exact failure regression.
+- Avoid next time: local rendering defects require measurements at the affected
+  point. Separate independent scheduler defects from the user's patch; retain
+  uncertainty when aggregate data cannot establish causality. Test Actor-owned
+  child StaticMeshes rather than relying only on box-component fixtures.
+- Possible conflicts / limits: no runtime camera, source Layer data, collision
+  settings, material policy or recurring ticker changes. Diagnostic scans may
+  cause a one-time pause on a large mesh. Bounds candidates and collision results
+  are not a rendered-depth measurement; a positive height delta alone cannot
+  rule out material displacement, rendering visibility or another occluder.
+
+## 2026-10-05 - PIE fitting buries Layers beneath a Visibility-ignoring LevelBlock slab
+
+- Status: user confirms the LevelBlock overlay now displays. Focused automated
+  regression results have not been supplied; its source remains pending IDE-side
+  automation verification.
+- Symptom: the flat LevelBlock region stays uncolored in PIE after loading
+  completes, while camera effects and editor visualization work.
+- Trigger / repro: author Layers on Landscape, cover that ground with a rendered
+  StaticMesh slab slightly higher than Landscape and set the slab's Visibility
+  response to Ignore. Enable Show Mesh Layers, enter PIE, stand on the slab and
+  dump the preview after Pending reaches 0. The provided log at
+  X=1116.067/Y=2188.391 shows 182237/182237 triangles, Pending=0, native Layer2
+  Z=-1.992, one submitted intersection at Z=-0.493, LevelBlock_C_1.StaticMesh
+  hit Z=0 with Visibility=0, and Landscape collision Z=-1.992 with Visibility=2.
+  Both complex and simple fitting choose Landscape. No actor movement, changed
+  mesh, missing triangle submission or House dependency is required.
+- Why it happens / root cause: fitting reused authoring's Visibility response
+  as an eligibility rule. The visible LevelBlock slab ignores Visibility, so
+  it is excluded and the preview is fitted to Landscape beneath it. The 1.5 cm
+  offset is smaller than the 1.992 cm slab separation, leaving the submitted
+  depth-tested mesh about 0.493 cm below the opaque slab. Accepting the slab
+  alone is insufficient because Landscape remains nearest to the native source.
+- History / blast radius: reviewed previous disabled-depth character overdraw,
+  non-static floor eligibility, progressive coverage, fair scheduling, point
+  diagnostics and ownership/teardown entries. Audited all ProjectPIEPreviewVertex
+  consumers, mesh export/publication and native Layer queries. Preserve existing
+  primitive-volume/Pawn exclusions, query budgets, depth-tested material and
+  immutable source/runtime triangles.
+- Touched files:
+  - Source/ComposableCameraSystemEditor/Private/MeshCamera/ComposableCameraMeshLayerPIEPreview.cpp/.h
+  - Source/ComposableCameraSystemEditor/Private/Utilities/ComposableCameraMeshLayerTool.cpp
+  - Source/ComposableCameraSystemEditor/Private/Tests/ComposableCameraMeshLayerVisualizationTests.cpp
+  - Docs/DesignDoc.md, EditorDesignDoc.md, TechDoc.md, ExecutionFlowExamples.md and BugLog.md
+- Fix: accept upward-facing Visibility-blocking collision or rendered StaticMesh
+  collision with an opaque/masked material. Check component/owner visibility;
+  hidden or fully translucent Visibility-ignoring meshes remain excluded. Choose
+  the nearest eligible floor, then promote to the highest rendered StaticMesh
+  within 5 world cm above that fixed height. No chained lifts across hit order;
+  a distinct upper storey remains separate. Reapply the original local offset
+  once and retain XY/topology/Layer identity. No actor-name special case, floor
+  collision edit, material depth override or native camera-data rewrite. Point
+  diagnostics now log material blend mode and ShouldRender for StaticMesh hits.
+- Regression-test name:
+  ComposableCameraSystem.Editor.MeshCamera.PIEPreviewOccludingFloor.
+  Uses an ordinary Actor's child StaticMesh at Z=0 ignoring Visibility over
+  ground at Z=-1.992, plus a separate storey at Z=60. Fits and publishes real
+  preview geometry, samples an interior point at the reported foot height and checks overlay Z=1.5
+  with native Layer height unchanged. Also tests hidden component/owner rejection,
+  translucent rejection, the fixed promotion band and standalone visible
+  Visibility-ignoring floor eligibility. Existing PIEPreviewSurfaceProjection
+  keeps box-volume Ignore/Overlap, Pawn, transformed-anchor and non-static cases.
+- Verification / blocker: source consumer/API/format/whitespace review only.
+  Project rules prohibit shell Unreal builds and automation. Close UE, compile
+  UE5_6Editor in Rider/Visual Studio, restart, and run PIEPreviewOccludingFloor
+  plus the five existing PIEPreview tests. Enable Show and repeat the same
+  LevelBlock point after loading: native height stays near -1.992; submitted
+  PreviewZ should be near 1.5 with full coverage. Check characters occlude the
+  overlay and stable PIE frames retain the existing persistent-buffer behavior.
+- Avoid next time: debug visualization follows scene occlusion, not necessarily
+  authoring's pick channel. Test a visible Visibility-ignoring slab above the
+  exact native collision surface; merely testing one isolated floor or document
+  counts misses this failure. Keep nearest-floor selection separate from bounded
+  occluder clearance so multi-storey scenes do not snap to the highest trace hit.
+- Possible conflicts / limits: editor preview policy only; no runtime query,
+  Profile, source data or serialization change. The fixed 5 cm band deliberately
+  handles nearly coincident surfaces, not arbitrary floors above the source.
+  Collision-free meshes, shader displacement and mixed-material face identity
+  still require visual inspection. A StaticMesh with any opaque/masked material
+  qualifies; the query does not identify which material section owns the hit.
+  Material inspection and the extra hit pass are construction-only and add no
+  recurring traces; existing global fitting budgets remain in force.
+
+## 2026-10-05 - Show Mesh Layers stalls at initial geometry preparation
+
+- Status: user confirms PIE loads progressively without the startup hitch.
+  Editor Game View visibility regressed and is tracked in the following entry.
+  Automated regression results and measured frame times have not been supplied.
+- Symptom: user reports a 1-2 second freeze when enabling Show Mesh Layers in
+  either the editor or PIE, despite accepting slow progressive mesh display.
+- Trigger / repro: load the existing large Layer documents, leave Edit mode,
+  enable Show while moving the editor camera or a PIE Pawn. The viewport/input
+  pauses before geometry starts appearing. Repeat after toggling Show off.
+- Why it happens / root cause: read-only EdMode Render synchronously resolves
+  every first-seen document into up to roughly 100000 coverage cells and exports
+  a complete Layer mesh. PIE discovery does the same clipping/export before
+  reaching its existing floor-fitting budget. The large projection hash reserve
+  also runs on the game thread. Limiting physics queries cannot bound these
+  earlier stages. Editor PDI subsequently rebuilds full Layer buffers every
+  render. PIE's final synchronous whole-document consolidation can cause a
+  second hitch at completion.
+- History / blast radius: reviewed progressive startup, global fitting budgets,
+  fair publication, teardown/Scene ownership, depth testing and LevelBlock slab
+  clearance bugs. Audited all runtime visualization, export, projection and
+  preview actor factory consumers. Do not alter source data, floor eligibility,
+  query budgets, native camera effects or Show menu routing.
+- Touched files:
+  - Source/ComposableCameraSystemEditor/Private/MeshCamera/ComposableCameraMeshLayerPreviewBuild.cpp/.h (new)
+  - Source/ComposableCameraSystemEditor/Private/MeshCamera/ComposableCameraMeshLayerPreviewEdMode.cpp/.h
+  - Source/ComposableCameraSystemEditor/Private/MeshCamera/ComposableCameraMeshLayerPIEPreview.cpp/.h
+  - Source/ComposableCameraSystemEditor/Private/MeshCamera/ComposableCameraMeshLayerRendering.cpp/.h
+  - Source/ComposableCameraSystemEditor/Private/Utilities/ComposableCameraMeshLayerTool.cpp
+  - Source/ComposableCameraSystemEditor/Private/Tests/ComposableCameraMeshLayerPreviewBuildTests.cpp (new)
+  - Source/ComposableCameraSystemEditor/Private/Tests/ComposableCameraMeshLayerVisualizationTests.cpp
+  - Docs/DesignDoc.md, EditorDesignDoc.md, TechDoc.md, ExecutionFlowExamples.md and BugLog.md
+- Fix: snapshot triangle arrays and enabled/color/identity metadata, excluding
+  the BVH, Profiles, World and actors. A dedicated low-priority single-worker
+  pool is created during module registration, avoiding shared-pool contention
+  and Show-time thread creation. ThreadPool jobs resolve/export coverage;
+  editor jobs also prepare native chunks and PIE jobs reserve projection-cache
+  capacity. Consume ready futures only. Normal Show off/Exit cancels without
+  waiting; module shutdown cancels/drains the registry and joins its owned pool
+  before code unload. Waiting only for future readiness is insufficient because
+  AsyncPool still destroys the callable afterward; the pool join closes that race.
+  Editor Tick registers persistent, non-selectable chunks at most twice per
+  frame across viewports, checking a soft 2 ms upload budget. Temporary editor
+  previews are hidden in game to prevent duplicated overlays over characters.
+  PIE retains 256 queries / soft 4 ms fitting, then publishes at most two chunks
+  under soft 2 ms. Fitting/publication completion are distinct; keep draining
+  ready tails after fitting finishes. Completed chunks persist without a full
+  Layer consolidation upload. Stable frames reuse native render buffers.
+- Regression-test names:
+  - ComposableCameraSystem.Editor.MeshCamera.AsyncPreviewBuild: proves worker
+    execution, immutable snapshots despite source edits/GC, complete overlapping
+    Layer coverage/colors against synchronous reference, bounded native chunks,
+    projection-cache preparation, replacement/cancellation and complete PIE tails.
+  - ComposableCameraSystem.Editor.MeshCamera.EditorPreviewPublication: checks
+    world routing, transient source-Level ownership, no package dirtiness,
+    hidden-in-game editor previews, non-selectable collision-free components,
+    editor material/color, requested batch counts, short tails and unregistration.
+  - ComposableCameraSystem.Editor.MeshCamera.PIEPreviewProgressiveMeshes: updated
+    to check publication completion and retained full-coverage persistent chunks
+    without replacing the first native mesh at load completion.
+- Verification / blocker: static consumer/signature/lifetime/format review and
+  whitespace checks only. Project instructions prohibit shell Unreal builds and
+  automation; IDE compile and real frame timings cannot be verified here. Close
+  UE, build UE5_6Editor in Rider/Visual Studio and restart. Run both new tests and
+  the six PIEPreview tests. Enable Show in editor and while PIE is already running:
+  keep moving during preparation, confirm no initial input freeze and progressive
+  complete coverage. Also enter PIE with Show enabled, verify the LevelBlock region
+  and character occlusion, and toggle off/on before loading finishes. Repeat PIE
+  exit/re-entry and streaming cleanup; pending diagnostics reach 0 with matching
+  submitted/expected counts after all tails upload.
+- Avoid next time: budget discovery/preparation/upload as well as collision work.
+  Moving heavy clipping to a worker is insufficient if result adoption allocates
+  the full hash or completion performs a giant mesh upload. Never wait on a
+  future from activation, Render or ordinary Tick. Worker inputs must be plain
+  snapshots, and cancellation must prevent publication by stale generations.
+- Possible conflicts / limits: only Editor-module visualization changes; runtime
+  data, serialized authoring, Profiles and camera evaluation remain intact. More
+  persistent chunks mean more components/draw calls than one mesh per Layer,
+  balanced by small uploads and per-chunk culling. The 2/4 ms budgets are soft:
+  one registration or physics query cannot be preempted. Initial source-array
+  copies still occur on the game thread; very large source documents and first
+  material/shader use require measured IDE-side profiling. Module unload may
+  briefly wait for cancelled workers, while ordinary Show toggles never wait.
+
+## 2026-10-05 - Persistent editor Mesh Layers disappear in Game View
+
+- Status: user confirms Game View (G) is enabled. Root cause identified in UE5.6
+  scene-proxy visibility code; source fix and regression updated. IDE compile,
+  automation and visual confirmation remain pending.
+- Symptom: after the asynchronous preview change, PIE is smooth and progressively
+  displays Layers, but enabling Show in the editor displays no colored mesh.
+- Trigger / repro: enable Game View with G in a Level Editor viewport, then
+  enable Show Mesh Layers after leaving Edit mode. Meshes remain absent after
+  geometry preparation/publication. Ordinary editor view uses different hide
+  rules and does not reproduce the same gate.
+- Why it happens / root cause: the preceding fix used both Hidden In Game and
+  bIsEditorOnlyActor to keep persistent editor previews from drawing in PIE.
+  Editor Game View uses the Game show flags too. FPrimitiveSceneProxy::IsShown
+  rejects editor-only owners when Game is enabled and rejects DrawInGame=false
+  from the owner's hidden flag. Both flags independently suppress the otherwise
+  registered, populated component. The previous regression checked ownership,
+  registration and triangle counts and even asserted those hiding flags; it
+  never checked scene-proxy draw relevance for a Game View family.
+- History / blast radius: reviewed asynchronous startup, persistent chunk
+  publication, duplicated-overlay character overdraw, LevelBlock clearance and
+  teardown bugs. Audited AppendNativePreviewMeshes, editor EdMode Tick, PIE
+  factory callers and all visibility/duplication flag consumers. Read-only UE5.6
+  references: Engine/Private/PrimitiveSceneProxy.cpp (IsShown and owner flags),
+  CoreUObject/Private/Serialization/DuplicateDataWriter.cpp (RF_DuplicateTransient
+  serializes a null reference), Engine/Private/Level.cpp and
+  WorldPartition/WorldPartitionStreamingGeneration.cpp (bIgnoreInPIE).
+- Touched files:
+  - Source/ComposableCameraSystemEditor/Private/MeshCamera/ComposableCameraMeshLayerPIEPreview.cpp
+  - Source/ComposableCameraSystemEditor/Private/Tests/ComposableCameraMeshLayerPreviewBuildTests.cpp
+  - Docs/DesignDoc.md, EditorDesignDoc.md, TechDoc.md, ExecutionFlowExamples.md and BugLog.md
+- Fix: keep preview actors visible and not editor-only. Editor previews instead
+  receive RF_DuplicateTransient and bIgnoreInPIE, separating G-view visibility
+  from exclusion during PIE duplication/streaming. Their transient, temporary,
+  source-Level-owned lifetime and non-selectable components remain intact.
+  PIE preview actors retain ordinary visible flags and the depth-tested material.
+  Background geometry, publication/fitting budgets and source/runtime data are
+  unchanged; no new production per-frame work or rendering waits.
+- Regression-test name:
+  ComposableCameraSystem.Editor.MeshCamera.EditorPreviewPublication.
+  Extended to test the actual published component's render-thread GetViewRelevance
+  with ordinary editor and Game View families. Both must have draw relevance.
+  Independently restore Hidden In Game and editor-only flags as negative controls
+  to reproduce invisible Game View with normal-view visibility, then restore
+  the production policy and verify visibility returns. Also checks explicit
+  PIE duplication exclusion, transient ownership, no Level dirtiness, material,
+  bounded chunks and component unregistration. FlushRenderingCommands is confined
+  to automation fixtures to safely query the real render proxy.
+- Verification / blocker: consumer/lifetime/API/whitespace review only. Project
+  rules require Rider/Visual Studio compilation and prohibit shell Unreal builds
+  and automation. Compile UE5_6Editor in the IDE, run EditorPreviewPublication,
+  and manually enable Show in normal view and G view. Both should progressively
+  display the same geometry without the old startup freeze. Enter PIE with Show
+  already enabled; confirm one depth-tested overlay, character occlusion and
+  LevelBlock coverage. Exit PIE and toggle G/Show to check persistent cleanup.
+- Avoid next time: editor Game View and PIE are distinct contexts sharing Game
+  show flags. Use duplication/streaming policy for excluding preview objects,
+  and renderer relevance for verifying visibility. Registered primitives and
+  matching triangle counts do not prove a view will draw them.
+- Possible conflicts / limits: this remains editor-module, transient debug
+  visualization. Source data, camera effects, async work and floor fitting do
+  not change. Editor Show intentionally remains visible in G view; PIE continues
+  using its independent world/material route. RF_DuplicateTransient also prevents
+  ordinary object duplication of these disposable previews. No shipping output
+  contains their RF_Transient actors. Pixel appearance/frame times still require
+  an IDE-built visual check.
+
+## 2026-10-06 - Editor Show Mesh Layers is visible only from below after persistent-mesh migration
+
+- Status: user supplied an underground-view screenshot after the Game View
+  visibility fix. Source culling regression identified and fixed; IDE compilation,
+  automation and visual confirmation remain pending. The screenshot alone does
+  not prove that submitted vertex heights moved below the ground.
+- Symptom: Show Mesh Layers appears absent from above in the editor but colored
+  surfaces become visible when viewing from beneath the floor. PIE still loads
+  progressively and displays the overlays.
+- Trigger / repro: with the engine's one-sided GeomMaterial, load a saved Layer
+  document, leave Edit mode, enable Show and wait for publication. Compare
+  above-ground and below-ground views, including G / Game View. Edit mode's
+  previous PDI path and PIE's two-sided material do not share this culling policy.
+- Why it happens / root cause: the async optimization replaced PDI mesh draws
+  with persistent DynamicMesh components. PDI passed bDisableBackfaceCulling=true;
+  GeometryFramework's BaseDynamicMeshSceneProxy::DrawBatch does not set that
+  override and follows the material's culling. Keeping the one-sided GeomMaterial preserved
+  disabled depth testing but lost two-face visibility. Matching positions, draw
+  relevance and source triangle counts could all pass while one viewing direction
+  still culled the surface. Raising the mesh would not fix this renderer mismatch.
+- History / blast radius: reviewed the recorded one-sided GeomMaterial caveat in
+  the prior PIE missing-patches entry, its disabled-depth/character-overdraw
+  follow-up, asynchronous startup budgets and independent Game View hide flags.
+  Audited every BuildNativePreviewMeshes caller, worker snapshot, publication
+  consumer and count assertion. Keep PIE's fitted, depth-tested, two-sided route
+  and editor duplication/visibility flags intact; no runtime/authoring mutation.
+- Touched files:
+  - Source/ComposableCameraSystemEditor/Private/MeshCamera/ComposableCameraMeshLayerPIEPreview.cpp/.h
+  - Source/ComposableCameraSystemEditor/Private/MeshCamera/ComposableCameraMeshLayerPreviewBuild.cpp
+  - Source/ComposableCameraSystemEditor/Private/Tests/ComposableCameraMeshLayerPreviewBuildTests.cpp
+  - Docs/DesignDoc.md, EditorDesignDoc.md, TechDoc.md, ExecutionFlowExamples.md and BugLog.md
+- Fix: capture the editor material's two-sided policy on the game thread as a
+  bool. For a one-sided editor material only, prepare disconnected reverse-winding
+  faces on the worker at identical positions. Count both faces toward the native
+  1024-triangle upload limit by reducing the source allowance. Native triangle
+  accounting includes both faces. Two-sided editor materials and PIE receive
+  only original faces. Publication remains two chunks / soft 2 ms per frame;
+  toggling Show still never waits. No shader/material asset changes, World access
+  on the worker, new floor traces or per-frame topology work.
+- Regression-test names:
+  - ComposableCameraSystem.Editor.MeshCamera.EditorPreviewBackfaces: verifies
+    paired positions, opposite windings, disconnected indices, shared source
+    vertices, slopes, mirrored/rotated transforms, unchanged height/XY/source
+    data, total triangle bounds, short tails and the single-face route.
+  - ComposableCameraSystem.Editor.MeshCamera.AsyncPreviewBuild: actual worker
+    output must follow the editor material's face count within existing bounds.
+  - ComposableCameraSystem.Editor.MeshCamera.EditorPreviewPublication: persistent
+    chunk publication retains all requested faces alongside existing G-view checks.
+- Verification / blocker: source/API/consumer/lifetime and whitespace review only.
+  Project rules prohibit shell Unreal builds/automation and require Rider/Visual
+  Studio. Compile UE5_6Editor in the IDE, restart to remove already published
+  single-sided chunks, and run these three tests plus PIEPreviewPersistentMeshes.
+  Enable Show and inspect the reported region from above/below, toggle G, and
+  confirm progressive loading remains responsive. Enter PIE with Show enabled;
+  confirm LevelBlock coverage and character occlusion remain correct.
+- Avoid next time: renderer migrations must compare rasterization and material
+  depth/culling policies, not only geometry bounds or render-proxy draw relevance.
+  Review earlier BugLog caveats when moving a previously PDI-only material to
+  native components. A below-only image can be backface culling rather than bad Z.
+- Possible conflicts / limits: editor-only transient visualization; no serialized
+  data, camera evaluation or Profile changes. Extra editor faces increase total
+  cached topology and component count under the unchanged per-frame upload bound.
+  No duplicate geometry is emitted with a two-sided material. Real pixel output
+  and frame timings still need the IDE-built viewport check.
+
+## 2026-10-06 - Mesh Layers lose uneven-surface patches at a distance
+
+- Status: user confirms r.ForceLOD 0 restores complete coverage, and explicitly
+  chooses automatic LOD stabilization while Show is enabled. View-scoped source
+  fix and regression added; IDE compile, pixel output and frame times pending.
+- Symptom: distant uneven regions have missing colors; moving closer restores
+  complete coverage. The screenshot contains lower-Layer-colored gaps inside
+  another Layer's region. It does not establish missing submitted triangles.
+- Trigger / repro: enable Show, observe uneven ground from far away, approach
+  until the coverage appears complete, then return to the identical distant view.
+  Repeat in editor and PIE after progressive publication has finished.
+- Why it happens / root cause: confirmed LOD dependence rather than a
+  distance-controlled loader. The loader does not read the view
+  location or delay documents by distance. Completed chunks are persistent and
+  have no mesh LOD. Primitive defaults have zero min/max draw distance; the
+  preview's Movable components are excluded by CullDistanceVolume eligibility.
+  UE5.6 LandscapeVertexFactory.ush interpolates between LOD heights as distance
+  changes, while PIE fitting samples static collision once with a 1.5 cm offset.
+  This can bury PIE overlays. Installed
+  GeomMaterial serializes bDisableDepthTest=true and DynamicMeshSceneProxy disables
+  occlusion tests for such material relevance, so the editor report is not
+  attributed solely to per-pixel floor depth. The same-view diagnostic establishes
+  that stabilizing LOD restores the user's coverage; real output in both modes
+  still needs verification with the scoped Landscape family policy.
+- History / blast radius: reviewed material depth/character-overdraw, LevelBlock
+  slab clearance, progressive startup, Game View flags and editor backfaces.
+  Audited preview discovery/publication, materials, primitive draw-distance
+  defaults, CullDistanceVolume filters, DynamicMesh proxy bounds/visibility and
+  Landscape vertex LOD morphing. Preserve responsive loading, character occlusion,
+  floor/storey separation and unchanged authored/runtime geometry.
+- Touched files:
+  - Source/ComposableCameraSystemEditor/Private/MeshCamera/ComposableCameraMeshLayerPreviewViewExtension.cpp/.h (new)
+  - Source/ComposableCameraSystemEditor/Private/MeshCamera/ComposableCameraMeshLayerPIEPreview.cpp
+  - Source/ComposableCameraSystemEditor/Private/Utilities/ComposableCameraMeshLayerTool.cpp
+  - Source/ComposableCameraSystemEditor/Private/Tests/ComposableCameraMeshLayerPreviewViewTests.cpp (new)
+  - Docs/DesignDoc.md, EditorDesignDoc.md, TechDoc.md, ExecutionFlowExamples.md and BugLog.md
+- Fix: use an Editor-module scene view extension to set LandscapeLODOverride=0
+  on ordinary viewport families with a live, published editor/PIE preview Actor.
+  BeginRenderViewFamily runs before scene renderer creation and Landscape LOD
+  calculation. Show requested state, actual scene world, published Actor lifetime
+  and PIE-ending state gate the policy. Asset previews, packaged Game worlds,
+  unrelated worlds and scene/reflection/planar capture views are excluded.
+  Every family is disposable; Show off and last-preview cleanup leave future
+  families' original LOD policy intact. No global r.ForceLOD, serialized Landscape
+  ForcedLOD property, vertex-height lift or material/depth policy mutation.
+  Publication/cleanup updates weak registrations; callbacks allocate nothing.
+  Normal toggles never flush; module unload drains in-flight families before
+  releasing extension code. Default-1 CCS.Editor.MeshLayers.StabilizeLandscapeLOD
+  permits opting out. User accepted the extra terrain draw cost for complete coverage.
+- Regression-test name:
+  ComposableCameraSystem.Editor.MeshCamera.PreviewLandscapeLODStability.
+  Publishes real editor/PIE meshes, invokes the actual extension callback with
+  normal/G-view near/far families, checks unrelated/asset/Game/capture exclusions,
+  CVar opt-out, Show off/on, PIE teardown/re-entry, last-Actor removal/destruction,
+  unchanged published mesh height, untouched r.ForceLOD and clean Level packages.
+- Verification / blocker: source/API/lifetime/consumer review and whitespace
+  checks only. Project rules require Rider/Visual Studio compilation and prohibit
+  shell Unreal builds/automation. Close UE, compile UE5_6Editor in the IDE, restart,
+  and run PreviewLandscapeLODStability, EditorPreviewPublication and
+  PIEPreviewPersistentMeshes. Restore r.ForceLOD -1 before enabling Show, compare
+  the same distant uneven region in editor/G/PIE, approach and retreat, check
+  character occlusion and initial loading responsiveness. Toggle Show off and
+  confirm normal terrain LOD resumes. Measure terrain frame cost with Show on.
+- Avoid next time: do not equate colors recovering on approach with loading.
+  Hold the view fixed and independently vary LOD/publication completion. Confirm
+  material depth policy in each mode before attributing both to terrain occlusion.
+- Possible conflicts / limits: all Landscape in an eligible view uses LOD 0,
+  increasing distant terrain rendering cost; this is not limited to Layer bounds.
+  StaticMesh LOD and source assets remain untouched. Collision/render mismatch,
+  Nanite terrain, heightmap streaming and material displacement still need visual
+  inspection. The scope is editor-only visualization. Disabling PIE depth testing
+  would reintroduce character overdraw; lifting all vertices would regress near
+  ground and stacked floors. No terrain property save/restore window or asset
+  dirtiness is introduced. No new World, UObject or camera API enters the worker.
+
+## 2026-10-06 - PIE Layer remains buried when a visible slab exceeds the 5 cm clearance
+
+- Status: exact height mismatch confirmed in the live UE5_6 log; source fix and
+  regression are pending Rider/Visual Studio compilation and editor verification.
+- Symptom: the Pawn appears outside colored Mesh Layers while a Layer's Camera
+  Profile still activates. The user clarifies that the apparent non-Mesh patch
+  is missing only in PIE visualization, rather than an incorrect runtime entry.
+- Trigger / repro: enable Show Mesh Layers, enter PIE, wait for nearby colors,
+  stand on the flat LevelBlock patch and run CCS.Editor.MeshLayers.DumpPIEPreview.
+  The initial Show=0/Documents=0 output cannot diagnose active preview geometry.
+  The subsequent live log at 2026-10-06 10:09:41 HKT reports Show=1/Documents=2,
+  main-document Pending=0 and 182237/182237 triangles. At foot
+  X=2578.856/Y=2839.943/Z=2.275, native Layer2 is Z=-7.070, submitted coverage has
+  one hit at Z=-5.570, and the visible opaque Visibility-ignoring LevelBlock
+  StaticMesh top is Z=0. The unrelated House document has zero native/submitted
+  coverage at this point.
+- Why it happens / root cause: the previous LevelBlock fix promotes to a visible
+  slab only within 5 world cm above the nearest eligible floor. At this deeper
+  Landscape point the gap is 7.070 cm, so the slab is eligible but not selected.
+  All triangles publish at native height plus the 1.5 cm offset, below the opaque
+  slab. Native camera coverage is correct; runtime Layer data must not be edited
+  to compensate for visualization depth. Sampling from the Pawn's foot instead
+  finds the slab directly and reports FittedZ=1.5, hiding this source-height-specific
+  distinction unless native/submitted heights are also compared.
+- History / blast radius: reviewed the 2026-10-05 Visibility-ignoring LevelBlock
+  fix, full point diagnostics, progressive publication, async construction,
+  character occlusion and the separate distant Landscape LOD issue. Audited
+  ProjectPIEPreviewVertex's construction/diagnostic/test callers, publication
+  factories and storage QueryLayers. Preserve shared-vertex reuse, fixed-nearest
+  anchoring, depth testing, exclusion filters and the global query/upload budgets.
+- Touched files:
+  - Source/ComposableCameraSystemEditor/Private/MeshCamera/ComposableCameraMeshLayerPIEPreview.cpp
+  - Source/ComposableCameraSystemEditor/Private/Tests/ComposableCameraMeshLayerVisualizationTests.cpp
+  - Docs/DesignDoc.md, EditorDesignDoc.md, TechDoc.md, ExecutionFlowExamples.md and BugLog.md
+- Fix: expand preview-only occluding-slab clearance from 5 to 10 world cm. The
+  highest rendered slab is still measured from the original nearest floor,
+  never from successively promoted hits. Keep the 100 cm trace reach, nearest
+  floor selection, local XY/topology/colors, 1.5 cm offset, immutable native data
+  and depth-tested material. No added physics queries, per-frame work or worker
+  waits. The existing distinct storey at Z=60 remains excluded from promotion.
+- Regression-test name:
+  ComposableCameraSystem.Editor.MeshCamera.PIEPreviewOccludingFloor.
+  Retains the earlier 1.992 cm fixture and adds the actual 7.070 cm gap, real
+  budgeted fitting, publication and interior point sampling. Checks submitted
+  Z=1.5, zero misses, full 7.070 cm correction, unchanged native query Z=-7.070
+  and rejection of the 60 cm storey. Move the beyond-band slab fixture to Z=11
+  so it exceeds the new clearance above native Z=-1.992. Hidden/Pawn/translucent
+  eligibility and standalone-floor behavior retain their prior checks.
+- Verification / blocker: source, consumer and whitespace review only. Project
+  rules prohibit shell compilation/editor/automation execution. Compile in
+  Rider/Visual Studio, run PIEPreviewOccludingFloor, then enable Show in a fresh
+  PIE session at the recorded point. Expect Pending=0, matching triangle counts,
+  NativeZ near -7.070 and submitted PreviewZ near 1.5. Check character occlusion,
+  progressive loading and separate upper-storey visualization remain correct.
+- Avoid next time: exercise the clearance threshold using source heights, not
+  just foot-based queries or total triangle counts. Include a gap above the old
+  limit and below the intended limit, along with beyond-limit and storey cases.
+- Possible conflicts / limits: this intentionally promotes visible slabs 5-10 cm
+  above the nearest floor that the earlier policy left untouched. No runtime
+  membership, Profile lifecycle, actor collision, source serialization or Landscape
+  LOD change. Gaps greater than 10 cm, collision-free floors, shader displacement
+  and curvature between fitted vertices remain outside this bounded correction.
+
+## 2026-10-06 - Mesh authoring hardcodes Visibility instead of a Layer surface channel
+
+- Status: requested Layer Channel feature and focused regression sources added;
+  Rider/Visual Studio compile and editor automation remain pending.
+- Symptom: a visible StaticMesh surface that ignores Visibility cannot be selected
+  as the Layer's drawing surface, even when it blocks a dedicated project channel.
+  Hover/Brush/Shape projection can pass through it and hit underlying Landscape.
+- Trigger / repro: place a query-collision StaticMesh slab above a Visibility-blocking
+  floor. Make the slab ignore Visibility and block Camera or a custom trace channel.
+  Previously the Layer offered no Channel choice, and every authoring trace used
+  ECC_Visibility. The LevelBlock log demonstrates this response configuration;
+  the user explicitly requests a per-Layer Channel field.
+- Why it happens / root cause: Layer definitions held identity/Profile/color/enabled
+  state but no authoring trace-channel policy. Four independent editor trace sites
+  hardcoded Visibility: hover, Brush ring, queued Shape creation and Shape editing.
+  StaticMesh type is supported; the fixed query channel prevents targeting it.
+- History / blast radius: reviewed Visibility-ignoring LevelBlock occlusion fixes,
+  bounded clearance, Shape async cancellation, document Undo/Discard and storage
+  round-trip. Audited all Layer definitions/copies, Selection Details, four channel
+  trace sites, worker snapshots, storage rebuild and runtime query consumers.
+  Consulted read-only UE5.6 GameplayCameras collision-node channel fields and engine
+  CollisionProfile enum naming; no reference code or engine file was modified.
+- Touched files:
+  - Source/ComposableCameraSystem/Public/MeshCamera/ComposableCameraMeshSurfaceTypes.h
+  - Source/ComposableCameraSystemEditor/Private/MeshCamera/ComposableCameraMeshLayerEdMode.cpp/.h
+  - Source/ComposableCameraSystemEditor/Private/Tests/ComposableCameraMeshLayerTraceChannelTests.cpp (new)
+  - Source/ComposableCameraSystemEditor/Private/Tests/ComposableCameraMeshLayerShapeTests.cpp
+  - Docs/DesignDoc.md, EditorDesignDoc.md, TechDoc.md, ExecutionFlowExamples.md and BugLog.md
+- Fix: add serialized TraceChannel with displayed name Channel and default Visibility.
+  Standard ECollisionChannel Details includes configured project channel names.
+  Shared TraceLayerSurface resolves by owning Layer GUID, validates the channel and
+  handles every editor surface trace. Missing Layers never use an implicit fallback.
+  Existing normal/depth/query filters remain. Layer edits already cancel pending
+  jobs; whole-struct Save/proxy/Undo/checkpoint copies retain Channel. Tagged old
+  records default to Visibility. Existing triangles are not automatically moved;
+  redraw or edit Shape controls to project them onto the newly selected channel.
+- Regression-test names:
+  - ComposableCameraSystem.Editor.MeshCamera.LayerTraceChannel: real upper StaticMesh
+    ignores Visibility and blocks Camera/custom; lower mesh blocks Visibility.
+    Checks independent Layer-GUID routing, unblocked/missing Layer rejection, actual
+    Brush ring and Rectangle/Circle/Polygon projection, document storage, unchanged
+    native coverage, tagged round-trip and legacy records without the new field.
+  - ComposableCameraSystem.Editor.MeshCamera.DocumentUndoRedo: actual Channel Details
+    handle, document/proxy Undo/Redo and stable Layer GUID.
+  - ComposableCameraSystem.Editor.MeshCamera.DocumentDiscard: restore a changed
+    Channel from the nontransactional opening checkpoint.
+- Verification / blocker: source/API/consumer/whitespace review only. Project rules
+  prohibit shell Unreal builds and automation. Close UE, compile UE5_6Editor in
+  Rider/Visual Studio, restart and run these three tests. This USTRUCT/UPROPERTY
+  change requires a full restart; Live Coding is insufficient. In the tool choose
+  a Layer, select Channel, set the intended StaticMesh to block that channel and
+  leave Visibility ignored, then paint/save/reopen and inspect editor/PIE coverage.
+  Test the default Layer still paints through to the Visibility floor.
+- Avoid next time: surface type and trace response are independent. Centralize
+  query-channel selection and audit hover, repeated Brush samples, queued creation
+  and retained Shape edits together; testing only the cursor hit misses divergence.
+- Possible conflicts / limits: Channel selects editor authoring collision, not
+  runtime activation filtering. Runtime queries still use baked triangles; PIE
+  occluder fitting remains independent and preserves earlier character-depth fixes.
+  Floors must have query collision and block the chosen channel. Changing Channel
+  does not reproject old brush geometry; project channel definitions are project
+  settings, not created/modified by this feature. No extra worker UObject reference,
+  query budget change, reflection field on Shape or camera hot-path allocation.
+
+## 2026-10-06 - Automatic Mesh membership crosses an unpainted blocking floor
+
+- Status: explicit Query/Update/Clear API and collision-surface regression sources
+  added. Rider/Visual Studio full build, UHT and Unreal automation remain pending.
+- Symptom: business cannot choose when Mesh Profiles are queried/applied. A player
+  standing on an unpainted upper StaticMesh may activate a Layer painted below it.
+- Trigger / repro: paint a Layer at Z=0, place an unpainted query-collision floor at
+  Z=100, and query from Z=150 with the former 300 cm downward world query. The old
+  subsystem Tick reads Pawn.GetActorLocation and selects the lower saved triangles,
+  regardless of the nearer scene collision. Start PIE without any explicit Mesh
+  call: automatic polling can enter Profile effects. The user requires business
+  ownership of invocation and explicit blocking Channels or a collision Profile.
+- Why it happens / root cause: UTickableWorldSubsystem combined discovery, implicit
+  Pawn-origin selection and effect reconciliation. Its geometric ray only saw painted
+  triangles, so the nearest *painted* surface was treated as the physical floor.
+  The authoring Layer Channel does not solve runtime occlusion or caller ownership.
+- History / blast radius: reviewed temporary Camera Context ownership/restoration,
+  exact Action/Patch cleanup, async Profile preload membership/lifetime, instanced
+  storage identity, transformed BVH and Visibility-ignoring authoring/preview fixes.
+  Audited all world/storage query callers, effect dispatch, storage registration/
+  EndPlay, preload polling, removed Tick fields and companion documentation. Referenced
+  read-only UE5.6 CollisionProfile/WorldCollision and GameplayCameras' explicit
+  PlayerController activation APIs; no engine/reference code was modified.
+- Touched files:
+  - Source/ComposableCameraSystem/Public/MeshCamera/ComposableCameraMeshSurfaceTypes.h
+  - Source/ComposableCameraSystem/Public/MeshCamera/ComposableCameraMeshWorldSubsystem.h
+  - Source/ComposableCameraSystem/Private/MeshCamera/ComposableCameraMeshWorldSubsystem.cpp
+  - Source/ComposableCameraSystem/Private/Tests/ComposableCameraMeshQueryTests.cpp (new)
+  - Source/ComposableCameraSystem/Private/Tests/ComposableCameraMeshProfileEffectsTests.cpp
+  - Docs/DesignDoc.md, TechDoc.md, ExecutionFlowExamples.md, EditorDesignDoc.md and BugLog.md
+- Fix: replace automatic ticking with a non-ticking UWorldSubsystem. Query APIs are
+  read-only and take an explicit world origin plus QueryParams. Channels mode traces
+  each distinct supplied channel, taking the nearest blocking hit over their union.
+  Profile mode borrows a configured UE collision template and supplies its channel/
+  responses, including supported named redirects. Empty/invalid configuration and
+  a miss return empty; unknown Profile never falls back. Only saved Layer geometry
+  within the first physical hit's +/- SurfaceTolerance is queried, including all
+  enabled overlapping Layers and distinct storage instances. An unpainted blocker
+  stops the search. Outputs report the collision point and distance, not buried
+  preview geometry. Geometry-only storage queries remain internal/debug primitives.
+  Explicit UpdateMeshLayers performs this same query then reconciles effects for
+  the supplied local PC; invalid/missed queries exit prior scopes. ClearMeshLayers
+  releases only that player's effects. Async completion cannot activate anything:
+  readiness is retried only on later business Updates. Stop integration via Clear.
+  PC/PCM EndPlay and document unregister release ownership without player polling;
+  world teardown avoids reactivating ending cameras. Existing family dispatch,
+  nested Context order and exact instance cleanup stay intact.
+- Regression-test names:
+  - ComposableCameraSystem.MeshCamera.BlockingSurfaceQuery: actual two-storey Actor
+    StaticMesh collision, upper painted/unpainted cases, channel union/order/custom
+    selection, ignored Actor, Block-vs-Overlap, Profile/invalid-name behavior, empty/
+    malformed policy, distance and tolerance limits, above/below matching, disabled
+    Layers, transformed repeated-GUID documents and public/inline query agreement.
+  - ComposableCameraSystem.MeshCamera.ManualUpdateAndClear: no ticking, no query
+    side effects, no-Pawn caller position, stable Action identity, exits/Clear
+    preserving external Actions, stalled preload/readiness/cleared membership,
+    invalid-policy exit, document unload, player EndPlay and CameraManager replacement/
+    EndPlay binding cleanup. Its actors
+    explicitly begin play because an isolated world without GameMode does not
+    dispatch that lifecycle automatically.
+  - Existing ExclusiveProfileDispatchAndCleanup and ProfilePreloadMembershipAndLifetime
+    continue exercising Camera/Modifier/Action/Patch ownership; remove obsolete
+    LastSeenFrame fixture state because automatic expiry no longer exists.
+- Verification / blocker: API/consumer/lifecycle/enum/GC/whitespace source review only.
+  Project rules forbid shell Unreal builds/editor/automation. Close UE, full build
+  UE5_6Editor in Rider/Visual Studio, restart and run the two new tests plus existing
+  MeshCamera tests. UCLASS superclass/USTRUCT/UFUNCTION changes require a full restart,
+  not Live Coding. Refresh old Blueprint Query nodes and supply QueryParams. Manually
+  wire Update after movement using a caller-selected origin and ignored Pawn; wire
+  Clear on disable/unpossess. Verify no calls means no entry, two floors do not leak,
+  overlapping Profiles exit in order, misses restore gameplay and disabling with
+  Clear removes effects. Verify Show still works independently and loading remains
+  nonblocking. Profile mode must be a collision preset name, not a Mesh camera Profile.
+- Avoid next time: separate passive spatial query, business invocation and scoped
+  effect ownership. Always test an unpainted collision blocker above painted geometry;
+  testing only nearest painted triangles cannot prove actual surface selection.
+- Possible conflicts / limits: automatic entry is intentionally removed; existing
+  projects must provide explicit Update/Clear integration and refreshed query inputs.
+  A policy that ignores the upper floor permits tracing through it by design. Floor
+  query collision is required; no simple/complex fallback is added. SurfaceTolerance
+  is an absolute cm band around collision; large values can merge nearby surfaces.
+  Existing incorrectly projected geometry outside that band needs redraw or a
+  business-selected tolerance. First/growth Blueprint outputs, unusually deep
+  overlap (>16) or large UE ignored-Actor lists may allocate; normal BVH traversal,
+  profile lookup and steady ownership introduce no extra heap work. Editor Channel,
+  progressive visualization, LOD stabilization and authored geometry are unchanged.
+
+## 2026-10-06 - Empty business Mesh Layer queries lack failure evidence
+
+- Status: the user ran the diagnostic. The captured Update rejects a null supplied
+  PlayerController before querying collision. Blueprint input correction and a new
+  actual Query/Update dump remain pending; automation is not reported as run.
+- Symptom / repro: manually call QueryMeshLayers while standing in visibly colored
+  coverage; returned array is empty. The user confirms Draw works after selecting
+  the intended Layer Channel, but the query still needs investigation. Existing
+  preview dumps do not record the business call's actual origin/policy or reject stage.
+- Why / root cause: the public boolean/array collapses invalid policy, physical miss,
+  penetration, absent registered documents and surface-band mismatch into one result.
+  The root cause of this particular live query is not yet established. Earlier logs
+  prove incorrectly authored Z=-7.070 geometry beneath a Z=0 LevelBlock, but cannot
+  establish whether the newly tested call uses that geometry or a different policy.
+- Subsequent runtime evidence: Reason=InvalidUpdateOwner, PlayerController=None,
+  CameraManager=None, Local=0, Registered=2. Both saved documents are registered
+  and have begun play. No blocking-channel or ignored-Actor rows are present in
+  the supplied output, while TraceMode=0 selects Channels; if the output is complete,
+  those two arrays are empty. Empty channels would also reject a standalone Query.
+  Correct the business wiring: provide the intended local PlayerController to Update,
+  supply the configured QueryParams to both APIs, and explicitly ignore the querying
+  Pawn as appropriate. Authoring Layer Channel does not populate the runtime policy.
+  NativeHit=0 is also reported at (530.359, -6688.660, 88.525), but the actual collision
+  query never ran; recheck saved coverage at the intended test point after fixing
+  inputs. Do not change first-blocker, tolerance or automatic player ownership rules
+  based on this rejected Update. Existing NextQueryDiagnostics already covers null
+  Update ownership and empty-channel validation; no runtime source change is needed.
+- History / blast radius: read Layer Channel and Visibility-ignoring LevelBlock
+  history, explicit Query/Update/Clear ownership, first-blocker protection and storage
+  BeginPlay/registration. Audited all world query consumers and the native/BVH query
+  path. Read UE5.6 console command and expected-message APIs; reference engine files
+  remain unchanged. No Blueprint signature, drawing or collision behavior is changed.
+- Touched files:
+  - Source/ComposableCameraSystem/Private/MeshCamera/ComposableCameraMeshWorldSubsystem.cpp
+  - Source/ComposableCameraSystem/Private/Tests/ComposableCameraMeshQueryTests.cpp
+  - Docs/DesignDoc.md, TechDoc.md, ExecutionFlowExamples.md and BugLog.md
+- Diagnostic fix: non-shipping CCS.MeshLayers.DebugNextQuery arms one weak Game/PIE
+  world request. The next actual business Query or Update consumes it, including
+  invalid input/ownership. Output gives a reject reason, actual caller configuration,
+  blocking Actor/component, registered-document count, enabled/native triangle counts,
+  and nearest enabled native source height at that XY inside a printed probe range.
+  Other worlds cannot consume the request. Loaded document discovery never registers
+  actors, enables Layers, rebuilds source or adds probe hits to results. No player
+  lookup, implicit query/update, scene retrace, asset load or effect activation.
+  Dormant diagnostics do not format strings or scan actors; shipping strips the command.
+- Regression test: ComposableCameraSystem.MeshCamera.NextQueryDiagnostics.
+  Uses the real console command and two query worlds. Checks one-shot consumption
+  on empty policy, world isolation, exact -7.070 native/physical mismatch logging,
+  read-only unregistered document discovery, unchanged successful Layer identity,
+  physical miss and invalid Update owner. Existing BlockingSurfaceQuery and
+  ManualUpdateAndClear retain membership/first-blocker/lifecycle coverage.
+- Verification / blocker: source/consumer/format/whitespace review only. Project rules
+  forbid shell Unreal builds/tests. Compile UE5_6Editor in Rider/Visual Studio and
+  restart UE. Run NextQueryDiagnostics, BlockingSurfaceQuery and ManualUpdateAndClear.
+  In a fresh PIE, stand on the failing region, enter CCS.MeshLayers.DebugNextQuery
+  in the game console, then execute the existing business Query/Update. Paste all
+  Mesh Layer Query lines; if only Armed appears, that world has not called the API
+  again. Show Mesh Layers need not be enabled. Only .cpp/test/docs change this turn.
+- Avoid next time: diagnose the actual caller's policy and collision hit before
+  changing tolerance, guessing an Actor restriction or comparing fitted preview height.
+  An empty query is valid behavior for several distinct rejection conditions.
+- Possible conflicts / limits: this diagnostic does not fix or migrate buried geometry,
+  supply missing channels, ignore a Pawn implicitly or activate camera effects. Native
+  probe height is the nearest enabled saved surface inside ProbeRange and may belong
+  to another storey; it is evidence, not membership. The first next call in the armed
+  world wins when several business callers exist. Run the command in the PIE game
+  console; Editor-world invocation reports that instruction without falling back.
+  Explicit one-shot formatting/probing is diagnostic work, not normal per-frame work.
+
+## 2026-10-06 - Scene-centered Layer matching changes the original ray and shares hit heights
+
+- Status: source and regression tests updated; IDE compilation and automation
+  execution remain pending. The user chose to reject only blockers above a Layer
+  beyond tolerance; missing scene hits and empty Channels preserve native hits.
+- Symptom: a saved Layer may be selected outside the business-supplied ray, or a
+  farther scene surface may select a different painted floor. Grouped Layers can
+  report another Layer's height and pass an occlusion check using that borrowed point.
+- Exact trigger / repro:
+  - With scene floor Z=0, saved Layer Z=4, origin Z=1 and tolerance 5, the old
+    scene-centered ray returns geometry behind the original downward origin.
+  - With scene floor Z=0, saved Layer Z=-2, origin Z=20, maximum distance 21 and
+    tolerance 5, the old matching band returns geometry beyond the original endpoint -1.
+  - With saved floors Z=100 and Z=0, origin Z=150, and a policy blocking only the
+    lower floor, collision-centered matching selects Z=0 instead of native Z=100.
+  - With global saved nearest Z=12, another document containing Layers Z=10 and
+    Z=7, scene blocker Z=14 and tolerance 5, the Z=7 Layer can borrow Z=10 and
+    incorrectly pass the blocker comparison. One Layer with triangles at Z=8
+    and Z=10 must report Z=10 regardless of visitation order.
+- Why / root cause: the world query used the scene hit to replace the geometry
+  ray origin and length with a +/- tolerance band. This is height sampling around
+  collision, not intersection with the original caller segment. Native storage
+  also assigned one shared nearest point to every Layer returned in that band.
+  Filtering documents by their shared point can include triangles outside the
+  global nearest-surface band, especially across Level Instances/documents.
+- History / blast radius: reviewed Visibility-ignoring LevelBlock projection,
+  authoring Channel isolation, manual Query/Update/Clear ownership, first-blocker
+  protection, one-shot query diagnostics, BVH pruning and transformed-document
+  Undo/Redo. Audited native/world query consumers and Profile entry/exit consumers.
+  Player ownership, preload readiness, source geometry and editor preview fitting
+  remain separate from this query change.
+- Touched files:
+  - Source/ComposableCameraSystem/Public/MeshCamera/ComposableCameraMeshSurfaceTypes.h
+  - Source/ComposableCameraSystem/Public/MeshCamera/ComposableCameraMeshWorldSubsystem.h
+  - Source/ComposableCameraSystem/Private/MeshCamera/ComposableCameraMeshSurfaceTypes.cpp
+  - Source/ComposableCameraSystem/Private/MeshCamera/ComposableCameraMeshSurfaceStorageActor.cpp
+  - Source/ComposableCameraSystem/Private/MeshCamera/ComposableCameraMeshWorldSubsystem.cpp
+  - Source/ComposableCameraSystem/Private/Tests/ComposableCameraMeshQueryTests.cpp
+  - Docs/DesignDoc.md, TechDoc.md, EditorDesignDoc.md, ExecutionFlowExamples.md and BugLog.md
+- Fix: validate policy, independently intersect the original downward segment with
+  saved geometry/BVH, find the global nearest hit, and collect overlaps using a
+  length capped by global nearest plus tolerance and the original maximum. Native
+  optional distance output retains each Layer's nearest triangle hit and aligned
+  Layer ordering; storage transforms each hit independently. Scene collision uses
+  the identical original segment. A blocker above each native Layer by more than
+  tolerance rejects it; same-height, nearby or lower blockers do not. Empty Channels
+  skips physics and a valid trace miss retains geometry. Never relocate outputs to
+  collision or retry a farther saved floor after blocking the nearest hit. NativeRay
+  diagnostics expose the original hit distance and signed blocker separation.
+- Regression tests:
+  - ComposableCameraSystem.MeshCamera.IndependentRayIntersections: real StaticMesh
+    blockers, independent nearest geometry, blocker separation, Profile/ignored
+    Actor, geometry-only/no-blocker policies, original origin/endpoint boundaries,
+    global document clipping, per-Layer rejection and nearest hit precision.
+    Compares indexed/linear distance outputs and checks pruning and miss reset.
+  - Updated BlockingSurfaceQuery and NextQueryDiagnostics for the chosen occlusion
+    rule; ManualUpdateAndClear now uses an actually invalid channel for its invalid
+    input cleanup case. Existing SpatialIndexEquivalenceAndPruning and
+    SpatialIndexTransformedDocument retain index/transform/Undo regression coverage.
+- Verification / blocker: source/consumer/format/whitespace review only. Project
+  instructions prohibit command-line Unreal compilation or automation. Close UE,
+  compile UE5_6Editor in Rider/Visual Studio and restart; header/native signature
+  edits require a full IDE build, not Live Coding. Run IndependentRayIntersections,
+  BlockingSurfaceQuery, NextQueryDiagnostics, ManualUpdateAndClear and the existing
+  spatial-index tests. In PIE, query a painted lower floor with an unpainted blocking
+  floor above it, then remove/ignore the blocker or use empty Channels. Inspect both
+  boolean/array results and native SurfacePosition. Arm DebugNextQuery before the
+  next real business call to inspect NativeRay and BlockedBeforeLayer evidence.
+- Avoid next time: derive both intersections from the same unchanged caller ray,
+  test its endpoints, and preserve each returned Layer's actual intersection.
+  BVH visitation order and a document's nearest height do not prove another Layer's
+  nearest hit. Clip global collection before querying per-document overlap sets.
+- Possible conflicts / limits: empty Channels and scene misses now permit saved
+  membership intentionally; businesses requiring occlusion must supply channels
+  that Block relevant surfaces. Layer authoring Channel still does not populate
+  runtime policy. Unknown Profile/invalid channels fail; no automatic player polling
+  or implicit ignored Pawn is added. SurfaceTolerance groups nearby native hits
+  and permits that much blocker separation, so large values can merge floors.
+  Incorrectly baked heights need redraw or a deliberate tolerance. Normal queries
+  use inline capacity 16 and BVH traversal; deeper overlap/large UE ignored lists
+  retain their documented allocation limits. Two native queries per document add
+  BVH traversals; no per-frame index construction, visualization or collision edits.
+
+## 2026-10-06 - Geometry-only membership crosses an unpainted supporting floor
+
+- Status: source, regression tests and living documents updated. IDE compilation
+  and UE automation execution remain pending; no build/test run is claimed.
+- Symptom: a character standing on an unpainted upper storey can activate a Layer
+  painted only on a lower floor. Collision channels that ignore the upper floor,
+  or empty Channels, make membership independent of the actual supporting floor.
+- Exact trigger / repro: paint a Layer at Z=0, place a walkable upper floor at
+  Z=100 without a Layer, stand above that floor, and query downward 300 cm using
+  empty BlockingChannels. The former query selects the lower saved triangles.
+- Why / root cause: nearest painted geometry is not current physical ground.
+  The previous chosen occlusion policy accepted empty Channels/no scene blocker;
+  absence of a configured blocker did not identify the surface supporting the
+  character. Adding a GUID to painted triangles alone would not discover the
+  unpainted upper floor. This turn replaces that former policy explicitly.
+- History / blast radius: reviewed the earlier automatic-membership bug, empty
+  query diagnostics, independent/per-Layer ray intersections, cross-component
+  authoring seams, native BVH/Undo transforms and manual ownership tests. Audited
+  all query consumers, Profile readiness/entry/exit, PC/PCM replacement/EndPlay,
+  storage unload and editor visualization. Referenced read-only UE5.6
+  CharacterMovement CurrentFloor/ImpactPoint, Recast/Detour bounded projection and
+  GameplayCameras explicit player activation. Existing external edits preserved.
+- Touched files:
+  - Source/ComposableCameraSystem/Public/MeshCamera/ComposableCameraMeshSurfaceTypes.h
+  - Source/ComposableCameraSystem/Public/MeshCamera/ComposableCameraMeshWorldSubsystem.h
+  - Source/ComposableCameraSystem/Private/MeshCamera/ComposableCameraMeshWorldSubsystem.cpp
+  - Source/ComposableCameraSystem/Private/Tests/ComposableCameraMeshQueryTests.cpp
+  - Docs/DesignDoc.md, TechDoc.md, ExecutionFlowExamples.md, EditorDesignDoc.md, BugLog.md
+- Fix: Query/Update now require business GroundHit and
+  FComposableCameraMeshGroundQueryParams (SurfaceTolerance only). Remove old trace
+  mode, BlockingChannels, CollisionProfile, MaxQueryDistance, bTraceComplex and
+  IgnoredActors. Require valid blocking nonpenetrating ground and a live same-world
+  component. Intersect exact saved triangles at ImpactPoint XY in the bounded
+  ground Z +/- tolerance interval using existing native BVH. Group the entire
+  interval, check every Layer's own intersection, and preserve scoped document
+  identity/order. SurfacePosition stays the saved point; VerticalDistance reports
+  absolute ground-height separation. Missing/invalid/unmatched ground returns empty
+  and Update exits old effects. Clear and all Profile lifecycle handling remain
+  caller-driven. No physics retrace, Pawn polling, SurfaceId/provenance fields or
+  cooked triangle format/memory changes are introduced.
+- Regression-test names:
+  - ComposableCameraSystem.MeshCamera.GroundHitQuery: real business Pawn traces on
+    two Actor StaticMesh floors, upper unpainted/painted isolation, capsule Sweep
+    ImpactPoint versus Location, no scene retrace, public API/result reset,
+    invalid/penetrating/expired/wrong-world ground and invalid/overflowed numerics.
+  - ComposableCameraSystem.MeshCamera.GroundHitGeometry: symmetric inclusive height
+    bounds, per-Layer points/distances, disabled coverage, exact zero tolerance,
+    triangle-vs-AABB coverage, slope height and repeated/transformed documents.
+  - ComposableCameraSystem.MeshCamera.NativeRayPrecision: retain indexed/linear
+    nearest per-Layer distance agreement, BVH pruning and aligned miss-output reset.
+    This replaces the obsolete world-occlusion IndependentRayIntersections test.
+  - NextQueryDiagnostics: updated one-shot actual-ground outcomes and read-only
+    height discovery. ManualUpdateAndClear: retained ownership tests plus missing
+    GroundHit and invalid tolerance exit. GroundHitQuery replaces BlockingSurfaceQuery.
+- Verification / concrete blocker: source/consumer/lifetime/whitespace review only.
+  Project instructions prohibit shell Unreal builds/editor/automation. Close UE,
+  build UE5_6Editor in Rider or Visual Studio, restart, and run the five tests above
+  plus SpatialIndexEquivalenceAndPruning, SpatialIndexTransformedDocument,
+  ExclusiveProfileDispatchAndCleanup and ProfilePreloadMembershipAndLifetime.
+  USTRUCT/UFUNCTION changes require a full build/restart, not Live Coding.
+  Refresh/recreate old Blueprint Query/Update and Make QueryParams nodes. Connect
+  CurrentFloor.HitResult after WalkableFloor in ordinary Character Walking, or
+  business ground from custom movement. Call Update after movement for the local
+  PC; Clear on loss of ground/disable/unpossess according to business policy.
+  In PIE verify upper unpainted floor stays inactive, painted floors trigger only
+  their own Layers, jumping/invalid ground clears owned effects, and Show loading
+  remains independent. Existing painted documents need no redraw or resave.
+- Avoid next time: select supporting ground independently of tagged coverage.
+  Test an unpainted floor above painted data, not just two painted surfaces. Keep
+  each Layer's actual triangle intersection and test both sides of the ground
+  interval; capsule center is not its ground contact point.
+- Possible conflicts / limits: old Blueprint/C++ query signatures require explicit
+  migration. GroundHit freshness, walkability and custom movement/airborne policy
+  belong to business; a wrong hit can still produce a wrong Layer. Matching uses
+  world-Z height and coverage, not Component ownership. Large tolerance can merge
+  close storeys; collision/render discrepancies may need corrected authoring or
+  deliberate tolerance. Steady <=16-Layer inline queries add no heap allocations;
+  larger overlap/Blueprint output growth retain documented allocation limits.
+  Layer authoring Channel, preview fitting/LOD, existing geometry and Profile
+  dispatch/cleanup semantics remain unchanged.
+
+## 2026-10-07 - Uneven Mesh Layer paint accumulates alpha and leaves small uncovered/buried patches
+
+- Status: source fix and three focused regressions added. The user's Level has
+  not been executed here; IDE compilation, automation and viewport verification
+  remain pending. Numeric geometry checks are not an Unreal test pass.
+- Symptom: one Layer shows irregular darker fragments on uneven Landscape;
+  painting also leaves many small areas apparently uncovered. The screenshot
+  alone cannot distinguish missing saved triangles from buried preview geometry.
+- Trigger / repro: repeatedly Brush or Draw the same convex/concave ground,
+  including overlapping Layers; compare Edit, Show and PIE after loading. Use a
+  tiny sloped footprint whose actual overlap differs by less than 5 units but
+  whose extrapolated grid-center planes differ by more than 5; also test a curved
+  surface with 100-unit initial sample spacing against its actual floor height.
+- Why / root cause: the display cache assigned whole patches to height buckets
+  using one extrapolated center height, then subtracted entire XY footprints.
+  It could either retain duplicate translucent coverage or remove separated
+  coverage when the height band crossed a cell. Authoring tested seven locations
+  for Draw support but emitted only corners, with no curvature-error check;
+  Brush emitted a center/rim fan and traced along its center normal. Interiors
+  could remain far from the floor, projection directions could shift neighboring
+  XY samples, and one failed sample discarded a large otherwise supported leaf.
+- History / blast radius: reviewed cross-component brush seams, accumulated
+  alpha/Layer priority, exact preview silhouettes, regional erase/stroke caches,
+  PIE character occlusion, progressive publication and Landscape LOD stability.
+  Audited every FProjectedShapeBuild/BuildProjectedShape consumer, native cache
+  reader, incremental/full resolver, saved/runtime preview export and Layer
+  Channel tests. Preserve real holes, separate storeys, erase masks, transactions,
+  cancellation, Profile ownership and the business GroundHit query contract.
+- Touched files:
+  - Source/ComposableCameraSystemEditor/Private/MeshCamera/ComposableCameraMeshLayerRendering.cpp/.h
+  - Source/ComposableCameraSystemEditor/Private/MeshCamera/ComposableCameraMeshLayerShapes.cpp/.h
+  - Source/ComposableCameraSystemEditor/Private/MeshCamera/ComposableCameraMeshLayerEdMode.cpp/.h
+  - Source/ComposableCameraSystemEditor/Private/Tests/ComposableCameraMeshLayerVisualizationTests.cpp
+  - Source/ComposableCameraSystemEditor/Private/Tests/ComposableCameraMeshLayerShapeTests.cpp
+  - Source/ComposableCameraSystemEditor/Private/Tests/ComposableCameraMeshLayerTraceChannelTests.cpp
+  - Docs/EditorDesignDoc.md, TechDoc.md, ExecutionFlowExamples.md, BugLog.md
+- Fix: index all elevations in one XY cell and clip pairwise subtraction to the
+  actual plane-height band abs(delta) <= 5 local units. The full-cell shortcut
+  verifies all incoming heights. Refine seven-point corner-interpolation error
+  above 1 world cm, converting Draw thresholds through the anchor's maximum
+  absolute scale, with bounded depth/edge size/output; mixed support refines before
+  omission while entirely missing floor stays absent. Emit curved leaves from
+  projected centroids and recursively shared cached edge samples; planar leaves
+  retain one triangle. Brush reuses this builder with document-Up traces and
+  relative-world centimeter coordinates before conversion to document local,
+  preserving small details far from the origin. Draw projection/emission keeps
+  the existing per-frame budget; Brush has a 4096-triangle stamp cap and explicit
+  density feedback. Failed density preserves the preceding source.
+- Regression-test names:
+  - ComposableCameraSystem.Editor.MeshCamera.VisualizationUnevenSurface
+    checks repeated/sorted ownership, center-extrapolation false separation,
+    exact partial height-band subtraction, coarse grids, stacked floors and
+    runtime-data preview parity.
+  - ComposableCameraSystem.Editor.MeshCamera.ShapeCurvatureAndSeams
+    checks complete footprint area, native saved triangle intersections near the
+    actual curved ground, unequal-refinement edge continuity, scaled centimeter
+    bounds, query budgets, sample reuse, coverage beside a small true gap and
+    failure preservation.
+  - ComposableCameraSystem.Editor.MeshCamera.UnevenBrushProjection
+    uses actual complex collision on a curved StaticMesh, the real Brush method,
+    saved storage queries and a scaled far-origin anchor to check interior precision.
+- Verification / blocker: source/consumer/lifetime review and git diff --check.
+  An independent arithmetic check of the curved fixture conserved 10000 units^2,
+  hit all 100 interior probes, reached 0.234375-unit maximum height error and
+  found no different-height T junctions. This does not compile or run UE code.
+  Project instructions prohibit shell Unreal builds/editor automation. Close UE,
+  compile UE5_6Editor in Rider/VS, restart, run the three regressions plus
+  ShapeProjectionAndLimits, ShapeProjectionBudget, LayerTraceChannel,
+  IncrementalVisualization, VisualizationBoundary, VisualizationPartialOverlap,
+  AsyncPreviewBuild and DocumentUndoRedo. Repaint the same rough patch using
+  Brush and all Draw types, overlap another Layer, erase a tiny real hole, inspect
+  near/far Show and PIE, and confirm characters still occlude PIE overlays.
+- Avoid next time: compare surfaces at actual overlapping footprints, not a
+  representative extrapolated center. Check saved-query height and shared-edge
+  continuity in addition to total area. A support sample alone does not constrain
+  interpolation error or prove the whole triangle follows the floor.
+- Possible conflicts / limits: curved authoring produces more triangles/traces
+  and can increase saved/baked geometry memory; no per-triangle fields, SurfaceId,
+  runtime API or source format changes. Brush remains bounded synchronous event
+  work, so frame cost requires the viewport smoke test. Sampled approximation
+  cannot promise arbitrary sub-resolution detail; missing collision, short
+  Projection Distance, steep normal rejection, unresolved discontinuities and
+  collision/render mismatch can still leave legitimate omissions. Existing
+  triangle-only Brush strokes need repainting for denser source, and previously
+  missing triangles cannot be recovered by merely toggling Show. Existing Shape
+  controls can regenerate source through an edit. Display refresh alone applies
+  the height-band resolver. Stable Landscape LOD and 1.5-unit preview offset,
+  depth testing, progressive startup and manual GroundHit Update/Clear stay intact.
+
+## 2026-10-07 - Mesh Layer Edit keeps rebuilding unchanged viewport fill buffers
+
+- Status: source optimization and three regressions added; IDE compilation,
+  automation, real viewport pixels and frame timings remain unverified.
+- Symptom: opening Mesh Layers Edit (Brush / Draw / Layers) substantially reduces
+  frame rate, including idle editing. User requires current functionality and
+  presentation to remain intact.
+- Trigger / repro: hold the viewport/camera fixed over a large painted document;
+  compare closed Edit, fully loaded Show and Edit with the mouse outside the
+  viewport and no pending Shape. Repeat with dense curved authoring geometry.
+- Why / root cause: coverage polygons were cached, but every Edit Render called
+  DrawResolvedLayer for every enabled Layer. Each Layer scanned the entire cache
+  twice, reconstructed FDynamicMeshBuilder vertices/tangents/indices and dynamic
+  material resources, then uploaded disposable buffers. Target grid density is
+  approximately 100000 cells rather than an output-triangle cap; exact boundary
+  fragments and denser curved source amplify this repeated work. This code path
+  establishes avoidable work, not a measured percentage of the user's frame.
+- History / blast radius: reviewed prior brush regional-cache, release refresh,
+  exact boundary/alpha ownership, persistent PIE/Show buffers, Game View hiding,
+  reverse-face opacity and Landscape LOD entries. Audited every visualization
+  mutation, worker-installed Shape cache, Undo/Discard/cancel, Layer ordering,
+  control-point hit proxy and mode Exit. Consulted installed UE5.6 renderer APIs
+  read-only. Preserve saved/runtime data, sampling/query/Profile logic and Show/PIE.
+- Touched files: MeshCamera/ComposableCameraMeshLayerEditPreview.h/.cpp (new),
+  ComposableCameraMeshLayerEdMode.h/.cpp, ComposableCameraMeshLayerRendering.h/.cpp,
+  Tests/ComposableCameraMeshLayerEditPreviewTests.cpp (new), EditorDesignDoc.md,
+  TechDoc.md, ExecutionFlowExamples.md and BugLog.md, all editor code/docs.
+- Fix: Level-owned transient fill components retain vertex/index/factory resources.
+  Partition by Layer and 32-cell XY tiles; refresh only dirty tiles after
+  Brush/Erase, including their unchanged neighbors and removed cells. Full
+  changes/regrids refresh all tiles. Stable Render does not traverse patches or
+  create/upload a fill mesh. Keep separate CPU/GPU dirty flags, including ready
+  Shape installation. Reuse GeomMaterial and exact float RGB/alpha with the same
+  clamp, fan topology, normals/tangents, UVs, offset, depth testing and disabled
+  backface culling. Keep drafts/controls/hover and picking on PDI. Exclude capture
+  views, collision, selection, shadows/nav/ray tracing, PIE duplication and
+  temporal primitive occlusion; Game View remains visible. Exit destroys the actor;
+  scene ownership releases buffers safely. Failed publication retains PDI fallback.
+- Regression tests: ComposableCameraSystem.Editor.MeshCamera.EditPreviewPersistentBuffers
+  (actual buffers/proxy reuse, negative tiles, scaled anchor, float colors/alpha,
+  sloped heights, Layer enable/reorder, G view/capture policy, clean package and
+  teardown); EditPreviewRegionalUpdates (erase/restoration and remote buffer
+  identity, empty cache); EditPreviewInvalidation (actual mode idle Render creates
+  no PDI fill resources, full dirty flags and color refresh).
+- Verification / blocker: static consumer/resource-lifetime/API review and
+  git diff --check only. Project rules prohibit shell builds/editor/tests. Close
+  UE, compile UE5_6Editor in Rider/VS and restart: new reflected component requires
+  full compilation. Run the three regressions plus DocumentUndoRedo,
+  StrokeVisualizationRefresh, DiscardWorkingDocument, VisualizationUnevenSurface,
+  EditorPreviewPublication and PreviewLandscapeLODStability. Manually compare
+  fixed-view FPS and near/far pixels; Brush, all Draw types, Select/control drag,
+  Erase/Shift, undo/redo, Discard/save, Layer reorder/color/enable, G and Edit/Show/PIE
+  switching must retain current behavior. Look for ghosts or duplicate opacity.
+- Avoid next time: caching CPU geometry does not imply persistent GPU buffers.
+  Test actual proxy/buffer identity and idle draw resource counts, not cache flags
+  alone; treat already-resolved asynchronous results as separate publication work.
+- Possible conflicts / limits: cached CPU/GPU geometry consumes retained memory
+  and spatial tiles add draw batches. First-open coverage and mutation-time tile
+  uploads remain synchronous; Brush sampling and regional resolver scans remain
+  as before. No mesh density/LOD/material asset/runtime API reduction is used.
+  Pixels and timing must be confirmed in the user's Level before claiming parity
+  or a specific speedup.
+
+## 2026-10-07 - Mesh Layer Edit preview lacks builder definition and shadows Bounds
+
+- Symptom: IDE compilation fails in ComposableCameraMeshLayerEditPreview.cpp
+  with C2079 for FPrimitiveUniformShaderParametersBuilder, cascading C2664/C2665
+  at BuildUniformShaderParameters/Uniform.Set, and C4458 for a local Bounds.
+- Trigger / repro: compile UE5_6Editor in Rider or Visual Studio after adding
+  the persistent Edit scene proxy, with inherited-member shadowing treated as
+  an error and no incidental unity include supplying the builder definition.
+- Why / root cause: PrimitiveSceneProxy.h and SceneManagement.h only
+  forward-declare the builder. Its defining header was not included at the
+  construction site. The component's local geometry box reused the inherited
+  USceneComponent::Bounds name.
+- History / blast radius: checked the 2026-07-19 mesh editor mode incomplete
+  type/shadowing bug and all Edit preview callers. SetGeometry callers, scene
+  proxy resource lifetime, render parameters and runtime queries are unchanged.
+- Touched files: Source/ComposableCameraSystemEditor/Private/MeshCamera/
+  ComposableCameraMeshLayerEditPreview.cpp; Docs/TechDoc.md; Docs/BugLog.md.
+- Fix: include UE5.6's PrimitiveUniformShaderParametersBuilder.h directly and
+  rename the local box to VertexBounds. No rendering or bounds math changes.
+- Regression-test name: ComposableCameraSystemEditor compile: Edit preview
+  builder include completeness and inherited-member shadowing.
+- Test blocker / verification: these are compile-time failures before automation
+  can load. Project rules prohibit shell builds. Rebuild UE5_6Editor in Rider/VS;
+  where available also compile this translation unit without unity includes.
+  Then run EditPreviewPersistentBuffers, EditPreviewRegionalUpdates and
+  EditPreviewInvalidation in the editor. No IDE compile pass is claimed yet.
+- Avoid next time: inspect the defining header, not only forward declarations or
+  function signatures; audit base-class member names when adding component locals.
+- Possible conflicts: none expected; only type visibility and local naming
+  changed. Coverage, colors, transforms, tools and persistent-buffer behavior
+  remain the same.
+
+## 2026-10-07 - Show Mesh Layers does not resume after closing Edit
+
+- Symptom: Show is checked but no Layer overlay returns after Edit closes;
+  entering Edit from the tool menu can instead clear the previously enabled Show.
+- Trigger / repro: enable Show Mesh Layers, enter Edit Mesh Layers from the menu
+  or mode selector, then close its panel or deactivate Edit. Observe checked
+  state and actual filled meshes after normal progressive loading.
+- Why / root cause: Show intent and the actual read-only mode are separate.
+  Mutual exclusion deactivates the Preview mode and releases its geometry, but
+  there was no restoration path. The Edit menu also explicitly cleared intent.
+  UE5.6 DeactivateMode removes the active flag before deferred Exit, so restoring
+  solely when IsModeActive(Edit) becomes false can race document save/discard
+  and actor cleanup.
+- History / blast radius: checked the 2026-07-19 one-click Edit-to-Show bug,
+  2026-07-21 independent PIE request state, Game View publication and persistent
+  Edit buffer lifecycle entries. Audited tool menus, Window Debugging's shared
+  toggle/check callbacks, mode selector/primary-tab close, registration/unload,
+  PIE fitting teardown and scoped Landscape view routing.
+- Touched files: Utilities/ComposableCameraMeshLayerTool.h/.cpp,
+  MeshCamera/ComposableCameraMeshLayerEdMode.cpp,
+  Tests/ComposableCameraMeshLayerPreviewModeTests.cpp in the editor module;
+  Docs/EditorDesignDoc.md, Docs/TechDoc.md, Docs/ExecutionFlowExamples.md and this log.
+- Fix: retain Show intent on Edit entry; notify the coordinator on actual Edit
+  Enter/Exit. Suspend preview view routing and release PIE caches during Edit.
+  The existing preview ticker restores the missing read-only mode only after
+  full Edit cleanup, outside the mode-manager Exit stack. Explicit Show-off
+  during Edit cancels resumption. Preview-on still closes Edit with one command.
+- Regression test: ComposableCameraSystem.Editor.MeshCamera.PreviewModeResumeAfterEdit.
+  Uses real registered modes and menu/selector/toolkit-close paths; covers
+  checked intent, no duplicate read-only fill during Edit, the pending-Exit
+  interval, repeated restoration, explicit off and one-click Show-on.
+- Verification / blocker: static lifecycle/caller review and git diff --check;
+  no compile or automation pass claimed. Project rules prohibit shell builds.
+  Close UE, compile UE5_6Editor in Rider/VS, restart, and run the regression in
+  an idle Level Editor outside PIE with Show off. Compare actual filled meshes
+  through Show -> Edit -> close and repeat; verify Save vs discard, G view,
+  Window Debugging toggle synchronization, Show off during Edit, and subsequent
+  PIE sessions. Run existing EditPreview and PreviewLandscapeLODStability tests.
+- Avoid next time: represent a visualization request independently of the
+  temporary editor mode; inspect pending-deactivation lifecycle, not only active
+  flags. Test real mode transitions as well as isolated geometry caches.
+- Possible conflicts / limits: Show remains checked while its read-only backend
+  is paused for Edit. Resumption uses saved data and the existing asynchronous
+  build/publication budgets, so fill returns progressively. Runtime Layer query,
+  Profile effects, materials, coverage and Edit tools remain unchanged.
+
+## 2026-10-07 - Mesh Layer Brush/Erase repeats whole-source work while painting
+
+- Symptom: Edit idle frame rate is acceptable after persistent fill buffering,
+  but Brush/Erase frequently stalls while applying stamps to the ground.
+- Trigger / repro: open Mesh Layers Edit in a dense Level, then hold and drag
+  Brush or Erase across uneven Landscape/StaticMesh surfaces with many existing
+  triangles, including remote stamps and overlapping Layers.
+- Why / root cause: regional visualization retained remote cells, but each stamp
+  still scanned all source triangles for bounds and again for regional candidates.
+  Brush additionally discarded and re-resolved nearby old coverage despite only
+  appending geometry. Erase still visited every source triangle before its exact
+  broad phase. Curvature refinement increases this repeated work. These are
+  code-path findings; no timing trace or measured speedup is claimed.
+- History / blast radius: checked previous regional-cell caching, local erase
+  footprint, disjoint-patch rejection, release-cache preservation and persistent
+  Edit GPU-buffer entries. Audited all geometry/resolver callers, source mutation
+  and undo/save paths, tile refresh and runtime preview builders. Retain exact
+  projection, surface-height bands, Layer priority, source order and Shape masks.
+- Touched files: MeshCamera/ComposableCameraMeshLayerAuthoringIndex.h/.cpp (new),
+  ComposableCameraMeshLayerEdMode.h/.cpp, ComposableCameraMeshLayerRendering.h/.cpp,
+  ComposableCameraMeshLayerShapes.h/.cpp; Tests/ComposableCameraMeshLayerShapeTests.cpp
+  and ComposableCameraMeshLayerVisualizationTests.cpp in the editor module;
+  Docs/EditorDesignDoc.md, Docs/TechDoc.md, Docs/ExecutionFlowExamples.md and this log.
+- Fix: retain native per-Layer bounds in 128-triangle source blocks. Brush merges
+  only appended triangles into existing cells and refreshes tail blocks. Erase
+  tests candidate blocks conservatively in brush space, runs unchanged exact
+  clipping in descending source order, then refreshes removal/swap-tail/fragment
+  blocks. Regional resolution visits only candidate blocks covering whole dirty
+  cells; block bounds replace per-stamp full vertex-bound scans. Full invalidation
+  and grid growth retain complete rebuild fallback. Source replacement, undo,
+  cancel, Shape changes and compaction reset the index even with identical counts.
+- Regression-test names: ComposableCameraSystem.Editor.MeshCamera.BrushAppendCoverage,
+  IndexedEraseCoverage and IndexedEraseEquivalence. Cover repeated append/full
+  equivalence, slopes, stacked/disabled Layers, stable remote cells, grid growth,
+  small local erase/lower-Layer reveal, same-count restoration, exact source-array
+  equality under rotated/scaled/sheared erasers, repeated no-op cuts, retained
+  Shape masks and complete source removal.
+- Verification / blocker: static caller/invalidation/order review and
+  git diff --check; no IDE compile or automation run yet. Project rules prohibit
+  shell builds/editor tests. Close UE, compile UE5_6Editor in Rider/VS and restart
+  because the native mode header changed. Run the new regressions plus
+  IncrementalVisualization, EraseLocalVisualization, StrokeVisualizationRefresh,
+  UnevenBrushProjection, DocumentUndoRedo, DiscardWorkingDocument and existing
+  EditPreview tests. In the same dense Level, compare Brush/Erase dragging,
+  Shift-erase, Layer overlap, stacked floors, boundaries, undo/redo, cancel,
+  Save/Discard and Show -> Edit -> close behavior. Record Insights scopes if
+  stalls remain; distinguish projection, coverage, index refresh and upload work.
+- Avoid next time: local output invalidation alone does not bound input traversal.
+  Test how many source triangles are visited and compare full/unindexed results.
+  Preserve source order in a broad phase and invalidate native indexes for
+  same-count rewrites; bounds caches are never authoritative authoring data.
+- Possible conflicts / limits: the index adds editor-only retained memory and
+  candidate scratch allocation. Broad block boxes can include remote triangles,
+  so worst-case scattered source still approaches a full scan. Initial cache
+  construction, collision sampling, exact local clipping/resolution, stroke
+  snapshots and GPU tile uploads remain synchronous. No sampling/quality,
+  serialized Layer data, runtime ground query or Profile behavior changes.
+
+## 2026-10-07 - Show Mesh Layers loads slowly and static viewports delay publication
+
+- Symptom: Show waits a long time before complete display; apparent recovery
+  after moving/approaching with the camera. User first reported PIE missing,
+  then clarified it eventually displays but loads too slowly and may need movement.
+- Trigger / repro: enable Show in a static/non-realtime Level viewport, particularly
+  while Slate throttles expensive tasks. Enter PIE with the same large documents,
+  or toggle Show off/on; keep the editor/PIE camera fixed throughout preparation.
+- Why / root cause: editor adoption/publication ran only through viewport EdMode
+  Tick. UE5.6 UEditorEngine::Tick skips visible viewport ticks under Slate
+  throttling unless bNeedsRedraw is already set. Worker completion itself did not
+  invalidate a viewport, so loading could wait for camera input. Publication
+  redraw also had no follow-up for deferred render updates. Independently, fixed
+  caps of two uploads/256 floor queries stopped cheap work despite unused 2/4 ms
+  budgets. Every editor/PIE/toggle request repeated identical coverage clipping
+  and export on the serial worker. No camera-distance check exists in this loader.
+  These are source findings; no measured first-show timing or pixel capture is claimed.
+- History / blast radius: checked initial-hitch, progressive first-chunk, fair
+  scheduling, fitted-tail completion, Game View, reverse-face, Landscape LOD,
+  LevelBlock slab and Edit-to-Show resumption entries. Audited module registration/
+  unload, core/viewport tick callers, both publication loops, snapshot ownership,
+  cancellation, independent editor vs PIE-ending state and all async result consumers.
+- Touched files: editor MeshCamera/ComposableCameraMeshLayerPreviewEdMode.h/.cpp,
+  ComposableCameraMeshLayerPreviewBuild.h/.cpp, ComposableCameraMeshLayerPIEPreview.h,
+  Utilities/ComposableCameraMeshLayerTool.cpp,
+  Tests/ComposableCameraMeshLayerPreviewModeTests.cpp and
+  Tests/ComposableCameraMeshLayerPreviewBuildTests.cpp; Docs/DesignDoc.md,
+  EditorDesignDoc.md, TechDoc.md, ExecutionFlowExamples.md and this log.
+- Fix: core Show ticker also advances editor results through the frame-guarded
+  AdvancePreview; viewport Tick shares that guard. Publication requests redraw
+  and two subsequent static draws, then stops after completion. PIE-ending gates
+  only PIE work. Keep soft 2 ms publication/4 ms fitting and 64-query per-document
+  slices; raise safety caps to 16 chunks and 2048 queries so spare time is useful.
+  The owned worker caches exact resolved local meshes with four-entry LRU/64 MiB
+  retained-buffer limits. Matching compares complete geometry and required Layer
+  metadata, not counts or pointer identity. Each caller gets a copy; PIE still
+  fits to its World, and world-specific fitted data never enter the cache. Native
+  cache access stays on that single worker; clear only after joining on unload.
+  Explicit DumpPIEPreview also reports geometry reuse and elapsed preparation/
+  adoption wait, including worker queue time, to separate remaining startup stages.
+- Regression-test names: ComposableCameraSystem.Editor.MeshCamera.StationaryPreviewPublication,
+  PreviewPublicationBudget and PreviewGeometryCacheInvalidation; AsyncPreviewBuild
+  now checks editor-to-PIE reuse. Tests cover native components/viewport invalidation
+  without viewport Tick or camera movement, shared-frame guarding, all tails and
+  redraw quiescence; cheap throughput vs expensive time expiry; same-count vertex,
+  index, triangle ownership, color and enabled-state changes vs full reference meshes.
+- Verification / blocker: static UE5.6 API/caller/lifetime review and git diff
+  --check only; no IDE compile/automation pass or timed speedup claimed. Project
+  rules prohibit shell builds/editor tests. Close UE, compile UE5_6Editor in
+  Rider/VS and restart (native mode/build headers changed). Run the three new
+  regressions plus AsyncPreviewBuild, PreviewModeResumeAfterEdit,
+  EditorPreviewPublication, PIEPreviewScheduling, PIEPreviewProgressiveMeshes and
+  PreviewLandscapeLODStability. Hold the view fixed with realtime off/on and G
+  off/on; compare first cold Show, repeated toggles, editor -> PIE, Show enabled
+  during PIE, stationary LevelBlock and distant uneven Landscape. Check complete
+  coverage/depth, Show -> Edit -> close, PIE exit/reentry and off before readiness.
+- Avoid next time: worker completion must have a consumer independent of a
+  render/input event. Budget elapsed work separately from safety caps; verify
+  cheap work can actually use its time. Share immutable geometry only after exact
+  content validation, while keeping projection/collision tied to the actual World.
+- Possible conflicts / limits: bounded native cache retains editor memory after
+  Show off, without retaining actors/Profiles/Worlds. Cold, changed, evicted or
+  oversized data still resolve on the worker, and native conversion/floor fitting
+  still take time. No density, coverage, clipping, floor eligibility, material,
+  Landscape LOD, serialized data, runtime Layer query or camera effects change.
+  A single physics query/component registration can exceed the soft budget.
+
+## 2026-10-07 - Show waits for complete background geometry before its first mesh
+
+- Symptom / trigger: cold Show Mesh Layers in Editor or PIE waits many seconds
+  before any fill appears, even with progressive component creation and no camera
+  movement. Entering PIE while editor preparation is unfinished can also queue
+  active-world work behind redundant editor work.
+- Source root: C:/Users/Sulley/Documents/Unreal Projects/UE5_6/Plugins/ComposableCameraSystem.
+  Verified UE5_6.uproject EngineAssociation 5.6 and installed UE_5.6 Build.version
+  5.6.1. Generated/engine files are reference only.
+- Root cause: TakeResult could consume only a ready whole-document future.
+  Background clipping, priority resolution, export, native conversion and cached
+  output copying all preceded first adoption. Moving full work off the game thread
+  removed a hitch but retained long blank startup. The single worker also serialized
+  unfinished editor requests before PIE requests.
+- History / blast radius: reviewed initial Show hitch, static viewport redraw,
+  progressive PIE chunks/tails, fair fitting/publication, editor backfaces/Game View,
+  Edit-to-Show restoration, Landscape LOD, LevelBlock fitting and unload ownership.
+  Audited all Build.Begin/TakeResult/Projection.Begin consumers and cancellation.
+- Fix: resolve disjoint 32x32-cell tiles using the original global cell-size rule,
+  source order, clipping and coverage resolver. Bounds/candidate binning precede
+  the first tile; complete-document clipping does not. First try an occupied
+  8x8-cell final region near the view, excluding its cells from the tile remainder.
+  Capture the view origin
+  for nearest-first order only, never distance culling. Before PIE's first camera
+  update, use the possessed Pawn's position instead of its empty camera cache.
+  This changes preview ordering only, never business Query/Update. Enqueue each final tile mesh
+  on a per-job SPSC queue; editor appends unsubmitted native meshes, PIE fits/publishes
+  one batch at a time with a worker-preallocated hash. A distinct terminal result
+  closes the job after every queued batch and retains full triangle accounting.
+  Dispose abandoned output queues on the owned worker after cancellation, keeping
+  large native mesh destruction out of preview Tick; shutdown joins disposal work.
+  Recheck dequeue after future readiness to avoid a completion race. Cache entries
+  distinguish tiled/reference layouts, retain mesh centers and stream copies in the
+  new view's order. Preserve the document's already-published flag across PIE batches
+  so small startup chunks do not multiply. While PlayWorld exists, cancel pending
+  editor jobs, retain displayed components and restart interrupted documents on return.
+  Existing complete caches and runtime Layer queries are unchanged. FirstGeometrySec
+  measures first PIE batch adoption; -1 means no geometry batch has arrived.
+- Files: MeshCamera/ComposableCameraMeshLayerRendering.h/.cpp,
+  ComposableCameraMeshLayerPreviewBuild.h/.cpp, ComposableCameraMeshLayerPreviewEdMode.h/.cpp,
+  ComposableCameraMeshLayerPIEPreview.h/.cpp, Utilities/ComposableCameraMeshLayerTool.cpp,
+  Tests/ComposableCameraMeshLayerPreviewBuildTests.cpp,
+  Tests/ComposableCameraMeshLayerVisualizationTests.cpp and the four design/flow docs.
+- Regression: StreamingPreviewGeometry compares the triangle multiset with complete
+  resolution on slopes crossing the same-surface tolerance, overlapping paint,
+  distinct storeys, negative tile seams and disabled bounds. It covers view order,
+  cancellation after first tile, snapshots, partial-before-terminal results and
+  editor-to-PIE cached streaming. PIEPreviewProgressiveMeshes checks a later batch
+  retains the regular chunk size. Existing async/cache/native/static-preview tests
+  remain on their original default complete-reference path.
+- Verification: git diff --check and static UE5.6 API/consumer/ownership review.
+  No compile, automation pass, pixel result or first-show timing claimed. Repository
+  AGENTS.md requires Rider/Visual Studio compilation and forbids shell builds/tests.
+  Close UE, compile UE5_6Editor completely in the IDE, restart, run StreamingPreviewGeometry,
+  PIEPreviewProgressiveMeshes, AsyncPreviewBuild, PreviewGeometryCacheInvalidation,
+  StationaryPreviewPublication and PreviewModeResumeAfterEdit. Keep cameras fixed:
+  test cold/repeated Show with G and realtime off/on; enter PIE immediately during
+  cold editor loading; exit/re-enter; toggle off before completion; inspect uneven
+  Landscape, LevelBlock, overlapping Layers and level-streaming cleanup. Compare
+  first visibility and complete coverage; DumpPIEPreview should end with Pending=0
+  and matching submitted/expected counts.
+- Avoid next time: asynchronous completion is not progressive delivery. A ready
+  output queue must carry independently final regions before the terminal future;
+  do not create provisional colors requiring later whole-document replacement.
+- Limits / conflicts: bounds/binning, queued earlier documents and first-tile cost
+  remain; no guaranteed millisecond timing without measuring the user's map.
+  Spatial tile tails can add components; per-batch hashes repeat boundary queries
+  instead of growing a document-sized hash on the game thread. The existing 2/4 ms
+  budgets remain soft. No density, source topology, floor eligibility, material,
+  Landscape LOD, serialized schema or business Query/Update/Clear contract change.
+
+## 2026-10-07 - Continuous Brush/Erase still stalls on synchronous stamp work
+
+- Symptom / trigger: Show/PIE loading is now satisfactory, but holding and moving
+  Brush or Erase over dense/uneven floor coverage produces repeated editor hitches.
+- Root cause: spatial bounds and persistent idle buffers removed earlier repeated
+  full-source/per-render work; mouse events still synchronously finished every
+  adaptive projection, exact prism cut, cell coverage update and whole affected
+  tile assembly. Multiple input events could repeat that work before one frame.
+  These are source-path findings, not captured timing percentages.
+- History / blast radius: checked prior Brush/Erase indexing, uneven-surface seams,
+  height-band coverage, local erasure, release-cache preservation, transactions,
+  persistent Edit fill and Show startup fixes. Audited geometry/resolver callers,
+  Enter/Exit/Tick/input, Save/Discard, tool/Layer/Shape changes and PostUndo. Runtime
+  ground query, SurfaceId data, Profiles and Show/PIE construction are untouched.
+- Official reference: installed read-only UE 5.6.1 LandscapeEditor/Private/
+  LandscapeEdModeTools.h queues interactor positions in MouseMove, applies in Tick
+  and flushes in EndTool. MeshModelingTools/Private/Sculpting/MeshSculptToolBase.cpp
+  and MeshVertexSculptTool.cpp separate pending drag state, Tick stamps and regional
+  render notification. Their scheduling/ROI patterns inform this implementation;
+  no reference source is copied and no engine files are edited. Keep every existing
+  spacing-qualified sample here rather than the sculpt tool's latest-ray overwrite.
+- Fix: capture every accepted stamp's point/normal, Layer/channel, radius/segments,
+  projection/floor-normal settings and temporary erase state. Advance FIFO once per
+  GFrameCounter with a shared soft 4 ms budget. Reuse the exact projection builder,
+  resume erasure between descending original candidates and coverage between clear/
+  triangle/cell operations. Preserve exact source order, rounding, masks, normal
+  filtering, 4096 cap, 1 cm curvature requirement, 35%-radius spacing and height/Layer
+  competition. Render does not rebuild partially owned native data. Assemble current
+  32-cell tiles incrementally; retain old fill until a complete tile replaces it.
+  Full/regional cell ordering stays as before. Exact visible attribute/color equality
+  skips redundant proxy/buffer replacement. Normal release finishes its queue over
+  ticks before closing the one transaction; explicit Save/tool/focus/close boundaries
+  flush, while Esc/Discard cancel and restore the whole checkpoint. PostUndo discards
+  pending work without restoring a stale checkpoint over the undone UObject.
+  Settings' native pre-edit delegate flushes before Layer/options mutation and
+  before add/delete/reorder/toggle transactions. Post-change-only notification
+  would otherwise move Layer indices under pending coverage or merge the new edit
+  into the unfinished stroke transaction. Undo restoration bypasses this boundary.
+- Touched files: editor MeshCamera/ComposableCameraMeshLayerEdMode.h/.cpp,
+  ComposableCameraMeshLayerShapes.h/.cpp, ComposableCameraMeshLayerRendering.h/.cpp,
+  ComposableCameraMeshLayerEditPreview.h/.cpp, ComposableCameraMeshLayerToolSettings.h/.cpp,
+  ComposableCameraMeshLayerModeToolkit.cpp; Tests/ComposableCameraMeshLayerBudgetedStrokeTests.cpp
+  (new), ComposableCameraMeshLayerVisualizationTests.cpp, ComposableCameraMeshLayerEditPreviewTests.cpp;
+  Docs/EditorDesignDoc.md, TechDoc.md, ExecutionFlowExamples.md and this log.
+- Regression tests: BudgetedStroke (mixed custom-channel StaticMesh Brush/Erase,
+  preserved options/spacing/source arrays, released completion, cancellation after
+  a partial cut, explicit flush, Undo/Redo, pre-reorder completion and separate
+  stroke/Layer Undo); BudgetedCoverage (independent complete resolver,
+  tiny slices, slopes/overlap/stacked floors, exact erase source/Shape masks, lower-Layer reveal,
+  growth regrid and disabled Layers); BudgetedEditPreview (negative coordinates,
+  old fill until completion, no-op buffer reuse, linear color, empty/cancelled updates).
+- Verification / blocker: source/reference review and git diff --check. No IDE
+  compile, automation pass or actual Level timing trace yet: project AGENTS requires
+  Rider/Visual Studio compilation and forbids shell builds/editor tests. Close UE,
+  compile UE5_6Editor and restart because native headers changed. Run the three new
+  tests plus StrokeVisualizationRefresh, DocumentUndoRedo, DiscardWorkingDocument,
+  UnevenBrushProjection, IndexedEraseEquivalence, IndexedEraseCoverage and EditPreview
+  tests. Smoke-test long fast Brush/Erase drags on Landscape/StaticMesh, Shift changes,
+  release/cancel/focus/tool switch, Undo/Redo, Save/Discard and Show/Edit/PIE toggling.
+- Avoid next time: do not turn an exhausted finite budget into zero (builders treat
+  zero as unlimited). Preserve complete FIFO input and transaction boundaries when
+  moving mouse work to Tick. A source/index/coverage operation must finish or cancel
+  before another document mutation; ordinary Render cannot invalidate partial work.
+- Limits / conflicts: checkpoints, index/candidate setup and explicit boundary
+  flushing remain synchronous. A single query/polygon operation or completed tile
+  upload can exceed the soft budget. Pending release work can trail the cursor on
+  very complex geometry; it remains visible in the document status and is not dropped.
+  Added native tasks/scratch are editor authoring allocations, not camera evaluation.
+  Actual frame time and unchanged pixels still require target-Level IDE/editor checks.
+
+## 2026-10-07 - Budgeted Brush/Erase develops excessive display latency
+
+- Symptom / trigger: after the initial hitch fix, sustained Brush/Erase input has
+  conspicuous delayed fill and continues playing old work after the cursor moves.
+- Root cause: each exact source stamp was serialized through projection, clipping,
+  coverage and complete affected-tile assembly/publication under the same 4 ms
+  budget. The next stamp could not begin until every preview tile of the previous
+  stamp finished. Repeated updates of the same tiles produced a display FIFO,
+  reducing authoring throughput instead of only distributing frame cost. No actual
+  target-Level timing trace was captured; this dependency is confirmed in source.
+- History / blast radius: reviewed the immediately preceding budgeted-stroke fix,
+  persistent Edit buffers, local coverage/erase indexing, uneven-surface fidelity,
+  progressive Show/PIE startup and pre-Layer-edit transaction fixes. Audited the
+  preview APIs, mode Tick/input/Render, release/flush/cancel, Undo/Discard and worker
+  teardown. Official read-only UE5.6.1 MeshVertexSculptTool.cpp demonstrates separate
+  asynchronous native computation and regional render notifications; its pending
+  cursor overwrite is still unsuitable for preserving our accepted source edits.
+- Fix: remove the serial Preview phase. After coverage completes, capture complete
+  affected-tile cells/polygons in native owned snapshots and permit the next source
+  stamp immediately. A waiting tile keeps only its latest complete display snapshot;
+  every source stamp remains FIFO with unchanged options/geometry. Dispatch one
+  tile worker immediately after capture; it holds only cells and enabled flags,
+  assembles exact fan vertices/indices and has no World/UObject/mode access or callback.
+  Prioritize waiting tiles near the latest completed edit. Tick services ready
+  publication before more source work (a quarter of the same soft frame budget),
+  and with remaining time afterward. Finite calls never wait for a future. Preserve
+  the existing complete-tile publisher, colors/normals/offset, no-op buffers and
+  full/regional cell order. An active version may finish before its latest successor
+  to prevent continuous input from endlessly restarting a tile. Normal release
+  closes its transaction once source finishes; independent Tick publication keeps
+  progressing without holding the next press behind a display flush. Explicit boundaries flush the
+  one active future and remaining native snapshots before changing/saving data.
+  Cancel/regrid/ordinary full updates detach obsolete work without joining or
+  allowing any later result to resurrect cancelled geometry. Render cannot replace
+  the queued publication with a synchronous cache rebuild.
+  A shared native atomic lifetime flag also stops detached workers between
+  cells/patches; cancellation never waits for the job or leaves a UObject reference.
+- Touched files: editor MeshCamera/ComposableCameraMeshLayerEdMode.cpp,
+  ComposableCameraMeshLayerEdMode.h, ComposableCameraMeshLayerEditPreview.h/.cpp,
+  Tests/ComposableCameraMeshLayerEditPreviewTests.cpp and ComposableCameraMeshLayerBudgetedStrokeTests.cpp;
+  Docs/EditorDesignDoc.md, TechDoc.md, ExecutionFlowExamples.md and this log.
+- Regression: QueuedEditPreviewSnapshots checks waiting-version coalescing, one
+  active plus one latest successor, snapshot ownership while live coverage resets,
+  real worker dispatch/nonblocking finite calls, exact vertex/normal/index/color
+  output, cancellation and empty-tile removal. Existing BudgetedStroke retains
+  mixed Brush/Erase source-array equivalence, spacing/options, cancellation,
+  Undo/Redo and separate Layer transactions, and now checks source-complete release
+  and a new press do not drain display work. BudgetedCoverage retains resolver
+  equivalence; legacy BudgetedEditPreview still covers resumable publication.
+- Verification / blocker: source/consumer/lifetime review and git diff --check.
+  Compilation and editor automation require Rider/Visual Studio under project
+  AGENTS.md; not run here. Close UE, compile UE5_6Editor, restart (native header
+  changed), run the four tests above and smoke-test continuous/fast Brush, Erase,
+  Shift transitions, release, Esc/Undo/Redo/Save/Discard and Layer reordering. Check
+  Show/Edit/PIE remains intact. Inspect CCS_MeshLayers_EditTileSnapshot,
+  EditTileWorker and EditTilePublication in Insights alongside StrokeTick and
+  BrushProjection/EraseGeometry/CoverageUpdate to measure remaining queue latency.
+- Avoid next time: asynchronous/budgeted work must improve throughput, not create
+  a mandatory render barrier after every input sample. Coalesce only derived
+  complete display states, never authoritative source edits. A background job
+  must own its polygons and cannot refer to a mutating visualization/index table.
+- Limits / conflicts: source projection/erase/coverage remain exact budgeted
+  editor-thread work; an extremely complex stamp can still trail input. Snapshot
+  capture and engine buffer publication remain indivisible. Waiting snapshots
+  duplicate touched resolved polygons temporarily, bounded to one latest version
+  per tile plus an active job. Full regrid can still duplicate the full cache.
+  Actual no-hitch/low-latency behavior requires profiling the user's Level; no
+  guaranteed timings or pixel comparison are claimed. No runtime query/API,
+  SurfaceId schema, source sampling/spacing/priority or Show/PIE loading change.
+
+## 2026-10-07 - Brush/Erase still trails input after asynchronous tile assembly
+
+- Symptom / repro: sustained Brush and Erase both display substantial latency at
+  approximately 150 cm radius after the preceding asynchronous-preview fix. Open
+  Mesh Layers Edit on populated uneven ground, hold/drag either tool, and watch
+  colored coverage lag behind input. The user reports similar delay for both.
+- Why / root cause: only tile vertex/index assembly had moved off-thread. Each
+  source stamp still waited for its Coverage phase, which cleared/rasterized cells
+  under the same 4 ms editor budget before the next stamp could start. Dense
+  overlaps therefore turned low frame work into a long FIFO source delay. A second
+  scheduling cost came from dispatching one display tile per worker/frame cycle,
+  including the neighboring tiles touched by an ordinary-sized stamp. These are
+  confirmed control-flow bottlenecks; their time shares have not been measured.
+- History / blast radius: reviewed the earlier uneven-surface/alpha fixes, source
+  indexing and append/local Erase caches, BudgetedStroke/Coverage, prior tile
+  snapshots, cancellation/Undo, transactions and explicit Save/Layer boundaries.
+  Audited all resolver Begin callers and both stroke phases. Show/Edit/PIE lifecycle,
+  persisted geometry, SurfaceId, business ground-hit queries and camera hot paths
+  retain their previous implementation.
+- Fix: remove Coverage from the authoritative stroke task. After a complete source
+  mutation, capture only appended triangles or indexed whole-dirty-cell candidates
+  plus document bounds and original planned grid size. FMeshLayerStrokeCoverage
+  transfers cache ownership to a native worker and runs the unchanged resolver
+  outside the editor frame budget. Adjacent append-only inputs merge in original
+  order; mixed Brush/Erase retains each snapshot/operation separately, because
+  resolving their union from the latest source could change same-Layer heights.
+  Full rebuilds supersede obsolete waiting operations. Every source mutation still
+  records grid growth, including growth followed by Erase before publication.
+  An empty local snapshot removes only local fill; empty document clears all fill.
+  Completed coverage batches publish progressively and do not retain a source
+  transaction or block the next press. Background work owns no UObject/World/mode/
+  source/index references and cancellation drops results without callbacks or waits.
+  Display assembly dispatches up to four nearest tiles together; ready tile uploads
+  retain the existing budget, exact attributes and per-tile atomic replacement.
+- Touched files: MeshCamera/ComposableCameraMeshLayerStrokeCoverage.h/.cpp (new),
+  ComposableCameraMeshLayerEdMode.h/.cpp, ComposableCameraMeshLayerRendering.h/.cpp,
+  ComposableCameraMeshLayerEditPreview.h/.cpp; Tests/ComposableCameraMeshLayerVisualizationTests.cpp,
+  ComposableCameraMeshLayerBudgetedStrokeTests.cpp, ComposableCameraMeshLayerEditPreviewTests.cpp;
+  Docs/EditorDesignDoc.md, TechDoc.md, ExecutionFlowExamples.md and this log.
+- Regression tests: AsyncStrokeCoverage compares ordered mixed and merged append
+  operations with the original synchronous resolver, including slopes, same-Layer
+  height differences, stacked/disabled Layers, local snapshot counts, source/index
+  replacement, empty regional/whole source, cancellation and transient growth.
+  QueuedEditPreviewBatch checks four tiles start together and retain exact geometry,
+  color, normals and indices. BudgetedStroke now checks finite source work ends its
+  transaction while background coverage remains, the next press retains that work,
+  and explicit boundaries drain both coverage and fill; existing source/Undo checks
+  remain. QueuedEditPreviewSnapshots retains successor/coalescing/cancel coverage.
+- Verification / blocker: consumer/lifetime/operation-order review and static diff
+  checks only. Project AGENTS.md requires Rider/Visual Studio compilation and
+  editor-side automation; compilation, tests and measured latency were not run.
+  Close UE, compile UE5_6Editor and fully restart (native headers/new source files).
+  Run tests above plus BudgetedCoverage, UnevenBrushProjection, IndexedEraseCoverage,
+  IndexedEraseEquivalence, StrokeVisualizationRefresh, DocumentUndoRedo and
+  DiscardWorkingDocument. Smoke-test continuous 150 cm Brush/Erase, Shift changes,
+  rapid alternation, release/new press, Esc/Undo/Redo/Save/Discard/Layer reorder,
+  and Show/Edit/PIE. Insights scopes StrokeCoverageSnapshot/StrokeCoverageWorker,
+  StrokeTick, BrushProjection, EraseGeometry, EditTileWorker and EditTilePublication
+  (all CCS_MeshLayers_ prefix) distinguish source capture/work/publication.
+- Avoid next time: moving mesh assembly off-thread does not remove upstream
+  coverage serialization. Keep exact source operations independent of derived
+  display jobs, preserve ordered mixed edits, and batch neighboring render jobs
+  without increasing main-thread work budgets or lowering fidelity.
+- Limits / conflicts: physics projection and exact source Erase remain editor-thread
+  work. Source/tile capture, checkpoints, individual queries/clips and GPU uploads
+  remain indivisible; explicit boundaries may flush a backlog. Native snapshots
+  add temporary memory proportional to outstanding ordered regional operations,
+  with adjacent Brush merging and full rebuild supersession. The transferred
+  coverage cache is not cloned per stamp. This removes the identified wait barriers,
+  but no zero-hitch/zero-latency or pixel/timing result is claimed before IDE testing.
+
+## 2026-10-07 - Opening Mesh Layers Edit, Discard and Undo stall on full derived rebuilds
+
+- Symptom / repro: after continuous Brush/Erase became responsive, opening Edit,
+  pressing Discard and Ctrl+Z still freeze for too long on a populated Mesh Layers
+  document. Open Edit, modify a saved document, Discard or Undo/Redo; first Render
+  rebuilt the entire index/coverage and synchronously assembled/uploaded every tile.
+- History / blast radius: reviewed preceding Edit persistent-buffer, Show/Edit
+  restoration, budgeted-stroke, asynchronous coverage and tile-publication fixes.
+  Audited Enter/Exit/Tick/Render, invalidation, Shape completion/editing, source
+  stroke, pre-edit boundaries, Save/Discard/PostUndo and every preview API consumer.
+  Show/PIE and runtime business ground queries/data serialization are untouched.
+- Root cause: only interactive source updates used asynchronous derived work.
+  RefreshDocumentState and initial load still led to full synchronous Render work.
+  Ctrl+Z called CancelInteraction, which flushed display work before Undo immediately
+  discarded it. Ready canceled futures/cache arrays also risked large frees on
+  the editor thread. This shares the same expensive derived stages across three triggers.
+- Fix: new FMeshLayerDocumentBuild snapshots original triangle arrays and native
+  GUID/enabled metadata. Worker builds the broad phase, exact complete coverage and
+  prepared 32-cell tile meshes. Tick checks revision and consumes only ready results;
+  QueuePreparedUpdate moves geometry directly into soft-budget publication, including
+  empty tiles for stale/empty source. Render does no full index/cache build/upload.
+  Source edits/restoration/exit cancel old generations; no callbacks or live UObject
+  references enter workers. Retire old cache and canceled full/coverage/tile native
+  state off-thread. PrepareUndo flushes accepted source only, closes its transaction
+  and skips obsolete coverage/mesh computation. Preserve all source, sampling,
+  priority, color, height, topology, Save and transaction semantics. Small Shape
+  draft fills remain visible while the full document rebuild runs.
+- Files: MeshCamera/ComposableCameraMeshLayerDocumentBuild.h/.cpp (new),
+  ComposableCameraMeshLayerEdMode.h/.cpp, ComposableCameraMeshLayerEditPreview.h/.cpp,
+  ComposableCameraMeshLayerStrokeCoverage.cpp; Tests/ComposableCameraMeshLayerVisualizationTests.cpp,
+  ComposableCameraMeshLayerEditPreviewTests.cpp, ComposableCameraMeshLayerBudgetedStrokeTests.cpp;
+  EditorDesignDoc.md, TechDoc.md and ExecutionFlowExamples.md.
+- Regression tests: AsyncDocumentPreviewBuild compares exact original full coverage
+  for slopes, same-Layer height competition, Layer priority, stacked and disabled
+  surfaces; snapshots survive live source replacement, stale revisions/cancel and
+  empty documents. RestoredDocumentPreview checks no initial/waiting Render build,
+  stationary progress, exact vertex/tangent/color/UV/fan component output, Discard
+  while a job is pending, Undo/Redo generation replacement, empty stale-tile removal
+  and new stroke cancellation. BudgetedStroke checks source-only Undo preparation
+  retains all accepted samples and exact Undo/Redo source arrays.
+- Verification: static whitespace and consumer/lifetime/order review only.
+  Project AGENTS.md requires Rider/Visual Studio compilation and editor-side tests;
+  no compilation, automation or measured timing was run here. Close UE, build
+  UE5_6Editor in the IDE and restart (native headers/new source files). Run the three
+  tests plus AsyncStrokeCoverage, QueuedEditPreviewSnapshots/Batch,
+  EditPreviewPersistentBuffers/Invalidation, DocumentUndoRedo and DiscardWorkingDocument.
+  In a dense Level test opening Edit, stationary load, repeated Undo/Redo, Discard,
+  empty restoration, cancellation during build, Shape drafts and immediate Brush,
+  plus Show -> Edit -> close and PIE. Inspect CCS_MeshLayers_EditDocumentSnapshot,
+  EditDocumentWorker, EditDocumentTileWorker and EditTilePublication scopes.
+- Avoid next time: audit initial/full restoration paths as well as incremental
+  edits. Do not flush derived results immediately before replacing their source.
+  Native cancellation must also avoid bulk destruction on the interactive thread.
+- Limits / conflicts: snapshots/checkpoint copies and Unreal transaction serialization
+  remain synchronous, as does each engine component upload. Ctrl+Z during a source
+  backlog must still finish accepted scene queries/cuts for identical Undo semantics.
+  Full rebuilds hold temporary native source/coverage/mesh memory; canceled work
+  retires asynchronously and cannot publish. Source interaction before its index
+  arrives retains the existing synchronous index fallback. No zero-stall or measured
+  responsiveness claim is made before IDE verification. Runtime/Show/PIE paths unchanged.
+
+## 2026-10-07 - Edit opening still waits for whole-document mesh computation
+
+- Symptom / repro: after moving full rebuilds off the editor thread, the user
+  reports a long wait before Mesh Layers appear when opening Edit. Open a populated
+  multi-Layer document and keep the camera still. The screenshot shows incomplete
+  colors during loading; progressive display is expected without initial stalls.
+- History / blast radius: reviewed the preceding opening/Discard/Undo async fix,
+  earlier Show streaming-first-region delivery and Brush coverage/tile-worker fixes.
+  Audited document worker completion, shared streaming resolver, Edit component
+  publication, Tick/Render, Shape completion, source/Undo/Discard/focus/tool/save
+  boundaries and all consumers of the changed native APIs. Saved/runtime data,
+  business queries, Show/PIE implementation and projection quality remain unchanged.
+- Root cause: the previous document worker ran the entire coverage resolver and
+  assembled every tile before its future exposed any output. Tick's publication
+  budget only applied after that full wait. Background computation avoided editor
+  freezes but did not deliver the first visible result promptly.
+- Fix: convert only native GUID-to-Layer-index metadata on the worker and reuse
+  BuildRuntimeVisualizationTiles. Captured local view origin prioritizes nearby
+  regions. Enqueue exact meshes as each region resolves, starting with the existing
+  small final 8-by-8 region. Keep one tile's scratch to combine first region and
+  disjoint remainder before replacing its complete GPU tile. Tick consumes up to
+  four ready regions under a soft 1 ms limit without waiting for the final future;
+  normal publication retains its existing soft budget. An open prepared stream
+  survives idle frames; only terminal completion removes unseen old tiles.
+  The complete authoring cache aggregates each disjoint cell once and remaps grid
+  indices; its index/cache arrive after all ready geometry is consumed. No second
+  all-document assembly blocks first display. Build the authoring index and
+  dispose of the old cache after region delivery, moving the original arrays back
+  into the source snapshot for index construction. Cancel/revision rejection still
+  detach native state for worker-side cleanup. Unchanged focus/tool boundaries
+  preserve the stream; source interaction and cancellation detach both parts.
+  Save compaction also detaches snapshots because counts can change without a
+  new revision. No scene traces, UObject accesses or live mode pointers enter workers.
+- Files: MeshCamera/ComposableCameraMeshLayerDocumentBuild.h/.cpp,
+  ComposableCameraMeshLayerEditPreview.h/.cpp and ComposableCameraMeshLayerEdMode.h/.cpp;
+  Tests/ComposableCameraMeshLayerVisualizationTests.cpp and ComposableCameraMeshLayerEditPreviewTests.cpp;
+  EditorDesignDoc.md, TechDoc.md and ExecutionFlowExamples.md.
+- Regression tests: ProgressiveEditPreview checks a small nearby final region
+  becomes visible before terminal consumption, idle open streams retain it,
+  remainder expansion keeps that region, exact oriented fan triangles/render
+  attributes match the original full publisher, and completed empty source removes
+  every old tile. AsyncDocumentPreviewBuild now drains ready regions before its
+  terminal result and still compares slopes, priorities, heights, disabled bounds,
+  ownership, stale revisions, cancellation and empty source. RestoredDocumentPreview
+  uses real progressive publication, checks exact triangle/attribute multisets
+  (cell order can follow region scheduling), focus retention, immediate stroke
+  cancellation, Save compaction, Discard/Undo/Redo and empty restoration.
+- Verification / blocker: consumer/lifetime/order review and static whitespace
+  checks only. Project AGENTS.md requires IDE compilation and editor-side automation;
+  no build, tests, first-pixel time or total loading time was measured here. Close
+  UE, build UE5_6Editor in Rider/VS and restart (native signatures changed). Run
+  tests above plus BudgetedStroke, AsyncStrokeCoverage, QueuedEditPreviewSnapshots/Batch,
+  EditPreviewPersistentBuffers/Invalidation, DocumentUndoRedo and DiscardWorkingDocument.
+  Smoke-test dense Edit opening with a stationary view, early first fill, final
+  colors/holes, focus/tool changes mid-load, immediate Brush/Erase, cancel,
+  repeated Undo/Redo, Discard, Save during load and Show/Edit/PIE transitions.
+  Existing EditDocumentSnapshot/Worker, StreamingCoverage, EditDocumentTileWorker
+  and EditTilePublication scopes separate preparation, first output and publication.
+- Avoid next time: an asynchronous final future is not progressive delivery.
+  Publish complete local results before global completion, preserve stream state
+  across empty polling frames, and combine disjoint portions before replacing a
+  common GPU tile. Do not validate snapshots solely by revision when arrays can
+  be rewritten without changing it.
+- Limits / conflicts: native bounds/binning precede first output, and one
+  heavily overlapping final region can still take time. Checkpoint/source copies,
+  transaction serialization and individual component uploads remain indivisible.
+  Region scheduling may reorder cells/vertices, while exact geometry and rendering
+  attributes remain unchanged. Native source, full coverage and queued geometry
+  require temporary memory. Actual first-display/total timing and pixels still
+  require IDE testing; no zero-delay claim is made.
+
+## 2026-10-07 - Undo and Discard restore source quickly but leave stale Edit fill for seconds
+
+- Symptom / repro: after the main-thread stall fixes, edit populated Mesh Layers,
+  use Ctrl+Z or Discard and keep the view still. Source is restored promptly, but
+  visible fill remains unchanged for roughly ten-plus seconds before catching up.
+- History / blast radius: reviewed the opening/Discard/Undo native-worker fix,
+  progressive first-region follow-up, continuous Brush/Erase source/coverage/tile
+  pipeline, native cancellation, persistent buffers and Show/Edit lifecycle bugs.
+  Audited source transaction completion, Settings revision restoration, PostUndo,
+  Save compaction, focus/tool changes, empty documents, component/queue lifetime
+  and every consumer of document/prepared/native buffer APIs. Runtime queries,
+  floor ownership, projection, saved data and Show/PIE paths are unchanged.
+- Root cause: moving full resolution off-thread preserves input responsiveness,
+  but does not avoid recomputing an already displayed historical document. Mesh
+  replacement still depends on expensive coverage work, and obsolete empty tiles
+  are only removed at full completion. Nearby startup priority may also select
+  unchanged tiles, giving no visible feedback for the actual undo operation.
+- Fix: components retain immutable shared native vertices/indices/bounds.
+  Remember complete displays by DocumentRevision with tile/row keys, exact linear
+  color and cell size; snapshots share unchanged buffers without full array copies.
+  Undo/Redo/Discard/cancel queue only changed tiles from a matching remembered
+  revision, clearing missing rows/empty regions during budgeted publication and
+  retaining remote buffers/proxies. Full index/coverage reconstruction still runs
+  on a native worker, with preview assembly/publication disabled on a history hit;
+  it cannot overwrite complete restored tiles with startup fragments or repeat a
+  whole upload at completion. No-op focus boundaries retain pending restoration;
+  source edits cancel it. Save compaction invalidates the index job but preserves
+  unchanged historical display publication. Unknown/evicted versions use the normal
+  progressive fallback. Source-only Undo preparation and PostUndo mark provenance
+  invalid before clearing interactions, preventing the old fill from being mislabeled
+  with already restored Settings. Explicit source-complete stroke boundaries record
+  only after closing the transaction; partial/stale display is never remembered.
+- Memory / lifetime: at most 32 snapshots, soft 128 MiB unique historical buffers
+  excluding currently live buffers. Saved checkpoint/current revision are protected,
+  even if their irreducible memory alone exceeds the limit. Evicted history and
+  replaced native buffers retire off-thread; they contain no UObject or render
+  resource references. Level/Actor reset clears historical identities. Ordinary
+  unchanged frames do not capture snapshots or allocate; metadata capture happens
+  at completed document mutations/publication. Component/proxy uploads remain on
+  the editor thread and under the existing soft publication budget.
+- Reference: read-only UE5.6 MeshModelingTools/Private/MeshVertexSculptTool.cpp,
+  EndChange, OnDynamicMeshComponentChanged and OnTick use retained mesh changes
+  plus regional rendering updates. Kept the plugin's existing UObject source Undo
+  format and nonwaiting worker rules, using only the regional-display principle.
+- Files: MeshCamera/ComposableCameraMeshLayerEditPreview.h/.cpp,
+  ComposableCameraMeshLayerEdMode.h/.cpp, ComposableCameraMeshLayerDocumentBuild.h/.cpp;
+  Tests/ComposableCameraMeshLayerEditPreviewTests.cpp and
+  ComposableCameraMeshLayerVisualizationTests.cpp; EditorDesignDoc.md, TechDoc.md,
+  ExecutionFlowExamples.md.
+- Regression: RevisionEditPreviewHistory checks direct original buffer identity,
+  exact fan geometry/normals/UVs/colors, changed-tile-only restoration, untouched
+  remote revisions, new/deleted Layer rows, empty display, eviction/pinned Save,
+  unknown revisions, cancellation and reset. ImmediateRestorationDisplay uses real
+  engine Undo/Redo and Discard, checks visible changes before scheduling any cache
+  rebuild, repeated restoration during native work, unchanged remote buffers,
+  background completion without republishing, and no stale provenance capture.
+  AsyncDocumentPreviewBuild checks cache-only reconstruction emits no preview
+  tiles while retaining the exact complete cache/index. EditPreviewInvalidation
+  explicitly verifies the unremembered-source fallback.
+- Verification / blocker: static whitespace, signature/consumer, lifetime and
+  transaction/order review only. Project AGENTS.md permits compilation/tests only
+  through Rider/Visual Studio/editor. No compilation, automation, timing or pixel
+  measurement was run. Close UE, build UE5_6Editor in the IDE and restart (native
+  headers and component storage changed). Run the named tests plus RestoredDocumentPreview,
+  ProgressiveEditPreview, BudgetedStroke, AsyncStrokeCoverage, QueuedEditPreviewBatch,
+  EditPreviewPersistentBuffers/RegionalUpdates and DocumentUndoRedo/DiscardWorkingDocument.
+  Smoke-test radius-150 Brush/Erase -> immediate Undo/Redo/Discard, removal into
+  empty source, repeated Undo while background work is pending, focus changes,
+  Save during restoration, palette/order changes and Show/Edit/PIE transitions.
+  EditRememberRevision, EditRestoreRevision, EditTilePublication and
+  EditDocumentWorker trace scopes distinguish display restoration from cache work.
+- Avoid next time: source restoration and display restoration have separate
+  latency requirements. Reuse complete historical render data and update changed
+  regions before rebuilding derived coverage. Never trust the live Settings
+  revision as provenance for a mesh that has not finished displaying that source.
+- Limits / conflicts: never-rendered/evicted revisions still require progressive
+  rebuilding. Background coverage remains potentially expensive but no longer gates
+  remembered visible changes. Native history adds bounded shared-buffer metadata/
+  retained buffers; source copies, Unreal transaction serialization and individual
+  uploads remain indivisible. GPU upload time/FPS and actual restoration latency
+  need IDE/editor validation; no zero-delay guarantee is made.
+
+## 2026-10-07 - Discard followed immediately by Brush loses responsive Edit fill
+
+- Symptom / repro: open populated Mesh Layers Edit, Brush/Erase, Discard, then
+  immediately hold Brush again. New source is accepted, but the fill waits for
+  seconds before changing. Also possible after Undo/Redo or stroke cancellation,
+  including while restored display tiles have not all been published.
+- History / blast radius: reviewed the preceding display-history fix, progressive
+  document opening, continuous Brush/Erase pipeline, native cancellation, source
+  provenance, source-only Undo, Save compaction, persistent regional buffers and
+  Show/Edit/PIE routing. Audited every RememberRevision/QueueRestoreRevision,
+  cached visualization/index reader and queued tile consumer. No runtime query,
+  placement algorithm, Layer structure/channel, source serialization or Show/PIE
+  behavior changed.
+- Root cause: the previous optimization restored historical render buffers only.
+  RefreshDocumentState left bVisualizationDirty set and rebuilt editable coverage
+  on a whole-document worker. That worker moved away the mode's old cache.
+  BeginStroke canceled it and the queued historical display; the next stamp saw
+  an invalid/empty editing cache and captured every source triangle for full
+  clipping. The added tests covered restore -> display and worker completion, but
+  missed restore -> immediate real source edit. A visible historical mesh is not
+  a valid editable base by itself.
+- Fix / ownership: completed matching revisions retain a native immutable
+  FEditPreviewCheckpoint containing the exact coverage grid/polygons and broad
+  phase together with shared display buffers. Move coverage into the checkpoint
+  without a main-thread polygon copy; copy its small 128-triangle block index.
+  Reset moved-from bounds explicitly. A complete restore installs that editable
+  base/index immediately and does not schedule document reconstruction. The first
+  queued stroke makes a linear owned coverage copy on its native worker, then
+  uses existing append/regional clipping. Later queued operations reuse the
+  returned mutable result. History never references mutable source or UObjects.
+  Legacy explicit synchronous/test calls retain synchronous boundary semantics.
+- Fix / publication: BeginStroke keeps pending restored tiles when the restored
+  editable base exists. A regional update supersedes only its touched unpublished
+  restore tiles; distant restores and removed rows remain queued. Stroke tile
+  workers may start before the remaining restoration publishes, and their ready
+  output publishes ahead of historical tiles. Full/regridded results still replace
+  the complete generation. Undo/Discard/teardown detach obsolete workers/queues.
+- Reference: read-only installed UE5.6 MeshModelingTools/Private/
+  MeshVertexSculptTool.cpp, OnBeginStroke, WaitForPendingUndoRedo, EndChange and
+  OnDynamicMeshComponentChanged require editable state consistency and update the
+  affected triangle region. LandscapeEditor/Private/LandscapeEdModeTools.h,
+  TLandscapeEditCache::SetCachedData updates region cache and real data together.
+  Applied those consistency/region principles while keeping this plugin's
+  existing transactions, exact resolver and nonwaiting finite interaction.
+- Memory / cost: retain at most 32 history versions, soft 128 MiB of noncurrent
+  coverage/index plus unique historical buffers excluding live buffers; saved and
+  current versions remain protected. Account for nested native polygon/index
+  allocations. Large releases happen off-thread. The first edit of an immutable
+  version still performs an O(cells + patches + vertices) native copy, with no
+  full-document projection/clipping; subsequent pending stamps reuse that cache.
+  Stable frames do not copy or create checkpoints. Never-rendered/evicted versions
+  retain the existing progressive rebuild fallback; indivisible source/index
+  snapshots and engine component uploads still need editor timing validation.
+- Files: MeshCamera/ComposableCameraMeshLayerEdMode.h/.cpp,
+  ComposableCameraMeshLayerEditPreview.h/.cpp,
+  ComposableCameraMeshLayerStrokeCoverage.h/.cpp,
+  ComposableCameraMeshLayerAuthoringIndex.h/.cpp;
+  Tests/ComposableCameraMeshLayerEditPreviewTests.cpp and
+  ComposableCameraMeshLayerShapeTests.cpp; EditorDesignDoc.md, TechDoc.md,
+  ExecutionFlowExamples.md.
+- Regression: RestoredPreviewImmediateStroke uses a real custom-channel
+  StaticMesh floor, native snapshots, Discard -> Brush/Erase, Undo -> Erase and
+  Redo -> Brush without waiting for restoration or scheduling a document worker.
+  Checks that the first Brush captures only appended triangles, source completion
+  stays independent, finite Tick progression completes, saved native state remains
+  immutable and final near/distant tile geometry/colors/normals/priority match the
+  complete resolver. Also compacts an unused saved source vertex, then edits
+  immediately using restored coverage and refreshed broad-phase counts.
+  RevisionEditPreviewHistory now exercises a new local update
+  while both local and distant restore tiles are still queued, including worker
+  dispatch before historical publication and exact final remote Layer rows.
+  ImmediateRestorationDisplay now expects an immediately usable index/cache;
+  StrokeVisualizationRefresh checks cell identity through immutable checkpoint
+  ownership too.
+- Verification / blocker: static source/consumer/lifetime/transaction review and
+  whitespace checks only. Per project AGENTS.md, no shell compilation or editor
+  test launch. Close UE, compile UE5_6Editor in Rider/VS, restart and run
+  RestoredPreviewImmediateStroke, RevisionEditPreviewHistory,
+  ImmediateRestorationDisplay, RestoredDocumentPreview, BudgetedStroke,
+  AsyncStrokeCoverage, StrokeVisualizationRefresh, DocumentUndoRedo and
+  DiscardWorkingDocument. Manually repeat radius-150 Brush -> Discard -> immediate
+  Brush/Erase, Undo/Redo -> immediate stroke, quick repeated presses, Save
+  compaction and Show/Edit/PIE transitions with the camera stationary.
+- Avoid next time: every fast display restoration must restore a valid editable
+  base or explicitly manage its handoff. Test restoration followed by a mutation,
+  not just restoration in isolation. Never cancel unrelated restored tiles when
+  accepting a local edit. Source revision, editable cache and display provenance
+  have distinct ownership and must become consistent at the interaction boundary.
+- Conflicts / limits: checkpoint index counts can become stale after Save's
+  geometry-preserving compaction; existing IsCurrent rebuilding precedes the next
+  source edit. Unknown or evicted history keeps the original fallback. No public
+  Blueprint/runtime API or saved-data migration; native headers require a restart.
+
+## 2026-10-07 - Audit: Edit publication redraws only the first viewport in a frame
+
+- Status: production fix applied on 2026-10-07; IDE compile/test pending.
+- Symptom: completed Edit Mesh fills can remain stale in other stationary,
+  non-realtime Level viewports until unrelated input triggers their redraw.
+- Trigger / repro: open two visible Level viewports on the same editor World,
+  disable Realtime, enter Edit and let initial loading or a released Brush/Erase
+  finish without moving either camera. Observe the view served second by mode Tick.
+- Why / root cause: EdMode::Tick guards both document and stroke work with
+  GFrameCounter, but the calls to ViewportClient->Invalidate(false, false) are
+  inside those guards. Only the first caller is invalidated. Subsequent callers
+  skip work and redraw together. Component publication does not invalidate other
+  viewport clients. The Show mode's separate all-viewports redraw is suspended in
+  Edit, so its fix does not cover this path. UE5.6 FSceneViewport::InvalidateDisplay
+  routes only to that viewport client's RedrawRequested/bNeedsRedraw.
+- History / blast radius: checked StationaryPreviewPublication, progressive Edit
+  loading, persistent buffers and revision-history fixes. Audited Edit Tick,
+  AdvanceDocumentPreview, AdvancePainting, component publication and Render,
+  Show's core ticker and installed UE5.6 viewport tick/redraw scheduling.
+- Touched files: Tests/ComposableCameraMeshLayerEditPreviewTests.cpp and BugLog.md.
+  Defect locations: MeshCamera/ComposableCameraMeshLayerEdMode.cpp::Tick and
+  ComposableCameraMeshLayerEditPreview.cpp::AdvanceQueuedUpdates.
+- How fixed: Edit Tick keeps one computation budget and requests all-Level-viewport
+  redraw during progress plus two tail frames. Stable frames stop redrawing.
+  Implementation: MeshCamera/ComposableCameraMeshLayerEdMode.h/.cpp.
+- Regression-test name: ComposableCameraSystem.Editor.MeshCamera.EditPreviewInvalidation
+  now queues real Edit geometry, invokes two real viewport clients in one frame,
+  and expects both bNeedsRedraw flags. Open two visible Level viewports for this
+  assertion; otherwise it emits a warning. Restores flags and package dirty state.
+- Verification / blocker: project AGENTS.md permits compilation/tests only in
+  Rider/Visual Studio and the editor. Compile the test additions in the IDE and
+  run with split viewports; no pixel-level verification or timing claimed here.
+- Avoid next time: frame guards govern computation, not the set of observers
+  requiring notification. Test multiple static views, not only one direct publisher.
+- Possible conflicts: redraw must stay scoped to affected editor Worlds and stop
+  on stable frames. Repeating source processing per viewport would regress budgets.
+
+## 2026-10-07 - Audit: Show retains stale geometry after a live storage document changes
+
+- Status: production fix applied on 2026-10-07; IDE compile/test pending.
+- Symptom: Show can keep an empty or obsolete Mesh, colors and enabled-Layer state
+  after source replacement or storage-actor Undo. Toggling Show off/on refreshes it.
+- Trigger / repro: enable Show for a loaded document, wait for completion, then
+  replace its source through SetAuthoringData while retaining the same actor,
+  or Undo an existing storage-actor change while Show stays active. The renderer
+  keeps its old components although RuntimeData and query acceleration change.
+- Why / root cause: PreviewEdMode::AdvancePreview starts Build only for a new
+  cache or bRestartAfterPIE. Its cache stores no data revision or snapshot identity.
+  The PIE coordinator similarly rebuilds only for initialization, World changes
+  or stale preview actors. Storage SetAuthoringData/PostEditUndo update query
+  resources without notifying either visual cache. Exact snapshot equality inside
+  FPreviewGeometryBuild cannot help because Begin is never called again.
+- History / blast radius: reviewed warm-cache snapshot matching, Show resume after
+  Edit and stationary publication. Audited storage mutation/Undo, both Show cache
+  owners, worker snapshots and streamed actor removal. Normal Edit->Show resets
+  the preview mode and is not the failing route described here.
+- Touched files: Tests/ComposableCameraMeshLayerPreviewModeTests.cpp and BugLog.md.
+  Defect locations: MeshCamera/ComposableCameraMeshLayerPreviewEdMode.cpp,
+  Utilities/ComposableCameraMeshLayerTool.cpp and runtime MeshCamera/
+  ComposableCameraMeshSurfaceStorageActor.cpp.
+- How fixed: storage source rebuild and both Undo overloads advance a transient
+  EditorDataRevision. Editor Show and PIE compare this identity, cancel stale jobs
+  and replace old fill. Files: StorageActor.h/.cpp, PreviewEdMode.h/.cpp and Tool.cpp.
+  SavedPreview additionally checks same-count cache invalidation.
+- Regression-test name: ComposableCameraSystem.Editor.MeshCamera.StationaryPreviewPublication
+  now replaces source on its existing transient storage actor without toggling
+  Show or moving the camera. Samples actual submitted geometry at the new and
+  old locations, expecting new coverage and removal of obsolete fill.
+- Verification / blocker: IDE/editor execution required by AGENTS.md. The new
+  behavioral assertion covers editor Show; PIE source-change/Undo integration
+  still needs an editor-side fixture and manual validation. No run claimed.
+- Avoid next time: actor lifetime, document content and worker generations are
+  separate identities. Warm-cache tests must change source while the owner lives.
+- Possible conflicts: avoid whole-array comparisons every Tick. Save/Undo,
+  streamed Level lifetimes, progressive publication and cache reuse must remain
+  consistent; changing visualization must not mutate runtime query geometry.
+
+## 2026-10-07 - Audit: rapid second Brush press bypasses the stroke Tick budget
+
+- Status: production fix applied on 2026-10-07; real-Level latency and IDE tests pending.
+- Symptom: fast release/press sequences can freeze before the next Brush starts,
+  despite the ordinary asynchronous 4 ms stroke progression.
+- Trigger / repro: on dense or curved floor, release a Brush while accepted
+  stamps still await Tick, then press again immediately. More queued stamps or
+  expensive collision/coverage increases the synchronous work in that second press.
+- Why / root cause: BeginStroke calls FinishStroke() when bPainting and
+  bStrokeReleased are both true. FinishStroke calls AdvancePainting(MAX_int32,
+  0.0) for pending source work. Zero disables the time budget and requests full
+  coverage/publication drains; Future::Consume can wait. This projects accepted
+  stamps and can resolve coverage/upload tiles inside the next input callback.
+- History / blast radius: reviewed BudgetedStroke, source/coverage separation,
+  queued tile work and immediate restored strokes. Existing repeat-press coverage
+  starts the next stroke only after previous source completion, missing this state.
+  Audited release, BeginStroke, FinishStroke, explicit Save/focus/tool boundaries,
+  transaction ownership, AdvanceStrokeCoverage and tile publication.
+- Touched files: Tests/ComposableCameraMeshLayerBudgetedStrokeTests.cpp and BugLog.md.
+  Defect locations: MeshCamera/ComposableCameraMeshLayerEdMode.cpp::BeginStroke/
+  FinishStroke, ComposableCameraMeshLayerStrokeCoverage.cpp::Advance and
+  ComposableCameraMeshLayerEditPreview.cpp::AdvanceQueuedUpdates.
+- How fixed: a rapid next press creates a deferred stroke with captured spacing/
+  options/release state. Tick closes the previous source transaction, then starts
+  the next FIFO stroke. Explicit boundaries flush; cancel removes deferred input.
+  EdMode.h/.cpp implement ownership. BudgetedStroke now checks exact FIFO source
+  and separate Undo steps as well as the nonprojecting second callback.
+- Regression-test name: ComposableCameraSystem.Editor.MeshCamera.BudgetedStroke
+  now queues two real custom-channel Brush samples, releases without an intervening
+  Tick, presses again and checks that input has not synchronously projected them.
+  Cleanup cancels the active stroke/transaction. This proves the input-boundary
+  contract, not a hardware-dependent frame-time threshold.
+- Verification / blocker: compile/run in IDE/editor per AGENTS.md. Measure the
+  second press on the user's dense Level with Unreal Insights to quantify latency.
+- Avoid next time: exercise input while source is pending, not only while derived
+  display is pending. Unlimited flushes must not be reachable from normal presses.
+- Possible conflicts: silently dropping old stamps or merging two Undo steps
+  would break authoring semantics. A queued/deferred new stroke needs explicit
+  ownership; Save/focus/tool transitions must still preserve completed input.
+
+## 2026-10-07 - Audit: pending Edit workers are not drained before editor-module unload
+
+- Status: production fix applied on 2026-10-07; external unload verification pending.
+- Symptom: module unload/reload with pending Edit work can leave background tasks
+  executing lambda/function/destructor code from an unloaded editor DLL.
+- Trigger / repro: open a large Edit document or queue expensive Brush/Shape work,
+  then unload/reload ComposableCameraSystemEditor while worker or native retirement
+  tasks are pending. Normal mode close alone keeps the DLL loaded and is not this case.
+- Why / root cause: DocumentBuild, StrokeCoverage, Shape creation and tile work use
+  the shared EAsyncExecution::ThreadPool, including fire-and-forget retirement
+  lambdas. Cancellation sets atomic flags and detaches futures; it does not join
+  those tasks. MeshLayerTool::Unregister drains only PreviewBuild's separate owned
+  pool. Cancellation protects document publication, not executable-code lifetime.
+- History / blast radius: reviewed prior Show shutdown and render-extension
+  lifetime fixes. Audited all Edit Async callsites, mode Exit/destruction,
+  MeshLayerTool::Unregister, editor ShutdownModule and Show's owned pool joining.
+- Touched files: BugLog.md only. Defect locations: MeshCamera/
+  ComposableCameraMeshLayerDocumentBuild.cpp, ComposableCameraMeshLayerStrokeCoverage.cpp,
+  ComposableCameraMeshLayerEditPreview.cpp, ComposableCameraMeshLayerEdMode.cpp,
+  Utilities/ComposableCameraMeshLayerTool.cpp and ComposableCameraSystemEditorModule.cpp.
+- How fixed: EditWork.h/.cpp own a two-thread pool used by document, coverage,
+  Shape, tile and native retirement tasks. Tool Unregister stops mode producers,
+  joins this pool and flushes render commands before DLL unload. Normal cancellation
+  still detaches without waiting. Future readiness alone is not the unload gate.
+- Regression-test name: proposed MeshLayerEditorUnloadWithPendingEditJobs.
+- Concrete test blocker: a test implemented inside this same DLL cannot safely
+  remain executing to assert its own unload. It requires a host-owned harness
+  outside the module. IDE-side verification: unload/reload under the debugger
+  with queued Edit work; confirm every plugin task has returned before unload.
+  No shell editor launch, build, unload or destructive test was attempted.
+- Avoid next time: asynchronous work needs both publication cancellation and
+  module lifetime ownership, including delayed native-array destruction.
+- Possible conflicts: waiting on every mode exit would regress responsiveness;
+  joining belongs at DLL teardown. Detached cleanup tasks must join too, not just
+  futures that report a computed result before callable destruction.
+
+## 2026-10-07 - Audit notes: remaining Mesh loading and live-edit performance limits
+
+- Historical audit baseline. The latency update below implements cached opening,
+  fused publication, live Shape fill and differentiated metadata. Linear source/
+  transaction copies, indivisible queries/uploads and Edit-vs-Show LOD policy remain
+  costs requiring actual Level profiling. Earlier bullets describe pre-fix paths.
+- Opening copies source into Settings and SavedDocument, then copies native
+  geometry again for DocumentBuild. First fill still waits for GUID mapping,
+  full-document bounds and candidate binning before tile clipping begins.
+- Starting Brush before the opening document completes cancels its progressive
+  loader, rebuilds the authoring index synchronously and requests full stroke
+  coverage. StrokeCoverage publishes only after its entire worker batch returns.
+  Initial-load responsiveness and restored-complete-checkpoint responsiveness
+  therefore have different guarantees.
+- Shape control drags update only outlines. Details Interactive events deliberately
+  skip mutation. Release/final Details commit still calls synchronous
+  BuildProjectedShape -> Advance(MAX_int32), unlike budgeted new-Shape creation.
+  This is documented existing behavior; filled-surface drag preview is absent.
+- A Layer Name/DebugColor/Profile edit calls NotifyLayerDataChanged, whole-source
+  RemoveOrphanedTriangles and full cache invalidation, even when geometry/priority
+  did not change. Opening/stroke source copies, transaction serialization, queued
+  tile snapshots, checkpoint memory accounting and individual component uploads
+  can all exceed the soft budget before its next check.
+- Edit explicitly disables Show's Landscape LOD view extension and never registers
+  its persistent fill actor there. Show's accepted distant uneven-ground policy
+  therefore does not carry into Edit. This proves a policy difference, not missing
+  pixels: editor GeomMaterial's depth policy means target-Level visual inspection
+  must establish any actual LOD-dependent loss.
+- Tests/verification: existing ShapeEditingAndErase and RestoredDocumentPreview
+  validate committed geometry and cancellation, not live filled pixels or latency.
+  Manual IDE/editor matrix: cold open -> immediate Brush; continuous drag -> quick
+  release/press; Shape control and numeric-slider edits; color-only Layer edit;
+  static split viewports; Undo/Discard while Show stays active; identical near/far
+  uneven-ground views after publication finishes. Record source, coverage, mesh
+  assembly and publication timings separately. No timing/pixel result claimed.
+- History reviewed: 2026-10-04 asynchronous Shape creation; 2026-10-06 LOD policy;
+  2026-10-07 progressive loading, budgeted strokes and restored editable checkpoints.
+  Preserve exact projection, Layer priority, height competition, source FIFO and
+  Undo identity when addressing these limits.
+
+## 2026-10-07 - Mesh editing repeatedly rebuilds derived geometry before feedback
+
+- Status: implementation and focused regressions added; IDE compile, automation,
+  timing and visual validation pending. No measured zero-latency claim.
+- Symptom / exact repro: save a populated document, close/reopen Show or Edit;
+  drag Brush/Erase continuously, immediately start another stroke; drag Rectangle/
+  Circle/Polygon or existing controls and Shape Details; edit Layer Color/Name/
+  Profile. Before this change, cold opens reclip all source before progressive
+  tile delivery, normal coverage waits for another snapshot/mesh worker, control
+  edits show outlines and synchronously project on release, metadata invalidates
+  all geometry, and changed tiles recreate GPU resources.
+- Why / root cause: runtime triangles were the only reusable persisted preview
+  input. Coverage and renderer preparation were separate jobs. UI notifications
+  treated all Layer properties as geometric changes. Component proxies allocated
+  exact-size buffers on every mutation. Flat block scans and eager Brush rollback
+  copies added input/setup costs. Engine Undo and native preview provenance need
+  separate identities when metadata can share geometric checkpoints.
+- History / blast radius: reviewed progressive opening, regional Erase, exact
+  overlap/height competition, restored editable checkpoints, failed-Save rollback,
+  stationary redraw, live storage invalidation, rapid input and module unload
+  entries above. Audited all new API consumers, editor/PIE cache owners, working/
+  saved actor documents, native job cancellation and render-resource lifecycle.
+- Fix: Save persists version-1 exact resolved editor coverage under editor-only
+  actor storage; cached Show/Edit load one document without spatial clipping.
+  Unsupported/corrupt/legacy cache falls back. Source rebuild clears cache;
+  storage Undo and content revisions invalidate Show/PIE. Brush/Erase resolve and
+  prepare touched native fill in one worker. Regional publication clears empty
+  tiles and supersedes obsolete assembly without losing FIFO source or remote
+  restore work. Native source-order bounds hierarchy prunes local candidate queries.
+  Append-only Brush rollback stores counts; first Erase captures original source.
+  Color updates a material parameter; Name/Profile/Channel reuse geometry, with
+  metadata history aliases and prospective channel semantics. Intermediate property
+  transactions skip per-frame history snapshots and record only the completed bookend.
+  Shape draft/control/
+  Details previews combine immediate planar fill and budgeted temporary projected
+  fill; final creation/replacement stays atomic and retains erasures/identity.
+  Initial/restored document publication completes before temporary surface tiles
+  replace it. Separate old/new/prior footprints avoid resolving their empty gap;
+  candidate bounds cover complete edge cells so neighboring coverage survives.
+  Temporary pixels never enter source/history. Ctrl+Z cancels latest pending input
+  before engine Undo. Same-capacity vertex/index changes update existing RHI
+  buffers; growth recreates. Cancelled Shape results and checkpoint coverage copies
+  retire/run on the owned Edit pool, which joins only on unload.
+- Touched files: runtime MeshCamera/ComposableCameraMeshSurfaceTypes.h and
+  ComposableCameraMeshSurfaceStorageActor.h/.cpp; editor MeshCamera/
+  ComposableCameraMeshLayerSavedPreview.h/.cpp (new), EditWork.h/.cpp (new),
+  AuthoringIndex.h/.cpp, DocumentBuild.h/.cpp, StrokeCoverage.h/.cpp,
+  EditPreview.h/.cpp, EdMode.h/.cpp, PreviewBuild.h/.cpp, PreviewEdMode.h/.cpp,
+  ToolSettings.h/.cpp; Utilities/ComposableCameraMeshLayerTool.cpp;
+  Tests/ComposableCameraMeshLayerRealtimeTests.cpp (new), EditPreviewTests.cpp,
+  BudgetedStrokeTests.cpp, ShapeTests.cpp; DesignDoc, EditorDesignDoc, TechDoc,
+  ExecutionFlowExamples and BugLog. Abbreviated editor names use the
+  ComposableCameraMeshLayer prefix.
+- Regression-test names: SavedPreview (reflected cache round-trip, exact polygons/
+  normals/heights, invalid cache atomic rejection, one-batch Edit/Show loading,
+  same-count actor invalidation); FusedStrokePreview (same-worker exact fill and
+  empty Erase); RealtimeEditing (geometry/proxy retention for Color/Name/topology,
+  metadata Undo/Redo, live filled Shape source isolation/cancel, complete edge-cell
+  neighbors, distant footprint movement and regional deletion); AuthoringHierarchy
+  (pruning, ordering, append bounds and removed leaves). Updated BudgetedStroke
+  checks rapid FIFO and separate Undo; existing EditPreviewInvalidation and
+  StationaryPreviewPublication cover split views/content mutation. Existing
+  Shape/Erase/coverage regressions retain final source precision and Save gating.
+- Verification / concrete blocker: project AGENTS.md requires Rider/VS compilation
+  and editor automation. Reflection changes require full editor restart. Same-DLL
+  unload testing requires the external host harness noted above. Static source/
+  consumer/whitespace checks do not establish compilation or GPU pixels. Manual
+  IDE/editor matrix: Save legacy document -> cold reopen; immediate Brush during
+  load; sustained mixed input -> second press; Shape drag/Details sliders -> cancel/
+  release/Undo; Color/Profile/Name; split static views; Undo/Discard then immediate
+  input; pending jobs during shutdown; failed Save and streamed Levels/PIE.
+- Avoid next time: persist disposable display data at expensive boundaries;
+  distinguish metadata/source/display identities; update complete affected regions
+  once, retain resource capacity, isolate provisional pixels from transactions,
+  and own both computation and delayed destruction until module unload.
+- Possible conflicts / limits: cooked query source and camera evaluation remain
+  unchanged. Larger editor packages/cache copies, hierarchy/checkpoint accounting,
+  UObject transaction serialization, first cold legacy resolution and indivisible
+  queries/uploads still cost time. Saved source compaction invalidates index counts.
+  Temporary Shape projection has a lower 4096-triangle cap than final 16384 and
+  is provisional. PIE still fits collision. Show/Edit switches and Show's LOD
+  policy stay unchanged; Edit retains its prior LOD policy. Record separate source,
+  coverage, snapshot, buffer-update and publication timings with Unreal Insights.
+
+## 2026-10-07 - Deleting a Shape allows a queued replacement to recreate it
+
+- Status: fix and regressions added; IDE compilation and editor execution pending.
+- Symptom / exact repro: select a committed Shape, release a control/Details edit
+  so its replacement is queued, then Delete before projection/coverage completes.
+  Previously Delete removed the source, but the pending replacement could rebase
+  against that revision and append the deleted Shape again. Deletion also requested
+  full-document preview reconstruction for a local source removal.
+- Why / root cause: queued replacements retained Shape identity independently of
+  selected source. Delete did not revoke jobs for that identity. Revision rebasing
+  correctly retained ordinary input, but incorrectly retained explicitly deleted input.
+- History / blast radius: reviewed asynchronous Shape creation/rebasing, source
+  ownership, retained Erase cuts, pending cancellation and restored checkpoint bugs.
+  Audited control/Details replacement, Delete, Undo, Discard and Layer changes.
+- Fix / touched files: MeshCamera/ComposableCameraMeshLayerEdMode.cpp cancels only
+  pending replacements with the deleted GUID before source removal. It captures the
+  removed footprint, rebuilds the disposable source index and queues fused regional
+  coverage/native fill. Other Shape identities and remote geometry survive.
+  Tests/ComposableCameraMeshLayerShapeTests.cpp and
+  ComposableCameraMeshLayerRealtimeTests.cpp add focused checks; EditorDesignDoc,
+  TechDoc, ExecutionFlowExamples and this log record the flow.
+- Regression names: ShapeEditingAndErase queues a replacement immediately before Delete
+  and asserts it is cancelled. RealtimeEditing commits then deletes a distant Shape,
+  asserts no document rebuild starts, and checks exact remaining source/fill area.
+- Verification blocker / manual check: AGENTS.md restricts compilation and test
+  execution to Rider/VS/editor. Run these tests there. Manually drag/release a large
+  Shape, Delete while its fill is pending, then wait, Undo and Redo; the deleted GUID
+  must stay absent until Undo restores it.
+- Avoid next time: deletion must revoke pending producers for the same identity,
+  not merely remove current source. Native results may never resurrect revoked input.
+- Possible conflicts / limits: the source transaction remains one engine Undo;
+  source removal and index rebuilding still have linear event cost. Invalid/missing
+  regional bases keep the existing full-rebuild fallback. Runtime queries are unchanged.
+
+## 2026-10-07 - Color-only Edit preview fails to compile against UE5.6
+
+- Status: source fix and regression update added; user IDE recompilation pending.
+- Symptom / exact trigger: compile the UE5.6 editor target after the realtime
+  preview changes. ComposableCameraMeshLayerEditPreview.cpp reports C2660 at
+  MaterialProxy->InvalidateUniformExpressionCache().
+- Why / root cause: FMaterialRenderProxy::InvalidateUniformExpressionCache requires
+  bool bRecreateUniformBuffer in UE5.6, with no default argument. The call used a
+  nonexistent overload. It was also redundant: the following unique-pointer
+  replacement destroys the old proxy, whose destructor/ReleaseRHI releases its cache.
+- History / blast radius: reviewed the realtime GPU/metadata update above; audited
+  SetFillColor, render-command dispatch, material ownership and RealtimeEditing.
+  Checked the installed UE5.6 MaterialRenderProxy.h/.cpp directly.
+- Fix / touched files: removed the redundant invalidation from
+  MeshCamera/ComposableCameraMeshLayerEditPreview.cpp; retained the owned colored
+  proxy replacement. Updated Tests/ComposableCameraMeshLayerRealtimeTests.cpp,
+  TechDoc, EditorDesignDoc and BugLog. No signature or geometry behavior changes.
+- Regression: ComposableCameraSystem.Editor.MeshCamera.RealtimeEditing now repeats
+  color replacement through end-of-frame/render-command publication, checks exact
+  component color plus unchanged geometry/revision/scene proxy, then restores the
+  document color before the existing Undo/Redo checks.
+- Verification / blocker: declaration, destructor/release path and consumer checks
+  passed; git whitespace check passed. AGENTS.md restricts compilation/automation
+  to Rider/VS/editor. Recompile there and run RealtimeEditing. Manually drag the
+  color picker continuously; verify visible color changes without mesh recreation.
+  CPU/proxy assertions alone do not validate rendered pixels.
+- Avoid next time: verify exact installed-engine signatures and resource destruction
+  before introducing explicit invalidation calls.
+- Possible conflicts: no runtime query, Show toggle, document identity or Save changes.
+  The engine still owns material-resource synchronization and release.
+
+## 2026-10-07 - Brush during Edit opening stops loading and produces no new fill
+
+- Status: source changes and regressions added; IDE compilation/editor execution pending.
+- Symptom / exact repro: open EditMeshLayers on a populated document, then Brush
+  the floor before visible Tile loading finishes. Newly painted source has no fill;
+  existing loading pauses and later resumes. The earlier cached-load revision
+  removed spatial clipping but still published components over successive frames.
+- Why / root cause: BeginStroke cancelled the opening document job. Loading marked
+  coverage dirty, so the next Brush captured a whole-source rebuild rather than an
+  append delta. The document polling guard also stopped during painting/coverage.
+  Per-region component cleanup scanned all regions repeatedly, giving quadratic
+  initial publication cost; proxy construction copied all vertices on the editor thread.
+  An already-current empty index could additionally permit source edits before an
+  older opening index arrived and replaced their incremental broad phase.
+- History / blast radius: reviewed progressive startup, fused realtime coverage,
+  exact historical restoration, deferred FIFO/Undo boundaries, pool retirement,
+  metadata aliases and the UE5.6 material API compile fix. Audited initial open,
+  Tick/Render, Brush/Erase source, Shape replacement, Layer changes, Save compaction,
+  Undo/Discard, focus, exit, GPU initialization and all affected test consumers.
+- Fix: production Edit uses StartResident. Native work releases index/grid early,
+  prepares one complete shared geometry document and installs it in one scene update.
+  Internal regions remain only for local editing. Brush retains opening and waits
+  for its index even on empty source. Separate fixed-grid regional coverage provides
+  complete current Brush/Erase feedback while exact FIFO deltas await the original
+  base cache. Base installation skips all edited regions, including erased/empty
+  ones, and cannot overwrite the already edited index. Base completion cancels
+  provisional work before primary deltas resume. Central cancellation revokes both
+  opening pipelines on Undo/Discard/structural replacement/exit. Current colors are
+  selected at publication; historical colors keep their exact snapshots. Bounds
+  preparation runs on native workers, initial vertex copying/resource setup runs
+  on the render thread, and component removal uses region/Layer keys. Unused terminal
+  index copies and skipped stale-region buffers also retire off the editor thread.
+- Touched files: MeshCamera/ComposableCameraMeshLayerDocumentBuild.h/.cpp,
+  ComposableCameraMeshLayerEditPreview.h/.cpp, ComposableCameraMeshLayerStrokeCoverage.h/.cpp,
+  ComposableCameraMeshLayerEdMode.h/.cpp; Tests/ComposableCameraMeshLayerRealtimeTests.cpp
+  and ComposableCameraMeshLayerEditPreviewTests.cpp; DesignDoc, EditorDesignDoc,
+  TechDoc, ExecutionFlowExamples and this log.
+- Regression: ComposableCameraSystem.Editor.MeshCamera.ResidentLoadingAndBrush
+  withholds the base deterministically across Brush and Erase; checks local fill,
+  pending exact deltas, single whole installation, distant source, stale-base
+  exclusion, latest metadata colors, exact FIFO convergence, scene proxies,
+  uncached single-result fallback and cancellation. A bounded worker gate checks
+  empty/current source waits for early index delivery, then resumes exactly.
+  RestoredDocumentPreview now asserts Brush retains resident loading; existing
+  progressive standalone APIs retain their independent regression coverage.
+- Verification blocker / manual steps: AGENTS.md permits compilation and automation
+  only through Rider/Visual Studio/editor. Restart editor and build fully there;
+  run ResidentLoadingAndBrush, RestoredDocumentPreview, BudgetedStroke,
+  RealtimeEditing and RestoredPreviewImmediateStroke. Cold-open dense saved and
+  legacy documents, immediately drag Brush/Shift-Erase, change color, release,
+  Undo/Redo/Discard, and close/reopen while jobs are active. Inspect pixels and
+  Insights source/index/coverage/publication/render timings; CPU assertions alone
+  do not establish visual latency or GPU correctness.
+- Avoid next time: distinguish a stale base load from ordered edit deltas. Never
+  cancel baseline work merely for an append; protect changed regions/index from
+  older results. Separate initial residency from incremental render decomposition,
+  and inspect publication complexity plus proxy construction thread placement.
+- Possible conflicts / limits: ShowMeshLayer/Edit window lifecycle and runtime
+  queries are unchanged. Show/PIE retain existing budgets/floor fitting. Source/cache
+  snapshots, index preparation, legacy exact clipping, component creation, GPU
+  uploads and cold shaders still cost time; no measured zero-latency claim. If local
+  feedback is still pending at base arrival, that region waits for its primary delta.
+  Large document growth can still trigger the existing exact grid-resize fallback.
+
+## 2026-10-07 - Mesh Layers Save repeats coverage resolution and expands indexed source
+
+- Status: source optimization and focused regressions added; IDE compilation,
+  automation execution and measured Save timings pending.
+- Symptom / exact trigger: open EditMeshLayers on a populated document, finish
+  Brush/Shape/Erase editing, then click Save. Saving remains slow even with exact
+  preview coverage already ready, or after changing only Name/Color/Profile.
+- Why / root cause: Save always rebuilt full authoring coverage on the editor
+  thread. RemoveOrphanedTriangles expanded every triangle into three independent
+  vertices; runtime baking expanded it again. SetAuthoringData always discarded
+  cooked triangles/BVH and stored preview, even for metadata-only changes. Each
+  BVH subtree was fully sorted despite requiring only its median partition.
+  No phase timings separated this preparation from UE package serialization/I/O.
+- History / blast radius: reviewed exact saved-preview loading, resident opening
+  with Brush/Erase deltas, same-count content/index invalidation, historical
+  editable checkpoints, failed-save/Discard rollback, source compaction, storage
+  PostEditUndo and per-Layer nearest-hit/BVH regressions. Audited all
+  SetAuthoringData/RebuildQueryResources callers, authoring/runtime vertex-index
+  consumers, Layer enable/reorder rules, Shape ownership and transaction boundaries.
+  Installed UE5.6 GeometryCore DynamicMesh3_Edits.cpp::CompactInPlace provides the
+  vertex-remap/sharing reference; engine source remains read-only.
+- Fix: finish accepted input and consume resident exact coverage/FIFO deltas
+  before compaction invalidates source counts. Convert the current immutable or
+  mutable exact coverage directly into saved polygons; only a miss resolves once,
+  retaining that result for editing. Keep an unchanged actor's stored preview
+  only after an allocation-free comparison with current exact coverage, rejecting
+  stale/corrupt version-one cache headers, normals, ownership and polygons.
+  Compact/bake through vertex-ID remapping, preserving existing shared vertices,
+  exact triangle order/positions, Layer/Shape GUIDs, controls and erasures. A no-op
+  retains source allocation/index. Metadata with unchanged geometry/GUID rows
+  reuses runtime triangles/BVH; enabled filtering reads current rows, while coverage
+  is invalidated when its policy changes. Missing nonempty runtime data rebuilds;
+  inconsistent source/Shape ownership cannot take the reuse shortcut.
+  std::nth_element replaces full recursive subtree sorting, using cached bounds
+  and the original triangle-ID tie-break. Log finalize/runtime/preview/packages/
+  checkpoint milliseconds and cache reuse flags after successful Save.
+- Touched files: runtime MeshCamera/ComposableCameraMeshSurfaceStorageActor.h/.cpp,
+  ComposableCameraMeshSurfaceTypes.cpp; editor MeshCamera/ComposableCameraMeshLayerEdMode.h/.cpp
+  and ComposableCameraMeshLayerSavedPreview.h/.cpp;
+  Tests/ComposableCameraMeshLayerRealtimeTests.cpp and runtime
+  Tests/ComposableCameraMeshSurfaceTests.cpp; DesignDoc, EditorDesignDoc, TechDoc,
+  ExecutionFlowExamples and this log.
+- Regression-test names: ComposableCameraSystem.Editor.MeshCamera.SavePreparation
+  checks exact checkpoint reuse, compaction sharing/order/Shape ownership/erasures,
+  no-op index retention, same-count coverage misses, empty coverage, unchanged
+  successful-save baseline/dirty state, runtime sharing, live metadata queries,
+  stale/corrupt stored-cache rejection, enabled/reordered Layer policy,
+  missing-runtime repair, invalid-ownership fallback
+  and invalid/orphan filtering.
+  System.Engine.ComposableCameraSystem.MeshCamera.MedianPartitionEquivalence
+  compares indexed versus linear nearest surfaces and each Layer's own hit across
+  repeated centroids/triangles, odd splits, disabled rows, invalid indices, misses
+  and repeated construction, with unchanged serialized topology. Existing
+  SpatialIndexEquivalenceAndPruning, SpatialIndexTransformedDocument, SavedPreview,
+  ResidentLoadingAndBrush, RestoredPreviewImmediateStroke and DocumentDiscard
+  retain pruning, transforms, Undo and failed-save coverage.
+- Verification: consumer/signature/indexed-storage audit and static delimiter,
+  preprocessor/whitespace checks passed across 52 Mesh source/test files;
+  git diff --check passed. These are not compilation or executed regression tests.
+- Verification blocker / manual IDE steps: AGENTS.md permits compilation and
+  automation only inside Rider/Visual Studio/editor. Close UE and fully build the
+  editor target there because native headers changed; run the above tests. Save
+  after dense Brush/Shape/Erase, after metadata-only edits, immediately during
+  resident opening and repeatedly without edits. Inspect Save ms logs and pixels;
+  compare cached and legacy Levels. Reload the saved Level, inspect retained Shape
+  controls/erasures and test transformed runtime queries/PIE. Cancel/fail package
+  saving, Discard, Undo/Redo and Save again; the independent baseline must advance
+  only after success. No timing threshold or measured speedup is claimed.
+- Avoid next time: persistence should consume current derived results, preserve
+  indexed vertex identity and invalidate caches according to actual dependencies.
+  Median selection needs a partition, not complete subtree sorting. Keep phase
+  timings so package I/O is distinguishable from repeated derived-data computation.
+- Possible conflicts / limits: ShowMeshLayer/Edit window lifecycle, source precision,
+  reflected serialized field layout, Layer priority, projection, query outputs,
+  package scope and failed-save/Discard/Undo semantics remain unchanged. Existing
+  triangle-soup source is not position-welded; only existing sharing is retained.
+  Explicit interaction completion can still drain pending display work. Source
+  comparison/compaction, transaction serialization, native snapshots, new-runtime
+  baking, saved polygon conversion, UE package writes and successful checkpoint
+  copies remain event costs. Package timing includes any checkout/modal wait.
+
+## 2026-10-08 - Held Erase delays completed coverage behind the next partial cut
+
+- Status: source optimization and regression tests added; IDE compilation,
+  automation execution and measured held-stroke latency pending.
+- Symptom / exact trigger: open a populated EditMeshLayers document, select Erase
+  (or hold Shift with Brush), hold left mouse and continuously move over dense
+  geometry. The source queue can keep another cut partially active, delaying the
+  preceding completed cut's preview. Starting over an empty indexed region also
+  incurred an unnecessary full native rollback copy; dense fully covered triangles
+  still ran every clipping plane.
+- Why / root cause: AdvanceStrokeCoverage passed !StrokeTask as bAllowStart even
+  though its queued inputs already owned complete immutable source mutations.
+  The next resumable Erase therefore blocked starting a pending coverage batch.
+  Source rollback capture occurred before discovering an empty candidate set.
+  Every non-rejected triangle used all 34 prism planes, including safe interior.
+- History / blast radius: reviewed regional Erase/remote coverage, nearest-floor
+  picking, immutable async source ownership, exact mixed-operation FIFO, native
+  rollback/transaction boundaries, resident opening, Undo/Discard and Save reuse
+  entries. Audited all FEraseGeometryBuild::Begin/Advance, EraseShapeGeometry,
+  FEraseGeometryStats and coverage-start consumers; checked queued input capture,
+  cancellation, prepared publication and RememberPreview's completed-history guards.
+  UE5.6's read-only MeshModelingTools/Private/MeshVertexSculptTool.cpp per-stamp
+  TriangleROI/precompute notification provided the held-stroke display reference;
+  no engine code was copied or modified.
+- Fix: let completed queued coverage start and publish while the next source cut
+  remains partial. It uses only previously captured native input, never live
+  partial source/index or UObject state. Retain source/mixed-operation FIFO,
+  per-mutation grid policy, cancellation and complete-revision checkpoint rules.
+  Begin rejects empty indexed candidates before the queued path's rollback copy;
+  successful Begin remains read-only and capture precedes any mutation. Reuse the
+  existing brush-coordinate corner tests to identify triangles inside the 32-gon's
+  apothem disk and depth slab with a margin. Skip splitting only for safe interior,
+  preserving the original area threshold, removed bounds, descending swap-removal,
+  Layer/Shape ownership, index refresh and mask finalization. Boundary triangles
+  retain exact clipping, including circle-to-polygon slivers and affine axes.
+  Add InteriorTriangles and EraseBegin/EraseSourceSnapshot profiling scopes.
+- Touched files: editor MeshCamera/ComposableCameraMeshLayerEdMode.h/.cpp and
+  ComposableCameraMeshLayerShapes.h/.cpp;
+  Tests/ComposableCameraMeshLayerBudgetedStrokeTests.cpp and
+  ComposableCameraMeshLayerShapeTests.cpp; DesignDoc, EditorDesignDoc, TechDoc,
+  ExecutionFlowExamples and this log. No runtime or reflected serialized fields
+  change in this fix.
+- Regression-test names: ComposableCameraSystem.Editor.MeshCamera.ContinuousErasePreview
+  checks empty-candidate rollback avoidance, starts prior completed coverage while
+  the mouse is held and another source cut is partial, compares an independent
+  complete preview, checks exposed lower-floor and untouched next-cut display
+  heights, preserves live partial arrays/revision and cancels the whole stroke.
+  ComposableCameraSystem.Editor.MeshCamera.EraseInteriorFastPath checks safe
+  interior removal, sloped heights, retained 32-gon boundary slivers, partial
+  boundary subtraction, Layer/Shape ownership, repeated-mask idempotence,
+  scaled/sheared axes, index refresh and empty Begin/Advance no-op semantics.
+  Existing BudgetedStroke, BudgetedCoverage, AsyncStrokeCoverage,
+  IndexedEraseEquivalence, IndexedEraseCoverage, ResidentLoadingAndBrush,
+  DocumentUndoRedo and SavePreparation cover surrounding ordering/history/storage.
+- Verification: consumer/ownership/ordering review, including the final code/test
+  pass, found no additional API, GC, Blueprint or runtime evaluation changes.
+  Static delimiter/preprocessor/whitespace checks passed across 52 Mesh source/test
+  files and git diff --check passed. These checks are not compilation or executed
+  automation and do not measure visual latency.
+- Verification blocker / manual IDE steps: AGENTS.md permits compilation and
+  automation only through Rider/Visual Studio/editor. Close UE and fully build the
+  editor target because native headers changed; run the above focused tests and
+  surrounding regressions. Hold/drag dense Erase and Shift-Erase, start in blank
+  space, test tilted/scaled anchors and stacked floors, then release/repress,
+  Esc/cancel, Undo/Redo, Discard and Save with coverage pending. Also erase during
+  resident opening and confirm no old base restores the hole. Inspect actual pixels
+  and Insights EraseBegin/EraseSourceSnapshot/EraseGeometry/StrokeCoverageSnapshot/
+  StrokeCoverageWorker/publication timings. No measured speedup is claimed.
+- Avoid next time: a complete immutable derived input does not depend on the next
+  live mutation finishing. Gate capture on source completeness, not worker start
+  on source idleness. Discover indexed no-ops before extra document copies and
+  classify safe convex containment before expensive boundary clipping. Preserve
+  every ordered Erase/mixed source input; do not replace it with the latest source.
+- Possible conflicts / limits: ShowMeshLayer/Edit window lifecycle, whole-document
+  initial Edit publication, radius/depth/sampling, Layer priority, source precision,
+  runtime queries and Save/Undo/Discard semantics retain their existing paths.
+  Settings::Modify still serializes a transaction; the first candidate-bearing cut
+  still copies native source once, even when broad-phase candidates prove uncut.
+  Boundary clipping, index refresh, regional snapshots/coverage, component work and
+  GPU upload remain costs; a large individual stamp can still span frames. The
+  shared frame budget remains soft and requires Level-side measurement.
+
+## 2026-10-08 - Erase assembles obsolete display meshes before coalescing
+
+- Status: native pipeline changes and focused regressions added; IDE compilation,
+  executed automation and measured dense-Level latency remain pending.
+- Symptom / exact trigger: after removing the held-source start barrier, hold
+  Erase or Shift-Erase and move continuously over dense existing coverage. The
+  same render region can accumulate many completed source inputs and still trail
+  the cursor. Region publication discards older versions only after native workers
+  have already assembled each complete mesh. Mixed coarse source leaves also
+  copy remote and disabled triangles into every local snapshot.
+- Why / root cause: ResolveStrokeCoverage called PrepareEditPreview after every
+  immutable input, before downstream QueuePreparedRegion coalescing. Normal
+  prepared outputs used raw arrays, leaving bounds construction on the editor
+  thread. FindVisualizationCandidates pruned 128-triangle blocks, but snapshot
+  allocation/copy treated every member as relevant. Removing a scheduling gate
+  alone did not reduce these repeated computations.
+- History / blast radius: reviewed held-Erase snapshot safety/interior clipping,
+  display FIFO latency, exact async mixed-operation ordering, persistent buffer
+  reuse, resident opening/stale-region protection, history restoration, empty
+  removal and Save coverage reuse. Audited all PrepareEditPreview, TakePrepared,
+  Advance/HasPending/Cancel and SetGeometry/SetSharedGeometry consumers, including
+  retained checkpoints, opening feedback, full/regrid and module-owned retirement.
+  Read-only UE5.6 MeshVertexSculptTool.cpp's render decomposition and per-stamp
+  precompute/ROI notifications remain the reference for native regional work.
+- Fix: prepared jobs move at most eight waiting native inputs using a cursor;
+  remaining inputs keep FIFO. Resolve every exact input. Record each region's
+  final input within that job and assemble it once at that point. Disjoint regions
+  can publish early; bounded jobs continue completed-prefix feedback through long
+  backlogs. Full/regrid jobs emit their latest complete document. Exact region-key
+  preparation deduplicates keys, preserves empty removals and never assembles the
+  rectangle between distant edits. Filter regional candidates by enabled GUID and
+  inclusive triangle XY bounds against whole dirty cells before Reserve/copy,
+  preserving original order, neighbors and lower-floor replay. Both normal and
+  opening workers produce immutable shared geometry with precomputed bounds.
+  Exact bounds/index/vertex-attribute comparison retains unchanged component
+  geometry identities/revisions; real changes still upload. Redundant shared
+  buffers retire on the owned native pool. Add completed coverage/prepared-tile
+  counters and StrokePreviewPlan profiling; no source sample is discarded.
+- Touched files: editor MeshCamera/ComposableCameraMeshLayerStrokeCoverage.h/.cpp,
+  ComposableCameraMeshLayerEditPreview.h/.cpp;
+  Tests/ComposableCameraMeshLayerVisualizationTests.cpp and
+  ComposableCameraMeshLayerEditPreviewTests.cpp; DesignDoc, EditorDesignDoc,
+  TechDoc, ExecutionFlowExamples and this log. No runtime/reflected fields change.
+- Regression-test names: ComposableCameraSystem.Editor.MeshCamera.ErasePreviewBatch
+  queues eight real near Erases, a mixed Brush and a remote Erase; checks all ten
+  coverage inputs, bounded prefix progress, three prepared regions across two jobs,
+  exact final positions/tangents/normals/indices, worker bounds/current-color policy,
+  immutable source ownership, gap exclusion, duplicate/empty keys, local removal,
+  cancellation and latest full-plus-local output.
+  ComposableCameraSystem.Editor.MeshCamera.RegionalSnapshotFiltering checks two
+  enabled local floors within a leaf containing remote/disabled triangles, source
+  replacement and exact retained coverage. BudgetedEditPreview now checks equal
+  shared buffers retain identity/revision while equal-count changed vertices update.
+  Existing ContinuousErasePreview, AsyncStrokeCoverage, FusedStrokePreview,
+  BudgetedStroke, IndexedEraseCoverage, ResidentLoadingAndBrush,
+  RestoredPreviewImmediateStroke, DocumentUndoRedo and SavePreparation cover
+  neighboring lifecycle, precision, history and storage behavior.
+- Verification: native ownership, queue-cursor/full-reset, Layer/order, shared-buffer
+  lifetime and consumer/API review passed. Static delimiter/preprocessor/whitespace
+  checks passed across 52 Mesh source/test files; git diff --check passed. No
+  compilation or automation was executed and no timing improvement was measured.
+- Verification blocker / manual IDE steps: AGENTS.md requires compilation and
+  automation in Rider/Visual Studio/editor only. Close UE, fully build the editor
+  target because native headers changed, and run the above regressions. Hold Erase
+  and Shift-Erase over dense coverage, rapidly revisit one region and move between
+  distant regions; test stacked/sloped floors and transformed anchors. Release and
+  re-press with backlog, Undo/Redo, Esc/Discard, Save with pending coverage, and
+  erase during resident opening. Inspect rendered holes and Insights source
+  clipping, snapshot, preview planning/worker, publication and render upload costs.
+  Counters/CPU checks do not establish visual latency; no measured speedup claim.
+- Avoid next time: coalesce disposable display work before expensive assembly,
+  while retaining authoritative source and ordered derived operations. Bound
+  catch-up batches so coalescing cannot wait for the entire drag backlog. Coarse
+  index hits are candidates, not mandatory snapshot contents. Move reusable native
+  buffer/bounds preparation off the editor thread and retain exact no-op detection.
+- Possible conflicts / limits: initial Edit remains one whole-document publication;
+  Show/Edit toggles, source clipping/sampling, Layer/height priority, transaction
+  and Save/Undo/Discard boundaries retain their existing paths. This is batching
+  incremental coverage inputs, not reinstating initial Tile loading. Individual
+  source/coverage operations, first native/transaction copies, interleaved index
+  traversal, unchanged-buffer comparison, component work and GPU upload can still
+  cost time; actual latency must be measured in the target Level.

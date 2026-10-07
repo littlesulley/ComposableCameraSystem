@@ -71,6 +71,7 @@ public class ComposableCameraSystemEditor : ModuleRules
             {
                 "ClassViewer",
                 "GeometryCore",
+                "GeometryFramework",
                 "GameplayTags"
             }
         );

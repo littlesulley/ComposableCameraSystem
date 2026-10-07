@@ -3,6 +3,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Engine/EngineTypes.h"
 #include "ComposableCameraMeshSurfaceTypes.generated.h"
 
 class UComposableCameraMeshProfile;
@@ -22,6 +23,10 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraMeshLayerDefinition
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Layer")
 	TObjectPtr<UComposableCameraMeshProfile> Profile;
+
+	/** Channel used to pick and project this Layer's authoring surface. Existing geometry is not reprojected on change. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Layer", meta = (DisplayName = "Channel"))
+	TEnumAsByte<ECollisionChannel> TraceChannel = ECC_Visibility;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Layer")
 	FLinearColor DebugColor = FLinearColor(0.1f, 0.65f, 1.0f, 0.5f);
@@ -52,9 +57,15 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraMeshSurfaceRuntimeData
 	void Reset();
 	bool IsConsistent() const;
 
+	/** Build disposable acceleration after geometry changes, never during query. */
+	void RebuildSpatialIndex();
+	bool HasSpatialIndex() const;
+
 	/**
 	 * Finds every enabled Layer on the first surface along a local-space ray.
 	 * Results follow Layer array order (top row first).
+	 * Optional OutTriangleTests counts exact predicates for pruning diagnostics.
+	 * Optional OutLayerRayDistances reports each Layer's own nearest hit, aligned with OutLayerIndices.
 	 */
 	bool QueryLocalRayLayers(
 		const FVector& LocalOrigin,
@@ -64,7 +75,29 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraMeshSurfaceRuntimeData
 		TConstArrayView<FComposableCameraMeshLayerDefinition> Layers,
 		TArray<int32, TInlineAllocator<16>>& OutLayerIndices,
 		FVector& OutLocalSurfacePosition,
-		double& OutRayDistance) const;
+		double& OutRayDistance,
+		int32* OutTriangleTests = nullptr,
+		TArray<double, TInlineAllocator<16>>* OutLayerRayDistances = nullptr) const;
+
+private:
+	struct FSpatialNode
+	{
+		FBox Bounds = FBox(ForceInit);
+		int32 FirstTriangle = 0;
+		int32 NumTriangles = 0;
+		/** Preorder index immediately after this subtree; enables stackless query. */
+		int32 EscapeIndex = 0;
+	};
+
+	int32 BuildSpatialNode(int32 FirstTriangle, int32 NumTriangles,
+		TConstArrayView<FBox> TriangleBounds);
+
+	// Native-only caches. Existing saved/cooked triangle fields remain unchanged.
+	TArray<FSpatialNode> SpatialNodes;
+	TArray<int32> SpatialTriangleIndices;
+	int32 IndexedVertexCount = 0;
+	int32 IndexedIndexCount = 0;
+	int32 IndexedLayerIndexCount = 0;
 };
 
 UENUM()
@@ -156,6 +189,49 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraMeshSurfaceAuthoringData
 	}
 };
 
+/** Editor-only derived polygons. GUIDs keep metadata/color independent of geometry. */
+USTRUCT()
+struct COMPOSABLECAMERASYSTEM_API FComposableCameraMeshPreviewPatch
+{
+	GENERATED_BODY()
+	UPROPERTY() FGuid LayerId;
+	UPROPERTY() FVector Normal = FVector::UpVector;
+	UPROPERTY() TArray<FVector> Vertices;
+};
+
+USTRUCT()
+struct COMPOSABLECAMERASYSTEM_API FComposableCameraMeshPreviewCell
+{
+	GENERATED_BODY()
+	UPROPERTY() FVector Position = FVector::ZeroVector;
+	UPROPERTY() FVector Normal = FVector::UpVector;
+	UPROPERTY() FGuid LayerId;
+	UPROPERTY() bool bFullCoverage = false;
+	UPROPERTY() TArray<FComposableCameraMeshPreviewPatch> Patches;
+};
+
+/** Stored only in the actor's WITH_EDITORONLY_DATA property; legacy Levels have Version=0. */
+USTRUCT()
+struct COMPOSABLECAMERASYSTEM_API FComposableCameraMeshSurfaceEditorPreview
+{
+	GENERATED_BODY()
+	UPROPERTY() int32 Version = 0;
+	UPROPERTY() double CellSize = 10.0;
+	UPROPERTY() FBox2D Bounds = FBox2D(ForceInit);
+	UPROPERTY() TArray<FComposableCameraMeshPreviewCell> Cells;
+};
+
+/** Matches saved Layer geometry to a ground hit supplied by business code. Does not trace the scene. */
+USTRUCT(BlueprintType)
+struct COMPOSABLECAMERASYSTEM_API FComposableCameraMeshGroundQueryParams
+{
+	GENERATED_BODY()
+
+	/** Maximum absolute world-Z separation between GroundHit.ImpactPoint and each Layer's exact triangle hit, in cm. Zero requires an exact height match. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Mesh Camera", meta = (ClampMin = "0.0", Units = "cm"))
+	double SurfaceTolerance = 5.0;
+};
+
 USTRUCT(BlueprintType)
 struct COMPOSABLECAMERASYSTEM_API FComposableCameraMeshLayerQueryResult
 {
@@ -174,9 +250,11 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraMeshLayerQueryResult
 	UPROPERTY(BlueprintReadOnly, Category = "Mesh Camera")
 	TObjectPtr<UComposableCameraMeshProfile> Profile;
 
+	/** This Layer's own saved triangle intersection at the supplied ground XY. Never replaced by GroundHit.ImpactPoint. */
 	UPROPERTY(BlueprintReadOnly, Category = "Mesh Camera")
 	FVector SurfacePosition = FVector::ZeroVector;
 
+	/** Absolute world-Z separation from GroundHit.ImpactPoint, in cm. Low-level storage ray queries report distance from their ray origin. */
 	UPROPERTY(BlueprintReadOnly, Category = "Mesh Camera")
 	double VerticalDistance = 0.0;
 

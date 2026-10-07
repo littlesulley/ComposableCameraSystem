@@ -699,6 +699,7 @@ void FComposableCameraMeshLayerModeToolkit::HandleLayerEnabledChanged(
 		}))
 	{
 		if (Layer->bEnabled == (NewState == ECheckBoxState::Checked)) { return; }
+		Settings->OnBeforeEdit.ExecuteIfBound();
 		const FScopedTransaction Transaction(LOCTEXT("EnableLayerTransaction", "Toggle Mesh Camera Layer"));
 		Settings->Modify();
 		Layer->bEnabled = NewState == ECheckBoxState::Checked;

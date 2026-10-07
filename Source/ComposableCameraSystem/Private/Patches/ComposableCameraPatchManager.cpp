@@ -113,6 +113,20 @@ namespace
 		}
 	}
 
+	void ExpirePatchInstance(UComposableCameraPatchInstance* Instance, float ExitDurationOverride)
+	{
+		if (!Instance || Instance->Phase == EComposableCameraPatchPhase::Exiting
+			|| Instance->Phase == EComposableCameraPatchPhase::Expired)
+		{
+			return;
+		}
+		if (ExitDurationOverride >= 0.f)
+		{
+			Instance->ExitDuration = ExitDurationOverride;
+		}
+		TransitionPatchToExiting(Instance);
+	}
+
 	/**
 	 * Check the Active-phase schedule for a Patch and flip to Exiting if any
 	 * enabled channel fires. No-op if the Patch is not in Active phase.
@@ -358,14 +372,7 @@ void UComposableCameraPatchManager::ExpirePatch(
 		return;
 	}
 
-	// Caller-supplied override wins when non-negative; -1 sentinel keeps the
-	// asset's authored ExitDuration. Pass 0 for a hard cut-off (no fade).
-	if (ExitDurationOverride >= 0.f)
-	{
-		Instance->ExitDuration = ExitDurationOverride;
-	}
-
-	TransitionPatchToExiting(Instance);
+	ExpirePatchInstance(Instance, ExitDurationOverride);
 
 	UE_LOG(LogComposableCameraSystem, Verbose,
 		TEXT("PatchManager::ExpirePatch (phase=%d, alpha=%.3f, exit=%.3fs)."),
@@ -502,11 +509,8 @@ void UComposableCameraPatchManager::ApplyParameterBlockToActivePatch(
 
 void UComposableCameraPatchManager::ExpireAll(float ExitDurationOverride)
 {
-	// Soft sweep: route every still-live patch through TransitionPatchToExiting
-	// (via per-handle ExpirePatch) so each one runs its own exit ramp. Removal
-	// is deferred to Apply's end-of-pass sweep, same as for individual ExpirePatch
-	// calls. That way iteration order here is stable even if a future patch
-	// node's exit envelope ends up triggering side effects.
+	// The manager owns instances; public handles are optional and may have
+	// been collected. Share the same envelope rules without consulting handles.
 	for (UComposableCameraPatchInstance* Instance : ActivePatches)
 	{
 		if (!Instance)
@@ -518,7 +522,7 @@ void UComposableCameraPatchManager::ExpireAll(float ExitDurationOverride)
 		{
 			continue;
 		}
-		ExpirePatch(Instance->Handle.Get(), ExitDurationOverride);
+		ExpirePatchInstance(Instance, ExitDurationOverride);
 	}
 }
 

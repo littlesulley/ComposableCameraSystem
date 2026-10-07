@@ -35,6 +35,7 @@ void UComposableCameraMeshLayerToolSettings::NormalizeLayers()
 
 int32 UComposableCameraMeshLayerToolSettings::AddLayer()
 {
+	OnBeforeEdit.ExecuteIfBound();
 	const FScopedTransaction Transaction(NSLOCTEXT("MeshCamera", "AddLayer", "Add Mesh Camera Layer"));
 	Modify();
 	ActiveLayerIndex = Layers.AddDefaulted();
@@ -51,6 +52,7 @@ bool UComposableCameraMeshLayerToolSettings::RemoveActiveLayer()
 		return false;
 	}
 
+	OnBeforeEdit.ExecuteIfBound();
 	const FScopedTransaction Transaction(NSLOCTEXT("MeshCamera", "DeleteLayer", "Delete Mesh Camera Layer"));
 	Modify();
 	Layers.RemoveAt(ActiveLayerIndex);
@@ -73,6 +75,7 @@ bool UComposableCameraMeshLayerToolSettings::MoveActiveLayer(int32 Direction)
 		return false;
 	}
 
+	OnBeforeEdit.ExecuteIfBound();
 	const FScopedTransaction Transaction(NSLOCTEXT("MeshCamera", "MoveLayer", "Reorder Mesh Camera Layers"));
 	Modify();
 	Layers.Swap(ActiveLayerIndex, TargetIndex);
@@ -95,6 +98,7 @@ bool UComposableCameraMeshLayerToolSettings::SelectLayer(const FGuid& LayerId)
 
 	if (ActiveLayerIndex != LayerIndex)
 	{
+		OnBeforeEdit.ExecuteIfBound();
 		ActiveLayerIndex = LayerIndex;
 		OnToolSettingsChanged.ExecuteIfBound();
 	}
@@ -135,6 +139,7 @@ EComposableCameraMeshDrawTool UComposableCameraMeshLayerToolSettings::GetDrawToo
 void UComposableCameraMeshLayerToolSettings::SetToolMode(EComposableCameraMeshToolMode NewMode)
 {
 	if (GetToolMode() == NewMode) { return; }
+	OnBeforeEdit.ExecuteIfBound();
 	LastDrawTool = GetDrawTool();
 	switch (NewMode)
 	{
@@ -148,6 +153,7 @@ void UComposableCameraMeshLayerToolSettings::SetToolMode(EComposableCameraMeshTo
 void UComposableCameraMeshLayerToolSettings::SetDrawTool(EComposableCameraMeshDrawTool NewTool)
 {
 	if (NewTool == EComposableCameraMeshDrawTool::Select || NewTool == EComposableCameraMeshDrawTool::Erase || Tool == NewTool) { return; }
+	OnBeforeEdit.ExecuteIfBound();
 	LastDrawTool = NewTool;
 	Tool = NewTool;
 	OnToolSettingsChanged.ExecuteIfBound();
@@ -190,6 +196,12 @@ bool UComposableCameraMeshLayerToolSettings::IsToolPropertyVisible(FName Propert
 }
 
 #if WITH_EDITOR
+void UComposableCameraMeshLayerToolSettings::PreEditChange(FProperty* PropertyAboutToChange)
+{
+	if (!GIsTransacting) { OnBeforeEdit.ExecuteIfBound(); }
+	Super::PreEditChange(PropertyAboutToChange);
+}
+
 void UComposableCameraMeshLayerToolSettings::PostEditChangeProperty(
 	FPropertyChangedEvent& PropertyChangedEvent)
 {
@@ -232,7 +244,7 @@ void UComposableCameraMeshLayerSelection::PostEditChangeProperty(FPropertyChange
 {
 	Super::PostEditChangeProperty(Event);
 	if (GIsTransacting) { return; }
-	if (Event.ChangeType & EPropertyChangeType::Interactive) { return; }
+	bInteractiveChange = (Event.ChangeType & EPropertyChangeType::Interactive) != 0;
 	const FName Name = Event.MemberProperty ? Event.MemberProperty->GetFName() : Event.GetPropertyName();
 	if (Name == GET_MEMBER_NAME_CHECKED(UComposableCameraMeshLayerSelection, Layer))
 	{
@@ -242,4 +254,5 @@ void UComposableCameraMeshLayerSelection::PostEditChangeProperty(FPropertyChange
 	{
 		OnShapeEdited.ExecuteIfBound(Event);
 	}
+	bInteractiveChange = false;
 }

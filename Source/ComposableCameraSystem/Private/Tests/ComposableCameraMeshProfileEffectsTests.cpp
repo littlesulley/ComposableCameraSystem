@@ -18,6 +18,8 @@
 #include "Tests/ComposableCameraTestObjects.h"
 #include "Utils/ComposableCameraProjectSettings.h"
 #include "Engine/Engine.h"
+#include "Engine/AssetManager.h"
+#include "Engine/StreamableManager.h"
 #include "Engine/World.h"
 #include "Misc/AutomationTest.h"
 #include "Serialization/MemoryReader.h"
@@ -163,7 +165,6 @@ bool FComposableCameraMeshProfileDispatchTest::RunTest(const FString&)
 	UComposableCameraMeshWorldSubsystem::FPlayerLayerState& State = Subsystem->PlayerStates.Last();
 	State.PlayerController = PC;
 	State.CameraManager = PCM;
-	State.LastSeenFrame = MAX_uint64;
 
 	for (EComposableCameraMeshProfileType Type : {EComposableCameraMeshProfileType::CameraType,
 		EComposableCameraMeshProfileType::Modifier, EComposableCameraMeshProfileType::Action, EComposableCameraMeshProfileType::Patch})
@@ -236,6 +237,120 @@ bool FComposableCameraMeshProfileDispatchTest::RunTest(const FString&)
 		}
 	}
 	Subsystem->PlayerStates.Reset();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FComposableCameraMeshProfilePreloadTest,
+	"ComposableCameraSystem.MeshCamera.ProfilePreloadMembershipAndLifetime",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FComposableCameraMeshProfilePreloadTest::RunTest(const FString& /*Parameters*/)
+{
+	TGuardValue<TArray<FName>> Contexts(GetMutableDefault<UComposableCameraProjectSettings>()->ContextNames,
+		TArray<FName>{ TEXT("MeshPreloadTest") });
+	FMeshProfileTestWorld TestWorld;
+	APlayerController* PC = TestWorld.World->SpawnActor<APlayerController>();
+	AComposableCameraPlayerCameraManager* PCM = TestWorld.World->SpawnActor<AComposableCameraPlayerCameraManager>();
+	UComposableCameraMeshWorldSubsystem* Subsystem = TestWorld.World->GetSubsystem<UComposableCameraMeshWorldSubsystem>();
+	if (!TestTrue(TEXT("Preload test player and subsystem exist"), PC && PCM && Subsystem)) return false;
+	AComposableCameraCameraBase* Gameplay = PCM->ActivateNewCamera(AComposableCameraCameraBase::StaticClass(),
+		static_cast<UComposableCameraTransitionDataAsset*>(nullptr), FComposableCameraActivateParams{},
+		FOnCameraFinishConstructed{}, TEXT("MeshPreloadTest"));
+	if (!TestNotNull(TEXT("Preload test gameplay camera exists"), Gameplay)) return false;
+
+	TStrongObjectPtr<UComposableCameraMeshProfile> ActionProfile(NewObject<UComposableCameraMeshProfile>());
+	ActionProfile->Type = EComposableCameraMeshProfileType::Action;
+	UComposableCameraActionTypeAsset* ActionAsset = NewObject<UComposableCameraActionTypeAsset>();
+	ActionAsset->ActionTemplate = NewObject<UComposableCameraActionBase>(ActionAsset);
+	ActionAsset->ActionTemplate->ExpirationType = static_cast<uint8>(EComposableCameraActionExpirationType::Manual);
+	ActionProfile->Action.ActionAsset = ActionAsset;
+	// An inactive family must not initiate a request for this nonexistent asset.
+	ActionProfile->Camera.CameraType = TSoftObjectPtr<UComposableCameraTypeAsset>(
+		FSoftObjectPath(TEXT("/Game/CCS_Unselected_Preload_Test.CCS_Unselected_Preload_Test")));
+	TWeakObjectPtr<UComposableCameraActionTypeAsset> WeakActionAsset = ActionAsset;
+	TStrongObjectPtr<UComposableCameraMeshProfile> CameraProfile(NewObject<UComposableCameraMeshProfile>());
+	UComposableCameraTypeAsset* CameraAsset = NewObject<UComposableCameraTypeAsset>();
+	CameraAsset->NodeTemplates.Add(NewObject<UComposableCameraModifierTestNode>(CameraAsset));
+	CameraProfile->Camera.CameraType = CameraAsset;
+	TWeakObjectPtr<UComposableCameraTypeAsset> WeakCameraAsset = CameraAsset;
+	TArray<FComposableCameraMeshLayerDefinition> Definitions;
+	Definitions.SetNum(2);
+	Definitions[0].LayerId = FGuid::NewGuid();
+	Definitions[0].Profile = ActionProfile.Get();
+	Definitions[1].LayerId = FGuid::NewGuid();
+	Definitions[1].Profile = CameraProfile.Get();
+	AComposableCameraMeshSurfaceStorageActor* Storage = TestWorld.World->SpawnActor<AComposableCameraMeshSurfaceStorageActor>();
+	AComposableCameraMeshSurfaceStorageActor* OtherStorage = TestWorld.World->SpawnActor<AComposableCameraMeshSurfaceStorageActor>();
+	if (!TestTrue(TEXT("Preload storage actors exist"), Storage && OtherStorage)) return false;
+	Storage->SetAuthoringData(Definitions, FComposableCameraMeshSurfaceAuthoringData{});
+	OtherStorage->SetAuthoringData(Definitions, FComposableCameraMeshSurfaceAuthoringData{});
+	// This isolated world has no GameMode, so World::BeginPlay does not dispatch
+	// Actor BeginPlay. Exercise the storage's real registration lifecycle explicitly.
+	Storage->DispatchBeginPlay();
+	OtherStorage->DispatchBeginPlay();
+	if (!TestTrue(TEXT("Both storage actors have begun play"),
+		Storage->HasActorBegunPlay() && OtherStorage->HasActorBegunPlay())) return false;
+	if (!TestEqual(TEXT("BeginPlay registers both storage actors"), Subsystem->StorageActors.Num(), 2)) return false;
+	if (!TestEqual(TEXT("Registration preloads each shared Profile once"), Subsystem->ProfilePreloads.Num(), 2)) return false;
+	Storage->SetAuthoringData(Definitions, FComposableCameraMeshSurfaceAuthoringData{});
+	TestEqual(TEXT("Live rebuild does not duplicate storage registration"), Subsystem->StorageActors.Num(), 2);
+	TestEqual(TEXT("Live rebuild retains shared preloads"), Subsystem->ProfilePreloads.Num(), 2);
+	const auto& ActionPreload = Subsystem->EnsureProfilePreload(ActionProfile.Get());
+	if (!TestEqual(TEXT("Only selected Action family is requested"), ActionPreload.AssetPaths.Num(), 1)) return false;
+	TestTrue(TEXT("Selected family uses the Action path"),
+		ActionPreload.AssetPaths[0] == ActionProfile->Action.ActionAsset.ToSoftObjectPath());
+	CollectGarbage(RF_NoFlags);
+	if (!TestTrue(TEXT("Preloaded soft-referenced Action survives GC"), WeakActionAsset.IsValid())) return false;
+	if (!TestTrue(TEXT("Preloaded soft-referenced Camera survives GC"), WeakCameraAsset.IsValid())) return false;
+
+	// Hold the lower Camera family in an actual stalled streamable request.
+	// Its target is already resident; releasing the stall lets polling resolve
+	// it deterministically without needing a test package or blocking load.
+	auto& Pending = Subsystem->EnsureProfilePreload(CameraProfile.Get());
+	Pending.bResolved = false;
+	Pending.Handle = UAssetManager::GetStreamableManager().RequestAsyncLoad(
+		Pending.AssetPaths, FStreamableDelegate(), FStreamableManager::DefaultAsyncLoadPriority,
+		false, true, TEXT("CCS Mesh Preload Test"));
+	if (!TestTrue(TEXT("Stalled async request exists"), Pending.Handle.IsValid())) return false;
+	TestFalse(TEXT("Pending request has no actor-capturing completion delegate"), Pending.Handle->HasCompleteDelegate());
+	FComposableCameraMeshLayerQueryResults Current;
+	for (const auto& Definition : Definitions)
+	{
+		auto& Layer = Current.AddDefaulted_GetRef();
+		Layer.StorageActor = Storage;
+		Layer.LayerId = Definition.LayerId;
+		Layer.Profile = Definition.Profile.Get();
+	}
+	UComposableCameraMeshWorldSubsystem::FPlayerLayerState State;
+	Subsystem->UpdatePlayerLayers(State, PC, PCM, Current);
+	TestEqual(TEXT("Pending lower family delays the overlapping entry group"), State.ActiveLayers.Num(), 0);
+	TestTrue(TEXT("Gameplay camera remains visible while assets are pending"), PCM->GetRunningCamera() == Gameplay);
+	Subsystem->UpdatePlayerLayers(State, PC, PCM, TConstArrayView<FComposableCameraMeshLayerQueryResult>());
+	Pending.Handle->CancelHandle();
+	Pending.Handle.Reset();
+	Subsystem->UpdatePlayerLayers(State, PC, PCM, TConstArrayView<FComposableCameraMeshLayerQueryResult>());
+	TestEqual(TEXT("Leaving before readiness causes no late entry"), State.ActiveLayers.Num(), 0);
+	TestEqual(TEXT("Leaving before readiness creates no Action"), PCM->GetCameraActions().Num(), 0);
+	Subsystem->UpdatePlayerLayers(State, PC, PCM, Current);
+	if (!TestEqual(TEXT("Ready overlapping Profiles each enter once"), State.ActiveLayers.Num(), 2)) return false;
+	TestTrue(TEXT("Lower Camera family enters before top Action family"),
+		State.ActiveLayers[0].Profile.Get() == CameraProfile.Get()
+		&& State.ActiveLayers[1].Profile.Get() == ActionProfile.Get());
+	TestFalse(TEXT("Ready Camera family owns a temporary Context"), State.ActiveLayers[0].OwnedCameraContextName.IsNone());
+	TestTrue(TEXT("Ready Camera family activates a different camera"), PCM->GetRunningCamera() != Gameplay);
+	UComposableCameraActionBase* EnteredAction = State.ActiveLayers[1].ActionInstance.Get();
+	Subsystem->UpdatePlayerLayers(State, PC, PCM, Current);
+	TestTrue(TEXT("Ready polling does not recreate active effects"),
+		State.ActiveLayers[1].ActionInstance.Get() == EnteredAction && PCM->GetCameraActions().Num() == 1);
+	Subsystem->UpdatePlayerLayers(State, PC, PCM, TConstArrayView<FComposableCameraMeshLayerQueryResult>());
+	TestTrue(TEXT("Leaving ready Camera Profile resumes the original camera"), PCM->GetRunningCamera() == Gameplay);
+	TestEqual(TEXT("Leaving ready Action Profile removes its exact Action"), PCM->GetCameraActions().Num(), 0);
+	Subsystem->UnregisterStorageActor(Storage);
+	TestEqual(TEXT("Another registered document retains shared preloads"), Subsystem->ProfilePreloads.Num(), 2);
+	Subsystem->UnregisterStorageActor(OtherStorage);
+	TestEqual(TEXT("Last document unload releases preloads"), Subsystem->ProfilePreloads.Num(), 0);
+	CollectGarbage(RF_NoFlags);
+	TestFalse(TEXT("Unused soft-referenced Action can be collected"), WeakActionAsset.IsValid());
 	return true;
 }
 

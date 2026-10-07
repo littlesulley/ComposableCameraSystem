@@ -73,6 +73,8 @@ public:
 	UPROPERTY(EditAnywhere, NonTransactional, AdvancedDisplay, Category = "Drawing", meta = (ClampMin = "0.0", ClampMax = "1.0"))
 	double MinimumFloorNormalZ = 0.25;
 
+	/** Finish queued authoring work before options/Layer arrays or their transaction change. */
+	FSimpleDelegate OnBeforeEdit;
 	FSimpleDelegate OnLayerDataChanged;
 	FSimpleDelegate OnToolSettingsChanged;
 
@@ -91,6 +93,7 @@ public:
 	bool IsToolPropertyVisible(FName PropertyName) const;
 
 #if WITH_EDITOR
+	virtual void PreEditChange(FProperty* PropertyAboutToChange) override;
 	virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;
 #endif
 
@@ -125,6 +128,7 @@ public:
 	FSimpleDelegate OnBeforeEdit;
 	FSimpleDelegate OnLayerEdited;
 	FComposableCameraMeshSelectionChanged OnShapeEdited;
+	bool bInteractiveChange = false;
 
 	virtual void PreEditChange(FProperty* PropertyAboutToChange) override;
 	virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;

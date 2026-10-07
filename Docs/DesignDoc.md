@@ -1,6 +1,6 @@
 # ComposableCameraSystem Design
 
-Updated: 2026-10-05
+Updated: 2026-10-08
 
 This document describes the current runtime architecture of the UE 5.6
 ComposableCameraSystem plugin. It is intentionally compact. Implementation
@@ -422,6 +422,10 @@ Expiration channels:
 - Condition through `CanRemain`.
 - optional expire-on-camera-change flag.
 
+Bulk expiration operates on manager-owned Patch instances. Retaining the
+caller-facing handle is never required for context-wide cleanup. Individual and
+bulk expiration share duration-override and idempotent exit-envelope behavior.
+
 Sequencer patch overlays use a component-local path with stateless section
 envelopes. They still tick patch evaluators and blend in layer order.
 
@@ -576,24 +580,84 @@ transition tree.
 ## 15. Mesh Camera Layers
 
 Mesh camera behavior uses a Level-local painted surface document. It does not
-use collision volumes, floor-actor identity, or a persistent query StaticMesh.
+use collision volumes, source-floor identity, or a persistent query StaticMesh.
 
 ```text
 tool-authored local triangles
   -> hidden AComposableCameraMeshSurfaceStorageActor in current Level
   -> disposable runtime triangle data
-  -> UComposableCameraMeshWorldSubsystem downward query
-  -> every enabled layer on the nearest surface
-  -> one active scope per Layer
+  -> business supplies a ground FHitResult and explicitly calls Query or Update
+  -> short world-Z segment at GroundHit.ImpactPoint XY, bounded by +/- SurfaceTolerance
+  -> saved triangles/BVH provide each enabled Layer's own exact intersection
+  -> reject intersections outside the ground-height band; never search another floor
+  -> explicit Update owns one active scope per Layer for the supplied local player
   -> UComposableCameraMeshProfile per scope
        -> selected Type: CameraType / Modifier / Action / Patch
        -> exactly one effect family per Profile
 ```
 
-The storage actor is `NotPlaceable`, excluded from Scene Outliner, and created
-only by the tool. Its actor transform is the document anchor. A document saved
-inside a streamed Level or Level Instance therefore follows that source instead
-of baking world coordinates.
+The storage actor is NotPlaceable, excluded from Scene Outliner, and created only
+by the tool. Its actor transform anchors the document to its owning Level/Level
+Instance instead of baking world coordinates.
+
+Each Layer stores a TraceChannel displayed as Channel, default Visibility. Editor
+picking, projected Brush rings and Shape creation/reprojection use the owning
+Layer's channel. Query collision and floor-normal requirements still apply.
+Changing Channel affects later authoring, not saved heights. Old records without
+the field retain Visibility. Runtime ground comes from business code, independently
+of this authoring Channel and PIE's separate visualization fitting policy.
+
+UComposableCameraMeshWorldSubsystem is non-ticking. It never enumerates players,
+reads Pawn positions, discovers ground, or reconciles membership automatically.
+QueryMeshLayer / QueryMeshLayers only return data. Business supplies GroundHit and
+FComposableCameraMeshGroundQueryParams and decides when to UpdateMeshLayers for
+one local PlayerController or ClearMeshLayers when integration stops. Invalid/
+missed queries exit previous effects on Update. Stopping calls alone does not exit:
+call Clear. Owner EndPlay and document unload release ownership without polling.
+World teardown never reactivates ending cameras.
+
+QueryParams contains only SurfaceTolerance, default 5 world cm. GroundHit must be
+a non-penetrating blocking hit with a live component in the subsystem's world.
+Invalid/nonfinite ImpactPoint, negative/nonfinite tolerance, or an overflowing
+interval returns no Layers. Missing ground has no geometry-only fallback.
+Business owns walkability and hit freshness: ordinary Character Walking may use
+CurrentFloor.HitResult after checking IsWalkableFloor. Custom movement/NavWalking
+must provide their own ground. Capsule sweep Location is its center; ImpactPoint
+is the contact used here. Jump/disable policies remain business-owned.
+
+At ImpactPoint XY, a world-Z segment runs from ground Z plus tolerance to ground Z
+minus tolerance. Each document queries this entire segment. Each enabled Layer
+retains its own nearest exact triangle intersection from the upper endpoint and is
+independently checked against absolute ground-height tolerance. BVH/bounds prune
+candidates; actual triangle coverage is required. Zero tolerance requires an exact
+intersection at ground. Results retain Layer order and storage-actor-plus-Layer
+identity across instanced documents. SurfacePosition is the saved triangle point.
+VerticalDistance is absolute world-Z separation from GroundHit.ImpactPoint, not
+character distance or short-ray-origin distance. Low-level storage queries retain
+their ray-origin distance semantics.
+
+An unpainted upper floor supplies an upper GroundHit and cannot activate a lower
+painted floor outside the tolerance band. No SurfaceId/provenance fields are added;
+existing documents need no geometry migration and triangle memory is unchanged.
+This checks coverage and height, not source-object ownership. Large tolerances can
+merge close storeys; an incorrect/stale business hit or mismatched simple/render
+geometry can still produce incorrect membership.
+
+In non-shipping builds, CCS.MeshLayers.DebugNextQuery in the Game/PIE console arms
+one diagnostic for that world. Only the next business Query/Update consumes it;
+the command does not sample a Pawn or invoke the API. Reports distinguish invalid
+ground, penetration, expired/wrong-world components, invalid tolerance, missing
+documents, NoLayerOnGround and MatchedGround. Match lines retain actual saved
+intersections and signed SourceMinusGroundCm. Wide native document probes explain
+nearby heights only; another storey's debug sample cannot enter query results or
+repair registration. Invalid Update ownership is diagnosed before querying.
+Show Mesh Layers is independent and need not be enabled.
+
+The old world-position input, collision policy enum/fields and QueryParams struct
+are replaced by GroundHit and FComposableCameraMeshGroundQueryParams. Blueprint
+Query/Update and Make QueryParams nodes need refreshing/recreation and rewiring
+after a full IDE build and editor restart. Saved Layers, Profile assets, authoring
+Channel, geometry and manual Update/Clear ownership remain compatible.
 
 Profiles select one `EComposableCameraMeshProfileType`. Details displays only
 that family's asset and settings; other configurations stay serialized for
@@ -615,6 +679,16 @@ removes only its candidates; Modifier asset priority continues to resolve
 same-property conflicts inside the modifier manager; disjoint properties on
 the same node class compose.
 
+Storage registration preloads each enabled Layer's selected Profile family
+asynchronously. Requests and loaded assets are shared across documents using
+the same Profile and retained until the last registered document releases it.
+Layer entry uses resident assets only. If a newly entered Profile is still
+loading, entry waits and rechecks current membership on subsequent explicit Updates; no
+completion callback can activate an effect after the player has left. New
+overlapping Layers enter bottom-to-top even when their requests finish out of
+order. A completed failed load follows the existing one-time entry failure
+path. Pending entry owns no Context, Action, Patch, or Modifier candidates.
+
 Every Camera-bearing Layer pushes its own collision-free temporary Context.
 Its readable hint contains `Mesh`, Layer name, and Layer GUID. Entering a
 nested Camera Layer therefore suspends, rather than replaces, the outer
@@ -625,7 +699,7 @@ After an active pop, ModifierManager selection is recomputed without rebuilding
 the resumed camera, releasing removed candidates while preserving node state.
 The embedded row's authored `ContextName` is ignored and hidden for Mesh
 Profiles because ownership comes from Layer identity. Normal traversal follows
-Layer enter order. If several Layers first appear on one tick, the subsystem
+Layer enter order. If several Layers first appear on one Update, the subsystem
 enters bottom list rows first so the top row becomes the top Context.
 
 Each Camera Layer entry is transactional: the PCM captures the current source
@@ -660,8 +734,9 @@ continues in bounded batches on the editor thread; a worker resolves coverage on
 plain snapshots. New source and ready coverage install together in one creation
 transaction after revision validation. Existing edits cannot be overwritten by
 stale results. Pending fills are disposable, excluded from saved source, and
-Save waits for them to complete. Existing control/Details edits retain their
-synchronous projection transaction. Sampling and final runtime coverage are unchanged.
+Save waits for them to complete. Existing control/Details edits show disposable
+live fill and use the same budgeted final replacement task. Sampling and final
+runtime coverage are unchanged.
 Editor-only source retains Shape GUID, Layer GUID, controls, projection plane and
 sampling settings, plus per-triangle Shape ownership. Select moves regions or
 their controls; numeric Details edits replace only that Shape's projected mesh.
@@ -675,7 +750,22 @@ and visualization; dirty state compares against the last successful Save revisio
 Numeric property widgets remain alive throughout interactive dragging. Details
 rebuilding waits until the editor transaction finishes, preserving the release
 callback that closes it and keeping source Undo/Redo available.
-Save copies the document into the hidden actor and rebuilds cooked query data.
+Save copies the document into the hidden actor. It finishes accepted input and
+pending exact coverage before compacting unused source, preserving shared vertex
+indices and retained Shape ownership. No-op compaction keeps the authoring index.
+Cooked query data rebuilds only when source geometry or stable Layer row order
+changes, or when acceleration is missing. Name/Color/Profile/Channel and Shape
+control-only changes reuse it; enabled policy is read from current Layer data.
+Save reuses the current exact resolved coverage to bake version-1 preview polygons
+with stable Layer GUIDs; a cache miss resolves once and retains that result.
+Unchanged actor geometry/row/enabled policy retains its already stored preview
+after a no-allocation comparison with current exact coverage; invalid/stale caches
+cannot be kept merely because their version is 1.
+This disposable WITH_EDITORONLY_DATA cache is stripped from cooked packages.
+Show/Edit skip source clipping when it is valid; legacy/invalid data uses source
+resolution. Geometry/row/enabled policy changes clear it. Actor Undo restores transactional source/cache
+together. A transient content revision invalidates Show/PIE visual generations
+without whole-array comparisons per frame. Business Query/Update stays unchanged.
 The editor retains an independent, GC-tracked checkpoint of the normalized opening
 document and replaces it only after successful package Save. Discard restores that
 checkpoint in one Undo step, including Layers, geometry, retained Shape controls
@@ -698,21 +788,150 @@ The preview grid indexes affected regions; it does not define their outline.
 Boundary cells retain clipped source polygons, with repeat coverage merged and
 Layer priority resolved per covered point. Fully covered coplanar cells use a
 quad fast path. Editor and PIE meshes share these disposable patches, preserving
-the silhouette even when the spatial index coarsens. Serialized data is unchanged.
+the silhouette even when the spatial index coarsens. Runtime triangle serialization
+is unchanged; Save adds the disposable editor cache.
+
+Read-only Show and PIE visualization keep persistent local mesh buffers through engine
+DynamicMesh components on transient, source-Level-owned preview Actors.
+Completed documents retain bounded mesh chunks and a color material per chunk;
+moving the document updates only Actor transforms. Global preview caches retain weak
+references and destroy Actors before PIE scene teardown. These editor-only
+visuals have no collision or camera-evaluation role.
+Read-only editor overlays also appear in Game View (G). They are visible
+transient Actors excluded from PIE duplication, rather than editor-only or
+Hidden In Game Actors; those visibility flags suppress editor Game View too.
+Their one-sided GeomMaterial retains the old authoring renderer's disabled-depth
+policy. To preserve that renderer's disabled backface culling, the worker adds
+disconnected reverse faces only when the editor material is one-sided. Both
+windings keep identical positions; the 1024-triangle upload bound includes both.
+When Show has published geometry in an Editor or PIE world, its ordinary viewport
+families render Landscape at LOD 0 by default. Distance-dependent terrain morphing
+can otherwise hide fixed preview patches. This view-only policy leaves global
+LOD CVars, serialized Landscape settings, mesh heights and unrelated worlds intact;
+captures and asset previews are excluded. Turning Show off or destroying the last
+preview leaves later families' original LOD policy untouched. The user selected
+complete coverage over far-terrain draw cost; an editor CVar permits opting out.
+PIE uses a depth-tested, two-sided material so characters and other opaque
+geometry occlude the floor overlay. Before upload, a disposable, budgeted job
+fits cached vertices to nearby floor collision, including Visibility-blocking
+WorldDynamic/PhysicsBody floors and visible opaque/masked StaticMeshes that can
+ignore Visibility. After selecting the nearest eligible floor, it clears the
+highest rendered StaticMesh within 10 world cm above that floor. This prevents
+a nearly coincident slab from hiding Layers painted on underlying Landscape
+without unbounded lifts to upper storeys. The earlier 5 cm limit left the reported
+7.070 cm Landscape/slab separation buried despite full triangle submission.
+It excludes Pawns, changes only local Z
+and preserves Layer boundaries and authored/runtime data. Shared vertices within each batch reuse
+samples; unsupported vertices retain their source positions. Fitted triangle
+chunks become visible before the whole document finishes and remain persistent;
+there is no whole-document consolidation upload. Legacy runtime triangle/Layer snapshots
+are clipped on a background worker; no World, Profile or actor reference enters
+that worker. A bounded native cache reuses resolved local geometry across editor,
+PIE and repeated Show requests only when exact source/Layer snapshots match.
+Legacy uncached previews use the same global grid and resolve disjoint 32-by-32-cell tiles,
+starting near the captured view. Every tile resolves all competing Layers before
+immediate background publication; neither world waits for whole-document clipping.
+The first occupied tile emits a small 8-by-8-cell region before its remainder,
+with no duplicated cells or provisional colors.
+Distance affects ordering, never coverage. Legacy warmed tiles copy/publish individually.
+The saved editor cache instead exports one ready document without spatial clipping;
+component/floor-fitting publication retains its soft budgets.
+Unfinished editor builds cancel during PIE to avoid delaying the active World's
+queue, then restart on return; completed editor caches remain.
+PIE floor fitting remains world-specific. Editor previews also prepare native
+mesh chunks there and register within a soft 2 ms / 16-chunk safety budget.
+Core ticker advancement is independent of viewport motion, with explicit redraw
+on publication and following frames to cover deferred render-state changes.
+PIE prepares the projection hash capacity there,
+then fits and publishes bounded chunks on the game thread. Show activation and
+viewport Render never synchronously resolve the document. Discovery cannot spend
+the floor-fitting budget.
+Loaded documents share that budget through resumable round-robin scheduling,
+so fitting/publication of a large first document cannot monopolize other ready documents.
+Fitting and chunk publication keep independent scheduling positions.
+Completed meshes need no further floor queries. Teardown cancels pending jobs
+and unpublished chunks as well as Actors. Normal toggles never wait for workers;
+module unload drains Show's registry/pool and the owned two-thread Edit computation/
+retirement pool, then drains render commands before unloading code.
+
+Interactive Edit opens a resident display: an owned native job builds the authoring
+index first, validates saved exact polygons or resolves legacy source, then prepares
+one complete document with shared geometry and bounds. All document components
+install in one editor/scene update; no per-frame Tile cursor publishes the initial
+Edit load. The internal 32-cell regions partition later edits, like Modeling's
+render decomposition; they are not the initial-load schedule. Show/PIE retain their
+existing publication/floor-fitting budgets and the Show/Edit lifecycle is unchanged.
+
+Brush/Erase during opening retain that job. Input waits for its early native index,
+including empty source, then mutates source in FIFO order. A separate fixed-grid
+worker resolves complete touched regions from current source for prompt feedback,
+including old neighboring patches and Erase holes. The original base installation
+preserves every touched region instead of overwriting it with old geometry. Exact
+FIFO deltas wait for the original complete coverage cache, then continue from it;
+they never start a second full-source rebuild just because opening is unfinished.
+The final base index cannot replace the already incrementally edited early index.
+Undo/Discard/structural replacement and teardown cancel both opening jobs; canceled
+native storage retires off-thread. ResidentLoadingAndBrush covers this interleaving.
+
+Interactive Edit prepares complete affected render regions in the coverage worker.
+Prepared-preview jobs take at most eight waiting coverage inputs. Every exact
+coverage operation executes in order, but a region is assembled only after its
+last update in that owned batch; separate regions can publish earlier. Full
+rebuild batches publish their latest complete document. This removes obsolete
+display assembly while retaining progress through long held-stroke backlogs.
+Regional snapshots filter eligible triangles against complete dirty cells before
+allocating/copying source; coarse block membership alone does not require a copy.
+Native workers also prepare immutable vertex/index buffers and their bounds;
+publication retains existing geometry for exactly identical buffers/bounds.
+GPU capacity survives topology changes; growth recreates resources. Color changes
+update material parameters. Name/Profile/Channel reuse exact geometry; enabled/
+ordering changes invalidate coverage. Metadata revisions share immutable geometric
+checkpoints with separate exact colors, recorded after property transactions finish.
+Shape drags combine immediate planar feedback with budgeted temporary surface
+projection after the authoritative document display is ready. Separate footprints
+avoid processing the empty gap; complete edge-cell candidates retain neighbors.
+Neither temporary preview enters source, Undo
+or Save data; final release uses the budgeted exact Shape task. Consecutive pending
+strokes retain FIFO and separate Undo steps without flushing the next press.
+All stationary editor viewports redraw during progress. Initial shared bounds are
+computed by native workers; proxy vertex copying and resource initialization run on
+the render thread. Region-row cleanup uses direct keys instead of scanning all
+components per region. UObject snapshots, initial component creation, GPU upload,
+individual queries and legacy coverage/history misses still require profiling.
 
 Erase subtracts a bounded circular prism from the active Layer's triangles,
 interpolating fragment heights and preserving Shape ownership. Only cut triangles
-are replaced; shared/untouched vertices and Shape controls stay in place. Save
+are replaced; shared/untouched vertices and Shape controls stay in place. A safe
+brush-space disk inside the prism's 32-gon apothem, together with its depth bound,
+allows fully contained triangles to be removed without per-plane splitting;
+boundary triangles retain exact clipping. Empty indexed regions skip the extra
+native stroke rollback snapshot. Completed immutable coverage inputs may start
+and publish while the next source cut is unfinished; that partial source is never
+captured or inspected by the coverage worker. Source and mixed-operation FIFO,
+stroke Undo identity and historical checkpoint guards remain intact. Save
 compacts unreferenced vertices left by interactive cuts. A Shape retains
 affected erase stamps in document-local coordinates; rebuilding its controls
-reapplies these cuts at their authored locations. Delete removes the whole selected
-Shape. Neither operation affects triangles owned by other Layers. Shape metadata
+reapplies these cuts at their authored locations. Delete cancels queued replacements
+for the selected Shape identity, removes its source and publishes affected regions.
+Neither operation affects triangles owned by other Layers. Shape metadata
 is editor-only; runtime still queries the baked triangles with Layer indices.
 
 Authoring triangles and runtime triangles are separate serialized fields.
-Runtime data is always rebuilt from authoring data. The MVP performs a linear
-triangle-ray query; spatial acceleration and constrained simplification are
-replaceable bake optimizations.
+Runtime geometry derives from authoring data, retaining source vertex sharing
+through index remapping rather than expanding three vertices per triangle.
+The existing serialized field layout and exact triangle positions/order persist.
+Metadata updates with unchanged geometry/GUID rows reuse cooked geometry and BVH.
+A disposable local-space
+BVH is prepared at load, before BeginPlay registration, after source rebuilds,
+and after storage actor Undo/Redo. Query traverses bounding boxes before exact
+triangle tests, first finding the nearest surface and then collecting its
+tolerance-band Layers.
+BVH traversal uses preorder escape indices and allocates no traversal stack.
+Construction selects each median without fully sorting every subtree; cached
+triangle bounds and the triangle-ID tie-break preserve balanced partitions.
+Standalone data
+without an index retains linear query; geometry edits must explicitly rebuild
+the index. Constrained simplification remains a replaceable bake optimization.
 
 ## 16. Hard Invariants
 
@@ -736,6 +955,7 @@ replaceable bake optimizations.
 - Existing Modifier assets default to `ReactivateCamera`; in-place mutation is
   explicit opt-in.
 - Patch overlays run after tree evaluation.
+- Bulk Patch cleanup does not depend on public handle lifetime.
 - Graph assets are durable source. `EditorGraph` is transient.
 - Runtime data-block slot shape and byte bounds must both be valid.
 - Hot paths must not allocate without a clear reason.
@@ -749,6 +969,12 @@ replaceable bake optimizations.
   configuration cannot contribute effects.
 - Mesh Action/Patch cleanup uses exact owned instances, never class or asset
   identity; natural expiry never causes repeated entry.
+- Pending Mesh Profile loads must revalidate current membership before entry.
+- Mesh membership is caller-driven. Query never applies effects; only explicit
+  Update enters Layers. Valid business GroundHit anchors coverage and a bounded
+  height interval. Missing ground never searches lower painted floors. Every
+  returned Layer reports its own saved intersection; no SurfaceId is added.
+- Mesh query acceleration is disposable and never built inside a query.
 - Every Mesh Camera Layer owns a separate temporary Context. A Layer exit
   pops only that Context; lower Mesh and external gameplay Contexts remain
   intact.

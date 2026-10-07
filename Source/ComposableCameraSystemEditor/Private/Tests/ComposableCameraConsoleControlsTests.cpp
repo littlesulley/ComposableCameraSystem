@@ -141,4 +141,27 @@ bool FComposableCameraConsoleDispatchTest::RunTest(const FString& /*Parameters*/
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FComposableCameraMeshLayerPreviewDumpTest,
+	"ComposableCameraSystem.Editor.Debug.ConsoleControls.MeshLayerPreviewDump",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FComposableCameraMeshLayerPreviewDumpTest::RunTest(const FString& /*Parameters*/)
+{
+	const TArray<FComposableCameraConsoleControl> Controls = FComposableCameraConsoleControls::Discover();
+	const FComposableCameraConsoleControl* Control = Controls.FindByPredicate(
+		[](const FComposableCameraConsoleControl& Item)
+		{
+			return Item.Name == TEXT("CCS.Editor.MeshLayers.DumpPIEPreview");
+		});
+	if (!TestNotNull(TEXT("PIE preview diagnostic command is registered"), Control)) { return false; }
+	TestTrue(TEXT("Preview diagnostics belong to editor actions"),
+		Control->Kind == EComposableCameraConsoleControlKind::Command
+		&& Control->Group == EComposableCameraConsoleControlGroup::EditorCommands);
+	TestFalse(TEXT("Preview diagnostics inspect editor caches without a selected game world"), Control->bRequiresGameWorld);
+	FOutputDeviceNull Output;
+	TestTrue(TEXT("Preview diagnostic callback dispatches without a selected world"),
+		FComposableCameraConsoleControls::Execute(*Control, TEXT(""), nullptr, Output));
+	return true;
+}
+
 #endif

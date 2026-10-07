@@ -16,6 +16,7 @@
 #include "MeshCamera/ComposableCameraMeshLayerEdMode.h"
 #include "MeshCamera/ComposableCameraMeshLayerModeToolkit.h"
 #include "MeshCamera/ComposableCameraMeshLayerShapes.h"
+#include "MeshCamera/ComposableCameraMeshLayerAuthoringIndex.h"
 #include "MeshCamera/ComposableCameraMeshLayerToolSettings.h"
 #include "MeshCamera/ComposableCameraMeshSurfaceTypes.h"
 #include "MeshCamera/ComposableCameraMeshSurfaceStorageActor.h"
@@ -349,6 +350,109 @@ bool FComposableCameraMeshShapeProjectionBudgetTest::RunTest(const FString&)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FComposableCameraMeshShapeCurvatureTest,
+	"ComposableCameraSystem.Editor.MeshCamera.ShapeCurvatureAndSeams",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FComposableCameraMeshShapeCurvatureTest::RunTest(const FString&)
+{
+	using namespace UE::ComposableCamera::MeshEditor;
+	TArray<FVector2D> Outline;
+	BuildRectangleOutline(FVector2D::ZeroVector, FVector2D(100, 100), Outline);
+	const FGuid LayerId = FGuid::NewGuid();
+	auto Height = [](double X, double Y) { return 0.015 * X * X + 0.01 * Y * Y; };
+	FProjectedShapeBuild Build;
+	Build.Begin(Outline, 100.0, LayerId);
+	TSet<FVector2D> Queried;
+	int32 Queries = 0, Steps = 0;
+	bool bRepeatedQuery = false;
+	while (!Build.IsFinished() && Steps++ < 10000)
+	{
+		Queries = 0;
+		Build.Advance([&](const FVector2D& Point, FVector& Position)
+		{
+			++Queries; bRepeatedQuery |= Queried.Contains(Point); Queried.Add(Point);
+			Position = FVector(Point.X, Point.Y, Height(Point.X, Point.Y)); return true;
+		}, 3);
+		if (!TestTrue(TEXT("Adaptive refinement respects every resume's collision-query budget"), Queries <= 3)) { return false; }
+	}
+	if (!TestTrue(TEXT("Curved ground completes without dropping compatible leaves"),
+		Build.IsFinished() && Build.GetResult() == EShapeBuildResult::Success)) { return false; }
+	TestFalse(TEXT("Adaptive/shared-edge samples never repeat collision work"), bRepeatedQuery);
+	const auto Data = Build.TakeData();
+	TestTrue(TEXT("Curved ground conserves the complete rectangle footprint"),
+		Data.IsConsistent() && FMath::IsNearlyEqual(ShapeArea(Data), 10000.0, 0.01));
+	FComposableCameraMeshSurfaceRuntimeData Runtime;
+	Runtime.Vertices = Data.Vertices; Runtime.Indices = Data.Indices;
+	Runtime.TriangleLayerIndices.Init(0, Data.TriangleLayerIds.Num()); Runtime.RebuildSpatialIndex();
+	TArray<FComposableCameraMeshLayerDefinition> Layers;
+	Layers.AddDefaulted(); Layers[0].LayerId = LayerId;
+	for (int32 X = 5; X < 100; X += 10)
+	{
+		for (int32 Y = 5; Y < 100; Y += 10)
+		{
+			TArray<int32, TInlineAllocator<16>> Hits;
+			FVector Position; double Distance = 0.0;
+			if (!TestTrue(TEXT("Interior runtime probes find saved coverage at actual curved-ground height"),
+				Runtime.QueryLocalRayLayers(FVector(X, Y, Height(X, Y) + 2.0), -FVector::UpVector, 4.0, 4.0,
+					Layers, Hits, Position, Distance) && FMath::Abs(Position.Z - Height(X, Y)) <= 1.01)) { return false; }
+		}
+	}
+	// Every emitted edge vertex must agree with the opposite mesh side, including
+	// coarse/fine neighbors. A midpoint on a different-height chord forms a crack.
+	bool bCrack = false;
+	for (int32 Triangle = 0; Triangle < Data.Indices.Num() && !bCrack; Triangle += 3)
+	{
+		for (int32 Edge = 0; Edge < 3 && !bCrack; ++Edge)
+		{
+			const FVector A(Data.Vertices[Data.Indices[Triangle + Edge]]);
+			const FVector B(Data.Vertices[Data.Indices[Triangle + (Edge + 1) % 3]]);
+			const FVector2D AB(B.X - A.X, B.Y - A.Y);
+			if (AB.SizeSquared() <= 1.e-8) { continue; }
+			for (const FVector3f& Vertex : Data.Vertices)
+			{
+				const FVector P(Vertex);
+				const FVector2D AP(P.X - A.X, P.Y - A.Y);
+				const double T = FVector2D::DotProduct(AP, AB) / AB.SizeSquared();
+				if (T > 1.e-5 && T < 1.0 - 1.e-5 && FMath::Abs(AB.X * AP.Y - AB.Y * AP.X) <= 1.e-5
+					&& FMath::Abs(P.Z - FMath::Lerp(A.Z, B.Z, T)) > 1.e-3) { bCrack = true; break; }
+			}
+		}
+	}
+	TestFalse(TEXT("Curved coarse/fine boundaries contain no different-height T junctions"), bCrack);
+	FComposableCameraMeshSurfaceAuthoringData Scaled;
+	TestTrue(TEXT("Scaled-document error converts from world centimeters before refinement"),
+		BuildProjectedShape(Outline, 100.0, LayerId, [&](const FVector2D& Point, FVector& Position)
+		{
+			Position = FVector(Point.X, Point.Y, Height(Point.X, Point.Y)); return true;
+		}, Scaled, 16384, 0.25) == EShapeBuildResult::Success);
+	Runtime.Vertices = Scaled.Vertices; Runtime.Indices = Scaled.Indices;
+	Runtime.TriangleLayerIndices.Init(0, Scaled.TriangleLayerIds.Num()); Runtime.RebuildSpatialIndex();
+	for (int32 X = 15; X < 100; X += 20)
+	{
+		TArray<int32, TInlineAllocator<16>> Hits; FVector Position; double Distance = 0.0;
+		TestTrue(TEXT("Four-times scaled saved surface retains a one-world-centimeter fitting bound"),
+			Runtime.QueryLocalRayLayers(FVector(X, 45, Height(X, 45) + 0.5), -FVector::UpVector, 1.0, 1.0,
+				Layers, Hits, Position, Distance) && FMath::Abs(Position.Z - Height(X, 45)) * 4.0 <= 1.01);
+	}
+	FComposableCameraMeshSurfaceAuthoringData Preserved = Data;
+	TestTrue(TEXT("Bounded curved generation reports density failure"), BuildProjectedShape(Outline, 100.0, LayerId,
+		[&](const FVector2D& Point, FVector& Position) { Position = FVector(Point.X, Point.Y, Height(Point.X, Point.Y)); return true; }, Preserved, 4)
+		== EShapeBuildResult::TooComplex);
+	TestTrue(TEXT("Density failure preserves earlier source instead of publishing a partial mesh"), Preserved.Vertices == Data.Vertices && Preserved.Indices == Data.Indices);
+	FComposableCameraMeshSurfaceAuthoringData Partial;
+	TestTrue(TEXT("One unsupported interior strip refines a coarse leaf instead of discarding its entire supported neighborhood"),
+		BuildProjectedShape(Outline, 100.0, LayerId, [](const FVector2D& Point, FVector& Position)
+		{
+			Position = FVector(Point.X, Point.Y, 0.0);
+			return Point.X < 48.0 || Point.X > 52.0;
+		}, Partial) == EShapeBuildResult::PartialSurface);
+	TestTrue(TEXT("Both sides of a tiny real floor gap remain painted"),
+		ShapeCoversPoint(Partial, LayerId, FVector2D(40, 50)) && ShapeCoversPoint(Partial, LayerId, FVector2D(60, 50)));
+	TestFalse(TEXT("Refinement never fills the actual unsupported floor gap"), ShapeCoversPoint(Partial, LayerId, FVector2D(50, 50)));
+	return true;
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FComposableCameraMeshShapeCreationTest,
 	"ComposableCameraSystem.Editor.MeshCamera.ShapeCreationPreview",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
@@ -543,7 +647,9 @@ bool FComposableCameraMeshShapeEditingTest::RunTest(const FString&)
 	TestTrue(TEXT("Preview preserves committed Shape"), Mode.Settings->WorkingData.Shapes[0].ControlPoints[1].Equals(FVector2D(250.0, 250.0)));
 	Mode.InputKey(nullptr, nullptr, EKeys::Escape, IE_Pressed);
 	TestFalse(TEXT("Esc cancels edit drag"), Mode.bEditingShape);
+	TestTrue(TEXT("Existing Shape replacement queues before deletion"), Mode.QueueShapeCreation(Shape, nullptr));
 	Mode.DeleteSelectedShape();
+	TestFalse(TEXT("Delete cancels pending replacement so it cannot resurrect the Shape"), Mode.IsCreatingShapes());
 	TestFalse(TEXT("Deleting Shape removes its entire region"), ShapeCoversPoint(Mode.Settings->WorkingData, Shape.LayerId, FVector2D(240.0, 240.0)));
 	TestTrue(TEXT("Deleting Shape preserves other Layer geometry"), ShapeCoversPoint(Mode.Settings->WorkingData, OtherLayer, FVector2D(100.0, 100.0)));
 	Shape.ShapeId = FGuid::NewGuid(); Shape.Type = EComposableCameraMeshShapeType::Circle;
@@ -620,6 +726,64 @@ bool FComposableCameraMeshEraseBroadPhaseTest::RunTest(const FString&)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FComposableCameraMeshEraseInteriorTest,
+	"ComposableCameraSystem.Editor.MeshCamera.EraseInteriorFastPath",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FComposableCameraMeshEraseInteriorTest::RunTest(const FString&)
+{
+	using namespace UE::ComposableCamera::MeshEditor;
+	const FGuid Layer = FGuid::NewGuid(), OtherLayer = FGuid::NewGuid(), Owner = FGuid::NewGuid();
+	FComposableCameraMeshSurfaceAuthoringData Data;
+	auto AddTriangle = [&](const FVector& A, const FVector& B, const FVector& C, const FGuid& LayerId)
+	{
+		const int32 First = Data.Vertices.Num(); Data.Vertices.Append({FVector3f(A), FVector3f(B), FVector3f(C)});
+		Data.Indices.Append({First, First + 1, First + 2}); Data.TriangleLayerIds.Add(LayerId);
+		Data.TriangleShapeIds.Add(LayerId == Layer ? Owner : FGuid());
+	};
+	AddTriangle(FVector(-1, -1, -0.3), FVector(1, -1, -0.1), FVector(0, 1, 0.2), Layer);
+	const double Angle = UE_DOUBLE_PI / 32, Apothem = 10 * FMath::Cos(Angle);
+	const FVector Normal(FMath::Cos(Angle), FMath::Sin(Angle), 0), Tangent(-Normal.Y, Normal.X, 0);
+	// These vertices lie inside the radius-10 circle, but outside one face of the exact 32-gon.
+	AddTriangle(Normal * (Apothem + 0.02) - Tangent * 0.04, Normal * (Apothem + 0.04) + Tangent * 0.04,
+		Normal * (Apothem + 0.02) + Tangent * 0.04, Layer);
+	AddTriangle(Normal * (Apothem - 0.05) - Tangent * 0.2, Normal * (Apothem + 0.04) - Tangent * 0.2,
+		Normal * (Apothem + 0.04) + Tangent * 0.2, Layer);
+	AddTriangle(FVector(-1, -1, -20), FVector(1, -1, -20), FVector(0, 1, -20), OtherLayer);
+	auto& Shape = Data.Shapes.AddDefaulted_GetRef(); Shape.ShapeId = Owner; Shape.LayerId = Layer;
+	FComposableCameraMeshEraseStamp Stamp; Stamp.Radius = 10; Stamp.Depth = 1;
+	FEraseGeometryStats Stats; FBox2D Dirty(ForceInit);
+	TestTrue(TEXT("Erase removes safe interior and clips boundary"), EraseShapeGeometry(Data, Layer, Stamp, true, &Stats, &Dirty));
+	TestEqual(TEXT("Only the safely contained triangle skips plane splitting"), Stats.InteriorTriangles, 1);
+	TestFalse(TEXT("Interior coverage disappears"), ShapeCoversPoint(Data, Layer, FVector2D::ZeroVector));
+	const FVector OutsideCirclePolygon = Normal * (Apothem + 0.025);
+	TestTrue(TEXT("Circle-only containment cannot erase the polygon's outside sliver"), ShapeCoversPoint(Data, Layer,
+		FVector2D(OutsideCirclePolygon.X, OutsideCirclePolygon.Y)));
+	const FVector BoundaryOutside = Normal * (Apothem + 0.02), BoundaryInside = Normal * (Apothem - 0.02) - Tangent * 0.12;
+	TestTrue(TEXT("Boundary splitting keeps the exact outside part"), ShapeCoversPoint(Data, Layer, FVector2D(BoundaryOutside.X, BoundaryOutside.Y)));
+	TestFalse(TEXT("Boundary splitting removes the exact inside part"), ShapeCoversPoint(Data, Layer, FVector2D(BoundaryInside.X, BoundaryInside.Y)));
+	TestTrue(TEXT("Other Layer remains queryable with valid ownership and one retained mask"), Data.IsConsistent()
+		&& ShapeCoversPoint(Data, OtherLayer, FVector2D::ZeroVector) && Data.Shapes[0].Erasures.Num() == 1 && Dirty.bIsValid);
+	const auto Once = Data;
+	TestFalse(TEXT("Repeated identical mask does not retessellate retained fragments"), EraseShapeGeometry(Data, Layer, Stamp));
+	TestTrue(TEXT("Repeated cut preserves exact source and ownership"), Data.Vertices == Once.Vertices && Data.Indices == Once.Indices
+		&& Data.TriangleShapeIds == Once.TriangleShapeIds && Data.Shapes[0].Erasures.Num() == 1);
+
+	FComposableCameraMeshSurfaceAuthoringData Affine;
+	Affine.Vertices = {FVector3f(-1, -1, 0), FVector3f(1, -1, 0), FVector3f(0, 1, 0),
+		FVector3f(100, 100, 0), FVector3f(101, 100, 0), FVector3f(100, 101, 0)};
+	Affine.Indices = {0, 1, 2, 3, 4, 5}; Affine.TriangleLayerIds = {Layer, OtherLayer};
+	Stamp.AxisX = FVector(2, 0.4, 0.1); Stamp.AxisY = FVector(0.1, 0.7, 0.2); Stamp.AxisZ = FVector(0.3, 0.2, 1.3);
+	FMeshLayerAuthoringIndex Index; Index.Build(Affine);
+	TestTrue(TEXT("Conservative interior test supports scaled/sheared document axes"), EraseShapeGeometry(Affine, Layer, Stamp, false, &Stats, nullptr, &Index)
+		&& Stats.InteriorTriangles == 1 && Affine.Indices.Num() == 3 && Affine.TriangleLayerIds[0] == OtherLayer && Index.IsCurrent(Affine));
+	Stamp.Center = FVector(-1000, -1000, 0);
+	FEraseGeometryBuild Empty;
+	TestFalse(TEXT("Empty indexed candidates finish at Begin"), Empty.Begin(Affine, Layer, Stamp, true, &Index));
+	TestTrue(TEXT("Rejected empty operation has no mutation, work or changed bounds"), Empty.Advance(Affine, &Index)
+		&& !Empty.HasChanged() && !Empty.GetChangedBounds().bIsValid && Empty.GetStats().ConsideredTriangles == 0);
+	return true;
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FComposableCameraMeshErasePickingOrderTest,
 	"ComposableCameraSystem.Editor.MeshCamera.ErasePickingOrder",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
@@ -686,12 +850,12 @@ bool FComposableCameraMeshStrokeRefreshTest::RunTest(const FString&)
 	TestTrue(TEXT("Actual Erase stroke modifies its document"), Mode.PaintAtHover(nullptr));
 	TestFalse(TEXT("A stamp leaves the already updated visualization clean"), Mode.bVisualizationDirty);
 	TestTrue(TEXT("Stamp updates saved-revision dirty state immediately"), Mode.IsDirty());
-	const auto* CellsBeforeRelease = Mode.Visualization.Cells.GetData();
-	const int32 CellsBeforeReleaseCount = Mode.Visualization.Cells.Num();
+	const auto* CellsBeforeRelease = Mode.GetVisualization().Cells.GetData();
+	const int32 CellsBeforeReleaseCount = Mode.GetVisualization().Cells.Num();
 	TestTrue(TEXT("Mouse release completes the real stroke input path"), Mode.InputKey(nullptr, nullptr, EKeys::LeftMouseButton, IE_Released));
 	TestFalse(TEXT("Release retains already current coverage without a full rebuild"), Mode.bVisualizationDirty);
-	TestTrue(TEXT("Release keeps the coverage cache and its cells"), CellsBeforeRelease == Mode.Visualization.Cells.GetData()
-		&& CellsBeforeReleaseCount == Mode.Visualization.Cells.Num());
+	TestTrue(TEXT("Release keeps the coverage cache and its cells"), CellsBeforeRelease == Mode.GetVisualization().Cells.GetData()
+		&& CellsBeforeReleaseCount == Mode.GetVisualization().Cells.Num());
 	TestFalse(TEXT("Release closes its editor transaction"), GEditor->IsTransactionActive());
 	const auto BeforeCancel = Mode.Settings->WorkingData;
 	const FGuid BeforeCancelRevision = Mode.Settings->DocumentRevision;
@@ -784,6 +948,18 @@ bool FComposableCameraMeshDocumentUndoTest::RunTest(const FString&)
 		GEditor->RedoTransaction();
 		TestEqual(TEXT("Redo Details restores document owner"), Mode.Settings->Layers[Mode.Settings->ActiveLayerIndex].Name, FName(TEXT("UndoProxyName")));
 	}
+	const TSharedPtr<IPropertyHandle> ChannelHandle = LayerView.IsValid() ? LayerView->GetPropertyHandle()->GetChildHandle(TEXT("TraceChannel")) : nullptr;
+	if (TestTrue(TEXT("Actual Layer Details exposes Channel"), ChannelHandle.IsValid()))
+	{
+		TestTrue(TEXT("Details commits Layer Channel"), ChannelHandle->SetValue(static_cast<uint8>(ECC_Camera)) == FPropertyAccess::Success);
+		TestEqual(TEXT("Channel edit updates the document"), Mode.Settings->Layers[Mode.Settings->ActiveLayerIndex].TraceChannel.GetValue(), ECC_Camera);
+		GEditor->UndoTransaction();
+		TestEqual(TEXT("Undo Channel restores the visible proxy"), Mode.SelectionEditor->Layer.TraceChannel.GetValue(), ECC_Visibility);
+		GEditor->RedoTransaction();
+		TestTrue(TEXT("Redo Channel restores value without changing Layer identity"),
+			Mode.Settings->Layers[Mode.Settings->ActiveLayerIndex].TraceChannel == ECC_Camera
+			&& Mode.Settings->GetActiveLayerId() == Shape.LayerId);
+	}
 	// Select edits share this final geometry replacement path after collision validation.
 	FComposableCameraMeshAuthoredShape Edited = Mode.Settings->WorkingData.Shapes[0];
 	Edited.ControlPoints = {{50.0, 50.0}, {250.0, 250.0}};
@@ -837,6 +1013,7 @@ bool FComposableCameraMeshDiscardTest::RunTest(const FString&)
 	Mode.SelectionEditor = NewObject<UComposableCameraMeshLayerSelection>(GetTransientPackage(), NAME_None, RF_Transactional);
 	Mode.Settings->Layers.AddDefaulted(); Mode.Settings->NormalizeLayers(); Mode.Settings->TouchDocument();
 	Mode.Settings->Layers[0].Name = TEXT("OpeningLayer");
+	Mode.Settings->Layers[0].TraceChannel = ECC_Camera;
 	Mode.Settings->Layers[0].Profile = NewObject<UComposableCameraMeshProfile>();
 	Mode.CaptureSavedDocument();
 	const FGuid OpeningLayer = Mode.Settings->GetActiveLayerId();
@@ -856,12 +1033,14 @@ bool FComposableCameraMeshDiscardTest::RunTest(const FString&)
 		const FScopedTransaction Transaction(NSLOCTEXT("MeshDiscardTest", "EditLayer", "Edit Layer before Discard"));
 		Mode.Settings->Modify();
 		Mode.Settings->Layers[0].Name = TEXT("UnsavedLayer");
+		Mode.Settings->Layers[0].TraceChannel = ECC_Visibility;
 		Mode.Settings->Layers[0].DebugColor = FLinearColor::Red;
 		Mode.Settings->Layers[0].Profile = nullptr;
 		Mode.Settings->NotifyLayerDataChanged();
 	}
 	TestTrue(TEXT("Committed changes enable Discard"), Mode.CanDiscardWorkingData());
 	TestTrue(TEXT("Discard restores initial checkpoint before any Save"), Mode.DiscardWorkingData());
+	TestEqual(TEXT("Discard restores the checkpoint's Layer Channel"), Mode.Settings->Layers[0].TraceChannel.GetValue(), ECC_Camera);
 	TestTrue(TEXT("Discard restores Layer identity, properties and reflected asset reference"), Mode.Settings->Layers.Num() == 1
 		&& Mode.Settings->Layers[0].LayerId == OpeningLayer && Mode.Settings->Layers[0].Name == FName(TEXT("OpeningLayer"))
 		&& Mode.Settings->Layers[0].Profile == Mode.SavedDocument->Layers[0].Profile
@@ -1090,6 +1269,64 @@ bool FComposableCameraMeshSelectionDetailsRefreshTest::RunTest(const FString&)
 	State->Toolkit->RefreshSelectionDetails();
 	TestEqual(TEXT("Refresh stays deferred beyond the request call"), State->LayoutBuilds, PreviousBuilds);
 	ADD_LATENT_AUTOMATION_COMMAND(FMeshSelectionRefreshCompleteCommand(this, State, PreviousBuilds));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FComposableCameraMeshIndexedEraseEquivalenceTest,
+	"ComposableCameraSystem.Editor.MeshCamera.IndexedEraseEquivalence",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FComposableCameraMeshIndexedEraseEquivalenceTest::RunTest(const FString&)
+{
+	using namespace UE::ComposableCamera::MeshEditor;
+	const FGuid LayerId = FGuid::NewGuid(), ShapeId = FGuid::NewGuid();
+	TArray<FVector2D> Outline; BuildRectangleOutline(FVector2D::ZeroVector, FVector2D(200, 200), Outline);
+	FComposableCameraMeshSurfaceAuthoringData Near; BuildProjectedShape(Outline, 1000.0, LayerId, ProjectShapeSlope, Near);
+	FComposableCameraMeshSurfaceAuthoringData Indexed;
+	AppendShapeGeometry(Indexed, Near, ShapeId);
+	FComposableCameraMeshAuthoredShape Shape; Shape.ShapeId = ShapeId; Shape.LayerId = LayerId; Indexed.Shapes.Add(Shape);
+	for (int32 Copy = 0; Copy < 1024; ++Copy)
+	{
+		auto Far = Near;
+		for (auto& Vertex : Far.Vertices) { Vertex.X += 1000.0f + Copy * 250.0f; }
+		AppendShapeGeometry(Indexed, Far, FGuid());
+	}
+	auto Reference = Indexed;
+	FMeshLayerAuthoringIndex Index; Index.Build(Indexed);
+	FComposableCameraMeshEraseStamp Stamp;
+	Stamp.Radius = 25.0; Stamp.Depth = 100.0;
+	Stamp.AxisX = FVector(2.0, 0.35, 0.0); Stamp.AxisY = FVector(-0.2, 1.5, 0.0); Stamp.AxisZ = FVector(-0.1, -0.2, 1.0);
+	auto SameSource = [&]()
+	{
+		return Indexed.Vertices == Reference.Vertices && Indexed.Indices == Reference.Indices
+			&& Indexed.TriangleLayerIds == Reference.TriangleLayerIds && Indexed.TriangleShapeIds == Reference.TriangleShapeIds;
+	};
+	for (int32 Round = 0; Round < 6; ++Round)
+	{
+		const double X = Round == 0 ? 100.0 : 1100.0 + (Round - 1) * 250.0;
+		Stamp.Center = FVector(X, 100.0, 30.0);
+		FEraseGeometryStats Stats; FBox2D Changed(ForceInit), ReferenceChanged(ForceInit);
+		const bool bChanged = EraseShapeGeometry(Indexed, LayerId, Stamp, true, &Stats, &Changed, &Index);
+		const bool bReferenceChanged = EraseShapeGeometry(Reference, LayerId, Stamp, true, nullptr, &ReferenceChanged);
+		TestTrue(TEXT("Transformed-prism erase changes the fixture"), bChanged);
+		TestEqual(TEXT("Indexed and legacy erase agree on change status"), bChanged, bReferenceChanged);
+		TestTrue(TEXT("Indexed erasure preserves exact source order, vertices and ownership"), SameSource());
+		TestTrue(TEXT("Indexed dirty bounds equal exact removed-polygon bounds"), Changed.bIsValid == ReferenceChanged.bIsValid
+			&& (!Changed.bIsValid || (Changed.Min.Equals(ReferenceChanged.Min) && Changed.Max.Equals(ReferenceChanged.Max))));
+		TestTrue(TEXT("Erase considers nearby blocks rather than the entire document"), Stats.ConsideredTriangles < Indexed.TriangleLayerIds.Num() / 2);
+		TestTrue(TEXT("Every swap/tail fragment keeps the cached index current"), Index.IsCurrent(Indexed));
+	}
+	TestEqual(TEXT("Shape erasure masks are retained exactly"), Indexed.Shapes[0].Erasures.Num(), Reference.Shapes[0].Erasures.Num());
+	TestEqual(TEXT("Only the near owned Shape records its cut"), Indexed.Shapes[0].Erasures.Num(), 1);
+	Stamp.Center = FVector(100, 100, 30);
+	TestFalse(TEXT("Identical remembered Shape erase is still a no-op"), EraseShapeGeometry(Indexed, LayerId, Stamp, true, nullptr, nullptr, &Index));
+	TestFalse(TEXT("Reference remembers the same no-op"), EraseShapeGeometry(Reference, LayerId, Stamp, true));
+	TestTrue(TEXT("A remembered no-op keeps the source identical"), SameSource());
+	Stamp.Center = FVector::ZeroVector; Stamp.Radius = Stamp.Depth = 10000000.0;
+	TestTrue(TEXT("Indexed erasure can clear every source triangle"), EraseShapeGeometry(Indexed, LayerId, Stamp, true, nullptr, nullptr, &Index));
+	EraseShapeGeometry(Reference, LayerId, Stamp, true);
+	TestTrue(TEXT("Clearing geometry keeps original empty-document behavior"), SameSource() && Indexed.Vertices.IsEmpty()
+		&& Index.IsCurrent(Indexed));
 	return true;
 }
 
