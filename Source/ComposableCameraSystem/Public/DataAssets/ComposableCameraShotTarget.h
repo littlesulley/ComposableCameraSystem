@@ -129,6 +129,9 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraShotTarget
 	 */
 	UPROPERTY(Transient)
 	mutable TWeakObjectPtr<class UPrimitiveComponent> CachedBoundsMeshComponent;
+	/** Cache key includes None, so clearing an explicit component restores auto selection. */
+	UPROPERTY(Transient)
+	FName CachedBoundsSourceComponentName;
 
 	/**
 	 * Importance weight of this target's bounds in the FOV bounds-fit

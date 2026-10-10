@@ -117,6 +117,7 @@ void FShotAnchorIndexCustomization::CustomizeChildren(TSharedRef<IPropertyHandle
 				: TAttribute<EVisibility>(EVisibility::Visible);
 
 			StructBuilder.AddCustomRow(ChildHandle->GetPropertyDisplayName())
+				.PropertyHandleList({ChildHandle})
 				.Visibility(VisAttr)
 				.NameContent()
 				[ChildHandle->CreatePropertyNameWidget()]

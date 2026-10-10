@@ -116,14 +116,18 @@ FComposableCameraEditorStyle::FComposableCameraEditorStyle()
 	Set("ClassThumbnail.ComposableCameraTransitionDataAsset",
 		new IMAGE_BRUSH_SVG("Icons/ContentBrowser-ComposableCameraTransition", Icon64x64));
 
-	// Shot Asset - reusable framing preset.
-	// Visual: small camera + framing rectangle with rule-of-thirds grid + an
-	// anchor dot in teal-green accent matching the asset's Content Browser
-	// color (FColor(64, 192, 160) #40C0A0).
+	// Shot Editor: camera frame + composition anchor, shared by every launch entry
+	// and the reusable ShotAsset's Content Browser icon / thumbnail.
+	Set("ComposableCamera.ShotEditor",
+		new IMAGE_BRUSH_SVG("Icons/ComposableCamera-ShotEditor", Icon20x20));
+	Set("ComposableCamera.ShotEditor.Small",
+		new IMAGE_BRUSH_SVG("Icons/ComposableCamera-ShotEditor", Icon16x16));
+	Set("ComposableCamera.ShotEditor.Thumbnail",
+		new IMAGE_BRUSH_SVG("Icons/ComposableCamera-ShotEditor", Icon64x64));
 	Set("ClassIcon.ComposableCameraShotAsset",
-		new IMAGE_BRUSH_SVG("Icons/ContentBrowser-ComposableCameraShot", Icon16x16));
+		new IMAGE_BRUSH_SVG("Icons/ComposableCamera-ShotEditor", Icon16x16));
 	Set("ClassThumbnail.ComposableCameraShotAsset",
-		new IMAGE_BRUSH_SVG("Icons/ContentBrowser-ComposableCameraShot", Icon64x64));
+		new IMAGE_BRUSH_SVG("Icons/ComposableCamera-ShotEditor", Icon64x64));
 
 	// Global Tools submenu: camera operator, teal lens and orange exhaust.
 	Set("ComposableCamera.Tools",

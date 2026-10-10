@@ -1,6 +1,6 @@
 # ComposableCameraSystem Tech Notes
 
-Updated: 2026-10-08
+Updated: 2026-10-11
 
 Purpose: compact implementation reference. Keep this file current when code
 patterns, public APIs, hot-path rules, node catalogs, or gotchas change.
@@ -975,28 +975,396 @@ Runtime Previewer technique:
 - The observer camera is the normal `FEditorViewportClient` camera. It is not
   coupled to runtime camera data.
 
-Shot Editor quick-control technique:
+Shot Editor V1 authoring technique:
 
-- `SShotEditorRoot` keeps Quick controls in a collapsed-by-default strip as a
-  mirror of selected `FComposableCameraShot` fields, not a parallel data model.
-- Quick collapsed state and the viewport toolbar collapsed state are persisted
-  in `GEditorPerProjectIni` under `ComposableCameraSystem.ShotEditorLayout`;
-  defaults are Quick collapsed and viewport toolbar expanded.
-- Quick numeric widgets use a per-widget `TOptional<float>` drag cache. The
-  cache updates while editing; the Shot writes once on text commit or slider
-  release through `FScopedTransaction`, host `Modify()`, and
-  `PostEditChangeProperty(ValueSet)`.
-- Quick controls must resolve the active Shot property the same way the Details
-  bridge does: section inline shots post `InlineShot`, asset-reference override
-  shots post `ShotOverrides`, and ShotAsset / node hosts post `Shot`.
-- Do not fire per-tick `PostEditChangeProperty(Interactive)` from Quick
-  controls. Sequencer-backed shot sections can respawn preview actors during
-  those broadcasts.
+- `SShotEditorAuthoringPanel` and Advanced Details edit the same host Shot;
+  `FComposableCameraShotAuthoringSession` re-resolves reflected storage and
+  Section source modes. Its transient draft is retained through `FGCObject`.
+- Root constructs authoring pages and the native viewport once, then attaches
+  navigation and `SShotEditorPreviewLayout`. The layout derives from SSplitter:
+  two named slots, Authoring and Preview, use native horizontal allocation with
+  initial coefficients .4/.6 and minimum widths 420/280. Both use full available
+  height. Native splitter allocation handles narrow panes and user dragging.
+  Follow/Aim behavior, anchors/zones, Lens/Focus and Motion responses are attached
+  to their parameter panel's single retained Body. Template, destination/duration
+  and preset apply/restore controls are local widgets attached to their matching
+  authoring pages. No PreviewSidebar argument or detached PreviewBody remains.
+  Generated rows keep the whole-Shot property root and original NotifyHook;
+  native field-path tags allow tests to verify attachment in the real widget tree.
+  Scalar commits rebuild no container. Source/array changes refresh handles and
+  subject boxes while retaining pages. Navigation rejects edit/transaction gestures.
+- `ShotEditorStyle` retains native Background/Secondary chrome and shared
+  CameraNodeTitle accent. Group headers use muted neutral gray (.085, .09, .10
+  linear RGB), independent of the camera accent. Primary selected
+  navigation uses the full accent; SecondaryTabColor mixes 65% accent into native
+  Secondary gray. ActionStyle returns the native AppStyle Button style, using
+  its gray palette and standard hover/pressed/disabled feedback. Native unselected
+  subtabs and primary-row preview toggles keep their original palette.
+  Static brushes avoid per-frame
+  allocation. Tasks are 28 units high (14-unit icons, 9-point labels), Edit tabs
+  are 26 units high (9-point labels), native parameter rows are 24 units high.
+  Level Preview / Follow playhead are centered 104/112 x 24 buttons in reserved
+  AutoWidth slots at the navigation's right. Stable tags support layout tests.
+  Actions use an outer left-aligned box plus a fixed 156 x 24 inner box; a lone
+  WidthOverride under a Fill slot would still stretch the button. Compose /
+  Inspect / Preview copies native segmented-control shapes with themed states.
+- `SShotEditorPreviewLayout` uses native SSplitter arrangement and input, with no
+  custom height fractions, cached geometry probe or authoring-height reserve.
+  Keep its default Visible state: SelfHitTestInvisible would disable splitter
+  handle input. Skip arrangement when available width cannot fit the five-unit
+  divider or height is nonpositive, avoiding negative viewport extents during
+  tab restore. Native viewport pixels follow the camera-aspect frame; no SScaleBox
+  scaling, page reconstruction or source refresh occurs on resize.
+  AdaptivePreviewResize tests the production horizontal layout/frame hierarchy,
+  full-height columns, shrinking/growth, divider allocation, DPI, live aspect and
+  degenerate sizes. Invalidate(EInvalidateWidgetReason::Layout) and SlatePrepass
+  process live native SBox aspect attributes before test arrangement. Native
+  splitter origins round to logical pixels, so window-bound checks allow a
+  one-pixel remainder while image alignment to its own preview slot stays exact.
+  ParameterPageContents checks generated rows are attached to real authoring
+  panels and Create/Sequence/Presets configurations remain reachable.
+- `SShotEditorPreviewFrame` keeps SBox Fill alignment and reserves six-unit
+  padding before camera-aspect fitting. It right-aligns the outer bezel and
+  centers the actual image vertically. Native SBox fits its child after padding,
+  so adding chrome does not change the camera image ratio. HAlign_Right on the
+  fitting box itself can start from a zero-desired-size viewport and lose the fit.
+  OnPaint draws three nested dark/highlight rectangles around current arranged
+  image geometry, then paints the native image/overlays on higher layers. Use
+  ToPaintGeometry(size, layout transform), respecting the widget tint and enabled
+  state. One FSlateColorBrush lives with the widget; a one-slot FArrangedChildren
+  probe is reserved at construction and reset/reused during paint. No cached
+  last-frame geometry, brush/widget creation or source refresh occurs in paint.
+  Arrangement reuses the caller's child list and skips panes no larger than the
+  total bezel padding. SelfHitTestInvisible keeps the decoration out of mouse
+  input. Renderer and anchor hits use the inner viewport's native view extents.
+  CameraAspect and AdaptivePreviewResize check the image ratio, external bezel
+  clearance, right alignment, vertical centering, DPI and tiny pane behavior.
+- Subjects use native expandable whole-role areas and a full-width actor picker.
+  Component / pivot and the generated Pivot / Bounds / Preview groups occupy
+  vertical AutoHeight, HAlign_Fill slots with identical side padding, without
+  fixed-width boxes or half-width wrap calculations. Only the whole-role header
+  uses GroupHeader's gray fill/bold text. Lower groups keep SExpandableArea's
+  native ExpandableArea.Border and 4/2 header padding, with SubsectionHeader's
+  regular text in the same 24-unit wrapper as nested native struct/array rows.
+  Body borders stay transparent. Whole-role
+  and component expansion state lives in the authoring widget, keyed by page and
+  role/index, so structural refreshes preserve folding without serializing Shot
+  state. Native field-group folds remain in the parameter panel. The up/down
+  square actions and the final Swap actors A / B action are removed in both
+  Create and Edit; session reorder/swap operations remain available.
+  SubjectLayout checks real production widths at small/large sizes and folding
+  across refresh. Motion removes only its Aim response heading and two help
+  paragraphs, retaining all native speed/enabled fields. Actor drift
+  monitoring is populated once per source in Rebuild, not separately in Create
+  and Edit, preserving the no-refresh scalar path. Advanced owns one Details view.
+- `ComposableCamera.ShotEditor`, `.Small` and `.Thumbnail` brushes share
+  Resources/Content/Icons/ComposableCamera-ShotEditor.svg; class ShotAsset
+  icon/thumbnail and every existing editor launch entry use the same resource.
+- `SShotEditorParameterPanel` uses `IPropertyRowGenerator` with a non-owning
+  `FStructOnScope` over the full host Shot. It renders generated Placement/Aim
+  and Lens/Focus child nodes with `CreateNodeWidgets`, retaining native value
+  editors, edit conditions and array actions. Generator-instance customizations
+  for Placement, Aim, Lens, Focus and AnchorSpec construct all mode fields without
+  tree-level visibility bindings. The shared ShotDetailsVisibility predicates
+  control retained Slate wrappers instead, including ancestor mode conditions.
+  Global Details/Advanced customizations remain unchanged. The whole Shot
+  root is required: detached Placement/Aim structs break target-index pickers'
+  upward lookup of Targets. Every mode's child rows are constructed; there is no
+  Orbit-only field whitelist. Follow/Aim insert the Anchor group first, before
+  behavior and screen zones, using the same wrap layout and property widgets.
+  Lens & Focus covers all four focus modes, custom
+  anchors, FOV limits and the full aperture range. Native metadata is the only
+  numeric-range authority; the old semantic limits (aperture 0.5..32, response
+  0..30, manual focus <=100000) must not be reintroduced. Motion collects generated
+  Speed rows and enabled switches once, showing only currently used screen zones. It preserves
+  native edit conditions rather than duplicating scalar transaction code.
+  Vectors stay inline; structs/arrays expand.
+  Expanded paths persist in each retained parameter panel. Structural refresh
+  regenerates handles through SetStructure; OnRowsRefreshed defers widget rebuild.
+  Boolean/Enum/numeric edits never rebind the source or poll a layout key. Native
+  tree-level mode visibility would refresh PropertyRowGenerator rows, so simply
+  ignoring OnRowsRefreshed is unsafe: its previous nodes may be invalid. Real
+  source/array/external/history invalidation still regenerates handles. An empty
+  source stays idle until a real refresh event.
+  Authoring collection refresh passes RefreshSource(true): UE5.6
+  PropertyRowGenerator::SetStructure/PostSetObject rebuilds its tree synchronously,
+  allowing safe widget replacement in the same tick after transactions finish.
+  Keep deferred refresh for ordinary generator notifications and other callers.
+  Never preserve stale property handles merely to prevent visible flashing.
+  Visibility caches sibling Mode/Basis handles and ancestor conditions during
+  construction; querying it creates no handles, arrays or formatted strings.
+  A direct field's parent must be a matching FStructProperty: an array element
+  can report the array property's owner without being that struct's direct field.
+  The parent check preserves weighted-centroid entry visibility.
+  Root NotifyHook snapshots the real host and refreshes preview on Interactive,
+  but posts host ValueSet only on commit. PropertyEditor owns those transactions.
+  Navigation, structural refresh and playhead following also gate on
+  GEditor::IsTransactionActive, beyond the session's own gesture flag.
+- Custom basis/anchor index rows call `PropertyHandleList` when constructed.
+  UE5.6 DetailItemNode::CreatePropertyHandle otherwise cannot recover the
+  custom row's property identity, even though its picker edits the correct field.
+  This follows the PropertyEditor public tree API and the native value-widget
+  approach in GameplayCamerasEditor/Customizations/CameraParameterDetailsCustomizations.cpp.
+- Subject parameter panels locate an array element by `IPropertyHandleArray`
+  and `IPropertyRowGenerator::FindTreeNode`; array position, not the repeated
+  property name, identifies the correct target. All editable bounds and target
+  settings are rendered, with editor-preview metadata grouped separately.
+  Actor, ComponentName and BoneName remain semantic session controls so native
+  soft-reference editing cannot bypass Sequencer binding creation or selection
+  reset rules. BoundsContributionWeight stays a float rather than a 0/1 checkbox.
+  Transient caches and diagnostic custom rows have no authoring control.
+  Create and Edit keep separate retained subject panels, preserving expansion
+  while handles regenerate after reorder/source refresh. Subjects roots and action rows
+  are constructed once; SyncSubjects retains role cards, removes only excess tail
+  slots and appends missing cards. Actor/component controls continue reading the
+  current session/index. Native handles rebind immediately after collection
+  changes; whole-card/component folds and scroll containers survive. The fixed
+  28 x 24 native trash-icon button in each primary header calls the session removal
+  transaction and remains accessible while folded, with a Delete tooltip. Its
+  16-unit icon is centered with four-unit content padding and zero additional
+  normal/pressed style padding: SButton otherwise adds both padding sources.
+  SubjectDeleteIcon arranges real Create/Edit headers across folded/open states,
+  widths and DPI, checking complete intrinsic icon size, centering and containment.
+  SubjectCollection activates the real Add/Delete buttons, verifies widget identity
+  and same-tick rebinding,
+  writes through shifted native handles and checks history/empty-state behavior.
+  Automation records
+  paths/visibility when actual widgets are built, so an available-but-unrendered
+  field fails coverage. RetainedBooleanEnumRows writes real native handles,
+  ticks the editor generators, checks control identity across mode/Boolean
+  changes and checks Undo/Redo refresh. Native controls across all Edit sections use Root NotifyHook;
+  session transactions remain for semantic actor/component/bone/reorder actions.
+- Subject subsection headers use the shared SubsectionHeader SBox with
+  VAlign_Center. Native SExpandableArea already centers its arrow and header box,
+  but a minimum-height box with Fill alignment stretches the text geometry and
+  leaves its glyphs near the top. Center the text inside that box; keep its
+  intrinsic line height, symmetric padding and the existing native arrow.
+  SubjectHeaderAlignment arranges all four production groups in Create/Edit,
+  open/closed, at narrow/wide widths and 100/150/200 percent layout scales. It
+  checks both matching arrow/text centers and intrinsic text height, because
+  matching the center of a stretched text box alone can conceal this bug.
+- Subject removal runs in one session transaction. ShotAuthoring::RemoveTarget
+  remaps all three anchor TargetIndex fields and weighted memberships plus
+  BasisActorIndex/BasisSecondaryTargetIndex. Deleted direct references become
+  INDEX_NONE; surviving valid indices shift, keeping actor identities and weights.
+  Session removal prunes deleted/out-of-range Section overrides and shifts their
+  surviving indices without removing scene object bindings or modifying shared
+  presets. CanRemoveTarget checks source locks, array bounds and transaction
+  idle state. SubjectRemoval covers first/middle/last slots, all reference roles,
+  bindings on Inline/AssetReference sections, one-step history and rejected edits.
+- Viewport commits must go through `NotifyCommittedEdit` and the session's
+  `NotifyViewportValueCommit`, not broadcast the host event directly. The shared
+  native scalar path guards its outer ValueSet using `bNotifyingHost`, so the
+  session cannot classify its own release event as an external structural edit.
+  Wheel and reverse solve use SaveToTransactionBuffer just like anchor/roll
+  gestures; one undo snapshot, one release event, no OnObjectModified broadcast.
+  ViewportValueCommits exercises the real wheel and EndDrag callbacks, widget
+  identity/control counts, Undo and Edit/task guide selection.
+- Shot viewport modes are only Compose/Drag and Inspect/Free. The native mode
+  enum is transient and has no reflection or serialized representation. The
+  segmented control, HUD labels, keyboard shortcuts and input handling share
+  these two modes; key 3 is unhandled. CameraModes builds the real Root, verifies
+  its two native radio buttons/labels and exercises the remaining shortcuts.
+- Separate viewport authoring permissions from navigation: read-only Compose
+  consumes mouse events, while keyboard events keep the original
+  FEditorViewportClient routing. Inspect continues native mouse navigation, but
+  cannot bypass CanEdit to author Roll. Validate source lifetime/permissions
+  at StartRollDrag and ApplyRollDrag, not only InputKey. Process captured mouse
+  releases before permission guards; Tick closes writers after a source locks,
+  and host invalidation cancels transactions before dropping raw Shot access.
+  Preserve pre-lock edits as one transaction with the same scalar commit guard.
+  PreviewCompatibility tests production Roll/wheel input and Undo/Redo,
+  retained native rows, Inspect optics/pose separation, Reset, reverse solve,
+  locked section/read-only sequence writes and release after locking.
+  Do not synthesize unattached keyboard/native camera navigation through
+  Internal_InputKey: it constructs a scene view from real viewport geometry and
+  mode tools. Verify those paths and clipboard routing in an attached UE window.
+- `GetPreviewAspectRatio` reads live camera filmback/squeeze/crop or its spawnable
+  template, with native CineCamera defaults for detached sources. Root binds the
+  same ratio to SBox Min/MaxAspectRatio. Solver, bounds classification, anchor
+  projection and reverse solve use that canonical ratio. The renderer constrains
+  it locally regardless of the source camera's bConstrainAspectRatio. Pixel
+  conversion derives a current view rect via FViewport::CalculateViewExtents in
+  both scene modes, avoiding a stale previous-frame rectangle after resizing.
+  GetOutputCamera rejects inactive/out-of-range sources and template fallback;
+  reading template configuration must not activate a camera. CameraAspect tests
+  crop precedence, squeeze, portrait/square/wide SBox layout and invalid filmback.
+- UE5.6 `FNotifyHook` provides virtual callbacks without a virtual destructor.
+  A test adapter retaining non-trivial members declares its own virtual default
+  destructor (without `override`) to avoid MSVC C4265. PersistentParameterPages
+  asserts that destructor contract at compile time. The adapter remains
+  stack-owned; PropertyEditor receives only a borrowed notification pointer.
+- Subjects append controls sit outside the enabled existing-card list and before
+  the empty-state branch, so no-source/zero-target views can add their first slot.
+  `AppendTargets` creates a GC-tracked scratch source when needed, validates the
+  complete input batch and focused Sequencer bindings before starting a single
+  transaction, then creates/reuses bindings and appends prepared target records.
+  Existing target values, anchor membership and indices are left intact. Empty
+  slots need no open Sequencer; actor assignments do. Existing valid binding IDs
+  survive; stale overrides in newly occupied indices are removed so an empty
+  slot cannot inherit an unrelated actor. Binding creation failure reverts the
+  entire operation. Native/session gestures and read-only/locked hosts reject
+  append. No template application is implicit in these incremental actions.
+- Value updates and structure updates are distinct. Root NotifyHook delegates
+  native commits to `NotifyNativePropertyChange`: Interactive writes only request
+  preview; commit posts one outer host event under a scoped self-notification
+  guard. That forwarded event must not be mistaken for an external replacement.
+  Finalized/Snapshot transaction events request preview only; UndoRedo requests
+  a deferred handle refresh. External host changes and array operations remain
+  structural. Root rebinds the viewport only for an actual Shot/host change.
+  Other structural edits refresh Details and authoring handles after gestures.
+  Every parameter section retains all mode fields; shared Slate visibility
+  predicates and native enabled attributes update Boolean/Enum/numeric controls
+  in place. No layout key or mode-triggered source rebind remains.
+  View-only toggles do not dirty assets or create Undo entries. Source swaps end
+  viewport gestures against the previous host before rebinding.
+- Paused Section preview copies effective bindings into a reused editor buffer,
+  replaces only an existing component override's Shot value and zero-delta
+  evaluates the complete LS pipeline. Row, transition and alpha survive; the
+  operation cannot revive inactive sections. Pending edits while playing are
+  consumed by normal Sequencer evaluation. The gameplay evaluation DAG and
+  live-edit trial machinery remain independent.
+- Level preview uses `FEditorViewportClient::GetWorld` to render the real scene
+  and the native camera's `FMinimalViewInfo`. The Shot client enters game view
+  and applies `ShotViewportDisplay::ConfigurePreviewFlags` locally: no editor
+  primitives, collision, engine bounds or selection overlay. Only isolated
+  preview keeps the reference grid. Composition Canvas/PDI guides are independent
+  of these engine helpers; the diagnostic HUD starts off and remains opt-in. The same Follow mode and Aim mode-plus-selected-subtab predicates gate drawing,
+  stale hit-cache entries and drag writes; ignored screen controls are hidden. Letterboxed handle coordinates
+  use `FSceneView::UnscaledViewRect` size and origin. Isolated template proxies
+  retain actor root and captured relative mesh transform, keeping ACharacter
+  mesh offsets, bone pivots and actor basis distinct.
+- Canvas draws through a DPI-scaled base transform (`Engine/Private/UnrealClient.cpp`
+  and `UserInterface/Canvas.cpp` in UE5.6). Convert projected physical positions
+  to logical Canvas coordinates before drawing anchor/zone/projection guides;
+  convert their hit rectangles back to physical pixels for FSceneViewport input.
+  Zone padding uses render size divided by Canvas DPI. Drag normalization stays
+  in physical render coordinates. Do not scale a physical draw position twice.
+- `ShotViewportOverlay::OrbitLayout` and `HudLayout` arrange Canvas-space overlays
+  inside the current constrained camera rect. The AnchorOrbit globe belongs only
+  to Edit / Follow and Guides; it has latitude circles, longitude great circles,
+  a local-basis camera marker and a circular hit area. Recompute its layout at
+  input time so resizing cannot leave a stale hit rectangle. Drawing, start and
+  live-write predicates agree on task/subtab, placement mode, editability and
+  Compose mode. Read-only/Inspect globes are muted and non-interactive.
+  Native GetCursor returns grab/closed-grab only for an editable orbit control.
+- `StartHandleDrag` centralizes transaction setup for screen/zone/orbit controls.
+  Orbit saves LocalCameraDirection through the same snapshot/guarded commit path
+  as other viewport scalar gestures. Captured physical deltas divide by the
+  gesture's Canvas DPI, then change local yaw/pitch at .45 degrees per Slate unit.
+  Ctrl multiplies speed by .2, Shift by 5, both revert to 1. Yaw wraps, pitch
+  clamps to +/-89.5 to avoid the pole singularity. Distance and BasisFrame stay
+  authored. A motionless click cancels its transaction. Task/mode/source changes
+  stop stale writes; hide Guides ends a captured handle gesture. Distance-wheel
+  editing rejects an active handle/roll gesture rather than nesting an Undo
+  transaction and sending a premature scalar commit.
+- Follow/AnchorOrbit has no separate PDI orbit-center point. Keep its small
+  Canvas globe and native orbit/distance input; Subject-page pivot guides remain
+  independent. SubjectGizmos invokes production 3D Draw and subtracts native
+  viewport primitives, checking that SingleTarget/component/local-offset,
+  weighted and fixed anchors add no point in Compose or Inspect. It also confirms
+  the Canvas orbit-control predicate remains active on Follow.
+- Subject gizmos share `ResolvePivotTransform` with `ResolveWorldPoint`; the
+  unoffset frame has unit scale, preserving the existing quaternion-only Offset
+  convention. Component failure and bone/socket fallback are not duplicated in
+  drawing/input. `ShotSubjectGizmo::Resolve` derives the base, effective pivot,
+  Offset rotation and separate placement-heading quaternion. Create/Edit Subjects
+  supply one view-only session flag. PDI draws pivot/offset/heading and configured
+  bounds through foreground primitives; Canvas supplies Subject names, XYZ labels, RGB Offset
+  axes and six ManualExtent face handles. Foreground RGB axes follow the reference
+  pattern in GameplayCameras/Private/Debug/CameraDebugRenderer.cpp's
+  DrawCoordinateSystem, using this viewport's existing PDI/Canvas path.
+  Manual FOV/zero-weight boxes show gray only on subject pages; positive fit
+  contributors retain green/yellow diagnostics. Auto bounds refresh only the
+  editor's effective value cache, never authored/runtime data. No additional Shot
+  or soft-path copies are created for this draw pass. Other existing consumers
+  can still request independent effective-shot copies.
+  Axis projections/hit areas use physical constrained-camera pixels, converting
+  to Canvas coordinates only for paint. A 36-Slate-unit Offset triad scales with
+  camera depth/DPI. Gesture-start pixels-per-world-unit remain fixed while the
+  solver camera follows the subject, preventing projection feedback. Incremental
+  mouse deltas project onto that axis, with Ctrl .2 / Shift 5 multipliers. Offset
+  writes its authored component; face sign adjusts one nonnegative world-aligned
+  half-extent. Both box faces resize symmetrically because the runtime format is
+  center + half-extent, not independent min/max. Auto bounds cannot be dragged.
+  Weak actor/mesh refs, names, flags/transforms, authored values, image rect and subject count
+  guard stale handles without copying soft-path strings. Hit-test/start/live-write
+  agree on page, source identity, shape, editability and Compose state; unresolved
+  or camera-facing axes cannot write. Resize/hide/swap/invalid host closes a gesture.
+  Visible effective pivots carry only the Subject name, using the parameter-page
+  A/B/numbered roles. Numbered names use a fixed stack buffer, without adding
+  per-frame FString formatting. Pivot/bone, offset-space and weight summaries
+  remain omitted. Subject/axis label positions and maximum widths stay inside
+  the camera image.
+  Hit capacity reserves 19 + 9 per subject at bind/count changes; paint does not
+  grow arrays. Numeric labels use stack buffers. Canvas/PDI retain their native
+  batching allocations. SubjectGizmos tests production PDI output and actual
+  transaction/hit/write paths, half-extent signs/floor, local/world semantics,
+  no-refresh/no-op commits, history, stale indices/resize and DPI math. PivotTransform
+  tests actor/component/socket frames and existing point-resolution semantics.
+- HUD uses structured Camera / Composition cards with alternating rows, aligned
+  labels/values and resolution state colors. HudLayout takes only the actual
+  camera image: Camera and Composition always stack at the same left edge with
+  an eight-unit upper-left inset and a scaled eight-unit inter-card gap. A uniform
+  scale of 0.85 * min(width/1280, height/720) applies to rectangles,
+  headers, row heights, padding, the inter-card gap and Canvas text; small images
+  additionally clamp the 348 x 362 base stack to remaining width/height and the
+  possible bottom-left Orbit footprint. That footprint is reserved regardless
+  of Guides state, keeping HUD geometry stable during guide/task switching. Camera retains
+  eight rows and Composition nine; Rows tolerates scaled-boundary roundoff.
+  The HUD no longer moves beside the orbit globe, wraps, or drops lower rows.
+  Task/guide state cannot affect its geometry. No bottom plain-text strip remains. Fixed stack
+  TCHAR buffers and UE5.6 `FCanvasTextStringViewItem` avoid allocating FString/FText
+  for per-frame numeric formatting; `Canvas.DrawItem` consumes each view before
+  its buffer changes. Values can shrink further to fit their scaled column. Canvas
+  rendering still owns its normal internal batches/glyph resources. Geometry
+  uses fixed loops without temporary point arrays, and CachedHandles reserves
+  all 19 possible controls once in the viewport constructor.
+- `EnsureEffectiveShotCache` keeps resolved Shot data in the reused per-frame
+  buffer. HUD borrows that read-only value, avoiding an extra Targets-array copy.
+  `BuildEffectiveShotForPreview` keeps its existing independent-copy contract
+  for solver and other consumers that need mutable bounds caches.
+  ShotEditor.OrbitControl exercises production start/move/release callbacks,
+  solver basis/radius, one-step Undo, scalar notifications and retained controls,
+  wheel exclusion, mode/task selection and locked/read-only sources.
+  ShotEditor.PreviewOverlayLayout covers yaw wrap/pole clamps, DPI, circular
+  hit areas, fixed upper-left positioning, proportional shrink/growth, complete
+  row coverage, vertical card order/gap, card/orbit non-overlap down to the
+  minimum Orbit height, and degenerate camera geometry.
+- Named target components restrict pivot/bone/basis/bounds consistently. The
+  bounds cache key includes ComponentName, even None; source-mesh proxy caches
+  include component identity. Component walks avoid temporary component arrays.
+- Templates derive two-person yaw from a world-up A->B axis. Reorder applies
+  the same index permutation to every anchor, centroid entry, basis index and
+  Section binding. Mirror also exchanges asymmetric left/right zone padding.
+- Sequence authoring preflights conflicts, then owns one transaction for actor,
+  bindings, tracks, sections, spawn coverage and cuts. Failure ends and undoes
+  that transaction: `FScopedTransaction::Cancel` alone does not revert writes.
+  New cameras have no competing Transform track; existing camera tracks are
+  preserved. Spawn Track ObjectId is set explicitly. Additional spawn coverage
+  uses a higher-priority true section in only the requested interval; existing
+  keys/ranges survive. This follows UE5.6 MovieSceneTrack's default high-pass
+  per-row population and MovieSceneSpawnTrack's multiple-section support.
+- Subject binding preflight preserves Spawnable annotations as full relative
+  IDs within this Sequencer hierarchy. A foreign player's spawned instance is
+  refused rather than persisted as a level Possessable. Binding failures revert
+  their own transaction; subject actions reject an already-running gesture.
+- Native `CreateAssetWithDialog` captures reusable Shot presets; Section edits
+  and preset restore never mutate a shared referenced asset. Preview mesh and
+  transforms are editor-only; cooked evaluation still uses actor bindings.
+- `ComposableCameraShotAuthoringRuntimeTests.cpp` and
+  `ComposableCameraShotAuthoringTests.cpp` cover pair basis, component cache
+  recovery, live write/one-gesture Undo, presets, template idempotence, index
+  remapping, spawn extension, cut preflight and active overlap preview.
+  Source checks do not replace IDE compilation or Slate/Sequencer smoke tests.
+  `ComposableCameraShotParameterPanelTests.cpp` checks actual generated Follow
+  rows across all placement modes/bases, Aim rows across both aim modes,
+  hidden-value preservation and source clear/rebind.
 
 Shot Editor status bar technique:
 
 - `SShotEditorRoot::TrySetMode` classifies mode requests through
-  `Widgets/ComposableCameraShotEditorModeSwitchUtils.h`; Free -> Drag / Lock
+  `Widgets/ComposableCameraShotEditorModeSwitchUtils.h`; Free -> Drag
   does not apply immediately.
 - `Widgets/ComposableCameraShotEditorStatusBarUtils.h` keeps status-bar
   priority and action mapping pure and testable. Clean active shots hide the
@@ -1345,11 +1713,19 @@ Rules:
   add/remove/reorder relocates or replaces that element. Clear the structure
   Details view before mutation, then bind a fresh scope afterward.
 - Forward declarations must use the same class-key as existing UE/project
-  declarations. In particular, declare `FSpawnTabArgs` as `class`; MSVC C4099
+  declarations. In particular, declare `FSpawnTabArgs` and
+  `FTransactionObjectEvent` as `class`; MSVC C4099
   becomes a build failure when warnings are treated as errors.
 - Lambdas returning a typed index in one branch and `INDEX_NONE` in another
   need an explicit `-> int32` return type. `INDEX_NONE` is an anonymous-enum
   sentinel, so implicit deduction fails with MSVC C3487.
+- `Editor.h` / `EditorEngine.h` only forward-declare `USelection`. Include
+  UnrealEd's `Selection.h` directly where calling selection methods such as
+  `GEditor->GetSelectedActors()->Num()`. UE5.6's `Engine/Selection.h` is a
+  compatibility adapter, not the defining header. An incomplete selection type
+  inside a Slate predicate causes C2027 and a downstream C2664 lambda-conversion
+  error; fix type completeness before changing lambda signatures. Do not rely
+  on another unity translation unit to supply this include.
 - Do not mix `TObjectPtr<T>` and raw `T*` in a conditional expression. Call
   `.Get()` first, or use explicit branches when returning `TSubclassOf<T>` from
   a `UClass*`. In UE 5.6, include `PropertyHandle.h` for `IPropertyHandle`.

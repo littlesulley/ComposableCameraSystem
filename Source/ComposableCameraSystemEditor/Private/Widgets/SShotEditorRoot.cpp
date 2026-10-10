@@ -7,6 +7,15 @@
 #include "DataAssets/ComposableCameraTypeAsset.h"
 #include "Editor.h"
 #include "Editors/ComposableCameraShotEditor.h"
+#include "Editors/ComposableCameraShotAuthoringSession.h"
+#include "Widgets/SShotEditorAuthoringPanel.h"
+#include "Widgets/ComposableCameraShotEditorStyle.h"
+#include "Widgets/SShotEditorPreviewFrame.h"
+#include "Widgets/SShotEditorPreviewLayout.h"
+#include "ISequencer.h"
+#include "MovieScene/MovieSceneComposableCameraShotTrack.h"
+#include "Sections/MovieSceneCameraCutSection.h"
+#include "Tracks/MovieSceneCameraCutTrack.h"
 #include "Editors/ComposableCameraShotEditorHistory.h"
 #include "FileHelpers.h"
 #include "Framework/Application/SlateApplication.h"
@@ -24,7 +33,6 @@
 #include "Nodes/ComposableCameraCameraNodeBase.h"
 #include "Nodes/ComposableCameraCompositionFramingNode.h"
 #include "PropertyEditorModule.h"
-#include "ScopedTransaction.h"
 #include "UObject/Package.h"
 #include "UObject/StructOnScope.h"
 #include "UObject/UObjectGlobals.h"
@@ -38,14 +46,11 @@
 #include "Widgets/Input/SButton.h"
 #include "Widgets/Input/SCheckBox.h"
 #include "Widgets/Input/SComboButton.h"
-#include "Widgets/Input/SNumericEntryBox.h"
 #include "Widgets/Input/SSearchBox.h"
 #include "Widgets/Input/SSegmentedControl.h"
 #include "Widgets/Layout/SBorder.h"
 #include "Widgets/Layout/SBox.h"
-#include "Widgets/Layout/SExpandableArea.h"
 #include "Widgets/SOverlay.h"
-#include "Widgets/Layout/SScrollBox.h"
 #include "Widgets/Layout/SSplitter.h"
 #include "Widgets/SBoxPanel.h"
 #include "Widgets/SShotEditorViewport.h"
@@ -59,16 +64,16 @@ namespace
 		TEXT("ComposableCameraSystem.ShotEditorLayout");
 	constexpr const TCHAR* kViewportToolbarCollapsedKey =
 		TEXT("ViewportToolbarCollapsed");
-	constexpr const TCHAR* kQuickControlsCollapsedKey =
-		TEXT("QuickControlsCollapsed");
 }
 
 void SShotEditorRoot::Construct(const FArguments& /*InArgs*/)
 {
+	AuthoringSession = MakeShared<FComposableCameraShotAuthoringSession>();
+	AuthoringSession->OnChanged = [this](bool bStructural) { bAuthoringRefreshPending |= bStructural; };
 	// Build the structure details view BEFORE the Slate tree - its widget
-	// becomes the right-pane content. NotifyHook = this widget so each
+	// becomes the Advanced page content. NotifyHook = this widget so each
 	// property edit on the Shot routes through our NotifyPreChange /
-	// NotifyPostChange to the host UObject (Modify + PostEditChangeProperty).
+	// NotifyPostChange to the host UObject (transaction snapshot + guarded commit).
 	{
 		FPropertyEditorModule& PropertyModule =
 			FModuleManager::LoadModuleChecked<FPropertyEditorModule>("PropertyEditor");
@@ -92,6 +97,8 @@ void SShotEditorRoot::Construct(const FArguments& /*InArgs*/)
 	}
 
 	LoadPersistedLayoutState();
+	const TSharedRef<SWidget> AuthoringPane = BuildDetailsPane();
+	const TSharedRef<SWidget> PreviewPane = BuildViewportPane();
 
 	ChildSlot
 	[SNew(SVerticalBox)
@@ -100,31 +107,35 @@ void SShotEditorRoot::Construct(const FArguments& /*InArgs*/)
 		// recents, and the viewport mode selector in one row.
 		+ SVerticalBox::Slot()
 		.AutoHeight()
-		.Padding(4.f, 2.f)
+		.Padding(8.f, 6.f, 8.f, 4.f)
 		[BuildHeaderArea()]
 
-		// Body: 2-region horizontal splitter (Viewport / Details). Shot
-		// navigation lives in the top bar's "Shots" dropdown so the viewport
-		// keeps the space formerly used by the left outliner.
+		+ SVerticalBox::Slot()
+		.AutoHeight()
+		.Padding(8.f, 0.f, 8.f, 8.f)
+		[AuthoringPanel->BuildNavigation()]
+
+		// Parameters and preview share the full remaining height; divider adjusts widths.
 		+ SVerticalBox::Slot()
 		.FillHeight(1.f)
-		.Padding(2.f)
-		[SNew(SSplitter)
-			.Orientation(Orient_Horizontal)
+		.Padding(8.f, 0.f, 8.f, 8.f)
+		[SNew(SShotEditorPreviewLayout)
+			.Authoring()[AuthoringPane]
+			.Preview()[PreviewPane]]];
+	Viewport->SetAuthoringSession(AuthoringSession);
+}
 
-			+ SSplitter::Slot()
-			.Value(0.72f) // Viewport - primary authoring surface
-			[BuildViewportPane()]
-
-			+ SSplitter::Slot()
-			.Value(0.28f) // Details - moderate width for property editor
-			[BuildDetailsPane()]]];
+SShotEditorRoot::~SShotEditorRoot()
+{
+	AuthoringSession->OnChanged = nullptr;
+	AuthoringSession->EndEdit();
 }
 
 void SShotEditorRoot::SetActiveShot(FComposableCameraShot* Shot, UObject* HostObject)
 {
-	ActiveShot = Shot;
-	ActiveHost = HostObject;
+	AuthoringSession->Bind(Shot, HostObject);
+	ActiveShot = AuthoringSession->GetShot();
+	ActiveHost = AuthoringSession->GetHost();
 	OnActiveShotChanged();
 
 	// Push the new context onto the in-memory recents list. Skipped when no
@@ -141,18 +152,67 @@ void SShotEditorRoot::Tick(const FGeometry& AllottedGeometry, const double InCur
 {
 	SCompoundWidget::Tick(AllottedGeometry, InCurrentTime, InDeltaTime);
 
-	// Liveness guard: if the host UObject went away (asset closed, GC swept),
-	// drop the raw Shot pointer to avoid dangling-pointer reads in subsequent
-	// frames + refresh the header label so the user sees the disconnected state.
-	if (ActiveShot && !ActiveHost.IsValid())
+	FollowSequencerPlayhead();
+	FComposableCameraShot* ResolvedShot = AuthoringSession->GetShot();
+	if (ActiveShot != ResolvedShot || ActiveHost.Get() != AuthoringSession->GetHost())
 	{
-		ActiveShot = nullptr;
+		AuthoringSession->EndEdit();
+		ActiveShot = ResolvedShot;
+		ActiveHost = AuthoringSession->GetHost();
+		bAuthoringRefreshPending = false;
 		OnActiveShotChanged();
 	}
+	else if (bAuthoringRefreshPending && !AuthoringSession->IsEditing() && !Viewport->IsEditingGesture()
+		&& (!GEditor || !GEditor->IsTransactionActive()))
+	{
+		bAuthoringRefreshPending = false;
+		RefreshDetailsView();
+		AuthoringPanel->Refresh();
+	}
+	AuthoringSession->Tick();
+}
+
+void SShotEditorRoot::FollowSequencerPlayhead()
+{
+	if (!AuthoringSession->bFollowPlayhead || AuthoringSession->IsEditing() || Viewport->IsEditingGesture()
+		|| (GEditor && GEditor->IsTransactionActive())
+		|| bHasPendingFreeExitMode || Viewport->GetMode() == EShotEditorMode::Free) return;
+	TSharedPtr<ISequencer> Sequencer = AuthoringSession->GetSequencer();
+	UMovieSceneSequence* Sequence = AuthoringSession->GetSequence();
+	if (!Sequencer || !Sequence || Sequencer->GetFocusedMovieSceneSequence() != Sequence) return;
+	UMovieScene* Scene = Sequence->GetMovieScene();
+	const FFrameNumber Time = Sequencer->GetLocalTime().Time.FloorToFrame();
+	FGuid CameraGuid;
+	if (const UMovieSceneCameraCutTrack* Cuts = Cast<UMovieSceneCameraCutTrack>(Scene->GetCameraCutTrack()))
+		for (const UMovieSceneSection* Section : Cuts->GetAllSections())
+			if (Section->IsActive() && Section->GetRange().Contains(Time))
+				if (const auto* Cut = Cast<UMovieSceneCameraCutSection>(Section))
+					if (Cut->GetCameraBindingID().ResolveSequenceID(Sequencer->GetFocusedTemplateID(), *Sequencer) == Sequencer->GetFocusedTemplateID()) CameraGuid = Cut->GetCameraBindingID().GetGuid();
+	// Only local camera bindings can identify a Shot Track in this MovieScene.
+	UMovieSceneComposableCameraShotSection* Candidate = nullptr;
+	UMovieSceneComposableCameraShotSection* Primary = nullptr;
+	for (const FMovieSceneBinding& Binding : Scene->GetBindings())
+	{
+		if (CameraGuid.IsValid() && Binding.GetObjectGuid() != CameraGuid) continue;
+		for (UMovieSceneTrack* Track : Binding.GetTracks())
+		{
+			if (!Track->IsA<UMovieSceneComposableCameraShotTrack>()) continue;
+			if (!CameraGuid.IsValid() && (!AuthoringSession->GetSection() || Track != AuthoringSession->GetSection()->GetOuter())) continue;
+			for (UMovieSceneSection* Section : Track->GetAllSections())
+				if (auto* ShotSection = Cast<UMovieSceneComposableCameraShotSection>(Section); ShotSection && ShotSection->IsActive() && ShotSection->GetRange().Contains(Time))
+				{
+					if (!Primary || ShotSection->GetRowIndex() < Primary->GetRowIndex()) { Candidate = Primary; Primary = ShotSection; }
+					else if (!Candidate || ShotSection->GetRowIndex() < Candidate->GetRowIndex()) Candidate = ShotSection;
+				}
+		}
+	}
+	if (!Candidate) Candidate = Primary;
+	if (Candidate && Candidate != AuthoringSession->GetSection()) SetActiveShot(Candidate->ResolveShotEditorShot(), Candidate);
 }
 
 void SShotEditorRoot::OnActiveShotChanged()
 {
+	bAuthoringRefreshPending = false;
 	ClearPendingFreeExitMode();
 
 	if (HostNameLabel.IsValid())
@@ -166,6 +226,7 @@ void SShotEditorRoot::OnActiveShotChanged()
 
 	// Details panel: re-bind to the new Shot (or clear if no Shot bound).
 	RefreshDetailsView();
+	if (AuthoringPanel) AuthoringPanel->Refresh();
 }
 
 void SShotEditorRoot::RefreshDetailsView()
@@ -177,7 +238,7 @@ void SShotEditorRoot::RefreshDetailsView()
 
 	if (ActiveShot && ActiveHost.IsValid())
 	{
-		// FStructOnScope wrapping a raw struct pointer inside a UObject - 
+		// FStructOnScope wrapping a raw struct pointer inside a UObject -
 		// the constructor `(UScriptStruct*, uint8*)` sets `OwnsMemory=false`
 		// so the wrapper does NOT free the memory in its destructor (the
 		// host UObject owns it). Liveness is guarded by ActiveHost weak
@@ -195,35 +256,27 @@ void SShotEditorRoot::RefreshDetailsView()
 
 TSharedRef<SWidget> SShotEditorRoot::BuildDetailsPane()
 {
-	return SNew(SVerticalBox)
-		+ SVerticalBox::Slot()
-		.AutoHeight()
-		.Padding(0.f, 0.f, 0.f, 2.f)
-		[BuildQuickControls()]
-
-		+ SVerticalBox::Slot()
-		.FillHeight(1.f)
-		[StructureDetailsView->GetWidget().ToSharedRef()];
+	return SAssignNew(AuthoringPanel, SShotEditorAuthoringPanel)
+		.Session(AuthoringSession).NotifyHook(this).AdvancedContent(StructureDetailsView->GetWidget());
 }
 
 TSharedRef<SWidget> SShotEditorRoot::BuildViewportPane()
 {
-	return SNew(SOverlay)
-		+ SOverlay::Slot()
-		[SAssignNew(Viewport, SShotEditorViewport)]
-
-		+ SOverlay::Slot()
-		.HAlign(HAlign_Right)
-		.VAlign(VAlign_Top)
-		.Padding(8.f)
-		[BuildViewportFloatingToolbar()];
+	return SNew(SBorder).BorderImage(FAppStyle::GetBrush("Brushes.Background")).Padding(0.f)
+		[SNew(SShotEditorPreviewFrame)
+			.AspectRatio_Lambda([this]() { return FOptionalSize(AuthoringSession->GetPreviewAspectRatio()); })
+			[SNew(SOverlay)
+				+ SOverlay::Slot()[SAssignNew(Viewport, SShotEditorViewport)]
+				+ SOverlay::Slot().HAlign(HAlign_Right).VAlign(VAlign_Top).Padding(8.f)
+				[BuildViewportFloatingToolbar()]]];
 }
 
 TSharedRef<SWidget> SShotEditorRoot::BuildViewportFloatingToolbar()
 {
 	return SNew(SBorder)
-		.BorderImage(FAppStyle::GetBrush("ToolPanel.GroupBorder"))
-		.Padding(4.f, 3.f)
+		.BorderImage(FAppStyle::GetBrush("Brushes.Panel"))
+		.BorderBackgroundColor(FLinearColor::White)
+		.Padding(8.f, 6.f)
 		[SNew(SHorizontalBox)
 			+ SHorizontalBox::Slot()
 			.AutoWidth()
@@ -297,18 +350,11 @@ FReply SShotEditorRoot::OnViewportToolbarToggleCollapsedClicked()
 	return FReply::Handled();
 }
 
-void SShotEditorRoot::OnQuickControlsExpansionChanged(bool bExpanded)
-{
-	bQuickControlsCollapsed = !bExpanded;
-	SavePersistedLayoutState();
-}
-
 void SShotEditorRoot::LoadPersistedLayoutState()
 {
 	using namespace ComposableCameraSystem::ShotEditorLayout;
 
 	TOptional<bool> ViewportToolbarCollapsed;
-	TOptional<bool> QuickControlsCollapsed;
 
 	if (GConfig)
 	{
@@ -321,20 +367,11 @@ void SShotEditorRoot::LoadPersistedLayoutState()
 			ViewportToolbarCollapsed = bPersistedViewportToolbarCollapsed;
 		}
 
-		bool bPersistedQuickControlsCollapsed = true;
-		if (GConfig->GetBool(kShotEditorLayoutConfigSection,
-			kQuickControlsCollapsedKey,
-			bPersistedQuickControlsCollapsed,
-			GEditorPerProjectIni))
-		{
-			QuickControlsCollapsed = bPersistedQuickControlsCollapsed;
-		}
 	}
 
 	const FShotEditorLayoutState LayoutState =
-		ResolveLayoutState(ViewportToolbarCollapsed, QuickControlsCollapsed);
+		ResolveLayoutState(ViewportToolbarCollapsed, {});
 	bViewportToolbarCollapsed = LayoutState.bViewportToolbarCollapsed;
-	bQuickControlsCollapsed = LayoutState.bQuickControlsCollapsed;
 }
 
 void SShotEditorRoot::SavePersistedLayoutState() const
@@ -348,338 +385,12 @@ void SShotEditorRoot::SavePersistedLayoutState() const
 		kViewportToolbarCollapsedKey,
 		bViewportToolbarCollapsed,
 		GEditorPerProjectIni);
-	GConfig->SetBool(kShotEditorLayoutConfigSection,
-		kQuickControlsCollapsedKey,
-		bQuickControlsCollapsed,
-		GEditorPerProjectIni);
 	GConfig->Flush(/*bRead=*/false, GEditorPerProjectIni);
-}
-
-TSharedRef<SWidget> SShotEditorRoot::BuildQuickControls()
-{
-	return SNew(SExpandableArea)
-		.InitiallyCollapsed(bQuickControlsCollapsed)
-		.OnAreaExpansionChanged(this, &SShotEditorRoot::OnQuickControlsExpansionChanged)
-		.BorderImage(FAppStyle::GetBrush("DetailsView.CategoryTop"))
-		.HeaderContent()
-		[
-			SNew(STextBlock)
-			.Text(LOCTEXT("QuickControlsHeader", "Quick"))
-			.ColorAndOpacity(FLinearColor(0.85f, 0.85f, 0.9f, 1.f))
-		]
-		.BodyContent()
-		[
-			SNew(SBorder)
-			.BorderImage(FAppStyle::GetBrush("ToolPanel.GroupBorder"))
-			.Padding(6.f, 4.f)
-			[
-				SNew(SVerticalBox)
-				+ SVerticalBox::Slot()
-				.AutoHeight()
-				[
-					SNew(SHorizontalBox)
-					+ SHorizontalBox::Slot()
-					.AutoWidth()
-					.Padding(0.f, 0.f, 4.f, 0.f)
-					[BuildQuickFloatControl(EQuickControlField::Distance,
-						LOCTEXT("QuickDistance", "Distance"),
-						LOCTEXT("QuickDistanceTip", "Placement.Distance"),
-						FShotPlacement::MinDistance,
-						FShotPlacement::MaxDistance)]
-
-					+ SHorizontalBox::Slot()
-					.AutoWidth()
-					.Padding(0.f, 0.f, 4.f, 0.f)
-					[BuildQuickFloatControl(EQuickControlField::FOV,
-						LOCTEXT("QuickFOV", "Manual FOV"),
-						LOCTEXT("QuickFOVTip", "Lens.ManualFOV"),
-						1.f,
-						170.f)]
-
-					+ SHorizontalBox::Slot()
-					.AutoWidth()
-					[BuildQuickFloatControl(EQuickControlField::Roll,
-						LOCTEXT("QuickRoll", "Roll"),
-						LOCTEXT("QuickRollTip", "Shot.Roll"),
-						-180.f,
-						180.f)]
-				]
-
-				+ SVerticalBox::Slot()
-				.AutoHeight()
-				.Padding(0.f, 4.f, 0.f, 0.f)
-				[
-					SNew(SHorizontalBox)
-					+ SHorizontalBox::Slot()
-					.AutoWidth()
-					.Padding(0.f, 0.f, 4.f, 0.f)
-					[BuildQuickFloatControl(EQuickControlField::PlacementX,
-						LOCTEXT("QuickPlaceX", "Placement X"),
-						LOCTEXT("QuickPlaceXTip", "Placement.ScreenPosition.X"),
-						-0.5f,
-						0.5f)]
-
-					+ SHorizontalBox::Slot()
-					.AutoWidth()
-					.Padding(0.f, 0.f, 4.f, 0.f)
-					[BuildQuickFloatControl(EQuickControlField::PlacementY,
-						LOCTEXT("QuickPlaceY", "Placement Y"),
-						LOCTEXT("QuickPlaceYTip", "Placement.ScreenPosition.Y"),
-						-0.5f,
-						0.5f)]
-
-					+ SHorizontalBox::Slot()
-					.AutoWidth()
-					.Padding(0.f, 0.f, 4.f, 0.f)
-					[BuildQuickFloatControl(EQuickControlField::AimX,
-						LOCTEXT("QuickAimX", "Aim X"),
-						LOCTEXT("QuickAimXTip", "Aim.ScreenPosition.X"),
-						-0.5f,
-						0.5f)]
-
-					+ SHorizontalBox::Slot()
-					.AutoWidth()
-					[BuildQuickFloatControl(EQuickControlField::AimY,
-						LOCTEXT("QuickAimY", "Aim Y"),
-						LOCTEXT("QuickAimYTip", "Aim.ScreenPosition.Y"),
-						-0.5f,
-						0.5f)]
-				]
-			]
-		];
-}
-
-TSharedRef<SWidget> SShotEditorRoot::BuildQuickFloatControl(EQuickControlField Field,
-	const FText& Label,
-	const FText& ToolTip,
-	float MinValue,
-	float MaxValue)
-{
-	TSharedRef<TOptional<float>> DragCache = MakeShared<TOptional<float>>();
-	return SNew(SBox)
-		.WidthOverride(112.f)
-		[
-			SNew(SVerticalBox)
-			+ SVerticalBox::Slot()
-			.AutoHeight()
-			[
-				SNew(STextBlock)
-				.Text(Label)
-				.ToolTipText(ToolTip)
-			]
-
-			+ SVerticalBox::Slot()
-			.AutoHeight()
-			.Padding(0.f, 1.f, 0.f, 0.f)
-			[
-				SNew(SNumericEntryBox<float>)
-				.AllowSpin(true)
-				.MinValue(TOptional<float>(MinValue))
-				.MaxValue(TOptional<float>(MaxValue))
-				.MinSliderValue(TOptional<float>(MinValue))
-				.MaxSliderValue(TOptional<float>(MaxValue))
-				.MinDesiredValueWidth(56.f)
-				.IsEnabled_Lambda([this, Field]()
-				{
-					return IsQuickControlEnabled(Field);
-				})
-				.Value_Lambda([this, Field, DragCache]() -> TOptional<float>
-				{
-					if (DragCache->IsSet())
-					{
-						return DragCache->GetValue();
-					}
-					return GetQuickControlValue(Field);
-				})
-				.OnValueChanged_Lambda([DragCache](float NewValue)
-				{
-					*DragCache = NewValue;
-				})
-				.OnValueCommitted_Lambda([this, Field, DragCache](float NewValue, ETextCommit::Type)
-				{
-					DragCache->Reset();
-					CommitQuickControlValue(Field, NewValue);
-				})
-				.OnEndSliderMovement_Lambda([this, Field, DragCache](float NewValue)
-				{
-					DragCache->Reset();
-					CommitQuickControlValue(Field, NewValue);
-				})
-			]
-		];
-}
-
-TOptional<float> SShotEditorRoot::GetQuickControlValue(EQuickControlField Field) const
-{
-	if (!ActiveShot)
-	{
-		return TOptional<float>();
-	}
-
-	switch (Field)
-	{
-	case EQuickControlField::Distance:
-		return ActiveShot->Placement.Distance;
-	case EQuickControlField::FOV:
-		return ActiveShot->Lens.ManualFOV;
-	case EQuickControlField::Roll:
-		return ActiveShot->Roll;
-	case EQuickControlField::PlacementX:
-		return ActiveShot->Placement.ScreenPosition.X;
-	case EQuickControlField::PlacementY:
-		return ActiveShot->Placement.ScreenPosition.Y;
-	case EQuickControlField::AimX:
-		return ActiveShot->Aim.ScreenPosition.X;
-	case EQuickControlField::AimY:
-		return ActiveShot->Aim.ScreenPosition.Y;
-	default:
-		return TOptional<float>();
-	}
-}
-
-bool SShotEditorRoot::IsQuickControlEnabled(EQuickControlField Field) const
-{
-	if (!ActiveShot || !ActiveHost.IsValid())
-	{
-		return false;
-	}
-
-	switch (Field)
-	{
-	case EQuickControlField::Distance:
-		return ActiveShot->Placement.Mode == EShotPlacementMode::AnchorOrbit
-			|| ActiveShot->Placement.Mode == EShotPlacementMode::AnchorAtScreen;
-	case EQuickControlField::FOV:
-		return ActiveShot->Lens.FOVMode == EShotFOVMode::Manual;
-	case EQuickControlField::Roll:
-		return true;
-	case EQuickControlField::PlacementX:
-	case EQuickControlField::PlacementY:
-		return ActiveShot->Placement.Mode == EShotPlacementMode::AnchorAtScreen;
-	case EQuickControlField::AimX:
-	case EQuickControlField::AimY:
-		return ActiveShot->Aim.Mode == EShotAimMode::LookAtAnchor;
-	default:
-		return false;
-	}
-}
-
-void SShotEditorRoot::CommitQuickControlValue(EQuickControlField Field, float NewValue)
-{
-	if (!ActiveShot || !ActiveHost.IsValid())
-	{
-		return;
-	}
-
-	const TOptional<float> OldValue = GetQuickControlValue(Field);
-	if (!OldValue.IsSet())
-	{
-		return;
-	}
-
-	switch (Field)
-	{
-	case EQuickControlField::Distance:
-		NewValue = FMath::Clamp(NewValue, FShotPlacement::MinDistance, FShotPlacement::MaxDistance);
-		break;
-	case EQuickControlField::FOV:
-		NewValue = FMath::Clamp(NewValue, 1.f, 170.f);
-		break;
-	case EQuickControlField::Roll:
-		NewValue = FMath::Clamp(NewValue, -180.f, 180.f);
-		break;
-	case EQuickControlField::PlacementX:
-	case EQuickControlField::PlacementY:
-	case EQuickControlField::AimX:
-	case EQuickControlField::AimY:
-		NewValue = FMath::Clamp(NewValue, -0.5f, 0.5f);
-		break;
-	default:
-		return;
-	}
-
-	if (FMath::IsNearlyEqual(OldValue.GetValue(), NewValue))
-	{
-		return;
-	}
-
-	const FScopedTransaction Transaction(LOCTEXT("EditShotQuickControl", "Edit Shot Quick Control"));
-	if (UObject* Host = ActiveHost.Get())
-	{
-		Host->Modify();
-	}
-
-	switch (Field)
-	{
-	case EQuickControlField::Distance:
-		ActiveShot->Placement.Distance = NewValue;
-		break;
-	case EQuickControlField::FOV:
-		ActiveShot->Lens.ManualFOV = NewValue;
-		break;
-	case EQuickControlField::Roll:
-		ActiveShot->Roll = NewValue;
-		break;
-	case EQuickControlField::PlacementX:
-		ActiveShot->Placement.ScreenPosition.X = NewValue;
-		break;
-	case EQuickControlField::PlacementY:
-		ActiveShot->Placement.ScreenPosition.Y = NewValue;
-		break;
-	case EQuickControlField::AimX:
-		ActiveShot->Aim.ScreenPosition.X = NewValue;
-		break;
-	case EQuickControlField::AimY:
-		ActiveShot->Aim.ScreenPosition.Y = NewValue;
-		break;
-	default:
-		break;
-	}
-
-	PostActiveShotValueSet();
-	RefreshDetailsView();
-}
-
-FProperty* SShotEditorRoot::ResolveActiveShotProperty() const
-{
-	UObject* Host = ActiveHost.Get();
-	if (!Host)
-	{
-		return nullptr;
-	}
-
-	if (UMovieSceneComposableCameraShotSection* Section =
-			Cast<UMovieSceneComposableCameraShotSection>(Host))
-	{
-		if (ActiveShot == &Section->InlineShot)
-		{
-			return Section->GetClass()->FindPropertyByName(GET_MEMBER_NAME_CHECKED(UMovieSceneComposableCameraShotSection, InlineShot));
-		}
-		if (ActiveShot == &Section->ShotOverrides)
-		{
-			return Section->GetClass()->FindPropertyByName(GET_MEMBER_NAME_CHECKED(UMovieSceneComposableCameraShotSection, ShotOverrides));
-		}
-	}
-
-	return Host->GetClass()->FindPropertyByName(TEXT("Shot"));
-}
-
-void SShotEditorRoot::PostActiveShotValueSet()
-{
-	UObject* Host = ActiveHost.Get();
-	FProperty* ShotProp = ResolveActiveShotProperty();
-	if (!Host || !ShotProp)
-	{
-		return;
-	}
-
-	FPropertyChangedEvent Event(ShotProp, EPropertyChangeType::ValueSet);
-	Host->PostEditChangeProperty(Event);
 }
 
 void SShotEditorRoot::NotifyPreChange(FProperty* /*PropertyAboutToChange*/)
 {
-	// Snapshot pre-edit state for undo via the bare-bones path - 
+	// Snapshot pre-edit state for undo via the bare-bones path -
 	// SaveToTransactionBuffer records the snapshot without firing
 	// FCoreUObjectDelegates::OnObjectModified or
 	// UMovieSceneSignedObject::MarkAsChanged. Both of those are listened
@@ -697,23 +408,7 @@ void SShotEditorRoot::NotifyPreChange(FProperty* /*PropertyAboutToChange*/)
 
 void SShotEditorRoot::NotifyPostChange(const FPropertyChangedEvent& PropertyChangedEvent, FProperty* /*PropertyThatChanged*/)
 {
-	// Skip Interactive (per-frame slider drag) so Sequencer's eval cache
-	// isn't invalidated mid-drag. The host's downstream listeners fire on
-	// commit (ValueSet) - sufficient for graph-node refresh / Build /
-	// runtime debug. Solver in the viewport reads ActiveShot directly each
-	// tick so live drag visual feedback is unaffected.
-	if (PropertyChangedEvent.ChangeType == EPropertyChangeType::Interactive)
-	{
-		return;
-	}
-
-	UObject* Host = ActiveHost.Get();
-	FProperty* ShotProp = ResolveActiveShotProperty();
-	if (Host && ShotProp)
-	{
-		FPropertyChangedEvent OuterEvent(ShotProp, PropertyChangedEvent.ChangeType);
-		Host->PostEditChangeProperty(OuterEvent);
-	}
+	AuthoringSession->NotifyNativePropertyChange(PropertyChangedEvent);
 }
 
 namespace
@@ -726,6 +421,7 @@ namespace
 	 * to be cheap (called every context swap + every menu rebuild). */
 	FString ResolveShotSectionTitle(const UMovieSceneComposableCameraShotSection& Section)
 	{
+		if (!Section.ShotLabel.IsEmpty()) return Section.ShotLabel;
 		if (Section.Source == EComposableCameraShotSource::Inline)
 		{
 			return FString::Printf(TEXT("Inline (%d)"),
@@ -787,7 +483,7 @@ FText SShotEditorRoot::BuildHostContextChain() const
 {
 	if (!ActiveShot)
 	{
-		return LOCTEXT("NoShotLoadedLabel", "No Shot loaded");
+		return LOCTEXT("NoShotLoadedLabel", "Create -> Select subjects -> Use Selected Actors");
 	}
 
 	UObject* Host = ActiveHost.Get();
@@ -819,6 +515,7 @@ FText SShotEditorRoot::BuildHostContextChain() const
 	// makes sense - the asset is the endpoint).
 	if (const UComposableCameraShotAsset* ShotAsset = Cast<UComposableCameraShotAsset>(Host))
 	{
+		if (ShotAsset->HasAnyFlags(RF_Transient)) return LOCTEXT("DraftShot", "Draft Shot (use Save as Preset to keep it)");
 		return FText::FromString(ShotAsset->GetName());
 	}
 
@@ -1247,8 +944,7 @@ FReply SShotEditorRoot::OnKeyDown(const FGeometry& MyGeometry, const FKeyEvent& 
 	const FKey Key = InKeyEvent.GetKey();
 	const bool bHandled =
 		(Key == EKeys::One && (TrySetMode(EShotEditorMode::Drag), true)) ||
-		(Key == EKeys::Two && (TrySetMode(EShotEditorMode::Free), true)) ||
-		(Key == EKeys::Three && (TrySetMode(EShotEditorMode::Lock), true));
+		(Key == EKeys::Two && (TrySetMode(EShotEditorMode::Free), true));
 
 	if (bHandled)
 	{
@@ -1262,7 +958,7 @@ FReply SShotEditorRoot::OnKeyDown(const FGeometry& MyGeometry, const FKeyEvent& 
 	return SCompoundWidget::OnKeyDown(MyGeometry, InKeyEvent);
 }
 
-// Asset toolbar 
+// Asset toolbar
 
 namespace
 {
@@ -1276,6 +972,7 @@ namespace
 		{
 			return nullptr;
 		}
+		if (Host->HasAnyFlags(RF_Transient) || Host->GetOutermost() == GetTransientPackage()) return nullptr;
 		UObject* Asset = Host;
 		while (UObject* Outer = Asset->GetOuter())
 		{
@@ -1309,8 +1006,9 @@ TSharedRef<SWidget> SShotEditorRoot::BuildHeaderArea()
 TSharedRef<SWidget> SShotEditorRoot::BuildTopBar()
 {
 	return SNew(SBorder)
-		.BorderBackgroundColor(FLinearColor(0.10f, 0.10f, 0.12f, 1.f))
-		.Padding(4.f, 2.f)
+		.BorderImage(ComposableCameraSystem::ShotEditorStyle::NavigationBrush())
+		.BorderBackgroundColor(FLinearColor::White)
+		.Padding(8.f, 4.f)
 		[SNew(SHorizontalBox)
 			+ SHorizontalBox::Slot()
 			.AutoWidth()
@@ -1323,6 +1021,8 @@ TSharedRef<SWidget> SShotEditorRoot::BuildTopBar()
 			.Padding(8.f, 0.f, 8.f, 0.f)
 			[SAssignNew(HostNameLabel, STextBlock)
 				.Text(BuildHostContextChain())
+				.OverflowPolicy(ETextOverflowPolicy::Ellipsis)
+				.ToolTipText_Lambda([this]() { return BuildHostContextChain(); })
 				.ColorAndOpacity(FLinearColor(0.9f, 0.9f, 0.95f, 1.f))]
 
 			// "Shots" - dropdown of all Shot sections in the active host's
@@ -1359,7 +1059,7 @@ TSharedRef<SWidget> SShotEditorRoot::BuildTopBar()
 			+ SHorizontalBox::Slot()
 			.AutoWidth()
 			.VAlign(VAlign_Center)
-			[SNew(SSegmentedControl<EShotEditorMode>)
+			[SNew(SSegmentedControl<EShotEditorMode>).Tag(FName(TEXT("ShotEditor.ModeSelector"))).Style(ComposableCameraSystem::ShotEditorStyle::ModeStyle())
 				.Value_Lambda([this]() -> EShotEditorMode
 				{
 					return Viewport.IsValid()
@@ -1371,33 +1071,18 @@ TSharedRef<SWidget> SShotEditorRoot::BuildTopBar()
 					TrySetMode(NewMode);
 				})
 				+ SSegmentedControl<EShotEditorMode>::Slot(EShotEditorMode::Drag)
-					.Text(LOCTEXT("ModeDrag", "Drag"))
+					.Text(LOCTEXT("ModeDrag", "Compose"))
 					.ToolTip(LOCTEXT("ModeDragTip",
-						"Drag mode (default): solver drives the camera. "
-						"LMB-drag the on-screen handles to author the "
-						"Placement / Aim anchor screen positions "
-						"(yellow = Placement, cyan = Aim). RMB on a handle "
-						"opens a context menu to pick the underlying "
-						"target's pivot bone in-viewport."))
+						"Compose: the Shot drives the camera. Drag visible guides "
+						"to edit composition; wheel adjusts follow distance, Alt+RMB "
+						"adjusts roll. Select Follow, Aim or Subjects to show their guides."))
 				+ SSegmentedControl<EShotEditorMode>::Slot(EShotEditorMode::Free)
-					.Text(LOCTEXT("ModeFree", "Free"))
+					.Text(LOCTEXT("ModeFree", "Inspect"))
 					.ToolTip(LOCTEXT("ModeFreeTip",
-						"Free mode: solver pauses, you have full mouse "
-						"camera control (orbit / pan / dolly). Handles "
-						"are still drawn but track the live projection "
-						"of world anchor / target points; they are "
-						"greyed out and not interactive. Switching back "
-						"to Drag or Lock shows Save / Discard / Stay for "
-						"the current camera framing."))
-				+ SSegmentedControl<EShotEditorMode>::Slot(EShotEditorMode::Lock)
-					.Text(LOCTEXT("ModeLock", "Lock"))
-					.ToolTip(LOCTEXT("ModeLockTip",
-						"Lock mode: solver drives the camera (same as "
-						"Drag) but ALL viewport input is consumed - no "
-						"handle drag, no camera control, no scroll-zoom. "
-						"Read-only preview state, useful for "
-						"screenshots / demos / preventing accidental "
-						"edits."))]];
+						"Inspect: freely orbit, pan and dolly the preview camera. "
+						"Guides are read-only; lens and focus still preview live. "
+						"Alt+RMB adjusts roll on editable Shots. Returning to Compose "
+						"shows Save / Discard / Stay for the current framing."))]];
 }
 
 TSharedRef<SWidget> SShotEditorRoot::BuildStatusBar()
@@ -1594,6 +1279,7 @@ bool SShotEditorRoot::CanSaveFreeExitStatus() const
 		&& ActiveShot
 		&& ActiveHost.IsValid()
 		&& Viewport.IsValid()
+		&& AuthoringSession->CanEdit()
 		&& PendingFreeExitStatus == EShotEditorReverseSolveStatus::Ok;
 }
 
@@ -1667,6 +1353,7 @@ TSharedRef<SWidget> SShotEditorRoot::BuildAssetToolbar()
 
 void SShotEditorRoot::OnSaveClicked()
 {
+	if (!CanSave()) return;
 	UObject* Host = ActiveHost.Get();
 	if (!Host)
 	{
@@ -1686,7 +1373,7 @@ void SShotEditorRoot::OnSaveClicked()
 
 bool SShotEditorRoot::CanSave() const
 {
-	return ActiveHost.IsValid();
+	return ActiveHost.IsValid() && !ActiveHost->HasAnyFlags(RF_Transient) && ActiveHost->GetOutermost() != GetTransientPackage();
 }
 
 void SShotEditorRoot::OnBrowseClicked()
@@ -1706,7 +1393,8 @@ bool SShotEditorRoot::CanBrowse() const
 
 void SShotEditorRoot::OnRefreshClicked()
 {
-	RefreshDetailsView();
+	AuthoringSession->RequestPreview();
+	bAuthoringRefreshPending = true;
 }
 
 FReply SShotEditorRoot::OnResetViewportCameraClicked()

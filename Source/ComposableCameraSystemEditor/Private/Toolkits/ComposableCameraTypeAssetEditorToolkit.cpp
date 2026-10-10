@@ -416,7 +416,7 @@ void FComposableCameraTypeAssetEditorToolkit::RegisterToolbar()
 		LOCTEXT("ShotEditorToolbarTooltip",
 			"Open the Shot Editor for the selected CompositionFramingNode in this graph. "
 			"Disabled when no Composition Framing node is selected."),
-		FSlateIcon(FAppStyle::GetAppStyleSetName(), "ClassIcon.CameraComponent")
+		FSlateIcon(FComposableCameraEditorStyle::Get()->GetStyleSetName(), "ComposableCamera.ShotEditor", "ComposableCamera.ShotEditor.Small")
 	));
 }
 

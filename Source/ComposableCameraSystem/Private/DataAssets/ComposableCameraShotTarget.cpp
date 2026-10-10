@@ -43,10 +43,18 @@ void FComposableCameraShotTarget::RefreshAutoBoundsCache()
 	// list. Cache MUST be invalidated when Target.Actor changes. Covered
 	// by the `Component->GetOwner() == Actor` consistency check below.
 	UPrimitiveComponent* MeshComp = CachedBoundsMeshComponent.Get();
-	if (!MeshComp || MeshComp->GetOwner() != Actor)
+	if (!MeshComp || MeshComp->GetOwner() != Actor
+		|| CachedBoundsSourceComponentName != Target.ComponentName
+		|| (!Target.ComponentName.IsNone() && MeshComp->GetFName() != Target.ComponentName))
 	{
 		MeshComp = nullptr;
-		if (USkeletalMeshComponent* SK = Actor->FindComponentByClass<USkeletalMeshComponent>())
+		if (!Target.ComponentName.IsNone())
+		{
+			for (UActorComponent* Component : Actor->GetComponents())
+				if (Component && Component->GetFName() == Target.ComponentName)
+					{ MeshComp = Cast<UPrimitiveComponent>(Component); break; }
+		}
+		else if (USkeletalMeshComponent* SK = Actor->FindComponentByClass<USkeletalMeshComponent>())
 		{
 			MeshComp = SK;
 		}
@@ -55,6 +63,12 @@ void FComposableCameraShotTarget::RefreshAutoBoundsCache()
 			MeshComp = SM;
 		}
 		CachedBoundsMeshComponent = MeshComp;
+		CachedBoundsSourceComponentName = Target.ComponentName;
+	}
+	if (!Target.ComponentName.IsNone() && !MeshComp)
+	{
+		CachedAutoBoundsExtent = FVector::ZeroVector;
+		return;
 	}
 
 	FBox WorldBox(ForceInit);

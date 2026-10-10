@@ -3,6 +3,7 @@
 #include "DataAssets/ComposableCameraTargetInfo.h"
 
 #include "Components/SkeletalMeshComponent.h"
+#include "Components/SceneComponent.h"
 #include "ComposableCameraSystemModule.h"
 #include "Engine/Engine.h"
 #include "Engine/EngineTypes.h"
@@ -161,6 +162,14 @@ namespace
 
 bool FComposableCameraTargetInfo::ResolveWorldPoint(FVector& OutPoint, bool* OutUsedBone) const
 {
+	FTransform Pivot;
+	if (!ResolvePivotTransform(Pivot, OutUsedBone)) return false;
+	OutPoint = Pivot.GetLocation() + (bOffsetInLocalSpace ? Pivot.GetRotation().RotateVector(Offset) : Offset);
+	return true;
+}
+
+bool FComposableCameraTargetInfo::ResolvePivotTransform(FTransform& OutTransform, bool* OutUsedBone) const
+{
 	if (OutUsedBone)
 	{
 		*OutUsedBone = false;
@@ -171,7 +180,7 @@ bool FComposableCameraTargetInfo::ResolveWorldPoint(FVector& OutPoint, bool* Out
 	// for cooked / already-correct paths, (3) walk-PIE-worlds fallback for
 	// sublevel / WP / Spawnable cases the path rewrite can't reach. Returns
 	// null only when no live actor can be resolved on any path. Caller
-	// treats that as "anchor unresolvable" so callers can pre-seed OutPoint.
+	// treats that as "anchor unresolvable" so callers can preserve their fallback frame.
 	AActor* ResolvedActor = ResolvePIEAwareActor(Actor);
 	if (!ResolvedActor)
 	{
@@ -180,6 +189,14 @@ bool FComposableCameraTargetInfo::ResolveWorldPoint(FVector& OutPoint, bool* Out
 
 	FVector PivotBase;
 	FQuat   PivotFrameRot;
+	USceneComponent* SelectedComponent = nullptr;
+	if (!ComponentName.IsNone())
+	{
+		for (UActorComponent* Component : ResolvedActor->GetComponents())
+			if (Component && Component->GetFName() == ComponentName)
+				{ SelectedComponent = Cast<USceneComponent>(Component); break; }
+		if (!SelectedComponent) return false;
+	}
 
 	if (bUseBoneAsPivot && !BoneName.IsNone())
 	{
@@ -188,10 +205,10 @@ bool FComposableCameraTargetInfo::ResolveWorldPoint(FVector& OutPoint, bool* Out
 		// the first match so callers can control selection via component
 		// order. Same pattern the inline FocusPullNode /
 		// OcclusionFadeNode implementations used before consolidation.
-		TArray<USkeletalMeshComponent*> SkelComps;
-		ResolvedActor->GetComponents<USkeletalMeshComponent>(SkelComps);
-		for (USkeletalMeshComponent* Skel : SkelComps)
+		for (UActorComponent* Component : ResolvedActor->GetComponents())
 		{
+			USkeletalMeshComponent* Skel = Cast<USkeletalMeshComponent>(Component);
+			if (SelectedComponent && Skel != SelectedComponent) continue;
 			if (Skel && Skel->DoesSocketExist(BoneName))
 			{
 				// One transform query (one socket-by-name lookup) instead of
@@ -200,11 +217,7 @@ bool FComposableCameraTargetInfo::ResolveWorldPoint(FVector& OutPoint, bool* Out
 				PivotBase = SocketXform.GetLocation();
 				PivotFrameRot = SocketXform.GetRotation();
 
-				const FVector ResolvedOffset = bOffsetInLocalSpace
-					? PivotFrameRot.RotateVector(Offset)
-					: Offset;
-
-				OutPoint = PivotBase + ResolvedOffset;
+				OutTransform = FTransform(PivotFrameRot, PivotBase);
 
 				if (OutUsedBone)
 				{
@@ -217,14 +230,10 @@ bool FComposableCameraTargetInfo::ResolveWorldPoint(FVector& OutPoint, bool* Out
 		// stays false so callers can apply legacy fallback offsets.
 	}
 
-	PivotBase = ResolvedActor->GetActorLocation();
-	PivotFrameRot = ResolvedActor->GetActorQuat();
+	PivotBase = SelectedComponent ? SelectedComponent->GetComponentLocation() : ResolvedActor->GetActorLocation();
+	PivotFrameRot = SelectedComponent ? SelectedComponent->GetComponentQuat() : ResolvedActor->GetActorQuat();
 
-	const FVector ResolvedOffset = bOffsetInLocalSpace
-		? PivotFrameRot.RotateVector(Offset)
-		: Offset;
-
-	OutPoint = PivotBase + ResolvedOffset;
+	OutTransform = FTransform(PivotFrameRot, PivotBase);
 	return true;
 }
 
@@ -236,6 +245,19 @@ bool FComposableCameraTargetInfo::ResolveBasisQuat(FQuat& OutQuat) const
 	AActor* ResolvedActor = ResolvePIEAwareActor(Actor);
 	if (!ResolvedActor)
 	{
+		return false;
+	}
+	if (!ComponentName.IsNone())
+	{
+		for (UActorComponent* Component : ResolvedActor->GetComponents())
+		{
+			if (Component && Component->GetFName() == ComponentName)
+			{
+				if (USceneComponent* SceneComponent = Cast<USceneComponent>(Component))
+					{ OutQuat = SceneComponent->GetComponentQuat(); return true; }
+				break;
+			}
+		}
 		return false;
 	}
 

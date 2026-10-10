@@ -8,6 +8,7 @@
 #include "EditorViewportClient.h"
 #include "UObject/WeakObjectPtr.h"
 #include "Widgets/SShotEditorViewport.h" // EShotEditorMode
+#include "Widgets/ComposableCameraShotSubjectGizmoUtils.h"
 
 namespace ComposableCameraSystem::ShotEditorWheelMath
 {
@@ -46,6 +47,8 @@ class FScopedTransaction;
 class FPrimitiveDrawInterface;
 class FSceneView;
 class USkeletalMesh;
+class UCineCameraComponent;
+class FComposableCameraShotAuthoringSession;
 
 /**
  * FEditorViewportClient subclass for the Shot Editor's middle region.
@@ -89,22 +92,31 @@ class USkeletalMesh;
 class FComposableCameraShotEditorViewportClient: public FEditorViewportClient
 {
 public:
+#if WITH_DEV_AUTOMATION_TESTS
+	friend class FShotEditorViewportValueCommitsTest;
+	friend class FShotEditorOrbitControlTest;
+	friend class FShotEditorSubjectGizmosTest;
+	friend class FShotEditorPreviewCompatibilityTest;
+#endif
 	FComposableCameraShotEditorViewportClient(FPreviewScene* InPreviewScene,
 		const TSharedRef<class SEditorViewport>& InEditorViewportWidget);
 
 	virtual ~FComposableCameraShotEditorViewportClient();
 
-	// External API used by SShotEditorViewport 
+	// External API used by SShotEditorViewport
 
 	/** Bind a new active Shot. Triggers a proxy rebuild on the next tick.
 	 * Both args may be null - clears proxies + leaves the camera at last
 	 * user-driven pose. */
 	void SetActiveShot(FComposableCameraShot* InShot, UObject* InHost);
+	void SetAuthoringSession(TSharedPtr<FComposableCameraShotAuthoringSession> Session);
+	bool IsEditingGesture() const;
+	virtual UWorld* GetWorld() const override;
 
 	/** Diagnostic accessor. Returns nullptr while no Shot is bound. */
 	FComposableCameraShot* GetActiveShot() const { return ActiveShot; }
 
-	/** Viewport mode (Drag / Free / Lock - see EShotEditorMode in
+	/** Viewport mode (Drag / Free - see EShotEditorMode in
 	 * SShotEditorViewport.h for semantics). */
 	void SetMode(EShotEditorMode InMode);
 	EShotEditorMode GetMode() const { return CurrentMode; }
@@ -134,51 +146,31 @@ public:
 	 * scene is still alive. Idempotent. */
 	void ReleaseSceneResources();
 
-	// FEditorViewportClient overrides 
+	// FEditorViewportClient overrides
 
 	virtual void Tick(float DeltaSeconds) override;
 
-	/** Per-frame HUD overlay - draws aspect ratio, viewport size, camera pose,
-	 * FOV, and resolved anchor's projected screen coords in the upper-left
-	 * corner of the viewport. Diagnostic aid for verifying that the solver's
-	 * output matches the renderer's projection across viewport resizes - 
-	 * watching the overlay live while dragging the splitter / window border
-	 * is the fastest way to catch any aspect-mismatch regression. */
+	/** Camera/Composition diagnostic cards and composition controls inside the image. */
 	virtual void DrawCanvas(FViewport& InViewport, FSceneView& View, FCanvas& Canvas) override;
 
-	/** 3D primitive overlay - wireframe boxes around each Target's effective
-	 * bounds, color-coded by whether the box would actually contribute to
-	 * the `SolvedFromBoundsFit` FOV solve. Selection is implicit via the
-	 * per-target `BoundsShape` + `BoundsContributionWeight` fields:
-	 *
-	 * - Drawn (green): all 8 BB vertices project in front of the camera
-	 * (target IS feeding the FOV solve).
-	 * - Drawn (yellow): BB valid but at least one vertex projects behind
-	 * the camera plane -> solver's strict `bAllOnScreen`
-	 * check drops the target. Common at close framings;
-	 * nudge the camera back or reduce the manual extent.
-	 * - Not drawn: `BoundsShape == None`, cold cache, OR
-	 * `BoundsContributionWeight <= 0`. The designer's
-	 * "select which actors contribute" mechanism - only
-	 * authored-in targets render a box.
-	 *
-	 * Skipped entirely when `Lens.FOVMode != SolvedFromBoundsFit` - bounds
-	 * are unread by Manual mode and the wireframes would be visual noise. */
+	/** Subject pivot/offset/basis guides and bounds. Subject pages show authored
+	 * bounds even at Manual FOV or zero weight; other pages retain fit diagnostics. */
 	virtual void Draw(const FSceneView* View, FPrimitiveDrawInterface* PDI) override;
 
-	// D.4 Handle drag input hooks 
+	// D.4 Handle drag input hooks
 	//
-	// LMB down on a handle -> start drag (FScopedTransaction + Host->Modify);
+	// LMB down on a handle -> start drag (FScopedTransaction + snapshot without Modify);
 	// LMB up while dragging->commit (PostEditChangeProperty ValueSet + end
 	// transaction). Mouse moves during drag write into the active handle's
-	// screen-position field on the Shot (Interactive change type).
+	// screen-position/angular field on the Shot, requesting preview without host broadcasts.
 	//
-	// In Free / Lock modes, handles are drawn but greyed out and hit-test
-	// is skipped - LMB falls through to base class in Free and is consumed
-	// in Lock. Only Drag mode allows handle interaction.
+	// In Free mode, handles are drawn but greyed out and hit-test
+	// is skipped - LMB falls through to base class. Only Drag mode allows
+	// handle interaction.
 	virtual bool InputKey(const FInputKeyEventArgs& EventArgs) override;
 	virtual void CapturedMouseMove(FViewport* InViewport, int32 InMouseX, int32 InMouseY) override;
 	virtual void MouseMove(FViewport* InViewport, int32 X, int32 Y) override;
+	virtual EMouseCursor::Type GetCursor(FViewport* InViewport, int32 X, int32 Y) override;
 
 	// NOTE: We considered overriding `FEditorViewportClient::OverridePostProcessSettings(FSceneView&)`
 	// for DoF injection, but that virtual hook only fires when
@@ -192,6 +184,19 @@ public:
 	// source above).
 
 private:
+	TWeakPtr<FComposableCameraShotAuthoringSession> AuthoringSession;
+	TWeakObjectPtr<UCineCameraComponent> OutputCamera;
+	bool bUseLevelWorld = false;
+	FIntRect GetRenderRect() const;
+	float GetCameraAspectRatio() const;
+	bool ShowLookAtHandle() const;
+	bool ShowOrbitControl() const;
+	FIntPoint GetRenderSize() const;
+	void NotifyInteractiveEdit();
+	void NotifyCommittedEdit();
+	void DrawDiagnosticHud(FCanvas& Canvas);
+	void DrawOrbitControl(FCanvas& Canvas);
+	bool EnsureEffectiveShotCache() const;
 	/** Re-spawn the proxy set for the current ActiveShot's Targets. Despawns
 	 * any existing proxies first. Safe to call when ActiveShot is null. */
 	void RebuildProxies();
@@ -211,7 +216,7 @@ private:
 	 * preview mesh. Picks live SK / live SM / preview SK / capsule fallback. */
 	AActor* SpawnProxyForTarget(AActor* SourceActor,
 		USkeletalMesh* PreviewMesh,
-		const FTransform& PreviewTransform);
+		const FTransform& PreviewTransform, FName ComponentName, const FTransform& MeshRelativeTransform);
 
 	/** Resolve the source actor for `Targets[TargetIndex]`. When the active
 	 * host is a `UMovieSceneComposableCameraShotSection`, per-section
@@ -247,7 +252,7 @@ private:
 	 * the viewport client and invalidated at the start of each `Tick`,
 	 * so within one frame all callers share a single resolution pass.
 	 * The struct copy still runs per-call (callers own `OutShot` and may
-	 * mutate it - the bounds-cache refresh in `Draw()` does), but the
+	 * mutate it - the solver's bounds refresh does), but the
 	 * TArray<FComposableCameraShotTarget> heap allocation is the only
 	 * inherent per-call cost; the rest is memcpy-shape work. */
 	bool BuildEffectiveShotForPreview(FComposableCameraShot& OutShot) const;
@@ -287,6 +292,7 @@ private:
 	 * parallel with LastResolvedSources so changing EditorPreviewMesh
 	 * respawns the proxy even when no live Actor exists. */
 	TArray<TWeakObjectPtr<USkeletalMesh>> LastResolvedPreviewMeshes;
+	TArray<FName> LastResolvedComponentNames;
 
 	/** Per-frame cache for `BuildEffectiveShotForPreview` (Polish P.2).
 	 * Holds the most recent successful effective-shot computation; reused
@@ -305,34 +311,33 @@ private:
 
 	/** Mode set by the Shot Editor toolbar. Drag (default) = solver-driven
 	 * + interactive handles; Free = user-camera + handles follow live world
-	 * projection (non-interactive); Lock = solver-driven + all input consumed
-	 * (read-only preview). */
+	 * projection (non-interactive). */
 	EShotEditorMode CurrentMode = EShotEditorMode::Drag;
 
-	/** Top-left camera / aspect / focus text overlay. */
-	bool bShowDiagnosticHud = true;
+	/** Optional structured Camera / Composition cards. */
+	bool bShowDiagnosticHud = false;
 
-	/** Screen handles, framing zones, and target bounds wireframes. */
+	/** Screen/subject handles, framing zones, and target bounds wireframes. */
 	bool bShowCompositionGuides = true;
 
-	// D.4 Handle drag state 
+	// D.4 Handle drag state
 
-	/** Type of handle being drawn / hit-tested / dragged. Two handles - one
-	 * per anchor screen
-	 * position (Placement.ScreenPosition + Aim.ScreenPosition). Per-target
-	 * handles dropped (no more per-target screen-position UPROPERTY). */
+	/** Screen anchors/zone edges, angular orbit, or subject offset/bounds controls. */
 	enum class EHandleType: uint8
 	{
 		None,
 		PlacementAnchor, // Shot.Placement.ScreenPosition
-		AimAnchor // Shot.Aim.ScreenPosition
+		AimAnchor, // Shot.Aim.ScreenPosition
+		OrbitDirection, // Shot.Placement.LocalCameraDirection
+		SubjectOffsetAxis, // Targets[i].Target.Offset, in its authored coordinate frame
+		SubjectBoundsFace // Targets[i].ManualBoundsExtent, world-aligned half-extent
 	};
 
 	/** Cache populated each DrawCanvas frame for hit-testing in InputKey /
 	 * MouseMove. Pixel coords are in viewport-local space (origin top-left,
 	 * +Y down).
 	 *
-	 * Two cached-entry kinds:
+	 * Cached-entry kinds:
 	 * - Anchor - the LMB-grab disc for `Placement.ScreenPosition` /
 	 * `Aim.ScreenPosition`. `HitArea` is a small box around
 	 * `PixelPos`; `bIsZoneEdge` is false; zone-edge fields
@@ -341,6 +346,10 @@ private:
 	 * rectangle (dead OR soft x L/R/T/B). `HitArea` is a
 	 * thin rect aligned with the edge; `bIsZoneEdge` is
 	 * true; zone-edge fields identify which size to mutate.
+	 * - OrbitDirection - a circular local-basis orbit control. Its current
+	 * layout is checked again at input time, so resize cannot leave stale hits.
+	 * - Subject controls - physical axis projections plus authored identity/value
+	 * snapshots. Resizing or changing the subject invalidates the painted hit.
 	 */
 	struct FHandleScreenPosCache
 	{
@@ -358,9 +367,9 @@ private:
 		 * the dragged target; for ZoneEdge entries the edge mutates the
 		 * *zones* attached to this anchor (Placement -> `PlacementZones`,
 		 * Aim -> `AimZones`). */
-		EHandleType Type;
+		EHandleType Type = EHandleType::None;
 
-		// Zone-edge specifics - only valid when bIsZoneEdge 
+		// Zone-edge specifics - only valid when bIsZoneEdge
 
 		bool bIsZoneEdge = false;
 
@@ -372,6 +381,17 @@ private:
 		 * side of the anchor the cursor is expected) and the hit-area
 		 * orientation (vertical vs horizontal strip). */
 		int32 EdgeIndex = -1;
+
+		int32 SubjectIndex = INDEX_NONE;
+		int32 SubjectCount = 0;
+		int32 AxisIndex = INDEX_NONE;
+		float FaceSign = 1.f;
+		FVector2D PixelsPerUnit = FVector2D::ZeroVector;
+		FIntRect SubjectRenderRect = FIntRect(0, 0, 0, 0);
+		ComposableCameraSystem::ShotSubjectGizmo::FSourceIdentity SubjectIdentity;
+		TWeakObjectPtr<AActor> ResolvedSubjectActor;
+		FVector AuthoredOffset = FVector::ZeroVector;
+		FVector AuthoredExtent = FVector::ZeroVector;
 	};
 	TArray<FHandleScreenPosCache> CachedHandles;
 
@@ -384,6 +404,13 @@ private:
 	bool ActiveDragZoneIsSoft = false;
 	int32 ActiveDragZoneEdgeIndex = -1;
 	TUniquePtr<FScopedTransaction> DragTransaction;
+	FVector2D OrbitDragLastMouse = FVector2D::ZeroVector;
+	float OrbitControlDpiScale = 1.f;
+	float OrbitDragDpiScale = 1.f;
+	bool bOrbitDragChanged = false;
+	FHandleScreenPosCache ActiveSubjectHandle;
+	FVector2D SubjectDragLastMouse = FVector2D::ZeroVector;
+	bool bSubjectDragChanged = false;
 
 	/** Hover state for visual feedback (unused while a drag is active). */
 	EHandleType HoveredHandleType = EHandleType::None;
@@ -393,6 +420,9 @@ private:
 	bool bHoveredIsZoneEdge = false;
 	bool HoveredZoneIsSoft = false;
 	int32 HoveredZoneEdgeIndex = -1;
+	int32 HoveredSubjectIndex = INDEX_NONE;
+	int32 HoveredSubjectAxis = INDEX_NONE;
+	float HoveredSubjectFaceSign = 1.f;
 
 	// Alt+RMB Roll drag state (Drag + Free modes)
 	//
@@ -425,20 +455,24 @@ private:
 	 * zone-edge-drag and route accordingly. */
 	bool HitTestHandles(int32 PixelX, int32 PixelY,
 		FHandleScreenPosCache& OutHit) const;
+	void StartHandleDrag(const FHandleScreenPosCache& Hit, int32 PixelX, int32 PixelY);
 
 	/** Convert normalized screen [-0.5, 0.5] (our solver convention,
 	 * +Y up) viewport pixel coords (top-left origin, +Y down). */
 	FVector2D NormalizedScreenToPixel(const FVector2D& ScreenPos, const FIntPoint& VPSize) const;
 	FVector2D PixelToNormalizedScreen(int32 PixelX, int32 PixelY, const FIntPoint& VPSize) const;
 
-	/** Draw all handles for the active Shot. Anchor + non-anchor target
-	 * with weight > 0. Greyed out in Manual Mode. Populates CachedHandles
-	 * for hit-testing. */
+	/** Draw mode-relevant screen handles; reset the shared hit cache before
+	 * subject/orbit handles are appended. Inspect handles are non-interactive. */
 	void DrawHandles(FViewport& InViewport, FCanvas& Canvas);
+	bool ShowSubjectGuides() const;
+	bool IsSubjectHandleValid(const FHandleScreenPosCache& Handle) const;
+	bool ProjectWorldToViewport(const FVector& World, FVector2D& Pixel) const;
+	void DrawSubjectGuides(FPrimitiveDrawInterface* PDI);
+	void DrawSubjectHandles(FCanvas& Canvas);
 
 
-	/** Apply mouse motion to the active drag - writes Shot screen position
-	 * + fires Host PostEditChangeProperty(Interactive). */
+	/** Write screen position, zones or local orbit angles; request preview only. */
 	void ApplyDragToShot(int32 PixelX, int32 PixelY);
 
 	/** Commit drag: PostEditChangeProperty(ValueSet), drop transaction,
@@ -491,7 +525,7 @@ private:
 	// No RMB context menu on anchor handles. Anchors do not carry bones; bone
 	// authoring lives on the per-target Details combo
 	// (`FComposableCameraTargetInfoCustomization`). RMB on the viewport falls
-	// through to base class behavior in Free mode and is eaten in Drag/Lock.
+	// through to base class behavior in Free mode and is eaten in Drag.
 
 	/** Cached solver-output focus distance (cm). Pushed into the SceneView's
 	 * `FinalPostProcessSettings.DepthOfFieldFocalDistance` each frame in
@@ -508,7 +542,7 @@ private:
 	 * to avoid pushing stale values during transient unresolvable shots. */
 	bool bCachedDoFValid = false;
 
-	// Cinemachine-style framing-zone prior-pose cache 
+	// Cinemachine-style framing-zone prior-pose cache
 	//
 	// Editor preview parallels the runtime FramingNode's prior-pose state
 	// (see `UComposableCameraCompositionFramingNode::LastPrimaryOutputPose`).

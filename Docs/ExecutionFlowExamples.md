@@ -1,6 +1,6 @@
 # Execution Flow Examples
 
-Updated: 2026-10-08
+Updated: 2026-10-11
 
 This file gives compact end-to-end flows. Keep examples current with source.
 
@@ -742,7 +742,265 @@ configuration. Pending-save state and active-trial state are independent.
 PrePIEEnded detaches runtime targets; typed pending defaults remain until Apply,
 Reset or window close. PIE-only actor references cannot be saved as defaults.
 
-## 12. When To Add Examples
+## 12. Shot Authoring V1: Selected Subjects To A Sequence
+
+```text
+Open Shot Editor -> Create tab -> choose template -> select level actors
+  -> Use Selected Actors validates count
+  -> authoring session creates a GC-tracked transient draft when no source exists
+  -> template builds ordinary Shot targets/anchors/lens/focus
+  -> Edit tab -> Follow / Aim / Lens & Focus / Motion / Subjects
+  -> Subjects A/B roles -> Compose drag / numeric fields write that same Shot
+       -> one pre-gesture transaction snapshot
+       -> Changed requests preview without host Interactive broadcasts
+       -> release posts one host ValueSet and commits one Undo entry
+Sequence tab -> choose Level Sequence -> Add Shot to Sequence
+  -> focus/open matching Sequencer -> preflight range/cut/track conflicts
+  -> one transaction: Shot camera binding -> Shot Track -> labelled Inline Section
+  -> subject actor bindings -> clear literal actor references on the Section
+  -> own camera Spawn coverage -> new Camera Cut (or reuse covering same-camera cut)
+  -> extend unlocked playback range -> select/jump/camera-cut preview
+  -> bind Shot Editor to created Section
+Paused in-range edit
+  -> resolve full binding IDs relative to owning sequence
+  -> replace existing LS component override Shot, keep row/transition/alpha
+  -> invalidate isolated camera frame cache -> EvaluateOnce(0)
+  -> Shot solve / overlap -> patches -> native CineCamera
+  -> Shot Editor renders real world with final camera view
+```
+
+Dialogue Set requires two subjects and creates consecutive two-shot / shoulder
+A / reverse B sections on one camera. Duplicate appends a complete section copy
+and extends its camera spawn coverage. Creation refuses conflicting existing
+cuts/Shot sections; it never resizes/rebinds those cuts. If creation fails after
+mutation, the helper ends and undoes its own transaction.
+
+Presets -> Save as Preset captures mesh/actor/relative mesh transforms, removes level actor
+identities and creates a ShotAsset through the native dialog. Restore copies
+composition into the current host while retaining its subject identities,
+components, bones, offsets and Section bindings. Editing a referenced preset
+Section never changes the shared asset.
+
+IDE/editor acceptance after a full UE5.6 build and restart:
+
+1. Select one character, choose Medium, Use Selected Actors. Drag distance,
+   angles, frame position, FOV, aperture and focus: preview changes before
+   release; one Undo restores the entire gesture. Repeat Close-up twice: pivot
+   does not keep moving upward. Save a preset and verify mesh pose/pivot after
+   reopening it with the level closed.
+2. Select two animated characters, choose a shoulder template, add to an empty
+   Sequence. Inspect camera/Shot Track/subject bindings/Spawn Track/Camera Cuts;
+   scrub and play. Paused numeric and handle edits must not respawn subjects or
+   flash reference pose. Rotate the subjects independently; pair placement
+   stays relative to the two pivots. Swap A/B, reorder, choose a component/bone,
+   and Undo/Redo each action.
+3. Create Dialogue Set, duplicate a clip, then Save/reload Sequence. Confirm
+   binding identities, labels and camera spawn lifetime. Refuse creation inside
+   an unrelated cut and leave its range/identity intact. Verify one Undo removes
+   the created set including its binding/tracks/cut; Redo restores it.
+4. Select three actors, Group template; move each actor and adjust frame fill.
+   All subjects participate. Applying a preset with a different subject count
+   is refused without modifying the source.
+5. Scrub an authored overlap and enable a Patch Track. Editing the incoming
+   Shot at a fixed playhead must keep blend progress/row ordering and show the
+   patched native camera. Check constrained/unconstrained filmback and resize
+   the tab: handles stay inside the rendered image. Pin an inactive Shot;
+   editing it must not drive another active camera. Enable Follow playhead,
+   cross a local camera cut, then enter Inspect: following pauses until exit.
+   Repeat at 100%, 125%, 150% and 200% desktop/editor DPI: the Aim disc's center
+   must respond to hover/click/drag at its visible location. Test Placement in
+   AnchorAtScreen and dead/soft zone edges. Resize a letterboxed view and check
+   one Undo restores the drag. AnchorOrbit/FixedWorldPosition hide the Follow screen marker; NoOp hides Aim.
+6. Check Possessable and Spawnable subjects, focused subsequences (including
+   parent-sequence subjects), and reject a subject spawned by another player
+   without creating any binding. Check missing
+   bindings, locked Sections/read-only sequences, closing Sequencer, deleting
+   the active host and reopening the tab. Compile/run the
+   `ComposableCameraSystem.ShotAuthoring.*` automation group in the editor.
+7. Resize/dock the tab, drag the vertical divider, and switch all task/Edit tabs.
+   Preview remains visible; flat parameter groups stack; each page scrolls and Advanced
+   uses only its native Details scrolling. Verify the selected tab survives
+   source refresh, reorder and Undo/Redo. Begin a numeric gesture and confirm
+   navigation cannot remove it before commit; page switching alone creates no
+   Undo entry. In Create and Edit/Subjects, change an actor and confirm refresh
+   occurs once rather than continuously. Check 100/150/200% editor DPI, long
+   asset names, empty draft and locked Section layouts.
+8. In Follow, switch AnchorOrbit / AnchorAtScreen / FixedWorldPosition.
+   Check basis subjects/direction, screen coordinates/zones and world XYZ in
+   the corresponding modes; values survive switching away and back. Configure
+   single/weighted/world anchors and per-subject weights. Screen placement
+   requires LookAtAnchor and different Follow/Aim anchors. In Aim switch
+   LookAtAnchor / NoOp; ignored screen/zone rows hide. Check Roll and RollSpeed.
+   Native numeric dragging refreshes preview before release and one Undo restores
+   the gesture. With Follow playhead enabled, scrub during that gesture: source
+   following and structural refresh wait until commit. Expanded sections remain
+   open after a parameter commit. Checkbox and Enum edits update visibility/enabled
+   state without recreating native controls. Run ShotEditor.FollowLookAtParameters
+   and ShotEditor.RetainedBooleanEnumRows in editor.
+9. In Lens & Focus, switch both FOV modes and all four focus modes. Author FOV
+   min/max, aperture 0.7 and 64, and single/weighted/world custom focus anchors.
+   Hidden values survive switching away. In Subjects, edit offset, local-space
+   flag, bone enable, mesh-forward basis, all bounds shapes/cache policies,
+   periodic interval and fractional contribution weight. Expand Preview model
+   and edit mesh plus both transforms in isolated preview. Verify all edits
+   update the correct subject, live preview and one-step Undo. In Motion, check
+   depth/FOV/roll and Follow/Aim X/Y response without the old artificial 30
+   ceiling. Reorder/remove subjects, switch assets/Sections, Undo/Redo and check
+   expansion and refreshed handles. Actor assignment still creates/preserves
+   full relative bindings. Run ShotEditor.LensFocusSubjectParameters in editor.
+10. In an empty editor/zero-subject Shot, choose Add Subject in Create or Edit /
+    Subjects and assign an actor or preview model. Add Selected Actors appends
+    one/multiple selected actors, preserving old composition and subject roles.
+    Verify one-step Undo/Redo, locked/read-only rejection, structural refresh and
+    per-subject expansion. In a referenced preset Section, append only changes
+    its local snapshot. Focus its owning Sequencer when adding actors; verify
+    Possessable creation, existing/nested Spawnable binding reuse and full batch
+    rollback on invalid/foreign-player subjects. Existing weighted-anchor lists
+    are not automatically expanded. Run ShotAuthoring.SubjectAppend and
+    ShotAuthoring.SectionSubjectAppend in editor.
+
+11. Repeatedly commit Distance, direction/offset XYZ, FOV, aperture and subject
+    weight. Page widgets/scroll offset stay stable; preview responds without a
+    panel-wide flash. Switch basis and nested anchor modes: only that parameter
+    section changes its visible fields without reconstructing controls. Toggle
+    screen zones and Subject bone/local-space flags; change bounds/cache, FOV and
+    focus modes with no panel-wide flash. Repeat after Undo/Redo, subject append,
+    reorder and source swap, which must still refresh native handles. Run
+    ShotEditor.PersistentParameterPages and ShotEditor.RetainedBooleanEnumRows.
+12. With Guides enabled, switch Follow through Orbit / AnchorAtScreen / fixed
+    position and Aim through LookAtAnchor / NoOp. Select Edit / Aim for its
+    marker; switch to Follow, Lens, Subjects and Create to hide it immediately.
+    Only effective screen handles appear; test clicks immediately after mode changes as well as after repaint.
+    Select a Character and actors with Box/Capsule components in the main level
+    viewport. Shot preview must hide engine helpers while its own active guides
+    remain usable. Main level viewport helper settings stay unchanged. Toggle
+    Level preview off/on; grid appears only in isolated preview. Run
+    ShotEditor.PreviewDisplayPolicy. Inspect saved presets in isolated preview
+    after bounds/mesh/transform edits and history refresh; visuals stay current.
+13. In Compose, scroll repeatedly and drag/release Aim and zone edges. Numeric
+    controls update while page/control identity and scroll positions remain
+    stable. Each wheel click and full drag remain one Undo step. Repeat in an
+    Inline Section and section-local preset override, with Sequencer paused.
+    Run ShotEditor.ViewportValueCommits alongside PersistentParameterPages.
+14. Set the output camera Filmback, lens squeeze and Crop to portrait, square and
+    2.39:1. Resize the window and sidebar divider; image and floating tools stay inside
+    that aspect frame. Repeat isolated preview, Inspect, inactive pinned sections
+    and a spawnable outside its spawn interval. Check anchor clicks/drags under
+    black margins and mixed DPI; source camera flags stay unchanged. A standalone
+    preset uses the native CineCamera default. Run ShotEditor.CameraAspect.
+15. Check the compact task row: Level Preview / Follow playhead stay right,
+    captions center, task buttons remain 28 units high. Use Selected Actors and
+    Save as Preset remain fixed width even in a wide pane. Header strips keep
+    a lighter muted-gray shade, without green. Primary tasks keep the full accent, while selected Follow/Aim
+    subtabs use a softer teal/gray mix. Parameter-page buttons use native Unreal
+    gray, including hover/pressed/disabled feedback. Run
+    ShotEditor.CompactActions and ShotEditor.CompactNavigation.
+16. In Create, Edit / Follow, Aim, Lens, Motion, Sequence and Presets, all
+    configuration and actions appear in the left parameter column. Check template,
+    sequence destination/duration and preset apply/restore remain accessible.
+    Behavior, anchors/zones and lens/focus stay together in their section.
+    Resize wide/portrait previews: the screen bezel follows the actual image,
+    its outer edge meets the right pane, and the inner image retains camera aspect.
+    Check all four bezel edges remain outside the picture; the margin is not
+    outlined as a whole pane. Change scalar values and drag guides: parameter pages retain
+    identity/scroll. Run ShotEditor.ParameterPageContents,
+    PersistentParameterPages, RetainedBooleanEnumRows and CameraAspect.
+17. Add two or more Subjects. Collapse/reopen each whole Subject. Expand
+    Component / pivot and Preview model; all four sections use matching headers
+    and occupy a complete row at every window/divider width. The two up/down
+    square buttons are absent. Assign actors, Undo and swap sources without stale
+    indices, missing fields or lost fold state. Check Motion retains response
+    parameters but omits its extra Aim title and two help lines. Presets uses an
+    open-folder icon. Run ShotEditor.SubjectLayout and LensFocusSubjectParameters.
+    Check the same Shot Editor art on tab, Tools, type-asset toolbar, Sequencer
+    Edit Shot and Content Browser ShotAsset icon/thumbnail.
+    Add subjects in Create and Edit: existing cards, actions, folds and scroll
+    containers stay in place. Use the trash icon in a folded header; check its
+    full icon/tooltip across widths/DPI and delete first/middle/
+    last subjects and re-add to the empty list. Remaining Anchor, weighted lists,
+    pair basis and Section overrides keep their actor identities; deleted direct
+    references become unresolved. Check one-step Undo/Redo and edit a remaining
+    subject's native weight/offset field after indices shift. Repeat Inline and
+    asset-reference sections; locked sources and captured transactions refuse
+    deletion, and shared presets remain unchanged. Run ShotEditor.SubjectCollection
+    and ShotAuthoring.SubjectRemoval alongside SubjectDeleteIcon, SubjectLayout
+    and SubjectAppend.
+18. Hold window height constant, widen then narrow: Preview grows/shrinks within
+    the right column at camera aspect. Once height-limited it stays fitted.
+    Make the window shorter: image shrinks and left parameters remain scrollable.
+    Drag the vertical divider horizontally and change Filmback/Crop between wide,
+    square and portrait. Both columns keep the full available height; no parameter
+    page appears beneath Preview. Repeat across DPI settings; current source,
+    native controls and Undo stay intact. Run ShotEditor.AdaptivePreviewResize
+    alongside CameraAspect and PersistentParameterPages.
+19. Select Edit / Follow, Mode = AnchorOrbit, enable Guides and Compose. Drag
+    the lower-left latitude/longitude globe horizontally and vertically; camera
+    orbits at constant distance in World/Subject/TwoTargetAxis bases. Check Ctrl
+    fine movement, Shift fast movement, yaw wrap, pitch limits and single Undo.
+    No parameter page flashes on release. Wheel during a drag does nothing;
+    release then wheel changes distance normally. A click without motion creates
+    no commit. Switch to Aim/Create, AnchorAtScreen/FixedWorldPosition, Guides off,
+    Inspect and locked/read-only sections; hidden/disabled controls cannot
+    write through stale hits. Resize and repeat at mixed DPI.
+    No separate Anchor point covers the subject in the 3D scene. Change
+    SingleTarget/component/bone/offset, weighted centroid and fixed-world anchors;
+    no orbit-center point appears in Compose or Inspect. The lower-left globe
+    remains visible and retains its existing drag/distance behavior.
+    Run ShotEditor.OrbitControl, SubjectGizmos and PreviewOverlayLayout alongside ViewportValueCommits.
+20. Enable HUD in wide, narrow and portrait previews. Camera / Composition headers
+    and label/value rows replace the old plain-text block and bottom strip. Check
+    pose/optics, authored -> effective damping, resolved/behind/unresolved/NoOp Aim
+    states and screen drift. Camera sits above Composition, sharing the left edge
+    at the upper-left image inset; both are about 21% larger at regular sizes.
+    Resize by half: panels, text and spacing shrink by half, with all eight
+    Camera and nine Composition rows retained. In very short frames the full
+    stack shrinks to keep an eight-unit gap above Orbit. Switch Follow/Aim or toggle Guides:
+    HUD position stays fixed. Check the image border, floating tools and orbit
+    globe remain usable. Run ShotEditor.PreviewOverlayLayout. HUD and Guides remain
+    independent view toggles and leave Shot data/Undo unchanged.
+
+
+21. In Create or Edit / Subjects with Guides and Compose enabled, inspect Pivot /
+    Bone base points, effective Offset pivots and heading triads. Only Subject
+    names and XYZ labels appear; Pivot / offset-space / weight summaries remain
+    hidden. Subject names match the parameter page and follow visible
+    effective pivots with Guides on.
+    Drag RGB axis endpoints in world/local space; repeat with a rotated named
+    component and a bone/socket pivot. Set ManualExtent and drag both faces of
+    X/Y/Z: only that nonnegative half-extent changes, symmetrically about the pivot.
+    Auto bounds show read-only. None removes the box. Manual FOV and zero weight
+    keep configured boxes gray; fit contributors remain green/yellow. Check Ctrl/
+    Shift, one-step Undo/Redo, no-op clicks and no parameter flash on release.
+    Test level/binding/proxy sources, portrait/letterbox and 100/150/200% DPI.
+    Resize Preview, switch page/source/component/offset frame/shape or change subject count:
+    stale hits cannot write. Guides off hides all; Inspect/locked sources
+    disable editing. Near camera-facing axes cannot be grabbed. Main-level
+    Capsule/Box helpers stay hidden. Run ShotEditor.SubjectGizmos,
+    ShotAuthoring.PivotTransform and ComponentPivotAndBounds alongside
+    ViewportValueCommits and RetainedBooleanEnumRows.
+
+22. Check original-preview compatibility in isolated and Level preview, with an
+    active Inline Section and a section-local preset override. The mode row shows
+    only Compose/Inspect; use 1/2 to switch. Press 3 in each mode: it does not
+    change mode or show a Free-exit request. Compose wheel and Alt+RMB Roll each produce one Undo;
+    drag Follow/Aim anchors and soft/dead zone edges (Shift mirrors the opposite
+    edge). Inspect retains native orbit/pan/dolly while lens/focus/Roll stay live.
+    Reset restores the solved pose. Leaving Inspect offers Save/Discard/Stay;
+    Save reproduces the inspected pose through the solver. Check HUD/Guides,
+    fit bounds, source animation and preview meshes. Focus each mode and check
+    Ctrl+Alt+C copy, Ctrl+B browse, save and Undo/Redo. Lock the section or make
+    its sequence read-only: no Shot writer, including Inspect Roll, may change
+    values; Inspect navigation and keyboard shortcuts remain usable. Lock during
+    a captured drag, then move/release before the next Tick: no subsequent writes
+    and no stuck transaction. Run ShotEditor.CameraModes and PreviewCompatibility
+    with ModeSwitchPrompt, ViewportValueCommits, OrbitControl and SubjectGizmos. Native navigation,
+    keyboard/clipboard and rendered active-CineCamera checks require an attached
+    UE window; the isolated fixture does not cover those engine integration paths.
+
+These are required manual integration checks; source inspection does not claim
+they have passed. Builds and automation are launched in the user's IDE/editor.
+
+## 13. When To Add Examples
 
 Add a new flow when a feature crosses at least two major systems, for example:
 

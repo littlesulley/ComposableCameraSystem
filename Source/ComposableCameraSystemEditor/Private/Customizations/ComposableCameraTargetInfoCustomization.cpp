@@ -94,14 +94,17 @@ namespace
 		return Actor;
 	}
 
-	USkeletalMeshComponent* ResolveFirstSkelMesh(AActor* Actor, const TCHAR* DebugLabel)
+	USkeletalMeshComponent* ResolveFirstSkelMesh(AActor* Actor, const TCHAR* DebugLabel, FName ComponentName = NAME_None)
 	{
 		if (!Actor)
 		{
 			return nullptr;
 		}
 
-		USkeletalMeshComponent* SkelComp = Actor->FindComponentByClass<USkeletalMeshComponent>();
+		USkeletalMeshComponent* SkelComp = nullptr;
+		if (ComponentName.IsNone()) SkelComp = Actor->FindComponentByClass<USkeletalMeshComponent>();
+		else for (UActorComponent* Component : Actor->GetComponents())
+			if (Component && Component->GetFName() == ComponentName) { SkelComp = Cast<USkeletalMeshComponent>(Component); break; }
 		UE_LOG(LogComposableCameraSystemEditor, Verbose,
 			TEXT("[BonePicker] %s actor '%s' SkelMeshComp=%s"),
 			DebugLabel,
@@ -202,6 +205,13 @@ void FComposableCameraTargetInfoCustomization::CustomizeChildren(TSharedRef<IPro
 		}
 
 		const FName ChildName = Child->GetProperty()->GetFName();
+		if (ChildName == GET_MEMBER_NAME_CHECKED(FComposableCameraTargetInfo, ComponentName))
+		{
+			ComponentNameHandle = Child;
+			StructBuilder.AddProperty(Child.ToSharedRef());
+			Child->SetOnPropertyValueChanged(FSimpleDelegate::CreateSP(this, &FComposableCameraTargetInfoCustomization::RefreshBoneOptions));
+			continue;
+		}
 
 		if (ChildName == GET_MEMBER_NAME_CHECKED(FComposableCameraTargetInfo, Actor))
 		{
@@ -486,8 +496,8 @@ AActor* FComposableCameraTargetInfoCustomization::ResolveLSOverrideContext(FText
 	// Spawnables only while their binding's section is active in the
 	// timeline (designer must scrub the playhead inside the spawnable's
 	// range to see it bound). FocusedTemplateID handles sub-sequences.
-	const TArrayView<TWeakObjectPtr<>> Bound = OpenSequencer->FindBoundObjects(MatchingOverride->Binding.GetGuid(),
-		OpenSequencer->GetFocusedTemplateID());
+	const FMovieSceneSequenceID SourceID = OpenSequencer->GetFocusedMovieSceneSequence() == Sequence ? OpenSequencer->GetFocusedTemplateID() : MovieSceneSequenceID::Root;
+	const TArrayView<TWeakObjectPtr<>> Bound = MatchingOverride->Binding.ResolveBoundObjects(SourceID, *OpenSequencer);
 	for (const TWeakObjectPtr<UObject>& Weak: Bound)
 	{
 		if (AActor* Actor = Cast<AActor>(Weak.Get()))
@@ -500,6 +510,8 @@ AActor* FComposableCameraTargetInfoCustomization::ResolveLSOverrideContext(FText
 
 USkeletalMesh* FComposableCameraTargetInfoCustomization::ResolveSkeletalMesh() const
 {
+	FName ComponentName;
+	if (ComponentNameHandle) ComponentNameHandle->GetValue(ComponentName);
 	// LS Section override path takes priority: when the section's right-click
 	// "Bind Target Actors" menu has bound this Target index to
 	// a Sequencer binding, the *bound* actor is what runtime + preview both
@@ -508,14 +520,15 @@ USkeletalMesh* FComposableCameraTargetInfoCustomization::ResolveSkeletalMesh() c
 	if (AActor* OverrideActor = ResolveLSOverrideActor())
 	{
 		if (USkeletalMeshComponent* SkelComp =
-			ResolveFirstSkelMesh(OverrideActor, TEXT("LS-override")))
+			ResolveFirstSkelMesh(OverrideActor, TEXT("LS-override"), ComponentName))
 		{
 			return SkelComp->GetSkeletalMeshAsset();
 		}
+		return nullptr;
 	}
 
 	if (USkeletalMeshComponent* SkelComp =
-		ResolveFirstSkelMesh(ResolveActorFromHandle(ActorHandle, TEXT("Actor")), TEXT("Actor")))
+		ResolveFirstSkelMesh(ResolveActorFromHandle(ActorHandle, TEXT("Actor")), TEXT("Actor"), ComponentName))
 	{
 		return SkelComp->GetSkeletalMeshAsset();
 	}

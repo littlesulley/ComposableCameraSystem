@@ -73,6 +73,16 @@ void SShotEditorViewport::SetMode(EShotEditorMode InMode)
 	}
 }
 
+void SShotEditorViewport::SetAuthoringSession(TSharedPtr<FComposableCameraShotAuthoringSession> Session)
+{
+	if (ViewportClient) ViewportClient->SetAuthoringSession(Session);
+}
+
+bool SShotEditorViewport::IsEditingGesture() const
+{
+	return ViewportClient && ViewportClient->IsEditingGesture();
+}
+
 EShotEditorMode SShotEditorViewport::GetMode() const
 {
 	return ViewportClient.IsValid() ? ViewportClient->GetMode() : EShotEditorMode::Drag;

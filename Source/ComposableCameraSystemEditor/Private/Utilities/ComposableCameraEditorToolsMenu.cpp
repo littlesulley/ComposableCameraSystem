@@ -74,7 +74,7 @@ void FComposableCameraEditorToolsMenu::RegisterMenus()
 	Windows.AddMenuEntry(TEXT("ComposableCameraShotEditor"),
 		LOCTEXT("ShotEditor", "Shot Editor"),
 		LOCTEXT("ShotEditorTooltip", "Open or focus Shot Editor, preserving its current Shot."),
-		FSlateIcon(FAppStyle::GetAppStyleSetName(), "ClassIcon.CameraComponent"),
+		FSlateIcon(FComposableCameraEditorStyle::Get()->GetStyleSetName(), "ComposableCamera.ShotEditor", "ComposableCamera.ShotEditor.Small"),
 		FUIAction(FExecuteAction::CreateStatic(&OpenEditorTab, FComposableCameraShotEditor::TabId)));
 
 	// Establish the display order before tool-specific startup callbacks contribute entries.

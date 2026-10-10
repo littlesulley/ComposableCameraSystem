@@ -16,27 +16,21 @@
 
 struct FComposableCameraShot;
 class FComposableCameraShotEditorViewportClient;
+class FComposableCameraShotAuthoringSession;
 
 /**
- * Tri-state mode the Shot Editor's viewport can be in.
+ * Camera interaction modes for the Shot Editor viewport.
  *
- * - Drag (default): Solver drives camera every frame. Handles (Anchor +
- * per-target screen positions) are interactive - LMB drag updates the
- * authored Shot fields, RMB pops the handle context menu. Mouse-only-on-handles policy: clicking
- * empty viewport area does NOT orbit the camera (solver would just
- * overwrite anyway).
+ * - Drag / Compose (default): Shot drives camera. LMB drags visible anchor,
+ * zone, orbit or subject guides. Wheel authors follow distance; Alt+RMB
+ * authors Roll. Empty-area clicks do not start native camera navigation.
  *
  * - Free: User has full mouse-driven camera control (orbit / pan /
- * dolly via base `FEditorViewportClient` defaults). Solver pauses -
- * camera stays where the user moves it. Handles are drawn at LIVE
- * projected positions of the world anchor / target points (so they
- * visually track those world points as the camera moves around) but
- * are NON-interactive. Toggling back to Drag / Lock asks the root widget
+ * dolly via base `FEditorViewportClient` defaults). Camera position/yaw/pitch
+ * stay user-controlled; lens/focus and authored Roll continue previewing live.
+ * Selected guides remain visible but non-interactive. Alt+RMB authors Roll
+ * only on editable sources. Toggling back to Drag asks the root widget
  * to show Save / Discard / Stay in the status bar.
- * - Lock: Solver drives camera (same as Drag) but ALL user input is
- * consumed - no handle interaction, no camera control. Read-only
- * preview state for screenshots / demos / "show me what runtime
- * would render".
  */
 // Plain C++ enum (no UENUM macro - this header doesn't generate reflection
 // metadata and the enum isn't a UPROPERTY anywhere). Reflection-tagged
@@ -44,13 +38,12 @@ class FComposableCameraShotEditorViewportClient;
 enum class EShotEditorMode: uint8
 {
 	Drag,
-	Free,
-	Lock
+	Free
 };
 
 /**
  * Outcome of a reverse-solve precheck (or a completed reverse-solve attempt).
- * Lets the Free -> Drag / Lock status bar tell designers why "Save
+ * Lets the Free -> Drag status bar tell designers why "Save
  * composition" is unavailable instead of greying it out silently.
  */
 enum class EShotEditorReverseSolveStatus: uint8
@@ -61,19 +54,21 @@ enum class EShotEditorReverseSolveStatus: uint8
 	PlacementAnchorUnresolvable,
 	AimAnchorUnresolvable,
 	PlacementAnchorBehindCamera,
+	SourceReadOnly,
 };
 
-/** Per-status reason text shown in the Free -> Drag / Lock status bar. */
+/** Per-status reason text shown in the Free -> Drag status bar. */
 COMPOSABLECAMERASYSTEMEDITOR_API FText ShotEditorReverseSolveStatusToText(EShotEditorReverseSolveStatus Status);
 
 /**
- * SEditorViewport subclass that fills the Shot Editor's middle splitter
- * region. Owns the FPreviewScene + FEditorViewportClient that render the
+ * SEditorViewport subclass that fills the Shot Editor's adaptive preview
+ * frame. Owns the FPreviewScene + FEditorViewportClient that render the
  * camera-framing preview.
  *
  * Composition (research Q1 - engine canonical pattern):
  * SShotEditorRoot
- * SSplitter
+ * SShotEditorPreviewLayout (native horizontal parameter / preview splitter)
+ * SShotEditorPreviewFrame (camera aspect, right alignment)
  * SShotEditorViewport (this - extends SEditorViewport)
  * FAdvancedPreviewScene (sky sphere + skylight + floor +
  * post-process - same baseline
@@ -94,19 +89,24 @@ public:
 	SLATE_END_ARGS()
 
 	void Construct(const FArguments& InArgs);
+#if WITH_DEV_AUTOMATION_TESTS
+	TSharedPtr<FComposableCameraShotEditorViewportClient> GetClientForTesting() const { return ViewportClient; }
+#endif
 
 	virtual ~SShotEditorViewport() override;
 
 	/** Forwarded from SShotEditorRoot::SetActiveShot. Triggers proxy rebuild
 	 * on the next viewport tick. Both args may be null. */
 	void SetActiveShot(FComposableCameraShot* Shot, UObject* HostObject);
+	void SetAuthoringSession(TSharedPtr<class FComposableCameraShotAuthoringSession> Session);
+	bool IsEditingGesture() const;
 
 	/** Forwarded mode setter for the Shot Editor's toolbar SSegmentedControl.
 	 * See EShotEditorMode above for per-mode semantics. */
 	void SetMode(EShotEditorMode InMode);
 	EShotEditorMode GetMode() const;
 
-	/** Reverse-solve API for the Free -> Drag / Lock status-bar action. */
+	/** Reverse-solve API for the Free -> Drag status-bar action. */
 	EShotEditorReverseSolveStatus DiagnoseReverseSolveCurrentCamera() const;
 	bool CanReverseSolveCurrentCamera() const;
 	bool ReverseSolveCurrentCameraToShot();
@@ -128,7 +128,7 @@ public:
 	void SetShowCompositionGuides(bool bInShowCompositionGuides);
 
 protected:
-	// SEditorViewport overrides 
+	// SEditorViewport overrides
 
 	/** Factory hook - returns our FEditorViewportClient subclass. Called once
 	 * during SEditorViewport::Construct, after PreviewScene is built. */

@@ -48,7 +48,12 @@ inline bool IsPlacementFieldVisible(EShotPlacementMode Mode,
 	if (PropertyName == GET_MEMBER_NAME_CHECKED(FShotPlacement, BasisActorIndex))
 	{
 		return Mode == EShotPlacementMode::AnchorOrbit
-			&& BasisFrame == EShotPlacementBasisFrame::InheritFromActor;
+			&& BasisFrame != EShotPlacementBasisFrame::World;
+	}
+	if (PropertyName == GET_MEMBER_NAME_CHECKED(FShotPlacement, BasisSecondaryTargetIndex))
+	{
+		return Mode == EShotPlacementMode::AnchorOrbit
+			&& BasisFrame == EShotPlacementBasisFrame::TwoTargetAxis;
 	}
 	if (PropertyName == GET_MEMBER_NAME_CHECKED(FShotPlacement, Distance)
 		|| PropertyName == GET_MEMBER_NAME_CHECKED(FShotPlacement, DistanceSpeed))

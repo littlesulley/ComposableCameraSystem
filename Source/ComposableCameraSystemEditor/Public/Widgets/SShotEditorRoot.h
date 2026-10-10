@@ -16,6 +16,8 @@ class IStructureDetailsView;
 class FStructOnScope;
 class SComboButton;
 class SWidget;
+class FComposableCameraShotAuthoringSession;
+class SShotEditorAuthoringPanel;
 
 // Forward decl must match the definition's base type (`: uint8`) - C++
 // rejects mismatched underlying types between fwd-decl and definition.
@@ -24,7 +26,7 @@ enum class EShotEditorReverseSolveStatus: uint8;
 
 /**
  * Root widget for the Shot Editor. Owns the compact top bar, 3D preview
- * viewport, right Details panel, and active Shot context.
+ * viewport, task navigation, left parameter pages, and active Shot context.
  *
  * Lifetime: held by the Shot Editor's SDockTab. Construct() runs once
  * when the tab is spawned; the widget persists across SetActiveShot()
@@ -46,6 +48,7 @@ public:
 	SLATE_END_ARGS()
 
 	void Construct(const FArguments& InArgs);
+	virtual ~SShotEditorRoot() override;
 
 	/** Currently bound host UObject, or nullptr when no Shot is loaded. Used
 	 * by editor-side customizations that need the Section / ShotAsset
@@ -66,15 +69,15 @@ public:
 	// (the host's TWeakObjectPtr can go stale at any GC pass).
 	virtual void Tick(const FGeometry& AllottedGeometry, const double InCurrentTime, const float InDeltaTime) override;
 
-	/** Hotkeys: 1 = Drag, 2 = Free, 3 = Lock - only fire when no descendant
+	/** Hotkeys: 1 = Compose (Drag), 2 = Inspect (Free) - only fire when no descendant
 	 * text-input has captured keyboard focus (Slate's normal focus chain
 	 * ensures this - text boxes consume the key first). */
 	virtual FReply OnKeyDown(const FGeometry& MyGeometry, const FKeyEvent& InKeyEvent) override;
 	virtual bool SupportsKeyboardFocus() const override { return true; }
 
 	// FNotifyHook - bridges struct-detail-view edits to the host UObject.
-	// - NotifyPreChange: host->Modify() (records undo snapshot).
-	// - NotifyPostChange: host->PostEditChangeProperty() with the host's
+	// - NotifyPreChange: bare SaveToTransactionBuffer (no Sequencer invalidation).
+	// - NotifyPostChange: session forwards one commit event with the host's
 	// outer "Shot" property so host-level listeners
 	// (graph-node visualization, Build pipeline, etc.)
 	// react to Shot mutations identically to a direct
@@ -84,17 +87,6 @@ public:
 		FProperty* PropertyThatChanged) override;
 
 private:
-	enum class EQuickControlField : uint8
-	{
-		Distance,
-		FOV,
-		Roll,
-		PlacementX,
-		PlacementY,
-		AimX,
-		AimY
-	};
-
 	/** Shot data being edited. NOT owned - host UObject's UPROPERTY owns
 	 * it. nullptr when no Shot is bound (e.g. tab restored from saved
 	 * layout before any node has triggered the open flow). */
@@ -125,13 +117,14 @@ private:
 	/** The 3D preview viewport. Forwarded SetActiveShot calls drive proxy
 	 * rebuilds + solver-driven camera updates inside this widget. */
 	TSharedPtr<SShotEditorViewport> Viewport;
+	TSharedPtr<FComposableCameraShotAuthoringSession> AuthoringSession;
+	TSharedPtr<SShotEditorAuthoringPanel> AuthoringPanel;
+	bool bAuthoringRefreshPending = false;
+	void FollowSequencerPlayhead();
 
 	/** Collapses the viewport-local command strip down to a small Tools
 	 * button so it does not cover diagnostic HUD text. */
 	bool bViewportToolbarCollapsed = false;
-
-	/** Collapses the compact Quick strip above the full Details panel. */
-	bool bQuickControlsCollapsed = true;
 
 	/** Pending target mode requested while leaving Free mode. Applied only
 	 * after the status-bar Save / Discard action is resolved. */
@@ -139,7 +132,7 @@ private:
 	bool bHasPendingFreeExitMode = false;
 	EShotEditorReverseSolveStatus PendingFreeExitStatus {};
 
-	/** Right-pane structure details view. Bound to the active Shot via
+	/** Left-pane Advanced structure details view. Bound to the active Shot via
 	 * FStructOnScope wrapping the raw `FComposableCameraShot*`
 	 * inside the host UObject. The wrapper's `bOwnsMemory=false` because
 	 * the host UObject owns the actual struct memory. NotifyHook (this
@@ -156,33 +149,16 @@ private:
 	 * or ActiveHost changes. */
 	void OnActiveShotChanged();
 
-	/** Build the right pane: optional quick controls above the full
-	 * structure Details view. */
+	/** Build task-specific authoring pages, including the full Advanced Details. */
 	TSharedRef<SWidget> BuildDetailsPane();
 
-	/** Build the middle viewport pane plus its floating view-command strip. */
+	/** Build the right viewport pane plus its floating view-command strip. */
 	TSharedRef<SWidget> BuildViewportPane();
 	TSharedRef<SWidget> BuildViewportFloatingToolbar();
 	EVisibility GetViewportToolbarControlsVisibility() const;
 	FReply OnViewportToolbarToggleCollapsedClicked();
-	void OnQuickControlsExpansionChanged(bool bExpanded);
 	void LoadPersistedLayoutState();
 	void SavePersistedLayoutState() const;
-
-	/** Compact, experimental mirror of the most-used Shot fields. Writes
-	 * through the same host transaction / PostEditChangeProperty path as
-	 * Details commits. */
-	TSharedRef<SWidget> BuildQuickControls();
-	TSharedRef<SWidget> BuildQuickFloatControl(EQuickControlField Field,
-		const FText& Label,
-		const FText& ToolTip,
-		float MinValue,
-		float MaxValue);
-	TOptional<float> GetQuickControlValue(EQuickControlField Field) const;
-	bool IsQuickControlEnabled(EQuickControlField Field) const;
-	void CommitQuickControlValue(EQuickControlField Field, float NewValue);
-	FProperty* ResolveActiveShotProperty() const;
-	void PostActiveShotValueSet();
 
 	/**
 	 * Compose the host-context chain shown in the header label:

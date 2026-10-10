@@ -397,6 +397,7 @@ FText FComposableCameraShotSectionInterface::GetSectionTitle() const
 	{
 		return LOCTEXT("EmptyShotSection", "<empty>");
 	}
+	if (!ShotSection->ShotLabel.IsEmpty()) return FText::FromString(ShotSection->ShotLabel);
 
 	switch (ShotSection->Source)
 	{
@@ -859,7 +860,7 @@ void FComposableCameraShotSectionInterface::BuildSectionContextMenu(FMenuBuilder
 			"Open the Shot Editor on this section's Shot. For Inline sections, "
 			"the editor binds to the section itself; for AssetReference sections, "
 			"the editor edits section-local overrides seeded from the ShotAsset."),
-		FSlateIcon(FAppStyle::GetAppStyleSetName(), "Sequencer.Tracks.CinematicShot"),
+		FSlateIcon(FComposableCameraEditorStyle::Get()->GetStyleSetName(), "ComposableCamera.ShotEditor", "ComposableCamera.ShotEditor.Small"),
 		FUIAction(FExecuteAction::CreateLambda([ShotSection]()
 		{
 			FComposableCameraShotEditor::OpenForShotSection(ShotSection);

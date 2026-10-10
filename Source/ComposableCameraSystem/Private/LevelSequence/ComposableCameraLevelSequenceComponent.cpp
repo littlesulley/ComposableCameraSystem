@@ -959,6 +959,22 @@ void UComposableCameraLevelSequenceComponent::RemoveSequencerShotOverride(
 	}
 }
 
+#if WITH_EDITOR
+bool UComposableCameraLevelSequenceComponent::RefreshShotEditorPreview(
+	UMovieSceneComposableCameraShotSection* Section, const FComposableCameraShot& EffectiveShot)
+{
+	FComposableCameraSequencerShotEntry* Entry = SequencerShotOverrides.Find(Section);
+	if (!Entry || !bEvaluationEnabled || !InternalCamera)
+	{
+		return false;
+	}
+	Entry->Shot = EffectiveShot;
+	InternalCamera->InvalidateTickCache();
+	EvaluateOnce(0.f);
+	return true;
+}
+#endif
+
 void UComposableCameraLevelSequenceComponent::ApplyActiveSequencerShotOverride()
 {
 	if (!InternalCamera)

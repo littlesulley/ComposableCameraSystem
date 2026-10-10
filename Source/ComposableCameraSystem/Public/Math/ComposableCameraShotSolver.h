@@ -113,6 +113,7 @@ namespace ComposableCameraSystem::ShotSolver
 	 * Resolves the basis quat for the Placement layer's `LocalCameraDirection`.
 	 *   - World basis->FQuat::Identity (always valid).
 	 *   - InheritFromActor basis  ->Targets[BasisActorIndex]'s basis quat,
+	 *   - TwoTargetAxis basis -> horizontal pivot A-to-B direction, with world up.
 	 *                               via FComposableCameraTargetInfo::ResolveBasisQuat
 	 *                               (mesh-component quat for ACharacter-style
 	 *                               targets when the per-target flag is set,
@@ -132,6 +133,21 @@ namespace ComposableCameraSystem::ShotSolver
 		if (P.BasisFrame == EShotPlacementBasisFrame::World)
 		{
 			return FQuat::Identity;
+		}
+
+		if (P.BasisFrame == EShotPlacementBasisFrame::TwoTargetAxis)
+		{
+			FVector A, B;
+			if (!Shot.Targets.IsValidIndex(P.BasisActorIndex)
+				|| !Shot.Targets.IsValidIndex(P.BasisSecondaryTargetIndex)
+				|| !Shot.Targets[P.BasisActorIndex].Target.ResolveWorldPoint(A)
+				|| !Shot.Targets[P.BasisSecondaryTargetIndex].Target.ResolveWorldPoint(B))
+			{
+				return FQuat::Identity;
+			}
+			FVector Forward = B - A;
+			Forward.Z = 0.0;
+			return Forward.Normalize() ? Forward.Rotation().Quaternion() : FQuat::Identity;
 		}
 
 		// InheritFromActor. Needs a valid target index.

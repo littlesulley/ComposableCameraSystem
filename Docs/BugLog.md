@@ -6734,3 +6734,1090 @@
   source/coverage operations, first native/transaction copies, interleaved index
   traversal, unchanged-buffer comparison, component work and GPU upload can still
   cost time; actual latency must be measured in the target Level.
+
+## 2026-10-08 - Shot authoring sliders commit without live preview
+
+- Symptom: dragging the previous Quick strip's Distance/FOV/Roll fields showed
+  a changed number but kept the Shot and camera unchanged until release.
+- Trigger/repro: open a valid Shot, expand Quick and drag Distance while
+  inspecting the preview. The field changes before the camera does.
+- Why/root cause: OnValueChanged wrote a widget-local drag cache; only
+  OnValueCommitted/OnEndSliderMovement wrote the actual Shot. The paused
+  Sequencer component also retained its last registered Shot value.
+- History/blast radius: audited the 2026-06-13 stale-host/status priority,
+  Reset-only-in-Free and SOverlay include entries, existing SaveToTransactionBuffer
+  gesture paths, Section-local source snapshots and LS overlap/patch projection.
+- Touched files: SShotEditorRoot.h/.cpp, SShotEditorAuthoringPanel.h/.cpp,
+  ComposableCameraShotAuthoringSession.h/.cpp, ShotEditorViewportClient.h/.cpp,
+  SShotEditorViewport.h/.cpp, LevelSequenceComponent.h/.cpp, both new ShotAuthoring
+  test files, ShotEditorTests.cpp and the five Shot/runtime/editor design docs.
+- Fix: replace Quick with semantic authoring controls; write actual Shot each
+  drag, snapshot once and notify host only on release. Refresh an already active
+  paused LS override without changing row/transition/alpha, then read native view.
+  Late callbacks guard host/storage identity; read-only sources cannot write.
+- Regression names: ComposableCameraSystem.ShotAuthoring.InteractiveSourceAndUndo,
+  ComposableCameraSystem.ShotAuthoring.ActivePreviewPreservesBlend,
+  ComposableCameraSystem.ShotAuthoring.SectionLocalPreset and
+  ComposableCameraSystem.ShotEditor.ReverseSolveStatusToText.
+- Verification blocker: tests added, not run. Project instructions require IDE
+  compilation and editor automation. Full restart required for reflected fields.
+  Manual acceptance: paused animated subjects must not respawn/flash; native
+  preview must retain overlap/Patch/filmback and one Undo per drag.
+- Avoid next time: distinguish view-only caches from authoring storage, and
+  distinguish value refresh from structural Sequencer invalidation.
+- Possible conflicts: gameplay DAG frame cache/live trial are untouched;
+  standalone preview remains solver-based. V1 still accepts Shot data only.
+
+## 2026-10-08 - Named bounds cache survives clearing component selection
+
+- Symptom: initial V1 implementation kept a manually selected mesh's bounds
+  when ComponentName was cleared back to None on the same actor.
+- Trigger/repro: actor with Body and Prop mesh; select Prop, refresh bounds,
+  clear ComponentName and refresh again. Cached owner still matches actor.
+- Why/root cause: invalidation checked owner and non-None name mismatch, omitting
+  the explicit-name -> None transition.
+- History/blast radius: reviewed mesh-only bounds selection and all TargetInfo/
+  ShotTarget/viewport/customization consumers; legacy None resolution must stay
+  intact for FocusPull/Occlusion and existing Shot assets.
+- Touched files: ComposableCameraShotTarget.h/.cpp,
+  ComposableCameraTargetInfo.h/.cpp, TargetInfoCustomization.h/.cpp,
+  ShotEditorViewportClient.h/.cpp, ShotAuthoringRuntimeTests.cpp and docs.
+- Fix: cache ComponentName as part of source identity, including None. Named
+  component selection restricts pivot, bone, basis and bounds consistently.
+  Proxy rebuild keys include names; bone picker uses full sequence-relative
+  binding IDs and the selected mesh.
+- Regression: ComposableCameraSystem.ShotAuthoring.ComponentPivotAndBounds.
+- Verification blocker: IDE/editor run required; test not executed. Verify
+  multiple meshes, selected sockets, clear-to-None, missing names and Undo/Redo.
+- Avoid next time: cache keys must include all selection states and transitions.
+- Possible conflicts: new fields default to None; existing actor/bone behavior
+  remains. Missing explicit components intentionally fail rather than substituting.
+
+## 2026-10-08 - Appended Shot can outlive its camera's Spawn range
+
+- Symptom: appending/duplicating a clip after an existing finite camera Spawn
+  section produced a Shot section whose camera was absent.
+- Trigger/repro: camera spawned only during frames 0..100; append a clip at 100
+  or create a clip across its authored false key.
+- Why/root cause: adding Shot/Cut ranges does not extend Spawn Track coverage.
+  MakeNewSpawnable with setup-defaults disabled also needs explicit spawn data.
+- History/blast radius: audited KeySpawnTracksFromCameraCuts and verified UE5.6
+  MovieSceneSpawnTrack multiple-section support/track high-pass-per-row rules.
+  Existing cuts, spawn keys and Transform tracks must not be rewritten.
+- Touched files: ComposableCameraShotAuthoring.h/.cpp,
+  ComposableCameraShotAuthoringTests.cpp, EditorDesignDoc.md, TechDoc.md,
+  ExecutionFlowExamples.md and ShotBasedKeyframing.md.
+- Fix: add higher-priority true coverage only in the new camera interval; set
+  Spawn Track ObjectId explicitly. Reuse already covering true singleton data.
+  Preflight cut/Shot conflicts; own one creation transaction and undo on failure.
+- Regression: ComposableCameraSystem.ShotAuthoring.SpawnableAppend and
+  ComposableCameraSystem.ShotAuthoring.PreserveCameraCuts.
+- Verification blocker: tests not executed. IDE/editor must verify actual
+  Spawnable lifetime, creation/duplicate Undo/Redo, reload and MRQ playback.
+- Avoid next time: camera binding, shot intent, spawn lifetime and cuts are
+  separate Sequencer responsibilities; convenience authoring must configure all.
+- Possible conflicts: additional coverage temporarily wins old false spawn
+  values only inside the new Shot interval. Authored keys and cuts remain intact.
+
+## 2026-10-08 - Shot authoring transaction event forward declaration fails C4099
+
+- Symptom: UE5.6 Editor module compilation fails at
+  ComposableCameraShotAuthoringSession.h:14 in multiple unity translation units.
+- Trigger/repro: compile Shot Authoring V1 in Rider/Visual Studio with UE's
+  EditorUndoClient.h declaring FTransactionObjectEvent before the session header.
+- Why/root cause: the session forward-declared the event as struct; both
+  EditorUndoClient.h and CoreUObject/Misc/TransactionObjectEvent.h use class.
+  MSVC C4099 becomes an error under this project's warning policy.
+- History/blast radius: reviewed the earlier FSpawnTabArgs C4099 entry and the
+  TechDoc class-key rule. Audited the session callback/delegate consumers and
+  new authoring headers; no callback signature or transaction semantics change.
+- Touched files: ComposableCameraShotAuthoringSession.h,
+  ComposableCameraShotAuthoringTests.cpp, TechDoc.md and BugLog.md.
+- Fix: use class FTransactionObjectEvent, matching UE's defining header.
+- Regression: compile-time coverage in ComposableCameraShotAuthoringTests.cpp
+  explicitly includes the canonical TransactionObjectEvent definition before
+  the authoring session header, independent of unity-file concatenation order.
+- Verification blocker: compiler diagnostics occur before automation can run.
+  The user must rebuild the UE5.6 Editor target in Rider/Visual Studio; no
+  command-line build or successful compile is claimed here.
+- Avoid next time: inspect defining headers for class-key, including F-prefixed
+  engine types; naming conventions do not determine class versus struct.
+- Possible conflicts: none expected in runtime, serialization, Sequencer binding
+  or Undo behavior; this corrects only a C++ forward declaration.
+
+## 2026-10-08 - Shot Editor anchor drawing and hit areas diverge at high DPI
+
+- Symptom: user reports visible Anchor handles cannot be clicked or dragged.
+  Source inspection confirms a DPI-related draw/hit mismatch; current user
+  mode and display scaling still need editor-side confirmation.
+- Trigger/repro: open a writable Shot in Compose at 150% display/editor DPI;
+  hover/click the visible Aim disc, away from the screen origin. Repeat for
+  Placement in AnchorAtScreen and for dead/soft zone edges.
+- Why/root cause: FCanvas applies its DPI-scaled base transform, while the
+  old DrawHandles passed projected physical viewport pixels as Canvas positions.
+  CachedHandles and FSceneViewport mouse input stayed in physical pixels, so
+  drawing moved to a different position from its hit area. Zone spacing and
+  projection markers had the same double-scaling issue.
+- History/blast radius: reviewed the earlier high-DPI debug-card Pin issue,
+  Shot handle mode gating, letterbox projection, cached hit-order and gesture
+  SaveToTransactionBuffer paths. Verified UE5.6 ViewportClient's Canvas DPI
+  default, UnrealClient.cpp canvas construction and Canvas.cpp base transform.
+- Touched files: ShotEditorViewportClient.cpp, ShotViewportCanvasUtils.h,
+  ShotEditorTests.cpp, EditorDesignDoc.md, TechDoc.md, ExecutionFlowExamples.md
+  and BugLog.md.
+- Fix: draw positions/zone dimensions in logical Canvas units, map anchor and
+  edge hit boxes back to physical viewport pixels. Drag normalization retains
+  physical coordinates and letterbox origin. Read-only handles now grey out.
+  AnchorOrbit/FixedWorldPosition Placement remains intentionally disabled;
+  Aim NoOp and Inspect/Preview are also non-interactive.
+- Regression: ComposableCameraSystem.ShotEditor.CanvasHitCoordinates checks
+  100/125/150/200% scaling, visible center/radius hits, outside rejection, zone
+  edges, invalid-scale fallback and the former double-scaled miss.
+- Verification blocker: test added, not compiled/run. IDE/editor verification
+  must confirm actual hover/capture/drag, one-step Undo, level/template preview,
+  filmback letterbox resize and mixed-monitor DPI. No shell build is allowed.
+- Avoid next time: distinguish projected physical pixels, logical Canvas units
+  and Slate geometry; use the draw Canvas's actual DPI, not a guessed OS value.
+- Possible conflicts: 100% coordinates are unchanged; high-DPI guide centers
+  now match their world projection. Runtime solver/Shot values and transactions
+  are unchanged. Disabled Placement is a mode constraint, not this DPI defect.
+
+## 2026-10-09 - Shot authoring Position page exposes only a partial Orbit configuration
+
+- Symptom: user cannot choose a placement method in the semantic page; screen
+  placement, fixed world position, basis subjects, zones and weighted/world
+  anchor settings require Advanced. The new layout still feels fragmented.
+- Trigger/repro: open Shot Editor, Edit / Position, attempt to select
+  AnchorAtScreen or FixedWorldPosition and author their parameters.
+- Why/root cause: the first semantic UI manually mirrored a small Orbit subset.
+  It never exposed Placement.Mode and had no complete mapping of other fields.
+- History/blast radius: checked Shot Details visibility, target-index parent
+  lookup, the native transaction/ref-pose entries and Anchor DPI fix. Reviewed
+  Placement/Aim customizations, all authoring panel consumers, Root NotifyHook,
+  source refresh/playhead following and PropertyEditor public row-generator APIs.
+- Touched files: SShotEditorAuthoringPanel.h/.cpp, SShotEditorParameterPanel.h/.cpp,
+  SShotEditorRoot.cpp, ShotPlacementCustomization.cpp,
+  ShotAnchorIndexCustomization.cpp, ShotParameterPanelTests.cpp and editor/tech/
+  shot/workflow documentation.
+- Fix: rename sections Follow / Lookat; render their complete reflected
+  Placement/Aim rows from a full Shot tree with native mode visibility,
+  target-index, vector, array and zone editors. Bind custom index rows to their
+  property handles. Replace blue small cards with neutral, balanced sections;
+  move Edit navigation above preview. Preserve expansion state while handles
+  regenerate. Native transactions defer navigation/rebind/playhead following.
+- Regression: ComposableCameraSystem.ShotEditor.FollowLookatParameters checks
+  every reflected Placement field across three modes and three basis frames,
+  every Aim field across both modes, hidden values, source clear and rebind.
+  Review also resets the empty-source mode sentinel; the same test checks
+  subsequent Ticks do not rebuild the empty UI repeatedly.
+- Verification blocker: test added, not compiled/run. IDE full build/restart is
+  required; editor must check mode dropdowns, anchors/weights/zones, native
+  numeric live preview/one-gesture Undo, source swaps, readonly sections,
+  different DPI/window widths and final appearance.
+- Avoid next time: convenient authoring sections must cover every supported
+  mode; use the authoritative property tree rather than a partial mirror.
+  Native PropertyEditor transactions are independent of session transactions.
+- Possible conflicts: custom row property identity also affects normal Details
+  reset/copy handling; verify index menus there. Runtime serialization/solver
+  semantics and Canvas hit coordinates are unchanged. Screen placement still
+  needs LookAtAnchor with distinct Follow and Lookat anchors.
+
+## 2026-10-09 - Shot semantic Lens/Focus/Subjects omit supported settings
+
+- Symptom: Lens & Focus cannot author FOV clamps, FollowPlacementAnchor,
+  FollowCustomAnchor or its anchor; Subjects lacks pivot/basis, bounds/cache
+  settings and preview mesh/transforms. Its participation checkbox destroys
+  fractional weight when toggled. Numeric ranges differ from Advanced.
+- Trigger/repro: open Edit / Lens & Focus or Subjects; attempt to configure
+  those fields, preserve a 0.35 framing weight, enter aperture 64 or response 45.
+- Why/root cause: hand-mirrored controls cover only common fields, reduce a
+  four-value focus enum to a checkbox and impose local numeric limits. Subject
+  weight is represented as a boolean even though its data type is continuous.
+- History/blast radius: reviewed the partial Position entry, component-cache
+  identity, native transaction/ref-pose and binding-preservation rules. Audited
+  every editable field in Shot, Lens, Focus, TargetInfo, ShotTarget and Zones,
+  authoring consumers, native customizations, Root NotifyHook and preview bounds
+  refresh. Read UE5.6 row-generator array lookup and native property APIs.
+- Touched files: SShotEditorParameterPanel.h/.cpp, SShotEditorAuthoringPanel.h/.cpp,
+  ComposableCameraShotParameterPanelTests.cpp, EditorDesignDoc.md, TechDoc.md,
+  ExecutionFlowExamples.md, ShotBasedKeyframing.md and BugLog.md.
+- Fix: render full reflected Lens/Focus and editable subject settings in grouped
+  sections. Keep actor/component/bone identity on binding-aware session controls;
+  render continuous bounds weight and exclude transient caches. Retain expansion
+  per subject role and refresh handles on structural changes. Motion uses native
+  scalar and active screen-response rows, removing duplicated numeric limits.
+- Regression: ComposableCameraSystem.ShotEditor.LensFocusSubjectParameters
+  inspects paths actually emitted during widget construction. Covers both FOV
+  modes, all four focus modes, three custom-anchor modes, every editable target
+  field, all bounds shapes/policies, Motion mode coverage, hidden-value/weight
+  preservation, native handle writes to subject index 1 while index 0 remains
+  intact, removed indices, source clear and idle closed-source Tick.
+- Verification blocker: test added, not compiled/run. Full IDE compile/restart
+  and editor verification are required for native controls, live preview, Undo,
+  correct subject/binding, collapsed preview transforms and final layout.
+- Avoid next time: audit reflected authoring fields and supported enum values;
+  share native metadata/widgets instead of maintaining independent UI ranges.
+  Test rendered controls, not only the generator's available property tree.
+- Possible conflicts: subject native rows must never expose Actor/ComponentName/
+  BoneName duplicate editors that bypass identity actions. Mode-hidden values,
+  runtime serialization, solver behavior and native transaction ownership remain.
+
+## 2026-10-09 - Shot Subjects page cannot append a target
+
+- Symptom: Subjects can edit/reorder existing targets but cannot increase their
+  number. An empty draft/zero-target Shot offers no incremental creation action.
+- Trigger/repro: open Edit / Subjects and try to add a third subject, or open an
+  empty Shot and try to create the first target without replacing it via Create.
+- Why/root cause: role cards expose existing array items but omit its Add action.
+  The empty-state branch returns before any collection controls. Create's Use
+  Selected Actors replaces the array and applies a template; it is not append.
+- History/blast radius: reviewed the partial parameter, component identity,
+  binding preservation and transaction/ref-pose entries. Audited target-index
+  consumers, reorder/centroid/basis handling, session scratch retention, Section
+  local overrides, Root structural refresh and ResolveSubjectBinding preflight.
+- Touched files: ComposableCameraShotAuthoringSession.h/.cpp,
+  SShotEditorAuthoringPanel.cpp, ComposableCameraShotAuthoringTests.cpp,
+  EditorDesignDoc.md, TechDoc.md, ShotBasedKeyframing.md,
+  ExecutionFlowExamples.md and BugLog.md.
+- Fix: add Add Subject and Add Selected Actors above both empty and populated
+  subject lists in Create/Edit. Append uses the same host Shot and one transaction,
+  preserves existing values/anchor membership/indices and valid bindings, supports
+  blank slots and new drafts, preflights actor batches and rolls back binding
+  creation failure. Remove stale overrides in newly occupied indices so empty
+  subjects do not inherit them. Locked sources and active gestures reject append.
+- Regression: ComposableCameraSystem.ShotAuthoring.SubjectAppend and
+  SectionSubjectAppend cover batch order, existing composition/subjects/weights/
+  anchors/basis, one commit/Undo/Redo, new draft/empty slot, gesture rejection,
+  local preset isolation, binding/stale-override preservation, read-only/locked
+  rejection and unfocused-Sequencer preflight without partial target edits.
+- Verification blocker: tests added, not compiled/run. Full IDE compile/restart
+  and editor validation are required for both visible buttons, selection append,
+  native-card refresh, live preview and actual Possessable/nested Spawnable binding
+  creation/reuse/rollback.
+- Avoid next time: audit collection operations as well as scalar fields. Empty
+  state must retain collection controls; append must not reuse replace/template
+  behavior or bypass sequence binding/transaction invariants.
+- Possible conflicts: appending does not change existing weighted-anchor lists;
+  their membership remains explicit. Shared presets and runtime Shot serialization
+  are unchanged. Stale future-index bindings intentionally do not attach to new slots.
+
+## 2026-10-09 - Add Selected Actors predicate fails with incomplete USelection
+
+- Symptom: SShotEditorAuthoringPanel.cpp:225 fails C2027 for USelection and
+  C2664 converting the enabled lambda to TFunction<bool()>.
+- Trigger/repro: compile the UE5.6 Editor target after adding Subjects append
+  buttons; compile the authoring panel without a unity-provided selection header.
+- Why/root cause: EditorEngine.h declares GetSelectedActors with a forward
+  declaration. Calling USelection::Num requires its full definition. The lambda
+  body fails first, so Slate's callable conversion produces a secondary error.
+- History/blast radius: reviewed the mesh-mode incomplete-type compilation entry
+  and Subjects append entry. Audited every editor GetSelectedActors call; the
+  session already includes the Engine compatibility adapter. Verified UE5.6
+  UnrealEd/Public/Selection.h defines USelection and Num, and Engine/Selection.h
+  forwards to it. UnrealEd is already an editor-module dependency.
+- Touched files: SShotEditorAuthoringPanel.cpp, TechDoc.md and BugLog.md.
+- Fix: include Selection.h directly in the translation unit calling Num.
+  Keep the bool predicate and append/transaction behavior unchanged.
+- Regression-test name: ComposableCameraSystemEditor non-unity compile:
+  ShotEditorAuthoringPanel selection type completeness.
+- Test blocker: this translation-unit completeness error occurs before automation
+  modules load; a separate runtime unit test cannot exercise a missing include in
+  this .cpp. Project rules prohibit shell compilation. Rebuild the Editor target
+  in Rider/Visual Studio and verify this file compiles independently of unity
+  include order. No compile success or automation run is claimed here.
+- Avoid next time: include defining headers at member-access sites; diagnose the
+  first compiler error before treating cascading Slate errors as signature bugs.
+- Possible conflicts: none expected. Header visibility only; module dependencies,
+  reflected fields, source storage, binding semantics and UI behavior are unchanged.
+
+
+## 2026-10-09 - Shot parameter commits rebuild the entire panel and reset preview binding
+
+- Symptom: committing any authoring parameter visibly flashes the whole panel;
+  reconstructed scroll/expansion containers also disturb the editing workflow.
+- Trigger/repro: open ShotEditor, scroll an Edit page, then change Distance,
+  direction/offset, FOV, aperture or subject weight and commit the field.
+- Why/root cause: Root classified every non-Interactive event as structural.
+  The forwarded outer host event and every transaction Finalized/Snapshot event
+  independently requested another structural refresh. Root routed those requests
+  through OnActiveShotChanged, rebinding the viewport; AuthoringPanel cleared
+  and rebuilt all pages and scroll containers. The former mode key omitted basis
+  and nested anchor/policy selectors, making full refresh accidentally necessary.
+- History/blast radius: reviewed native numeric transaction/ref-pose flashing,
+  V1 live-preview, full Follow/Lookat fields, subject field/append, Undo/source
+  isolation and duplicate actor-monitor bugs. Audited Root NotifyHook, session
+  host/transaction delegates, native row-generator visibility, page/subject
+  consumers, preview proxy identity keys and paused Section refresh. Preserved
+  SaveToTransactionBuffer (no per-frame Modify/PostEditChange), local preset
+  storage, native transaction ownership and explicit bindings.
+- Touched files: ShotAuthoringSession.h/.cpp, SShotEditorRoot.h/.cpp,
+  SShotEditorAuthoringPanel.h/.cpp, SShotEditorParameterPanel.h/.cpp,
+  ShotEditorStyle.h, ShotParameterPanelTests.cpp and editor/tech/shot/flow docs.
+- Fix: native scalar commits request preview and post the outer host event under
+  a self-notification guard. Finalized/Snapshot events no longer rebuild views;
+  history, external source and array changes still refresh handles after gestures.
+  Only actual source changes rebind the viewport. Build page/scroll widgets once;
+  replace structural subject contents separately. Parameter sections track every
+  layout discriminator and update locally. Also replace flat chrome with unified
+  rounded dark cards, cyan selected/header accents and aligned rows.
+- Regression: ComposableCameraSystem.ShotEditor.PersistentParameterPages writes
+  through a native property handle and actual NotifyHook adapter, checks no
+  structural notification/control rebuild after commit/finalization, tests
+  Undo/Redo and subject append, retained page identity, external refresh and
+  local basis/nested-anchor visibility changes. Existing FollowLookatParameters,
+  LensFocusSubjectParameters and InteractiveSourceAndUndo remain relevant.
+- Verification blocker: IDE build/editor automation only; tests added, not run.
+  Manual acceptance: repeated scalar commits retain page scroll/expansion and
+  stable preview; mode changes update fields, history/append/source swaps retain
+  valid handles, and paused animated subjects do not respawn or flash.
+- Avoid next time: classify data invalidation by source/collection/layout/value
+  semantics, never by "commit versus Interactive" alone. A forwarded own host
+  notification and a finalized transaction are not source replacement events.
+- Possible conflicts: conservative external/array refresh remains; native editors
+  may refresh their own section when their property tree changes. Runtime data,
+  serialized fields, gameplay evaluation and Sequencer bindings are unchanged.
+
+## 2026-10-09 - Shot preview displays ignored Follow handles and engine scene helpers
+
+- Symptom: Follow screen anchor remains visible in AnchorOrbit; character
+  Capsules, map Boxes and selection/editor helpers appear in camera preview.
+- Trigger/repro: enable Guides, use AnchorOrbit (or fixed world position), select
+  a Character/Box actor in the level and enable Level preview. NoOp similarly
+  leaves an ignored Lookat screen handle.
+- Why/root cause: DrawHandles intentionally rendered ignored controls grey,
+  although their screen positions do not participate in the solve. The viewport
+  inherited editor show flags, which expose hidden-in-game editor primitives,
+  selected component shapes and collision/bounds overlays.
+- History/blast radius: reviewed Anchor DPI hit coordinates, mode visibility,
+  native Level/isolated preview and viewport toolbar action gates. Audited draw,
+  cached hit-test, drag-write, game-view flag and proxy/level toggle paths against
+  UE5.6 EditorViewportClient and ShowFlagsValues. Main level viewport must retain
+  its settings; Shot Canvas/PDI guides must remain independent.
+- Touched files: ShotEditorViewportClient.h/.cpp, ShotViewportDisplayUtils.h,
+  ShotEditorTests.cpp, Shot.h (comment only) and editor/tech/shot/flow docs.
+- Fix: shared mode predicates show Follow only in AnchorAtScreen, Lookat only in
+  LookAtAnchor; apply them to drawing, stale cached hits and drag writes. Enter
+  game view and configure only this preview client's show flags: hide editor
+  primitives, engine widgets, selection, bounds and collision overlays. Keep the
+  reference grid only in isolated preview. Diagnostic HUD starts off for a clear camera image.
+  Orbit/focus anchor parameters remain.
+- Regression: ComposableCameraSystem.ShotEditor.PreviewDisplayPolicy covers all
+  Placement/Aim modes, game/editor flags, collision/selection/bounds suppression,
+  level/isolated grid policy and an independent main-level flag set. Existing
+  CanvasHitCoordinates continues to cover active handle DPI placement.
+- Verification blocker: tests added, not run; source policy checks do not prove
+  rendering/input. IDE compile, restart editor, then test real selected Character
+  Capsule/Box actors, immediate post-mode-change clicks, Guides toggles, both
+  preview worlds and unchanged main-level helper visibility.
+- Avoid next time: omit controls ignored by the solver and treat camera preview
+  as camera output. Share visibility predicates across paint/input; keep engine
+  helpers separate from composition guides.
+- Possible conflicts: runtime collision/rendering and scene component flags are
+  untouched. Intentionally game-visible Box/Capsule visuals remain visible;
+  only editor/collision helpers are suppressed. Valid Shot bounds guides still
+  appear when Guides is enabled and bounds-fit FOV consumes them.
+
+
+## 2026-10-09 - Shot parameter automation hook triggers MSVC C4265
+
+- Symptom: ComposableCameraShotParameterPanelTests.cpp reports C4265 for the
+  local FNativeShotNotifyHook in PersistentParameterPages.
+- Trigger/repro: compile the UE5.6 Editor target with automation tests enabled;
+  MSVC sees overridden virtual callbacks and a non-trivial destructor.
+- Why/root cause: UE5.6 CoreUObject/Public/Misc/NotifyHook.h declares virtual
+  notification callbacks but no virtual destructor. The derived test hook owns
+  a TSharedPtr session, so its implicit non-virtual destructor triggers C4265.
+- History/blast radius: reviewed the PersistentParameterPages refresh entry and
+  prior incomplete-type compilation issues. Grepped all FNativeShotNotifyHook
+  consumers: one stack instance, passed to the authoring panel as a borrowed
+  pointer. Its lifetime encloses the panel and native row generators.
+- Touched files: ComposableCameraShotParameterPanelTests.cpp, TechDoc.md,
+  BugLog.md.
+- Fix: declare virtual ~FNativeShotNotifyHook() = default. Do not use override:
+  FNotifyHook has no virtual destructor to override. Engine sources remain
+  read-only; notification and transaction behavior remain unchanged.
+- Regression: ComposableCameraSystem.ShotEditor.PersistentParameterPages now
+  contains a compile-time std::has_virtual_destructor_v assertion for its hook.
+- Verification blocker: project rules require IDE compilation. Recompile in
+  Rider/Visual Studio; confirm C4265 disappears, then run PersistentParameterPages
+  in editor. No compile/test pass is claimed from source inspection.
+- Avoid next time: inspect the base class destructor when implementing a
+  polymorphic adapter with non-trivial members; add an explicit destructor
+  contract rather than disabling the warning.
+- Possible conflicts: none expected; test-only local type, no runtime/editor UI,
+  reflected data, serialization, engine ABI or ownership changes.
+
+
+## 2026-10-09 - Viewport wheel and drag release still refresh Shot authoring panels
+
+- Symptom / repro: open Edit, change distance with preview wheel, or drag and
+  release LookAt/zone/roll; parameter controls flash or regenerate on commit.
+- History / blast radius: the prior PersistentParameterPages fix covered native
+  PropertyEditor commits and transaction Finalized events, but viewport gesture
+  commit sites still called Host.PostEditChangeProperty directly. Checked all
+  four commit paths, Root refresh consumers, Session property/transaction events,
+  section-local override storage and existing Undo/source/subject behavior.
+- Root cause: own viewport ValueSet looked like an external source edit, causing
+  OnChanged(true). Wheel and reverse solve also called Modify, broadcasting
+  OnObjectModified to Sequencer before the scalar commit.
+- Fix: route wheel, EndDrag, EndRollDrag and reverse solve through
+  NotifyCommittedEdit -> NotifyViewportValueCommit -> guarded native scalar
+  notification. Use SaveToTransactionBuffer for atomic gesture snapshots. Keep
+  one final host event/package dirty mark and the original undo lifetime.
+- Files: ComposableCameraShotEditorViewportClient.h/.cpp,
+  ComposableCameraShotAuthoringSession.h/.cpp, SShotEditorViewport.h,
+  ComposableCameraShotParameterPanelTests.cpp; companion editor/tech/flow docs.
+- Regression: ComposableCameraSystem.ShotEditor.ViewportValueCommits invokes the
+  actual wheel and drag-release callbacks, checks no structural notifications,
+  persistent page/native control counts, and one-step Undo. PersistentParameterPages
+  still covers native controls, external host writes and structural changes.
+- Prevention: test every edit entry point, not only the shared notifier; never
+  use an unguarded host broadcast for a view-owned scalar commit.
+- Possible conflicts: Sequencer and asset listeners still receive one outer
+  commit. Read-only sources, history and target/source edits keep existing rules.
+- Verification: source checks only. User must compile in Rider/Visual Studio and
+  run the named editor automation plus paused Sequencer wheel/drag/Undo checks.
+
+## 2026-10-09 - Preview aspect follows pane size and LookAt guide ignores selected tab
+
+- Symptom / repro: resize preview or use isolated scene/Inspect: camera framing
+  stretches to the pane ratio. Keep LookAtAnchor active, choose Follow/Create:
+  the LookAt marker and its cached mouse hit remain visible/usable.
+- History / blast radius: previous preview display policy fixed mode gating and
+  local engine helpers, but had no task/subtab condition. Letterbox handling was
+  limited to level-world native view. Audited root layout, renderer, forward and
+  reverse solves, bounds projection, pixel conversion and cached handle writes.
+- Root cause: detached/free preview disabled aspect constraint and solved using
+  pane size; guide policy checked Aim.Mode only. Cached rectangles depended on
+  the previous Draw and only applied in level preview.
+- Fix: native SBox fits preview and tools to live/template camera filmback,
+  squeeze and Crop (CineCamera default for detached sources). Renderer, solver
+  and projection share camera aspect; engine current constrained view extents
+  drive both scene-mode pixel conversions. Template settings are aspect-only;
+  active output never falls back to templates. LookAt draws/hits/drags only when
+  Edit / LookAt is selected and Aim is LookAtAnchor; labels use LookAt casing.
+- Files: ShotViewportDisplayUtils, ShotEditorStyle, AuthoringSession,
+  SShotEditorAuthoringPanel, SShotEditorParameterPanel, SShotEditorRoot,
+  ShotEditorViewportClient, ShotEditorTests and ShotParameterPanelTests; editor,
+  tech, keyframing and flow docs. Style changes also apply the requested native
+  dark/blue palette, icon task buttons and flat compact parameter groups.
+- Regression: ShotEditor.CameraAspect covers filmback/squeeze/crop/default and
+  native SBox aspect layout for portrait/square/wide frames in several pane sizes.
+  ViewportValueCommits checks selected-subtab/task and NoOp gating on the actual
+  client; PreviewDisplayPolicy keeps local engine show-flag coverage.
+- Prevention: camera configuration is the aspect authority; view tool selection
+  participates in both painting and input policy, including stale caches.
+- Possible conflicts: no serialized Shot layout or runtime aspect change;
+  shared assets, source camera bConstrainAspectRatio and main viewport flags are
+  untouched. Possessables require a resolved actor; missing configuration uses
+  the documented CineCamera default rather than activating another camera.
+- Verification: source checks only. IDE compile/full editor restart required;
+  visually check filmback/Crop resize, inactive Spawnables, hidden-guide hits,
+  native parameter layout and mixed-monitor DPI in Unreal.
+
+## 2026-10-09 - Shot Editor toggle alignment and stretched action controls
+
+- Symptom / repro: open Shot Editor, widen its panel. Level Preview caption is
+  poorly centered and its large toggle follows the task tabs instead of staying
+  at the right. Use Selected Actors / Save as Preset expand across their slots.
+- History / blast radius: checked prior native parameter flashing, viewport
+  scalar commit, incomplete fields, subject append, aspect and guide-policy
+  entries. Audited every authoring button, retained page/row-generator owner,
+  source-refresh consumer, aspect renderer/input path and editor launch icon.
+- Root cause: navigation relied on native toggle content alignment/padding and
+  wrap order without a reserved right slot. Action controls filled parent slots;
+  WidthOverride alone cannot constrain a button allotted more space by Fill.
+  A directly right-aligned SBox can also start from zero viewport desired size;
+  this was caught in the current layout review before IDE verification.
+- Fix: use centered compact toggles in AutoWidth slots after a flexible task
+  region. Place actions inside aligned outer/fixed inner boxes. Fit preview with
+  Fill first, then arrange its image at the right edge. Primary native controls
+  move to retained sidebar containers; remaining controls stay below. Subjects
+  become responsive horizontal rows. Shared static brushes supply three camera
+  accent shades. A new SVG unifies all existing Shot Editor icons/thumbnails.
+- Files: ShotEditorStyle.h, SShotEditorAuthoringPanel.h/.cpp,
+  SShotEditorParameterPanel.h/.cpp, SShotEditorPreviewFrame.h, SShotEditorRoot.cpp,
+  ShotParameterPanelTests.cpp, ComposableCameraEditorStyle.cpp, ShotEditor.cpp,
+  EditorToolsMenu.cpp, TypeAssetEditorToolkit.cpp, ShotTrackEditor.cpp, new SVG;
+  EditorDesignDoc, TechDoc, ShotBasedKeyframing and ExecutionFlowExamples.
+- Regression: ShotEditor.CompactNavigation arranges actual tagged Level Preview
+  controls and checks right placement / caption centering. CompactActions checks
+  actual fixed action layout under wide Fill slots. CameraAspect checks positive
+  image size, right edge and vertical center with a zero-desired-size child.
+  PreviewSidebarParameters compares every generated field across layouts/modes;
+  PersistentParameterPages checks sidebar identity across native commits/rebinds.
+- Prevention: verify actual arranged widget geometry, not only desired sizes or
+  style constants. Keep native editor widgets single-parent and source ownership
+  unchanged when moving controls between visual regions.
+- Possible conflicts: no runtime, reflection, serialization or source/binding
+  semantics changed. Portrait frames leave margins; narrower panels wrap Subject
+  groups. Existing wheel/drag commit guards and structural refresh remain.
+- Verification: source/SDK/whitespace review and SVG render at 16/20/64 pixels.
+  IDE compilation/editor automation remain pending under project AGENTS.md.
+  Full editor restart required after private header changes; manually inspect
+  DPI scaling, resized dock panes, sidebar scroll, subject rows and icon entries.
+
+## 2026-10-10 - Widening Shot Editor does not enlarge height-limited Preview
+
+- Symptom / repro: hold Shot Editor window height constant, widen the window.
+  Preview gains surrounding empty space but the camera image can stay the same
+  size; it only scales when the fixed upper-region height increases.
+- History / blast radius: reviewed CameraAspect, viewport guide/pixel conversion,
+  scalar commit flashing and compact toggle/preview layout entries. Audited root
+  splitter/frame, retained sidebar/lower pages, native SSplitter arrangement and
+  viewport resize/input consumers. Read BlackEye Follow GetVisualizerWidth as a
+  read-only width-responsive reference; no reference code was copied.
+- Root cause: the vertical splitter always allotted 60% of available height to
+  the preview row. Aspect-preserving fit then remained height-limited even after
+  width increased. CameraAspect tests checked an isolated aspect box, not the
+  outer row allocation.
+- Fix: SShotEditorPreviewLayout derives automatic row height from the actual
+  horizontal splitter preview width / live camera aspect, with remaining-height
+  cap and authoring-space reserve. Retain the user-adjustable horizontal divider,
+  right-aligned frame, source and every page widget. Reserve/reuse a two-slot
+  geometry probe; use current allotted geometry instead of last-frame cache.
+- Files: SShotEditorPreviewLayout.h, SShotEditorRoot.cpp, SShotEditorViewport.h
+  (composition comment), ShotParameterPanelTests.cpp; EditorDesignDoc, TechDoc,
+  ShotBasedKeyframing and ExecutionFlowExamples.
+- Regression: ComposableCameraSystem.ShotEditor.AdaptivePreviewResize arranges the
+  production hierarchy with a zero-desired-size image. Checks width-only growth,
+  shrink on the same widgets, short-height cap, authoring reachability, sidebar
+  coefficient changes, live square/wide/portrait aspect, DPI and zero-size layout.
+  Existing CameraAspect, PersistentParameterPages and ViewportValueCommits remain.
+- Prevention: test the containing layout and width-only resize, not just inner
+  aspect fit. Read real splitter allocation rather than duplicating min-width math.
+- Possible conflicts: vertical manual 60/40 allocation is replaced by automatic
+  height. Horizontal divider and native property scrolling remain. No runtime,
+  asset/reflection, camera pose, Sequencer binding or transaction semantics change.
+- Verification: static source/SDK/whitespace review only; automation added, not
+  executed. Project AGENTS.md requires IDE compilation and editor-side tests.
+  Restart editor after header change. Check real resize, sidebar drag, camera
+  aspect, Guides hits, level/isolated preview and mixed-monitor DPI in Unreal.
+
+## 2026-10-10 - Adaptive preview regression test uses an incorrect Slate enum name
+
+- Symptom / trigger: compiling ComposableCameraShotParameterPanelTests.cpp in the
+  UE5.6 IDE build reports C2653 and C2664 at the AdaptivePreviewResize test's
+  Layout->Invalidate call.
+- History / blast radius: reviewed the adaptive preview resize entry above and
+  searched all Source consumers. The incorrect spelling occurs only in this
+  test; the production preview layout and its callers do not use that spelling.
+- Root cause: the test used EWidgetInvalidationReason, but the installed UE5.6
+  SWidget::Invalidate signature accepts EInvalidateWidgetReason. C2664 is a
+  cascading diagnostic from the unresolved enum qualifier.
+- Fix: use EInvalidateWidgetReason::Layout. Keep invalidation and SlatePrepass so
+  resize and live aspect attributes are still processed before geometry checks.
+- Files: Source/ComposableCameraSystemEditor/Private/Tests/
+  ComposableCameraShotParameterPanelTests.cpp; Docs/BugLog.md.
+- Regression: existing ComposableCameraSystem.ShotEditor.AdaptivePreviewResize
+  directly compiles against SWidget::Invalidate and checks actual production
+  layout geometry. No separate runtime test is useful for an enum spelling.
+- Prevention: verify Slate API names against the matching engine headers before
+  using them; fix the first compiler diagnostic rather than its cascading errors.
+- Possible conflicts: none expected; test-only symbol correction, with no runtime,
+  layout, reflection, Sequencer or transaction behavior changes.
+- Verification: confirmed the installed UE5.6 SWidget.h declaration and searched
+  for remaining incorrect enum usages. IDE compilation and editor-side automation
+  remain pending; project AGENTS.md prohibits shell builds/test execution.
+
+## 2026-10-10 - Shot parameter pages are split across separate preview and lower regions
+
+- Symptom / repro: open Shot Editor, choose Follow/Aim or Lens & Focus; behavior
+  or lens settings appear beside Preview while anchors/zones or focus appear
+  below it. Short windows divide usable height between separate scroll regions.
+  User requests one left parameter column and one right Preview column.
+- History / blast radius: checked compact sidebar, adaptive preview resize and
+  enum compilation entries. Audited root layout, every preview-sidebar consumer,
+  native parameter generation, Create/Sequence/Presets pages, resize tests and
+  viewport aspect/input consumers. Read UE5.6 SSplitter and SWidgetSwitcher APIs;
+  GameplayCameras SCameraRigAssetEditor remains read-only retained-widget reference.
+- Root cause: authoring pages deliberately detached their primary controls into
+  PreviewBody and three action/configuration containers; the root then combined
+  this sidebar with a separate lower authoring region.
+- Fix: native horizontal 40/60 splitter, full-height left Authoring and right
+  Preview slots; divider remains hit-testable. Merge generated fields into one
+  retained Body and attach template, destination/duration and preset controls to
+  their matching page. Remove the detached sidebar API/containers. Keep camera
+  aspect fitting, right alignment, page scroll/identity and scalar commit routing.
+- Files: SShotEditorPreviewLayout.h, SShotEditorRoot.cpp/.h,
+  SShotEditorAuthoringPanel.cpp/.h, SShotEditorParameterPanel.cpp/.h,
+  SShotEditorViewport.h (composition comment),
+  ComposableCameraShotParameterPanelTests.cpp; EditorDesignDoc, TechDoc,
+  ShotBasedKeyframing and ExecutionFlowExamples.
+- Regression: updated ComposableCameraSystem.ShotEditor.AdaptivePreviewResize
+  checks actual full-height horizontal production geometry, camera aspect,
+  shrink/growth, divider resizing/hit visibility, DPI and degenerate sizes.
+  ParameterPageContents replaces obsolete PreviewSidebarParameters and verifies
+  generated native rows are attached exactly once and primary action/configuration
+  pickers are reachable. PersistentParameterPages verifies scalar commit,
+  Undo/Redo and source refresh preserve the unified parameter body.
+- Prevention: when merging UI regions, audit both native rows and detached
+  task-specific configuration containers. Test actual widget attachment and
+  production hierarchy; preserve native splitter self-hit visibility for dragging.
+- Possible conflicts: the upper-row/lower-authoring arrangement is intentionally
+  replaced. Native narrow-width behavior may wrap Subject fields and groups;
+  runtime Shot data, solving, Sequencer bindings and transactions are unchanged.
+- Verification: source/SDK/consumer and whitespace review only; compilation and
+  automation remain pending. Project AGENTS.md requires Rider/Visual Studio
+  compilation and editor-side tests. Restart editor after these header changes;
+  check divider dragging, left-page scrolling, Preview resize/aspect, subjects,
+  native edits and mouse wheel/Aim drag without page flashing in Unreal.
+
+
+## 2026-10-10 - Distance wheel can commit inside a captured Shot gesture
+
+- Symptom / repro: in Shot Editor Compose, start dragging an anchor/zone/orbit
+  control (or Alt+RMB roll), keep the mouse button held and scroll. The wheel
+  starts a nested transaction and sends a ValueSet before drag release, merging
+  distance into another Undo gesture and breaking the release-only commit rule.
+- History / blast radius: reviewed the 2026-10-09 viewport wheel/drag refresh
+  entry, InputKey, TryAdjustDistanceFromMouseWheel, both gesture states,
+  StartHandleDrag/EndDrag and session scalar notifications. Existing wheel
+  outside gestures and native parameter transactions remain independent.
+- Root cause: wheel preflight checked editable source and placement mode but
+  did not check the viewport's active handle/roll gesture state.
+- Fix: reject distance-wheel edits while IsEditingGesture() is true. Orbit
+  setup shares the existing snapshot-without-Modify path; only release emits
+  one guarded commit. No nested snapshot/host event occurs during capture.
+- Files: ComposableCameraShotEditorViewportClient.cpp/.h,
+  ComposableCameraShotParameterPanelTests.cpp; EditorDesignDoc, TechDoc,
+  ShotBasedKeyframing and ExecutionFlowExamples.
+- Regression: ComposableCameraSystem.ShotEditor.OrbitControl invokes the real
+  start/move callbacks and wheel during capture, checks rejection, unchanged
+  distance, no premature commit and one-step Undo. ViewportValueCommits retains
+  coverage for normal wheel editing and native control identity.
+- Prevention: preflight every secondary viewport edit entry point against
+  active gesture state before starting transactions or posting host events.
+- Possible conflicts: wheel during held-button camera editing is now ignored;
+  wheel after release, solver/runtime data, bindings and parameter pages retain
+  their behavior. This prevents Sequencer listeners seeing premature commits.
+- Verification: source/UE5.6 SDK and consumer checks only. Project AGENTS.md
+  requires Rider/Visual Studio compilation and editor-side automation/smoke
+  tests. Compile fully and restart UE after header changes; test wheel/drag,
+  Undo, scalar panel stability, mode switches and read-only sections manually.
+
+
+## 2026-10-10 - Subject groups only occupy part of the parameter row
+
+- Symptom / repro: open Edit / Subjects or Create, assign two subjects and widen
+  the window/left pane. Component / pivot has a plain header and two square
+  up/down buttons; the generated Pivot / Bounds sections occupy half-width
+  columns. The entire Subject cannot collapse.
+- History / blast radius: reviewed the compact Subject/sidebar, native parameter
+  coverage and unified horizontal-layout entries. Audited Subjects(true/false),
+  native BuildSubject, binding-aware component/bone pickers, refresh paths and
+  all MoveTarget consumers. The session reorder API remains for other consumers.
+- Root cause: a fixed 200-unit actor column and remaining-width box wrap around
+  the generated panel, whose SubjectColumn deliberately halves wide rows.
+  Component / pivot uses an unstyled standalone title; only its local area folds.
+- Fix: whole-role native expandable area, full-width actor picker, then four
+  stacked fill slots with identical side padding. Component / pivot uses the
+  same neutral header/border as the generated groups, including the arrow.
+  Remove both up/down square actions. Retain whole-role/component fold state
+  per page and role/index across structural refresh, without changing Shot data.
+- Files: SShotEditorAuthoringPanel.cpp/.h, SShotEditorParameterPanel.cpp,
+  ComposableCameraShotParameterPanelTests.cpp; EditorDesignDoc, TechDoc,
+  ShotBasedKeyframing and ExecutionFlowExamples.
+- Regression: ComposableCameraSystem.ShotEditor.SubjectLayout arranges the real
+  production Subject page at 300/640/1200/380-unit widths, asserts all four groups
+  fill one row with the same left edge, collapses/reopens the whole area and
+  verifies whole-role/component fold state after refresh. Existing native-field
+  coverage and PersistentParameterPages checks remain relevant.
+- Prevention: test actual allotted geometry, not desired-size helper arithmetic;
+  full-row sections must not be enclosed by width overrides or wrap columns.
+- Possible conflicts: the previously requested horizontal Subject columns are
+  intentionally replaced by this full-row layout. Actor assignment, bone/component
+  identity, swap, source bindings, native transactions and runtime solving retain
+  their behavior. Reorder functionality remains in the session, without these buttons.
+- Verification: source and UE5.6 Slate API review only. Compilation and automation
+  require Rider/Visual Studio and editor-side runs per project AGENTS.md. Header
+  changes require a full compile/editor restart. Inspect Create/Edit, native field
+  editing, collapsed refresh, actor replacement and all four header widths in UE.
+
+## 2026-10-10 - Preview HUD moves with Orbit visibility and dominates small images
+
+- Symptom / repro: enable HUD, choose Follow / AnchorOrbit with Guides, then
+  switch to Aim or resize Preview smaller. Cards shift between left/center,
+  wrap into a tall column and keep large fixed-size text/panels or drop rows.
+- History / blast radius: reviewed structured-HUD/Orbit and adaptive camera-frame
+  entries. Audited HudLayout, FShotHudCard, DrawOverlayText, render-rectangle/DPI
+  conversion, orbit hit geometry and PreviewOverlayLayout consumers. Orbit drawing,
+  input, transaction routing and solver state do not need to change.
+- Root cause: HudLayout chooses left/bottom limits from the optional Orbit panel
+  and changes horizontal/vertical layouts at width thresholds. Card headers,
+  row heights, font scale and inset dimensions are fixed independently of image size.
+- Fix: one fixed upper-left group of Camera and Composition cards. Layout takes
+  only the actual camera image. Uniform scale (0.7 at 1280 x 720) applies to panels,
+  text, headers, rows, padding and card gap; tiny frames additionally clamp to
+  available inset space. All eight/nine rows remain, with boundary roundoff handled.
+- Files: ComposableCameraShotViewportOverlayUtils.h,
+  ComposableCameraShotEditorViewportClient.cpp,
+  ComposableCameraShotParameterPanelTests.cpp; EditorDesignDoc, TechDoc,
+  ShotBasedKeyframing and ExecutionFlowExamples.
+- Regression: ComposableCameraSystem.ShotEditor.PreviewOverlayLayout now checks
+  actual image-space upper-left origins at mixed DPI/aspect sizes, uniform half-size
+  scaling, complete row counts, compact width, card/orbit non-overlap and tiny-frame
+  hiding. Its shared scale also drives production Canvas font/row placement.
+- Prevention: one transform must govern overlay geometry and typography; input
+  guide visibility must not influence HUD placement. Test shrinking as well as growth.
+- Possible conflicts: responsive wrapping/row truncation is intentionally replaced.
+  HUD remains opt-in, with the same diagnostics and zero Shot mutations. Extremely
+  small previews produce smaller text by design. Native floating tools keep their
+  independent collapse control; no orbit gesture or runtime behavior changes.
+- Verification: static source/SDK review only. Compile in Rider/Visual Studio,
+  restart UE after header changes, run PreviewOverlayLayout and check wide/narrow/
+  portrait images, floating tools, Guides switching, multi-monitor DPI and numeric
+  readability in the editor. No shell build or automation execution attempted.
+
+
+## 2026-10-10 - Taller HUD stack must preserve the Orbit input area
+
+- Symptom / repro: with HUD and Guides on, request Camera above Composition and
+  shrink Preview to a short image (e.g. 1200 x 260 or 500 x 196 logical units).
+  Applying only the larger proportional scale would place the lower card over
+  the bottom-left Orbit panel. Found during source review before compilation.
+- History / blast radius: reviewed the fixed-upper-left HUD and original Orbit
+  entries. Audited HudLayout, OrbitLayout, Canvas scale consumers and the existing
+  PreviewOverlayLayout test. Orbit input/gesture code remains unchanged.
+- Root cause: the stacked base group is 348 x 362 instead of 704 x 186; its
+  increased height competes with a fixed bottom-left Orbit footprint in short frames.
+- Fix: stack Camera above Composition and raise regular scale from 0.7 to 0.85.
+  Uniformly cap the full stack to available width/height above the possible Orbit
+  panel with an eight-unit clearance. Reserve this area even with Guides off so
+  toggling guides or changing task does not resize or move the HUD.
+- Files: ComposableCameraShotViewportOverlayUtils.h,
+  ComposableCameraShotParameterPanelTests.cpp; EditorDesignDoc, TechDoc,
+  ShotBasedKeyframing and ExecutionFlowExamples.
+- Regression: ComposableCameraSystem.ShotEditor.PreviewOverlayLayout verifies
+  common left edges, Camera-before-Composition order, scaled gap, larger regular
+  scale, half-size proportional resize, complete row counts, image containment
+  and Orbit non-overlap at mixed DPI, portrait and minimum Orbit height.
+- Prevention: recheck overlay footprints whenever changing orientation or scale;
+  preserve one scale for text and geometry and keep layout independent of guide state.
+- Possible conflicts: very short images may shrink HUD further to retain Orbit
+  access. Regular images use the requested larger vertical layout. No Shot data,
+  field widgets, transactions, runtime solving or orbit input behavior changes.
+- Verification: source/consumer and whitespace checks only. Per project AGENTS.md,
+  compile fully in Rider/Visual Studio and restart UE after the header change;
+  run PreviewOverlayLayout in editor and inspect HUD text, card order, short-frame
+  Orbit access and guide toggles. No shell compilation/test execution attempted.
+
+
+## 2026-10-10 - Shot Boolean/Enum edits recreate parameter controls
+
+- Symptom / repro: click Follow/Aim screen-zone enabled checkboxes, change Follow
+  mode/basis or nested anchor mode, change Lens/Focus mode, or toggle Subject bone
+  pivot/change bounds-cache policy. Parameter pages flash once after the commit,
+  even though the host scalar-notification guard prevents an outer source refresh.
+- History / blast radius: reviewed the persistent native parameter-page and
+  viewport wheel/drag commit entries. Audited all parameter sections, shared mode
+  predicates, global struct customizations, target-index selectors, native source
+  refresh, PropertyRowGenerator ticks and Undo/Redo. Earlier guards fixed host
+  notifications; they did not remove mode-key/native-tree visibility refreshes.
+- Root cause: GetLayoutKey included Boolean/Enum discriminators; changing them
+  called SetStructure and cleared the parameter body. Native struct customizations
+  also bound tree-level visibility, whose changes rebuild generator rows. Ignoring
+  OnRowsRefreshed would leave stale native nodes/handles rather than fix this path.
+- Fix: generator-instance customizations create every Placement/Aim/Lens/Focus/
+  AnchorSpec field once, preserving native value widgets and binding-aware index
+  pickers. Shared mode predicates drive retained Slate wrapper visibility, including
+  ancestors; native metadata still controls enabled state/ranges. Remove the layout
+  key and its polling. Motion retains all response rows. Real source/array/external/
+  history changes continue regenerating native handles.
+- Edge case: array elements can report the enclosing array property's owning
+  struct; verify their parent is the matching struct before treating them as direct
+  mode-dependent fields. Weighted-centroid entries otherwise incorrectly collapse.
+- Files: ComposableCameraShotRetainedRowCustomization.h/.cpp,
+  SShotEditorParameterPanel.h/.cpp, ComposableCameraShotParameterPanelTests.cpp;
+  EditorDesignDoc, TechDoc, ShotBasedKeyframing and ExecutionFlowExamples.
+- Regression: ComposableCameraSystem.ShotEditor.RetainedBooleanEnumRows uses real
+  native SetValue callbacks and deferred editor-generator ticks across Follow,
+  Aim, Lens/Focus and a second Subject. Checks row/native-control identity,
+  visibility, weighted-array children, zero scalar source rebuilds and Undo/Redo.
+  Existing FollowLookAtParameters/LensFocusSubjectParameters check field coverage;
+  PersistentParameterPages checks append, external edit, source swap and history.
+- Prevention: keep scalar-dependent presentation in retained Slate attributes,
+  not generated-tree topology. Cache condition handles during widget construction.
+  Test the native generator tick and actual control identities, not only page wrappers.
+- Possible conflicts: scoped to Shot Editor parameter generators. Global Details/
+  Advanced customizations, reflection/runtime data, solver evaluation, semantic
+  subject/binding actions, transactions and preview gestures keep their behavior.
+  Mode changes still alter visible rows by design; source/array/history refreshes
+  legitimately rebuild handles. Adding EditConditionHides metadata in future must
+  be audited because it can reintroduce native tree topology changes.
+- Verification: source/installed UE5.6 SDK and whitespace review only. Per project
+  AGENTS.md, compilation and automation must run in Rider/Visual Studio and UE.
+  Full compile/editor restart required after header/new-source changes. Run the
+  regression plus existing field/persistence/viewport tests, then inspect checkbox
+  clicks and enum selection with expanded sections and scrolled parameter pages.
+  No shell compilation or automation execution attempted.
+
+
+## 2026-10-10 - Shot Subjects lack pivot/offset/bounds guides and drag controls
+
+- Symptom / repro: open Create or Edit / Subjects with Guides enabled. Change
+  Component, bone pivot, Offset, or BoundsShape. No base/effective-pivot marker,
+  offset connection, heading/offset axes or editable bounds faces appear. With
+  Manual FOV or zero bounds weight, even the configured bounds box is absent.
+  User also requested direct Offset / Manual Bounds editing in Preview.
+- History / blast radius: reviewed named-component fallback/cache invalidation,
+  hidden engine collision helpers, persistent scalar parameter controls, viewport
+  wheel/anchor transaction commits and DPI/aspect hit mapping entries. Audited
+  ResolveWorldPoint/ResolveBasisQuat consumers, bounds fit/cache policy, effective
+  Section/binding/proxy targets, all handle branches, navigation and Undo/Redo.
+- Root cause: the viewport had only a fit-diagnostic bounds pass, gated by
+  SolvedFromBoundsFit and positive weight. Subject pivot fields had no drawing
+  or input mapping. Duplicating actor/component/bone resolution in editor input
+  would risk axes disagreeing with the runtime point and fallback behavior.
+- Fix: expose unit-scale ResolvePivotTransform and let ResolveWorldPoint apply
+  its existing world/local Offset to that shared frame. Create and Edit / Subjects
+  share a view-only guide flag. Foreground PDI draws unoffset actor/component/bone
+  pivot, effective pivot, Offset connection, placement heading and configured
+  world-aligned bounds. Canvas adds role/space labels, RGB Offset endpoints and
+  six yellow ManualExtent face points. Manual FOV/zero-weight bounds are gray;
+  positive fit contributors retain green/yellow depth diagnostics. Auto bounds
+  refresh only editor effective values and remain read-only; None draws no box.
+- Input / lifecycle: projected physical axis motion updates the corresponding
+  authored Offset component or nonnegative half-extent. Both faces resize the
+  same center-based box symmetrically. Ctrl slows / Shift speeds the gesture.
+  Freeze pixels-per-world-unit at start so solver camera motion cannot feed back
+  into drag scale. Reuse the viewport's single gesture transaction and guarded
+  scalar commit: live preview, one Undo/Redo step, no scalar source rebuild,
+  no OnObjectModified broadcast, and cancel clicks with no value change. Weak
+  source identities, authored values, resolved actor, count, image rect, page,
+  mode and bounds shape reject stale hits/writes. Nearly camera-facing axes are
+  drawn disabled. Array capacity grows at bind/structural count changes, not
+  paint. Borrow resolved targets without extra Shot/soft-path copies. Labels
+  stay inside the constrained camera image. Native render batching is unchanged.
+- Files: ComposableCameraTargetInfo.h/.cpp,
+  ComposableCameraShotAuthoringRuntimeTests.cpp,
+  ComposableCameraShotSubjectGizmoUtils.h,
+  ComposableCameraShotAuthoringSession.h, SShotEditorAuthoringPanel.cpp,
+  ComposableCameraShotEditorViewportClient.h/.cpp,
+  ComposableCameraShotSubjectGizmoTests.cpp; DesignDoc, EditorDesignDoc, TechDoc,
+  ShotBasedKeyframing and ExecutionFlowExamples.
+- Regression: ComposableCameraSystem.ShotAuthoring.PivotTransform checks shared
+  actor/component/socket frames, unit scale, world/local Offset, missing-bone
+  fallback and unchanged outputs on unresolved sources. ComposableCameraSystem.
+  ShotEditor.SubjectGizmos checks production PDI output at Manual FOV/zero weight,
+  Create/Edit/Guides gates, auto-cache isolation, actual hit/start/write/commit
+  paths, local/world axes, all six extent-face signs, zero floor, Undo/Redo,
+  no-op/scalar-row persistence, stale page/frame/shape/count/resize, read-only
+  preview, and DPI/degenerate-axis math. Existing ComponentPivotAndBounds,
+  PersistentParameterPages, RetainedBooleanEnumRows and viewport tests remain
+  relevant. Tests reacquire array elements after Undo rather than retaining
+  references into serialized/reallocated target storage.
+- Prevention: share the runtime pivot frame; keep heading and Offset frames
+  distinct. New handle kinds must be audited at every drawing, hit, start, write,
+  cursor and teardown branch. Validate the rendered source/space before writes.
+  Keep preview-only caches/gizmos separate from authored state and global engine
+  collision helper flags. Test full native transactions and retained controls.
+- Possible conflicts: Manual FOV/zero-weight boxes now appear only on subject
+  pages; fit diagnostics on other pages retain their prior policy. Manual bounds
+  use the existing world-aligned center + half-extent format; independent face
+  min/max editing would require a separate data-model change. Auto bounds are
+  intentionally display-only. Existing solver, runtime bounds-cache scheduling,
+  placement-heading rules, reflection layout, binding resolution, engine-helper
+  suppression and non-subject anchor/orbit gestures keep their behavior. The new
+  public C++ frame helper is not a new reflected field or serialized format.
+- Verification: source/consumer and installed UE5.6 SDK review only. Per project
+  AGENTS.md, full compile in Rider/Visual Studio and restart UE for headers/new
+  sources. Run the two regressions plus related tests inside UE. Manually check
+  loaded animated bones, selected components, Section binding/proxy previews,
+  mouse capture/drag direction/modifiers, aspect/DPI/resize, Guides, Undo/Redo,
+  six visible face handles and parameter values/no flash. Canvas paint/real input
+  remain IDE/editor acceptance checks; no shell build or test execution attempted.
+
+## 2026-10-10 - Shot preview read-only input breaks original interaction boundaries
+
+- Symptom / repro: bind an Inline Shot Section, lock it (or make its MovieScene
+  read-only), focus Compose/Preview and press editor keyboard shortcuts. The
+  viewport consumes all keys. Switch to Inspect and Alt+right-drag: Shot.Roll
+  can still change. Lock during an active mouse capture, then release before the
+  next Tick: the permission guard can swallow release and leave the transaction open.
+- History / blast radius: reviewed read-only Section authoring, persistent scalar
+  parameter controls, viewport wheel/anchor commit, captured-wheel transaction,
+  guide visibility, camera aspect and Subject gizmo entries. Compared original
+  Shot Editor HEAD input/mode/toolbar behavior with the current native viewport;
+  audited every Roll start/write/release, mode/source teardown, native keyboard
+  routing, reverse solve, session permissions and transaction notifications.
+- Root cause: a broad early InputKey return blocked keyboard as well as mouse in
+  read-only Compose/Preview. Its Free/Inspect exemption restored navigation but
+  also bypassed Roll permissions. Roll start/write and host invalidation lacked
+  their own permission/lifetime guards; release ran after the blocking return.
+- Fix: restrict that guard to mouse input; retain native keyboard routing and
+  Inspect navigation. Validate Roll source lifetime, mode and CanEdit at both
+  gesture start and write. Handle captured releases first. Tick closes writers
+  after permission changes; invalid hosts cancel Roll before Shot access is cleared.
+  Preserve values authored before locking as one scalar commit/Undo step. Correct
+  mode tooltips to describe existing controls and remove the unimplemented bone
+  context-menu claim. Document the original/new mode and control mapping.
+- Files: ComposableCameraShotEditorViewportClient.h/.cpp, SShotEditorRoot.cpp,
+  SShotEditorViewport.h, ComposableCameraShotPreviewCompatibilityTests.cpp;
+  EditorDesignDoc, TechDoc, ShotBasedKeyframing and ExecutionFlowExamples.
+- Regression: ComposableCameraSystem.ShotEditor.PreviewCompatibility exercises
+  production Roll start/write/native release and wheel InputKey paths, one-step
+  Undo/Redo, no mid-gesture host broadcast, retained native parameter controls,
+  Inspect position/optics separation, Reset, reverse solve, HUD/Guides, locked
+  Section/read-only MovieScene in all three modes, Preview-mode rejection,
+  permission change during capture, immediate release after lock and lost host.
+  Existing ViewportValueCommits, OrbitControl and SubjectGizmos remain relevant.
+  Native keyboard/camera navigation cannot be covered by the unattached fixture:
+  Internal_InputKey constructs a scene view using actual viewport geometry and
+  editor mode tools. Check shortcuts, clipboard, native mouse capture and actual
+  active-CineCamera rendering manually in an attached UE window (ExecutionFlowExamples
+  step 22), including lock-before-Tick release and both preview worlds.
+- Prevention: authoring capability must gate every writer, not all viewport input.
+  Native inspection never implies permission to change Shot fields. Teardown and
+  release must remain reachable after permission/lifetime changes. Test source
+  locks across modes and during transactions; permit genuine history refresh.
+- Possible conflicts: page-specific Follow/Aim/Subjects guide visibility remains
+  intentional. Read-only Inspect Alt+RMB falls through to native navigation rather
+  than authoring Roll. Keyboard routes as in the original editor; no new shortcut,
+  serialized field, camera class requirement or runtime solve rule is introduced.
+- Verification: static source/consumer and installed UE5.6 SDK review only. Per
+  project AGENTS.md, full compile in Rider/Visual Studio and restart UE for changed
+  headers/new source, then run the regression and attached-window acceptance.
+  No shell build, editor launch or automation execution attempted.
+
+## 2026-10-10 - Subject append rebuilds its whole page and has no delete action
+
+- Symptom / repro: open Create or Edit / Subjects and add an empty Subject or
+  selected actors. The whole Subjects page flashes once. Existing Subject headers
+  have no way to delete a slot, including the last empty or unwanted subject.
+- History / blast radius: reviewed SubjectAppend/SectionSubjectAppend, persistent
+  scalar pages, Boolean/Enum controls, full-width Subject folding, viewport commit
+  and stale Subject gizmo entries. Audited all RefreshSource and Subjects callers,
+  Root structural/history refresh, native PropertyRowGenerator SetStructure,
+  target-index combos, every Shot target-index field, MoveTarget, binding overrides,
+  shared-preset local copies and session/native transaction gates.
+- Root cause: Authoring Rebuild replaced both Subjects Box contents wholesale on
+  each structural change. Retained parameter-panel objects did not retain their
+  parent cards, action row or pickers. Native handle regeneration deferred its
+  visual rebuild to a later tick. Subject authoring provided append/reorder/swap,
+  but neither a safe removal API nor a visible Delete control.
+- Fix: construct each Subjects root/action/list once. SyncSubjects keeps role
+  cards and actor/component controls, appends missing cards and removes excess
+  tail slots. Rebind native handles and rebuild their fields in the same idle
+  Slate tick; do not retain handles into potentially reallocated Targets storage.
+  Keep deferred generator refresh elsewhere. Put a fixed native Delete button in
+  each primary Subject header, usable while folded. Session RemoveTarget performs
+  one transaction, remaps all three anchors and weighted lists plus both basis
+  indices; removed direct references become INDEX_NONE, later valid indices shift.
+  Drop removed/stale Section overrides and shift surviving bindings. Deleting the
+  last slot leaves the existing empty state/Add actions. Read-only or active
+  transaction sources refuse deletion. Shared presets and scene object bindings
+  are not mutated by removing a Section's local slot.
+- Files: ComposableCameraShotTemplates.h/.cpp,
+  ComposableCameraShotAuthoringSession.h/.cpp, SShotEditorAuthoringPanel.h/.cpp,
+  SShotEditorParameterPanel.h/.cpp, ComposableCameraShotAuthoringTests.cpp,
+  ComposableCameraShotParameterPanelTests.cpp; EditorDesignDoc, TechDoc,
+  ShotBasedKeyframing and ExecutionFlowExamples.
+- Regressions: ComposableCameraSystem.ShotEditor.SubjectCollection activates the
+  production Add/Delete buttons using native keyboard acceptance, checks both
+  Create/Edit root/card/action identity and fold state, same-tick handle rebuild,
+  native writes after storage/index changes, Undo/Redo, last deletion and re-add.
+  ComposableCameraSystem.ShotAuthoring.SubjectRemoval checks first/middle/last
+  slots, surviving identities/weights, Placement/Aim/Focus anchors, primary and
+  secondary bases, Inline and AssetReference binding remaps, shared-preset
+  isolation, complete one-step history and locked/invalid/active-transaction gates.
+  SubjectLayout, SubjectAppend, SectionSubjectAppend, PersistentParameterPages,
+  RetainedBooleanEnumRows and SubjectGizmos remain relevant.
+- Prevention: stable page objects are insufficient if structural refresh replaces
+  their whole content. Retain independent action/card/scroll containers, but
+  regenerate handles before reading relocated storage. Test real buttons and
+  shifted native field writes, not only arrays or page-build counters. Every
+  collection deletion must audit all identity-index consumers and history.
+- Possible conflicts: card expansion belongs to role/index as before; removing
+  a middle identity shifts later data into retained role cards. References to
+  a deleted subject intentionally become unresolved, allowing explicit reassignment.
+  Weighted membership drops only the deleted identity. Scene bindings may be
+  shared by other tracks and keep their own lifecycle. This changes only editor
+  authoring APIs/UX; runtime data layout, camera solve and serialized enums stay
+  unchanged. Native handles still refresh on real source/collection/history edits.
+- Verification: static source/consumer and installed UE5.6 Slate/PropertyEditor
+  SDK checks only. Project AGENTS.md requires full Rider/Visual Studio compile,
+  UE restart for changed headers, editor automation and manual append/delete
+  checks across scroll/fold/DPI, Inline/local overrides and Undo/Redo. No shell
+  build, editor launch or automation execution attempted.
+
+## 2026-10-10 - Subject subsection arrows and captions have different vertical alignment
+
+- Symptom / repro: open Create or Edit / Subjects. Compare the triangle and title
+  on Component / pivot, Pivot / orientation, Framing bounds / weight and Preview
+  model. Captions sit above the centered native arrows, including folded groups.
+- History / blast radius: reviewed the earlier full-width Subject layout/folding,
+  retained collection cards and action alignment entries. Audited both consumers
+  of SubsectionHeader, native/generated Subject headers and the installed UE5.6
+  SExpandableArea::ConstructHeaderWidget layout. Primary role headers and nested
+  property rows have separate construction paths.
+- Root cause: SubsectionHeader added a 24-unit minimum-height SBox with symmetric
+  padding but retained its default Fill vertical alignment. SExpandableArea
+  centers the arrow and that box, while the stretched inner STextBlock lays out
+  its glyphs near the top. Centered outer geometries do not center the line itself.
+- Fix: set the shared title SBox to VAlign_Center. Its text keeps the desired line
+  height and centers against the arrow. Both authoring pages and all four groups
+  receive the same fix without offsets, custom arrows or rebuilding their controls.
+- Files: Widgets/ComposableCameraShotEditorStyle.h,
+  Tests/ComposableCameraShotParameterPanelTests.cpp, EditorDesignDoc.md,
+  TechDoc.md and this BugLog.md (all under the verified UE5.6 plugin root).
+- Regression: ComposableCameraSystem.ShotEditor.SubjectHeaderAlignment arranges
+  the real four subsections in Create and Edit, expanded/collapsed, at 300/1200
+  logical widths and 100/150/200 percent scales. It compares the native arrow/title
+  centers and requires intrinsic text height so a stretched box cannot pass.
+  SubjectLayout and SubjectCollection retain width/folding/refresh coverage.
+- Prevention: center the line inside minimum-height containers, not just the
+  outer header. Geometry regressions must check intrinsic line height as well
+  as center coordinates; defer raster/text optics confirmation to attached UE.
+- Possible conflicts: affects only the shared Subject subsection label helper.
+  Primary gray role headers, native property editors, fold state, transactions,
+  runtime/serialization, camera solving and viewport guides retain their behavior.
+- Verification: static source/consumer and installed Slate SDK review only.
+  Per project AGENTS.md, compile in Rider/Visual Studio and restart UE for this
+  inline header change. Run SubjectHeaderAlignment, then inspect all four headers
+  in both pages, open/closed and at the editor's DPI. No shell build or test run.
+
+## 2026-10-11 - Subject Delete caption clips inside its fixed header button
+
+- Symptom / repro: open Create or Edit / Subjects with two slots. Subject B's
+  header shows a cropped Delete caption. Repeat with narrow/wide parameter panes,
+  folded/open cards and different editor DPI settings.
+- History / blast radius: reviewed retained Subject collection/deletion, full-width
+  folding, action geometry and subsection alignment entries. Audited SubjectCard,
+  RemoveSubject tags, native SButton content/style padding, both page consumers,
+  SubjectCollection automation and Subject guide/Orbit drawing consumers.
+- Root cause: the header used a 60 x 22 button with default native text styling.
+  Desired caption size plus content and native style padding exceeded its fixed
+  space, so text was cropped. Matching the button's outer size alone does not
+  guarantee the content fits.
+- Fix: replace the caption with the native trash icon, centered in a 28 x 24
+  button with four-unit content padding and no extra normal/pressed style padding.
+  Keep the tooltip, action tag, permission gates and removal transaction. Per the
+  accompanying UX request, remove the separate Follow/AnchorOrbit 3D center-point
+  renderer; keep the lower-left Canvas globe and Subject-page pivot guides.
+- Files: Widgets/SShotEditorAuthoringPanel.cpp,
+  Editors/ComposableCameraShotEditorViewportClient.cpp/.h,
+  Tests/ComposableCameraShotParameterPanelTests.cpp,
+  Tests/ComposableCameraShotSubjectGizmoTests.cpp; EditorDesignDoc.md, TechDoc.md,
+  ShotBasedKeyframing.md, ExecutionFlowExamples.md and this BugLog.md.
+- Regressions: ComposableCameraSystem.ShotEditor.SubjectDeleteIcon arranges both
+  real Subject A/B headers in Create/Edit at 280/1200 logical widths, folded/open,
+  and 100/150/200 percent scale. It checks a nonempty intrinsic-size icon, full
+  containment/centering and sufficient button allocation, without caption text.
+  SubjectCollection still activates the same real removal buttons and checks
+  deletion, Undo/Redo and retained cards. SubjectGizmos now exercises production
+  3D Draw against native viewport primitives for SingleTarget/component/local
+  offset, weighted and fixed anchors in Compose/Inspect, requiring no added Orbit
+  center point while the Canvas globe remains available.
+- Prevention: inspect actual arranged content and combined native/content padding
+  in fixed buttons. Compact icon actions need descriptive tooltips and tests
+  across folding, pane width and DPI, plus existing action/history coverage.
+- Possible conflicts: visual changes affect both authoring pages only. Deletion
+  index/binding remapping, transactions, fold state, runtime layout/serialization
+  and camera solve stay intact. Subject-page pivots, Follow screen handles,
+  Canvas Orbit controls and bounds-fit diagnostics retain their independent gates.
+- Verification: static consumer/source and installed UE5.6 Slate SDK checks only.
+  Per project AGENTS.md, full Rider/Visual Studio compile and editor restart are
+  required for the changed viewport header. Run SubjectDeleteIcon,
+  SubjectCollection, SubjectGizmos and OrbitControl in editor; inspect the tooltip,
+  deletion and absent 3D center point. No shell build/editor/test launch attempted.

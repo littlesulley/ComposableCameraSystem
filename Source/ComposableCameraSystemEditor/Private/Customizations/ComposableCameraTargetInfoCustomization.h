@@ -115,6 +115,7 @@ private:
 	 * a parallel reference once the local SharedPtr goes out of scope, so
 	 * a `TWeakPtr` would Pin to null after CustomizeChildren returned. */
 	TSharedPtr<IPropertyHandle> ActorHandle;
+	TSharedPtr<IPropertyHandle> ComponentNameHandle;
 
 #if WITH_EDITORONLY_DATA
 	/** Sibling handle to `FComposableCameraTargetInfo::EditorPreviewMesh`.

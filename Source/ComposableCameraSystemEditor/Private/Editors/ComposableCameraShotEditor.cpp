@@ -1,6 +1,7 @@
 // Copyright 2026 Sulley. All Rights Reserved.
 
 #include "Editors/ComposableCameraShotEditor.h"
+#include "ComposableCameraEditorStyle.h"
 
 #include "DataAssets/ComposableCameraShotAsset.h"
 #include "Editor.h"
@@ -45,6 +46,7 @@ void FComposableCameraShotEditor::RegisterTabSpawner()
 	FGlobalTabmanager::Get()
 		->RegisterNomadTabSpawner(TabId, FOnSpawnTab::CreateStatic(&FComposableCameraShotEditor::SpawnTab))
 		.SetDisplayName(LOCTEXT("ShotEditorMenuName", "Shot Editor"))
+		.SetIcon(FSlateIcon(FComposableCameraEditorStyle::Get()->GetStyleSetName(), "ComposableCamera.ShotEditor", "ComposableCamera.ShotEditor.Small"))
 		.SetTooltipText(LOCTEXT("ShotEditorMenuTooltip",
 			"Authoring tool for ComposableCameraSystem Shots - drag actors to compose framing, "
 			"set anchor + distance + lens. Open via the 'Open Shot Editor' button on a "

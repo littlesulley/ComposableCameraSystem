@@ -32,6 +32,7 @@
 // 9. Shot Editor status bar - pure status priority / action mapping used by
 // the top-bar-adjacent unified status strip.
 
+#include "Widgets/ComposableCameraShotViewportDisplayUtils.h"
 #include "DataAssets/ComposableCameraShot.h"
 #include "Customizations/ComposableCameraShotModeVisibility.h"
 #include "Editors/ComposableCameraShotEditorViewportClient.h"
@@ -41,13 +42,14 @@
 #include "Widgets/ComposableCameraShotMenuUtils.h"
 #include "Widgets/ComposableCameraShotEditorStatusBarUtils.h"
 #include "Widgets/ComposableCameraShotViewportToolbarUtils.h"
+#include "Widgets/ComposableCameraShotViewportCanvasUtils.h"
 #include "Widgets/SShotEditorViewport.h"
 
 #define LOCTEXT_NAMESPACE "ComposableCameraShotEditorTests"
 
 #if WITH_DEV_AUTOMATION_TESTS
 
-// 1. ComputeWheelZoomFactor (E.5) 
+// 1. ComputeWheelZoomFactor (E.5)
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FShotEditorComputeWheelZoomFactorTest,
 	"ComposableCameraSystem.ShotEditor.ComputeWheelZoomFactor",
@@ -85,7 +87,7 @@ bool FShotEditorComputeWheelZoomFactorTest::RunTest(const FString& /*Parameters*
 	return true;
 }
 
-// 2. FShotPlacement Distance clamp invariants (F.2) 
+// 2. FShotPlacement Distance clamp invariants (F.2)
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FShotPlacementDistanceClampInvariantsTest,
 	"ComposableCameraSystem.ShotEditor.DistanceClampInvariants",
@@ -136,6 +138,7 @@ bool FShotEditorReverseSolveStatusToTextTest::RunTest(const FString& /*Parameter
 		EShotEditorReverseSolveStatus::PlacementAnchorUnresolvable,
 		EShotEditorReverseSolveStatus::AimAnchorUnresolvable,
 		EShotEditorReverseSolveStatus::PlacementAnchorBehindCamera,
+		EShotEditorReverseSolveStatus::SourceReadOnly,
 	};
 	TArray<FString> SeenTexts;
 	SeenTexts.Reserve(UE_ARRAY_COUNT(FailureCases));
@@ -389,11 +392,8 @@ bool FShotEditorModeSwitchPromptTest::RunTest(const FString& /*Parameters*/)
 	TestEqual(TEXT("Free to Drag opens Free-exit status"),
 		ClassifyModeRequest(EShotEditorMode::Free, EShotEditorMode::Drag),
 		EModeRequestHandling::ShowFreeExitStatus);
-	TestEqual(TEXT("Free to Lock opens Free-exit status"),
-		ClassifyModeRequest(EShotEditorMode::Free, EShotEditorMode::Lock),
-		EModeRequestHandling::ShowFreeExitStatus);
-	TestEqual(TEXT("Drag to Lock applies immediately"),
-		ClassifyModeRequest(EShotEditorMode::Drag, EShotEditorMode::Lock),
+	TestEqual(TEXT("Drag to Free applies immediately"),
+		ClassifyModeRequest(EShotEditorMode::Drag, EShotEditorMode::Free),
 		EModeRequestHandling::ApplyImmediately);
 	TestEqual(TEXT("Same mode ignored"),
 		ClassifyModeRequest(EShotEditorMode::Free, EShotEditorMode::Free),
@@ -488,6 +488,75 @@ bool FShotEditorStatusBarStateTest::RunTest(const FString& /*Parameters*/)
 	TestEqual(TEXT("Hidden pending state exposes no status actions"),
 		PendingAfterLeavingFree.Actions, EShotEditorStatusBarActions::None);
 
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FShotEditorCanvasHitCoordinatesTest,
+	"ComposableCameraSystem.ShotEditor.CanvasHitCoordinates",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FShotEditorCanvasHitCoordinatesTest::RunTest(const FString&)
+{
+	using namespace ComposableCameraSystem::ShotEditorCanvas;
+	// A noncentral handle in a letterboxed view. Canvas's base transform multiplies by DPI.
+	const FVector2D ExpectedViewportCenter(840.0, 360.0);
+	for (float Scale : { 1.f, 1.25f, 1.5f, 2.f })
+	{
+		const FVector2D CanvasCenter = ViewportToCanvas(ExpectedViewportCenter, Scale);
+		const FVector2D RenderedViewportCenter = CanvasToViewport(CanvasCenter, Scale);
+		TestTrue(TEXT("Rendered handle stays at its intended physical viewport position"), RenderedViewportCenter.Equals(ExpectedViewportCenter));
+		const FBox2D HitArea = CanvasHitAreaToViewport(FBox2D(CanvasCenter - FVector2D(14, 14), CanvasCenter + FVector2D(14, 14)), Scale);
+		TestTrue(TEXT("Clicking the visible handle hits at every DPI"), HitArea.IsInside(RenderedViewportCenter));
+		TestTrue(TEXT("Visible handle radius stays inside DPI-scaled hit radius"), HitArea.IsInside(RenderedViewportCenter + FVector2D(10.0 * Scale, 0)));
+		TestFalse(TEXT("Clicking outside the handle does not hit"), HitArea.IsInside(RenderedViewportCenter + FVector2D(15.0 * Scale, 0)));
+		const FBox2D ZoneEdge = CanvasHitAreaToViewport(FBox2D(CanvasCenter + FVector2D(30, -40), CanvasCenter + FVector2D(38, 40)), Scale);
+		TestTrue(TEXT("Zone edge uses the same coordinate conversion"), ZoneEdge.IsInside(RenderedViewportCenter + FVector2D(34.0 * Scale, 0)));
+		if (Scale > 1.f)
+		{
+			const FVector2D OldRenderedCenter = ExpectedViewportCenter * Scale;
+			TestFalse(TEXT("Regression reproduces the old double-scaled draw missing the physical hit box"), HitArea.IsInside(OldRenderedCenter));
+		}
+	}
+	TestEqual(TEXT("150 percent drawing uses logical canvas position"), ViewportToCanvas(ExpectedViewportCenter, 1.5f).X, 560.0);
+	TestTrue(TEXT("Invalid DPI falls back to unscaled coordinates"), ViewportToCanvas(ExpectedViewportCenter, 0.f).Equals(ExpectedViewportCenter));
+	return true;
+}
+
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FShotEditorPreviewDisplayPolicyTest,
+	"ComposableCameraSystem.ShotEditor.PreviewDisplayPolicy",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FShotEditorPreviewDisplayPolicyTest::RunTest(const FString&)
+{
+	using namespace ComposableCameraSystem::ShotViewportDisplay;
+	FComposableCameraShot Shot;
+	for (EShotPlacementMode Mode : { EShotPlacementMode::AnchorOrbit, EShotPlacementMode::AnchorAtScreen, EShotPlacementMode::FixedWorldPosition })
+	{
+		Shot.Placement.Mode = Mode;
+		TestEqual(TEXT("Follow screen handle only exists in screen placement mode"), ShowFollowHandle(Shot), Mode == EShotPlacementMode::AnchorAtScreen);
+	}
+	Shot.Aim.Mode = EShotAimMode::NoOp;
+	TestFalse(TEXT("NoOp hides Aim handle"), ShowLookAtHandle(Shot, true));
+	Shot.Aim.Mode = EShotAimMode::LookAtAnchor;
+	TestTrue(TEXT("Selected LookAtAnchor retains Aim handle"), ShowLookAtHandle(Shot, true));
+	TestFalse(TEXT("Leaving Aim hides its handle even while aim mode remains active"), ShowLookAtHandle(Shot, false));
+	FEngineShowFlags MainLevelFlags(ESFIM_Editor);
+	const bool bMainEditor = MainLevelFlags.Editor;
+	for (bool bLevelWorld : { true, false, true })
+	{
+		FEngineShowFlags PreviewFlags(ESFIM_Editor);
+		// Simulate editor collision / selection settings leaking into a newly created client.
+		PreviewFlags.SetCollision(true); PreviewFlags.SetBounds(true); PreviewFlags.SetSelectionOutline(true);
+		ConfigurePreviewFlags(PreviewFlags, bLevelWorld);
+		TestTrue(TEXT("Preview respects HiddenInGame components"), PreviewFlags.Game);
+		TestFalse(TEXT("Editor components hidden"), PreviewFlags.Editor);
+		TestFalse(TEXT("No editor primitive overlay"), PreviewFlags.CompositeEditorPrimitives);
+		TestFalse(TEXT("No engine transform widget"), PreviewFlags.ModeWidgets);
+		TestFalse(TEXT("No capsule / box collision rendering"), PreviewFlags.Collision || PreviewFlags.CollisionPawn || PreviewFlags.CollisionVisibility);
+		TestFalse(TEXT("No selected-component bounds / outlines"), PreviewFlags.Bounds || PreviewFlags.Selection || PreviewFlags.SelectionOutline);
+		TestEqual(TEXT("Reference grid only in isolated template scene"), static_cast<bool>(PreviewFlags.Grid), !bLevelWorld);
+	}
+	TestEqual(TEXT("Main level viewport untouched"), static_cast<bool>(MainLevelFlags.Editor), bMainEditor);
 	return true;
 }
 

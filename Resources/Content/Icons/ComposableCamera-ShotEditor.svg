@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Framing corners remain crisp in the 16-pixel menu icon. -->
+  <path d="M8 24V12H22M42 12H56V24M56 38V50H42" stroke="white" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M25 12H39M56 27V35" stroke="white" stroke-width="2" opacity="0.35"/>
+  <!-- Camera and lens distinguish the shot tool from the generic edit panel. -->
+  <rect x="6" y="35" width="23" height="18" rx="3" fill="white"/>
+  <path d="M29 40L38 35V53L29 48Z" fill="#14968C"/>
+  <path d="M12 35V31H21V35" stroke="white" stroke-width="3" stroke-linejoin="round"/>
+  <!-- Composition anchor: ring with four targeting marks. -->
+  <circle cx="40" cy="28" r="6" stroke="#14968C" stroke-width="4"/>
+  <path d="M40 17V19M40 37V39M29 28H31M49 28H51" stroke="white" stroke-width="3" stroke-linecap="round"/>
+</svg>

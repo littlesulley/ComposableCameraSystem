@@ -65,7 +65,8 @@ void FShotPlacementCustomization::CustomizeChildren(TSharedRef<IPropertyHandle> 
 		}
 
 		const FName PropName = ChildHandle->GetProperty()->GetFName();
-		if (PropName == GET_MEMBER_NAME_CHECKED(FShotPlacement, BasisActorIndex))
+		if (PropName == GET_MEMBER_NAME_CHECKED(FShotPlacement, BasisActorIndex)
+			|| PropName == GET_MEMBER_NAME_CHECKED(FShotPlacement, BasisSecondaryTargetIndex))
 		{
 			// `AddCustomRow` does NOT auto-evaluate the field's UPROPERTY
 			// `EditCondition` meta - `AddProperty` does, but a custom row
@@ -107,6 +108,7 @@ void FShotPlacementCustomization::CustomizeChildren(TSharedRef<IPropertyHandle> 
 				});
 
 			StructBuilder.AddCustomRow(ChildHandle->GetPropertyDisplayName())
+				.PropertyHandleList({ChildHandle})
 				.Visibility(VisAttr)
 				.NameContent()
 				[ChildHandle->CreatePropertyNameWidget()]

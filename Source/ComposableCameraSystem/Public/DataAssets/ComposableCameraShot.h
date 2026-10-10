@@ -82,8 +82,8 @@ enum class EShotPlacementMode : uint8
  *   - **NoOp**: Aim layer does nothing. Output rotation = identity with
  *     `Shot.Roll` composed. `Aim.AimAnchor` and `Aim.ScreenPosition` are
  *     ignored. Useful when downstream nodes (or a FixedWorldPosition
- *     placement) should fully drive rotation; the editor renders the
- *     Aim handle greyed out as a non-effective indicator. Note: in NoOp
+ *     placement) should fully drive rotation; the editor hides the
+ *     unused Aim screen handle. Note: in NoOp
  *     mode `SolvedFromBoundsFit` FOV and `FollowAnchor` Focus modes
  *     still consume the identity rotation. Projection / depth
  *     computations relative to that frame may not match designer intent;
@@ -153,7 +153,10 @@ enum class EShotPlacementBasisFrame : uint8
 	 * World basis with a warning when the index is out of range or the
 	 * actor is null.
 	 */
-	InheritFromActor
+	InheritFromActor,
+
+	/** Horizontal A-to-B axis with world up. Independent of either actor's facing. */
+	TwoTargetAxis
 };
 
 /**
@@ -403,8 +406,13 @@ struct COMPOSABLECAMERASYSTEM_API FShotPlacement
 	 *  `BasisFrame == InheritFromActor`. Falls back to World basis when
 	 *  out of range or the actor is null. AnchorOrbit-only. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Placement|AnchorOrbit",
-		meta = (EditCondition = "Mode == EShotPlacementMode::AnchorOrbit && BasisFrame == EShotPlacementBasisFrame::InheritFromActor"))
+		meta = (EditCondition = "Mode == EShotPlacementMode::AnchorOrbit && BasisFrame != EShotPlacementBasisFrame::World"))
 	int32 BasisActorIndex = 0;
+
+	/** B endpoint of TwoTargetAxis. Coincident/unresolved endpoints use World basis. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Placement|AnchorOrbit",
+		meta = (EditCondition = "Mode == EShotPlacementMode::AnchorOrbit && BasisFrame == EShotPlacementBasisFrame::TwoTargetAxis"))
+	int32 BasisSecondaryTargetIndex = 1;
 
 	/** Camera position direction in BasisFrame's basis, expressed as
 	 *  (Yaw, Pitch) in degrees. AnchorOrbit-only -`AnchorAtScreen`

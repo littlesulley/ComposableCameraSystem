@@ -309,6 +309,12 @@ public:
 	 *  TrackInstance shuts down. Idempotent. */
 	void RemoveSequencerShotOverride(UMovieSceneComposableCameraShotSection* Section);
 
+#if WITH_EDITOR
+	/** Refresh only an already-active section, preserving overlap metadata. No Sequencer rebuild. */
+	bool RefreshShotEditorPreview(UMovieSceneComposableCameraShotSection* Section,
+		const FComposableCameraShot& EffectiveShot);
+#endif
+
 private:
 	/** Transient internal camera. Spawned lazily on first evaluation. Not
 	 *  added to any context stack or director; driven entirely by this

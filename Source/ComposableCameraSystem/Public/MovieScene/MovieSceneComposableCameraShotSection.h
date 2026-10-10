@@ -194,6 +194,12 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shot")
 	EComposableCameraShotSource Source = EComposableCameraShotSource::Inline;
 
+#if WITH_EDITORONLY_DATA
+	/** Human-readable clip title. Empty preserves the legacy source/count title. */
+	UPROPERTY(EditAnywhere, Category = "Shot")
+	FString ShotLabel;
+#endif
+
 	/** Used iff `Source == Inline`. Edited via the Shot Editor (Sequencer
 	 *  Section selection swaps the editor context) or inline in the Details panel. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Shot",

@@ -1,6 +1,6 @@
 # ComposableCameraSystem Editor Design
 
-Updated: 2026-10-08
+Updated: 2026-10-11
 
 This document describes the current editor module. It replaces the old
 phase-by-phase implementation plan. Runtime architecture lives in
@@ -360,6 +360,7 @@ Hosts:
 - selected `UComposableCameraCompositionFramingNode`.
 - selected shot section.
 - shot asset.
+- transient draft created from selected level actors.
 
 Current behavior:
 
@@ -369,8 +370,9 @@ Current behavior:
 - preview viewport resolves target actors, meshes, bounds, anchors, zones, and
   framing overlays.
 - compact top bar combines asset commands, active host breadcrumb, Sequencer
-  Shot dropdown, Recent dropdown, and the Drag / Free / Lock viewport mode
-  selector.
+  Shot dropdown, Recent dropdown, and Compose / Inspect modes
+  (internal Drag / Free enums; hotkeys 1 / 2). Preview/Lock and its shortcut 3
+  are removed; mode state is transient and not serialized.
 - a unified status bar appears below the top bar only when the editor has
   something actionable or diagnostic to report. It currently owns Free-exit
   Save / Discard / Stay actions, reverse-solve unavailable reasons, no-Shot
@@ -380,31 +382,287 @@ Current behavior:
   readable, and it can collapse down to a small Tools button. That collapsed
   state persists per project. Reset is Free-mode-only and snaps the preview
   camera back to the current solved Shot pose without writing Shot data. HUD
-  toggles diagnostic text; Guides toggles handles, framing zones, and bounds
-  wireframes. The toolbar deliberately does not expose a separate Frame
+  toggles structured Camera / Composition cards and starts off to keep the camera
+  image clear. Cards use headers, aligned label/value rows, subdued panels and
+  status colors; the old plain-text block and bottom summary strip are removed.
+  Camera shows view mode, frame/aspect, pose, FOV, focus, aperture and roll;
+  Composition shows Follow mode/distance, Aim resolution, screen target/projected
+  drift and local orbit basis/angles. Damped values retain authored -> effective
+  comparisons. Camera stacks above Composition at a fixed eight-unit upper-left
+  image inset. Their size, text, headers, row spacing and card gap uniformly scale
+  with the camera image (0.85 at 1280 x 720, about 21% larger than the previous cards); resizing
+  preserves every diagnostic row. Short images cap the complete stack to the
+  space above the possible orbit panel, including an eight-unit gap, even when
+  Guides is off. Orbit visibility and task selection cannot move or reflow the HUD. Cards
+  stay inside the image and clear of the lower-left orbit control. Guides toggles handles, framing zones,
+  orbit control, subject gizmos and bounds wireframes. The toolbar deliberately does not expose a separate Frame
   command.
 - Shot dropdown is the primary sibling-shot navigator for Sequencer-backed
   contexts. It lists sibling Shot sections for the active LevelSequence in a
   searchable, track-grouped panel with current-shot checkmark and time/row
   suffixes; the editor does not keep a persistent left-side Shot outliner.
-- main body is a two-pane splitter: large preview viewport plus a right-side
-  pane containing a compact Quick strip above the full structure Details
-  panel. Quick starts collapsed by default, then remembers its expanded /
-  collapsed state per project.
-- Quick strip mirrors common authoring fields only: distance, manual FOV, roll,
-  placement screen position, and aim screen position. It writes to the same
-  `FComposableCameraShot` data and remains a removable experiment, not a new
-  data model. Labels use full readable field names rather than abbreviations.
+- task navigation sits below the host toolbar: Create / Edit / Sequence /
+  Presets / Advanced. A flexible left slot holds compact task buttons; centered,
+  fixed-size Level Preview and Follow playhead buttons stay at the row's right.
+  Task buttons are 28 Slate units high, with 14-unit icons and 9-point labels;
+  Edit subtabs are 26 units high with 9-point labels. Presets uses the native
+  open-folder library icon rather than a save icon. Application/DPI scaling
+  remains authoritative. Native Background/Secondary colors supply dark chrome;
+  CameraNodeTitle (#14968C) marks selected primary navigation. Edit subtabs
+  use a softer selection color mixed with native Secondary gray. Parameter-page
+  actions use the native Unreal Button gray palette and hover/pressed states,
+  fixed 156 x 24 size and centered captions; group headers
+  use a lighter, subdued neutral gray, without a green fill. No task action uses the native blue PrimaryButton style.
+- `SShotEditorPreviewLayout` is a native horizontal splitter with exactly two
+  full-height columns: complete parameter pages on the left (initially 40%) and
+  Preview on the right (60%). Users drag the divider to adjust widths. There is
+  no lower parameter region or separate preview-side page. Create contains both
+  template/assignment and subjects; Edit keeps behavior, anchor/screen zones,
+  lens/focus or motion response together in each section; Sequence keeps
+  destination/duration and clip actions together; Presets keeps apply/restore
+  and save together. Each page retains its widgets and scroll state. Advanced
+  keeps the full structure Details widget and its own scroll.
+  `SShotEditorPreviewFrame` reserves a six-unit screen bezel around the actual
+  camera image, then fits the native viewport at live camera aspect within the
+  remaining space. The bezel has a thin gray outer highlight, dark body and
+  subdued inner lip. It follows the fitted picture, not the entire Preview pane:
+  the outer screen edge aligns right, with the image centered vertically and
+  letterbox margins outside the bezel. Decoration is behind the image, uses
+  no input widgets and does not obscure viewport pixels or capture mouse input.
+  Window resizing and divider changes resize the same native viewport; when
+  height limits the image, it remains fitted instead of distorting its aspect.
+  Source, parameter pages and property bindings are retained during resizing.
+  The former width/aspect-driven upper row and lower authoring reserve are
+  removed so preview and parameters can use the full available height.
+- Parameters use flat colored headers and 24-unit native label/value rows.
+  Parameter groups stack in a normal left pane and share two columns above
+  800 available units if the pane is widened.
+  Each whole Subject is collapsible. Its body contains a full-width actor picker
+  and four vertically stacked sections: Component / pivot, Pivot / orientation,
+  Framing bounds / weight, and Preview model. All four always fill the same row
+  width at every pane size and use matching neutral headers, including the
+  expansion arrow. Component / pivot and Preview model start collapsed; whole
+  Subjects start expanded. Whole-Subject and component fold states are retained
+  per page and role/index across structural refreshes. The former up/down square
+  buttons and fixed actor column are removed. Existing
+  native vector/asset controls, transactions and local mode rebuilds remain.
+  Scalar commits retain parameter containers and page scroll state.
+  The previous Quick strip is removed.
+- A camera-frame/composition-anchor SVG provides 16/20/64-unit Shot Editor
+  brushes. Tab spawner, shared Tools menu, camera type asset toolbar and
+  Sequencer Edit Shot action use that art. ShotAsset class icon and Content
+  Browser thumbnail use the same art, so its double-click editor is recognizable.
+- Create groups template selection and actor assignment. Successful assignment
+  or template application opens Edit. Follow is the default Edit section.
+  Follow exposes the complete Placement structure: AnchorOrbit (basis, both
+  basis subjects, direction, distance and damping), AnchorAtScreen (screen
+  coordinates, distance and zones), and FixedWorldPosition (world XYZ).
+  Its anchor supports single subject, weighted centroid and world point.
+  Aim exposes the complete Aim structure, including LookAtAnchor / NoOp,
+  anchor, screen coordinates and zones, plus Roll / RollSpeed. Both sections
+  place the Anchor group before behavior and screen zones, including when groups
+  share columns in a wide parameter pane. They use the existing mode-sensitive
+  property customizations; ignored fields hide
+  while their serialized values remain intact. Parameters are generated from
+  the whole Shot's reflected property tree, preserving target-index context.
+  Lens & Focus exposes the full Lens and Focus structures: manual/bounds-fit FOV,
+  fill ratio, FOV clamp, aperture, FOV response, all four focus modes and custom
+  focus anchors. Motion gathers distance/FOV/roll response and the active
+  Follow/Aim screen-zone X/Y response, using the same native editors and
+  authoritative property ranges. Motion omits the extra Aim screen-response title
+  and both explanatory paragraphs; its native response parameters remain. Subjects
+  are collapsible role groups with binding-aware actor/component/bone controls. Their remaining reflected
+  fields group into Pivot / orientation (offset, local space, bone enable and
+  mesh-forward basis), Framing bounds / weight (shape, extent, cache policy,
+  interval and continuous contribution weight), and a collapsed Preview model
+  section (mesh, actor transform, mesh-relative transform). Runtime bounds caches
+  are excluded. Component/bone controls collapse behind Component / pivot.
+  Only the whole-Subject role header uses the primary muted-gray fill and bold
+  text. All groups underneath use the native dark rounded expandable-row border
+  and regular text, matching the nested preview-transform rows. The shared title
+  box centers text at its intrinsic line height, aligning it with the native
+  collapse arrow in both expanded and collapsed states. Each stays full
+  width, with its existing expansion state preserved in both Create and Edit.
+  Each whole-Subject header has a centered native trash-icon button and Delete
+  tooltip, available even when folded. Subjects page roots, append actions, actor/component controls and
+  surviving role cards are retained across collection edits. Append adds cards;
+  shrink removes tail cards. All native parameter handles are rebound against
+  current storage and their controls replaced in the same idle Slate tick,
+  preserving card folds, page/scroll containers and avoiding a blank refresh frame.
+  Sequence separates destination/duration, clip
+  creation and current-clip actions. Presets separates apply/restore from save.
+- The layout borrows task tabs, a dominant preview and grouped controls from
+  BlackEyeCamera's read-only `BlackEyeTab/SBlackEyeTab.cpp` and
+  `Panels/SBlackEyeFollowPanel.cpp`; its custom rotary widgets and artwork are
+  not reused. Slate switchers and page scroll containers are built once and retain
+  widget identity and tab choices across source refreshes. Structural refreshes
+  update Subject list slots and native parameter handles; scalar commits
+  update the existing controls and preview. Numeric, Boolean and Enum edits,
+  including mode/basis/anchor/cache-policy changes, retain every parameter widget:
+  inactive fields are constructed once and Slate visibility/native enabled
+  attributes change in place. Generator-instance customizations apply only to
+  Shot Editor parameter pages; global Details/Advanced customizations remain
+  unchanged. Navigation does not write Shot data and cannot switch a numeric
+  gesture away while either a session or native PropertyEditor transaction is
+  active. Native parameter panels retain expansion state across source/array
+  refreshes and regenerate their property handles against the current source.
+- single close-up / medium / full-body, pair two-shot / left shoulder / right
+  shoulder / reverse shoulder, and group wide templates write ordinary Shot
+  values. Single templates require one subject, pair templates two, group at
+  least two. Non-bone template pivots are derived afresh from current mesh bounds
+  so repeated application does not accumulate offsets. Templates provide a
+  starting composition; they do not model collision, shoulder occlusion, or
+  automatic dialogue timing.
+- Subjects show A/B roles, actor/component/bone/socket pickers and continuous framing
+  weight. The compact up/down reorder and Swap actors A / B buttons are removed
+  from both Create and Edit; the session retains its index-safe reorder and swap
+  operations. Add Subject appends an empty slot; Add Selected Actors
+  appends the current level selection. Both actions are available in Create and
+  Edit / Subjects, including empty drafts/zero-subject Shots. Append preserves
+  existing subjects, composition, anchor membership and binding indices; it does
+  not apply a template. Empty slots can be configured with an actor or preview
+  model. Actor batches preflight bindings and commit as one Undo action; referenced
+  preset sections append only to their local copy. Reorder remaps anchors, weights, pair basis,
+  and Section binding indices together; swap deliberately exchanges actor roles.
+  Delete removes one subject with one Undo/Redo step, including the last slot.
+  Surviving single/weighted anchor and primary/secondary basis indices shift with
+  their subjects; references to the deleted slot become INDEX_NONE and weighted
+  memberships are removed. Section overrides follow the same indices, discarding
+  removed/stale entries. Shared presets and sequence object bindings stay owned by
+  their existing assets/scene. Empty lists retain the Add actions. Locked sources
+  and active native/session/viewport transactions disable deletion.
+- Create and Edit / Subjects show each resolved subject's unoffset Pivot/Bone
+  point, effective pivot, Offset connection and short placement-heading triad.
+  RGB axis endpoints drag Offset in its authored world/local frame; the local
+  frame comes from the same actor/component/socket resolver as runtime. Manual
+  Bounds have six yellow face handles, adjusting one world-aligned half-extent
+  symmetrically about the pivot with a nonnegative floor. Auto Bounds are visible
+  and read-only; None draws no box. Subject pages show configured bounds even at
+  Manual FOV or zero contribution weight (muted gray). Fit contributors keep
+  green/in-front and yellow/partly-behind diagnostics; other pages retain only
+  those existing fit diagnostics. Compact Subject names remain near visible
+  effective pivots and match the parameter-page roles; pivot/bone, offset-space
+  and weight summaries are omitted. XYZ axis labels remain. Gizmos belong to
+  Guides, independently of engine component/collision widgets, and remain disabled in Inspect/read-only
+  sources. Ctrl refines, Shift accelerates. A motionless click produces no commit;
+  one drag produces one Undo without rebuilding parameter controls. Hidden or
+  stale handles reject writes after task/source/identity/array/image-size changes.
+  Axis labels stay inside the camera image. Axes
+  nearly parallel to the camera ray have no reliable screen motion and cannot
+  be grabbed; other axes or panel values remain available.
+- `FComposableCameraShotAuthoringSession` resolves Section source mode each
+  read and reflected Shot properties on node/assets. It owns a GC-tracked
+  transient draft, transactions, change notifications, and paused preview
+  refresh; it introduces no parallel serialized camera model. Numeric dragging
+  writes the real Shot immediately, snapshots once, and posts one host commit
+  on release. Widgets never keep stale Shot pointers across a source switch.
+- Preview current level renders the editor/Sequencer world using game-view
+  visibility in this viewport only. Selection, editor primitives, collision
+  shapes and engine bounds are hidden; the isolated scene alone keeps its grid.
+  Shot composition guides remain controlled by Guides. For an in-range
+  Section, paused edits refresh its registered LS component and the viewport
+  reads the final native CineCamera view, including overlap/patch/optics. Pinned
+  inactive Sections and standalone sources use the solver. Template preview
+  mode retains the independent scene/proxies. Explicit unresolved bindings show
+  unresolved composition, never a different placeholder actor.
+- Follow playhead is opt-in; off pins the edited source. Following selects a
+  local Shot camera through Camera Cuts, or the current track when no local cut
+  resolves. In overlaps it selects the incoming of the two lowest rows. It
+  pauses during numeric/handle gestures and Inspect/Free-exit actions. Nested
+  sequences must be focused before creating/editing their subject bindings.
+  Spawnable subjects retain sequence-relative bindings within that hierarchy;
+  subjects spawned by a foreign player are refused before creating bindings.
+- Add Shot to Sequence creates a dedicated LS Shot Actor binding, Shot Track,
+  finite labelled Inline section, subject bindings, camera Spawn coverage, and
+  Camera Cuts. Spawnable is default; disabling it creates a level Possessable.
+  Inside the current section, creation appends after it and reuses its camera.
+  Dialogue Set creates two-shot / shoulder A / reverse B consecutively on one
+  camera. Duplicate after current preserves full Section data and bindings.
+- Creation preflights read-only/range/overlap conflicts. Existing cuts are
+  preserved; an already covering cut for the same camera is reused. Camera
+  spawn coverage is extended only for the new interval, leaving authored keys
+  intact. Unlocked playback range expands to include new clips. Creation is one
+  undo operation; failure reverts that operation rather than leaving partial
+  tracks. Read-only/locked Section data cannot be edited through the panel or
+  viewport tools.
+- Save as Preset creates a ShotAsset through the native asset dialog, removes
+  level actor identities, and captures skeletal preview mesh plus actor/relative
+  mesh transforms. Applying/restoring a matching preset preserves local subject
+  identities, selected components, bones, offsets and bindings. A populated
+  source rejects a different preset subject count; assign subjects first.
 - The full Details panel is mode-sensitive: Placement, Aim, Lens, Focus, and
   AnchorSpec rows that are ignored by the current mode collapse out of view
   instead of remaining as disabled clutter. Hidden values stay serialized and
   reappear when the user switches back to the relevant mode. Placement and Aim
   anchor specs remain visible because Focus follow modes can still consume them.
-- viewport tools can adjust distance, roll, and anchor / zone handles in Drag;
+- preview image and its floating toolbar share an aspect-constrained native
+  SBox, centered inside a black pane. Filmback sensor width/height, lens squeeze
+  and optional Crop aspect determine its ratio in level and isolated previews,
+  Compose / Inspect and on window/splitter resize. The local renderer
+  also constrains that ratio; solver, projection and reverse solve use it rather
+  than pane dimensions. Physical hit/drag coordinates use the engine's current
+  constrained view rect. A pinned inactive spawnable can read its camera template
+  configuration without evaluating it; active output still requires a live
+  in-range binding. Detached drafts/presets use the native CineCamera default.
+- viewport wheel, anchor/zone release, roll release and reverse-solve commits
+  share the session's scalar commit path. They snapshot the host without Modify,
+  emit one guarded ValueSet and mark dirty. Live drag writes only request preview.
+  Scalar commits retain parameter controls; array edits, history and external
+  source changes keep their deferred structural refresh behavior.
+- viewport tools can adjust distance, roll, and anchor / zone handles in Drag.
+  Handle drawing uses DPI-adjusted Canvas coordinates; cached hit rectangles
+  and drag input use physical viewport pixels, including letterbox origin.
+  Aim's marker, zones and projection appear only on Edit / Aim with
+  LookAtAnchor active. Switching task/subtab disables stale hits immediately;
+  visibility is editor view state, not serialized Shot data. The Follow handle
+  appears only in AnchorAtScreen. AnchorOrbit/FixedWorldPosition hide the
+  unused Follow screen handle; NoOp hides Aim. Edit / Follow with AnchorOrbit
+  instead shows a compact latitude/longitude globe inside the image's lower-left.
+  The resolved orbit center has no separate point in the 3D scene; the globe
+  remains the position control without covering the subject with an Anchor dot.
+  Its camera marker represents authored LocalCameraDirection in the selected
+  BasisFrame. Dragging the globe adjusts yaw horizontally and pitch vertically,
+  retaining distance and basis. Ctrl gives fine movement, Shift fast movement;
+  yaw wraps and pitch stops at +/-89.5 degrees. A grab cursor, hover rim and hint
+  identify the interaction. Guides off and other task/subtabs hide it; Inspect
+  and locked/read-only sources display it disabled. Tiny images hide the
+  control rather than clipping it. Mouse-down snapshots once without Modify;
+  live motion requests preview only, release posts one scalar commit and one Undo.
+  Clicking without motion creates no commit. Wheel editing waits until captured
+  gestures end, avoiding nested transactions. Mode/source changes close the
+  previous gesture; stale hidden hits cannot write. The underlying anchor
+  parameters remain available for orbit/focus configuration. Inspect
+  and read-only sources keep the relevant handles disabled and non-interactive.
+  Drawing, stale-cache hit tests and drag writes use the same mode predicates.
   Free allows mouse camera inspection and can reverse-solve that pose back into
-  Shot data when leaving the mode. Leaving Free for Drag / Lock queues the
+  Shot data when leaving the mode. Leaving Free for Drag queues the
   target mode and shows Save / Discard / Stay in the status bar instead of
   opening a modal dialog.
+
+- Preview compatibility: the authoring layout retains the original
+  `SShotEditorViewport` and `FComposableCameraShotEditorViewportClient`.
+  Compose / Inspect are labels for Drag / Free, with
+  1 / 2 shortcuts. The third Preview mode and its mouse-input branch are removed;
+  key 3 falls through without changing mode. Compose retains distance wheel, Alt+RMB authored Roll,
+  screen-anchor and zone-edge dragging (Shift mirrors the opposite zone edge).
+  Inspect retains native orbit/pan/dolly, Reset and reverse solve; lens/focus and
+  authored Roll remain live while position/yaw/pitch are user controlled. HUD,
+  Guides, fit bounds, preview meshes, Ctrl+Alt+C view-transform copy, Ctrl+B
+  asset browse, save and Undo/Redo remain available. Page-specific guide visibility
+  follows the newer Follow/Aim/Subjects policy above.
+  Locked sections and read-only sequences block every Shot writer, including
+  Roll in Inspect. Mouse releases close captured writers before the read-only
+  input guard; permission changes also close them on Tick. Invalid hosts cancel
+  transactions before clearing Shot pointers. Keyboard routing remains native
+  in every mode; read-only Inspect still permits camera navigation. Mode tooltips
+  describe implemented controls, without advertising a nonexistent bone context menu.
+  `ShotEditor.CameraModes` inspects the actual two-button mode control and checks
+  that key 3 is unhandled in both modes, key 2 still enters Inspect, and key 1
+  retains its Save / Discard / Stay exit flow.
+  `ShotEditor.PreviewCompatibility` covers native Roll/wheel transaction paths,
+  retained controls, Inspect optics, Reset/reverse solve and read-only boundaries.
+  Attached-window mouse navigation, clipboard and keyboard routing remain manual
+  integration checks.
 
 The editor must not write back to a shared shot asset when editing a Sequencer
 asset-reference section. It edits the section-local override copy.
@@ -414,6 +672,7 @@ asset-reference section. It edits the section-local override copy.
 `FComposableCameraTargetInfo` details customization supports:
 
 - actor selection.
+- named component selection (None retains the legacy auto selection).
 - bone/socket selection for skeletal targets.
 - preview mesh data.
 - local/world offset controls.

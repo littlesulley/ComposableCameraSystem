@@ -59,6 +59,10 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraTargetInfo
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Target)
 	TSoftObjectPtr<AActor> Actor;
 
+	/** Optional scene component pivot/bone source. None preserves legacy actor/auto-mesh resolution. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Target)
+	FName ComponentName;
+
 #if WITH_EDITORONLY_DATA
 	/**
 	 * Editor-only skeletal mesh used to preview a reusable ShotAsset before
@@ -80,6 +84,10 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraTargetInfo
 	 */
 	UPROPERTY(EditAnywhere, Category = "Target|Editor Preview")
 	FTransform EditorPreviewTransform = FTransform::Identity;
+
+	/** Mesh transform relative to the preview actor. Keeps character mesh offsets/rotations in captured presets. */
+	UPROPERTY(EditAnywhere, Category = "Target|Editor Preview")
+	FTransform EditorPreviewMeshRelativeTransform = FTransform::Identity;
 #endif
 
 	/** When true, BoneName resolves on Actor's skeletal mesh and that bone
@@ -175,6 +183,11 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraTargetInfo
 	 *                     forward-looking authored content.
 	 */
 	bool ResolveWorldPoint(FVector& OutPoint, bool* OutUsedBone = nullptr) const;
+
+	/** Resolve the unoffset actor/component/bone pivot frame, with unit scale.
+	 * Shares ResolveWorldPoint's PIE, explicit-component and bone fallback rules.
+	 * Returns false without changing OutTransform if the source cannot resolve. */
+	bool ResolvePivotTransform(FTransform& OutTransform, bool* OutUsedBone = nullptr) const;
 
 	/**
 	 * Resolves the basis quaternion this target contributes to the

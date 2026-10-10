@@ -1,10 +1,17 @@
 // Copyright 2026 Sulley. All Rights Reserved.
 
 #include "Editors/ComposableCameraShotEditorViewportClient.h"
+#include "Widgets/ComposableCameraShotViewportDisplayUtils.h"
+#include "Widgets/ComposableCameraShotViewportOverlayUtils.h"
+#include "Widgets/ComposableCameraShotSubjectGizmoUtils.h"
+#include "ComposableCameraEditorStyle.h"
 
 #include "Animation/SkeletalMeshActor.h"
 #include "CanvasItem.h"
 #include "CanvasTypes.h"
+#include "CineCameraComponent.h"
+#include "Editor.h"
+#include "Editors/ComposableCameraShotAuthoringSession.h"
 #include "ComposableCameraSystemEditorModule.h" // LogComposableCameraSystemEditor
 #include "Components/SkeletalMeshComponent.h"
 #include "Components/StaticMeshComponent.h"
@@ -33,9 +40,65 @@
 #include "PreviewScene.h"
 #include "SceneManagement.h" // DrawWireBox, FPrimitiveDrawInterface
 #include "SEditorViewport.h"
+#include "Widgets/ComposableCameraShotViewportCanvasUtils.h"
 
 namespace
 {
+	void DrawOverlayFill(FCanvas& Canvas, const FBox2D& Rect, FLinearColor Color)
+	{
+		FCanvasTileItem Tile(Rect.Min, Rect.GetSize(), Color);
+		Tile.BlendMode = SE_BLEND_Translucent;
+		Canvas.DrawItem(Tile);
+	}
+
+	void DrawOverlayText(FCanvas& Canvas, UFont* Font, FVector2D Position, const TCHAR* Text,
+		FLinearColor Color, float MaxWidth, float TextScale = 1.f)
+	{
+		if (!Font || MaxWidth <= 0.f) return;
+		FCanvasTextStringViewItem Item(Position, FStringView(Text), Font, Color);
+		const float Scale = FMath::Min(TextScale, MaxWidth / FMath::Max(1, Font->GetStringSize(Text)));
+		Item.Scale = FVector2D(Scale, Scale);
+		Canvas.DrawItem(Item); // Draw consumes the view synchronously, while its stack buffer lives.
+	}
+
+	struct FShotHudCard
+	{
+		FCanvas& Canvas;
+		TObjectPtr<UFont> Font; // Borrowed for this draw; GEngine owns the font.
+		FBox2D Rect;
+		const ComposableCameraSystem::ShotViewportOverlay::FHudLayout& Layout;
+		int32 Row = 0;
+		FShotHudCard(FCanvas& InCanvas, UFont* InFont, const ComposableCameraSystem::ShotViewportOverlay::FHudLayout& InLayout,
+			FBox2D InRect, const TCHAR* Title)
+			: Canvas(InCanvas), Font(InFont), Rect(InRect), Layout(InLayout)
+		{
+			if (!Rect.bIsValid) return;
+			const float Scale = Layout.Scale;
+			DrawOverlayFill(Canvas, Rect, FLinearColor(.012f, .015f, .019f, .88f));
+			DrawOverlayFill(Canvas, FBox2D(Rect.Min, FVector2D(Rect.Max.X, Rect.Min.Y + Layout.HeaderHeight * Scale)), FLinearColor(.07f, .08f, .095f, .95f));
+			DrawOverlayFill(Canvas, FBox2D(Rect.Min, Rect.Min + FVector2D(2.f, Layout.HeaderHeight) * Scale), FComposableCameraEditorColors::CameraNodeTitle);
+			DrawOverlayText(Canvas, Font.Get(), Rect.Min + FVector2D(10.f, 5.f) * Scale, Title, FLinearColor::White, Rect.GetSize().X - 20.f * Scale, Scale);
+		}
+		void Add(const TCHAR* Label, const TCHAR* Value, FLinearColor Color = FLinearColor(.9f, .92f, .95f))
+		{
+			using namespace ComposableCameraSystem::ShotViewportOverlay;
+			if (Row >= Layout.Rows(Rect)) return;
+			const float Scale = Layout.Scale;
+			const double Y = Rect.Min.Y + (FHudLayout::HeaderHeight + Row++ * FHudLayout::RowHeight) * Scale;
+			if ((Row & 1) == 0) DrawOverlayFill(Canvas, FBox2D(FVector2D(Rect.Min.X, Y), FVector2D(Rect.Max.X, Y + FHudLayout::RowHeight * Scale)), FLinearColor(.1f, .11f, .12f, .15f));
+			DrawOverlayText(Canvas, Font.Get(), FVector2D(Rect.Min.X + 10.f * Scale, Y + 2.f * Scale), Label, FLinearColor(.55f, .6f, .65f), 66.f * Scale, Scale);
+			DrawOverlayText(Canvas, Font.Get(), FVector2D(Rect.Min.X + 84.f * Scale, Y + 2.f * Scale), Value, Color, Rect.GetSize().X - 94.f * Scale, Scale);
+		}
+	};
+
+	template <typename T> T* ResolveSourceMesh(AActor* Actor, FName Name)
+	{
+		if (!Actor) return nullptr;
+		if (Name.IsNone()) return Actor->FindComponentByClass<T>();
+		for (UActorComponent* Component : Actor->GetComponents())
+			if (Component && Component->GetFName() == Name) return Cast<T>(Component);
+		return nullptr;
+	}
 	/** UE's "BasicShapes" cylinder is 100uu x 100uu (XY x Z). To approximate
 	 * a 1.7m x 0.34m character capsule, scale (0.7, 0.7, 1.8) -> 70uu wide,
 	 * 180uu tall. Close enough as a stand-in for Targets that aren't backed
@@ -104,12 +167,14 @@ FComposableCameraShotEditorViewportClient::FComposableCameraShotEditorViewportCl
 	: FEditorViewportClient(/*InModeTools=*/nullptr, InPreviewScene, InEditorViewportWidget)
 	, PreviewScene(InPreviewScene)
 {
-	// Q-B: Lit view mode + grid on + stats off (default Editor stats off anyway).
+	// Render camera output without editor-only collision shapes, selection or component helpers.
 	SetViewMode(VMI_Lit);
-	EngineShowFlags.SetGrid(true);
+	SetGameView(true);
+	ComposableCameraSystem::ShotViewportDisplay::ConfigurePreviewFlags(EngineShowFlags, bUseLevelWorld);
 
 	// Realtime: solver-driven camera needs a tick every frame even without input.
 	SetRealtime(true);
+	CachedHandles.Reserve(19); // Two anchors, eight edges each, plus one orbit control.
 
 	// Force horizontal-FOV-locked aspect handling so the renderer's projection
 	// stays in lockstep with the solver's math. Without this, the renderer
@@ -128,7 +193,8 @@ FComposableCameraShotEditorViewportClient::FComposableCameraShotEditorViewportCl
 	// `ViewTransform` member, so we keep using those. FOV however must be set
 	// on `ControllingActorViewInfo.FOV` to participate (see Tick).
 	bUseControllingActorViewInfo = true;
-	ControllingActorViewInfo.bConstrainAspectRatio = false;
+	ControllingActorViewInfo.bConstrainAspectRatio = true;
+	ControllingActorViewInfo.AspectRatio = GetCameraAspectRatio();
 	ControllingActorAspectRatioAxisConstraint = AspectRatio_MaintainXFOV;
 
 	// Post-process injection path. With bUseControllingActorViewInfo=true,
@@ -186,6 +252,9 @@ void FComposableCameraShotEditorViewportClient::ReleaseSceneResources()
 	// handles cleanup if the editor was torn down mid-drag.
 	DragTransaction.Reset();
 	ActiveDragHandleType = EHandleType::None;
+	bOrbitDragChanged = false;
+	bSubjectDragChanged = false;
+	ActiveSubjectHandle = {};
 	bActiveDragIsZoneEdge = false;
 	ActiveDragZoneIsSoft = false;
 	ActiveDragZoneEdgeIndex = -1;
@@ -201,6 +270,7 @@ void FComposableCameraShotEditorViewportClient::ReleaseSceneResources()
 
 void FComposableCameraShotEditorViewportClient::SetMode(EShotEditorMode InMode)
 {
+	if (CurrentMode != InMode) { EndDrag(); EndRollDrag(); }
 	CurrentMode = InMode;
 }
 
@@ -215,6 +285,7 @@ void FComposableCameraShotEditorViewportClient::SetShowCompositionGuides(bool bI
 	bShowCompositionGuides = bInShowCompositionGuides;
 	if (!bShowCompositionGuides)
 	{
+		EndDrag();
 		CachedHandles.Reset();
 		HoveredHandleType = EHandleType::None;
 		bHoveredIsZoneEdge = false;
@@ -226,10 +297,19 @@ void FComposableCameraShotEditorViewportClient::SetShowCompositionGuides(bool bI
 
 void FComposableCameraShotEditorViewportClient::SetActiveShot(FComposableCameraShot* InShot, UObject* InHost)
 {
+	if (ActiveShot != InShot || ActiveHost.Get() != InHost)
+	{
+		EndDrag();
+		EndRollDrag();
+		CachedHandles.Reset();
+	}
+	LastRebuiltHost = nullptr;
+	bEffectiveShotCacheValid = false;
 	ActiveShot = InShot;
 	ActiveHost = InHost;
+	if (ActiveShot) CachedHandles.Reserve(19 + 9 * ActiveShot->Targets.Num());
 
-	// Drop the framing-zone prior-pose cache when the bound Shot changes - 
+	// Drop the framing-zone prior-pose cache when the bound Shot changes -
 	// projecting the new shot's anchors through the previous shot's pose
 	// would either NaN the zone math (anchor behind camera) or produce a
 	// visible one-frame glitch. The next valid solve hard-seeds a fresh
@@ -245,9 +325,100 @@ void FComposableCameraShotEditorViewportClient::SetActiveShot(FComposableCameraS
 	// from a Slate paint pass.
 }
 
+void FComposableCameraShotEditorViewportClient::SetAuthoringSession(TSharedPtr<FComposableCameraShotAuthoringSession> Session)
+{
+	AuthoringSession = Session;
+}
+
+UWorld* FComposableCameraShotEditorViewportClient::GetWorld() const
+{
+	if (bUseLevelWorld)
+	{
+		if (const UCineCameraComponent* Camera = OutputCamera.Get()) return Camera->GetWorld();
+		if (GEditor) return GEditor->GetEditorWorldContext().World();
+	}
+	return FEditorViewportClient::GetWorld();
+}
+
+float FComposableCameraShotEditorViewportClient::GetCameraAspectRatio() const
+{
+	if (const auto Session = AuthoringSession.Pin()) return Session->GetPreviewAspectRatio();
+	return ComposableCameraSystem::ShotViewportDisplay::CameraAspectRatio(OutputCamera.Get());
+}
+
+FIntRect FComposableCameraShotEditorViewportClient::GetRenderRect() const
+{
+	if (!Viewport) return FIntRect(0, 0, 16, 9);
+	const FIntPoint Size = Viewport->GetSizeXY();
+	if (Size.X <= 0 || Size.Y <= 0) return FIntRect(0, 0, 16, 9);
+	return Viewport->CalculateViewExtents(GetCameraAspectRatio(), FIntRect(FIntPoint::ZeroValue, Size));
+}
+
+FIntPoint FComposableCameraShotEditorViewportClient::GetRenderSize() const
+{
+	return GetRenderRect().Size();
+}
+
+bool FComposableCameraShotEditorViewportClient::ShowLookAtHandle() const
+{
+	const auto Session = AuthoringSession.Pin();
+	return ActiveShot && ComposableCameraSystem::ShotViewportDisplay::ShowLookAtHandle(*ActiveShot,
+		Session && Session->bShowLookAtGuide);
+}
+
+bool FComposableCameraShotEditorViewportClient::ShowOrbitControl() const
+{
+	const auto Session = AuthoringSession.Pin();
+	return ActiveShot && ActiveHost.IsValid() && ComposableCameraSystem::ShotViewportDisplay::ShowOrbitControl(*ActiveShot,
+		Session && Session->bShowOrbitGuide);
+}
+
+bool FComposableCameraShotEditorViewportClient::IsEditingGesture() const
+{
+	return ActiveDragHandleType != EHandleType::None || bRollDragActive;
+}
+
+void FComposableCameraShotEditorViewportClient::NotifyInteractiveEdit()
+{
+	if (TSharedPtr<FComposableCameraShotAuthoringSession> Session = AuthoringSession.Pin()) Session->Changed();
+	bEffectiveShotCacheValid = false;
+}
+
+void FComposableCameraShotEditorViewportClient::NotifyCommittedEdit()
+{
+	bEffectiveShotCacheValid = false;
+	const auto Session = AuthoringSession.Pin();
+	if (Session && Session->GetShot() == ActiveShot && Session->GetHost() == ActiveHost.Get())
+	{
+		Session->NotifyViewportValueCommit();
+		return;
+	}
+	// Legacy direct viewport binding still receives the outer property event.
+	if (UObject* Host = ActiveHost.Get())
+	{
+		if (FProperty* Property = ResolveShotEditorProperty(Host, ActiveShot))
+		{
+			FPropertyChangedEvent Event(Property, EPropertyChangeType::ValueSet);
+			Host->PostEditChangeProperty(Event);
+		}
+		Host->MarkPackageDirty();
+	}
+}
+
 void FComposableCameraShotEditorViewportClient::Tick(float DeltaSeconds)
 {
 	FEditorViewportClient::Tick(DeltaSeconds);
+	if (TSharedPtr<FComposableCameraShotAuthoringSession> Session = AuthoringSession.Pin())
+	{
+		OutputCamera = Session->GetOutputCamera();
+		if (bUseLevelWorld != Session->bUseLevelWorld)
+		{
+			bUseLevelWorld = Session->bUseLevelWorld;
+			ComposableCameraSystem::ShotViewportDisplay::ConfigurePreviewFlags(EngineShowFlags, bUseLevelWorld);
+			DestroyProxies();
+			LastRebuiltHost = nullptr;
+		}
+	}
 
 	// Polish P.2 - invalidate the per-frame `BuildEffectiveShotForPreview`
 	// cache at the start of each tick. Subsequent paint-time callers (HUD,
@@ -267,6 +438,18 @@ void FComposableCameraShotEditorViewportClient::Tick(float DeltaSeconds)
 	// Drop the raw Shot pointer to avoid dangling reads.
 	if (ActiveShot && !ActiveHost.IsValid())
 	{
+		if (ActiveDragHandleType != EHandleType::None)
+		{
+			if (DragTransaction) DragTransaction->Cancel();
+			DragTransaction.Reset();
+			ActiveDragHandleType = EHandleType::None;
+			bOrbitDragChanged = false;
+			bSubjectDragChanged = false;
+			ActiveSubjectHandle = {};
+		}
+		if (RollTransaction) RollTransaction->Cancel();
+		RollTransaction.Reset();
+		bRollDragActive = false;
 		ActiveShot = nullptr;
 		DestroyProxies();
 		LastRebuiltHost = nullptr;
@@ -281,6 +464,29 @@ void FComposableCameraShotEditorViewportClient::Tick(float DeltaSeconds)
 		bCachedDoFValid = false;
 		return;
 	}
+	if (const auto Session = AuthoringSession.Pin(); Session && !Session->CanEdit())
+	{
+		// Preserve values authored before locking, but stop every captured writer.
+		EndDrag();
+		EndRollDrag();
+	}
+	if (ActiveDragHandleType == EHandleType::OrbitDirection)
+	{
+		const auto Session = AuthoringSession.Pin();
+		if (!ShowOrbitControl() || !bShowCompositionGuides || CurrentMode != EShotEditorMode::Drag || (Session && !Session->CanEdit())) EndDrag();
+	}
+	if (ActiveDragHandleType == EHandleType::SubjectOffsetAxis || ActiveDragHandleType == EHandleType::SubjectBoundsFace)
+	{
+		const auto Session = AuthoringSession.Pin();
+		if (!IsSubjectHandleValid(ActiveSubjectHandle) || !bShowCompositionGuides || CurrentMode != EShotEditorMode::Drag || (Session && !Session->CanEdit())) EndDrag();
+	}
+	// Capacity grows only after a structural subject-count change; painting never reallocates the hit cache.
+	if (CachedHandles.Max() < 19 + 9 * ActiveShot->Targets.Num()) CachedHandles.Reserve(19 + 9 * ActiveShot->Targets.Num());
+	if (bUseLevelWorld)
+	{
+		RunSolverAndDriveCamera(DeltaSeconds);
+		return;
+	}
 
 	// Rebuild proxies on host change OR Targets count drift OR per-target
 	// source actor / preview mesh identity change. The third check catches the
@@ -293,7 +499,7 @@ void FComposableCameraShotEditorViewportClient::Tick(float DeltaSeconds)
 	if (!bHostChanged && !bCountDrift)
 	{
 		const int32 N = ActiveShot->Targets.Num();
-		if (LastResolvedSources.Num() != N || LastResolvedPreviewMeshes.Num() != N)
+		if (LastResolvedSources.Num() != N || LastResolvedPreviewMeshes.Num() != N || LastResolvedComponentNames.Num() != N)
 		{
 			bSourceDrift = true;
 		}
@@ -305,7 +511,7 @@ void FComposableCameraShotEditorViewportClient::Tick(float DeltaSeconds)
 				const AActor* Then = LastResolvedSources[i].Get();
 				const USkeletalMesh* PreviewNow = ResolvePreviewMeshForTargetIndex(i);
 				const USkeletalMesh* PreviewThen = LastResolvedPreviewMeshes[i].Get();
-				if (Now != Then || PreviewNow != PreviewThen)
+				if (Now != Then || PreviewNow != PreviewThen || LastResolvedComponentNames[i] != ActiveShot->Targets[i].Target.ComponentName)
 				{
 					bSourceDrift = true;
 					break;
@@ -323,7 +529,7 @@ void FComposableCameraShotEditorViewportClient::Tick(float DeltaSeconds)
 	// Solver runs in all modes - lens parameters (FOV / Aperture /
 	// FocusDistance) are always Shot-data-driven so designer's lens edits in
 	// the Details panel take effect regardless of mode. Camera pose is mode-
-	// specific: Drag / Lock honor solver pose; Free preserves user camera pose.
+	// specific: Drag honors solver pose; Free preserves user camera pose.
 	RunSolverAndDriveCamera(DeltaSeconds);
 }
 
@@ -331,204 +537,19 @@ void FComposableCameraShotEditorViewportClient::DrawCanvas(FViewport& InViewport
 {
 	FEditorViewportClient::DrawCanvas(InViewport, View, Canvas);
 
-	// Diagnostic HUD - only renders when a Shot is bound. Lets the user
-	// watch aspect / viewport / camera state live while resizing the splitter
-	// or window. Catches "solver and renderer disagree on aspect" regressions
-	// at a glance: if `aspect (live)` and `aspect (solver)` ever diverge,
-	// or if `anchor NDC.X / Y` ever drifts away from the authored
-	// `Aim.ScreenPosition * 2`, the bug is in our wiring.
-	if (!ActiveShot)
+	if (!ActiveShot || !ActiveHost.IsValid())
 	{
 		CachedHandles.Reset();
 		return;
 	}
-
-	if (bShowDiagnosticHud)
-	{
-		UFont* Font = GEngine ? GEngine->GetSmallFont() : nullptr;
-		if (Font)
-		{
-
-	const FIntPoint VPSize = InViewport.GetSizeXY();
-	const float LiveAspect = (VPSize.Y > 0)
-		? static_cast<float>(VPSize.X) / static_cast<float>(VPSize.Y)
-		: 0.f;
-
-	const FVector CamPos = GetViewLocation();
-	const FRotator CamRot = GetViewRotation();
-	const float FOV = ViewFOV;
-
-	// Resolve anchor world position via the same path the solver uses - 
-	// goes through the override-resolved EffectiveShot so HUD diagnostic
-	// matches what RunSolverAndDriveCamera actually sees (otherwise an
-	// override-driven section reads ActiveShot.Targets[*].Actor=None and
-	// the HUD shows UNRESOLVED even though the camera is moving correctly).
-	FVector AnchorWorldPos = FVector::ZeroVector;
-	FComposableCameraShot HUDEffectiveShot;
-	// HUD shows the AIM anchor (where the camera is looking) - that's the
-	// hard rotation constraint and the most useful diagnostic. The
-	// PlacementAnchor is also rendered as a 3D gizmo via DrawNodeDebug.
-	const bool bAnchorOK =
-		BuildEffectiveShotForPreview(HUDEffectiveShot)
-		&& HUDEffectiveShot.Aim.AimAnchor.ResolveWorldPosition(HUDEffectiveShot.Targets, AnchorWorldPos);
-
-	// Project AimAnchor through current camera state - should land at
-	// (Aim.ScreenPosition.X, Aim.ScreenPosition.Y) in [-0.5, 0.5] if
-	// solver and renderer agree (within 1-2 frame solver-converge lag in
-	// SolvedFromBoundsFit FOV mode).
-	FVector2D AnchorProjScreen(NAN, NAN);
-	bool bAnchorInFront = false;
-	if (bAnchorOK)
-	{
-		const float TanHalfHOR = FMath::Tan(FMath::DegreesToRadians(FOV * 0.5f));
-		bAnchorInFront = ComposableCameraSystem::ProjectWorldPointToScreen(AnchorWorldPos, CamPos, CamRot, TanHalfHOR, LiveAspect, AnchorProjScreen);
-	}
-
-	// Layout - top-left, padding 8px. Line height ~14 for SmallFont.
-	auto DrawLine = [&Canvas, Font](int32 LineIdx, const FString& Text, const FLinearColor& Color = FLinearColor(0.95f, 0.95f, 1.f, 1.f))
-	{
-		FCanvasTextItem Item(FVector2D(8.f, 8.f + LineIdx * 14.f),
-			FText::FromString(Text), Font, Color);
-		Item.EnableShadow(FLinearColor::Black);
-		Canvas.DrawItem(Item);
-	};
-
-	const FLinearColor Gray(0.65f, 0.65f, 0.7f, 1.f);
-	const FLinearColor Yellow(1.f, 0.95f, 0.55f, 1.f);
-
-	int32 L = 0;
-	DrawLine(L++, FString::Printf(TEXT("Aspect Ratio (Live): %.4f Viewport: %d x %d"),
-		LiveAspect, VPSize.X, VPSize.Y), Yellow);
-	DrawLine(L++, FString::Printf(TEXT("Camera Position: (%.1f, %.1f, %.1f)"),
-		CamPos.X, CamPos.Y, CamPos.Z), Gray);
-	DrawLine(L++, FString::Printf(TEXT("Camera Rotation: Pitch = %.2f, Yaw = %.2f, Roll = %.2f"),
-		CamRot.Pitch, CamRot.Yaw, CamRot.Roll), Gray);
-	DrawLine(L++, FString::Printf(TEXT("Field of View: %.3f deg"), FOV), Gray);
-
-	if (bCachedDoFValid)
-	{
-		DrawLine(L++, FString::Printf(TEXT("Focus / Aperture: %.1f cm / f/%.2f (36mm sensor)"),
-			CachedFocusDistance, CachedAperture), Gray);
-	}
-	else
-	{
-		DrawLine(L++,
-			TEXT("Focus / Aperture: No valid solve (depth-of-field not driven)."),
-			Gray);
-	}
-
-	if (bAnchorOK)
-	{
-		DrawLine(L++, FString::Printf(TEXT("Aim Anchor (World): (%.1f, %.1f, %.1f)"),
-			AnchorWorldPos.X, AnchorWorldPos.Y, AnchorWorldPos.Z), Gray);
-
-		const FVector2D AuthoredScreenPos = ActiveShot->Aim.ScreenPosition;
-		const FLinearColor ScreenColor = bAnchorInFront ? Yellow: FLinearColor(1.f, 0.4f, 0.4f, 1.f);
-
-		if (bAnchorInFront)
-		{
-			const FVector2D Drift = AnchorProjScreen - AuthoredScreenPos;
-			DrawLine(L++, FString::Printf(TEXT("Aim Anchor (Screen): Projected = (%.4f, %.4f) Authored = (%.4f, %.4f) Drift = (%.4f, %.4f)"),
-				AnchorProjScreen.X, AnchorProjScreen.Y,
-				AuthoredScreenPos.X, AuthoredScreenPos.Y,
-				Drift.X, Drift.Y), ScreenColor);
-		}
-		else
-		{
-			DrawLine(L++, FString::Printf(TEXT("Aim Anchor (Screen): Behind camera Authored = (%.4f, %.4f)"),
-				AuthoredScreenPos.X, AuthoredScreenPos.Y), ScreenColor);
-		}
-	}
-	else
-	{
-		DrawLine(L++,
-			TEXT("Aim Anchor: Unresolved."),
-			FLinearColor(1.f, 0.4f, 0.4f, 1.f));
-	}
-
-	// E.2: bottom-left "current Shot" summary strip - single line of the
-	// values designers iterate on most often (Mode + Distance + FOV + Roll),
-	// so the Details panel doesn't need to be open during rapid Drag-mode
-	// authoring. Distinguished from the top-left diagnostic HUD by position
-	// and by being a compact one-liner rather than per-field rows.
-	{
-		const TCHAR* ModeLabel =
-			CurrentMode == EShotEditorMode::Drag ? TEXT("Drag") :
-			CurrentMode == EShotEditorMode::Free ? TEXT("Free") :
-			TEXT("Lock");
-
-		// Distance is mode-relevant only in modes that read it;
-		// FixedWorldPosition ignores the field, so showing a number there
-		// would be misleading. The wheel handler gates on the same condition.
-		const bool bDistanceUsed =
-			ActiveShot->Placement.Mode != EShotPlacementMode::FixedWorldPosition;
-
-		// Damping readout: when an axis has DampingSpeed > 0 AND a valid
-		// prior cache, the strip shows `authored -> effective` so
-		// designers can watch the IIR converge on screen. When the values
-		// match (or no prior yet), only the authored value is shown to
-		// keep the strip terse. Roll comparison uses NormalizeAxis on the
-		// delta to handle the +180/-180 wrap cleanly.
-		auto FormatDampedScalar = [this](float Authored, float Effective,
-			bool bHasPrior, float SentinelLowerBound, const TCHAR* Unit) -> FString
-		{
-			if (!bHasPrior || Effective <= SentinelLowerBound
-				|| FMath::IsNearlyEqual(Authored, Effective, 0.05f))
-			{
-				return FString::Printf(TEXT("%.1f%s"), Authored, Unit);
-			}
-			return FString::Printf(TEXT("%.1f -> %.1f%s"), Authored, Effective, Unit);
-		};
-		auto FormatDampedRoll = [this](float Authored) -> FString
-		{
-			if (!bHasCachedPriorPose || CachedPriorRoll == TNumericLimits<float>::Max())
-			{
-				return FString::Printf(TEXT("%.1f deg"), Authored);
-			}
-			const float Delta = FRotator::NormalizeAxis(Authored - CachedPriorRoll);
-			if (FMath::Abs(Delta) < 0.05f)
-			{
-				return FString::Printf(TEXT("%.1f deg"), Authored);
-			}
-			return FString::Printf(TEXT("%.1f -> %.1f deg"), Authored, CachedPriorRoll);
-		};
-
-		const FString DistanceField = bDistanceUsed
-			? FString::Printf(TEXT("Distance: %s"),
-				*FormatDampedScalar(ActiveShot->Placement.Distance, CachedPriorDistance,
-					bHasCachedPriorPose, /*SentinelLowerBound=*/0.f, TEXT(" cm")))
-			: FString(TEXT("Distance: -"));
-
-		// FOV authored: ManualFOV in Manual mode (the value the slider
-		// drives); SolvedFromBoundsFit has no single "authored" value, so
-		// show only the effective value (= ViewFOV). Effective is always
-		// ViewFOV regardless of mode.
-		const FString FOVField = (ActiveShot->Lens.FOVMode == EShotFOVMode::Manual)
-			? FString::Printf(TEXT("FOV: %s"),
-				*FormatDampedScalar(ActiveShot->Lens.ManualFOV, ViewFOV,
-					bHasCachedPriorPose, /*SentinelLowerBound=*/0.f, TEXT(" deg")))
-			: FString::Printf(TEXT("FOV: %.1f deg"), ViewFOV);
-
-		const FString RollField = FString::Printf(TEXT("Roll: %s"),
-			*FormatDampedRoll(ActiveShot->Roll));
-
-		const FString StripText = FString::Printf(TEXT("Mode: %s | %s | %s | %s"),
-			ModeLabel, *DistanceField, *FOVField, *RollField);
-
-		const float StripY = static_cast<float>(VPSize.Y) - 14.f - 8.f;
-		FCanvasTextItem Strip(FVector2D(8.f, StripY),
-			FText::FromString(StripText),
-			Font, FLinearColor(0.55f, 0.95f, 1.f, 1.f));
-		Strip.EnableShadow(FLinearColor::Black);
-		Canvas.DrawItem(Strip);
-	}
-		}
-	}
+	if (bShowDiagnosticHud) DrawDiagnosticHud(Canvas);
 
 	// D.4: draw screen-position handles on top of the HUD overlay.
 	if (bShowCompositionGuides)
 	{
 		DrawHandles(InViewport, Canvas);
+		DrawSubjectHandles(Canvas);
+		if (ShowOrbitControl()) DrawOrbitControl(Canvas);
 	}
 	else
 	{
@@ -536,126 +557,349 @@ void FComposableCameraShotEditorViewportClient::DrawCanvas(FViewport& InViewport
 	}
 }
 
+void FComposableCameraShotEditorViewportClient::DrawDiagnosticHud(FCanvas& Canvas)
+{
+	using namespace ComposableCameraSystem::ShotViewportOverlay;
+	using namespace ComposableCameraSystem::ShotEditorCanvas;
+	UFont* Font = GEngine ? GEngine->GetSmallFont() : nullptr;
+	if (!Font) return;
+	const FIntRect RenderRect = GetRenderRect();
+	const float Scale = ValidScale(Canvas.GetDPIScale());
+	const FBox2D Image(ViewportToCanvas(FVector2D(RenderRect.Min), Scale), ViewportToCanvas(FVector2D(RenderRect.Max), Scale));
+	const FHudLayout Layout = HudLayout(Image);
+	if (!Layout.Camera.bIsValid) return;
+
+	FShotHudCard Camera(Canvas, Font, Layout, Layout.Camera, TEXT("CAMERA"));
+	FShotHudCard Composition(Canvas, Font, Layout, Layout.Composition, TEXT("COMPOSITION"));
+	TCHAR Value[160];
+	const FVector Position = GetViewLocation();
+	const FRotator Rotation = GetViewRotation();
+	Camera.Add(TEXT("View"), CurrentMode == EShotEditorMode::Drag ? TEXT("Compose") : TEXT("Inspect"));
+	FCString::Snprintf(Value, UE_ARRAY_COUNT(Value), TEXT("%d x %d  |  %.3f"), RenderRect.Width(), RenderRect.Height(), GetCameraAspectRatio());
+	Camera.Add(TEXT("Frame"), Value);
+	FCString::Snprintf(Value, UE_ARRAY_COUNT(Value), TEXT("%.1f, %.1f, %.1f cm"), Position.X, Position.Y, Position.Z);
+	Camera.Add(TEXT("Position"), Value);
+	FCString::Snprintf(Value, UE_ARRAY_COUNT(Value), TEXT("P %.1f  Y %.1f  R %.1f"), Rotation.Pitch, Rotation.Yaw, Rotation.Roll);
+	Camera.Add(TEXT("Rotation"), Value);
+	if (ActiveShot->Lens.FOVMode == EShotFOVMode::Manual && bHasCachedPriorPose && !FMath::IsNearlyEqual(ActiveShot->Lens.ManualFOV, ViewFOV, .05f))
+		FCString::Snprintf(Value, UE_ARRAY_COUNT(Value), TEXT("%.1f -> %.1f deg"), ActiveShot->Lens.ManualFOV, ViewFOV);
+	else FCString::Snprintf(Value, UE_ARRAY_COUNT(Value), TEXT("%.1f deg"), ViewFOV);
+	Camera.Add(TEXT("FOV"), Value);
+	FCString::Snprintf(Value, UE_ARRAY_COUNT(Value), TEXT("%.1f cm"), CachedFocusDistance);
+	Camera.Add(TEXT("Focus"), bCachedDoFValid ? Value : TEXT("Not driven"));
+	FCString::Snprintf(Value, UE_ARRAY_COUNT(Value), TEXT("f/%.2f"), CachedAperture);
+	Camera.Add(TEXT("Aperture"), bCachedDoFValid ? Value : TEXT("Not driven"));
+	if (bHasCachedPriorPose && CachedPriorRoll != TNumericLimits<float>::Max() && FMath::Abs(FRotator::NormalizeAxis(ActiveShot->Roll - CachedPriorRoll)) >= .05f)
+		FCString::Snprintf(Value, UE_ARRAY_COUNT(Value), TEXT("%.1f -> %.1f deg"), ActiveShot->Roll, CachedPriorRoll);
+	else FCString::Snprintf(Value, UE_ARRAY_COUNT(Value), TEXT("%.1f deg"), ActiveShot->Roll);
+	Camera.Add(TEXT("Roll"), Value);
+
+	const FShotPlacement& Placement = ActiveShot->Placement;
+	Composition.Add(TEXT("Follow"), Placement.Mode == EShotPlacementMode::AnchorOrbit ? TEXT("Anchor Orbit") : Placement.Mode == EShotPlacementMode::AnchorAtScreen ? TEXT("Anchor At Screen") : TEXT("Fixed World Position"));
+	if (bHasCachedPriorPose && CachedPriorDistance > 0.f && !FMath::IsNearlyEqual(Placement.Distance, CachedPriorDistance, .05f))
+		FCString::Snprintf(Value, UE_ARRAY_COUNT(Value), TEXT("%.1f -> %.1f cm"), Placement.Distance, CachedPriorDistance);
+	else FCString::Snprintf(Value, UE_ARRAY_COUNT(Value), TEXT("%.1f cm"), Placement.Distance);
+	Composition.Add(TEXT("Distance"), Placement.Mode == EShotPlacementMode::FixedWorldPosition ? TEXT("Unused") : Value);
+
+	FVector AnchorWorld = FVector::ZeroVector;
+	const bool bAimUsed = ActiveShot->Aim.Mode == EShotAimMode::LookAtAnchor;
+	const bool bAnchorOK = bAimUsed && EnsureEffectiveShotCache()
+		&& CachedEffectiveShot.Aim.AimAnchor.ResolveWorldPosition(CachedEffectiveShot.Targets, AnchorWorld);
+	FVector2D Projected = FVector2D::ZeroVector;
+	const bool bInFront = bAnchorOK && ComposableCameraSystem::ProjectWorldPointToScreen(AnchorWorld, Position, Rotation,
+		FMath::Tan(FMath::DegreesToRadians(ViewFOV * .5f)), GetCameraAspectRatio(), Projected);
+	const FLinearColor StateColor = !bAimUsed || bInFront ? FComposableCameraEditorColors::CameraNodeTitle : FLinearColor(1.f, .45f, .25f);
+	Composition.Add(TEXT("Aim"), !bAimUsed ? TEXT("Disabled") : !bAnchorOK ? TEXT("Unresolved") : !bInFront ? TEXT("Behind camera") : TEXT("Resolved"), StateColor);
+	FCString::Snprintf(Value, UE_ARRAY_COUNT(Value), TEXT("%.3f, %.3f"), ActiveShot->Aim.ScreenPosition.X, ActiveShot->Aim.ScreenPosition.Y);
+	Composition.Add(TEXT("Target"), bAimUsed ? Value : TEXT("Unused"));
+	FCString::Snprintf(Value, UE_ARRAY_COUNT(Value), TEXT("%.3f, %.3f"), Projected.X, Projected.Y);
+	Composition.Add(TEXT("Projected"), bInFront ? Value : TEXT("--"));
+	const FVector2D Drift = Projected - ActiveShot->Aim.ScreenPosition;
+	FCString::Snprintf(Value, UE_ARRAY_COUNT(Value), TEXT("%.3f, %.3f"), Drift.X, Drift.Y);
+	Composition.Add(TEXT("Drift"), bInFront ? Value : TEXT("--"));
+	Composition.Add(TEXT("Basis"), Placement.Mode != EShotPlacementMode::AnchorOrbit ? TEXT("Unused")
+		: Placement.BasisFrame == EShotPlacementBasisFrame::World ? TEXT("World")
+		: Placement.BasisFrame == EShotPlacementBasisFrame::InheritFromActor ? TEXT("Subject") : TEXT("Two Subjects"));
+	FCString::Snprintf(Value, UE_ARRAY_COUNT(Value), TEXT("Y %.1f  P %.1f deg"), Placement.LocalCameraDirection.X, Placement.LocalCameraDirection.Y);
+	Composition.Add(TEXT("Orbit"), Placement.Mode == EShotPlacementMode::AnchorOrbit ? Value : TEXT("Unused"));
+	FCString::Snprintf(Value, UE_ARRAY_COUNT(Value), TEXT("%.1f, %.1f, %.1f cm"), AnchorWorld.X, AnchorWorld.Y, AnchorWorld.Z);
+	Composition.Add(TEXT("Aim World"), bAnchorOK ? Value : TEXT("--"));
+}
+
+void FComposableCameraShotEditorViewportClient::DrawOrbitControl(FCanvas& Canvas)
+{
+	using namespace ComposableCameraSystem::ShotViewportOverlay;
+	using namespace ComposableCameraSystem::ShotEditorCanvas;
+	const FIntRect RenderRect = GetRenderRect();
+	const float Scale = ValidScale(Canvas.GetDPIScale());
+	const FBox2D Image(ViewportToCanvas(FVector2D(RenderRect.Min), Scale), ViewportToCanvas(FVector2D(RenderRect.Max), Scale));
+	const FOrbitControlLayout Layout = OrbitLayout(Image);
+	if (!Layout.IsVisible()) return;
+	OrbitControlDpiScale = Scale;
+	const auto Session = AuthoringSession.Pin();
+	const bool bInteractive = CurrentMode == EShotEditorMode::Drag && (!Session || Session->CanEdit());
+	const bool bHighlighted = bInteractive && (HoveredHandleType == EHandleType::OrbitDirection || ActiveDragHandleType == EHandleType::OrbitDirection);
+	const FLinearColor Accent = bInteractive ? FComposableCameraEditorColors::CameraNodeTitle : FLinearColor(.4f, .43f, .46f);
+	DrawOverlayFill(Canvas, Layout.Panel, FLinearColor(.015f, .02f, .025f, .85f));
+	DrawOverlayFill(Canvas, FBox2D(Layout.Panel.Min, FVector2D(Layout.Panel.Max.X, Layout.Panel.Min.Y + 22.f)), FLinearColor(.07f, .08f, .095f, .95f));
+	UFont* Font = GEngine ? GEngine->GetSmallFont() : nullptr;
+	DrawOverlayText(Canvas, Font, Layout.Panel.Min + FVector2D(10.f, 4.f), TEXT("ORBIT  /  LOCAL BASIS"), FLinearColor(.8f, .84f, .88f), 144.f);
+	FCanvasNGonItem Disc(Layout.Center, FVector2D(Layout.Radius, Layout.Radius), 36, FLinearColor(.04f, .05f, .065f, 1.f));
+	Canvas.DrawItem(Disc);
+	const auto Project = [&](const FVector& Point) { return Layout.Center + FVector2D(Point.Y, -Point.Z) * Layout.Radius; };
+	const auto GridSegment = [&](const FVector& A, const FVector& B)
+	{
+		FCanvasLineItem Line(Project(A), Project(B));
+		const bool bFront = A.X + B.X >= 0.f;
+		Line.SetColor(bFront ? FLinearColor(.4f, .46f, .52f, bHighlighted ? .9f : .65f) : FLinearColor(.2f, .24f, .28f, .35f));
+		Line.LineThickness = bFront ? 1.f : .5f;
+		Canvas.DrawItem(Line);
+	};
+	// Latitude circles and longitude great circles. Fixed segment counts, no transient arrays.
+	for (int32 Latitude = -60; Latitude <= 60; Latitude += 30)
+	{
+		FVector Previous = OrbitGlobePoint(FVector2D(0.f, Latitude));
+		for (int32 Step = 1; Step <= 24; ++Step)
+		{
+			const FVector Point = OrbitGlobePoint(FVector2D(Step * 15.f, Latitude));
+			GridSegment(Previous, Point); Previous = Point;
+		}
+	}
+	for (int32 Longitude = 0; Longitude < 180; Longitude += 30)
+	{
+		FVector Previous = OrbitGlobePoint(FVector2D(Longitude, 0.f));
+		for (int32 Step = 1; Step <= 24; ++Step)
+		{
+			const FVector Point = OrbitGlobePoint(FVector2D(Longitude, Step * 15.f));
+			GridSegment(Previous, Point); Previous = Point;
+		}
+	}
+	FVector2D Previous = Layout.Center + FVector2D(Layout.Radius, 0.f);
+	for (int32 Step = 1; Step <= 36; ++Step)
+	{
+		const float Angle = Step * (2.f * PI / 36.f);
+		const FVector2D Point = Layout.Center + FVector2D(FMath::Cos(Angle), FMath::Sin(Angle)) * Layout.Radius;
+		FCanvasLineItem Rim(Previous, Point); Rim.SetColor(Accent); Rim.LineThickness = bHighlighted ? 2.f : 1.f;
+		Canvas.DrawItem(Rim); Previous = Point;
+	}
+	const FVector CameraPoint = OrbitGlobePoint(ActiveShot->Placement.LocalCameraDirection);
+	const FVector2D Marker = Project(CameraPoint);
+	FCanvasLineItem Radial(Layout.Center, Marker); Radial.SetColor(Accent); Radial.LineThickness = 1.5f; Canvas.DrawItem(Radial);
+	FCanvasNGonItem Dot(Marker, FVector2D(4.f, 4.f), 12, CameraPoint.X >= 0.f ? Accent : FLinearColor(.6f, .64f, .68f));
+	Canvas.DrawItem(Dot);
+	TCHAR Angles[80];
+	FCString::Snprintf(Angles, UE_ARRAY_COUNT(Angles), TEXT("Y %.1f   P %.1f"), ActiveShot->Placement.LocalCameraDirection.X, ActiveShot->Placement.LocalCameraDirection.Y);
+	DrawOverlayText(Canvas, Font, Layout.Panel.Min + FVector2D(12.f, 113.f), Angles, FLinearColor(.9f, .93f, .95f), 140.f);
+	const TCHAR* Hint = bInteractive ? TEXT("Drag orbit  |  Wheel distance")
+		: Session && !Session->CanEdit() ? TEXT("Read-only source") : TEXT("Compose mode to edit");
+	DrawOverlayText(Canvas, Font, Layout.Panel.Min + FVector2D(12.f, 128.f), Hint, FLinearColor(.5f, .56f, .61f), 140.f);
+	if (bInteractive)
+	{
+		FHandleScreenPosCache Hit;
+		Hit.Type = EHandleType::OrbitDirection;
+		Hit.PixelPos = CanvasToViewport(Layout.Center, Scale);
+		Hit.HitArea = CanvasHitAreaToViewport(FBox2D(Layout.Center - FVector2D(Layout.Radius, Layout.Radius), Layout.Center + FVector2D(Layout.Radius, Layout.Radius)), Scale);
+		CachedHandles.Add(Hit);
+	}
+}
+
+bool FComposableCameraShotEditorViewportClient::ShowSubjectGuides() const
+{
+	const auto Session = AuthoringSession.Pin();
+	return ActiveShot && ActiveHost.IsValid() && Session && Session->bShowSubjectGuide;
+}
+
+bool FComposableCameraShotEditorViewportClient::IsSubjectHandleValid(const FHandleScreenPosCache& H) const
+{
+	if (!ShowSubjectGuides() || !ActiveShot->Targets.IsValidIndex(H.SubjectIndex)
+		|| H.SubjectCount != ActiveShot->Targets.Num() || H.AxisIndex < 0 || H.AxisIndex > 2
+		|| H.SubjectRenderRect != GetRenderRect()
+		|| !ComposableCameraSystem::ShotSubjectGizmo::CanDrag(H.PixelsPerUnit)) return false;
+	const auto& Subject = ActiveShot->Targets[H.SubjectIndex];
+	if (!Subject.Target.Offset.Equals(H.AuthoredOffset) || !Subject.ManualBoundsExtent.Equals(H.AuthoredExtent)
+		|| !H.SubjectIdentity.Matches(Subject.Target) || !EnsureEffectiveShotCache()
+		|| !CachedEffectiveShot.Targets.IsValidIndex(H.SubjectIndex)
+		|| H.ResolvedSubjectActor.Get() != CachedEffectiveShot.Targets[H.SubjectIndex].Target.Actor.Get()) return false;
+	FTransform Pivot;
+	if (!CachedEffectiveShot.Targets[H.SubjectIndex].Target.ResolvePivotTransform(Pivot)) return false;
+	return H.Type == EHandleType::SubjectOffsetAxis
+		|| (H.Type == EHandleType::SubjectBoundsFace && Subject.BoundsShape == EShotTargetBoundsShape::ManualExtent);
+}
+
+bool FComposableCameraShotEditorViewportClient::ProjectWorldToViewport(const FVector& World, FVector2D& Pixel) const
+{
+	FVector2D Screen;
+	if (!ComposableCameraSystem::ProjectWorldPointToScreen(World, GetViewLocation(), GetViewRotation(),
+		FMath::Tan(FMath::DegreesToRadians(ViewFOV * .5f)), GetCameraAspectRatio(), Screen)) return false;
+	Pixel = NormalizedScreenToPixel(Screen, GetRenderSize());
+	return !Pixel.ContainsNaN();
+}
+
 void FComposableCameraShotEditorViewportClient::Draw(const FSceneView* View, FPrimitiveDrawInterface* PDI)
 {
 	FEditorViewportClient::Draw(View, PDI);
+	DrawSubjectGuides(PDI);
+}
 
-	if (!bShowCompositionGuides || !ActiveShot || !PDI || !Viewport)
+void FComposableCameraShotEditorViewportClient::DrawSubjectGuides(FPrimitiveDrawInterface* PDI)
+{
+	if (!bShowCompositionGuides || !ActiveShot || !ActiveHost.IsValid() || !PDI || !Viewport) return;
+	const bool bSubjectPage = ShowSubjectGuides();
+	if (!bSubjectPage && ActiveShot->Lens.FOVMode != EShotFOVMode::SolvedFromBoundsFit) return;
+	if (!EnsureEffectiveShotCache()) return;
+	// Borrow the editor's resolved value cache; bounds refresh never touches authored/runtime storage.
+	for (auto& Target : CachedEffectiveShot.Targets)
 	{
-		return;
-	}
-
-	// Bounds visualization is only meaningful when the solver actually
-	// consumes bounds. Manual FOV mode reads `Lens.ManualFOV` directly and
-	// ignores per-target bounds entirely, so drawing wireframes there is
-	// pure visual noise - skip the whole pass.
-	if (ActiveShot->Lens.FOVMode != EShotFOVMode::SolvedFromBoundsFit)
-	{
-		return;
-	}
-
-	// Build the same EffectiveShot the solver consumes, so binding-override
-	// actors / freshly-resolved bounds are reflected in the wireframes.
-	FComposableCameraShot EffectiveShot;
-	if (!BuildEffectiveShotForPreview(EffectiveShot))
-	{
-		return;
-	}
-
-	// Refresh AutoFromComponentBounds caches on the local copy - same idiom
-	// `RunSolverAndDriveCamera` uses (see Section 23.11 of EditorDesignDoc), so the
-	// debug viz reflects the *exact* extents the solver will read this frame.
-	for (FComposableCameraShotTarget& T: EffectiveShot.Targets)
-	{
-		if (T.BoundsShape == EShotTargetBoundsShape::AutoFromComponentBounds)
+		ComposableCameraSystem::ShotSubjectGizmo::FSubjectGeometry Geometry;
+		if (!ComposableCameraSystem::ShotSubjectGizmo::Resolve(Target.Target, Geometry)) continue;
+		if (bSubjectPage)
 		{
-			T.RefreshAutoBoundsCache();
+			const FLinearColor PivotColor(.08f, .8f, .72f);
+			PDI->DrawPoint(Geometry.Base, Geometry.bUsedBone ? FLinearColor(1.f, .65f, .2f) : FLinearColor::White, 6.f, SDPG_Foreground);
+			PDI->DrawPoint(Geometry.Pivot, PivotColor, 9.f, SDPG_Foreground);
+			PDI->DrawLine(Geometry.Base, Geometry.Pivot, PivotColor, SDPG_Foreground, 1.5f);
+			// Short triad = placement heading. Solid offset axes/handles are drawn on Canvas.
+			if (Geometry.bHasBasis)
+				for (int32 Axis = 0; Axis < 3; ++Axis)
+				{
+					const FLinearColor Color = Axis == 0 ? FLinearColor(.8f, .3f, .3f) : Axis == 1 ? FLinearColor(.3f, .8f, .3f) : FLinearColor(.3f, .45f, 1.f);
+					const FVector Direction = Geometry.BasisRotation.RotateVector(ComposableCameraSystem::ShotSubjectGizmo::Axis(Axis));
+					PDI->DrawLine(Geometry.Base, Geometry.Base + Direction * 12., Color, SDPG_Foreground, .8f);
+				}
 		}
-	}
-
-	// Replicate `SolvePerceptualUnionBoxFOV`'s 8-vertex `bAllOnScreen` filter
-	// so the wire color tells the designer "is this box actually feeding the
-	// FOV solve, or being silently dropped?".
-	const FVector CamPos = GetViewLocation();
-	const FRotator CamRot = GetViewRotation();
-	const FIntPoint VP = Viewport->GetSizeXY();
-	const float Aspect = (VP.Y > 0)
-		? static_cast<float>(VP.X) / static_cast<float>(VP.Y)
-		: 16.f / 9.f;
-	const float TanH = FMath::Tan(FMath::DegreesToRadians(ViewFOV * 0.5f));
-
-	const FLinearColor ColorContributing(0.2f, 0.9f, 0.3f, 1.f); // green
-	const FLinearColor ColorDroppedOffscreen(1.f, 0.85f, 0.2f, 1.f); // yellow
-	constexpr float Thickness = 1.5f;
-
-	// Per-target selection for the bounds-fit solve uses the existing
-	// `BoundsShape` + `BoundsContributionWeight` per-target authoring:
-	// - `BoundsShape == None` -> extent is zero, skip
-	// - `BoundsContributionWeight <= 0` -> explicitly opted out, skip
-	// - both pass->drawn (green if all 8 vertices in
-	// front of camera, yellow if any
-	// behind - solver's strict
-	// `bAllOnScreen` check would drop
-	// the target in the yellow case).
-	// Designer "selects which actors contribute" by toggling those two
-	// per-target fields; only the selected set draws here.
-	for (const FComposableCameraShotTarget& T: EffectiveShot.Targets)
-	{
-		const FVector Extent = T.GetEffectiveBoundsExtent();
-		if (Extent.IsZero())
+		if (Target.BoundsShape == EShotTargetBoundsShape::AutoFromComponentBounds) Target.RefreshAutoBoundsCache();
+		if (!ComposableCameraSystem::ShotSubjectGizmo::HasBounds(Target)) continue;
+		const bool bConsumed = CachedEffectiveShot.Lens.FOVMode == EShotFOVMode::SolvedFromBoundsFit && Target.BoundsContributionWeight > 0.f;
+		if (!bSubjectPage && !bConsumed) continue;
+		const FBox Box(Geometry.Pivot - Target.GetEffectiveBoundsExtent(), Geometry.Pivot + Target.GetEffectiveBoundsExtent());
+		bool bAllInFront = true;
+		FVector Vertices[8]; Box.GetVertices(Vertices);
+		for (const auto& Vertex : Vertices)
 		{
-			continue;
+			FVector2D Pixel;
+			if (!ProjectWorldToViewport(Vertex, Pixel)) { bAllInFront = false; break; }
 		}
-		if (T.BoundsContributionWeight <= 0.f)
-		{
-			continue;
-		}
-
-		FVector Pivot;
-		if (!T.Target.ResolveWorldPoint(Pivot))
-		{
-			continue;
-		}
-
-		const FBox WorldBox(Pivot - Extent, Pivot + Extent);
-
-		// Mirror the solver's strict 8-vertex check: a single vertex behind
-		// the camera plane drops the entire target from the FOV solve.
-		FVector Vertices[8];
-		WorldBox.GetVertices(Vertices);
-		bool bAllOnScreen = true;
-		for (int32 v = 0; v < 8; ++v)
-		{
-			FVector2D Screen;
-			if (!ComposableCameraSystem::ProjectWorldPointToScreen(Vertices[v], CamPos, CamRot, TanH, Aspect, Screen))
-			{
-				bAllOnScreen = false;
-				break;
-			}
-		}
-		const FLinearColor& Color = bAllOnScreen ? ColorContributing: ColorDroppedOffscreen;
-
-		DrawWireBox(PDI, WorldBox, Color, SDPG_World, Thickness);
+		const FLinearColor Color = !bConsumed ? FLinearColor(.5f, .55f, .6f)
+			: bAllInFront ? FLinearColor(.2f, .9f, .3f) : FLinearColor(1.f, .85f, .2f);
+		DrawWireBox(PDI, Box, Color, bSubjectPage ? SDPG_Foreground : SDPG_World, 1.5f);
 	}
 }
 
-// D.4 implementation 
+void FComposableCameraShotEditorViewportClient::DrawSubjectHandles(FCanvas& Canvas)
+{
+	if (!ShowSubjectGuides() || !EnsureEffectiveShotCache()) return;
+	using namespace ComposableCameraSystem::ShotSubjectGizmo;
+	using namespace ComposableCameraSystem::ShotEditorCanvas;
+	const float Scale = ValidScale(Canvas.GetDPIScale());
+	const FIntRect RenderRect = GetRenderRect();
+	if (RenderRect.Width() <= 0 || RenderRect.Height() <= 0) return;
+	const FBox2D Image(FVector2D(RenderRect.Min), FVector2D(RenderRect.Max));
+	const FBox2D CanvasImage(ViewportToCanvas(Image.Min, Scale), ViewportToCanvas(Image.Max, Scale));
+	const auto Session = AuthoringSession.Pin();
+	const bool bEditable = CurrentMode == EShotEditorMode::Drag && Session && Session->CanEdit();
+	UFont* Font = GEngine ? GEngine->GetSmallFont() : nullptr;
+	const auto DrawLabel = [&](FVector2D Position, const TCHAR* Text, FLinearColor Color, float Width)
+	{
+		const double Margin = 2.;
+		const double Height = Font ? Font->GetMaxCharHeight() : 0.;
+		if (CanvasImage.GetSize().X < 2. * Margin || CanvasImage.GetSize().Y < Height + 2. * Margin) return;
+		Position.X = FMath::Clamp(Position.X, CanvasImage.Min.X + Margin, CanvasImage.Max.X - Margin);
+		Position.Y = FMath::Clamp(Position.Y, CanvasImage.Min.Y + Margin, CanvasImage.Max.Y - Height - Margin);
+		DrawOverlayText(Canvas, Font, Position, Text, Color, FMath::Min(Width, float(CanvasImage.Max.X - Position.X - Margin)));
+	};
+	for (int32 Index = 0; Index < CachedEffectiveShot.Targets.Num(); ++Index)
+	{
+		const auto& Subject = CachedEffectiveShot.Targets[Index];
+		if (!ActiveShot->Targets.IsValidIndex(Index)) continue;
+		FSubjectGeometry Geometry;
+		if (!Resolve(Subject.Target, Geometry)) continue;
+		FVector2D PivotPixel;
+		if (!ProjectWorldToViewport(Geometry.Pivot, PivotPixel)) continue;
+		TCHAR NumberedLabel[32] = {};
+		if (Index >= 2) FCString::Snprintf(NumberedLabel, UE_ARRAY_COUNT(NumberedLabel), TEXT("Subject %d"), Index + 1);
+		const TCHAR* Label = Index == 0 ? TEXT("Subject A") : Index == 1 ? TEXT("Subject B") : NumberedLabel;
+		if (Image.IsInside(PivotPixel))
+			DrawLabel(ViewportToCanvas(PivotPixel, Scale) + FVector2D(8.f, -20.f), Label, FLinearColor::White, 96.f);
+		// Approximate constant 36-Slate-unit axis length, stable across camera distance and editor DPI.
+		const double Depth = GetViewRotation().Quaternion().UnrotateVector(Geometry.Pivot - GetViewLocation()).X;
+		const double AxisLength = FMath::Max(1., Depth * 2. * FMath::Tan(FMath::DegreesToRadians(ViewFOV * .5f))
+			* 36. * Scale / FMath::Max(1, RenderRect.Width()));
+		const auto AddHandle = [&](EHandleType Type, int32 AxisIndex, float Sign, const FVector& Point, const FVector& Direction, FLinearColor Color)
+		{
+			FVector2D Pixel, AxisPixel;
+			if (!ProjectWorldToViewport(Point, Pixel) || !ProjectWorldToViewport(Point + Direction * AxisLength, AxisPixel)
+				|| !Image.IsInside(Pixel)) return;
+			const FVector2D PixelsPerUnit = (AxisPixel - Pixel) / AxisLength;
+			const bool bDraggable = bEditable && CanDrag(PixelsPerUnit);
+			const bool bHover = HoveredHandleType == Type && HoveredSubjectIndex == Index
+				&& HoveredSubjectAxis == AxisIndex && HoveredSubjectFaceSign == Sign;
+			const bool bActive = ActiveDragHandleType == Type && ActiveSubjectHandle.SubjectIndex == Index
+				&& ActiveSubjectHandle.AxisIndex == AxisIndex && ActiveSubjectHandle.FaceSign == Sign;
+			if (!bDraggable) Color = kHandleDisabledColor;
+			const FVector2D Center = ViewportToCanvas(Pixel, Scale);
+			const float Radius = bHover || bActive ? 6.f : 4.f;
+			if (Type == EHandleType::SubjectOffsetAxis)
+			{
+				FCanvasLineItem AxisLine(ViewportToCanvas(PivotPixel, Scale), Center);
+				AxisLine.SetColor(Color); AxisLine.LineThickness = bHover || bActive ? 2.5f : 1.5f; Canvas.DrawItem(AxisLine);
+				const TCHAR* Name = AxisIndex == 0 ? TEXT("X") : AxisIndex == 1 ? TEXT("Y") : TEXT("Z");
+				DrawLabel(Center + FVector2D(6.f, -12.f), Name, Color, 20.f);
+			}
+			FCanvasNGonItem Disc(Center, FVector2D(Radius), 12, Color); Canvas.DrawItem(Disc);
+			if (!bDraggable || CachedHandles.Num() >= CachedHandles.Max()) return;
+			FHandleScreenPosCache Hit;
+			Hit.Type = Type; Hit.SubjectIndex = Index; Hit.SubjectCount = ActiveShot->Targets.Num();
+			Hit.AxisIndex = AxisIndex; Hit.FaceSign = Sign; Hit.PixelPos = Pixel; Hit.PixelsPerUnit = PixelsPerUnit;
+			Hit.SubjectRenderRect = RenderRect;
+			Hit.SubjectIdentity.Capture(ActiveShot->Targets[Index].Target);
+			Hit.ResolvedSubjectActor = Subject.Target.Actor.Get();
+			Hit.AuthoredOffset = ActiveShot->Targets[Index].Target.Offset;
+			Hit.AuthoredExtent = ActiveShot->Targets[Index].ManualBoundsExtent;
+			Hit.HitArea = FBox2D(FVector2D(FMath::Max(double(RenderRect.Min.X), Pixel.X - 8. * Scale), FMath::Max(double(RenderRect.Min.Y), Pixel.Y - 8. * Scale)),
+				FVector2D(FMath::Min(double(RenderRect.Max.X), Pixel.X + 8. * Scale), FMath::Min(double(RenderRect.Max.Y), Pixel.Y + 8. * Scale)));
+			CachedHandles.Add(Hit);
+		};
+		// Bounds faces first: offset axis endpoints take priority when controls overlap.
+		if (Subject.BoundsShape == EShotTargetBoundsShape::ManualExtent)
+			for (int32 AxisIndex = 0; AxisIndex < 3; ++AxisIndex)
+				for (const float Sign : { -1.f, 1.f })
+				{
+					const FVector Direction = Axis(AxisIndex);
+					AddHandle(EHandleType::SubjectBoundsFace, AxisIndex, Sign,
+						Geometry.Pivot + Direction * FMath::Max(0., Subject.ManualBoundsExtent[AxisIndex]) * Sign,
+						Direction, FLinearColor(1.f, .75f, .25f));
+				}
+		for (int32 AxisIndex = 0; AxisIndex < 3; ++AxisIndex)
+		{
+			const FVector Direction = Geometry.OffsetRotation.RotateVector(Axis(AxisIndex));
+			const FLinearColor Color = AxisIndex == 0 ? FLinearColor(1.f, .25f, .25f) : AxisIndex == 1 ? FLinearColor(.25f, 1.f, .25f) : FLinearColor(.3f, .5f, 1.f);
+			AddHandle(EHandleType::SubjectOffsetAxis, AxisIndex, 1.f, Geometry.Pivot + Direction * AxisLength, Direction, Color);
+		}
+	}
+}
 
-FVector2D FComposableCameraShotEditorViewportClient::NormalizedScreenToPixel(const FVector2D& ScreenPos, const FIntPoint& VPSize) const
+// D.4 implementation
+
+FVector2D FComposableCameraShotEditorViewportClient::NormalizedScreenToPixel(const FVector2D& ScreenPos, const FIntPoint&) const
 {
 	// Solver convention: ScreenPos in [-0.5, 0.5], +Y up.
 	// Pixel convention: origin top-left, +Y down.
-	return FVector2D(
-		(ScreenPos.X + 0.5f) * static_cast<float>(VPSize.X),
-		(0.5f - ScreenPos.Y) * static_cast<float>(VPSize.Y));
+	const FIntRect Rect = GetRenderRect();
+	const FIntPoint Size = Rect.Size();
+	const FIntPoint Origin = Rect.Min;
+	return FVector2D(Origin.X + (ScreenPos.X + 0.5f) * Size.X,
+		Origin.Y + (0.5f - ScreenPos.Y) * Size.Y);
 }
 
-FVector2D FComposableCameraShotEditorViewportClient::PixelToNormalizedScreen(int32 PixelX, int32 PixelY, const FIntPoint& VPSize) const
+FVector2D FComposableCameraShotEditorViewportClient::PixelToNormalizedScreen(int32 PixelX, int32 PixelY, const FIntPoint&) const
 {
-	const float W = static_cast<float>(FMath::Max(VPSize.X, 1));
-	const float H = static_cast<float>(FMath::Max(VPSize.Y, 1));
-	return FVector2D(static_cast<float>(PixelX) / W - 0.5f,
-		0.5f - static_cast<float>(PixelY) / H);
+	const FIntRect Rect = GetRenderRect();
+	const FIntPoint Size = Rect.Size();
+	const FIntPoint Origin = Rect.Min;
+	const float W = static_cast<float>(FMath::Max(Size.X, 1));
+	const float H = static_cast<float>(FMath::Max(Size.Y, 1));
+	return FVector2D(static_cast<float>(PixelX - Origin.X) / W - 0.5f,
+		0.5f - static_cast<float>(PixelY - Origin.Y) / H);
 }
 
 void FComposableCameraShotEditorViewportClient::DrawHandles(FViewport& InViewport, FCanvas& Canvas)
@@ -666,7 +910,15 @@ void FComposableCameraShotEditorViewportClient::DrawHandles(FViewport& InViewpor
 		return;
 	}
 
-	const FIntPoint VPSize = InViewport.GetSizeXY();
+	const FIntPoint VPSize = GetRenderSize();
+	using namespace ComposableCameraSystem::ShotEditorCanvas;
+	const float CanvasScale = ValidScale(Canvas.GetDPIScale());
+	const float CanvasWidth = static_cast<float>(VPSize.X) / CanvasScale;
+	const float CanvasHeight = static_cast<float>(VPSize.Y) / CanvasScale;
+	const auto ScreenToCanvas = [&](const FVector2D& ScreenPosition)
+	{
+		return ViewportToCanvas(NormalizedScreenToPixel(ScreenPosition, VPSize), CanvasScale);
+	};
 
 	// Per-mode drawing rules:
 	// - All modes draw handles at the LIVE PROJECTION of each anchor's
@@ -679,38 +931,26 @@ void FComposableCameraShotEditorViewportClient::DrawHandles(FViewport& InViewpor
 	// follows the cursor (which equals the just-written
 	// `Placement.ScreenPosition` / `Aim.ScreenPosition`) so the drag
 	// UX is responsive without a one-frame lag.
-	// - Drag mode: full color, hit-tested. Free / Lock: greyed out,
+	// - Drag mode: full color, hit-tested. Free: greyed out,
 	// non-interactive.
-	const bool bInteractive = (CurrentMode == EShotEditorMode::Drag);
+	const TSharedPtr<FComposableCameraShotAuthoringSession> Session = AuthoringSession.Pin();
+	const bool bInteractive = CurrentMode == EShotEditorMode::Drag && (!Session || Session->CanEdit());
 	const bool bDisabled = !bInteractive;
 
-	// Aim handle is non-effective when AimMode == NoOp - render greyed +
-	// strip from the hit-test cache so dragging it can't write a value
-	// the solver will then ignore. The handle stays *visible* so the
-	// authored ScreenPosition is still readable; flipping AimMode back
-	// to LookAtAnchor restores full interactivity.
-	const bool bAimNoOp = (ActiveShot->Aim.Mode == EShotAimMode::NoOp);
-	const bool bAimDisabled = bDisabled || bAimNoOp;
-	const bool bAimInteractive = bInteractive && !bAimNoOp;
-
-	// Placement handle is non-interactive when the active mode doesn't
-	// consume `Placement.ScreenPosition` (i.e., AnchorOrbit pure mode and
-	// FixedWorldPosition). Same UX shape as Aim+NoOp: handle stays visible
-	// (live-projects the placement anchor) but greys out + drops from
-	// hit-test so dragging can't write a silently-ignored value.
-	const bool bPlacementUsesScreenPos =
-		ActiveShot->Placement.Mode == EShotPlacementMode::AnchorAtScreen;
-	const bool bPlacementDisabled = bDisabled || !bPlacementUsesScreenPos;
-	const bool bPlacementInteractive = bInteractive && bPlacementUsesScreenPos;
+	// Only draw screen controls consumed by the current solver mode.
+	const bool bShowAim = ShowLookAtHandle();
+	const bool bShowPlacement = ComposableCameraSystem::ShotViewportDisplay::ShowFollowHandle(*ActiveShot);
+	const bool bAimDisabled = bDisabled;
+	const bool bAimInteractive = bInteractive && bShowAim;
+	const bool bPlacementDisabled = bDisabled;
+	const bool bPlacementInteractive = bInteractive && bShowPlacement;
 
 	UFont* HandleLabelFont = GEngine ? GEngine->GetSmallFont() : nullptr;
 
 	// Pre-compute camera state for live projection.
 	const FVector CamPos = GetViewLocation();
 	const FRotator CamRot = GetViewRotation();
-	const float LiveAspect = (VPSize.Y > 0)
-		? static_cast<float>(VPSize.X) / static_cast<float>(VPSize.Y)
-		: 16.f / 9.f;
+	const float LiveAspect = GetCameraAspectRatio();
 	const float TanHalfHOR = FMath::Tan(FMath::DegreesToRadians(ViewFOV * 0.5f));
 
 	// Helper: draw filled circle + cross overlay at a given pixel pos.
@@ -783,7 +1023,7 @@ void FComposableCameraShotEditorViewportClient::DrawHandles(FViewport& InViewpor
 		// zones-off keeps projection SP and the marker would just
 		// double-stamp the disc.
 		const FVector2D NormPos = AuthoredScreenPos;
-		const FVector2D PixelPos = NormalizedScreenToPixel(NormPos, VPSize);
+		const FVector2D PixelPos = ScreenToCanvas(NormPos);
 		// Anchor hover should only fire when the cursor is on the anchor's
 		// own disc - NOT when it's on one of the anchor's zone edges (which
 		// also share `HoveredHandleType == HandleType`). The `!bHoveredIsZoneEdge`
@@ -868,14 +1108,14 @@ void FComposableCameraShotEditorViewportClient::DrawHandles(FViewport& InViewpor
 		if (bHandleInteractive)
 		{
 			FHandleScreenPosCache AnchorCache;
-			AnchorCache.PixelPos = PixelPos;
+			AnchorCache.PixelPos = CanvasToViewport(PixelPos, CanvasScale);
 			AnchorCache.Type = HandleType;
 			AnchorCache.bIsZoneEdge = false;
 			// Anchor hit area = square inscribing the hit-test radius. Square
 			// (vs. true circle) keeps hit math uniform with edge entries while
 			// only marginally over-claiming the corner pixels.
-			AnchorCache.HitArea = FBox2D(PixelPos - FVector2D(kHandleHitRadius, kHandleHitRadius),
-				PixelPos + FVector2D(kHandleHitRadius, kHandleHitRadius));
+			AnchorCache.HitArea = CanvasHitAreaToViewport(FBox2D(PixelPos - FVector2D(kHandleHitRadius, kHandleHitRadius),
+				PixelPos + FVector2D(kHandleHitRadius, kHandleHitRadius)), CanvasScale);
 			CachedHandles.Add(AnchorCache);
 		}
 
@@ -922,18 +1162,18 @@ void FComposableCameraShotEditorViewportClient::DrawHandles(FViewport& InViewpor
 			// floats inside the zone - its disc may sit anywhere within
 			// the rect during a hold; the rect itself stays anchored to
 			// SP. Convert SP from normalized `[-0.5, 0.5]` to pixel.
-			const FVector2D ZoneCenterPx = NormalizedScreenToPixel(AuthoredScreenPos, VPSize);
+			const FVector2D ZoneCenterPx = ScreenToCanvas(AuthoredScreenPos);
 
 			// Per-side pixel paddings. Normalized full-viewport span = 1.0
 			// (X) / 1.0 (Y), so pixel padding = padding_normalized x VPSize.
-			const float DeadLpx = Zones->DeadZone.Left * VPSize.X;
-			const float DeadRpx = Zones->DeadZone.Right * VPSize.X;
-			const float DeadTpx = Zones->DeadZone.Top * VPSize.Y; // top = +Y normalized = -Y pixel
-			const float DeadBpx = Zones->DeadZone.Bottom * VPSize.Y;
-			const float SoftLpx = FMath::Max(Zones->SoftZone.Left, Zones->DeadZone.Left) * VPSize.X;
-			const float SoftRpx = FMath::Max(Zones->SoftZone.Right, Zones->DeadZone.Right) * VPSize.X;
-			const float SoftTpx = FMath::Max(Zones->SoftZone.Top, Zones->DeadZone.Top) * VPSize.Y;
-			const float SoftBpx = FMath::Max(Zones->SoftZone.Bottom, Zones->DeadZone.Bottom) * VPSize.Y;
+			const float DeadLpx = Zones->DeadZone.Left * CanvasWidth;
+			const float DeadRpx = Zones->DeadZone.Right * CanvasWidth;
+			const float DeadTpx = Zones->DeadZone.Top * CanvasHeight; // top = +Y normalized = -Y canvas
+			const float DeadBpx = Zones->DeadZone.Bottom * CanvasHeight;
+			const float SoftLpx = FMath::Max(Zones->SoftZone.Left, Zones->DeadZone.Left) * CanvasWidth;
+			const float SoftRpx = FMath::Max(Zones->SoftZone.Right, Zones->DeadZone.Right) * CanvasWidth;
+			const float SoftTpx = FMath::Max(Zones->SoftZone.Top, Zones->DeadZone.Top) * CanvasHeight;
+			const float SoftBpx = FMath::Max(Zones->SoftZone.Bottom, Zones->DeadZone.Bottom) * CanvasHeight;
 
 			// Pixel-space rectangles (top-left to bottom-right corners).
 			// "Top" in our normalized convention = +Y (upward) = numerically
@@ -966,15 +1206,15 @@ void FComposableCameraShotEditorViewportClient::DrawHandles(FViewport& InViewpor
 				Canvas.DrawItem(Tile);
 			};
 
-			// Soft "ring" - Soft Dead area, four tiles 
+			// Soft "ring" - Soft Dead area, four tiles
 			// Layout:
-			// 
-			// TOP 
-			// 
+			//
+			// TOP
+			//
 			// LEFT (DEAD) RIGHT
-			// 
-			// BOTTOM 
-			// 
+			//
+			// BOTTOM
+			//
 			// Top spans full Soft width x (DeadTop SoftTop) height.
 			// Bot spans full Soft width x (SoftBottom DeadBottom) height.
 			// Left spans (SoftLeft DeadLeft) wide x Dead height.
@@ -991,7 +1231,7 @@ void FComposableCameraShotEditorViewportClient::DrawHandles(FViewport& InViewpor
 			DrawFilledTile(FBox2D(FVector2D(DeadRectPx.Max.X, DeadRectPx.Min.Y),
 				FVector2D(SoftRectPx.Max.X, DeadRectPx.Max.Y)), SoftFill);
 
-			// Dead inner - intentionally NOT filled 
+			// Dead inner - intentionally NOT filled
 			// Visually "empty" inside the dead zone - the soft ring frames
 			// the area without obscuring whatever the camera is currently
 			// holding on. Edges remain interactive: `CacheZoneEdges` below
@@ -1002,7 +1242,7 @@ void FComposableCameraShotEditorViewportClient::DrawHandles(FViewport& InViewpor
 			// touch" without competing with the framed subject for
 			// attention.
 
-			// Edge hit-cache + hover/drag highlight lines 
+			// Edge hit-cache + hover/drag highlight lines
 			// Each enabled zone contributes 4 edge entries (L/R/T/B).
 			// `EdgeRect(rect, edge)` is a thin rect along the matching
 			// side of `rect`, `kZoneEdgeHitThickness` perpendicular.
@@ -1042,10 +1282,11 @@ void FComposableCameraShotEditorViewportClient::DrawHandles(FViewport& InViewpor
 					case 3: EdgeCache.PixelPos = FVector2D((Rect.Min.X + Rect.Max.X) * 0.5f, Rect.Max.Y); break;
 					}
 					EdgeCache.Type = HandleType;
+					EdgeCache.PixelPos = CanvasToViewport(EdgeCache.PixelPos, CanvasScale);
 					EdgeCache.bIsZoneEdge = true;
 					EdgeCache.bIsSoftZone = bSoft;
 					EdgeCache.EdgeIndex = Edge;
-					EdgeCache.HitArea = EdgeRect(Rect, Edge);
+					EdgeCache.HitArea = CanvasHitAreaToViewport(EdgeRect(Rect, Edge), CanvasScale);
 					CachedHandles.Add(EdgeCache);
 
 					// Hover / drag highlight - single thin line along the
@@ -1129,7 +1370,7 @@ void FComposableCameraShotEditorViewportClient::DrawHandles(FViewport& InViewpor
 			CacheZoneEdges(SoftRectPx, /*bSoft=*/true);
 			CacheZoneEdges(DeadRectPx, /*bSoft=*/false);
 
-			// Live-position marker - anchor's projected pixel 
+			// Live-position marker - anchor's projected pixel
 			// The main disc (filled, drawn earlier) sits at the AUTHORED
 			// ScreenPosition (drag target). This second marker shows
 			// where the anchor IS this frame - its world point projected
@@ -1140,7 +1381,7 @@ void FComposableCameraShotEditorViewportClient::DrawHandles(FViewport& InViewpor
 				FVector2D ProjNorm;
 				if (ProjectAnchorWorld(AnchorAccessor, ProjNorm))
 				{
-					const FVector2D ProjPx = NormalizedScreenToPixel(ProjNorm, VPSize);
+					const FVector2D ProjPx = ScreenToCanvas(ProjNorm);
 					constexpr float kProjRingRadius = 5.f;
 					constexpr float kProjCrossArm = 4.f;
 					const FLinearColor ProjColor(AnchorColor.R, AnchorColor.G, AnchorColor.B, 0.55f);
@@ -1173,19 +1414,17 @@ void FComposableCameraShotEditorViewportClient::DrawHandles(FViewport& InViewpor
 		}
 	};
 
-	// Placement anchor handle (yellow). Greyed out + non-interactive when
-	// OrbitMode == ByDirection (ScreenPosition unused).
-	DrawAnchorHandle(EHandleType::PlacementAnchor,
+	// Orbit still uses its world anchor, but has no Follow screen-position control.
+	if (bShowPlacement) DrawAnchorHandle(EHandleType::PlacementAnchor,
 		ActiveShot->Placement.ScreenPosition,
 		[](const FComposableCameraShot& S) -> const FComposableCameraAnchorSpec&
 		{ return S.Placement.PlacementAnchor; },
 		kHandlePlacementColor,
-		TEXT("Placement"),
+		TEXT("Follow"),
 		bPlacementDisabled,
 		bPlacementInteractive);
 
-	// Aim anchor handle (cyan). Greyed out + non-interactive when AimMode == NoOp.
-	DrawAnchorHandle(EHandleType::AimAnchor,
+	if (bShowAim) DrawAnchorHandle(EHandleType::AimAnchor,
 		ActiveShot->Aim.ScreenPosition,
 		[](const FComposableCameraShot& S) -> const FComposableCameraAnchorSpec&
 		{ return S.Aim.AimAnchor; },
@@ -1206,9 +1445,31 @@ bool FComposableCameraShotEditorViewportClient::HitTestHandles(int32 PixelX, int
 	// both report a hit grabs the edge first, which matches user intent
 	// (the anchor disc is the visible focal point but the edge is the
 	// thinner / more deliberate target).
+	OutHit = FHandleScreenPosCache{};
+	const auto Session = AuthoringSession.Pin();
+	if (!ActiveShot || !ActiveHost.IsValid() || !bShowCompositionGuides || CurrentMode != EShotEditorMode::Drag || (Session && !Session->CanEdit())) return false;
 	for (int32 i = CachedHandles.Num() - 1; i >= 0; --i)
 	{
 		const FHandleScreenPosCache& H = CachedHandles[i];
+		// Input can arrive between a mode edit and the next paint; reject stale cached hits.
+		if (!ActiveShot
+			|| (H.Type == EHandleType::PlacementAnchor && !ComposableCameraSystem::ShotViewportDisplay::ShowFollowHandle(*ActiveShot))
+			|| (H.Type == EHandleType::AimAnchor && !ShowLookAtHandle())) continue;
+		if ((H.Type == EHandleType::SubjectOffsetAxis || H.Type == EHandleType::SubjectBoundsFace) && !IsSubjectHandleValid(H)) continue;
+		if (H.Type == EHandleType::OrbitDirection)
+		{
+			if (!ShowOrbitControl()) continue;
+			using namespace ComposableCameraSystem::ShotEditorCanvas;
+			const FIntRect Rect = GetRenderRect();
+			const auto Layout = ComposableCameraSystem::ShotViewportOverlay::OrbitLayout(FBox2D(
+				ViewportToCanvas(FVector2D(Rect.Min), OrbitControlDpiScale), ViewportToCanvas(FVector2D(Rect.Max), OrbitControlDpiScale)));
+			if (Layout.Hit(ViewportToCanvas(FVector2D(PixelX, PixelY), OrbitControlDpiScale)))
+			{
+				OutHit = H;
+				return true;
+			}
+			continue;
+		}
 		if (H.HitArea.IsInside(FVector2D(PixelX, PixelY)))
 		{
 			OutHit = H;
@@ -1219,16 +1480,92 @@ bool FComposableCameraShotEditorViewportClient::HitTestHandles(int32 PixelX, int
 	return false;
 }
 
+void FComposableCameraShotEditorViewportClient::StartHandleDrag(const FHandleScreenPosCache& Hit, int32 PixelX, int32 PixelY)
+{
+	const auto Session = AuthoringSession.Pin();
+	if (!ActiveShot || !ActiveHost.IsValid() || !bShowCompositionGuides || CurrentMode != EShotEditorMode::Drag
+		|| Hit.Type == EHandleType::None || IsEditingGesture() || (Session && !Session->CanEdit())) return;
+	if ((Hit.Type == EHandleType::OrbitDirection && !ShowOrbitControl())
+		|| (Hit.Type == EHandleType::PlacementAnchor && !ComposableCameraSystem::ShotViewportDisplay::ShowFollowHandle(*ActiveShot))
+		|| (Hit.Type == EHandleType::AimAnchor && !ShowLookAtHandle())) return;
+	const bool bSubject = Hit.Type == EHandleType::SubjectOffsetAxis || Hit.Type == EHandleType::SubjectBoundsFace;
+	if (bSubject && !IsSubjectHandleValid(Hit)) return;
+	DragTransaction = MakeUnique<FScopedTransaction>(Hit.Type == EHandleType::OrbitDirection
+		? LOCTEXT("DragShotOrbit", "Orbit Shot Camera") : Hit.Type == EHandleType::SubjectOffsetAxis
+		? LOCTEXT("DragSubjectOffset", "Move Shot Subject Pivot") : Hit.Type == EHandleType::SubjectBoundsFace
+		? LOCTEXT("DragSubjectBounds", "Resize Shot Subject Bounds") : Hit.bIsZoneEdge
+		? LOCTEXT("DragShotZoneEdge", "Resize Framing Zone") : LOCTEXT("DragShotScreenPosition", "Drag Shot Screen Position"));
+	// Snapshot without Modify/OnObjectModified: Sequencer must not respawn a camera mid-gesture.
+	SaveToTransactionBuffer(ActiveHost.Get(), /*bMarkDirty=*/false);
+	ActiveDragHandleType = Hit.Type;
+	bActiveDragIsZoneEdge = Hit.bIsZoneEdge;
+	ActiveDragZoneIsSoft = Hit.bIsSoftZone;
+	ActiveDragZoneEdgeIndex = Hit.EdgeIndex;
+	OrbitDragLastMouse = FVector2D(PixelX, PixelY);
+	OrbitDragDpiScale = OrbitControlDpiScale;
+	bOrbitDragChanged = false;
+	if (bSubject)
+	{
+		ActiveSubjectHandle = Hit;
+		SubjectDragLastMouse = FVector2D(PixelX, PixelY);
+		bSubjectDragChanged = false;
+	}
+}
+
 void FComposableCameraShotEditorViewportClient::ApplyDragToShot(int32 PixelX, int32 PixelY)
 {
-	if (!ActiveShot || !Viewport || ActiveDragHandleType == EHandleType::None)
+	const auto Session = AuthoringSession.Pin();
+	if (!ActiveShot || !ActiveHost.IsValid() || !Viewport || !bShowCompositionGuides || CurrentMode != EShotEditorMode::Drag
+		|| (Session && !Session->CanEdit()) || ActiveDragHandleType == EHandleType::None
+		|| (ActiveDragHandleType == EHandleType::PlacementAnchor && !ComposableCameraSystem::ShotViewportDisplay::ShowFollowHandle(*ActiveShot))
+		|| (ActiveDragHandleType == EHandleType::AimAnchor && !ShowLookAtHandle())
+		|| (ActiveDragHandleType == EHandleType::OrbitDirection && !ShowOrbitControl())) return;
+	if (ActiveDragHandleType == EHandleType::SubjectOffsetAxis || ActiveDragHandleType == EHandleType::SubjectBoundsFace)
 	{
+		if (!IsSubjectHandleValid(ActiveSubjectHandle)) { EndDrag(); return; }
+		const FVector2D Mouse(PixelX, PixelY);
+		const bool bShift = Viewport->KeyState(EKeys::LeftShift) || Viewport->KeyState(EKeys::RightShift);
+		const bool bCtrl = Viewport->KeyState(EKeys::LeftControl) || Viewport->KeyState(EKeys::RightControl);
+		const double Speed = bShift == bCtrl ? 1. : bShift ? 5. : .2;
+		const double Delta = ComposableCameraSystem::ShotSubjectGizmo::DragDelta(Mouse - SubjectDragLastMouse, ActiveSubjectHandle.PixelsPerUnit, Speed);
+		SubjectDragLastMouse = Mouse;
+		if (!FMath::IsFinite(Delta)) return;
+		auto& Subject = ActiveShot->Targets[ActiveSubjectHandle.SubjectIndex];
+		double& Value = ActiveDragHandleType == EHandleType::SubjectOffsetAxis
+			? Subject.Target.Offset[ActiveSubjectHandle.AxisIndex] : Subject.ManualBoundsExtent[ActiveSubjectHandle.AxisIndex];
+		const double NewValue = ActiveDragHandleType == EHandleType::SubjectOffsetAxis ? Value + Delta
+			: FMath::Max(0., Value + Delta * ActiveSubjectHandle.FaceSign);
+		if (FMath::IsFinite(NewValue) && !FMath::IsNearlyEqual(Value, NewValue))
+		{
+			Value = NewValue;
+			ActiveSubjectHandle.AuthoredOffset = Subject.Target.Offset;
+			ActiveSubjectHandle.AuthoredExtent = Subject.ManualBoundsExtent;
+			bSubjectDragChanged = true; NotifyInteractiveEdit();
+		}
+		return;
+	}
+	if (ActiveDragHandleType == EHandleType::OrbitDirection)
+	{
+		const FVector2D Mouse(PixelX, PixelY);
+		const bool bShift = Viewport->KeyState(EKeys::LeftShift) || Viewport->KeyState(EKeys::RightShift);
+		const bool bCtrl = Viewport->KeyState(EKeys::LeftControl) || Viewport->KeyState(EKeys::RightControl);
+		const float Speed = bShift == bCtrl ? 1.f : bShift ? 5.f : .2f;
+		const FVector2D Direction = ComposableCameraSystem::ShotViewportOverlay::DragOrbitDirection(
+			ActiveShot->Placement.LocalCameraDirection, Mouse - OrbitDragLastMouse, OrbitDragDpiScale, Speed);
+		OrbitDragLastMouse = Mouse;
+		if (!Direction.Equals(ActiveShot->Placement.LocalCameraDirection))
+		{
+			ActiveShot->Placement.LocalCameraDirection = Direction;
+			bOrbitDragChanged = true;
+			NotifyInteractiveEdit();
+		}
 		return;
 	}
 
-	const FIntPoint VPSize = Viewport->GetSizeXY();
+	const FIntPoint VPSize = GetRenderSize();
+	NotifyInteractiveEdit();
 
-	// Zone-edge drag: cursor distance from SP center -> new padding 
+	// Zone-edge drag: cursor distance from SP center -> new padding
 	//
 	// Single-side semantics: each edge mutates exactly one of the four
 	// padding scalars (Left / Right / Top / Bottom) on either dead or
@@ -1321,7 +1658,7 @@ void FComposableCameraShotEditorViewportClient::ApplyDragToShot(int32 PixelX, in
 		}
 
 		// Shift-symmetric drag - when the user holds Shift, mirror the
-		// edited padding onto the opposite side of the same axis (Left 
+		// edited padding onto the opposite side of the same axis (Left
 		// Right or Top Bottom). Cinemachine has the same modifier; the
 		// expected designer flow is "default to single-side, hold Shift
 		// when I want a centered zone". Modifier read is one Slate query
@@ -1393,20 +1730,21 @@ void FComposableCameraShotEditorViewportClient::EndDrag()
 	// Final commit - ValueSet change type so host listeners that distinguish
 	// "live drag" from "settled value" (e.g. expensive caches) update only
 	// at the end.
-	if (UObject* Host = ActiveHost.Get())
+	if ((ActiveDragHandleType == EHandleType::OrbitDirection && !bOrbitDragChanged)
+		|| ((ActiveDragHandleType == EHandleType::SubjectOffsetAxis || ActiveDragHandleType == EHandleType::SubjectBoundsFace) && !bSubjectDragChanged))
 	{
-		if (FProperty* ShotProp = ResolveShotEditorProperty(Host, ActiveShot))
-		{
-			FPropertyChangedEvent Event(ShotProp, EPropertyChangeType::ValueSet);
-			Host->PostEditChangeProperty(Event);
-		}
+		if (DragTransaction) DragTransaction->Cancel();
 	}
+	else NotifyCommittedEdit();
 
 	// Drop the transaction - destructor closes it; undo system records the
-	// whole drag as a single step from start (Modify call) to here.
+	// whole drag as a single step from its initial snapshot to here.
 	DragTransaction.Reset();
 
 	ActiveDragHandleType = EHandleType::None;
+	bOrbitDragChanged = false;
+	bSubjectDragChanged = false;
+	ActiveSubjectHandle = {};
 	bActiveDragIsZoneEdge = false;
 	ActiveDragZoneIsSoft = false;
 	ActiveDragZoneEdgeIndex = -1;
@@ -1414,8 +1752,10 @@ void FComposableCameraShotEditorViewportClient::EndDrag()
 
 void FComposableCameraShotEditorViewportClient::StartRollDrag()
 {
-	if (!ActiveShot || !Viewport || bRollDragActive
-		|| ActiveDragHandleType != EHandleType::None)
+	const auto Session = AuthoringSession.Pin();
+	if (!ActiveShot || !ActiveHost.IsValid() || !Viewport || bRollDragActive
+		|| ActiveDragHandleType != EHandleType::None
+		|| (Session && !Session->CanEdit()))
 	{
 		return; // can't start - no Shot, or already mid-gesture
 	}
@@ -1426,7 +1766,7 @@ void FComposableCameraShotEditorViewportClient::StartRollDrag()
 		// Same SaveToTransactionBuffer-bypass-Modify pattern as the LMB
 		// handle drag (see InputKey LMB branch + TechDoc Section 7.2). For a
 		// Sequencer Section host, `Modify()` broadcasts OnObjectModified
-		// -> Sequencer invalidates eval cache -> Spawnable re-spawn -> 
+		// -> Sequencer invalidates eval cache -> Spawnable re-spawn ->
 		// one-frame A-pose flash on every mid-drag write. The bypass
 		// records the undo snapshot only; EndRollDrag's
 		// PostEditChangeProperty(ValueSet) is the single broadcast.
@@ -1438,8 +1778,18 @@ void FComposableCameraShotEditorViewportClient::StartRollDrag()
 
 void FComposableCameraShotEditorViewportClient::ApplyRollDrag(int32 PixelX)
 {
-	if (!bRollDragActive || !ActiveShot)
+	if (!bRollDragActive) return;
+	if (!ActiveShot || !ActiveHost.IsValid())
 	{
+		if (RollTransaction) RollTransaction->Cancel();
+		RollTransaction.Reset();
+		bRollDragActive = false;
+		return;
+	}
+	const auto Session = AuthoringSession.Pin();
+	if (Session && !Session->CanEdit())
+	{
+		EndRollDrag();
 		return;
 	}
 
@@ -1453,6 +1803,7 @@ void FComposableCameraShotEditorViewportClient::ApplyRollDrag(int32 PixelX)
 	if (DeltaX != 0)
 	{
 		ActiveShot->Roll = FMath::UnwindDegrees(ActiveShot->Roll + DeltaX * RollDegPerPixel);
+		NotifyInteractiveEdit();
 		// No PostEditChangeProperty(Interactive) per frame - same
 		// rationale as ApplyDragToShot. Drag mode picks up Shot.Roll
 		// via the per-tick solver; Free mode picks it up via the
@@ -1470,14 +1821,7 @@ void FComposableCameraShotEditorViewportClient::EndRollDrag()
 		return;
 	}
 
-	if (UObject* Host = ActiveHost.Get())
-	{
-		if (FProperty* ShotProp = ResolveShotEditorProperty(Host, ActiveShot))
-		{
-			FPropertyChangedEvent Event(ShotProp, EPropertyChangeType::ValueSet);
-			Host->PostEditChangeProperty(Event);
-		}
-	}
+	NotifyCommittedEdit();
 
 	RollTransaction.Reset();
 	bRollDragActive = false;
@@ -1485,6 +1829,9 @@ void FComposableCameraShotEditorViewportClient::EndRollDrag()
 
 bool FComposableCameraShotEditorViewportClient::TryAdjustDistanceFromMouseWheel(bool bScrollUp)
 {
+	// Wheel must not nest a transaction or emit a commit halfway through a captured gesture.
+	if (IsEditingGesture()) return false;
+	if (TSharedPtr<FComposableCameraShotAuthoringSession> Session = AuthoringSession.Pin(); Session && !Session->CanEdit()) return false;
 	if (!ActiveShot)
 	{
 		return false;
@@ -1528,7 +1875,7 @@ bool FComposableCameraShotEditorViewportClient::TryAdjustDistanceFromMouseWheel(
 	// solver's pre-flight floor (1cm); upper bound is the 100m soft cap
 	// against scroll-spam (Shift+wheel reaches 1e9 in ~10 clicks
 	// otherwise). UPROPERTY meta clamps the Details-panel slider to the
-	// same range, but meta doesn't enforce on direct field writes - 
+	// same range, but meta doesn't enforce on direct field writes -
 	// gesture writers must opt in explicitly.
 	const float ClampedDistance = FMath::Clamp(NewDistance, FShotPlacement::MinDistance, FShotPlacement::MaxDistance);
 
@@ -1541,53 +1888,49 @@ bool FComposableCameraShotEditorViewportClient::TryAdjustDistanceFromMouseWheel(
 
 	UObject* Host = ActiveHost.Get();
 	{
-		// Per-click atomic transaction. Unlike the handle drag (which
-		// uses `SaveToTransactionBuffer` + deferred `PostEditChangeProperty`
-		// to avoid Sequencer's mid-gesture re-spawn flash), wheel events
-		// are atomic - one click = one commit - so the standard
-		// Modify + ValueSet pattern is appropriate; the flash, if any,
-		// happens once per click and immediately settles, matching what
-		// dragging the Distance slider in the Details panel produces.
+		// One wheel click = one undo step. Snapshot without broadcasting
+		// OnObjectModified; release emits one session-aware scalar commit.
 		FScopedTransaction Tx(LOCTEXT("WheelAdjustShotDistance", "Adjust Shot Distance"));
 		if (Host)
 		{
-			Host->Modify();
+			SaveToTransactionBuffer(Host, /*bMarkDirty=*/false);
 		}
 		ActiveShot->Placement.Distance = ClampedDistance;
-		if (Host)
-		{
-			if (FProperty* ShotProp = ResolveShotEditorProperty(Host, ActiveShot))
-			{
-				FPropertyChangedEvent Event(ShotProp, EPropertyChangeType::ValueSet);
-				Host->PostEditChangeProperty(Event);
-			}
-		}
+		NotifyCommittedEdit();
 	}
 	return true;
 }
 
+EMouseCursor::Type FComposableCameraShotEditorViewportClient::GetCursor(FViewport* InViewport, int32 X, int32 Y)
+{
+	if (bShowCompositionGuides && (ShowOrbitControl() || ShowSubjectGuides()))
+	{
+		const auto Session = AuthoringSession.Pin();
+		if (CurrentMode == EShotEditorMode::Drag && (!Session || Session->CanEdit()))
+		{
+			if (ActiveDragHandleType == EHandleType::OrbitDirection || ActiveDragHandleType == EHandleType::SubjectOffsetAxis
+				|| ActiveDragHandleType == EHandleType::SubjectBoundsFace) return EMouseCursor::GrabHandClosed;
+			FHandleScreenPosCache Hit;
+			if (HitTestHandles(X, Y, Hit) && (Hit.Type == EHandleType::OrbitDirection || Hit.Type == EHandleType::SubjectOffsetAxis
+				|| Hit.Type == EHandleType::SubjectBoundsFace)) return EMouseCursor::GrabHand;
+		}
+	}
+	return FEditorViewportClient::GetCursor(InViewport, X, Y);
+}
+
 bool FComposableCameraShotEditorViewportClient::InputKey(const FInputKeyEventArgs& EventArgs)
 {
-	// Lock mode: eat all MOUSE input (no handle drag, no camera control,
-	// no scroll-zoom) but let KEYBOARD events fall through to the base
-	// class. Reasoning: keyboard events that reach the viewport client
-	// only do so when the viewport widget is focused; the Details panel's
-	// SEditableTextBox / numeric input widgets handle their own keyboard
-	// via OnKeyChar/OnKeyDown and never reach us. But editor-wide
-	// shortcuts (Ctrl+Z undo, Ctrl+S save, etc.) DO route through
-	// FEditorViewportClient::InputKey when the viewport is focused, and
-	// blocking those during Lock would silently break workflows that
-	// involve Lock-then-Ctrl+Z. Mouse-only eat keeps Lock honest about
-	// "no viewport interaction" without surprising keyboard side-effects.
-	if (CurrentMode == EShotEditorMode::Lock)
+	const auto Session = AuthoringSession.Pin();
+	const bool bReadOnly = Session && !Session->CanEdit();
+	// Release can arrive after a lock change and before Tick closes the gesture.
+	if (EventArgs.Event == IE_Released)
 	{
-		if (EventArgs.Key.IsMouseButton())
-		{
-			return true;
-		}
-		return FEditorViewportClient::InputKey(EventArgs);
+		if (EventArgs.Key == EKeys::RightMouseButton && bRollDragActive) { EndRollDrag(); return true; }
+		if (EventArgs.Key == EKeys::LeftMouseButton && ActiveDragHandleType != EHandleType::None) { EndDrag(); return true; }
 	}
-
+	// Read-only authoring disables mouse writes; keyboard shortcuts still route normally.
+	// Inspect retains native camera navigation, including Alt+RMB dolly when Roll cannot be authored.
+	if (bReadOnly && CurrentMode != EShotEditorMode::Free && EventArgs.Key.IsMouseButton()) return true;
 	// Helper: is Alt currently held? Used by the Alt+RMB Roll path.
 	const auto IsAltHeld = [&]() -> bool
 	{
@@ -1596,8 +1939,8 @@ bool FComposableCameraShotEditorViewportClient::InputKey(const FInputKeyEventArg
 				|| Viewport->KeyState(EKeys::RightAlt));
 	};
 
-	// Alt+RMB Roll drag - supported in Drag and Free modes (Lock eats all
-	// mouse input above). Detected at the top so it preempts the
+	// Alt+RMB Roll drag - supported in Drag and Free modes.
+	// Detected at the top so it preempts the
 	// mode-specific mouse-handling branches below: in Drag mode it runs
 	// before the catch-all "eat all mouse buttons" guard; in Free mode it
 	// runs before the fall-through to base-class RMB-look. The
@@ -1608,18 +1951,11 @@ bool FComposableCameraShotEditorViewportClient::InputKey(const FInputKeyEventArg
 	// Returning `true` on the press makes Slate capture the mouse for us
 	// (same path the LMB handle drag uses), so CapturedMouseMove fires for
 	// the gesture's motion regardless of which mode we're in.
-	if (CurrentMode != EShotEditorMode::Lock
-		&& EventArgs.Key == EKeys::RightMouseButton
-		&& Viewport)
+	if (EventArgs.Key == EKeys::RightMouseButton && Viewport)
 	{
-		if (EventArgs.Event == IE_Pressed && IsAltHeld() && !bRollDragActive)
+		if (EventArgs.Event == IE_Pressed && IsAltHeld() && !bRollDragActive && !bReadOnly)
 		{
 			StartRollDrag();
-			return true;
-		}
-		if (EventArgs.Event == IE_Released && bRollDragActive)
-		{
-			EndRollDrag();
 			return true;
 		}
 	}
@@ -1638,36 +1974,7 @@ bool FComposableCameraShotEditorViewportClient::InputKey(const FInputKeyEventArg
 				FHandleScreenPosCache Hit;
 				if (HitTestHandles(Viewport->GetMouseX(), Viewport->GetMouseY(), Hit))
 				{
-					// Start handle drag - begin a transaction so the whole
-					// gesture undoes as one entry, snapshot host state for undo.
-					// Title differs slightly between anchor / zone-edge so the
-					// undo history is informative ("Drag Shot Screen Position"
-					// vs "Resize Framing Zone").
-					DragTransaction = MakeUnique<FScopedTransaction>(Hit.bIsZoneEdge
-						? LOCTEXT("DragShotZoneEdge", "Resize Framing Zone")
-						: LOCTEXT("DragShotScreenPosition", "Drag Shot Screen Position"));
-					if (UObject* Host = ActiveHost.Get())
-					{
-						// CRITICAL: bypass UObject::Modify and call
-						// SaveToTransactionBuffer directly. Modify(true) calls
-						// UMovieSceneSignedObject::MarkAsChanged -> 
-						// OnSignatureChangedEvent broadcast->Sequencer
-						// invalidates evaluation cache -> Spawnable re-spawn -> 
-						// fresh actor at ref pose for one tick->SyncProxyTransforms
-						// reads that ref pose -> preview A-pose flash. Even
-						// Modify(false) broadcasts FCoreUObjectDelegates::OnObjectModified
-						// (Obj.cpp line 1544, unconditional regardless of
-						// bAlwaysMarkDirty), and Sequencer also reacts to that.
-						// SaveToTransactionBuffer is the bare-bones path - 
-						// records undo snapshot only, no broadcasts. EndDrag's
-						// PostEditChangeProperty(ValueSet) signals everything
-						// in one shot at commit, which is the right time.
-						SaveToTransactionBuffer(Host, /*bMarkDirty=*/false);
-					}
-					ActiveDragHandleType = Hit.Type;
-					bActiveDragIsZoneEdge = Hit.bIsZoneEdge;
-					ActiveDragZoneIsSoft = Hit.bIsSoftZone;
-					ActiveDragZoneEdgeIndex = Hit.EdgeIndex;
+					StartHandleDrag(Hit, Viewport->GetMouseX(), Viewport->GetMouseY());
 					return true;
 				}
 				// LMB pressed off-handle in Drag mode -> eat so base class
@@ -1742,7 +2049,7 @@ void FComposableCameraShotEditorViewportClient::MouseMove(FViewport* InViewport,
 	FEditorViewportClient::MouseMove(InViewport, X, Y);
 
 	// Hover detection - only meaningful in Drag mode (handles are
-	// non-interactive in Free / Lock).
+	// non-interactive in Free).
 	if (CurrentMode != EShotEditorMode::Drag
 		|| ActiveDragHandleType != EHandleType::None)
 	{
@@ -1759,6 +2066,9 @@ void FComposableCameraShotEditorViewportClient::MouseMove(FViewport* InViewport,
 		bHoveredIsZoneEdge = Hit.bIsZoneEdge;
 		HoveredZoneIsSoft = Hit.bIsSoftZone;
 		HoveredZoneEdgeIndex = Hit.EdgeIndex;
+		HoveredSubjectIndex = Hit.SubjectIndex;
+		HoveredSubjectAxis = Hit.AxisIndex;
+		HoveredSubjectFaceSign = Hit.FaceSign;
 	}
 	else
 	{
@@ -1783,6 +2093,7 @@ EShotEditorReverseSolveStatus FComposableCameraShotEditorViewportClient::Diagnos
 	{
 		return EShotEditorReverseSolveStatus::NoActiveShot;
 	}
+	if (TSharedPtr<FComposableCameraShotAuthoringSession> Session = AuthoringSession.Pin(); Session && !Session->CanEdit()) return EShotEditorReverseSolveStatus::SourceReadOnly;
 
 	FComposableCameraShot EffectiveShot;
 	if (!BuildEffectiveShotForPreview(EffectiveShot))
@@ -1819,6 +2130,7 @@ EShotEditorReverseSolveStatus FComposableCameraShotEditorViewportClient::Diagnos
 
 bool FComposableCameraShotEditorViewportClient::CanReverseSolveCurrentCamera() const
 {
+	if (TSharedPtr<FComposableCameraShotAuthoringSession> Session = AuthoringSession.Pin(); Session && !Session->CanEdit()) return false;
 	return DiagnoseReverseSolveCurrentCamera() == EShotEditorReverseSolveStatus::Ok;
 }
 
@@ -1843,12 +2155,15 @@ FText ShotEditorReverseSolveStatusToText(EShotEditorReverseSolveStatus Status)
 	case EShotEditorReverseSolveStatus::PlacementAnchorBehindCamera:
 		return LOCTEXT("ReverseSolveStatus_PlacementAnchorBehindCamera",
 			"Placement anchor is at or behind the camera - move the camera so the anchor is in front of it.");
+	case EShotEditorReverseSolveStatus::SourceReadOnly:
+		return LOCTEXT("ReverseSolveStatus_SourceReadOnly", "The Shot section or its sequence is locked.");
 	}
 	return FText::GetEmpty();
 }
 
 bool FComposableCameraShotEditorViewportClient::ReverseSolveCurrentCameraToShot()
 {
+	if (TSharedPtr<FComposableCameraShotAuthoringSession> Session = AuthoringSession.Pin(); Session && !Session->CanEdit()) return false;
 	using namespace ComposableCameraSystem::ShotSolver;
 
 	if (!Viewport)
@@ -1876,10 +2191,7 @@ bool FComposableCameraShotEditorViewportClient::ReverseSolveCurrentCameraToShot(
 	const FVector CameraPosition = GetViewLocation();
 	const FRotator CameraRotation = GetViewRotation();
 	const float FieldOfView = ViewFOV;
-	const FIntPoint ViewportSize = Viewport->GetSizeXY();
-	const float ViewportAspectRatio = (ViewportSize.Y > 0)
-		? static_cast<float>(ViewportSize.X) / static_cast<float>(ViewportSize.Y)
-		: 16.f / 9.f;
+	const float ViewportAspectRatio = GetCameraAspectRatio();
 	const float TanHalfHorizontalFOV = FMath::Tan(FMath::DegreesToRadians(FieldOfView * 0.5f));
 	const float TanHalfVerticalFOV = TanHalfHorizontalFOV / ViewportAspectRatio;
 
@@ -1954,7 +2266,7 @@ bool FComposableCameraShotEditorViewportClient::ReverseSolveCurrentCameraToShot(
 		UObject* Host = ActiveHost.Get();
 		if (Host)
 		{
-			Host->Modify();
+			SaveToTransactionBuffer(Host, /*bMarkDirty=*/false);
 		}
 
 		switch (PlacementMode)
@@ -1980,14 +2292,7 @@ bool FComposableCameraShotEditorViewportClient::ReverseSolveCurrentCameraToShot(
 			ActiveShot->Lens.ManualFOV = FieldOfView;
 		}
 
-		if (Host)
-		{
-			if (FProperty* ShotProp = ResolveShotEditorProperty(Host, ActiveShot))
-			{
-				FPropertyChangedEvent Event(ShotProp, EPropertyChangeType::ValueSet);
-				Host->PostEditChangeProperty(Event);
-			}
-		}
+		NotifyCommittedEdit();
 	}
 
 	return true;
@@ -2008,15 +2313,21 @@ void FComposableCameraShotEditorViewportClient::RebuildProxies()
 	ProxyActors.Reserve(ActiveShot->Targets.Num());
 	LastResolvedSources.Reset(ActiveShot->Targets.Num());
 	LastResolvedPreviewMeshes.Reset(ActiveShot->Targets.Num());
+	LastResolvedComponentNames.Reset(ActiveShot->Targets.Num());
 	for (int32 i = 0; i < ActiveShot->Targets.Num(); ++i)
 	{
 		AActor* Source = ResolveSourceActorForTargetIndex(i);
 		USkeletalMesh* PreviewMesh = ResolvePreviewMeshForTargetIndex(i);
 		const FTransform PreviewTransform = ResolvePreviewTransformForTargetIndex(i);
-		AActor* Proxy = SpawnProxyForTarget(Source, PreviewMesh, PreviewTransform);
+		FTransform MeshRelative = FTransform::Identity;
+#if WITH_EDITORONLY_DATA
+		MeshRelative = ActiveShot->Targets[i].Target.EditorPreviewMeshRelativeTransform;
+#endif
+		AActor* Proxy = SpawnProxyForTarget(Source, PreviewMesh, PreviewTransform, ActiveShot->Targets[i].Target.ComponentName, MeshRelative);
 		ProxyActors.Add(Proxy);
 		LastResolvedSources.Add(Source);
 		LastResolvedPreviewMeshes.Add(PreviewMesh);
+		LastResolvedComponentNames.Add(ActiveShot->Targets[i].Target.ComponentName);
 	}
 }
 
@@ -2032,6 +2343,7 @@ void FComposableCameraShotEditorViewportClient::DestroyProxies()
 	ProxyActors.Reset();
 	LastResolvedSources.Reset();
 	LastResolvedPreviewMeshes.Reset();
+	LastResolvedComponentNames.Reset();
 }
 
 void FComposableCameraShotEditorViewportClient::SyncProxyTransforms()
@@ -2065,6 +2377,10 @@ void FComposableCameraShotEditorViewportClient::SyncProxyTransforms()
 			if (ResolvePreviewMeshForTargetIndex(i))
 			{
 				Proxy->SetActorTransform(PreviewTransform);
+#if WITH_EDITORONLY_DATA
+				if (USkeletalMeshComponent* Mesh = Proxy->FindComponentByClass<USkeletalMeshComponent>())
+					Mesh->SetRelativeTransform(ActiveShot->Targets[i].Target.EditorPreviewMeshRelativeTransform);
+#endif
 			}
 			else
 			{
@@ -2083,7 +2399,7 @@ void FComposableCameraShotEditorViewportClient::SyncProxyTransforms()
 		// source mesh on every frame (without this, ACharacter sources end
 		// up 88cm higher in the preview than they are in the level).
 		FTransform SrcTransform;
-		if (USkeletalMeshComponent* SrcSK = Source->FindComponentByClass<USkeletalMeshComponent>())
+		if (USkeletalMeshComponent* SrcSK = ResolveSourceMesh<USkeletalMeshComponent>(Source, ActiveShot->Targets[i].Target.ComponentName))
 		{
 			SrcTransform = SrcSK->GetComponentTransform();
 
@@ -2109,7 +2425,7 @@ void FComposableCameraShotEditorViewportClient::SyncProxyTransforms()
 				}
 			}
 		}
-		else if (UStaticMeshComponent* SrcSM = Source->FindComponentByClass<UStaticMeshComponent>())
+		else if (UStaticMeshComponent* SrcSM = ResolveSourceMesh<UStaticMeshComponent>(Source, ActiveShot->Targets[i].Target.ComponentName))
 		{
 			SrcTransform = SrcSM->GetComponentTransform();
 		}
@@ -2135,12 +2451,30 @@ void FComposableCameraShotEditorViewportClient::RunSolverAndDriveCamera(float De
 	{
 		return;
 	}
+	if (bUseLevelWorld && CurrentMode != EShotEditorMode::Free)
+	{
+		if (UCineCameraComponent* Camera = OutputCamera.Get())
+		{
+			FMinimalViewInfo ViewInfo;
+			Camera->GetCameraView(0.f, ViewInfo);
+			ControllingActorViewInfo = ViewInfo;
+			ControllingActorViewInfo.bConstrainAspectRatio = true;
+			ControllingActorViewInfo.AspectRatio = GetCameraAspectRatio();
+			SetViewLocation(ViewInfo.Location);
+			SetViewRotation(ViewInfo.Rotation);
+			ViewFOV = ViewInfo.FOV;
+			CachedFocusDistance = Camera->CurrentFocusDistance;
+			CachedAperture = Camera->CurrentAperture;
+			bCachedDoFValid = true;
+			return;
+		}
+	}
+	// Detached templates and free inspection retain the configured camera aspect.
+	ControllingActorViewInfo.bConstrainAspectRatio = true;
+	ControllingActorViewInfo.AspectRatio = GetCameraAspectRatio();
 
 	FShotSolveContext Context;
-	const FIntPoint VPSize = Viewport->GetSizeXY();
-	Context.ViewportAspectRatio = (VPSize.Y > 0)
-		? static_cast<float>(VPSize.X) / static_cast<float>(VPSize.Y)
-		: 16.f / 9.f;
+	Context.ViewportAspectRatio = GetCameraAspectRatio();
 	// Use the current ViewFOV as the previous-frame FOV - the solver's
 	// SolvedFromBoundsFit mode converges in 1-2 frames; Manual mode ignores it.
 	Context.PreviousFrameFOV = ViewFOV;
@@ -2293,6 +2627,7 @@ void FComposableCameraShotEditorViewportClient::RunSolverAndDriveCamera(float De
 
 AActor* FComposableCameraShotEditorViewportClient::ResolveSourceActorForTargetIndex(int32 TargetIndex) const
 {
+	if (TSharedPtr<FComposableCameraShotAuthoringSession> Session = AuthoringSession.Pin()) return Session->ResolveTarget(TargetIndex);
 	if (!ActiveShot || !ActiveShot->Targets.IsValidIndex(TargetIndex))
 	{
 		return nullptr;
@@ -2394,24 +2729,9 @@ FTransform FComposableCameraShotEditorViewportClient::ResolvePreviewTransformFor
 #endif
 }
 
-bool FComposableCameraShotEditorViewportClient::BuildEffectiveShotForPreview(FComposableCameraShot& OutShot) const
+bool FComposableCameraShotEditorViewportClient::EnsureEffectiveShotCache() const
 {
-	// Per-frame cache fast path (Polish P.2). When the cache is valid for
-	// this tick, copy out from cache and skip the per-target Sequencer-
-	// override resolution - the dominant cost on the prior path. The
-	// struct copy itself still runs (caller owns OutShot and may mutate
-	// it), but it's a memcpy-shape transfer plus one TArray heap alloc
-	// for the Targets array, which is unavoidable given the existing
-	// API contract.
-	if (bEffectiveShotCacheValid)
-	{
-		if (bEffectiveShotCacheBuiltOk)
-		{
-			OutShot = CachedEffectiveShot;
-			return true;
-		}
-		return false;
-	}
+	if (bEffectiveShotCacheValid) return bEffectiveShotCacheBuiltOk;
 
 	if (!ActiveShot)
 	{
@@ -2420,12 +2740,8 @@ bool FComposableCameraShotEditorViewportClient::BuildEffectiveShotForPreview(FCo
 		return false;
 	}
 
-	// Build directly into the cache, then copy to OutShot. Two struct
-	// copies on the cache-miss path (one into cache, one out to caller)
-	// vs. one on the warm path - the miss happens at most once per tick
-	// while the hit happens 5+ times, net win. Building straight into
-	// cache (vs. caller-buffer-then-cache) is simpler and lets later
-	// hits reuse without re-running ResolveSourceActorForTargetIndex.
+	// Keep one resolved value buffer per frame. Read-only HUD cards borrow it;
+	// solver and existing callers still receive independent mutable copies.
 	if (UMovieSceneComposableCameraShotSection* Section =
 			Cast<UMovieSceneComposableCameraShotSection>(ActiveHost.Get()))
 	{
@@ -2442,6 +2758,11 @@ bool FComposableCameraShotEditorViewportClient::BuildEffectiveShotForPreview(FCo
 	}
 	for (int32 i = 0; i < CachedEffectiveShot.Targets.Num(); ++i)
 	{
+		bool bExplicitBinding = false;
+		if (const auto* Section = Cast<UMovieSceneComposableCameraShotSection>(ActiveHost.Get()))
+			for (const auto& Override : Section->TargetActorOverrides)
+				bExplicitBinding |= Override.TargetIndex == i && Override.Binding.IsValid();
+		CachedEffectiveShot.Targets[i].Target.Actor.Reset();
 		// `ResolveSourceActorForTargetIndex` already encapsulates the
 		// override->placeholder -> null fallback chain. Assigning a raw
 		// AActor* into the soft-pointer captures the actor's path so the
@@ -2454,11 +2775,14 @@ bool FComposableCameraShotEditorViewportClient::BuildEffectiveShotForPreview(FCo
 			CachedEffectiveShot.Targets[i].Target.Actor = Resolved;
 		}
 #if WITH_EDITORONLY_DATA
-		else if (ResolvePreviewMeshForTargetIndex(i) && ProxyActors.IsValidIndex(i))
+		else if (!bUseLevelWorld && !bExplicitBinding && ResolvePreviewMeshForTargetIndex(i) && ProxyActors.IsValidIndex(i))
 		{
 			if (AActor* Proxy = ProxyActors[i].Get())
 			{
 				CachedEffectiveShot.Targets[i].Target.Actor = Proxy;
+				// A template proxy has a single mesh; the named source component does not exist in this world.
+				if (!CachedEffectiveShot.Targets[i].Target.ComponentName.IsNone())
+					if (const USkeletalMeshComponent* Mesh = Proxy->FindComponentByClass<USkeletalMeshComponent>()) CachedEffectiveShot.Targets[i].Target.ComponentName = Mesh->GetFName();
 			}
 		}
 #endif
@@ -2466,13 +2790,19 @@ bool FComposableCameraShotEditorViewportClient::BuildEffectiveShotForPreview(FCo
 
 	bEffectiveShotCacheValid = true;
 	bEffectiveShotCacheBuiltOk = true;
+	return true;
+}
+
+bool FComposableCameraShotEditorViewportClient::BuildEffectiveShotForPreview(FComposableCameraShot& OutShot) const
+{
+	if (!EnsureEffectiveShotCache()) return false;
 	OutShot = CachedEffectiveShot;
 	return true;
 }
 
 AActor* FComposableCameraShotEditorViewportClient::SpawnProxyForTarget(AActor* SourceActor,
 	USkeletalMesh* PreviewMesh,
-	const FTransform& PreviewTransform)
+	const FTransform& PreviewTransform, FName ComponentName, const FTransform& MeshRelativeTransform)
 {
 	if (!PreviewScene)
 	{
@@ -2504,7 +2834,7 @@ AActor* FComposableCameraShotEditorViewportClient::SpawnProxyForTarget(AActor* S
 	// Idle / locomotion) until a per-bone copy alternative is wired up.
 	if (SourceActor)
 	{
-		if (USkeletalMeshComponent* SourceSK = SourceActor->FindComponentByClass<USkeletalMeshComponent>())
+		if (USkeletalMeshComponent* SourceSK = ResolveSourceMesh<USkeletalMeshComponent>(SourceActor, ComponentName))
 		{
 			if (USkeletalMesh* Mesh = SourceSK->GetSkeletalMeshAsset())
 			{
@@ -2566,7 +2896,7 @@ AActor* FComposableCameraShotEditorViewportClient::SpawnProxyForTarget(AActor* S
 		}
 
 		// 2. Static mesh? Mid fidelity - copy the SM asset.
-		if (UStaticMeshComponent* SourceSM = SourceActor->FindComponentByClass<UStaticMeshComponent>())
+		if (UStaticMeshComponent* SourceSM = ResolveSourceMesh<UStaticMeshComponent>(SourceActor, ComponentName))
 		{
 			if (UStaticMesh* Mesh = SourceSM->GetStaticMesh())
 			{
@@ -2592,6 +2922,11 @@ AActor* FComposableCameraShotEditorViewportClient::SpawnProxyForTarget(AActor* S
 		if (Proxy && Proxy->GetSkeletalMeshComponent())
 		{
 			USkeletalMeshComponent* ProxySK = Proxy->GetSkeletalMeshComponent();
+			USceneComponent* ActorRoot = NewObject<USceneComponent>(Proxy, TEXT("PreviewActorRoot"), RF_Transient);
+			Proxy->SetRootComponent(ActorRoot);
+			ActorRoot->RegisterComponent();
+			ProxySK->AttachToComponent(ActorRoot, FAttachmentTransformRules::KeepRelativeTransform);
+			ProxySK->SetRelativeTransform(MeshRelativeTransform);
 			Proxy->SetActorTransform(PreviewTransform);
 			ProxySK->SetSkeletalMeshAsset(PreviewMesh);
 			ProxySK->SetAnimationMode(EAnimationMode::AnimationSingleNode);

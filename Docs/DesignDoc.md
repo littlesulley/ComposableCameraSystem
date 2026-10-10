@@ -444,6 +444,13 @@ actor path. It:
 - applies Sequencer patch overlays after camera tick.
 - projects the final pose to a `UCineCameraComponent`.
 
+Paused Shot authoring refresh uses the same component pipeline. The editor-only
+`RefreshShotEditorPreview` replaces the Shot value of an already registered
+section, preserves row/transition/alpha, invalidates only this isolated camera's
+frame cache, and evaluates at zero delta. It never registers an out-of-range
+section. Editing an inactive pinned Shot uses the standalone solver preview;
+it does not drive a different active camera.
+
 This path shares type assets, nodes, runtime data blocks, parameter blocks,
 shots, and patches with gameplay. It skips PCM-specific behavior such as
 actions that require an owning player camera manager.
@@ -468,6 +475,28 @@ Shot sections can store inline data or reference a shot asset with a
 section-local override copy. Target actor overrides bind shot target indices to
 Sequencer bindings. Overlapping shot sections blend by the incoming section's
 enter transition and the overlap duration.
+
+Targets optionally name a scene component. None preserves actor/auto-mesh
+resolution; a missing explicit component fails resolution instead of selecting
+another component. Bone/socket lookup is limited to the selected skeletal mesh.
+Automatic bounds use that selected primitive, or the legacy preferred mesh when
+None. Bounds cache identity includes actor and component selection, including
+the transition back to None.
+
+`FComposableCameraTargetInfo::ResolvePivotTransform` exposes this same unoffset
+actor/component/bone frame with unit scale. `ResolveWorldPoint` adds Offset to
+that frame, rotating it only for local-space offsets. Runtime consumers and
+editor offset gizmos therefore share PIE resolution, selected-component failure
+and bone/socket fallback. Failure preserves the caller's output frame/point;
+the optional used-bone result still resets to false. Placement heading remains
+the separate `ResolveBasisQuat` contract.
+
+`Placement.TwoTargetAxis` derives horizontal forward from two resolved target
+pivots and retains world up. It ignores actor headings, so shoulder/reverse
+templates follow the relationship between subjects. Missing or coincident
+pivots fall back to world identity. Existing World/InheritFromActor enum values
+remain unchanged. V1 authoring still writes `FComposableCameraShot`; support for
+native camera actors and independent free-pose shots remains future work.
 
 ## 14. Debugging
 
