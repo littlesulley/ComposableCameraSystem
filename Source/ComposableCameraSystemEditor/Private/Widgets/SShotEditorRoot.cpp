@@ -13,14 +13,17 @@
 #include "Widgets/SShotEditorPreviewFrame.h"
 #include "Widgets/SShotEditorPreviewLayout.h"
 #include "ISequencer.h"
-#include "MovieScene/MovieSceneComposableCameraShotTrack.h"
-#include "Sections/MovieSceneCameraCutSection.h"
-#include "Tracks/MovieSceneCameraCutTrack.h"
+#include "Sequencer/ComposableCameraInstanceTrackEditor.h"
+#include "MovieScene/ComposableCameraInstanceData.h"
+#include "MovieScene/MovieSceneComposableCameraInstanceTrack.h"
+#include "Widgets/Layout/SWidgetSwitcher.h"
 #include "Editors/ComposableCameraShotEditorHistory.h"
 #include "FileHelpers.h"
 #include "Framework/Application/SlateApplication.h"
 #include "Framework/MultiBox/MultiBoxBuilder.h"
 #include "IDetailsView.h"
+#include "GameFramework/Actor.h"
+#include "UObject/UnrealType.h"
 #include "IStructureDetailsView.h"
 #include "LevelSequence.h"
 #include "Modules/ModuleManager.h"
@@ -58,16 +61,9 @@
 
 #define LOCTEXT_NAMESPACE "SShotEditorRoot"
 
-namespace
+void SShotEditorRoot::Construct(const FArguments& InArgs)
 {
-	constexpr const TCHAR* kShotEditorLayoutConfigSection =
-		TEXT("ComposableCameraSystem.ShotEditorLayout");
-	constexpr const TCHAR* kViewportToolbarCollapsedKey =
-		TEXT("ViewportToolbarCollapsed");
-}
-
-void SShotEditorRoot::Construct(const FArguments& /*InArgs*/)
-{
+	bPersistViewState = InArgs._PersistViewState;
 	AuthoringSession = MakeShared<FComposableCameraShotAuthoringSession>();
 	AuthoringSession->OnChanged = [this](bool bStructural) { bAuthoringRefreshPending |= bStructural; };
 	// Build the structure details view BEFORE the Slate tree - its widget
@@ -94,11 +90,29 @@ void SShotEditorRoot::Construct(const FArguments& /*InArgs*/)
 		StructArgs.bShowObjects = true;
 
 		StructureDetailsView = PropertyModule.CreateStructureDetailView(DetailsArgs, StructArgs, /*StructData=*/nullptr);
+		InstanceDetailsView = PropertyModule.CreateDetailView(DetailsArgs);
+		InstanceDetailsView->SetIsPropertyVisibleDelegate(FIsPropertyVisible::CreateLambda([](const FPropertyAndParent& Item)
+		{
+			const FName Name = Item.Property.GetFName();
+			return Name != GET_MEMBER_NAME_CHECKED(UComposableCameraInstanceData, Shot)
+				&& Name != GET_MEMBER_NAME_CHECKED(UComposableCameraInstanceData, Subjects)
+				&& Name != GET_MEMBER_NAME_CHECKED(UComposableCameraInstanceData, bComposition)
+				&& Name != GET_MEMBER_NAME_CHECKED(UComposableCameraInstanceData, SourcePreset);
+		}));
+		InstanceDetailsView->SetIsPropertyReadOnlyDelegate(FIsPropertyReadOnly::CreateLambda([](const FPropertyAndParent& Item)
+		{
+			const auto* Object = CastField<FObjectPropertyBase>(&Item.Property);
+			return Item.Property.GetFName() == GET_MEMBER_NAME_CHECKED(FComposableCameraTypeAssetReference, TypeAsset)
+				|| (Object && Object->PropertyClass->IsChildOf(AActor::StaticClass()));
+		}));
+		InstanceDetailsView->SetIsPropertyEditingEnabledDelegate(FIsPropertyEditingEnabled::CreateLambda([this]() { return AuthoringSession->CanEdit(); }));
 	}
 
 	LoadPersistedLayoutState();
 	const TSharedRef<SWidget> AuthoringPane = BuildDetailsPane();
 	const TSharedRef<SWidget> PreviewPane = BuildViewportPane();
+	Viewport->SetShowDiagnosticHud(bInitialShowHud);
+	Viewport->SetShowCompositionGuides(bInitialShowGuides);
 
 	ChildSlot
 	[SNew(SVerticalBox)
@@ -113,13 +127,15 @@ void SShotEditorRoot::Construct(const FArguments& /*InArgs*/)
 		+ SVerticalBox::Slot()
 		.AutoHeight()
 		.Padding(8.f, 0.f, 8.f, 8.f)
-		[AuthoringPanel->BuildNavigation()]
+		[SNew(SBox).Visibility_Lambda([this]() { return AuthoringSession->IsGenericInstance() ? EVisibility::Collapsed : EVisibility::Visible; })[AuthoringPanel->BuildNavigation()]]
 
 		// Parameters and preview share the full remaining height; divider adjusts widths.
 		+ SVerticalBox::Slot()
 		.FillHeight(1.f)
 		.Padding(8.f, 0.f, 8.f, 8.f)
 		[SNew(SShotEditorPreviewLayout)
+			.AuthoringFraction(AuthoringFraction)
+			.OnAuthoringFractionChanged_Lambda([this](float Value) { AuthoringFraction = Value; SavePersistedLayoutState(); })
 			.Authoring()[AuthoringPane]
 			.Preview()[PreviewPane]]];
 	Viewport->SetAuthoringSession(AuthoringSession);
@@ -127,6 +143,8 @@ void SShotEditorRoot::Construct(const FArguments& /*InArgs*/)
 
 SShotEditorRoot::~SShotEditorRoot()
 {
+	SavePersistedLayoutState();
+	if (bPersistViewState && GConfig) GConfig->Flush(false, GEditorPerProjectIni);
 	AuthoringSession->OnChanged = nullptr;
 	AuthoringSession->EndEdit();
 }
@@ -148,11 +166,20 @@ void SShotEditorRoot::SetActiveShot(FComposableCameraShot* Shot, UObject* HostOb
 	}
 }
 
+bool SShotEditorRoot::StartSequenceDraft(TSharedRef<ISequencer> Sequencer, FString& Error)
+{
+	if (!AuthoringSession->StartSequenceDraft(Sequencer, Error)) return false;
+	ActiveShot = AuthoringSession->GetShot(); ActiveHost = AuthoringSession->GetHost();
+	AuthoringPanel->ShowSubjects();
+	OnActiveShotChanged();
+	return true;
+}
+
 void SShotEditorRoot::Tick(const FGeometry& AllottedGeometry, const double InCurrentTime, const float InDeltaTime)
 {
 	SCompoundWidget::Tick(AllottedGeometry, InCurrentTime, InDeltaTime);
 
-	FollowSequencerPlayhead();
+	AuthoringSession->Tick();
 	FComposableCameraShot* ResolvedShot = AuthoringSession->GetShot();
 	if (ActiveShot != ResolvedShot || ActiveHost.Get() != AuthoringSession->GetHost())
 	{
@@ -169,59 +196,31 @@ void SShotEditorRoot::Tick(const FGeometry& AllottedGeometry, const double InCur
 		RefreshDetailsView();
 		AuthoringPanel->Refresh();
 	}
-	AuthoringSession->Tick();
-}
-
-void SShotEditorRoot::FollowSequencerPlayhead()
-{
-	if (!AuthoringSession->bFollowPlayhead || AuthoringSession->IsEditing() || Viewport->IsEditingGesture()
-		|| (GEditor && GEditor->IsTransactionActive())
-		|| bHasPendingFreeExitMode || Viewport->GetMode() == EShotEditorMode::Free) return;
-	TSharedPtr<ISequencer> Sequencer = AuthoringSession->GetSequencer();
-	UMovieSceneSequence* Sequence = AuthoringSession->GetSequence();
-	if (!Sequencer || !Sequence || Sequencer->GetFocusedMovieSceneSequence() != Sequence) return;
-	UMovieScene* Scene = Sequence->GetMovieScene();
-	const FFrameNumber Time = Sequencer->GetLocalTime().Time.FloorToFrame();
-	FGuid CameraGuid;
-	if (const UMovieSceneCameraCutTrack* Cuts = Cast<UMovieSceneCameraCutTrack>(Scene->GetCameraCutTrack()))
-		for (const UMovieSceneSection* Section : Cuts->GetAllSections())
-			if (Section->IsActive() && Section->GetRange().Contains(Time))
-				if (const auto* Cut = Cast<UMovieSceneCameraCutSection>(Section))
-					if (Cut->GetCameraBindingID().ResolveSequenceID(Sequencer->GetFocusedTemplateID(), *Sequencer) == Sequencer->GetFocusedTemplateID()) CameraGuid = Cut->GetCameraBindingID().GetGuid();
-	// Only local camera bindings can identify a Shot Track in this MovieScene.
-	UMovieSceneComposableCameraShotSection* Candidate = nullptr;
-	UMovieSceneComposableCameraShotSection* Primary = nullptr;
-	for (const FMovieSceneBinding& Binding : Scene->GetBindings())
+	if (!GEditor || !GEditor->IsTransactionActive()) RefreshHostName();
+	// Status visibility changes image geometry. Publish diagnostics only between gestures.
+	if (!AuthoringSession->IsEditing() && !Viewport->IsEditingGesture() && (!GEditor || !GEditor->IsTransactionActive()))
 	{
-		if (CameraGuid.IsValid() && Binding.GetObjectGuid() != CameraGuid) continue;
-		for (UMovieSceneTrack* Track : Binding.GetTracks())
+		const auto Diagnostic = Viewport->GetPreviewDiagnostic();
+		if (!(Diagnostic == CachedDiagnostic))
 		{
-			if (!Track->IsA<UMovieSceneComposableCameraShotTrack>()) continue;
-			if (!CameraGuid.IsValid() && (!AuthoringSession->GetSection() || Track != AuthoringSession->GetSection()->GetOuter())) continue;
-			for (UMovieSceneSection* Section : Track->GetAllSections())
-				if (auto* ShotSection = Cast<UMovieSceneComposableCameraShotSection>(Section); ShotSection && ShotSection->IsActive() && ShotSection->GetRange().Contains(Time))
-				{
-					if (!Primary || ShotSection->GetRowIndex() < Primary->GetRowIndex()) { Candidate = Primary; Primary = ShotSection; }
-					else if (!Candidate || ShotSection->GetRowIndex() < Candidate->GetRowIndex()) Candidate = ShotSection;
-				}
+			CachedDiagnostic = Diagnostic;
+			CachedDiagnosticText = Diagnostic.ToText();
 		}
 	}
-	if (!Candidate) Candidate = Primary;
-	if (Candidate && Candidate != AuthoringSession->GetSection()) SetActiveShot(Candidate->ResolveShotEditorShot(), Candidate);
 }
 
 void SShotEditorRoot::OnActiveShotChanged()
 {
+	CachedDiagnostic = {};
+	CachedDiagnosticText = FText::GetEmpty();
 	bAuthoringRefreshPending = false;
 	ClearPendingFreeExitMode();
 
-	if (HostNameLabel.IsValid())
-	{
-		HostNameLabel->SetText(BuildHostContextChain());
-	}
+	RefreshHostName(true);
 	if (Viewport.IsValid())
 	{
 		Viewport->SetActiveShot(ActiveShot, ActiveHost.Get());
+		if (AuthoringSession->IsSequenceDraft()) Viewport->SetMode(EShotEditorMode::Drag);
 	}
 
 	// Details panel: re-bind to the new Shot (or clear if no Shot bound).
@@ -229,8 +228,20 @@ void SShotEditorRoot::OnActiveShotChanged()
 	if (AuthoringPanel) AuthoringPanel->Refresh();
 }
 
+void SShotEditorRoot::RefreshHostName(bool bForce)
+{
+	const auto* Sequence = AuthoringSession->GetSequence();
+	UMovieScene* Scene = Sequence ? Sequence->GetMovieScene() : nullptr;
+	const FGuid Signature = Scene ? Scene->GetSignature() : FGuid();
+	if (!bForce && HostNameScene.Get() == Scene && HostNameSceneSignature == Signature) return;
+	HostNameScene = Scene;
+	HostNameSceneSignature = Signature;
+	if (HostNameLabel) HostNameLabel->SetText(BuildHostContextChain());
+}
+
 void SShotEditorRoot::RefreshDetailsView()
 {
+	if (InstanceDetailsView) InstanceDetailsView->SetObject(AuthoringSession->IsGenericInstance() ? AuthoringSession->GetInstanceValues() : nullptr, true);
 	if (!StructureDetailsView.IsValid())
 	{
 		return;
@@ -256,8 +267,21 @@ void SShotEditorRoot::RefreshDetailsView()
 
 TSharedRef<SWidget> SShotEditorRoot::BuildDetailsPane()
 {
-	return SAssignNew(AuthoringPanel, SShotEditorAuthoringPanel)
-		.Session(AuthoringSession).NotifyHook(this).AdvancedContent(StructureDetailsView->GetWidget());
+	SAssignNew(AuthoringPanel, SShotEditorAuthoringPanel)
+		.Session(AuthoringSession).NotifyHook(this).AdvancedContent(StructureDetailsView->GetWidget()).PersistViewState(bPersistViewState);
+	return SNew(SWidgetSwitcher).WidgetIndex_Lambda([this]() { return AuthoringSession->IsGenericInstance() ? 1 : 0; })
+		+ SWidgetSwitcher::Slot()[AuthoringPanel.ToSharedRef()]
+		+ SWidgetSwitcher::Slot()[SNew(SVerticalBox)
+			+ SVerticalBox::Slot().AutoHeight().Padding(8.f)
+			[SNew(SComboButton).IsEnabled_Lambda([this]() { return AuthoringSession->CanEdit(); })
+				.OnGetMenuContent_Lambda([this]()
+				{
+					FMenuBuilder Menu(true, nullptr);
+					ComposableCameraSystem::CameraInstanceAuthoring::BuildSubjectsMenu(Menu, AuthoringSession->GetInstanceTrack(), AuthoringSession->GetSequencer());
+					return Menu.MakeWidget();
+				})
+				.ButtonContent()[SNew(STextBlock).Text(LOCTEXT("InstanceSubjects", "Subjects"))]]
+			+ SVerticalBox::Slot().FillHeight(1.f)[InstanceDetailsView.ToSharedRef()]];
 }
 
 TSharedRef<SWidget> SShotEditorRoot::BuildViewportPane()
@@ -353,39 +377,30 @@ FReply SShotEditorRoot::OnViewportToolbarToggleCollapsedClicked()
 void SShotEditorRoot::LoadPersistedLayoutState()
 {
 	using namespace ComposableCameraSystem::ShotEditorLayout;
-
-	TOptional<bool> ViewportToolbarCollapsed;
-
-	if (GConfig)
-	{
-		bool bPersistedViewportToolbarCollapsed = false;
-		if (GConfig->GetBool(kShotEditorLayoutConfigSection,
-			kViewportToolbarCollapsedKey,
-			bPersistedViewportToolbarCollapsed,
-			GEditorPerProjectIni))
-		{
-			ViewportToolbarCollapsed = bPersistedViewportToolbarCollapsed;
-		}
-
-	}
-
-	const FShotEditorLayoutState LayoutState =
-		ResolveLayoutState(ViewportToolbarCollapsed, {});
+	const FShotEditorLayoutState LayoutState = bPersistViewState && GConfig ? ReadLayoutState(*GConfig, GEditorPerProjectIni) : FShotEditorLayoutState{};
 	bViewportToolbarCollapsed = LayoutState.bViewportToolbarCollapsed;
+	AuthoringFraction = LayoutState.AuthoringFraction;
+	bInitialShowHud = LayoutState.bShowHud;
+	bInitialShowGuides = LayoutState.bShowGuides;
 }
 
 void SShotEditorRoot::SavePersistedLayoutState() const
 {
-	if (!GConfig)
+	if (!bPersistViewState || !GConfig)
 	{
 		return;
 	}
 
-	GConfig->SetBool(kShotEditorLayoutConfigSection,
-		kViewportToolbarCollapsedKey,
-		bViewportToolbarCollapsed,
-		GEditorPerProjectIni);
-	GConfig->Flush(/*bRead=*/false, GEditorPerProjectIni);
+	using namespace ComposableCameraSystem::ShotEditorLayout;
+	auto State = ReadLayoutState(*GConfig, GEditorPerProjectIni);
+	State.bViewportToolbarCollapsed = bViewportToolbarCollapsed;
+	State.AuthoringFraction = AuthoringFraction;
+	if (Viewport)
+	{
+		State.bShowHud = Viewport->GetShowDiagnosticHud();
+		State.bShowGuides = Viewport->GetShowCompositionGuides();
+	}
+	WriteLayoutState(*GConfig, GEditorPerProjectIni, State);
 }
 
 void SShotEditorRoot::NotifyPreChange(FProperty* /*PropertyAboutToChange*/)
@@ -479,12 +494,30 @@ namespace
 	};
 }
 
+namespace
+{
+FText BuildInstanceContextChain(const UMovieSceneComposableCameraInstanceTrack& Track)
+{
+	UMovieScene* Scene = Track.GetTypedOuter<UMovieScene>();
+	const auto* Sequence = Track.GetTypedOuter<UMovieSceneSequence>();
+	const FGuid Binding = Track.FindObjectBindingGuid();
+	return FText::Format(LOCTEXT("InstanceBreadcrumb", "{0} / {1}"),
+		FText::FromString(Sequence ? Sequence->GetName() : FString()),
+		Scene && Binding.IsValid() ? Scene->GetObjectDisplayName(Binding) : Track.GetDisplayName());
+}
+}
+
 FText SShotEditorRoot::BuildHostContextChain() const
 {
+	if (const auto* Track = AuthoringSession->GetInstanceTrack())
+		return BuildInstanceContextChain(*Track);
 	if (!ActiveShot)
 	{
-		return LOCTEXT("NoShotLoadedLabel", "Create -> Select subjects -> Use Selected Actors");
+		return LOCTEXT("NoShotLoadedLabel", "Create -> Choose a Shot template or Create Empty Shot");
 	}
+	if (AuthoringSession->IsSequenceDraft())
+		return FText::Format(LOCTEXT("NamedSequenceDraftBreadcrumb", "{0} / {1} (Draft)"),
+			FText::FromString(AuthoringSession->GetSequence()->GetName()), AuthoringSession->GetDraftName());
 
 	UObject* Host = ActiveHost.Get();
 	if (!Host)
@@ -515,7 +548,9 @@ FText SShotEditorRoot::BuildHostContextChain() const
 	// makes sense - the asset is the endpoint).
 	if (const UComposableCameraShotAsset* ShotAsset = Cast<UComposableCameraShotAsset>(Host))
 	{
-		if (ShotAsset->HasAnyFlags(RF_Transient)) return LOCTEXT("DraftShot", "Draft Shot (use Save as Preset to keep it)");
+		if (ShotAsset->HasAnyFlags(RF_Transient))
+			return AuthoringSession->GetDraftName().IsEmpty() ? LOCTEXT("DraftShot", "Draft Shot (use Save as Preset to keep it)")
+				: FText::Format(LOCTEXT("NamedDraftShot", "{0} (Draft)"), AuthoringSession->GetDraftName());
 		return FText::FromString(ShotAsset->GetName());
 	}
 
@@ -766,6 +801,7 @@ TSharedRef<SWidget> SShotEditorRoot::BuildHistoryMenu()
 {
 	FMenuBuilder MenuBuilder(/*bShouldCloseAfterSelect=*/true, /*CommandList=*/nullptr);
 
+	FShotEditorHistory::Get().PruneUnavailable();
 	const TArray<FShotEditorHistoryEntry>& Entries =
 		FShotEditorHistory::Get().GetEntries();
 	if (Entries.IsEmpty())
@@ -780,24 +816,13 @@ TSharedRef<SWidget> SShotEditorRoot::BuildHistoryMenu()
 	{
 		const TWeakObjectPtr<UObject> WeakHost = Entry.Host;
 		const FSoftObjectPath HostPath = Entry.HostPath;
-		const bool bAlive = WeakHost.IsValid();
-		const bool bResolvable = bAlive || HostPath.IsValid();
 
-		// Tooltip distinguishes three states: live (in-session), persisted
-		// (live ref cold but soft path on disk - clicking will load the
-		// asset), and unrecoverable (no path captured, e.g. a host whose
-		// soft path failed to round-trip through the ini).
-		const FText Tooltip = bAlive
-			? LOCTEXT("HistoryAliveTip",
-				"Click to reopen this Shot.")
-			: (HostPath.IsValid()
-				? LOCTEXT("HistoryReloadTip",
-					"Click to reopen this Shot. The host asset will be loaded if it is not already in memory.")
-				: LOCTEXT("HistoryUnrecoverableTip",
-					"This entry is unrecoverable; the captured object path is empty."));
-
-		MenuBuilder.AddMenuEntry(Entry.DisplayLabel,
-			Tooltip,
+		FText DisplayLabel = Entry.DisplayLabel;
+		if (const auto* Instance = Cast<UComposableCameraInstanceData>(WeakHost.Get()))
+			if (const auto* Track = Instance->GetTypedOuter<UMovieSceneComposableCameraInstanceTrack>())
+				DisplayLabel = BuildInstanceContextChain(*Track);
+		MenuBuilder.AddMenuEntry(DisplayLabel,
+			LOCTEXT("HistoryAliveTip", "Click to reopen this Shot."),
 			FSlateIcon(),
 			FUIAction(FExecuteAction::CreateLambda([WeakHost, HostPath]()
 				{
@@ -809,6 +834,12 @@ TSharedRef<SWidget> SShotEditorRoot::BuildHistoryMenu()
 					UObject* Host = FShotEditorHistory::ResolveHost(Snapshot);
 					if (!Host)
 					{
+						FShotEditorHistory::Get().PruneUnavailable();
+						return;
+					}
+					if (const auto* Values = Cast<UComposableCameraInstanceData>(Host))
+					{
+						FComposableCameraShotEditor::OpenForCameraInstance(Values->GetTypedOuter<UMovieSceneComposableCameraInstanceTrack>());
 						return;
 					}
 					// Section host runs through OpenForShotSection so the
@@ -834,9 +865,9 @@ TSharedRef<SWidget> SShotEditorRoot::BuildHistoryMenu()
 					}
 					FComposableCameraShotEditor::OpenForShot(Shot, Host);
 				}),
-				FCanExecuteAction::CreateLambda([bResolvable]()
+				FCanExecuteAction::CreateLambda([WeakHost]()
 				{
-					return bResolvable;
+					return FShotEditorHistory::IsHostAvailable(WeakHost.Get());
 				})));
 	}
 
@@ -1099,6 +1130,13 @@ TSharedRef<SWidget> SShotEditorRoot::BuildStatusBar()
 				.Text(this, &SShotEditorRoot::GetStatusBarText)
 				.AutoWrapText(true)
 				.ColorAndOpacity(this, &SShotEditorRoot::GetStatusBarTextColor)]
+			+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(6.f, 0.f)
+			[SNew(SButton).Tag(FName(TEXT("ShotEditor.RevealDiagnostic")))
+				.Visibility(this, &SShotEditorRoot::GetStatusBarDiagnosticActionVisibility)
+				.IsEnabled(this, &SShotEditorRoot::CanRevealDiagnostic)
+				.OnClicked(this, &SShotEditorRoot::OnRevealDiagnosticClicked)
+				.ToolTipText(LOCTEXT("RevealDiagnosticTip", "Open and highlight the related parameters."))
+				[SNew(STextBlock).Text(LOCTEXT("RevealDiagnostic", "Show parameters"))]]
 
 			+ SHorizontalBox::Slot()
 			.AutoWidth()
@@ -1150,7 +1188,7 @@ EVisibility SShotEditorRoot::GetStatusBarVisibility() const
 			ActiveShot != nullptr,
 			ActiveHost.IsValid(),
 			bHasPendingFreeExitMode,
-			CurrentMode);
+			CurrentMode, CachedDiagnostic.HasIssue());
 	return ComposableCameraSystem::ShotEditorStatusBar::ShouldShowStatusBar(State)
 		? EVisibility::Visible
 		: EVisibility::Collapsed;
@@ -1166,7 +1204,7 @@ EVisibility SShotEditorRoot::GetStatusBarFreeExitActionsVisibility() const
 			ActiveShot != nullptr,
 			ActiveHost.IsValid(),
 			bHasPendingFreeExitMode,
-			CurrentMode);
+			CurrentMode, CachedDiagnostic.HasIssue());
 	return State.Actions == ComposableCameraSystem::ShotEditorStatusBar::EShotEditorStatusBarActions::FreeExit
 		? EVisibility::Visible
 		: EVisibility::Collapsed;
@@ -1182,7 +1220,7 @@ FSlateColor SShotEditorRoot::GetStatusBarBackgroundColor() const
 			ActiveShot != nullptr,
 			ActiveHost.IsValid(),
 			bHasPendingFreeExitMode,
-			CurrentMode);
+			CurrentMode, CachedDiagnostic.HasIssue());
 
 	switch (State.Kind)
 	{
@@ -1206,7 +1244,7 @@ FSlateColor SShotEditorRoot::GetStatusBarTextColor() const
 			ActiveShot != nullptr,
 			ActiveHost.IsValid(),
 			bHasPendingFreeExitMode,
-			CurrentMode);
+			CurrentMode, CachedDiagnostic.HasIssue());
 
 	switch (State.Kind)
 	{
@@ -1230,7 +1268,7 @@ FText SShotEditorRoot::GetStatusBarText() const
 			ActiveShot != nullptr,
 			ActiveHost.IsValid(),
 			bHasPendingFreeExitMode,
-			CurrentMode);
+			CurrentMode, CachedDiagnostic.HasIssue());
 
 	if (State.Actions == ComposableCameraSystem::ShotEditorStatusBar::EShotEditorStatusBarActions::FreeExit)
 	{
@@ -1257,7 +1295,31 @@ FText SShotEditorRoot::GetStatusBarText() const
 			"No Shot loaded. Open a Shot from a CompositionFramingNode, Shot asset, or Sequencer section.");
 	}
 
-	return FText::GetEmpty();
+	return CachedDiagnosticText;
+}
+
+EVisibility SShotEditorRoot::GetStatusBarDiagnosticActionVisibility() const
+{
+	using namespace ComposableCameraSystem::ShotEditorStatusBar;
+	const auto State = ResolveStatusBarState(ActiveShot != nullptr, ActiveHost.IsValid(), bHasPendingFreeExitMode,
+		Viewport ? Viewport->GetMode() : EShotEditorMode::Drag, CachedDiagnostic.HasIssue());
+	return State.Actions == EShotEditorStatusBarActions::Diagnostic ? EVisibility::Visible : EVisibility::Collapsed;
+}
+
+bool SShotEditorRoot::CanRevealDiagnostic() const
+{
+	return Viewport && AuthoringPanel && ActiveShot && ActiveHost.IsValid()
+		&& Viewport->GetPreviewDiagnostic().HasIssue()
+		&& Viewport->GetPreviewDiagnostic() == CachedDiagnostic
+		&& Viewport->GetPreviewDiagnostic().Issue != EShotEditorDiagnosticIssue::SourceUnavailable
+		&& !Viewport->IsEditingGesture() && !AuthoringSession->IsEditing()
+		&& (!GEditor || !GEditor->IsTransactionActive());
+}
+
+FReply SShotEditorRoot::OnRevealDiagnosticClicked()
+{
+	if (CanRevealDiagnostic()) AuthoringPanel->RevealDiagnostic(Viewport->GetPreviewDiagnostic());
+	return FReply::Handled();
 }
 
 FText SShotEditorRoot::GetFreeExitStatusSaveTooltip() const
@@ -1443,6 +1505,7 @@ void SShotEditorRoot::OnViewportDiagnosticHudToggled(ECheckBoxState NewState)
 	if (Viewport.IsValid())
 	{
 		Viewport->SetShowDiagnosticHud(NewState == ECheckBoxState::Checked);
+		SavePersistedLayoutState();
 	}
 }
 
@@ -1470,6 +1533,7 @@ void SShotEditorRoot::OnViewportCompositionGuidesToggled(ECheckBoxState NewState
 	if (Viewport.IsValid())
 	{
 		Viewport->SetShowCompositionGuides(NewState == ECheckBoxState::Checked);
+		SavePersistedLayoutState();
 	}
 }
 

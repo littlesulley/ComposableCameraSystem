@@ -7821,3 +7821,863 @@
   required for the changed viewport header. Run SubjectDeleteIcon,
   SubjectCollection, SubjectGizmos and OrbitControl in editor; inspect the tooltip,
   deletion and absent 3D center point. No shell build/editor/test launch attempted.
+
+## 2026-10-11 - Failed Shot preview can look like a successfully solved view
+
+- Symptom / repro: open an isolated Shot in Compose with a valid pose, then set
+  its used Follow/Aim anchor to an invalid subject slot or unresolved actor/
+  explicit component. The solver returns invalid and keeps the previous view;
+  HUD may be off and the unified status bar has no forward-solve reason. A
+  designer can mistake the retained image for the current composition.
+- History / blast radius: reviewed live-optics-on-pose-failure, mode/read-only
+  compatibility, persistent scalar rows, Subject collection identity, and
+  HUD/Orbit layout entries. Audited native/standalone preview, effective Section
+  bindings, source teardown, Free-exit priority, parameter rows, navigation,
+  splitter callbacks and config ownership. Runtime solve rules remain intact.
+- Root cause: solve validity only controls camera writes. The status bar handles
+  source liveness and reverse solve, but does not receive forward-preview status.
+- Fix: add allocation-free editor diagnostics from the resolved preview Shot and
+  actual standalone solve result. Report the affected subject/anchor and retained
+  pose; identify basis/focus fallback, missing framing bounds and lens limits.
+  Native final output does not claim held standalone pose or interpret its
+  blended/patched FOV as a source clamp. Parameter navigation expands, highlights
+  and scrolls retained rows with gesture guards and no Shot write. Source swaps
+  clear diagnostics; source refresh clears row highlighting.
+- Review finding / fix: publishing warning visibility during a numeric/gizmo
+  gesture would resize the camera image and invalidate captured guide geometry.
+  Cache UI diagnostics only between gestures; disable navigation when cached
+  text and current preview status differ. ActionableDiagnostics exercises warning
+  appearance and recovery through the real root during a session transaction.
+- Companion requested improvement: restore user/project splitter, task/subtab,
+  Subject/native folds and HUD/Guides from GEditorPerProjectIni. Config changes
+  remain outside Shot transactions; cache writes occur on actions, disk flush
+  occurs on root teardown. Defaults/ranges validate persisted values.
+- Files: editor Diagnostics.h/.cpp; ShotEditorViewportClient.h/.cpp;
+  SShotEditorViewport.h/.cpp; SShotEditorRoot.h/.cpp;
+  SShotEditorAuthoringPanel.h/.cpp; SShotEditorParameterPanel.h/.cpp;
+  ShotEditorLayoutState.h, ShotEditorStatusBarUtils.h, SShotEditorPreviewLayout.h;
+  ShotWorkspaceTests.cpp and ShotParameterPanelTests.cpp; EditorDesignDoc,
+  TechDoc, ShotBasedKeyframing and ExecutionFlowExamples.
+- Regression tests: ComposableCameraSystem.ShotEditor.ActionableDiagnostics
+  covers production failed/native previews, held pose/live lens, unused and
+  partially resolved weighted subjects, lens limits, status priority and
+  gesture-safe retained controls. WorkspacePersistence covers isolated config,
+  invalid settings, native splitter callbacks and actual widget recreation for
+  page/Subject/native folds. Fixtures do not modify user preference files.
+- Prevention: retained-view fallback needs visible provenance and reason. Test
+  native final output separately from source solve intent; ignored fields and
+  partially resolving weighted anchors must not become false failures. Keep
+  view preferences out of shared assets, source transactions and evaluation Tick.
+- Possible conflicts: no runtime/reflection layout, solver, Section-local preset
+  ownership, binding indices or Undo semantics change. Status reports one highest
+  priority preview issue; correcting it reveals the next. Native output's lens
+  limit diagnostics require standalone preview because final optics may be patched.
+- Verification: source/consumer and installed UE5.6 Slate/config API review only.
+  Full Rider/Visual Studio compile and editor restart required for changed headers.
+  Run ActionableDiagnostics and WorkspacePersistence in editor, then attached-window
+  checks in ExecutionFlowExamples steps 23/24. No shell build/editor/test launch.
+
+## 2026-10-11 - Shot Editor Slate arguments emit C5038
+
+- Symptom / repro: compile the UE5.6 editor module in Rider/Visual Studio after
+  adding workspace persistence. Both authoring and parameter panel FArguments
+  emit C5038, repeated across unity translation units.
+- History / blast radius: reviewed the workspace-persistence entry above and
+  audited Shot Editor Slate argument declarations and widget/test constructors.
+  Only these two explicit initializer lists disagree with declaration order.
+- Root cause: PersistViewState was declared before existing arguments, but its
+  initializer was appended after NotifyHook / SubjectIndex. C++ initializes
+  members in declaration order regardless of initializer-list order.
+- Fix / files: move _PersistViewState(false) first in
+  SShotEditorAuthoringPanel.h and SShotEditorParameterPanel.h. Default values,
+  widget behavior, serialized state and runtime code are unchanged. Record the
+  ordering rule in TechDoc.md.
+- Regression verification / blocker: C5038 is a compiler diagnostic; a runtime
+  automation test cannot observe the ordering of these independent defaults.
+  Existing ComposableCameraSystem.ShotEditor.WorkspacePersistence fixtures
+  instantiate the affected widgets. Full IDE compilation must confirm both
+  headers produce no C5038; shell compilation is prohibited by project rules.
+- Prevention: whenever a Slate argument is inserted, update its initializer
+  position to match the macro declaration order and inspect compiler warnings.
+- Possible conflicts: none with parameter values, persistence, Shot transactions
+  or runtime evaluation; this changes initialization-list spelling only.
+- Verification: source-order audit and git diff whitespace check. IDE compile
+  pending; restart the editor for changed headers per project AGENTS.md.
+
+## 2026-10-11 - Subject index pickers omit LevelSequence and preview-only names
+
+- Symptom / repro: in a LevelSequence Shot Section, add two Subjects and assign
+  sequence actors, then open Follow / Follow anchor or Orbit Basis Actor Index.
+  Preview resolves both actors, but selected labels and menu entries display
+  numeric indices with (unset). Preview-model-only Subjects have the same issue.
+- History / blast radius: reviewed the native Follow/Aim authoring, persistent
+  parameter rows, Subject collection/remapping and Section-local preset entries.
+  Audited all shared target-index helper callers, retained/global customizations,
+  session binding creation, normal Section Details and preview resolution.
+- Root cause: the shared label formatter reads only Target.Actor. Section
+  assignment intentionally clears this field and stores actor identity in
+  TargetActorOverrides; preview-only identity lives in EditorPreviewMesh. Raw
+  struct parameter generators also lack the Section outer-object context.
+- Fix: pass the correct weak source host from each retained customization
+  factory to index controls, including weighted-centroid entries. Format index,
+  Subject A/B/N role and identity. Section binding names take precedence and do
+  not require a live Spawnable. Cross-sequence names use resolved sequence IDs.
+  Standalone labels retain actor/path naming and add preview-mesh fallback.
+  Empty roles remain distinct; invalid indices/deleted bindings stay explicit.
+- Files: ShotTargetIndexCombo.h/.cpp, ShotRetainedRowCustomization.h/.cpp,
+  SShotEditorParameterPanel.cpp, ShotSubjectLabelTests.cpp; EditorDesignDoc,
+  TechDoc and ExecutionFlowExamples.
+- Regression test: ComposableCameraSystem.ShotEditor.SubjectIndexLabels checks
+  production Follow/Basis/Aim/Focus and weighted controls, actual menu labels,
+  inactive Spawnable metadata, binding rename, source rebind, normal Details
+  outer-object discovery, unloaded actor/preview names, empty roles, newly
+  appended Subjects and invalid/deleted references. Shot actor fields and
+  binding identity stay unchanged by label reads.
+- Prevention: display adapters must use effective source identity, not only
+  serialized placeholder fields. Supply source context explicitly for struct
+  generators; do not borrow a different open editor's global host. Keep authored
+  binding metadata independent of the live actor's spawn lifetime.
+- Possible conflicts: names only; indices, selection writes, serialization,
+  Section-local overrides, solver behavior and Undo semantics stay unchanged.
+  Cross-sequence binding metadata needs its owning open Sequencer hierarchy;
+  absent hierarchy shows unresolved binding rather than a wrong local name.
+- Verification: source/consumer and installed UE5.6 PropertyEditor/Sequencer API
+  audit plus whitespace checks. IDE compilation and editor automation pending.
+  Restart the editor, build in Rider/Visual Studio, run SubjectIndexLabels and
+  manual ExecutionFlowExamples step 25. No shell build/editor/test launch.
+
+## 2026-10-11 - Subject label regression uses object access on a shared session
+
+- Symptom / repro: compile the UE5.6 editor module in Rider/Visual Studio with
+  ShotSubjectLabelTests.cpp enabled. The Subject append assertion emits C2039
+  for AddTarget and a cascading C2661 for TestTrue.
+- History / blast radius: reviewed the Subject index naming entry above and
+  audited the session declaration and AddTarget consumers in widgets and tests.
+  Other tests use stack sessions with dot access; this fixture uses MakeShared.
+- Root cause: Session is a TSharedRef<FComposableCameraShotAuthoringSession>,
+  but the append assertion called Session.AddTarget instead of Session->AddTarget.
+  The invalid second argument also causes the TestTrue overload diagnostic.
+- Fix / files: correct the member access operator in
+  Source/ComposableCameraSystemEditor/Private/Tests/ComposableCameraShotSubjectLabelTests.cpp;
+  record this entry in Docs/BugLog.md. No production API or behavior changes.
+- Regression test: ComposableCameraSystem.ShotEditor.SubjectIndexLabels retains
+  the production-session append assertion and the newly appended Subject label
+  check. IDE compilation verifies the operator; run the test in the editor to
+  verify append and label behavior. A runtime test cannot observe a compile error.
+- Prevention: check each fixture's session declaration before reusing calls from
+  stack-session tests; compile the complete editor test module in the IDE.
+- Possible conflicts: none with runtime evaluation, binding identity, Subject
+  indices or serialization; this correction only enables the existing test.
+- Verification: source-access audit and whitespace checks only. IDE compile and
+  editor automation pending; shell build/editor/test launch prohibited.
+
+## 2026-10-11 - Section Subject actor dropdown omits Sequencer Spawnables
+
+- Symptom / repro: open LevelSequence, edit one of its Shot Sections, add a
+  Subject and open its Actor dropdown. Sequence Spawnables are absent; outside
+  their active range no live actor exists, so a world-only list cannot pick them.
+- History / blast radius: reviewed Subject append, Section-local preset,
+  Spawnable lifetime and Subject index naming entries. Audited SubjectCard on
+  both Create/Edit pages, session assignment/resolution/transactions, existing
+  Section Bind Target Actors, runtime override evaluation and native UE5.6
+  PropertyEditor and MovieScene binding-class APIs.
+- Root cause: SubjectCard uses SObjectPropertyEntryBox's native Actor menu.
+  It calls MakeActorPickerWithMenu without ShowTransient, whose default is false.
+  Spawnable instances are transient; inactive bindings have no instance at all.
+  Subject assignment only accepted live actors even though runtime already
+  resolves Section TargetActorOverrides by MovieScene object binding ID.
+- Fix: use a Section binding-aware Subject picker. List only Actor bindings in
+  the host sequence using GetBoundObjectClass, including custom Spawnables. Store
+  local relative IDs without spawning, copying template actors into Shot data or
+  creating Possessables. Preserve authored pivot/bounds/preview settings; names
+  come from binding metadata. Retain native Level actor selection as a submenu
+  and standalone Actor entry boxes. Guard source switches, locks, invalid classes
+  and active transactions; assignment/Clear uses one Section-local Undo step.
+- Files: ShotAuthoringSession.h/.cpp, SShotEditorAuthoringPanel.cpp,
+  new SShotEditorSubjectPicker.h/.cpp and ShotSubjectBindingPickerTests.cpp;
+  EditorDesignDoc.md, TechDoc.md, ExecutionFlowExamples.md and BugLog.md.
+- Regression test: ComposableCameraSystem.ShotEditor.SubjectBindingPicker checks
+  actual Create/Edit card menus, inactive legacy/custom Spawnables, Possessables,
+  component exclusion, retained/renamed/deleted labels, local binding identity,
+  no new bindings or actor references, preserved settings, local preset isolation,
+  Undo/Redo, Clear, locks, invalid GUIDs, active gestures and stale-source menus.
+- Prevention: sequence Actor identity comes from binding metadata, not from
+  currently spawned world actors. Revalidate bindings when a menu action executes;
+  menus must retain their owning Section context and weak widget/session lifetimes.
+- Possible conflicts: runtime/serialization unchanged; existing preset ownership,
+  binding indices and live actor preflight are preserved. The binding menu lists
+  the Section's own sequence; nested Sections use local IDs. Existing cross-sequence
+  selections still display via their owning hierarchy. Picking a different binding
+  preserves authored component/bone names, which may need adjustment for that actor.
+- Verification: installed UE5.6 API/source audit and whitespace checks only.
+  Full Rider/Visual Studio compile, editor restart and SubjectBindingPicker run
+  required. Manual integration checks in ExecutionFlowExamples step 26 cover
+  active/inactive Spawnable lifetimes, nested focus, live preview and save/reload.
+  No shell build/editor/test launch; no compile/test success claimed.
+
+## 2026-10-11 - Subject binding test fails to link UniversalObjectLocator
+
+- Symptom: Editor DLL link fails with LNK2019 for
+  FUniversalObjectLocator's constructor and FUniversalObjectLocatorFragment's
+  destructor, followed by LNK1120.
+- Trigger / repro: compile the UE5.6 Editor target in Rider or Visual Studio
+  with ComposableCameraShotSubjectBindingPickerTests.cpp enabled; its custom
+  Spawnable fixture calls FMovieSceneBindingReferences::AddBinding(Guid, Binding).
+- History / blast radius: reviewed the prior GameplayTags linker dependency
+  bug and Subject binding picker entry. Audited all binding-reference consumers
+  and the Editor Build.cs against installed UE5.6 headers and module exports.
+- Why it happens / root cause: this MovieScene overload is inline and constructs
+  an empty FUniversalObjectLocator in the calling module. Its constructor and
+  fragment destructor belong to UniversalObjectLocator, which the Editor module
+  did not declare as a direct dependency. Header visibility did not supply the
+  required import library.
+- Fix / touched files: add UniversalObjectLocator to private dependencies in
+  ComposableCameraSystemEditor.Build.cs; update TechDoc.md and BugLog.md.
+- Regression-test name: ComposableCameraSystem.ShotEditor.SubjectBindingPicker
+  already exercises the exact inline helper through its custom Spawnable fixture.
+- Test blocker / required verification: a failed DLL link prevents automation
+  from loading, so a runtime test cannot independently assert this link failure.
+  Close Unreal Editor, compile the Editor target fully in Rider or Visual Studio,
+  reopen and run SubjectBindingPicker. No shell build or successful link claimed.
+- Prevention: inspect inline wrappers as well as explicit API calls for exported
+  constructors/destructors; declare their owning modules in the caller's Build.cs.
+- Possible conflicts: dependency is Editor-private; runtime evaluation, asset
+  serialization and Subject binding behavior remain unchanged. No dependency cycle
+  introduced; UniversalObjectLocator is already a MovieScene dependency.
+
+### 2026-10-12 — Camera Instance prototype: duplicated dynamic channels
+
+- Symptom / trigger: source review found that duplicating a newly keyed Camera
+  Instance Track could copy channel storage without rebuilding its channel proxy.
+  Timeline key/curve display and MoveSection would then see the constructor's
+  empty proxy. This was caught during implementation, not reported from a build.
+- Root cause: a dynamically sized channel array used a constructor-created static
+  proxy. UObject duplication copies reflected data after construction; channel
+  addresses must be rebuilt from the destination's copied array.
+- Fix / touched files: MovieSceneComposableCameraInstanceSection.h/.cpp now use
+  Dynamic proxy lifetime and override CacheChannelProxy. AddKey rebuilds after
+  array changes; load and Undo rebuild too. ComposableCameraInstanceTests.cpp
+  covers track duplication and moving native channels. TechDoc records the rule.
+- Regression tests: ComposableCameraSystem.CameraInstance.DuplicateOwnsData and
+  ComposableCameraSystem.CameraInstance.NativeChannels.
+- Verification: tests added, not executed. Required: close Editor, compile in
+  Rider/Visual Studio, run CameraInstance.*, then duplicate a keyed Track, move
+  its Section, and check that the original's keys remain unchanged.
+- Prevention: use a dynamic proxy for array-backed channels; test duplication as
+  well as save/load and Undo. Do not cache channel pointers across reallocation.
+- Possible conflicts: new instance Section only. Legacy ShotSection, PatchSection
+  and actor-component property tracks keep their existing proxy behavior.
+
+## 2026-10-12 - ShotAsset drop is consumed by two Sequencer editors
+
+- Symptom: dragging a ShotAsset stops the debugger at Sequencer.cpp:6020 in
+  FSequencer::OnHandleAssetDropped, check(!bWasConsumed), with bWasConsumed true.
+  The user supplied a screenshot showing a successful build before the drop.
+- Trigger / repro: open an editable LevelSequence, select/target an existing
+  ComposableCameraLevelSequenceActor or ShotActor binding, and drop a ShotAsset.
+  InstanceTrackEditor creates a root instance and returns true; the old
+  ShotTrackEditor can then append an AssetReference Section and return true too.
+- History / blast radius: reviewed the preceding instance-channel duplication,
+  Subject binding and legacy Section authoring entries. Audited all CCS
+  HandleAssetAdded overrides, registration, Patch subclass filtering, and the
+  installed UE5.6 dispatcher. Legacy menu/+Section consumers still use their
+  existing creation helper; runtime evaluation and assets require no migration.
+- Root cause: the initial integration assumed registering the Instance editor
+  first made it the exclusive handler. UE does not stop after the first true
+  result; it asserts on a second consumer. Both handlers accepted the same Shot
+  class when a valid LSActor binding was supplied.
+- Fix: remove the legacy ShotTrackEditor HandleAssetAdded override, inheriting
+  the base false result. Retain legacy editing, menus, Section creation, and
+  binding callbacks. Document InstanceTrackEditor as the sole Shot/CameraType
+  drop consumer, with Patch subclasses delegated exclusively to PatchTrackEditor.
+- Touched files: ComposableCameraShotTrackEditor.h/.cpp,
+  ComposableCameraInstanceTrackEditor.cpp (contract comment),
+  ComposableCameraInstanceTests.cpp, EditorDesignDoc.md, TechDoc.md,
+  ExecutionFlowExamples.md and BugLog.md.
+- Regression test: ComposableCameraSystem.CameraInstance.AssetDropOwnership.
+  Creates an isolated Sequencer, obtains the registered track editors and calls
+  their real handlers. Checks legacy rejection for empty, LSActor, ShotActor and
+  inactive Spawnable targets, preservation of existing Sections/configuration,
+  no unwanted legacy tracks/bindings, and Instance editor Patch rejection.
+- Verification: installed-engine source audit and static diff checks only.
+  Regression test added, not run. Stop the debugger, close UE, rebuild in
+  Rider/Visual Studio, run AssetDropOwnership, then repeat actual successful
+  drops with an LSActor selected/targeted. Check one new instance per drop and
+  no extra legacy Section. Do not disable the engine assertion to pass the test.
+- Prevention: audit all registered consumers when introducing a replacement
+  asset workflow. Test targeted drops as well as the no-selection/blank case;
+  registration order is not a consumption policy.
+- Possible conflicts: legacy drag-to-append intentionally routes to a new root
+  instance under the agreed one-instance-per-Track workflow. Existing legacy
+  assets, track evaluation, explicit +Section authoring and Patch drops remain.
+
+
+## 2026-10-12 - Camera Instance lacks native hierarchy and Shot Editor authoring
+
+- Symptom / repro: drop a ShotAsset, then compare its Sequencer hierarchy with
+  CineCameraActor. The prototype exposes a root Instance Track plus an output
+  folder; double-click opens base Details instead of Shot Editor preview. Native
+  parameter Track/Section insertion and sampled authoring are unavailable.
+- History / blast radius: reviewed the dynamic channel duplication and duplicate
+  asset-drop-handler entries, Subject binding picker/identity work, and existing
+  authoring-session gesture rules. Audited root-Track presence checks, all instance
+  output ownership users, Section channel proxies, Shot Editor host dispatch,
+  parameter/Subject widgets and native UE5.6 Edit/Add/KeyFrame/Nav columns.
+- Root cause: the first integration ended at a root-track scaffold and a base
+  Details window. The authoring session only adapted legacy Shot Sections/assets;
+  it had no instance sample, binding or output-camera adapter. Separately, channel
+  sampling needed to restore defaults when independent parameter lanes have gaps.
+- Fix: use the managed output binding as the Shot-named native root, with one
+  Activation/configuration Track and sibling per-input parameter Tracks. Preserve
+  native channels/value editors/key controls/curves. Upgrade prototype hierarchy
+  transactionally and transfer prototype parameter curves by value on insertion.
+  Open composition and ordinary CameraType instances in the common Shot Editor;
+  sample current time, persist binding IDs, preview the managed camera, and write
+  changed fields through one shared adapter. Auto Key preserves base defaults;
+  manual animated edits stay pending until native key insertion. Key capture must
+  tolerate the engine calling Section.Modify before reading external values.
+  Output adoption/deletion follows native binding duplication/deletion; old Shot
+  menus do not add a competing legacy evaluator to a managed binding.
+- Touched files: runtime MovieSceneComposableCameraInstanceParameterTrack.h/.cpp
+  (new), InstanceTrack.h/.cpp, InstanceSection.h/.cpp and InstanceTrackInstance.h/.cpp;
+  editor ComposableCameraInstanceEditorSession.h/.cpp (new), InstanceTrackEditor.h/.cpp,
+  InstanceOutput.cpp, ShotAuthoringSession.h/.cpp, ShotEditor.h/.cpp, ShotEditorRoot.h/.cpp,
+  ShotEditorViewportClient.cpp, SShotEditorSubjectPicker.cpp, ShotTrackEditor.cpp,
+  ComposableCameraSystemEditorModule.cpp; ComposableCameraInstanceAuthoringTests.cpp
+  (new); DesignDoc.md, EditorDesignDoc.md, TechDoc.md, ExecutionFlowExamples.md,
+  ShotBasedKeyframing.md and this log.
+- Regression tests: ComposableCameraSystem.CameraInstance.NativeHierarchy,
+  SampledEditing and GenericEditor. Cover binding/parameter ownership, subframes,
+  gaps/muting, prototype curve transfer and destination-lane Section paste,
+  preset/default preservation, sampled reopen, Auto Key/manual pending policy,
+  inactive Subject binding restoration,
+  generic capabilities and generic parameter keying. Existing CameraInstance.*
+  and ShotEditor.* remain required, especially AssetDropOwnership.
+- Verification / blocker: source/API review and diff whitespace checks only.
+  Project rules require IDE compilation and prohibit launching automation here.
+  Close UE, rebuild in Rider/VS (new reflected Track type/header changes), then
+  run the tests in-editor. Manually test successful drops, native + controls and
+  key capture, two independent instances, Subject despawn/respawn, duplicate/delete
+  binding with Undo/Redo, save/reopen, nested Sequence playback and MRQ.
+- Prevention: distinguish the user-visible object binding from the storage Track;
+  test opening the real authoring-session adapter and native parameter controls,
+  not only serialization/evaluation helpers. Audit both root and bound Track
+  membership. Never use registration order as asset-drop ownership.
+- Possible conflicts: new instances intentionally exclude the old Shot Track menu
+  on their binding, while existing legacy Shot Sections/assets/Patch workflow stay
+  supported. Whole-instance duplication means duplicating the top binding, so its
+  parameter lanes and output travel together. Locked/user Cuts are preserved.
+  Draft dragging, cross-sequence picker and generic seek-history reset remain
+  separate pending work; this change does not claim MRQ/order verification.
+
+## 2026-10-12 - Camera Instance breadcrumb fails UE5.6 compilation
+
+- Symptom / trigger: compile the UE5_6 Editor DebugGame target in Rider/Visual
+  Studio after the native Camera Instance hierarchy change. SShotEditorRoot.cpp
+  reports C2662 at GetObjectDisplayName; ComposableCameraInstanceData.cpp also
+  reports C4996 for direct FProperty::ElementSize access.
+- Why / root cause: BuildHostContextChain unnecessarily inferred const UMovieScene*
+  from GetTypedOuter, but UE5.6 GetObjectDisplayName is non-const. Reflection field
+  gathering used a deprecated data member instead of its supported accessor.
+- History / blast radius: reviewed native hierarchy and prior UE5.6 compile/API
+  bug entries. Audited every plugin GetObjectDisplayName call and ElementSize
+  access, plus GatherFields consumers. Other binding label call sites already
+  use mutable Scene pointers; the integer-width filtering rule is unchanged.
+- Fix / touched files: SShotEditorRoot.cpp retains UMovieScene* for the label
+  query; ComposableCameraInstanceData.cpp uses GetElementSize(). TechDoc.md
+  records both API requirements; this log records the compile regression.
+- Regression check: UE56.CameraInstance.EditorCompile (manual IDE compile).
+  No new runtime automation test: these diagnostics occur before a test binary
+  can run, so runtime assertions cannot observe this failure. Compile the same
+  Editor DebugGame target in Rider/VS; confirm C2662 and this C4996 are absent.
+  Then open an LS instance in Shot Editor and verify its breadcrumb shows the
+  Sequence and binding names. Existing CameraInstance.GenericDefaultsAndInputs
+  and NativeChannels cover the unchanged reflected-field behavior.
+- Verification / blocker: checked installed UE5.6.1 header signatures and plugin
+  call sites. IDE compilation and runtime checks remain pending; project rules
+  prohibit shell builds and editor/test launches.
+- Prevention: verify const qualification against the installed engine API and
+  use reflection accessors; do not use const_cast or suppress deprecation warnings.
+- Possible conflicts: none expected; no public API, reflected layout, animation,
+  binding identity, legacy Shot or output-camera lifecycle changes.
+
+## 2026-10-12 - Scrubbing Camera Instance rebuilds Shot Editor every sample
+
+- Symptom / trigger: drop a ShotAsset into LS, open its instance in Shot Editor,
+  then drag the Sequencer playhead with Shot Editor visible. Parameter UI refreshes
+  repeatedly and scrubbing becomes very slow.
+- Why / root cause: InstanceEditorSession::Refresh returned true for both time and
+  source changes. ShotAuthoringSession::Tick forwarded every true result as
+  OnChanged(true), causing Root to reset Details and refresh all parameter pages.
+  Refresh also copied configuration/bags/Subject arrays and gathered reflected
+  fields on every time change, invalidating the storage that native handles use.
+- History / blast radius: reviewed PersistentParameterPages (2026-10-09), retained
+  Boolean/Enum rows (2026-10-10), Subject collection refresh, and Camera Instance
+  native hierarchy/manual-key tests. Audited Refresh callers, Root refresh routing,
+  parameter-generator ticks, Commit/baseline/pending-key consumers, generic bag
+  storage, Subject resolution and the managed-camera viewport preview path.
+- Fix: distinguish None/Values/Source refresh results. Time-only samples restore
+  cached authored defaults, evaluate channels and update baseline numbers in place;
+  they do not copy configuration, gather reflected fields or request structural UI
+  refresh. Source changes rebuild caches and handles. Commits rebuild caches after
+  possible collection/bag changes while preserving pending manual values and base
+  defaults. The viewport continues reading the evaluated managed output.
+- Touched files: ComposableCameraInstanceEditorSession.h/.cpp,
+  ComposableCameraShotAuthoringSession.cpp, ComposableCameraInstanceAuthoringTests.cpp,
+  SShotEditorRoot.h and SShotEditorParameterPanel.h (test access only), DesignDoc.md,
+  EditorDesignDoc.md, TechDoc.md, ExecutionFlowExamples.md and this log.
+- Regression tests: ComposableCameraSystem.CameraInstance.ScrubRetainsControls
+  exercises real Root refresh routing and deferred native generators; verifies
+  forward/reverse sampled values, native row/handle retention, Subject storage and
+  binding retention, gap defaults, pending manual-key discard, structural append,
+  Undo/Redo. GenericEditor additionally checks stable property-bag memory and zero
+  structural notifications while seeking. Existing SampledEditing covers Auto Key
+  and default preservation after commits.
+- Verification / blocker: source/API review only; IDE compilation and tests remain
+  pending under the project's no-shell-build rule. Close UE, compile in Rider/VS,
+  restart, run the above tests, then scrub the same LS with Shot Editor open.
+  Compare open/closed Shot Editor responsiveness; verify values/preview still
+  follow time and scroll/fold state stays stable. No measured timing claim yet.
+- Prevention: a time change is value sampling, not property-tree invalidation.
+  Test real native controls across deferred ticks, not only sampled data. Cached
+  addresses must be refreshed after commits/source changes, before another seek.
+- Possible conflicts: real source/Undo/collection changes remain conservative
+  structural refreshes; Subject actor replacement retains existing picker refresh.
+  No serialization, runtime evaluator, Camera Cuts or legacy Shot behavior changes.
+
+## 2026-10-12 - Manual Camera Instance keys assert while Auto Key works
+
+- Symptom / trigger: with Auto Key off, edit Manual FOV in an LS instance's Shot
+  Editor, then press the native Manual FOV key button. Rider breaks and the pending
+  value is not keyed; Auto Key succeeds. UE5_6.log records ensure(System) in
+  BuiltInChannelEditors.cpp:164; the reported nearby line 185 checks the channel
+  index/property definition in that same property-interrogation branch.
+- Why / root cause: numeric external-value metadata supplied OnGetExternalValue
+  but omitted OnGetCurrentValueAndWeight. Native AddOrUpdateKey therefore imported
+  the custom Track into the property blender. Parameter Sections intentionally
+  have no property entities, so its instantiator/property definition is absent.
+  Continuing after the ensure leaves the old curve value as the value to key.
+  Auto Key calls the channel insertion helper directly and never enters this path.
+- History / blast radius: reviewed pending-value signature gating, dynamic channel
+  duplication, native hierarchy and scrub-retention entries. Audited native IKeyArea
+  dispatch, BuiltInChannelEditors numeric recomposition, channel metadata consumers,
+  editor delegate lifetime, pending values, duplicated proxies and Auto Key. Read
+  UE5.6 Control Rig's paired external/current-value callbacks as an API reference.
+- Fix / touched files: MovieSceneComposableCameraInstanceSection.cpp supplies the
+  existing Section curve sample and unit weight for numeric native keying. It uses
+  weak Section/input identity so channel array moves cannot leave captured pointers.
+  ComposableCameraInstanceAuthoringTests.cpp adds real native-path coverage; editor,
+  tech and execution-flow docs plus this log record the contract.
+- Regression test: ComposableCameraSystem.CameraInstance.NativeManualKey binds a
+  live managed output in an isolated World, asserts it resolves, then calls the
+  native MovieSceneTools AddOrUpdateKey with channel metadata after Section.Modify.
+  Checks first key, existing-curve edits, same-time replacement, Undo/Redo, exact
+  pending values, preserved defaults and subsequent Auto Key. Prior pending-value
+  tests alone did not exercise native numeric recomposition and missed this bug.
+- Verification / blocker: source/API and static review only; test not executed.
+  Close UE, compile in Rider/VS, reopen and run NativeManualKey/SampledEditing.
+  Manually modify FOV with Auto Key off and click its native key button at two
+  times; verify no debugger break and scrub restores both values.
+- Prevention: test native channel-editor entry points with a real resolved object,
+  not only channel insertion or external-value lookup. Custom numeric evaluators
+  must implement the complete external-value/recomposition contract.
+- Possible conflicts: callback applies only to Camera Instance numeric channels,
+  including prototype channels. No engine changes/assert suppression; integer/bool,
+  legacy Shot/Patch evaluation and Auto Key insertion remain unchanged.
+
+## 2026-10-12 - Parameter lanes incorrectly inherit five-second Shot intervals
+
+- Symptom / trigger: add Manual FOV or another Camera Instance property Track.
+  Its Section appears as a finite Camera Instance block instead of the usual
+  unbounded property lane, requiring unnecessary range management.
+- Why / root cause: AddInterval applied the activation five-second range to every
+  Track; AddParameterTrack then copied Activation's range. The shared Section also
+  disabled infinite-range UI support and used the activation title for properties.
+- History / blast radius: reviewed native hierarchy, prototype curve migration,
+  latest-start overlap arbitration, finite-gap/default restoration and native key
+  tests. Audited AddInterval consumers (menus/Auto Key), factory creation, loaded
+  sections, locked/read-only behavior and managed Camera Cut range maintenance.
+- Fix / touched files: InstanceParameterTrack.cpp creates unbounded Sections;
+  InstanceEditorSession.h/.cpp retain that range for a parameter's first Section,
+  preserve explicit additional/activation intervals and add transactional
+  MakeParameterSectionInfinite. InstanceSection.cpp enables infinite-range controls
+  on new/loaded parameters without extending existing bounds. InstanceTrackEditor.cpp
+  removes the redundant property title and exposes Make Section Infinite. Updated
+  InstanceAuthoringTests.cpp, DesignDoc, EditorDesignDoc, TechDoc,
+  ExecutionFlowExamples, ShotBasedKeyframing and this log.
+- Regression tests: CameraInstance.NativeHierarchy checks the first Section and
+  independent Activation range. CameraInstance.InfiniteParameterSection covers
+  mid-activation insertion, no initial keys, locked conversion rejection, preserved
+  keyed values, Undo/Redo, Activation rejection and finite additional intervals.
+  Existing NativeHierarchy migration assertions retain legacy authored ranges.
+- Verification / blocker: tests added, not run; IDE compilation/editor checks
+  required. Add a new property Track and inspect its unbounded range. On an old
+  keyed finite Section, use Make Section Infinite, then Undo/Redo and inspect keys.
+- Prevention: distinguish property curve storage from camera activation timing.
+  Infinite support is a serialized capability flag, not automatic range migration.
+- Possible conflicts: new default curves remain available outside Activation,
+  while camera evaluation still follows Activation. Existing finite/overlapping
+  sections are not silently extended; explicit conversion changes their overlap
+  arbitration as expected. No asset-type migration or runtime blend change.
+
+## 2026-10-12 - Follow guides remain visible outside the Follow editor section
+
+- Symptom / trigger: open a Shot in Shot Editor, enable Guides, select Edit /
+  Follow with AnchorAtScreen, then switch to Aim, Lens, Motion, Subjects or a
+  different task page. The Follow point, screen zones and projection remain.
+- Why / root cause: ShowFollowHandle checked only Placement.Mode. Aim and Orbit
+  consulted session selection state, but Follow screen controls never did. Their
+  cached hits and drag guards shared the same incomplete mode-only predicate.
+- History / blast radius: reviewed the 2026-10-09 preview display policy and
+  LookAt selected-tab fixes, Orbit controls, Subject guides and retained native
+  parameter pages. Audited drawing, cached hit tests, drag start/write/finish,
+  all guide-state consumers, task navigation and existing viewport tests.
+- Fix / touched files: ShotViewportDisplayUtils.h requires Follow selection;
+  ShotAuthoringSession.h and SShotEditorAuthoringPanel.cpp share bShowFollowGuide
+  between the screen handle and Orbit. ShotEditorViewportClient.h/.cpp routes
+  point/zone/projection drawing and interaction through that predicate and closes
+  a hidden Follow drag on the next tick. ShotParameterPanelTests.cpp plus the
+  panel header add production-client coverage; ShotEditorTests.cpp extends mode
+  coverage. Updated EditorDesignDoc, TechDoc, ShotBasedKeyframing,
+  ExecutionFlowExamples and this log.
+- Regression tests: ComposableCameraSystem.ShotEditor.FollowGuideSelection
+  exercises every task/Edit selection, retained point/zone hit caches, rejected
+  drag starts and writes after switching, gesture closure, return to Follow,
+  Orbit selection reuse, Guides/Inspect gates and retained page identity.
+  PreviewDisplayPolicy checks selected/unselected Follow for all placement modes.
+- Verification / blocker: static checks and consumer review only; tests not run.
+  Close UE, compile in Rider/VS, reopen, run FollowGuideSelection and
+  PreviewDisplayPolicy. Manually verify visible point/zone/projection removal
+  and restoration while switching pages, with both level and isolated preview.
+- Prevention: guide policy must combine consuming solver mode and current editor
+  selection, shared by rendering and input; test stale caches before the next paint.
+- Possible conflicts: view state remains transient. No asset serialization,
+  runtime solve, Subjects binding or Sequencer channel changes. Orbit reuses the
+  same Follow selection; Aim and Subject guide policies remain independent.
+
+## 2026-10-12 - Draft-first LS authoring is not connected to Camera Instances
+
+- Symptom / repro: open LS with live Spawnable Subjects, open Shot Editor and
+  create composition before a camera Track exists. The draft has no Sequence
+  binding context, and Sequence provides only the old click-to-create Shot route;
+  there is no drag action producing the same instance as dropping ShotAsset.
+- Why / root cause: the transient scratch was a detached ShotAsset. GetSequence
+  required an owning Track/Section, and only those hosts could store Subject IDs.
+  The new instance creation service had a snapshot branch but no producer or
+  native drag transport. Template/append also only populated legacy binding arrays.
+- History / blast radius: reviewed exclusive asset-drop consumption, native
+  hierarchy, sampled editing, scrub retention, inactive Subject menus/labels,
+  respawn/preview and undo maintenance. Audited all GetInstanceValues/Track/Sequence
+  consumers, editor host switching, Subject append/template/reorder/preset paths,
+  drag dispatch and managed output/Cut creation. Read installed UE5.6 source;
+  no engine files changed and no new asset class was introduced.
+- Fix / files: ShotAuthoringSession.h/.cpp owns a GC-tracked Sequence draft using
+  InstanceData, resolves live actors and stores stable Subject binding slots for
+  edits/append/templates. InstanceDragDropOp.h/.cpp transports a GC-owned snapshot,
+  validates source Sequence, uses native blank/Track paths and transfers editing.
+  InstanceTrackEditor.h/.cpp adds the LS draft menu, custom drop endpoints and
+  duration/label arguments to shared creation. SShotEditorSequenceDragButton.h/.cpp
+  supplies drag/click input. ShotEditor and SShotEditorRoot headers/cpps expose the
+  draft entry, source label and Compose handoff. AuthoringPanel.h/.cpp exposes the
+  draft UI. ViewportClient.h/.cpp retains explicit binding behavior for unresolved
+  drafts and test access. Build.cs adds SequencerWidgets for timeline geometry.
+  SequenceDraftTests.cpp and design/editor/tech/flow/keyframing docs complete scope.
+- Regression: ComposableCameraSystem.CameraInstance.SequenceDraft uses a real
+  World/Sequencer Spawnable, actual Subject picker and production drag button.
+  Covers pre-insertion preview/FOV, despawn/respawn, metadata while absent, no Actor
+  path persistence, snapshot GC/cancel, wrong/read-only destination, native blank
+  dispatch after Slate clears active drag state, Track-area dispatch, duration,
+  one-instance-per-drop, managed generic output, Undo/Redo and reopening.
+- Verification / blocker: source and static checks only; compilation/automation
+  must run in Rider/VS/editor. Close UE before compiling because headers and module
+  dependencies changed. Manually verify screen-space drop frame, real-level image,
+  nested focus, selected Actors, new parameter Tracks/keys/Auto Key and save/reopen.
+- Prevention: complete both authoring entry paths against the same data/creation
+  service; test native drag dispatch, not only a direct creation helper. Slate
+  resets its active operation before OnDrop, so payload lookup cannot depend on
+  GetDragDroppingContent during native HandleAssetAdded.
+- Possible conflicts: legacy assets/Section routes remain supported. New drafts
+  never create special ShotActor or legacy ShotTrack. Conflicting authored Cuts
+  are preserved. Cross-sequence remapping remains unsupported and is rejected;
+  copied current configuration does not duplicate animation curves.
+
+## 2026-10-12 - Sequence action captions clip inside fixed-width buttons
+
+- Symptom / repro: open Shot Editor > Sequence; Add Shot to Sequence, Dialogue
+  or Duplicate after current captions can clip, depending on caption/font/DPI.
+- Why / root cause: the compact Action helper forced WidthOverride(156), which
+  could be smaller than native text desired width plus button padding.
+- History / blast radius: reviewed compact-action centering and Subject Delete
+  clipping entries; audited all Sequence action calls and existing layout tests.
+- Fix / files: ShotEditorStyle.h adds content-sized AutoSizedAction with minimum
+  size; SShotEditorAuthoringPanel.cpp uses it for Sequence actions. The new drag
+  button also has no width override. Other compact page actions retain their
+  earlier behavior. Updated editor/tech docs and SequenceDraftTests.cpp.
+- Regression: ComposableCameraSystem.ShotEditor.SequenceActionWidth arranges
+  actual native captions/buttons through the production wrapper at 1x/1.5x/2x,
+  checking caption allocation and both paddings. Existing CompactActions remains
+  unchanged for pages still using fixed compact actions.
+- Verification / blocker: static review only; run test after IDE compile, then
+  inspect Sequence page at normal/narrow pane widths and configured UI scale.
+- Prevention: use desired content size for text actions; reserve fixed dimensions
+  for controls whose content fits by design. Check arranged content, not outer size.
+- Possible conflicts: Sequence buttons may grow wider for longer/localized labels;
+  surrounding wrap layout remains. No data, animation or viewport state changes.
+
+## 2026-10-12 - Camera Instance drag compile fails on incomplete FAnimatedRange
+
+- Symptom / repro: compile the UE5.6 editor target in Rider/Visual Studio after
+  draft drag support. ComposableCameraInstanceDragDropOp.cpp, DropFrame's
+  GetViewRange call, emits C2027; Lerp then emits C2672 and Seconds emits C2737.
+- Why / root cause: GetViewRange returns FAnimatedRange by value, but ISequencer.h
+  only forward-declares it. ITimeSlider.h includes its definition only under
+  UE_ENABLE_INCLUDE_ORDER_DEPRECATED_IN_5_3. The translation unit relied on that
+  transitive compatibility include instead of AnimatedRange.h.
+- History / blast radius: reviewed draft transport and prior compile-diagnostic
+  entries; audited GetViewRange/FAnimatedRange/DropFrame consumers. This is the
+  plugin's only GetViewRange call. SequencerWidgets is already an editor dependency.
+- Fix / files: add AnimatedRange.h directly in ComposableCameraInstanceDragDropOp.cpp;
+  document the include requirement in TechDoc.md and this entry. Range arithmetic,
+  pointer/playhead drop placement and module dependencies are unchanged.
+- Regression verification / blocker: this is a compile-time type-completeness
+  failure; a runtime assertion cannot detect an omitted defining header before
+  the translation unit builds. Recompile the same UE5.6 editor target in Rider/VS
+  and confirm this file has no C2027/C2672/C2737. Existing automation case
+  ComposableCameraSystem.CameraInstance.SequenceDraft exercises the native blank
+  drop route through DropFrame after compilation. No shell build/test is permitted.
+- Prevention: include the defining header when consuming a returned value type;
+  do not depend on deprecated include order or neighboring unity source files.
+- Possible conflicts: none expected; editor-only include, no data layout,
+  serialization, runtime evaluation, binding identity or drag behavior changes.
+- Verification: installed UE5.6 declarations/definition and source references
+  inspected; whitespace check passed. IDE compilation and automation pending.
+
+## 2026-10-12 - Camera Instance drag hover asserts on an open range bound
+
+- Symptom: dragging into Sequencer pauses Rider at RangeBound.h GetValue's
+  check(Type != ERangeBoundTypes::Open). User supplied the assertion screenshot;
+  no call stack. The failing path below was established by source inspection.
+- Trigger / repro: drag Shot Editor's Drag into Sequence over an existing Track
+  row so native track-area hover invokes the Camera Instance OnAllowDrop, then
+  paints its preview. This can fail before releasing the mouse.
+- Why / root cause: OnAllowDrop returned true without writing FrameRange. UE5.6
+  SSequencerTrackAreaView supplies a default unbounded TRange, copies it after
+  an accepted callback, and SequencerCore STrackAreaView::OnPaint immediately
+  reads lower/upper values. The open bounds trigger the exact shown assertion.
+- History / blast radius: reviewed draft transport, exclusive drop consumption,
+  FAnimatedRange include failure and infinite parameter Section entries. Audited
+  UpdateFeedback callers, native hover/paint/drop dispatch and creation range math.
+  The FAnimatedRange compile fix is unrelated; infinite property Sections remain
+  valid and must not be bounded to hide this drag-preview bug.
+- Fix / files: InstanceTrackEditor.h/.cpp shares MakeCreationRange between hover
+  and creation. InstanceDragDropOp.h/.cpp fills both preview bounds and uses a
+  bounded empty interval for rejected read-only/foreign/overflowing own drags.
+  OnAllowDrop passes its frame/range through this path before returning true.
+  SequenceDraftTests.cpp checks native hover output and creation consistency;
+  EditorDesignDoc.md, TechDoc.md and this log document the contract.
+- Regression: ComposableCameraSystem.CameraInstance.SequenceDraft now calls the
+  actual track editor OnAllowDrop with native unbounded incoming parameters,
+  reads both painter endpoints, verifies the three-second interval at positive
+  and negative frames, checks read-only and overflowing bounded rejections,
+  verifies hover adds no binding, and compares created Activation with preview.
+- Verification / blocker: static checks only; IDE compile and automation pending
+  under project rules. Close UE and compile in Rider/VS for changed headers.
+  Manually hover over existing Activation/property rows before releasing; check
+  preview length, Shift/playhead placement, blank-area drop, readonly rejection,
+  one new Instance per drop and Undo. No shell build/editor/test launch permitted.
+- Prevention: honor the engine's output-parameter contract before returning a
+  handled/allowed result; test hover and painter consumption, not only OnDrop.
+- Possible conflicts: none intended with Subject bindings, Camera Cuts, parameter
+  infinity or legacy asset handlers. Creation retains existing five-second/default
+  or snapshot duration, transaction behavior and frame limits; invalid tick rates
+  now fail before mutation. No engine files or runtime data layouts changed.
+
+## 2026-10-13 - Camera Instance Rename is hidden by the initial display override
+
+- Symptom: renaming the top Shot/Camera Instance row immediately appears to revert.
+  Shot Editor's visible header also keeps its old caption after the source changes.
+- Trigger / repro: drop ShotAsset into LS, open that instance in Shot Editor, use
+  native Rename/F2 on its top binding, commit a different name, then scrub or reopen.
+- Why / root cause: CameraInstanceOutput::AttachToBinding used SetObjectDisplayName.
+  UE5.6 FObjectBindingModel::Rename updates Spawnable/Possessable::SetName instead;
+  UMovieScene::GetObjectDisplayName prioritizes the stored override, masking the
+  successfully changed native name. Root set its header text only on host switches;
+  source/signature changes refreshed parameters but not that retained label.
+- History / blast radius: reviewed native hierarchy/output ownership, duplicate
+  channel proxies, scrub-retained controls, Subject binding labels, and the earlier
+  action-caption alignment/width entries. Audited name writes, AttachToBinding,
+  Ensure, duplicate/repair, MovieScene rename/getter paths, header and Recent menu.
+- Fix: initialize the native binding name and remove obsolete overrides at output
+  attachment. On the first idle tick after opening/focusing an editable Scene,
+  normalize only Camera Instance bindings before later Rename transactions; retain
+  the native name, including earlier masked renames. No repair Undo entry or package
+  dirty is introduced by load-time normalization. Mark the Scene signature once so
+  existing views see it. Root refreshes its existing label on Scene/signature changes;
+  loaded Recent entries read current names when the menu opens. Stable seeks add no
+  name formatting or widget rebuild. Legacy/unrelated bindings are not normalized.
+- Touched files: CameraInstanceOutput.h/.cpp, CameraInstanceTrackEditor.h/.cpp,
+  SShotEditorRoot.h/.cpp, ComposableCameraInstanceAuthoringTests.cpp; DesignDoc.md,
+  EditorDesignDoc.md, TechDoc.md, ExecutionFlowExamples.md and this log. Companion
+  layout work touches SShotEditorAuthoringPanel.cpp, ComposableCameraShotEditorStyle.h
+  and ComposableCameraSequenceDraftTests.cpp: Clip uses Create / Navigate-Duplicate
+  groups, full-width wrapping text buttons and aligned drag-icon/description row.
+- Regression tests: ComposableCameraSystem.CameraInstance.Rename exercises the
+  actual engine Rename command, LS/header/Recent naming, Undo/Redo, unchanged header
+  text identity on seek, old-override normalization, a subsequent rename and single
+  Undo restoration. ShotEditor.ClipActionAlignment checks the production rows at
+  three widths and three DPI scales. Existing ClipActions/SequenceDraft cover gating.
+- Verification / blocker: source review only; project rules require IDE compilation
+  and UE-side automation. Close UE, compile in Rider/VS, run the named tests, then
+  rename a real saved instance, Undo/Redo, save/reopen, inspect copied instances,
+  preview and Clip alignment. No shell build/editor/test execution was attempted.
+- Prevention: inspect both native rename writer and label reader; never initialize
+  an overriding name cache that native Rename does not update. Keep display refresh
+  separate from source/parameter rebuild and test real editor commands.
+- Possible conflicts: native binding names remain authoritative; explicit overrides
+  on managed Camera Instance bindings are discarded for compatibility. No change to
+  presets, binding GUIDs, Subjects, channels, Camera Cuts or runtime camera lifecycle.
+## 2026-10-13 - Retained Shot Editor loses parameter editing after LS reopens
+
+- Symptom / repro: open a native Camera Instance in Shot Editor, leave that tab
+  open, close its Level Sequence editor, then reopen the LS and seek inside the
+  instance's Activation. Preview/Subjects can resolve again, but quick pages are
+  gray and sampled values stop following the playhead. An instance bound before
+  any Sequencer exists has the same failure. The reported screenshot shows
+  differing Roll values in Sequencer and Shot Editor; the project log records
+  repeated creation of a Sequencer for LS_Test.
+- Why / root cause: ShotAuthoringSession resolves and caches the current live
+  Sequencer for preview and binding lookup, but InstanceEditorSession copied a
+  weak Sequencer only during Bind. After that object expires, CanEdit and Refresh
+  reject the disconnected parameter adapter indefinitely. Timeline containment
+  alone cannot make this stale connection valid.
+- History / blast radius: reviewed native hierarchy, SampledEditing, the scrub
+  UI-rebuild fix, pending native manual keys, and recent Rename changes. Audited
+  both adapters' Bind/CanEdit/Refresh/Commit and preview/Subject lookup consumers.
+  UE5.6 ISequencer's lifetime is independent of the saved Sequence/Track identity.
+- Fix / touched files: ComposableCameraInstanceEditorSession.h/.cpp adds an
+  identity-checked UpdateSequencer; ShotAuthoringSession.cpp calls it before idle
+  sampling. Replacing the connection invalidates the signature and pending inputs,
+  so even same-time reopen resamples. Retain the sampled UObject; do not repeatedly
+  Bind or rebuild controls. Added ComposableCameraInstanceAuthoringTests.cpp
+  coverage and updated DesignDoc, EditorDesignDoc, TechDoc and ExecutionFlowExamples.
+- Regression test: ComposableCameraSystem.CameraInstance.SequencerReconnect.
+  Exercises actual Sequencer close/release/recreation with the same authoring
+  session; also covers initially missing Sequencer, same-frame pending discard,
+  retained sampled object, Subject binding retention, one structural refresh,
+  value-only scrubbing, exclusive activation end, locks/read-only, and Auto Key
+  after reconnection without duplicate lanes or changed defaults.
+- Verification / blocker: static source/API review only. Project policy requires
+  IDE compilation and in-editor automation; neither was run here. Close UE,
+  compile in Rider/VS, reopen and run SequencerReconnect, ScrubRetainsControls,
+  GenericEditor and NativeManualKey. Manually repeat close/reopen with Shot Editor
+  visible; verify FOV/Roll, Subjects, live preview and manual key insertion.
+- Prevention: persistent editor views must reconnect ephemeral tool sessions;
+  test closing/recreating the tool, not only rebinding a view to an existing one.
+  Connection changes require sample invalidation independently of asset/time changes.
+- Possible conflicts: respect the existing gesture/transaction gate and all
+  activation/readonly protections. No serialized data, bindings, camera output,
+  legacy Shot assets or animation ownership changes. No runtime hot-path work.
+
+## 2026-10-13 - Subject labels switch from letters to numbers after B
+
+- Symptom / repro: create or open a Shot with at least three Subjects, including
+  a template-library draft. Edit / Subjects shows Subject A, Subject B, Subject 3;
+  anchor menus and viewport labels repeat the mismatch.
+- Why / root cause: separate UI formatters special-cased indices zero and one,
+  then formatted Index + 1 numerically. Diagnostics had another numeric fallback,
+  and native instance parameter labels used numbers for every Subject. Existing
+  SubjectIndexLabels tests explicitly expected the inconsistent third/fourth labels.
+- History / blast radius: reviewed the 2026-10-11 binding-label/source-host fixes,
+  Subject header alignment and stable SubjectId animation ownership. Audited
+  card headers, anchor/basis/centroid menus, diagnostics, overlay drawing and
+  CameraInstanceAuthoring::ParameterLabel consumers. Binding name resolution and
+  index/SubjectId storage are unaffected.
+- Fix / touched files: add Editors/ComposableCameraShotSubjectLabel.h as the
+  shared A..Z, AA.. formatter; use it in SShotEditorAuthoringPanel.cpp,
+  ComposableCameraShotTargetIndexCombo.cpp, ComposableCameraShotEditorDiagnostics.cpp,
+  ComposableCameraShotEditorViewportClient.cpp and ComposableCameraInstanceEditorSession.cpp.
+  Update ShotTargetIndexCombo.h's contract, ShotSubjectLabelTests.cpp expectations,
+  EditorDesignDoc.md and TechDoc.md. The viewport keeps stack-only formatting.
+- Regression tests: ComposableCameraSystem.ShotEditor.AlphabeticSubjectLabels
+  checks actual A/B/C/D cards, overlay/UI formatting, Z/AA, AZ/BA, ZZ/AAA and
+  int32 boundaries, diagnostic/parameter naming and unchanged Subject identity.
+  SubjectIndexLabels retains binding-name/source-context tests and now checks C/D.
+- Verification: static consumer and whitespace checks only. Per project rules,
+  compile in Rider/VS and run both tests inside UE. Manually open a template with
+  three or more Subjects; compare headers, anchor menus, viewport and newly added
+  Subject parameter Tracks. No shell build/editor/test launch was attempted.
+- Prevention: centralize display-role formatting; test beyond the original
+  two-Subject dialogue case and keep display names separate from saved identities.
+- Possible conflicts: visible labels change, including newly generated Sequencer
+  parameter captions. No Subject reorder, binding, key path, asset migration,
+  solver or camera lifecycle changes. Numeric array indices in menus remain
+  zero-based and separate from alphabetic role names.
+
+## 2026-10-13 - Template library test converts an existing TSharedRef again
+
+- Symptom / repro: compile the UE5.6 editor module in Rider/VS with
+  ComposableCameraShotTemplateLibraryTests.cpp. Line 150 emits C2039 for
+  ToSharedRef, followed by Drag/Created initialization and TestEqual diagnostics.
+- Why / root cause: the fixture declares Session with MakeShared, whose return
+  type is already TSharedRef. ToSharedRef converts a TSharedPtr; it is not a
+  TSharedRef member. The rejected argument invalidates all dependent expressions.
+- History / blast radius: reviewed the 2026-10-11 shared-session test compile
+  error and template library creation tests. Audited the drag factory signature
+  and its callers. The production button pins a TWeakPtr to a TSharedPtr and
+  correctly uses ToSharedRef after checking validity; that path stays unchanged.
+- Fix / touched files: pass Session directly in
+  Source/ComposableCameraSystemEditor/Private/Tests/ComposableCameraShotTemplateLibraryTests.cpp;
+  record this entry in Docs/BugLog.md. No runtime or authoring API changes.
+- Regression test: ComposableCameraSystem.ShotEditor.TemplateLibrary retains its
+  real drag-factory call and checks the created instance's template name, Subject
+  slots and source isolation. Compiling this existing test verifies argument
+  compatibility; an additional runtime test cannot detect a compile failure.
+- Verification: declaration/caller audit and diff whitespace checks only.
+  Per project rules, repeat the IDE compile, then run TemplateLibrary in UE.
+  No shell build or test launch was attempted.
+- Prevention: check the deduced type before copying shared-pointer conversions
+  from another caller; distinguish MakeShared's TSharedRef from Pin's TSharedPtr.
+- Possible conflicts: none expected; test fixture correction only. Production
+  drag ownership, bindings, template assets and parameter animation are unchanged.
+
+## 2026-10-13 — Shot Editor Recent retains deleted Shots
+
+- Symptom / repro: open a ShotAsset or LS Camera Instance in Shot Editor, delete
+  the asset or its binding/Track, then open Recent. The deleted Shot remains listed;
+  older persisted entries can also survive editor restarts without a valid host.
+- Why / root cause: history accepted any live weak pointer or syntactically valid
+  soft path. Neither proves existence: removed MovieScene/graph subobjects remain
+  alive for Undo, and a deleted package still has a valid-looking path. Save also
+  persisted transient paths, which cannot identify the same draft across restarts.
+- History / blast radius: reviewed the native binding rename/Recent-label fix and
+  retained authoring sessions; audited all history consumers, OpenForCameraInstance,
+  legacy section opening, node ownership, MovieScene RemoveTrack and UObject IsAsset
+  in UE5.6. Preserve current native names and valid unloaded assets.
+- Fix: validate the owning asset and live container membership. Menu opening resolves
+  persisted hosts, prunes invalid entries, updates renamed paths and saves cleanup.
+  Click actions revalidate; CanExecute uses only loaded ownership. Scratch ShotAssets
+  and unowned draft InstanceData are excluded. Transient hosts are not saved; old
+  transient paths cannot resolve into unrelated objects with reused names. Persisted
+  indices stay contiguous when filtering entries. No history work is added to seeks.
+- Touched files: ComposableCameraShotEditorHistory.h/.cpp, SShotEditorRoot.cpp,
+  ComposableCameraShotEditorHistoryTests.cpp; EditorDesignDoc.md, TechDoc.md and this
+  log. Companion caption change renames New Shot Draft to Create Empty Shot in
+  SShotEditorAuthoringPanel.cpp and the no-source hint, updates SequenceDraftTests/
+  ShotTemplateLibraryTests, DesignDoc.md, ShotBasedKeyframing.md and ExecutionFlowExamples.md.
+- Regression test: ComposableCameraSystem.ShotEditor.RecentHistoryValidity covers
+  deleted-but-live instance Tracks/bindings, replaced InstanceData, missing asset
+  paths, weak-ref restoration, renamed paths, deleted asset flags, draft exclusion,
+  legacy section removal/restoration and graph-node removal. Uses isolated history;
+  never changes real user recents. Existing CameraInstance.Rename covers live menu
+  labels; TemplateLibrary/ClipActionAlignment cover the revised caption/layout.
+- Verification: source/API review and diff checks only. Compilation and UE automation
+  require Rider/Visual Studio per project rules. No command-line build/test launch.
+  IDE-side: close UE, compile/reopen, run RecentHistoryValidity and CameraInstance.Rename;
+  open/delete an actual ShotAsset and LS instance, reopen Recent, restart UE and verify
+  cleanup persists while an existing unloaded Shot remains reopenable.
+- Prevention: validate logical membership separately from UObject lifetime; do not
+  treat FSoftObjectPath::IsValid as existence or persist transient object identities.
+- Possible conflicts / limits: opening Recent may synchronously load up to 20 saved
+  host packages to validate contained objects. Playback/scrubbing does not load them.
+  Pruned entries are not restored automatically by Undo; reopening the restored Shot
+  adds it again. Runtime output, channels, Subjects and asset serialization are unchanged.

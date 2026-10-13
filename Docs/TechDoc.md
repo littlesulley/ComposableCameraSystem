@@ -1,6 +1,6 @@
 # ComposableCameraSystem Tech Notes
 
-Updated: 2026-10-11
+Updated: 2026-10-13
 
 Purpose: compact implementation reference. Keep this file current when code
 patterns, public APIs, hot-path rules, node catalogs, or gotchas change.
@@ -977,14 +977,25 @@ Runtime Previewer technique:
 
 Shot Editor V1 authoring technique:
 
+- Workspace state is user/project configuration, not reflected Shot data.
+  `ShotEditorLayout::ReadLayoutState` validates splitter/task/subtab values;
+  root restores HUD/Guides and passes the coefficient to native SSplitter slots.
+  Slot resize delegates update complementary coefficients and the config cache.
+  Authoring pages persist task/subtab selection; whole-Subject/component areas
+  and generated parameter areas persist expansion by page/role/path. Native
+  minimum widths remain in effect. User actions update GConfig; root teardown
+  flushes GEditorPerProjectIni. Do not flush from Tick or every splitter movement.
+  Persistent normal root widgets opt in their retained child panels; standalone
+  test fixtures opt out or use a disposable cache-only filename.
 - `SShotEditorAuthoringPanel` and Advanced Details edit the same host Shot;
   `FComposableCameraShotAuthoringSession` re-resolves reflected storage and
   Section source modes. Its transient draft is retained through `FGCObject`.
 - Root constructs authoring pages and the native viewport once, then attaches
   navigation and `SShotEditorPreviewLayout`. The layout derives from SSplitter:
   two named slots, Authoring and Preview, use native horizontal allocation with
-  initial coefficients .4/.6 and minimum widths 420/280. Both use full available
-  height. Native splitter allocation handles narrow panes and user dragging.
+  default coefficients .4/.6 and minimum widths 420/280. Saved coefficients
+  replace those defaults on reopening. Both use full available height.
+  Native splitter allocation handles narrow panes and user dragging.
   Follow/Aim behavior, anchors/zones, Lens/Focus and Motion responses are attached
   to their parameter panel's single retained Body. Template, destination/duration
   and preset apply/restore controls are local widgets attached to their matching
@@ -994,17 +1005,26 @@ Shot Editor V1 authoring technique:
   Scalar commits rebuild no container. Source/array changes refresh handles and
   subject boxes while retaining pages. Navigation rejects edit/transaction gestures.
 - `ShotEditorStyle` retains native Background/Secondary chrome and shared
-  CameraNodeTitle accent. Group headers use muted neutral gray (.085, .09, .10
-  linear RGB), independent of the camera accent. Primary selected
-  navigation uses the full accent; SecondaryTabColor mixes 65% accent into native
-  Secondary gray. ActionStyle returns the native AppStyle Button style, using
-  its gray palette and standard hover/pressed/disabled feedback. Native unselected
-  subtabs and primary-row preview toggles keep their original palette.
+  CameraNodeTitle accent. ParameterSection delegates to the shared Group used by
+  Shot Template, Sequence and Presets. GroupHeader and the group body reuse
+  DebugTooltip.Header and DebugTooltip.Background from
+  FComposableCameraEditorStyle. The header matches SComposableCameraRuntimeDebugPanel
+  with 6/5 padding, a 4-unit camera-accent stripe, a 7-unit title gap and Bold 9
+  text. Sections remain open; native property controls and nested folds remain
+  intact. Button styling stays separate from card styling. TabStyle retains its
+  four-unit rounded tintable brushes; TabColor supplies full accent for selected
+  primary navigation/preview toggles and Secondary gray otherwise.
+  SecondaryTabColor mixes 65% accent for selected Edit tabs. Navigation captions
+  remain regular 9-point text with no selection stripes. ActionStyle returns the
+  native AppStyle Button. Live color attributes retain selection feedback without
+  rebuilding controls. Disabled behavior stays native.
   Static brushes avoid per-frame
   allocation. Tasks are 28 units high (14-unit icons, 9-point labels), Edit tabs
   are 26 units high (9-point labels), native parameter rows are 24 units high.
-  Level Preview / Follow playhead are centered 104/112 x 24 buttons in reserved
-  AutoWidth slots at the navigation's right. Stable tags support layout tests.
+  Level Preview is a centered 104 x 24 button in a reserved AutoWidth slot at
+  the navigation's right. Its stable tag supports layout tests. Source selection
+  is explicit: the root Tick does not scan Camera Cuts or switch Shot Sections.
+  InstanceEditor::Refresh still samples current Sequencer time independently.
   Actions use an outer left-aligned box plus a fixed 156 x 24 inner box; a lone
   WidthOverride under a Fill slot would still stretch the button. Compose /
   Inspect / Preview copies native segmented-control shapes with themed states.
@@ -1043,15 +1063,15 @@ Shot Editor V1 authoring technique:
   Component / pivot and the generated Pivot / Bounds / Preview groups occupy
   vertical AutoHeight, HAlign_Fill slots with identical side padding, without
   fixed-width boxes or half-width wrap calculations. Only the whole-role header
-  uses GroupHeader's gray fill/bold text. Lower groups keep SExpandableArea's
+  uses GroupHeader's Runtime Debug fill/accent stripe/bold text. Lower groups keep SExpandableArea's
   native ExpandableArea.Border and 4/2 header padding, with SubsectionHeader's
   regular text in the same 24-unit wrapper as nested native struct/array rows.
-  Body borders stay transparent. Whole-role
+  Whole-role bodies use DebugTooltip.Background; lower body borders stay transparent. Whole-role
   and component expansion state lives in the authoring widget, keyed by page and
   role/index, so structural refreshes preserve folding without serializing Shot
   state. Native field-group folds remain in the parameter panel. The up/down
   square actions and the final Swap actors A / B action are removed in both
-  Create and Edit; session reorder/swap operations remain available.
+  Edit; session reorder/swap operations remain available.
   SubjectLayout checks real production widths at small/large sizes and folding
   across refresh. Motion removes only its Aim response heading and two help
   paragraphs, retaining all native speed/enabled fields. Actor drift
@@ -1105,6 +1125,41 @@ Shot Editor V1 authoring technique:
   custom row's property identity, even though its picker edits the correct field.
   This follows the PropertyEditor public tree API and the native value-widget
   approach in GameplayCamerasEditor/Customizations/CameraParameterDetailsCustomizations.cpp.
+- Target-index labels include the numeric index and alphabetic Subject role
+  (A, B, C...Z, AA...). `ComposableCameraShotSubjectLabel.h` owns this formatting
+  for cards, index pickers, diagnostics, viewport overlays and parameter Tracks.
+  Its viewport path uses fixed stack buffers without FString/FText allocation;
+  the UI path localizes the Subject prefix. Roles are presentation only, never
+  serialized binding identities. AlphabeticSubjectLabels checks the third/fourth
+  card, Z/AA and ZZ/AAA boundaries, diagnostics and Track labels. Retained
+  customization factories capture the authoring session weakly and pass its
+  current host as a weak UObject to every index control, including centroid
+  entries. This supplies Section context absent from a raw FStructOnScope tree;
+  normal Details uses the target property's own outer object. No global active
+  editor fallback is used, so separate sources cannot borrow each other's names.
+  A Section override takes precedence: local MovieScene binding metadata names
+  inactive Spawnables without resolving live actors; cross-sequence bindings use
+  the open Sequencer's resolved sequence ID and template sequence. Missing
+  bindings remain explicit. Without an override, labels use loaded actor labels,
+  unloaded actor path tails, then preview-mesh names, without loading assets.
+  SubjectIndexLabels checks actual parameter controls and menu content, binding
+  rename/source rebind, centroid entries, normal Details, preview-only and empty
+  subjects, append and invalid/deleted references. Label reads do not mutate Shot
+  data or bindings and run only in UI attributes/menu construction.
+- `SShotEditorSubjectPicker` keeps the standalone native Actor entry box and
+  adds a Section binding menu on Edit / Subjects cards. It reads only the host
+  sequence's MovieScene bindings; UE5.6 `MovieSceneHelpers::GetBoundObjectClass`
+  filters Actor classes for Possessables, legacy Spawnables and custom bindings.
+  Native Actor pickers hide transient actors by default, so merely showing world
+  actors cannot cover inactive Spawnables. Selected text reads binding metadata,
+  not a live actor path. Binding assignment stores a local relative ID through
+  the session, resets actor/cache identity, preserves authored Subject settings
+  and owns one guarded transaction. No actor spawn or new binding is needed.
+  The Level actors submenu retains the existing focused-Sequencer actor path.
+  Menus use SP delegates, weak session/source references and revalidate source,
+  binding class, lock and transaction state on selection. SubjectBindingPicker
+  covers actual Edit / Subjects menu content, inactive/custom Spawnables, local
+  preset isolation, retained labels, invalid/component bindings and Undo/Redo.
 - Subject parameter panels locate an array element by `IPropertyHandleArray`
   and `IPropertyRowGenerator::FindTreeNode`; array position, not the repeated
   property name, identifies the correct target. All editable bounds and target
@@ -1113,7 +1168,7 @@ Shot Editor V1 authoring technique:
   soft-reference editing cannot bypass Sequencer binding creation or selection
   reset rules. BoundsContributionWeight stays a float rather than a 0/1 checkbox.
   Transient caches and diagnostic custom rows have no authoring control.
-  Create and Edit keep separate retained subject panels, preserving expansion
+  Edit keeps retained subject panels, preserving expansion
   while handles regenerate after reorder/source refresh. Subjects roots and action rows
   are constructed once; SyncSubjects retains role cards, removes only excess tail
   slots and appends missing cards. Actor/component controls continue reading the
@@ -1123,7 +1178,7 @@ Shot Editor V1 authoring technique:
   transaction and remains accessible while folded, with a Delete tooltip. Its
   16-unit icon is centered with four-unit content padding and zero additional
   normal/pressed style padding: SButton otherwise adds both padding sources.
-  SubjectDeleteIcon arranges real Create/Edit headers across folded/open states,
+  SubjectDeleteIcon arranges real Edit / Subjects headers across folded/open states,
   widths and DPI, checking complete intrinsic icon size, centering and containment.
   SubjectCollection activates the real Add/Delete buttons, verifies widget identity
   and same-tick rebinding,
@@ -1139,7 +1194,7 @@ Shot Editor V1 authoring technique:
   but a minimum-height box with Fill alignment stretches the text geometry and
   leaves its glyphs near the top. Center the text inside that box; keep its
   intrinsic line height, symmetric padding and the existing native arrow.
-  SubjectHeaderAlignment arranges all four production groups in Create/Edit,
+  SubjectHeaderAlignment arranges all four production groups in Edit / Subjects,
   open/closed, at narrow/wide widths and 100/150/200 percent layout scales. It
   checks both matching arrow/text centers and intrinsic text height, because
   matching the center of a stretched text box alone can conceal this bug.
@@ -1229,8 +1284,15 @@ Shot Editor V1 authoring technique:
   and applies `ShotViewportDisplay::ConfigurePreviewFlags` locally: no editor
   primitives, collision, engine bounds or selection overlay. Only isolated
   preview keeps the reference grid. Composition Canvas/PDI guides are independent
-  of these engine helpers; the diagnostic HUD starts off and remains opt-in. The same Follow mode and Aim mode-plus-selected-subtab predicates gate drawing,
-  stale hit-cache entries and drag writes; ignored screen controls are hidden. Letterboxed handle coordinates
+  of these engine helpers; the diagnostic HUD starts off and remains opt-in.
+  Both Follow and Aim require their Edit subtab plus the consuming solver mode.
+  Session `bShowFollowGuide` represents Edit / Follow selection for both the screen
+  handle and orbit globe; it is not serialized Shot state. Drawing, stale hit-cache
+  entries and drag writes use the same client predicates, including zones and
+  projection markers. Leaving Follow closes its captured screen/zone drag on the
+  next tick. `ShotEditor.FollowGuideSelection` covers real panel navigation, stale
+  point/zone hits, drag rejection and return to Follow without rebuilding pages.
+  Letterboxed handle coordinates
   use `FSceneView::UnscaledViewRect` size and origin. Isolated template proxies
   retain actor root and captured relative mesh transform, keeping ACharacter
   mesh offsets, bone pivots and actor basis distinct.
@@ -1268,7 +1330,7 @@ Shot Editor V1 authoring technique:
   unoffset frame has unit scale, preserving the existing quaternion-only Offset
   convention. Component failure and bone/socket fallback are not duplicated in
   drawing/input. `ShotSubjectGizmo::Resolve` derives the base, effective pivot,
-  Offset rotation and separate placement-heading quaternion. Create/Edit Subjects
+  Offset rotation and separate placement-heading quaternion. Edit / Subjects
   supply one view-only session flag. PDI draws pivot/offset/heading and configured
   bounds through foreground primitives; Canvas supplies Subject names, XYZ labels, RGB Offset
   axes and six ManualExtent face handles. Foreground RGB axes follow the reference
@@ -1334,7 +1396,35 @@ Shot Editor V1 authoring technique:
 - Named target components restrict pivot/bone/basis/bounds consistently. The
   bounds cache key includes ComponentName, even None; source-mesh proxy caches
   include component identity. Component walks avoid temporary component arrays.
-- Templates derive two-person yaw from a world-up A->B axis. Reorder applies
+- Create templates are serialized `UComposableCameraShotTemplateLibrary::Shots`
+  entries (Name + TObjectPtr to an existing ShotAsset), not inline Shot structs.
+  The native asset picker edits that reference; no Instanced/EditInline metadata
+  or duplicate parameter tree is used. UPROPERTY tracks referenced assets for GC.
+  The library factory explicitly opts into the native New Asset menu; its
+  AssetDefinition shares the Shot asset's Composable Camera System category.
+  RoundTrip checks the factory's actual category bits as well as asset-reference
+  serialization and the two editable entry fields. The panel
+  owns the selected library through FGCObject/TObjectPtr and saves only its soft
+  path as editor view state. A retained SComboButton replaces the template button
+  list; its FMenuBuilder creates native choices only when opened. Library and
+  referenced ShotAsset property changes or UndoRedo set a pending refresh. Idle
+  Tick closes the popup, increments its revision and caches the selected caption;
+  parameter pages remain intact. Weak menu delegates check revision, source and
+  editing state before dispatching. No per-frame asset loading/reflection/list
+  copying is performed. Missing Shot
+  references also reject creation and leave the current source intact. Choosing
+  a valid entry copies its current asset Shot into StartTemplateDraft. Later
+  asset edits update choice counts but do not replace existing draft/LS copies.
+  StartTemplateDraft preflights editing/Sequence constraints before replacing the
+  source, copies configuration, removes Actor and bounds-cache references, and
+  assigns new SubjectIds. Sequence mode initializes InstanceData; standalone mode
+  uses the existing GC-held scratch ShotAsset. The library is never an editing
+  host. StartSequenceDraft and Create Empty Shot supply an empty Shot, so no implicit
+  subject count precedes template selection. DraftName is transient session state
+  passed to the native insertion service, where normal LS binding naming takes over.
+  Presets remain the separate apply-to-current-subjects operation. Create no longer
+  builds duplicate Subject cards or enables their guides.
+- Legacy dialogue templates derive two-person yaw from a world-up A->B axis. Reorder applies
   the same index permutation to every anchor, centroid entry, basis index and
   Section binding. Mirror also exchanges asymmetric left/right zone padding.
 - Sequence authoring preflights conflicts, then owns one transaction for actor,
@@ -1363,13 +1453,29 @@ Shot Editor V1 authoring technique:
 
 Shot Editor status bar technique:
 
+- `FShotEditorDiagnostic` stores only issue/page/target index/held-pose state.
+  `DiagnoseShotPreview` reads the resolved preview Shot without another solve,
+  source mutation, dynamic containers or text formatting. Standalone preview
+  classifies its actual solve result; native final-camera output uses only
+  source anchor/basis/focus checks. A final blended/patched FOV is not evidence
+  of a source lens clamp. Weighted anchors may resolve through a subset of
+  entries; unused subjects/fields are not failures. Root formats localized text
+  only when diagnostic identity changes between gestures. UI status publication
+  freezes during native/session/viewport transactions so a warning cannot change
+  image geometry during a drag. Source swaps/teardown clear status. This rare
+  localized-text update belongs to editor UI state, not camera evaluation.
+  Show parameters selects retained pages and uses weak row/expandable-area maps
+  to open, highlight and ScrollDescendantIntoView without regenerating property
+  controls. Source refresh clears highlighting and replaces weak row mappings.
+  Root and panel guards reject navigation during native/session/viewport gestures.
 - `SShotEditorRoot::TrySetMode` classifies mode requests through
   `Widgets/ComposableCameraShotEditorModeSwitchUtils.h`; Free -> Drag
   does not apply immediately.
 - `Widgets/ComposableCameraShotEditorStatusBarUtils.h` keeps status-bar
   priority and action mapping pure and testable. Clean active shots hide the
-  bar, no-shot states show info, stale hosts show warning, and active Free-exit
-  requests show warning plus Free-exit actions.
+  bar, no-shot states show info, stale hosts show warning, active Free-exit
+  requests show warning plus Free-exit actions, and preview diagnostics show
+  warning plus parameter navigation. Liveness and Free-exit retain priority.
 - Liveness states win over pending actions. A stale host or missing Shot must
   suppress Save / Discard / Stay, because Save writes through the active host.
 - Free-exit requests cache the target mode and reverse-solve status, then show
@@ -1677,6 +1783,10 @@ Rules:
   invalidate tick cache and evaluate at zero delta.
 - `AddRaw` delegates owned by Slate widgets must be explicitly unbound in the
   toolkit destructor.
+- `SLATE_BEGIN_ARGS` initializer lists must follow the declaration order of
+  `SLATE_ARGUMENT` / `SLATE_ATTRIBUTE` fields. Adding a leading argument also
+  requires moving its explicit initializer; otherwise MSVC reports C5038 even
+  when independent default values are correct. Check this in an IDE compile.
 - Runtime data-block shape checks and byte-bounds checks are independent.
 - Object/Actor pin class constraints still need earlier layout-time diagnostics;
   runtime guards prevent corruption but do not give the best authoring message.
@@ -1726,6 +1836,12 @@ Rules:
   inside a Slate predicate causes C2027 and a downstream C2664 lambda-conversion
   error; fix type completeness before changing lambda signatures. Do not rely
   on another unity translation unit to supply this include.
+- `ISequencer::GetViewRange()` returns `FAnimatedRange` by value. Include
+  SequencerWidgets' `AnimatedRange.h` directly before materializing or accessing
+  that result. `ISequencer.h` forward-declares it; `ITimeSlider.h` only supplies
+  its definition under the deprecated pre-5.3 include-order compatibility flag.
+  Missing it produces C2027 plus cascading Lerp/initialization errors; fix the
+  definition include rather than changing the arithmetic or adding casts.
 - Do not mix `TObjectPtr<T>` and raw `T*` in a conditional expression. Call
   `.Get()` first, or use explicit branches when returning `TSubclassOf<T>` from
   a `UClass*`. In UE 5.6, include `PropertyHandle.h` for `IPropertyHandle`.
@@ -1737,6 +1853,12 @@ Rules:
   calls exported `FGameplayTagContainer` / `FGameplayTagQuery` methods must list
   `GameplayTags` in its own Build.cs, even when a depended-on runtime module
   already lists it.
+  The Editor module also privately depends on `UniversalObjectLocator`:
+  `FMovieSceneBindingReferences::AddBinding(Guid, CustomBinding)` is inline and
+  constructs an empty locator in the calling module; its constructor and
+  fragment destructor are exported by UniversalObjectLocator, not MovieScene.
+  The SubjectBindingPicker regression's custom Spawnable fixture exercises
+  this dependency; validation requires an IDE-side Editor DLL link.
 - Editor-module shutdown runs after UE's global Level Editor mode manager can
   be destroyed. Gate every shutdown-time `GLevelEditorModeTools()` access with
   `!IsEngineExitRequested()`; otherwise the accessor emits an ensure and
@@ -3026,3 +3148,226 @@ Update this document when:
 - changing hot-path behavior.
 - discovering a new recurring gotcha.
 - making stale comments or docs materially wrong.
+
+## Camera Instance channel/storage techniques — 2026-10-12
+
+- Configuration belongs to UMovieSceneComposableCameraInstanceTrack.Instance.
+  Section Channels use native Double/Integer/Bool channels and a dynamic channel
+  proxy. Reallocation, duplication, loading and Undo must invalidate/rebuild the
+  proxy; never retain handles into the old TArray. MovieScene's base MoveSection
+  offsets keys through this proxy.
+- Channel paths are typed: number, integer, boolean or object. Numeric channels
+  reject nonfinite keys; integer channels reject values outside int32. A changed
+  field type preserves its old channel as an orphan instead of reinterpreting it.
+  Reflection recursively exposes editable struct leaves; arbitrary arrays, maps,
+  strings, delegate pins and 64-bit integer animation are not supported. Shot
+  Targets are the explicit array exception, addressed by stable SubjectId.
+  Read reflected element widths through FProperty::GetElementSize(); direct
+  ElementSize access is deprecated in UE5.6.
+- CopyConfiguration is for transient evaluation and shares the immutable type.
+  CopyForAuthoring duplicates the inline built-in type into its destination.
+  External CameraTypeAssets remain references. InitializeFromType explicitly
+  seeds authored input and exposed-variable defaults after creating bag layouts.
+- Evaluation copies and field addresses are allocated/refreshed on activation or
+  signature changes. Full FFrameTime preserves subframe samples. ApplyInputs uses
+  typed runtime-slot writes; struct copies validate type, size and storage range.
+  A variable-sized struct can allocate if its authored content grows. No temporary
+  ParameterBlock is built on the new steady-state path. Existing node evaluation
+  costs and binding-cache population still follow their existing contracts.
+- Camera TrackInstance entity Owner must be the activation Section (UE5.6's field type is
+  TObjectPtr<UMovieSceneSection>), not the Track. The runtime groups root inputs by
+  class; this evaluator separates them by owning Track and sequence instance.
+  Overlapping intervals of one instance choose latest start, then later serialized
+  Section order. This is deterministic arbitration, not instance blending.
+- Persist binding IDs. Resolve against the current FSequenceInstance each sample,
+  checking the field's object class. Never persist a spawned actor/template as a
+  Subject. Output component ownership must match the evaluated Track.
+- Editor output maintenance runs in the existing transaction and skips
+  GIsTransacting. Creation has a reentrancy guard because MakeNewSpawnable sends
+  structural notifications. Never call global UndoTransaction to roll back an
+  asset drop; remove only objects created by that attempt.
+- Asset drop handlers must be mutually exclusive. UE5.6 Sequencer.cpp,
+  FSequencer::OnHandleAssetDropped, calls every registered editor and checks
+  !bWasConsumed when another HandleAssetAdded returns true. Registration order
+  is not priority or short-circuiting. InstanceTrackEditor owns ShotAsset and
+  CameraTypeAsset drops, excluding Patch subclasses. Legacy ShotTrackEditor
+  inherits the base false handler; existing legacy Sections and explicit menus
+  stay supported. A selected LSActor binding must not revive the old drop path.
+
+- Native hierarchy uses MovieScene.AddGivenTrack to move prototype owner Tracks
+  under their output binding. Presence checks must scan bindings as well as root
+  Tracks. A parameter lane resolves its owner through the same binding, so native
+  duplication of the complete binding preserves parameter membership without a
+  second serialized owner pointer. No generated folder is needed.
+- UE5.6 UMovieScene::GetObjectDisplayName is non-const. Binding labels, including
+  the Shot Editor breadcrumb, must retain the mutable Scene pointer returned by
+  GetTypedOuter; a const widget method does not make the referenced UObject const.
+- Parameter Sections do not import camera-evaluator entities. The Activation
+  evaluator samples sibling lanes, after restoring cached numeric defaults.
+  Scene signatures include sibling Section edits. A muted lane or a time gap must
+  not retain previous-frame sampled values. Parameter Section paste retargets the
+  stored input to its destination lane; evaluation is restricted to that input.
+  Multi-input activation Sections cannot be pasted as a parameter Section.
+  Parameter CreateNewSection starts at TRange<FFrameNumber>::All(); AddInterval
+  keeps it for the first lane Section, while explicit additional intervals and
+  Activation still use five seconds. Do not overwrite the first parameter range
+  with Activation's range. PostLoad enables infinite-range UI support on old
+  parameter Sections without changing bounds. MakeParameterSectionInfinite is
+  explicit, transactional and key-preserving; migrated prototype ranges remain.
+- Scalar channel metadata bCanCollapseToTrack enables the engine's native value
+  editor/key/navigation widgets. BuildOutlinerEditWidget supplies the separate
+  Add column. Double keys use the engine AddKeyToChannel/GetInterpolationMode
+  helpers, also for Auto Key.
+- FComposableCameraInstanceEditorSession is an FGCObject with a weak owner and
+  Sequencer plus GC-tracked sampled/baseline buffers. Quick pages and generic
+  Details share it. Source invalidation copies configuration and compiles field
+  addresses/defaults; commits refresh caches after possible collection/bag edits.
+  Time-only Refresh restores cached numeric defaults, samples channels and updates
+  baseline scalars in place. It neither copies configuration nor gathers fields.
+  ERefreshResult distinguishes None/Values/Source; only Source routes to structural
+  OnChanged and Root's Details/page refresh. Native numeric widgets read property
+  handles on demand (UE5.6 SPropertyEditorNumeric::OnGetValue), so replacing their
+  trees to update a number is unnecessary and causes scrubbing stalls/flashing.
+  Source/history/collection refreshes may still allocate outside gestures.
+  ShotAuthoringSession updates the adapter's weak Sequencer before Refresh using
+  its cached live resolver. Bind-time capture alone goes stale after LS reopens,
+  leaving preview live but CanEdit false and parameter values frozen. Compare
+  connection identity; only a replacement invalidates Signature and PendingInputs.
+  Force the first sample even if MovieScene signature and playhead time match.
+  Do not call Bind every Tick: that allocates buffers and reintroduces UI rebuilds.
+  Interactive preview allocation is editor-only and never
+  enters runtime MovieScene OnAnimate. Runtime caches restore scalar defaults
+  without constructing bags each frame.
+- Pending manually edited animated values feed TMovieSceneExternalValue through
+  a runtime-declared/editor-bound delegate. Module shutdown unbinds it; session
+  destruction removes its non-UObject registry entry. Native keying calls Modify
+  first, so this lookup must not reject a value merely because the Section/Scene
+  signature changed. Gate by pending input, instance, focused Sequence and time.
+- Native double-channel AddOrUpdateKey also requires OnGetCurrentValueAndWeight
+  when an external value exists. These custom evaluator channels have no property
+  instantiator entity; default UE5.6 interrogation ensures on missing System or
+  property definition (BuiltInChannelEditors.cpp, lines 164/185). Supply the keyed
+  Section's existing curve sample and weight 1, so recomposition writes the pending
+  input exactly. Never return the pending value as the old sample. Capture a weak
+  Section/input identity, not an address into reallocatable Channels. Empty curves
+  use the engine's external-value fallback. Integer/bool native paths are unchanged.
+- Typed Subject paths persist stable IDs. View samples never serialize resolved
+  actors; preview resolves binding IDs into a separate temporary evaluation copy.
+  Applying a preset preserves existing SubjectId as well as target configuration.
+- Sequence drafts use a GC-tracked InstanceData and owning Sequence in the authoring
+  session, not a parallel Shot asset schema. GetInstanceValues includes both drafts
+  and sampled Track views; only InstanceEditor commits animation. Collection edits
+  assign stable IDs/slots before binding them, and previews resolve into copies.
+  GetSequence/GetSequencer must also handle drafts without a Track outer. An
+  explicit unresolved draft binding suppresses isolated placeholder substitution.
+- InstanceDragDropOp subclasses the native asset transport with FAssetData for its
+  loaded transient snapshot; it does not register/save an asset. FGCObject retains
+  snapshot and originating Sequence. Track-area OnAllowDrop/OnDrop receives pointer
+  frame; blank space bubbles to SSequencer's asset path and HandleAssetAdded. UE5.6
+  SlateApplication::RoutePointerUpEvent clears the active drag pointer before
+  dispatch, so resolve this payload through a weak operation registry keyed by
+  snapshot identity, not GetDragDroppingContent. Expired/cancelled operations cannot
+  authorize another transient object. Asset handlers remain mutually exclusive.
+- A true OnAllowDrop result must fill FSequencerDragDropParams::FrameRange with
+  both bounds. UE5.6 SSequencerTrackAreaView initially passes an unbounded default
+  and copies a handled result into DropFrameRange; STrackAreaView::OnPaint reads
+  both endpoints without testing whether they are open. Use MakeCreationRange
+  for hover and actual creation so duration, frame rounding and overflow checks
+  agree. Rejected own drags still consumed to prevent native asset fallback use
+  a bounded empty [Frame, Frame) interval, never TRange::All/default construction.
+  This preview contract is separate from intentionally unbounded parameter Sections.
+- Reject drops into a different focused Sequence before any mutation. Native
+  blank-area drops already own a transaction; reuse the instance creation service
+  without globally undoing a caller's transaction. After success, force evaluation
+  at the created start and rebind the originating session only if it still edits
+  the captured source. Existing conflicting Cuts are preserved with feedback.
+- AutoSizedAction remains for standalone creation actions, using native caption
+  desired size and minimum dimensions. Clip uses SequenceAction instead: fill the
+  shared vertical column, center a wrapping STextBlock, and keep a 28-unit minimum
+  height with equal content padding. Create and Navigate / Duplicate subheadings
+  organize actions without another Current Clip card. ClipActionAlignment arranges
+  the actual tagged rows at 180/300/420 units and 1x/1.5x/2x DPI; SequenceActionWidth
+  retains coverage for content-sized actions elsewhere.
+- SequenceDragButton retains its native SButton mouse/click/drag handlers with
+  an Icons.DragHandle SImage in a 16-unit box and six-unit content padding. The
+  image is hit-test invisible and inherits foreground tint. Its parent uses an
+  AutoWidth icon slot and a FillWidth wrapping description, keeping explanatory
+  text outside the drag target without constraining localized caption width.
+- The drag row and button both require IsSequenceDraft; MakeOperation enforces
+  the same rule so a bound instance cannot start an insertion through input fallback.
+  GetBoundClip checks MovieScene membership, then chooses active/first Activation
+  (or the legacy Section). Go to Clip selects that Section and frames its range
+  without seeking. Bound actions are disabled for drafts and removed clips.
+- Use native Spawnable/Possessable SetName when initializing managed bindings.
+  UE5.6 FObjectBindingModel::Rename writes those names; MovieScene's
+  ObjectsToDisplayNames override is read first and would mask later Rename.
+  ClearLegacyDisplayName removes only overrides on instance-owned bindings at
+  attachment and once per newly focused editable Scene in the track editor's idle
+  Tick. Load-time normalization avoids an extra Undo transaction/package dirty;
+  MarkAsChanged invalidates already-open view caches once. Existing native names,
+  including renames hidden under the old override, are preserved. No per-frame
+  binding scan or repeated name formatting is added.
+  Root caches the owning Scene/signature and updates its retained HostNameLabel on
+  source/Undo changes, not on seeks. Loaded Recent entries resolve the live binding
+  name on menu creation; no background asset loads or history reorder are needed.
+  CameraInstance.Rename calls the actual engine binding model Rename, checks
+  header/Recent/Undo/Redo and unchanged text identity during scrubbing, and exercises
+  stale-override normalization and subsequent native renames.
+- Shot Editor Recent validates ownership via FShotEditorHistory::IsHostAvailable,
+  not FSoftObjectPath::IsValid or weak-pointer lifetime alone. A removed Track,
+  Section, replaced InstanceData or graph node can remain alive for Undo. Asset
+  deletion also clears asset flags before collection. Menu-open PruneUnavailable
+  resolves cold paths (checking package existence before loading), removes invalid
+  entries and refreshes renamed paths. CanExecute checks only live ownership;
+  click resolution validates again. Never call pruning/loading from Tick or seek
+  callbacks. Scratch drafts are excluded, transient hosts are never persisted, and
+  Save uses contiguous indices even when skipping entries. RecentHistoryValidity
+  uses a private in-memory history so regression checks do not overwrite user recents.
+- DuplicateAtTime captures sibling parameter tracks before creating a new binding
+  invalidates the MovieScene binding array. It preflights range/key offsets in int64,
+  duplicates the Track-owned data, clears inherited OutputBinding/ManagedCut, and
+  creates a fresh output. Duplicate sibling lanes are attached to that binding.
+  Rebuild each copied channel proxy, then use native MoveSection for both bounds
+  and keys; temporarily unlock only the copies, restoring their original lock state.
+  Open bounds stay open; interpolation/defaults and stable Subject IDs survive.
+  All activation intervals move relative to the selected anchor. A free anchor
+  interval gets a new Cut; conflicts leave authored Cuts unchanged. One transaction
+  owns the complete edit; failures remove only newly created objects, never undo
+  unrelated history. Navigation works in read-only scenes; duplication does not.
+  The source need not be active at the destination playhead. Copy authored data,
+  not the transient sampled/pending editing buffer.
+- Sequence metadata is read-only: no destination-change/duration-commit delegates
+  or camera-ownership toggle. GetClipDuration derives seconds from the legacy
+  Section or instance Activation range and tick resolution, falling back to the
+  first Activation outside all intervals, then five seconds for drafts/unbounded
+  sources. Display and insertion share that value. Clip consolidates the existing
+  actions with their source-specific visibility/enabling and no explanatory footer.
+
+Reference reads for draft transport: UE5.6 GameplayCamerasEditor ObjectTreeDragDropOp
+(decorated operation lifetime/feedback), Sequencer SSequencer and
+MVVM/Views/SSequencerTrackAreaView (two drop routes), SlateApplication pointer-up
+dispatch, and CoreUObject AssetData (loaded transient object transport). Engine
+files are read-only; gameplay-cameras-reference skill is absent from this workspace.
+
+Source-review tests: ComposableCameraSystem.CameraInstance.NativeChannels,
+SubjectIdentity, DuplicateOwnsData, GenericDefaultsAndInputs, AssetDropOwnership,
+NativeHierarchy, SampledEditing, GenericEditor, ScrubRetainsControls,
+NativeManualKey, InfiniteParameterSection, SequenceDraft, ClipActions and ShotEditor.SequenceActionWidth.
+ClipActions checks draft/bound/readonly action states, selection without seeking,
+independent output/configuration, retained Subject IDs, multiple activation offsets,
+unbounded curves, interpolation, Undo/Redo and rejection of key-time overflow.
+The new tests cover binding membership,
+parameter curves/gaps/muting, sampled Shot Editor reopening, Auto Key versus
+manual pending values, default/preset preservation and missing Subject bindings.
+ScrubRetainsControls exercises the real Root and deferred native generator ticks,
+checking current native handle values and retained row identities during forward
+and reverse scrubs, then collection refresh and Undo/Redo. GenericEditor also
+checks property-bag address stability and absence of structural seek notifications.
+NativeManualKey resolves a real bound managed actor and calls the native
+MovieSceneTools numeric keying entry, including Modify-before-capture, first key,
+existing-curve updates, Undo/Redo and coexistence with Auto Key. InfiniteParameterSection
+checks unbounded defaults and transactional conversion of existing bounded keys.
+Tests added, not executed. Successful drag dispatch, native key-button capture,
+output lifecycle and MRQ still require IDE/editor integration checks. This work
+does not certify hot graph changes, generic seek-state reset or first-frame
+Camera Cut/render ordering.

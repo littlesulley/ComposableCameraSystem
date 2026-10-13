@@ -10,13 +10,12 @@
  * One entry in the Shot Editor's "recently opened" history. Captures the
  * host UObject the editor was bound to (as both a live weak ref AND a
  * stable soft-object path), plus a snapshot of the display label at
- * push-time so a stale entry (host GC'd, asset unloaded, or only known
- * via a freshly-loaded ini line) still renders as a useful breadcrumb
- * in the dropdown.
+ * push-time. Menu construction resolves and removes unavailable hosts;
+ * a valid soft path alone does not prove that a Shot still exists.
  */
 struct FShotEditorHistoryEntry
 {
-	/** Weak ref to the host UObject - `UComposableCameraCompositionFramingNode`,
+	/** Weak ref to the host UObject - `UComposableCameraInstanceData`, `UComposableCameraCompositionFramingNode`,
 	 * `UMovieSceneComposableCameraShotSection`, or `UComposableCameraShotAsset`.
 	 * Goes stale on host destruction. Empty for entries loaded from
 	 * the ini before their host asset is back in memory. */
@@ -29,9 +28,7 @@ struct FShotEditorHistoryEntry
 	 * to the right UObject when invoked. */
 	FSoftObjectPath HostPath;
 
-	/** Display string captured at push-time (e.g. "MyLS -> Hero Track->Inline (3 targets) (0.00s - 2.50s, Row 0)").
-	 * Survives host destruction + ini round-trips so the menu can show what
-	 * *was* there even when the live ref is gone and the asset is unloaded. */
+	/** Fallback label captured at push-time, retained across ini round-trips. */
 	FText DisplayLabel;
 };
 
@@ -63,8 +60,8 @@ public:
 	 * loads any persisted entries from `GEditorPerProjectIni`. */
 	static FShotEditorHistory& Get();
 
-	/** Push a (host, label) pair onto the history. No-op when Host is null
-	 * or the label is empty. Dedupes against existing entries with the same
+	/** Push a (host, label) pair onto the history. No-op when Host is unavailable
+	 * (including scratch drafts) or the label is empty. Dedupes against entries with the same
 	 * Host *or* `FSoftObjectPath` (older one removed, new one prepended).
 	 * Capped at MaxEntries. Persists the updated list to disk before
 	 * returning.
@@ -78,30 +75,34 @@ public:
 	 * caller's frame (the underlying TArray is owned by the singleton). */
 	const TArray<FShotEditorHistoryEntry>& GetEntries() const { return Entries; }
 
+	/** Resolve saved hosts and prune deleted assets/detached subobjects. Call only
+	 * when opening Recent, never on Tick: cold entries may load their package.
+	 * Refreshes weak refs and renamed paths, preserving most-recent-first order. */
+	void PruneUnavailable();
+
+	/** Check current ownership, not merely UObject lifetime. Does not load assets. */
+	static bool IsHostAvailable(UObject* Host);
+
 	/** Drop all entries (in memory + on disk). */
 	void Clear();
 
 	/** Resolve the live UObject for a history entry. Returns the cached
 	 * weak ref when valid; otherwise calls `HostPath.TryLoad()` which may
 	 * trigger a synchronous package load. Returns null when neither path
-	 * is recoverable (asset deleted / moved without a redirector). */
+	 * is recoverable or the host is no longer part of its owning asset. */
 	static UObject* ResolveHost(const FShotEditorHistoryEntry& Entry);
 
 private:
-	/** Private ctor so `Get()`'s static local is the only construction
-	 * path. Loads persisted entries on first construction. */
-	FShotEditorHistory();
+	friend class FShotEditorHistoryValidityTest;
+	/** Tests use an isolated in-memory history without reading/writing user settings. */
+	explicit FShotEditorHistory(bool bInPersist = true);
 
-	/** Repopulate `Entries` from the contiguous `[ComposableCameraSystem.ShotEditorHistory]`
-	 * ini section. Tolerant of trailing gaps (stops at first missing key
-	 * pair) so manual edits to the ini don't drop the rest of the list. */
+	/** Read contiguous ini key pairs, stopping at the first missing pair. */
 	void Load();
 
-	/** Mirror `Entries` to the ini section, dropping any entries whose
-	 * `HostPath` or `DisplayLabel` is empty (defensive - should never
-	 * happen given `Push`'s validation, but a corrupt in-memory state
-	 * shouldn't yield a corrupt on-disk record). */
+	/** Persist recoverable asset paths using contiguous keys; never save transient hosts. */
 	void Save();
 
 	TArray<FShotEditorHistoryEntry> Entries;
+	bool bPersist = true;
 };

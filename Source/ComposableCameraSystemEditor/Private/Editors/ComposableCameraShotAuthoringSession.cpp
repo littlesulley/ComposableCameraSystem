@@ -1,5 +1,8 @@
 // Copyright 2026 Sulley. All Rights Reserved.
 #include "Editors/ComposableCameraShotAuthoringSession.h"
+#include "Editors/ComposableCameraInstanceEditorSession.h"
+#include "MovieScene/MovieSceneComposableCameraInstanceTrack.h"
+#include "MovieScene/MovieSceneComposableCameraInstanceSection.h"
 #include "Widgets/ComposableCameraShotViewportDisplayUtils.h"
 
 #include "AssetToolsModule.h"
@@ -14,9 +17,11 @@
 #include "ISequencer.h"
 #include "LevelSequence/ComposableCameraLevelSequenceComponent.h"
 #include "MovieScene.h"
+#include "MovieSceneCommonHelpers.h"
 #include "MovieScene/MovieSceneComposableCameraShotSection.h"
 #include "MovieScene/MovieSceneComposableCameraShotTrack.h"
 #include "MovieSceneSequence.h"
+#include "LevelSequence.h"
 #include "Modules/ModuleManager.h"
 #include "GameFramework/Actor.h"
 #include "ScopedTransaction.h"
@@ -45,6 +50,7 @@ void FComposableCameraShotAuthoringSession::Bind(FComposableCameraShot* Shot, UO
 {
 	EndEdit();
 	Host = InHost;
+	DraftName = FText::GetEmpty();
 	CachedSequencer.Reset();
 	LegacyShot = Shot;
 	ShotProperty = NAME_None;
@@ -61,14 +67,76 @@ void FComposableCameraShotAuthoringSession::Bind(FComposableCameraShot* Shot, UO
 			}
 		}
 	}
+	InstanceEditor.Reset();
+	if (auto* Track = GetInstanceTrack())
+	{
+		InstanceEditor = MakeUnique<FComposableCameraInstanceEditorSession>();
+		InstanceEditor->Bind(Track, GetSequencer());
+	}
 	bPreviewPending = true;
-	bUseLevelWorld = GetSection() != nullptr || InHost == Scratch.Get();
+	bUseLevelWorld = GetSequence() != nullptr || InHost == Scratch.Get();
+}
+
+bool FComposableCameraShotAuthoringSession::StartSequenceDraft(TSharedRef<ISequencer> Sequencer, FString& Reason)
+{
+	return StartTemplateDraft(FComposableCameraShot(), LOCTEXT("EmptyDraft", "Shot Draft"), Sequencer, Reason);
+}
+
+bool FComposableCameraShotAuthoringSession::StartTemplateDraft(const FComposableCameraShot& InShot, const FText& Name,
+	TSharedPtr<ISequencer> Sequencer, FString& Reason)
+{
+	Reason.Reset();
+	auto* Sequence = Sequencer ? Cast<ULevelSequence>(Sequencer->GetFocusedMovieSceneSequence()) : nullptr;
+	if (Sequencer && (!Sequence || !Sequence->GetMovieScene() || Sequence->GetMovieScene()->IsReadOnly() || Sequencer->IsReadOnly()
+		|| !Sequence->AllowsSpawnableObjects() || !Sequencer->GetPlaybackContext()))
+	{ Reason = TEXT("Open and focus an editable Level Sequence with Spawnable support."); return false; }
+	if (IsEditing() || (GEditor && GEditor->IsTransactionActive()))
+	{ Reason = TEXT("Finish the current edit gesture before creating a draft."); return false; }
+	const FText NewDraftName = Name.IsEmpty() ? LOCTEXT("EmptyDraft", "Shot Draft") : Name;
+	FComposableCameraShot Shot = InShot;
+	for (auto& Target : Shot.Targets)
+	{
+		// Templates provide roles/pivots, not actors or animation identities from another instance.
+		Target.SubjectId = FGuid::NewGuid();
+		Target.Target.Actor.Reset();
+		Target.CachedAutoBoundsExtent = FVector::ZeroVector;
+		Target.CachedBoundsMeshComponent.Reset();
+		Target.CachedBoundsSourceComponentName = NAME_None;
+	}
+	DraftSequence = Sequence;
+	if (Sequence)
+	{
+		SequenceDraft = NewObject<UComposableCameraInstanceData>(GetTransientPackage(), NAME_None, RF_Transactional | RF_Transient);
+		SequenceDraft->InitializeFromShot(Shot);
+		Bind(&SequenceDraft->Shot, SequenceDraft);
+	}
+	else
+	{
+		SequenceDraft = nullptr;
+		Scratch = NewObject<UComposableCameraShotAsset>(GetTransientPackage(), NAME_None, RF_Transactional | RF_Transient);
+		Scratch->Shot = MoveTemp(Shot);
+		Bind(&Scratch->Shot, Scratch);
+	}
+	DraftName = NewDraftName;
+	CachedSequencer = Sequencer;
+	if (OnChanged) OnChanged(true);
+	return true;
+}
+
+bool FComposableCameraShotAuthoringSession::IsSequenceDraft() const
+{
+	return SequenceDraft && Host.Get() == SequenceDraft.Get();
 }
 
 FComposableCameraShot* FComposableCameraShotAuthoringSession::GetShot() const
 {
 	UObject* Object = Host.Get();
 	if (!Object) return nullptr;
+	if (InstanceEditor)
+	{
+		auto* Values = InstanceEditor->GetValues();
+		return Values && Values->bComposition && GetInstanceTrack() && GetInstanceTrack()->IsInMovieScene() ? &Values->Shot : nullptr;
+	}
 	if (UMovieSceneComposableCameraShotSection* Section = Cast<UMovieSceneComposableCameraShotSection>(Object))
 	{
 		return Section->ResolveShotEditorShot();
@@ -83,8 +151,29 @@ UMovieSceneComposableCameraShotSection* FComposableCameraShotAuthoringSession::G
 	return Cast<UMovieSceneComposableCameraShotSection>(Host.Get());
 }
 
+UMovieSceneComposableCameraInstanceTrack* FComposableCameraShotAuthoringSession::GetInstanceTrack() const
+{
+	const auto* Data = Cast<UComposableCameraInstanceData>(Host.Get());
+	return Data ? Data->GetTypedOuter<UMovieSceneComposableCameraInstanceTrack>() : nullptr;
+}
+UComposableCameraInstanceData* FComposableCameraShotAuthoringSession::GetInstanceValues() const
+{
+	return InstanceEditor ? InstanceEditor->GetValues() : IsSequenceDraft() ? SequenceDraft.Get() : nullptr;
+}
+bool FComposableCameraShotAuthoringSession::IsGenericInstance() const
+{
+	const auto* Values = GetInstanceValues();
+	return Values && !Values->bComposition;
+}
 bool FComposableCameraShotAuthoringSession::CanEdit() const
 {
+	if (InstanceEditor) return InstanceEditor->CanEdit();
+	if (IsSequenceDraft())
+	{
+		const auto Seq = GetSequencer();
+		return DraftSequence && DraftSequence->GetMovieScene() && !DraftSequence->GetMovieScene()->IsReadOnly()
+			&& Seq && !Seq->IsReadOnly() && Seq->GetFocusedMovieSceneSequence() == DraftSequence;
+	}
 	if (!GetShot()) return false;
 	if (const auto* Section = GetSection())
 	{
@@ -96,6 +185,8 @@ bool FComposableCameraShotAuthoringSession::CanEdit() const
 
 UMovieSceneSequence* FComposableCameraShotAuthoringSession::GetSequence() const
 {
+	if (IsSequenceDraft()) return DraftSequence;
+	if (auto* Track = GetInstanceTrack()) return Track->GetTypedOuter<UMovieSceneSequence>();
 	UMovieSceneComposableCameraShotSection* Section = GetSection();
 	return Section ? Section->GetTypedOuter<UMovieSceneSequence>() : nullptr;
 }
@@ -120,6 +211,15 @@ AActor* FComposableCameraShotAuthoringSession::ResolveTarget(int32 Index) const
 {
 	const FComposableCameraShot* Shot = GetShot();
 	if (!Shot || !Shot->Targets.IsValidIndex(Index)) return nullptr;
+	if (GetInstanceValues())
+	{
+		const auto Binding = GetTargetBinding(Index);
+		if (const auto Seq = GetSequencer(); Seq && Binding.IsValid())
+			for (const auto Object : Binding.ResolveBoundObjects(Seq->GetFocusedMovieSceneSequence() == GetSequence()
+				? Seq->GetFocusedTemplateID() : MovieSceneSequenceID::Root, *Seq))
+				if (auto* Actor = Cast<AActor>(Object.Get())) return Actor;
+		return nullptr;
+	}
 	if (UMovieSceneComposableCameraShotSection* Section = GetSection())
 	{
 		for (const FComposableCameraShotTargetActorOverride& Override : Section->TargetActorOverrides)
@@ -141,6 +241,11 @@ AActor* FComposableCameraShotAuthoringSession::ResolveTarget(int32 Index) const
 
 UCineCameraComponent* FComposableCameraShotAuthoringSession::GetOutputCamera() const
 {
+	if (auto* Track = GetInstanceTrack())
+	{
+		const auto Seq = GetSequencer();
+		return Track->IsInMovieScene() && Seq && UMovieSceneComposableCameraInstanceTrack::FindActiveSection(*Track, Seq->GetLocalTime().Time) ? GetConfiguredCamera(false) : nullptr;
+	}
 	UMovieSceneComposableCameraShotSection* Section = GetSection();
 	TSharedPtr<ISequencer> Sequencer = GetSequencer();
 	if (!Section || !Sequencer || Sequencer->GetFocusedMovieSceneSequence() != GetSequence()
@@ -152,8 +257,8 @@ UCineCameraComponent* FComposableCameraShotAuthoringSession::GetConfiguredCamera
 {
 	UMovieSceneComposableCameraShotSection* Section = GetSection();
 	TSharedPtr<ISequencer> Sequencer = GetSequencer();
-	if (!Section || !Sequencer || Sequencer->GetFocusedMovieSceneSequence() != GetSequence()) return nullptr;
-	const UMovieSceneTrack* Track = Section->GetTypedOuter<UMovieSceneTrack>();
+	if ((!Section && !GetInstanceTrack()) || !Sequencer || Sequencer->GetFocusedMovieSceneSequence() != GetSequence()) return nullptr;
+	const UMovieSceneTrack* Track = GetInstanceTrack() ? GetInstanceTrack() : Section->GetTypedOuter<UMovieSceneTrack>();
 	if (!Track) return nullptr;
 	for (TWeakObjectPtr<UObject> Object : Sequencer->FindBoundObjects(Track->FindObjectBindingGuid(), Sequencer->GetFocusedTemplateID()))
 	{
@@ -200,6 +305,8 @@ void FComposableCameraShotAuthoringSession::BeginEdit(const FText& Description)
 
 void FComposableCameraShotAuthoringSession::Changed(bool bStructural)
 {
+	if (IsSequenceDraft() && bStructural) { SequenceDraft->EnsureSubjectIdentities(); SequenceDraft->RefreshSubjectSlots(); }
+	if (InstanceEditor) InstanceEditor->Commit(bStructural);
 	bPreviewPending = true;
 	bGestureChanged = true;
 	bStructuralChange |= bStructural;
@@ -211,6 +318,7 @@ void FComposableCameraShotAuthoringSession::NotifyNativePropertyChange(const FPr
 	const uint32 ArrayChanges = EPropertyChangeType::ArrayAdd | EPropertyChangeType::ArrayRemove
 		| EPropertyChangeType::ArrayClear | EPropertyChangeType::Duplicate | EPropertyChangeType::ArrayMove;
 	Changed((Event.ChangeType & ArrayChanges) != 0);
+	if (InstanceEditor) return;
 	if ((Event.ChangeType & EPropertyChangeType::Interactive) != 0) return;
 
 	UObject* Object = Host.Get();
@@ -231,6 +339,7 @@ void FComposableCameraShotAuthoringSession::NotifyNativePropertyChange(const FPr
 
 void FComposableCameraShotAuthoringSession::NotifyHost()
 {
+	if (InstanceEditor) { InstanceEditor->Commit(); return; }
 	UObject* Object = Host.Get();
 	if (!Object) return;
 	const FName Name = EditingProperty;
@@ -276,6 +385,19 @@ void FComposableCameraShotAuthoringSession::OnObjectTransacted(UObject* Object, 
 
 void FComposableCameraShotAuthoringSession::Tick()
 {
+	if (InstanceEditor)
+	{
+		if (!IsEditing() && (!GEditor || !GEditor->IsTransactionActive()))
+		{
+			// Preview/Subjects already rediscover the live Sequencer. The sampled
+			// parameter view must follow the same connection after an LS reopen.
+			InstanceEditor->UpdateSequencer(GetSequencer());
+			const auto Change = InstanceEditor->Refresh();
+			if (Change != FComposableCameraInstanceEditorSession::ERefreshResult::None && OnChanged)
+				OnChanged(Change == FComposableCameraInstanceEditorSession::ERefreshResult::Source);
+		}
+		return;
+	}
 	if (!bPreviewPending) return;
 	UMovieSceneComposableCameraShotSection* Section = GetSection();
 	TSharedPtr<ISequencer> Sequencer = GetSequencer();
@@ -312,88 +434,6 @@ void FComposableCameraShotAuthoringSession::AbortBindingEdit()
 	if (OnChanged) OnChanged(true);
 }
 
-bool FComposableCameraShotAuthoringSession::BindTargetsToSection(UMovieSceneComposableCameraShotSection& Section, TConstArrayView<AActor*> Actors, FString& Reason)
-{
-	TSharedPtr<ISequencer> Sequencer = GetSequencer();
-	if (!Sequencer || Sequencer->GetFocusedMovieSceneSequence() != GetSequence()) return false;
-	TArray<FComposableCameraShotTargetActorOverride> Bindings;
-	for (int32 Index = 0; Index < Actors.Num(); ++Index)
-	{
-		FMovieSceneObjectBindingID Binding;
-		if (!ResolveSubjectBinding(*Sequencer, Actors[Index], true, Binding, Reason)) return false;
-		FComposableCameraShotTargetActorOverride& Override = Bindings.AddDefaulted_GetRef();
-		Override.TargetIndex = Index;
-		Override.Binding = Binding;
-	}
-	Section.TargetActorOverrides = MoveTemp(Bindings);
-	return true;
-}
-
-bool FComposableCameraShotAuthoringSession::UseSelectedActors(EComposableShotTemplate Template, FString& Reason)
-{
-	if (GetHost() && !GetShot()) { Reason = TEXT("The current source has no editable shot. Choose its asset or switch the section to Inline."); return false; }
-	if (GetShot() && !CanEdit()) { Reason = TEXT("The current shot or sequence is locked."); return false; }
-	if (GetSection() && (!GetSequencer() || GetSequencer()->GetFocusedMovieSceneSequence() != GetSequence()))
-	{ Reason = TEXT("Open and focus the owning sequence before assigning subjects."); return false; }
-	TArray<AActor*> Actors;
-	if (GEditor)
-	{
-		for (FSelectionIterator It(*GEditor->GetSelectedActors()); It; ++It)
-		{
-			if (AActor* Actor = Cast<AActor>(*It)) Actors.Add(Actor);
-		}
-	}
-	if (!CanUseTemplate(Template, Actors.Num()))
-	{
-		Reason = TEXT("Select one actor for single shots, two for pair shots, or at least two for group shots.");
-		return false;
-	}
-	if (GetSection())
-	{
-		if (!GEditor || GEditor->IsTransactionActive()) { Reason = TEXT("Finish the current edit gesture before assigning subjects."); return false; }
-		for (AActor* Actor : Actors)
-		{
-			FMovieSceneObjectBindingID Binding;
-			if (!ResolveSubjectBinding(*GetSequencer(), Actor, false, Binding, Reason)) return false;
-		}
-	}
-	TArray<FComposableCameraShotTarget> Targets;
-	for (AActor* Actor : Actors) Targets.Add(MakeTarget(Actor));
-	FComposableCameraShot Result;
-	if (!BuildTemplate(Template, Targets, Result)) return false;
-	EnsureScratch();
-	BeginEdit(LOCTEXT("Selection", "Create Shot From Selected Actors"));
-	if (UMovieSceneComposableCameraShotSection* Section = GetSection())
-	{
-		if (!BindTargetsToSection(*Section, Actors, Reason)) { AbortBindingEdit(); return false; }
-		for (auto& Target : Result.Targets) Target.Target.Actor.Reset();
-	}
-	*GetShot() = MoveTemp(Result);
-	Changed(true);
-	EndEdit();
-	return true;
-}
-
-bool FComposableCameraShotAuthoringSession::ApplyTemplate(EComposableShotTemplate Template, FString& Reason)
-{
-	if (!CanEdit()) { Reason = TEXT("The current shot or sequence is locked."); return false; }
-	FComposableCameraShot* Shot = GetShot();
-	FComposableCameraShot Result;
-	TArray<FComposableCameraShotTarget> Targets;
-	if (Shot) { Targets = Shot->Targets; for (int32 Index = 0; Index < Targets.Num(); ++Index) Targets[Index].Target.Actor = ResolveTarget(Index); }
-	if (!Shot || !BuildTemplate(Template, Targets, Result))
-	{
-		Reason = TEXT("This template needs a matching subject count. Pick subjects first.");
-		return false;
-	}
-	BeginEdit(LOCTEXT("Template", "Apply Shot Template"));
-	if (GetSection()) for (auto& Target : Result.Targets) Target.Target.Actor.Reset();
-	*Shot = MoveTemp(Result);
-	Changed(true);
-	EndEdit();
-	return true;
-}
-
 bool FComposableCameraShotAuthoringSession::CanAddTargets() const
 {
 	return (!GetHost() || CanEdit()) && !IsEditing() && GEditor && !GEditor->IsTransactionActive();
@@ -424,13 +464,13 @@ bool FComposableCameraShotAuthoringSession::AppendTargets(TConstArrayView<AActor
 	{ Reason = TEXT("The current source has no editable shot. Choose its asset or switch the section to Inline."); return false; }
 	if (GetShot() && !CanEdit()) { Reason = TEXT("The current shot or sequence is locked."); return false; }
 	UMovieSceneComposableCameraShotSection* Section = GetSection();
-	const TSharedPtr<ISequencer> Sequencer = Section ? GetSequencer() : nullptr;
+	const TSharedPtr<ISequencer> Sequencer = GetSequence() ? GetSequencer() : nullptr;
 	// Validate every binding before creating any. Empty slots need no open Sequencer.
 	for (AActor* Actor : Actors)
 	{
 		if (!Actor) continue;
 		if (!IsValid(Actor)) { Reason = TEXT("Choose valid subject actors."); return false; }
-		if (Section)
+		if (GetSequence())
 		{
 			if (!Sequencer || Sequencer->GetFocusedMovieSceneSequence() != GetSequence())
 			{ Reason = TEXT("Open and focus the owning sequence before assigning subjects."); return false; }
@@ -444,6 +484,17 @@ bool FComposableCameraShotAuthoringSession::AppendTargets(TConstArrayView<AActor
 	EnsureScratch();
 	const int32 FirstIndex = GetShot()->Targets.Num();
 	BeginEdit(LOCTEXT("AddSubjects", "Add Shot Subjects"));
+	TArray<FMovieSceneObjectBindingID> InstanceBindings;
+	if (GetInstanceValues())
+	{
+		for (int32 Offset = 0; Offset < Actors.Num(); ++Offset)
+		{
+			FMovieSceneObjectBindingID Binding;
+			if (Actors[Offset] && !ResolveSubjectBinding(*Sequencer, Actors[Offset], true, Binding, Reason)) { AbortBindingEdit(); return false; }
+			InstanceBindings.Add(Binding);
+			Targets[Offset].Target.Actor.Reset();
+		}
+	}
 	TArray<FComposableCameraShotTargetActorOverride> Bindings;
 	if (Section)
 	{
@@ -465,6 +516,15 @@ bool FComposableCameraShotAuthoringSession::AppendTargets(TConstArrayView<AActor
 		Section->TargetActorOverrides.Append(MoveTemp(Bindings));
 	}
 	GetShot()->Targets.Append(MoveTemp(Targets));
+	if (auto* Values = GetInstanceValues())
+	{
+		Values->EnsureSubjectIdentities(); Values->RefreshSubjectSlots();
+		for (int32 Offset = 0; Offset < InstanceBindings.Num(); ++Offset)
+		{
+			const FName Path(*(TEXT("Shot.Targets.") + Values->Shot.Targets[FirstIndex + Offset].SubjectId.ToString(EGuidFormats::Digits) + TEXT(".Target.Actor")));
+			for (auto& Slot : Values->Subjects) if (Slot.Input == Path) Slot.Binding = InstanceBindings[Offset];
+		}
+	}
 	Changed(true);
 	EndEdit();
 	return true;
@@ -499,11 +559,96 @@ bool FComposableCameraShotAuthoringSession::RemoveTarget(int32 Index, FString& R
 	return true;
 }
 
+FMovieSceneObjectBindingID FComposableCameraShotAuthoringSession::GetTargetBinding(int32 Index) const
+{
+	if (const auto* Values = GetInstanceValues(); Values && Values->Shot.Targets.IsValidIndex(Index))
+	{
+		const FName Path(*FString::Printf(TEXT("Shot.Targets.%s.Target.Actor"), *Values->Shot.Targets[Index].SubjectId.ToString(EGuidFormats::Digits)));
+		for (const auto& Subject : Values->Subjects) if (Subject.Input == Path) return Subject.Binding;
+	}
+	if (const auto* Section = GetSection())
+		for (const auto& Override : Section->TargetActorOverrides)
+			if (Override.TargetIndex == Index) return Override.Binding;
+	return FMovieSceneObjectBindingID();
+}
+
+bool FComposableCameraShotAuthoringSession::SetTargetBinding(int32 Index, const FGuid& BindingGuid, FString& Reason)
+{
+	Reason.Reset();
+	if (!CanEdit()) { Reason = TEXT("The current shot or sequence is locked."); return false; }
+	UMovieSceneComposableCameraShotSection* Section = GetSection();
+	FComposableCameraShot* Shot = GetShot();
+	if ((!Section && !GetInstanceValues()) || !Shot || !Shot->Targets.IsValidIndex(Index))
+	{ Reason = TEXT("Choose a valid Subject in a Shot Section."); return false; }
+	if (!GEditor || IsEditing() || GEditor->IsTransactionActive())
+	{ Reason = TEXT("Finish the current edit gesture before assigning subjects."); return false; }
+	// Inspect authored metadata, including UE5.6 custom Spawnable bindings.
+	// Never spawn an actor or create a new Possessable just to choose a binding.
+	if (BindingGuid.IsValid())
+	{
+		const UClass* Class = MovieSceneHelpers::GetBoundObjectClass(GetSequence(), BindingGuid);
+		if (!Class || !Class->IsChildOf(AActor::StaticClass()))
+		{ Reason = TEXT("Choose an actor binding from this Section's sequence."); return false; }
+	}
+	const FMovieSceneObjectBindingID Binding = UE::MovieScene::FRelativeObjectBindingID(BindingGuid);
+	if (GetTargetBinding(Index) == Binding && Shot->Targets[Index].Target.Actor.IsNull()) return true;
+	BeginEdit(LOCTEXT("SubjectBinding", "Set Shot Subject Binding"));
+	if (auto* Values = GetInstanceValues())
+	{
+		Values->EnsureSubjectIdentities(); Values->RefreshSubjectSlots();
+		const FName Path(*FString::Printf(TEXT("Shot.Targets.%s.Target.Actor"), *Shot->Targets[Index].SubjectId.ToString(EGuidFormats::Digits)));
+		for (auto& Subject : Values->Subjects) if (Subject.Input == Path) Subject.Binding = Binding;
+		Shot->Targets[Index].Target.Actor.Reset();
+		Shot->Targets[Index].CachedBoundsMeshComponent.Reset();
+		Shot->Targets[Index].CachedBoundsSourceComponentName = NAME_None;
+		Shot->Targets[Index].CachedAutoBoundsExtent = FVector::ZeroVector;
+		Changed(true); EndEdit();
+		return true;
+	}
+	Section->TargetActorOverrides.RemoveAll([Index](const auto& Override) { return Override.TargetIndex == Index; });
+	if (BindingGuid.IsValid())
+	{
+		auto& Override = Section->TargetActorOverrides.AddDefaulted_GetRef();
+		Override.TargetIndex = Index;
+		Override.Binding = Binding;
+	}
+	// Preserve authored pivot, bounds and preview settings, as the Section's
+	// existing Bind Target Actors menu does. Only object identity/cache changes.
+	auto& Target = Shot->Targets[Index];
+	Target.Target.Actor.Reset();
+	Target.CachedBoundsMeshComponent.Reset();
+	Target.CachedBoundsSourceComponentName = NAME_None;
+	Target.CachedAutoBoundsExtent = FVector::ZeroVector;
+	Changed(true);
+	EndEdit();
+	return true;
+}
+
 bool FComposableCameraShotAuthoringSession::SetTargetActor(int32 Index, AActor* Actor, FString& Reason)
 {
 	if (!CanEdit()) { Reason = TEXT("The current shot or sequence is locked."); return false; }
 	FComposableCameraShot* Shot = GetShot();
 	if (!Shot || !Shot->Targets.IsValidIndex(Index)) return false;
+	if (GetInstanceValues())
+	{
+		const auto Seq = GetSequencer();
+		if (!Seq || Seq->GetFocusedMovieSceneSequence() != GetSequence()) return false;
+		if (!GEditor || IsEditing() || GEditor->IsTransactionActive()) return false;
+		FMovieSceneObjectBindingID Binding;
+		if (Actor && !ResolveSubjectBinding(*Seq, Actor, false, Binding, Reason)) return false;
+		BeginEdit(LOCTEXT("InstanceSubject", "Set Camera Instance Subject"));
+		if (Actor && !ResolveSubjectBinding(*Seq, Actor, true, Binding, Reason)) { EndEdit(); return false; }
+		auto* Values = GetInstanceValues();
+		Values->EnsureSubjectIdentities(); Values->RefreshSubjectSlots();
+		const FName Path(*(TEXT("Shot.Targets.") + Shot->Targets[Index].SubjectId.ToString(EGuidFormats::Digits) + TEXT(".Target.Actor")));
+		for (auto& Slot : Values->Subjects) if (Slot.Input == Path) Slot.Binding = Binding;
+		Shot->Targets[Index].Target.Actor.Reset();
+		Shot->Targets[Index].CachedBoundsMeshComponent.Reset();
+		Shot->Targets[Index].CachedBoundsSourceComponentName = NAME_None;
+		Shot->Targets[Index].CachedAutoBoundsExtent = FVector::ZeroVector;
+		Changed(true); EndEdit();
+		return true;
+	}
 	if (GetSection() && (!GetSequencer() || GetSequencer()->GetFocusedMovieSceneSequence() != GetSequence() || !Actor))
 	{
 		Reason = TEXT("Open the owning sequence and pick an actor to create its subject binding.");
@@ -601,13 +746,17 @@ bool FComposableCameraShotAuthoringSession::ApplyPreset(UComposableCameraShotAss
 	*Shot = Preset->Shot;
 	// Role slots preserve this sequence's actor identities, bones and local offsets.
 	for (int32 Index = 0; Index < FMath::Min(ExistingTargets.Num(), Shot->Targets.Num()); ++Index)
+	{
 		Shot->Targets[Index].Target = ExistingTargets[Index].Target;
+		Shot->Targets[Index].SubjectId = ExistingTargets[Index].SubjectId;
+	}
 	if (UMovieSceneComposableCameraShotSection* Section = GetSection())
 	{
 		Section->TargetActorOverrides.RemoveAll([Shot](const auto& Override) { return !Shot->Targets.IsValidIndex(Override.TargetIndex); });
 		for (auto& Target : Shot->Targets) Target.Target.Actor.Reset();
 	}
 	if (ExistingTargets.IsEmpty()) bUseLevelWorld = false;
+	if (GetInstanceValues()) for (auto& Target : Shot->Targets) Target.Target.Actor.Reset();
 	Changed(true);
 	EndEdit();
 	return true;
@@ -642,5 +791,7 @@ UComposableCameraShotAsset* FComposableCameraShotAuthoringSession::SavePreset()
 void FComposableCameraShotAuthoringSession::AddReferencedObjects(FReferenceCollector& Collector)
 {
 	Collector.AddReferencedObject(Scratch);
+	Collector.AddReferencedObject(SequenceDraft);
+	Collector.AddReferencedObject(DraftSequence);
 }
 #undef LOCTEXT_NAMESPACE

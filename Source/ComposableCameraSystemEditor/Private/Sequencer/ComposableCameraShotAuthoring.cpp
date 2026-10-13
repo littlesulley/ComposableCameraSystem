@@ -317,15 +317,16 @@ UMovieSceneComposableCameraShotSection* CreateInSequence(TSharedRef<ISequencer> 
 }
 
 UMovieSceneComposableCameraShotSection* DuplicateInSequence(TSharedRef<ISequencer> Sequencer,
-	UMovieSceneComposableCameraShotSection& Source, FString& Reason)
+	UMovieSceneComposableCameraShotSection& Source, FString& Reason, TOptional<FFrameNumber> StartOverride)
 {
+	Reason.Reset();
 	UMovieScene* Scene = Source.GetTypedOuter<UMovieScene>();
 	UMovieSceneComposableCameraShotTrack* Track = Source.GetTypedOuter<UMovieSceneComposableCameraShotTrack>();
-	if (!Scene || !Track || Sequencer->GetFocusedMovieSceneSequence() != Scene->GetOuter()
+	if (!Scene || !Track || !Track->HasSection(Source) || Sequencer->IsReadOnly() || Sequencer->GetFocusedMovieSceneSequence() != Scene->GetOuter()
 		|| !Source.HasStartFrame() || !Source.HasEndFrame() || Source.IsLocked())
 	{ Reason = TEXT("Open the shot's owning sequence; the source clip must have a finite range and be unlocked."); return nullptr; }
-	const FFrameNumber Start = Source.GetExclusiveEndFrame();
-	const int64 Length = static_cast<int64>(Start.Value) - Source.GetInclusiveStartFrame().Value;
+	const FFrameNumber Start = StartOverride.Get(Source.GetExclusiveEndFrame());
+	const int64 Length = static_cast<int64>(Source.GetExclusiveEndFrame().Value) - Source.GetInclusiveStartFrame().Value;
 	if (Length <= 0 || static_cast<int64>(Start.Value) + Length > MAX_int32)
 	{ Reason = TEXT("Clip range exceeds sequence frame-number limits."); return nullptr; }
 	const TRange<FFrameNumber> Range(Start, FFrameNumber(static_cast<int32>(Start.Value + Length)));

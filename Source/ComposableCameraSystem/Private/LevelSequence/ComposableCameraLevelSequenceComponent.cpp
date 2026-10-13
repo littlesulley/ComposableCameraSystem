@@ -4,6 +4,7 @@
 
 #include "Cameras/ComposableCameraCameraBase.h"
 #include "CineCameraComponent.h"
+#include "MovieScene/ComposableCameraInstanceData.h"
 #include "ComposableCameraSystemModule.h"
 #include "Core/ComposableCameraParameterBlock.h"
 #include "Core/ComposableCameraTypeAssetInstantiator.h"
@@ -146,7 +147,7 @@ void UComposableCameraLevelSequenceComponent::TickComponent(
 {
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
 
-	if (!bEvaluationEnabled)
+	if (!bEvaluationEnabled || bCameraInstanceDriven)
 	{
 		return;
 	}
@@ -246,6 +247,42 @@ float UComposableCameraLevelSequenceComponent::ResolveSequencerAwareDeltaTime(fl
 	}
 
 	return WorldDeltaTime;
+}
+
+void UComposableCameraLevelSequenceComponent::EvaluateCameraInstance(
+	const UComposableCameraInstanceData& Values, float DeltaTime, bool bReset)
+{
+	if (!bCameraInstanceDriven || !Values.Camera.TypeAsset) return;
+	if (!InternalCamera || TypeAssetReference.TypeAsset != Values.Camera.TypeAsset)
+	{
+		// Activation/respawn only. The persistent evaluator is independent of the editor tab.
+		DestroyInternalCamera();
+		TypeAssetReference = Values.Camera;
+		EnsureInternalCamera();
+		bReset = true;
+	}
+	if (!InternalCamera) return;
+	if (InternalCamera->OwnedRuntimeDataBlock) Values.ApplyInputs(*InternalCamera->OwnedRuntimeDataBlock);
+	if (Values.bComposition)
+	{
+		for (UComposableCameraCameraNodeBase* Node : InternalCamera->CameraNodes)
+			if (auto* Framing = Cast<UComposableCameraCompositionFramingNode>(Node))
+			{
+				Framing->SetExternalAspectRatioOverride(UE::ComposableCameras::GetEffectiveAspectRatioForCineCamera(OutputCineCameraComponent));
+				Framing->SetActiveShotsFromSequencer(Values.Shot, nullptr, nullptr, 0.f, bReset);
+				break;
+			}
+	}
+	// A render frame can contain several MovieScene subframe samples.
+	InternalCamera->InvalidateTickCache();
+	FComposableCameraPose Pose = InternalCamera->TickCamera(DeltaTime);
+	if (!SequencerPatchOverlays.IsEmpty()) ApplySequencerPatchOverlays(Pose, DeltaTime);
+	ProjectPoseToCineCamera(Pose);
+}
+
+void UComposableCameraLevelSequenceComponent::ReleaseCameraInstance()
+{
+	if (bCameraInstanceDriven) DestroyInternalCamera();
 }
 
 void UComposableCameraLevelSequenceComponent::EvaluateOnce(float DeltaTime)
@@ -588,6 +625,8 @@ EComposableCameraTraceProjectionStatus UComposableCameraLevelSequenceComponent::
 	// Section is driving the LS Component this frame.
 	OutputCineCameraComponent->SetWorldLocationAndRotation(Pose.Position, Pose.Rotation);
 
+	// Managed instance outputs own their optics. The following legacy gate applies
+	// to manually placed LS actors; instance outputs are also enabled below.
 	// Lens fields (FOV / Aperture / FocusDistance) project onto the
 	// CineCamera ONLY when a Sequencer Shot Section is
 	// actively overriding the framing this frame. I.e.
@@ -613,7 +652,7 @@ EComposableCameraTraceProjectionStatus UComposableCameraLevelSequenceComponent::
 	// it runs BEFORE `ProjectPoseToCineCamera` and modifies `Pose` in
 	// place. The FOV we read here is already the patched one.
 	const bool bSectionDriven = (SequencerShotOverrides.Num() > 0);
-	if (bSectionDriven && Pose.PhysicalCameraBlendWeight > 0.f)
+	if (bCameraInstanceDriven || (bSectionDriven && Pose.PhysicalCameraBlendWeight > 0.f))
 	{
 		// FOV: dual-mode resolution per invariant #15. `FocalLength < 0`
 		// is the sentinel `CompositionFramingNode::ApplySolverResultToPose`

@@ -3,6 +3,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Editors/ComposableCameraShotEditorDiagnostics.h"
 #include "SEditorViewport.h"
 // FAdvancedPreviewScene's full definition is needed in the header because
 // the `TUniquePtr<FAdvancedPreviewScene>` member's implicit destructor
@@ -100,6 +101,7 @@ public:
 	void SetActiveShot(FComposableCameraShot* Shot, UObject* HostObject);
 	void SetAuthoringSession(TSharedPtr<class FComposableCameraShotAuthoringSession> Session);
 	bool IsEditingGesture() const;
+	FShotEditorDiagnostic GetPreviewDiagnostic() const;
 
 	/** Forwarded mode setter for the Shot Editor's toolbar SSegmentedControl.
 	 * See EShotEditorMode above for per-mode semantics. */

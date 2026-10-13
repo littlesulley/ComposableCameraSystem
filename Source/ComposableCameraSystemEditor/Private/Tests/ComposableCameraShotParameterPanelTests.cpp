@@ -43,7 +43,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FShotEditorCameraModesTest,
 bool FShotEditorCameraModesTest::RunTest(const FString&)
 {
 	if (!GEditor || GEditor->IsTransactionActive() || !FSlateApplication::IsInitialized()) return false;
-	const auto Root = SNew(SShotEditorRoot);
+	const auto Root = SNew(SShotEditorRoot).PersistViewState(false);
 	TSharedPtr<SSegmentedControl<EShotEditorMode>> Modes;
 	TFunction<void(const TSharedRef<SWidget>&)> FindModes;
 	FindModes = [&](const TSharedRef<SWidget>& Widget)
@@ -593,6 +593,86 @@ bool FShotEditorViewportValueCommitsTest::RunTest(const FString&)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FShotEditorFollowGuideSelectionTest,
+	"ComposableCameraSystem.ShotEditor.FollowGuideSelection",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FShotEditorFollowGuideSelectionTest::RunTest(const FString&)
+{
+	if (!GEditor || GEditor->IsTransactionActive() || !FSlateApplication::IsInitialized()) return false;
+	TStrongObjectPtr<UComposableCameraShotAsset> Asset(NewObject<UComposableCameraShotAsset>(GetTransientPackage(), NAME_None, RF_Transactional));
+	Asset->Shot.Placement.Mode = EShotPlacementMode::AnchorAtScreen;
+	Asset->Shot.Placement.PlacementZones.bEnabled = true;
+	auto Session = MakeShared<FComposableCameraShotAuthoringSession>();
+	Session->Bind(&Asset->Shot, Asset.Get());
+	Session->bUseLevelWorld = false;
+	const auto Panel = SNew(SShotEditorAuthoringPanel).Session(Session);
+	const auto Preview = SNew(SShotEditorViewport);
+	Preview->SetAuthoringSession(Session); Preview->SetActiveShot(&Asset->Shot, Asset.Get());
+	const auto Client = Preview->GetClientForTesting();
+	if (!TestTrue(TEXT("Real preview client and viewport exist"), Client.IsValid() && Client->Viewport != nullptr)) return false;
+	Client->SetMode(EShotEditorMode::Drag);
+	Client->SetShowCompositionGuides(true);
+	using FClient = FComposableCameraShotEditorViewportClient;
+	using EPage = SShotEditorAuthoringPanel::EPage;
+	using ESection = SShotEditorAuthoringPanel::EEditSection;
+	FClient::FHandleScreenPosCache Hit, OutHit;
+	Hit.Type = FClient::EHandleType::PlacementAnchor;
+	Hit.HitArea = FBox2D(FVector2D(90., 90.), FVector2D(110., 110.));
+	Hit.EdgeIndex = 0;
+	Hit.bIsSoftZone = true;
+	// Preserve the last paint's cached point/zone while switching the real panel state.
+	for (bool bZone : { false, true })
+	{
+		Hit.bIsZoneEdge = bZone;
+		Client->CachedHandles.Reset(); Client->CachedHandles.Add(Hit);
+		for (EPage Page : { EPage::Create, EPage::Edit, EPage::Sequence, EPage::Presets, EPage::Advanced })
+		{
+			for (ESection Section : { ESection::Follow, ESection::LookAt, ESection::Lens, ESection::Motion, ESection::Subjects })
+			{
+				Panel->ActivePage = Page; Panel->ActiveEditSection = Section; Panel->UpdateGuideSelection();
+				const bool bExpected = Page == EPage::Edit && Section == ESection::Follow;
+				TestEqual(TEXT("Follow drawing predicate follows task and edit selection"), Client->ShowFollowHandle(), bExpected);
+				TestEqual(TEXT("Cached point/zone follows selection before repaint"), Client->HitTestHandles(100, 100, OutHit), bExpected);
+				if (!bExpected)
+				{
+					Client->StartHandleDrag(Hit, 100, 100);
+					TestFalse(TEXT("Hidden Follow point/zone cannot start a gesture"), Client->IsEditingGesture());
+					Client->EndDrag();
+				}
+			}
+		}
+		Panel->SelectLookAtForTesting(false);
+		Client->StartHandleDrag(Hit, 100, 100);
+		TestTrue(TEXT("Returning to Follow allows point/zone drag"), Client->IsEditingGesture());
+		const FVector2D BeforeScreen = Asset->Shot.Placement.ScreenPosition;
+		const float BeforePadding = Asset->Shot.Placement.PlacementZones.SoftZone.Left;
+		Panel->SelectLookAtForTesting(true);
+		Client->ApplyDragToShot(0, 0);
+		TestTrue(TEXT("Leaving Follow blocks captured screen-position writes"), Asset->Shot.Placement.ScreenPosition == BeforeScreen);
+		TestEqual(TEXT("Leaving Follow blocks captured zone writes"), Asset->Shot.Placement.PlacementZones.SoftZone.Left, BeforePadding);
+		Client->Tick(0.f);
+		TestFalse(TEXT("Tick closes hidden Follow gesture"), Client->IsEditingGesture());
+		Client->EndDrag();
+	}
+	Panel->SelectLookAtForTesting(false);
+	TestTrue(TEXT("Follow restores screen handle"), Client->ShowFollowHandle());
+	TestFalse(TEXT("Screen mode hides orbit control"), Client->ShowOrbitControl());
+	Asset->Shot.Placement.Mode = EShotPlacementMode::AnchorOrbit;
+	TestFalse(TEXT("Orbit mode hides screen handle"), Client->ShowFollowHandle());
+	TestTrue(TEXT("Orbit retains the same Follow selection"), Client->ShowOrbitControl());
+	Panel->SelectSubjectsForTesting();
+	TestFalse(TEXT("Subjects hides both Follow controls"), Client->ShowFollowHandle() || Client->ShowOrbitControl());
+	Asset->Shot.Placement.Mode = EShotPlacementMode::AnchorAtScreen;
+	Panel->SelectLookAtForTesting(false);
+	Client->SetShowCompositionGuides(false);
+	TestFalse(TEXT("Guides off rejects retained Follow hit"), Client->HitTestHandles(100, 100, OutHit));
+	Client->SetShowCompositionGuides(true); Client->SetMode(EShotEditorMode::Free);
+	TestTrue(TEXT("Inspect retains selected guide for disabled drawing"), Client->ShowFollowHandle());
+	TestFalse(TEXT("Inspect keeps Follow non-interactive"), Client->HitTestHandles(100, 100, OutHit));
+	TestEqual(TEXT("Guide navigation retains task pages"), Panel->GetPageBuildCountForTesting(), 1u);
+	return true;
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FShotEditorOrbitControlTest,
 	"ComposableCameraSystem.ShotEditor.OrbitControl",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
@@ -928,13 +1008,12 @@ bool FShotEditorSubjectCollectionTest::RunTest(const FString&)
 	};
 	const auto Tick = [&]() { Authoring->Tick(FGeometry(), 0., 0.f); };
 	const auto Edit = Authoring->GetEditSubjectsForTesting();
-	const auto Create = Authoring->GetCreateSubjectsForTesting();
-	if (!TestTrue(TEXT("Both production Subjects pages exist"), Edit.IsValid() && Create.IsValid())) return false;
+	const auto Create = Authoring->GetCreatePageForTesting();
+	if (!TestTrue(TEXT("Create and Edit pages exist"), Edit.IsValid() && Create.IsValid())) return false;
 	const auto Add = FindTagged(Edit.ToSharedRef(), TEXT("ShotEditor.Edit.AddSubject"));
 	const auto FirstCard = Authoring->GetSubjectCardForTesting(0);
 	const auto SecondCard = Authoring->GetSubjectCardForTesting(1);
-	const auto CreateFirstCard = Authoring->GetSubjectCardForTesting(0, true);
-	if (!TestTrue(TEXT("Existing production subject cards exist"), FirstCard.IsValid() && SecondCard.IsValid() && CreateFirstCard.IsValid())) return false;
+	if (!TestTrue(TEXT("Existing production subject cards exist"), FirstCard.IsValid() && SecondCard.IsValid())) return false;
 	const auto First = StaticCastSharedPtr<SExpandableArea>(FirstCard);
 	First->SetExpanded(false);
 	const auto Component = StaticCastSharedPtr<SExpandableArea>(FindTagged(FirstCard.ToSharedRef(), TEXT("ShotEditor.Edit.Targets[0].ComponentGroup")));
@@ -943,10 +1022,9 @@ bool FShotEditorSubjectCollectionTest::RunTest(const FString&)
 	TestTrue(TEXT("Actual Edit Add Subject action succeeds"), Click(Edit.ToSharedRef(), TEXT("ShotEditor.Edit.AddSubject")));
 	Tick();
 	if (!TestEqual(TEXT("Edit action appends one slot"), Asset->Shot.Targets.Num(), 3)) return false;
-	TestTrue(TEXT("Collection change retains Edit and Create page roots"), Edit == Authoring->GetEditSubjectsForTesting() && Create == Authoring->GetCreateSubjectsForTesting());
+	TestTrue(TEXT("Collection change retains Edit and Create page roots"), Edit == Authoring->GetEditSubjectsForTesting() && Create == Authoring->GetCreatePageForTesting());
 	TestTrue(TEXT("Add action widget survives append"), Add == FindTagged(Edit.ToSharedRef(), TEXT("ShotEditor.Edit.AddSubject")));
 	TestTrue(TEXT("Append retains both existing cards"), FirstCard == Authoring->GetSubjectCardForTesting(0) && SecondCard == Authoring->GetSubjectCardForTesting(1));
-	TestTrue(TEXT("Create shares retained-card behavior"), CreateFirstCard == Authoring->GetSubjectCardForTesting(0, true));
 	TestFalse(TEXT("Append keeps whole Subject folded"), First->IsExpanded());
 	TestTrue(TEXT("Append keeps component subsection open"), Component->IsExpanded());
 	const auto Native = Authoring->GetSubjectPanelForTesting(1);
@@ -956,10 +1034,10 @@ bool FShotEditorSubjectCollectionTest::RunTest(const FString&)
 	TestEqual(TEXT("Array controls are rebound in the same refresh tick"), Native->GetRebuildCountForTesting(), BoundRows);
 	TestTrue(TEXT("Reallocated target storage has working native handles"), Native->SetSubjectFloatForTesting(GET_MEMBER_NAME_CHECKED(FComposableCameraShotTarget, BoundsContributionWeight), .75f));
 	TestEqual(TEXT("Native handle writes correct surviving subject"), Asset->Shot.Targets[1].BoundsContributionWeight, .75f);
-	Authoring->SelectCreateForTesting();
-	TestTrue(TEXT("Actual Create Add Subject action succeeds"), Click(Create.ToSharedRef(), TEXT("ShotEditor.Create.AddSubject")));
+	Authoring->SelectSubjectsForTesting();
+	TestTrue(TEXT("Second Edit Add Subject action succeeds"), Click(Edit.ToSharedRef(), TEXT("ShotEditor.Edit.AddSubject")));
 	Tick();
-	if (!TestEqual(TEXT("Create action appends one slot"), Asset->Shot.Targets.Num(), 4)) return false;
+	if (!TestEqual(TEXT("Second action appends one slot"), Asset->Shot.Targets.Num(), 4)) return false;
 	Authoring->SelectSubjectsForTesting();
 	TestTrue(TEXT("Delete action works while Subject is folded"), Click(Edit.ToSharedRef(), TEXT("ShotEditor.Edit.Targets[0].RemoveSubject")));
 	Tick();
@@ -974,16 +1052,16 @@ bool FShotEditorSubjectCollectionTest::RunTest(const FString&)
 	TestTrue(TEXT("Shifted native handle edits current slot"), Authoring->GetSubjectPanelForTesting(0)->SetSubjectFloatForTesting(GET_MEMBER_NAME_CHECKED(FComposableCameraShotTarget, BoundsContributionWeight), .6f));
 	TestEqual(TEXT("Shifted field write reaches surviving subject"), Asset->Shot.Targets[0].BoundsContributionWeight, .6f);
 	TestEqual(TEXT("Shifted field write leaves next subject untouched"), Asset->Shot.Targets[1].BoundsContributionWeight, 1.f);
-	Authoring->SelectCreateForTesting();
+	Authoring->SelectSubjectsForTesting();
 	const int32 Remaining = Asset->Shot.Targets.Num();
 	for (int32 Attempt = 0; Attempt < Remaining; ++Attempt)
 	{
-		if (!TestTrue(TEXT("Create Delete action can remove through last slot"), Click(Create.ToSharedRef(), TEXT("ShotEditor.Create.Targets[0].RemoveSubject")))) break;
+		if (!TestTrue(TEXT("Edit Delete action can remove through last slot"), Click(Edit.ToSharedRef(), TEXT("ShotEditor.Edit.Targets[0].RemoveSubject")))) break;
 		Tick();
 		if (!Session->CanEdit()) break;
 	}
 	TestEqual(TEXT("Last delete leaves zero subjects"), Asset->Shot.Targets.Num(), 0);
-	TestTrue(TEXT("Empty state retains both page roots"), Edit == Authoring->GetEditSubjectsForTesting() && Create == Authoring->GetCreateSubjectsForTesting());
+	TestTrue(TEXT("Empty state retains both page roots"), Edit == Authoring->GetEditSubjectsForTesting() && Create == Authoring->GetCreatePageForTesting());
 	TestTrue(TEXT("Empty state retains Add button"), Add == FindTagged(Edit.ToSharedRef(), TEXT("ShotEditor.Edit.AddSubject")));
 	Authoring->SelectSubjectsForTesting();
 	TestTrue(TEXT("Add remains functional after last deletion"), Click(Edit.ToSharedRef(), TEXT("ShotEditor.Edit.AddSubject"))); Tick();
@@ -1002,12 +1080,11 @@ bool FShotEditorSubjectDeleteIconTest::RunTest(const FString&)
 	Asset->Shot.Targets.SetNum(2);
 	auto Session = MakeShared<FComposableCameraShotAuthoringSession>(); Session->Bind(&Asset->Shot, Asset.Get());
 	const auto Authoring = SNew(SShotEditorAuthoringPanel).Session(Session);
-	for (const bool bCreate : { false, true })
 	for (int32 SubjectIndex = 0; SubjectIndex < 2; ++SubjectIndex)
 	{
-		const auto Card = Authoring->GetSubjectCardForTesting(SubjectIndex, bCreate);
+		const auto Card = Authoring->GetSubjectCardForTesting(SubjectIndex);
 		if (!TestTrue(TEXT("Production Subject card exists"), Card.IsValid())) return false;
-		const FName DeleteTag(*FString::Printf(TEXT("ShotEditor.%s.Targets[%d].RemoveSubject"), bCreate ? TEXT("Create") : TEXT("Edit"), SubjectIndex));
+		const FName DeleteTag(*FString::Printf(TEXT("ShotEditor.Edit.Targets[%d].RemoveSubject"), SubjectIndex));
 		for (const bool bExpanded : { false, true })
 		for (const float Dpi : { 1.f, 1.5f, 2.f })
 		for (const double Width : { 280., 1200. })
@@ -1053,12 +1130,11 @@ bool FShotEditorSubjectHeaderAlignmentTest::RunTest(const FString&)
 	Asset->Shot.Targets.SetNum(1);
 	auto Session = MakeShared<FComposableCameraShotAuthoringSession>(); Session->Bind(&Asset->Shot, Asset.Get());
 	const auto Authoring = SNew(SShotEditorAuthoringPanel).Session(Session);
-	for (const bool bCreate : { false, true })
 	{
-		const auto Page = bCreate ? Authoring->GetCreateSubjectsForTesting() : Authoring->GetEditSubjectsForTesting();
+		const auto Page = Authoring->GetEditSubjectsForTesting();
 		if (!TestTrue(TEXT("Production Subjects page exists"), Page.IsValid())) return false;
 		const FName Tags[] = {
-			FName(bCreate ? TEXT("ShotEditor.Create.Targets[0].ComponentGroup") : TEXT("ShotEditor.Edit.Targets[0].ComponentGroup")),
+			FName(TEXT("ShotEditor.Edit.Targets[0].ComponentGroup")),
 			FName(TEXT("Targets[0].PivotGroup")), FName(TEXT("Targets[0].BoundsGroup")), FName(TEXT("Targets[0].PreviewGroup"))
 		};
 		TArray<TSharedRef<SExpandableArea>> Groups;
@@ -1095,7 +1171,7 @@ bool FShotEditorSubjectHeaderAlignmentTest::RunTest(const FString&)
 				if (!TestTrue(TEXT("Native arrow and title are arranged"), Arrow.IsSet() && Title.IsSet())) return false;
 				const double ArrowCenter = Arrow->LocalToAbsolute(Arrow->GetLocalSize() * .5).Y;
 				const double TitleCenter = Title->LocalToAbsolute(Title->GetLocalSize() * .5).Y;
-				TestTrue(TEXT("Arrow and title share vertical center in both pages/states/DPI/widths"), FMath::IsNearlyEqual(ArrowCenter, TitleCenter, .01));
+				TestTrue(TEXT("Arrow and title share vertical center across Subject states/DPI/widths"), FMath::IsNearlyEqual(ArrowCenter, TitleCenter, .01));
 				// A stretched text geometry can share the arrow center while its glyphs still sit at the top.
 				const double TitleHeight = Title->GetLocalSize().Y;
 				const double LineHeight = TitleWidget->GetDesiredSize().Y;
@@ -1206,7 +1282,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FShotEditorCompactActionsTest,
 bool FShotEditorCompactActionsTest::RunTest(const FString&)
 {
 	using namespace ComposableCameraSystem::ShotEditorStyle;
-	const auto Button = SNew(SButton).Text(FText::FromString(TEXT("Use Selected Actors")));
+	const auto Button = SNew(SButton).Text(FText::FromString(TEXT("Add Selected Actors")));
 	const auto ActionWidget = Action(Button);
 	ActionWidget->SlatePrepass(1.f);
 	for (FVector2D Available : { FVector2D(300, 80), FVector2D(1400, 80) })
@@ -1250,7 +1326,7 @@ bool FShotEditorCompactNavigationTest::RunTest(const FString&)
 			const FVector2D ButtonSize = Geometry.GetLocalSize();
 			const FVector2D Origin = Geometry.LocalToAbsolute(FVector2D::ZeroVector);
 			TestTrue(TEXT("Level Preview has compact fixed size"), ButtonSize.Equals(FVector2D(104, 24), .01));
-			TestTrue(TEXT("Level Preview remains beside playhead at right of navigation"), Origin.X > Available.X - 240);
+			TestTrue(TEXT("Level Preview remains at right of navigation"), Origin.X > Available.X - 120);
 			FArrangedChildren Text(EVisibility::All);
 			Widget->ArrangeChildren(Geometry, Text);
 			if (TestEqual(TEXT("Level Preview caption arranged"), Text.Num(), 1))
@@ -1312,7 +1388,7 @@ bool FShotEditorParameterPageContentsTest::RunTest(const FString&)
 			}
 		}
 	}
-	Authoring->SelectCreateForTesting();
+	Authoring->SelectSubjectsForTesting();
 	Authoring->SlatePrepass(1.f);
 	TestEqual(TEXT("Create page contains template configuration"), CountTags(Authoring).FindRef(FName(TEXT("ShotEditor.Template"))), 1);
 	Authoring->SelectSequenceForTesting();

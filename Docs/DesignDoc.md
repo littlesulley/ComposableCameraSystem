@@ -1,6 +1,6 @@
 # ComposableCameraSystem Design
 
-Updated: 2026-10-08
+Updated: 2026-10-13
 
 This document describes the current runtime architecture of the UE 5.6
 ComposableCameraSystem plugin. It is intentionally compact. Implementation
@@ -456,6 +456,112 @@ shots, and patches with gameplay. It skips PCM-specific behavior such as
 actions that require an owning player camera manager.
 
 ## 13. Shot-Based Composition
+
+### Camera Instance binding and animation (2026-10-12; IDE verification pending)
+
+One top-level Sequencer **object binding = one camera instance**. This is the
+same visible hierarchy as CineCameraActor, with the Shot/type name on the root
+row and no generated folder. The managed generic LevelSequenceActor is that
+binding's output object. Under it, one `UMovieSceneComposableCameraInstanceTrack`
+(Activation) owns the inline `UComposableCameraInstanceData`, Subject binding
+IDs and activation Sections. Sibling `UMovieSceneComposableCameraInstanceParameterTrack`
+objects each own one input's Sections/native channels. A parameter Section never
+creates another camera instance or evaluator. A new asset drop always creates
+another top-level instance, including drops targeting an existing instance.
+
+The instance name is the native binding name and follows ordinary Sequencer Rename.
+No separate instance display-name override competes with it. The open Shot Editor
+reads that same name and updates after Rename/Undo/Redo; naming does not alter
+instance identity, Subjects, animation or output ownership.
+
+A new parameter Track starts with one unbounded Section, matching ordinary
+numeric property authoring. Activation keeps its finite default interval and
+controls camera evaluation independently. Explicit additional parameter intervals
+may be bounded. Existing ranges/keys and prototype migration ranges are preserved;
+authors can explicitly convert a parameter Section to infinite range with Undo.
+
+ShotAsset supplies a copied Shot preset and an owned built-in composition type;
+ordinary CameraTypeAsset supplies shared node logic and default exposed inputs.
+ShotAsset and CameraTypeAsset keep their existing types. Subject paths
+use stable SubjectId; reordering preserves identity and remaps solver anchors.
+Input/variable rename migration is still pending.
+
+Shot Editor Create uses a separate `UComposableCameraShotTemplateLibrary` DataAsset:
+ordered entries of Name plus a `TObjectPtr<UComposableCameraShotAsset>` reference.
+Each entry exposes only those two fields. Libraries select existing assets;
+drafts copy their current configurations, including exact Subject slot counts. Libraries do not own LS
+instances or their animation. Creating a draft clears world Actor/cache references,
+generates independent SubjectIds and leaves the library, referenced ShotAsset and current instance intact.
+Later edits to the referenced asset affect future drafts, not existing copies.
+Create Empty Shot is the zero-Subject default alternative. Binding happens afterwards
+in Edit / Subjects. Existing ShotAsset presets and CameraTypeAsset logic are unchanged.
+
+Before insertion, Shot Editor can hold the same InstanceData model as a transient
+Sequence draft. It owns configuration and stable Subject IDs; the session retains
+the originating Sequence, and Subjects already store Sequence binding IDs. Each
+preview resolves the current live actors into an evaluation copy and solves in
+the Shot Editor viewport, without creating a camera actor or Track. A drag takes
+a GC-owned configuration snapshot and uses the same creation service as asset
+drops, with the selected duration. It creates a new instance binding even when
+dropped on another Track, then switches the editor to that instance. Cross-sequence
+drops are rejected because the snapshot's bindings belong to its source Sequence.
+
+Bound instances use Duplicate At Playhead instead of draft drag insertion. The
+editor copies authored instance data, all activation intervals and sibling parameter
+lanes, preserving Subjects and curve interpolation. A common time offset aligns the
+active (or first) activation start to the playhead. The copy owns an independent
+output; unbounded parameter intervals remain unbounded and existing Cuts survive.
+The entire duplication is one undoable edit. Go to Clip only changes selection
+and the visible time range; it does not seek or change serialized data.
+
+The runtime caches an independent configuration/field layout for each Sequence
+instance. Each sample restores cached numeric defaults, evaluates active native
+parameter channels at full FFrameTime, resolves binding IDs against the current
+Sequence instance, applies inputs and evaluates the managed camera. Gaps/muted
+parameter lanes cannot leave last-frame values behind. Overlap arbitration is
+latest start, then later Section order, per parameter lane and activation lane;
+it is not inter-instance blending. The Scene signature invalidates caches when
+sibling parameter Sections change. Steady-state runtime evaluation does not
+allocate new authoring buffers.
+
+The Shot Editor uses one transient sampled editing view for both composition
+quick pages and generic exposed-parameter Details. It does not save another
+configuration. Unanimated edits change instance defaults; Auto Key writes only
+changed inputs to native channels, preserving defaults. With Auto Key off,
+animated edits remain pending preview values until native key insertion. Seek,
+Undo/source refresh or closing discards unkeyed values. Serialized Subjects
+remain binding IDs; preview resolves live actors separately.
+
+The sampled editing session follows the authoring view's current Sequencer
+connection. Closing/reopening LS does not require reopening Shot Editor; a new
+connection invalidates the sample and discards pending preview values, even at
+the same playhead time. Sequence/activation lock and range checks still apply.
+
+Moving the playhead updates numeric samples in the existing editing buffer.
+It does not replace Subject arrays/property bags or rebuild parameter pages.
+Compiled field addresses and authored numeric defaults are refreshed on source
+changes and commits; source/history changes still invalidate native handles.
+
+The managed output is a generic LevelSequenceActor Spawnable, not a dedicated
+LevelSequenceShotActor. Native Camera Cuts reference the top binding. Existing
+Cuts are preserved on overlap; a conflicting drop creates no replacement Cut.
+The owner component skips autonomous evaluation and releases transient evaluators
+on destruction. Binding duplication adopts its own duplicated output template;
+deleting the binding/owner removes its generated Cut in the same transaction.
+User Cuts and locked Cuts retain their existing protection.
+
+Prototype root Instance Tracks are reparented under their existing output binding
+in an undoable editor upgrade; native animation is preserved. Adding a parameter
+lane for a prototype channel transfers its ranges/keys by value. Legacy
+ShotTrack/ShotSection, existing ShotAssets and component property tracks remain
+supported; they are not migrated. The legacy Shot menu is excluded from managed
+instance bindings to avoid a second camera driver.
+
+Implemented but not IDE/runtime verified: native binding hierarchy, parameter
+Track/Section + controls, native value/key/curve editing, sampled Shot Editor,
+Auto Key, binding-aware preview and Sequence draft dragging. Cross-sequence picker UX,
+graph-layout/rename refresh, generic stateful-node seek reset, and Camera Cuts/
+MRQ first-frame ordering validation remain separate integration work.
 
 Shot data lives in:
 

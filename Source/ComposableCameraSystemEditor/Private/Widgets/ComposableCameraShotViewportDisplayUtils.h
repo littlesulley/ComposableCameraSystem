@@ -8,9 +8,9 @@
 
 namespace ComposableCameraSystem::ShotViewportDisplay
 {
-inline bool ShowFollowHandle(const FComposableCameraShot& Shot)
+inline bool ShowFollowHandle(const FComposableCameraShot& Shot, bool bFollowSelected)
 {
-	return Shot.Placement.Mode == EShotPlacementMode::AnchorAtScreen;
+	return bFollowSelected && Shot.Placement.Mode == EShotPlacementMode::AnchorAtScreen;
 }
 inline bool ShowLookAtHandle(const FComposableCameraShot& Shot, bool bLookAtSelected)
 {

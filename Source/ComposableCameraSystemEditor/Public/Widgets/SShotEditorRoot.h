@@ -3,6 +3,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Editors/ComposableCameraShotEditorDiagnostics.h"
 #include "Misc/NotifyHook.h"
 #include "Styling/SlateColor.h"
 #include "Types/SlateEnums.h"
@@ -17,6 +18,8 @@ class FStructOnScope;
 class SComboButton;
 class SWidget;
 class FComposableCameraShotAuthoringSession;
+class ISequencer;
+class UMovieScene;
 class SShotEditorAuthoringPanel;
 
 // Forward decl must match the definition's base type (`: uint8`) - C++
@@ -44,7 +47,13 @@ class COMPOSABLECAMERASYSTEMEDITOR_API SShotEditorRoot: public SCompoundWidget, 
 	 // listeners (graph-node refresh, etc.) work.
 {
 public:
-	SLATE_BEGIN_ARGS(SShotEditorRoot) {}
+#if WITH_DEV_AUTOMATION_TESTS
+	friend class FShotEditorActionableDiagnosticsTest;
+	friend class FCameraInstanceScrubTest;
+	friend class FCameraInstanceRenameTest;
+#endif
+	SLATE_BEGIN_ARGS(SShotEditorRoot) : _PersistViewState(true) {}
+		SLATE_ARGUMENT(bool, PersistViewState)
 	SLATE_END_ARGS()
 
 	void Construct(const FArguments& InArgs);
@@ -64,6 +73,7 @@ public:
 	 * "No Shot loaded" placeholder.
 	 */
 	void SetActiveShot(FComposableCameraShot* Shot, UObject* HostObject);
+	bool StartSequenceDraft(TSharedRef<ISequencer> Sequencer, FString& Error);
 
 	// SWidget interface - used to detect host destruction between frames
 	// (the host's TWeakObjectPtr can go stale at any GC pass).
@@ -101,6 +111,8 @@ private:
 	 * "LS->Track -> Section") so it can be re-driven on context swap
 	 * without rebuilding the whole layout. */
 	TSharedPtr<STextBlock> HostNameLabel;
+	TWeakObjectPtr<UMovieScene> HostNameScene;
+	FGuid HostNameSceneSignature;
 
 	/** "Shots in Sequence" dropdown - visible only when the active host is a
 	 * `UMovieSceneComposableCameraShotSection`. Lists every Shot section in
@@ -120,11 +132,16 @@ private:
 	TSharedPtr<FComposableCameraShotAuthoringSession> AuthoringSession;
 	TSharedPtr<SShotEditorAuthoringPanel> AuthoringPanel;
 	bool bAuthoringRefreshPending = false;
-	void FollowSequencerPlayhead();
 
 	/** Collapses the viewport-local command strip down to a small Tools
 	 * button so it does not cover diagnostic HUD text. */
 	bool bViewportToolbarCollapsed = false;
+	bool bPersistViewState = true;
+	float AuthoringFraction = .4f;
+	bool bInitialShowHud = false;
+	bool bInitialShowGuides = true;
+	FShotEditorDiagnostic CachedDiagnostic;
+	FText CachedDiagnosticText;
 
 	/** Pending target mode requested while leaving Free mode. Applied only
 	 * after the status-bar Save / Discard action is resolved. */
@@ -139,6 +156,7 @@ private:
 	 * widget) bridges edit events to host->Modify / PostEditChangeProperty
 	 * so undo + host-level listeners stay in sync. */
 	TSharedPtr<IStructureDetailsView> StructureDetailsView;
+	TSharedPtr<class IDetailsView> InstanceDetailsView;
 
 	/** Rebuilds the StructureDetailsView's data binding from the current
 	 * ActiveShot + ActiveHost. Called from OnActiveShotChanged. Clears
@@ -172,6 +190,7 @@ private:
 	 * `FShotEditorHistory` when the editor binds a new context.
 	 */
 	FText BuildHostContextChain() const;
+	void RefreshHostName(bool bForce = false);
 
 	/** Build the dropdown panel listing every Shot section in the active
 	 * host's parent LevelSequence. The panel supports search, track grouping,
@@ -218,6 +237,9 @@ private:
 	FSlateColor GetStatusBarBackgroundColor() const;
 	FSlateColor GetStatusBarTextColor() const;
 	FText GetStatusBarText() const;
+	EVisibility GetStatusBarDiagnosticActionVisibility() const;
+	bool CanRevealDiagnostic() const;
+	FReply OnRevealDiagnosticClicked();
 	FText GetFreeExitStatusSaveTooltip() const;
 	bool CanSaveFreeExitStatus() const;
 	FReply OnFreeExitStatusSaveClicked();

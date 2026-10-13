@@ -3,6 +3,7 @@
 #include "Customizations/ComposableCameraShotModeVisibility.h"
 #include "Customizations/ComposableCameraShotTargetIndexCombo.h"
 #include "DetailWidgetRow.h"
+#include "Editors/ComposableCameraShotAuthoringSession.h"
 #include "IDetailChildrenBuilder.h"
 #include "IPropertyRowGenerator.h"
 #include "PropertyHandle.h"
@@ -47,17 +48,20 @@ TAttribute<EVisibility> DirectVisibility(const TSharedPtr<IPropertyHandle>& Hand
 }
 }
 
-TSharedRef<IPropertyTypeCustomization> FShotEditorRetainedRowCustomization::MakeInstance()
+TSharedRef<IPropertyTypeCustomization> FShotEditorRetainedRowCustomization::MakeInstance(TWeakPtr<FComposableCameraShotAuthoringSession> Session)
 {
-	return MakeShared<FShotEditorRetainedRowCustomization>();
+	const auto Instance = MakeShared<FShotEditorRetainedRowCustomization>();
+	if (const auto Pinned = Session.Pin()) Instance->Host = Pinned->GetHost();
+	return Instance;
 }
 
-void FShotEditorRetainedRowCustomization::Register(IPropertyRowGenerator& Generator)
+void FShotEditorRetainedRowCustomization::Register(IPropertyRowGenerator& Generator, const TSharedPtr<FComposableCameraShotAuthoringSession>& Session)
 {
 	for (const UScriptStruct* Struct : { FShotPlacement::StaticStruct(), FShotAim::StaticStruct(), FShotLens::StaticStruct(),
-		FShotFocus::StaticStruct(), FComposableCameraAnchorSpec::StaticStruct() })
+		FShotFocus::StaticStruct(), FComposableCameraAnchorSpec::StaticStruct(), FComposableCameraAnchorTargetWeight::StaticStruct() })
 		Generator.RegisterInstancedCustomPropertyTypeLayout(Struct->GetFName(),
-			FOnGetPropertyTypeCustomizationInstance::CreateStatic(&FShotEditorRetainedRowCustomization::MakeInstance));
+			FOnGetPropertyTypeCustomizationInstance::CreateStatic(&FShotEditorRetainedRowCustomization::MakeInstance,
+				TWeakPtr<FComposableCameraShotAuthoringSession>(Session)));
 }
 
 void FShotEditorRetainedRowCustomization::CustomizeHeader(TSharedRef<IPropertyHandle> Handle,
@@ -81,7 +85,7 @@ void FShotEditorRetainedRowCustomization::CustomizeChildren(TSharedRef<IProperty
 			|| Name == GET_MEMBER_NAME_CHECKED(FComposableCameraAnchorSpec, TargetIndex))
 			Builder.AddCustomRow(Child->GetPropertyDisplayName()).PropertyHandleList({ Child })
 				.NameContent()[Child->CreatePropertyNameWidget()]
-				.ValueContent().MinDesiredWidth(220.f)[FShotTargetIndexCombo::Build(Child.ToSharedRef())];
+				.ValueContent().MinDesiredWidth(220.f)[FShotTargetIndexCombo::Build(Child.ToSharedRef(), Host)];
 		else Builder.AddProperty(Child.ToSharedRef());
 		// No tree Visibility attributes: Slate wrappers own visibility. Native metadata still owns enabled state/ranges.
 	}

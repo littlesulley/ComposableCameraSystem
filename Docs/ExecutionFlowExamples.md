@@ -1,6 +1,6 @@
 # Execution Flow Examples
 
-Updated: 2026-10-11
+Updated: 2026-10-13
 
 This file gives compact end-to-end flows. Keep examples current with source.
 
@@ -742,13 +742,15 @@ configuration. Pending-save state and active-trial state are independent.
 PrePIEEnded detaches runtime targets; typed pending defaults remain until Apply,
 Reset or window close. PIE-only actor references cannot be saved as defaults.
 
-## 12. Shot Authoring V1: Selected Subjects To A Sequence
+## 12. Shot Authoring: Templates And Legacy Sequence Sources
+
+The legacy Sequence actions below apply to existing detached ShotAssets and legacy
+Shot sources. Named library templates create independent Camera Instance drafts;
+their insertion path is described in the Camera Instance draft flow below.
 
 ```text
-Open Shot Editor -> Create tab -> choose template -> select level actors
-  -> Use Selected Actors validates count
-  -> authoring session creates a GC-tracked transient draft when no source exists
-  -> template builds ordinary Shot targets/anchors/lens/focus
+Open an existing ShotAsset or legacy Shot source in Shot Editor
+  -> Edit / Subjects -> configure slots and assign actors
   -> Edit tab -> Follow / Aim / Lens & Focus / Motion / Subjects
   -> Subjects A/B roles -> Compose drag / numeric fields write that same Shot
        -> one pre-gesture transaction snapshot
@@ -783,12 +785,12 @@ Section never changes the shared asset.
 
 IDE/editor acceptance after a full UE5.6 build and restart:
 
-1. Select one character, choose Medium, Use Selected Actors. Drag distance,
+1. Open a one-Subject ShotAsset and bind a character in Edit. Drag distance,
    angles, frame position, FOV, aperture and focus: preview changes before
-   release; one Undo restores the entire gesture. Repeat Close-up twice: pivot
-   does not keep moving upward. Save a preset and verify mesh pose/pivot after
+   release; one Undo restores the entire gesture. Restore a preset twice: pivot
+   does not accumulate an offset. Save a preset and verify mesh pose/pivot after
    reopening it with the level closed.
-2. Select two animated characters, choose a shoulder template, add to an empty
+2. Open a two-Subject shoulder ShotAsset, bind two animated characters, add to an empty
    Sequence. Inspect camera/Shot Track/subject bindings/Spawn Track/Camera Cuts;
    scrub and play. Paused numeric and handle edits must not respawn subjects or
    flash reference pose. Rotate the subjects independently; pair placement
@@ -798,15 +800,15 @@ IDE/editor acceptance after a full UE5.6 build and restart:
    binding identities, labels and camera spawn lifetime. Refuse creation inside
    an unrelated cut and leave its range/identity intact. Verify one Undo removes
    the created set including its binding/tracks/cut; Redo restores it.
-4. Select three actors, Group template; move each actor and adjust frame fill.
+4. Open a three-Subject ShotAsset, bind three actors; move each actor and adjust frame fill.
    All subjects participate. Applying a preset with a different subject count
    is refused without modifying the source.
 5. Scrub an authored overlap and enable a Patch Track. Editing the incoming
    Shot at a fixed playhead must keep blend progress/row ordering and show the
    patched native camera. Check constrained/unconstrained filmback and resize
    the tab: handles stay inside the rendered image. Pin an inactive Shot;
-   editing it must not drive another active camera. Enable Follow playhead,
-   cross a local camera cut, then enter Inspect: following pauses until exit.
+   editing it must not drive another active camera. Cross a local camera cut,
+   then enter Inspect: the editor retains its explicitly selected source.
    Repeat at 100%, 125%, 150% and 200% desktop/editor DPI: the Aim disc's center
    must respond to hover/click/drag at its visible location. Test Placement in
    AnchorAtScreen and dead/soft zone edges. Resize a letterboxed view and check
@@ -822,7 +824,7 @@ IDE/editor acceptance after a full UE5.6 build and restart:
    uses only its native Details scrolling. Verify the selected tab survives
    source refresh, reorder and Undo/Redo. Begin a numeric gesture and confirm
    navigation cannot remove it before commit; page switching alone creates no
-   Undo entry. In Create and Edit/Subjects, change an actor and confirm refresh
+   Undo entry. In Edit/Subjects, change an actor and confirm refresh
    occurs once rather than continuously. Check 100/150/200% editor DPI, long
    asset names, empty draft and locked Section layouts.
 8. In Follow, switch AnchorOrbit / AnchorAtScreen / FixedWorldPosition.
@@ -832,8 +834,8 @@ IDE/editor acceptance after a full UE5.6 build and restart:
    requires LookAtAnchor and different Follow/Aim anchors. In Aim switch
    LookAtAnchor / NoOp; ignored screen/zone rows hide. Check Roll and RollSpeed.
    Native numeric dragging refreshes preview before release and one Undo restores
-   the gesture. With Follow playhead enabled, scrub during that gesture: source
-   following and structural refresh wait until commit. Expanded sections remain
+   the gesture. Scrub during that gesture: the source stays fixed and structural
+   refresh waits until commit. Expanded sections remain
    open after a parameter commit. Checkbox and Enum edits update visibility/enabled
    state without recreating native controls. Run ShotEditor.FollowLookAtParameters
    and ShotEditor.RetainedBooleanEnumRows in editor.
@@ -870,6 +872,10 @@ IDE/editor acceptance after a full UE5.6 build and restart:
 12. With Guides enabled, switch Follow through Orbit / AnchorAtScreen / fixed
     position and Aim through LookAtAnchor / NoOp. Select Edit / Aim for its
     marker; switch to Follow, Lens, Subjects and Create to hide it immediately.
+    Select Edit / Follow with AnchorAtScreen for its point, zones and projection;
+    Aim, Lens, Motion, Subjects and other task pages must hide them. Test cached
+    clicks and captured drags immediately after navigation, before repaint; return
+    to Follow to restore controls. Run ShotEditor.FollowGuideSelection.
     Only effective screen handles appear; test clicks immediately after mode changes as well as after repaint.
     Select a Character and actors with Box/Capsule components in the main level
     viewport. Shot preview must hide engine helpers while its own active guides
@@ -888,8 +894,8 @@ IDE/editor acceptance after a full UE5.6 build and restart:
     and a spawnable outside its spawn interval. Check anchor clicks/drags under
     black margins and mixed DPI; source camera flags stay unchanged. A standalone
     preset uses the native CineCamera default. Run ShotEditor.CameraAspect.
-15. Check the compact task row: Level Preview / Follow playhead stay right,
-    captions center, task buttons remain 28 units high. Use Selected Actors and
+15. Check the compact task row: Level Preview stays right,
+    captions center, task buttons remain 28 units high. Add Selected Actors and
     Save as Preset remain fixed width even in a wide pane. Header strips keep
     a lighter muted-gray shade, without green. Primary tasks keep the full accent, while selected Follow/Aim
     subtabs use a softer teal/gray mix. Parameter-page buttons use native Unreal
@@ -914,7 +920,7 @@ IDE/editor acceptance after a full UE5.6 build and restart:
     open-folder icon. Run ShotEditor.SubjectLayout and LensFocusSubjectParameters.
     Check the same Shot Editor art on tab, Tools, type-asset toolbar, Sequencer
     Edit Shot and Content Browser ShotAsset icon/thumbnail.
-    Add subjects in Create and Edit: existing cards, actions, folds and scroll
+    Add subjects in Edit / Subjects: existing cards, actions, folds and scroll
     containers stay in place. Use the trash icon in a folded header; check its
     full icon/tooltip across widths/DPI and delete first/middle/
     last subjects and re-add to the empty list. Remaining Anchor, weighted lists,
@@ -960,7 +966,7 @@ IDE/editor acceptance after a full UE5.6 build and restart:
     independent view toggles and leave Shot data/Undo unchanged.
 
 
-21. In Create or Edit / Subjects with Guides and Compose enabled, inspect Pivot /
+21. In Edit / Subjects with Guides and Compose enabled, inspect Pivot /
     Bone base points, effective Offset pivots and heading triads. Only Subject
     names and XYZ labels appear; Pivot / offset-space / weight summaries remain
     hidden. Subject names match the parameter page and follow visible
@@ -997,10 +1003,154 @@ IDE/editor acceptance after a full UE5.6 build and restart:
     keyboard/clipboard and rendered active-CineCamera checks require an attached
     UE window; the isolated fixture does not cover those engine integration paths.
 
+23. In isolated Compose preview, make the used Follow/Aim subject slot invalid.
+    The pose stays where it was, optics remain live and the status names the
+    affected subject/anchor plus the retained pose. Show parameters opens the
+    related native group and scrolls/highlights it without an Undo entry or
+    control rebuild. Restore the source and check that status clears. Also check
+    coincident AnchorAtScreen seeds, invalid basis subjects, missing framing bounds
+    and bounds-fit FOV limits. Native active-Section preview must not label a
+    final blended/patched FOV as the source clamp. Free-exit and stale-host
+    messages retain priority. Repeat navigation on locked sources and during a
+    numeric/viewport drag: read-only navigation is allowed, active gestures are
+    not interrupted. Warnings appear/disappear after the gesture, preserving
+    the preview image geometry during it. Run ShotEditor.ActionableDiagnostics.
+
+24. Resize the divider, choose a task/Edit subtab, fold a Subject and its native
+    preview/parameter groups, and set HUD/Guides. Close and reopen Shot Editor,
+    then restart the editor and reopen it: those user/project preferences restore.
+    Edit / Subjects folds persist by role/index. Level preview, source
+    binding and Compose/Inspect remain session state. No asset dirty state or
+    Undo entry results from preference changes. Check a narrow window with a
+    saved wide split, plus malformed/missing settings. Run
+    ShotEditor.WorkspacePersistence with AdaptivePreviewResize,
+    PersistentParameterPages and SubjectCollection.
+
+25. In LevelSequence, add two Subjects and assign their sequence actors. Open
+    Follow anchor and both Orbit basis pickers: selected labels and menu entries
+    include Subject A/B plus their binding names. Repeat Aim, custom Focus and
+    weighted-centroid entries. Rename a binding and scrub outside a Spawnable's
+    active range; its authored name must remain visible. Switch Sections and
+    confirm labels follow that Section. Standalone preview-only/empty subjects
+    show model names or distinct role labels. Run ShotEditor.SubjectIndexLabels.
+
+26. Open a LevelSequence Shot Section and its Edit / Subjects page. The
+    Subject actor dropdown lists sequence Actor bindings, including Spawnables
+    outside their Spawn/Binding Lifetime range and UE5.6 custom Spawnable actors.
+    Pick one while inactive: its binding name remains visible; actor references
+    in Section Shot data stay empty. Scrub into its active range and confirm the
+    original bound actor drives the preview, with no duplicate Possessable.
+    Verify the Level actors submenu, Clear, binding rename/deletion, one-step
+    Undo/Redo, nested sequence ownership, locked/read-only Sections and an active
+    edit gesture. Switch sources while a menu is open: its old selection must
+    not write into the new source. Save/reload the sequence and check local
+    binding identity and unchanged shared ShotAsset. Run
+    ShotEditor.SubjectBindingPicker alongside SubjectIndexLabels.
+
 These are required manual integration checks; source inspection does not claim
 they have passed. Builds and automation are launched in the user's IDE/editor.
 
 ## 13. When To Add Examples
+
+### Camera Instance native authoring flow (2026-10-12; IDE verification pending)
+
+Draft-first entry:
+
+1. Open LS, scrub until its Subjects are spawned. Sequencer + Track > New Camera
+   Shot opens an empty draft. In Content Browser right-click > Composable Camera
+   System, create a Shot Template Library. Its entries expose only Name and Shot;
+   assign existing ShotAssets with different Targets counts/configuration,
+   then choose that library in Shot Editor > Create. Choosing the library alone
+   must not alter the current Shot. Select a named Shot from the dropdown below
+   the library picker to create its independent draft. The closed dropdown shows
+   the chosen name; the lighter Create Empty Shot button underneath starts empty
+   and resets the template selection.
+   Edit / Subjects appears after either action; no Subjects are shown in Create.
+   Leave one reference empty: its row must show Missing Shot and remain disabled.
+   Edit/Undo a referenced ShotAsset: the choice's Subject count follows the asset,
+   new drafts copy the latest values and already-created drafts/Clips stay unchanged.
+2. Assign the template's slots from the binding-aware menu; for an empty draft,
+   use Add Subject or Add Selected Actors first. Inspect the
+   picker while the Spawnable is absent: the binding remains listed. Scrub out/in
+   and confirm resolution follows the regenerated actor. Adjust Follow/Aim/Lens
+   and offsets; Shot Editor previews the real level before any camera Track exists.
+3. In Sequence inspect the read-only duration; drag the handle icon into blank timeline space.
+   A snapshot retains values/IDs; the native empty-space asset handler creates a
+   fresh instance through the same service as ShotAsset. Existing Track rows use
+   OnDrop with the pointer frame. Shift-drop/click uses the playhead. Neither route
+   appends to another instance. Cancel and foreign/read-only destinations make no
+   camera/Track. Existing conflicting Camera Cuts remain intact.
+4. The source editor binds the new instance at its start time. Check values,
+   Subjects, managed output, Undo/Redo and reopening; then continue with parameter
+   Tracks/native keying below. The drag icon and its explanation now appear disabled.
+   Run ShotTemplateLibrary.RoundTrip, ShotEditor.TemplateLibrary,
+   CameraInstance.SequenceDraft and ShotEditor.SequenceActionWidth; manually test visible preview and drag placement
+   in empty/nested sequences, cancellation and several UI scales.
+
+Asset-first entry and shared animation:
+
+1. Drop ShotAsset or CameraTypeAsset. Only InstanceTrackEditor accepts the drop.
+   It creates one Shot-named top-level object binding, its managed output and an
+   Activation Track with a five-second Section. Another drop creates another
+   instance. There is no Camera Instance Outputs folder in the new hierarchy.
+   Rename that top row with native Rename/F2. Its name must remain after scrubbing
+   and save/reopen; an already-open Shot Editor header and its Recent menu must
+   show the same name. Undo/Redo changes both together. Older instance display-name
+   overrides normalize on the first idle tick after opening/focusing the LS.
+2. Root + > Camera Parameters > Lens / Manual FOV adds a native parameter Track
+   and an unbounded Section. Track + adds another explicit interval; the standard
+   key button inserts a key. Edit values and curves with ordinary Sequencer controls.
+   Existing bounded parameter Sections can use Make Section Infinite in their
+   Section context menu; keys stay in place and the change supports Undo/Redo.
+3. Double-click a Section or use Open in Shot Editor. Composition instances show
+   their quick pages; generic types show exposed inputs. Bind Subjects by metadata,
+   including currently inactive Spawnables. Actor identity persists as binding IDs.
+   Leave Shot Editor open, close LS, then reopen the same LS and seek inside the
+   Activation. The existing parameter view must become editable and display current
+   keys without selecting the instance again. Subjects and output preview resolve
+   through the reopened Sequencer. Reopening at the same frame discards unkeyed
+   preview values; subsequent scrubbing must not rebuild controls. Check
+   CameraInstance.SequencerReconnect, plus the visual preview manually.
+4. Set Lens to Manual when testing Manual FOV. Enable Auto Key; change FOV at two
+   frames. Scrub and reopen: the editor must display each sampled value. Disable
+   Auto Key, change an already animated value: keys stay unchanged until the
+   native key button captures the pending value. Scrubbing first discards it.
+   Time-only updates restore cached defaults and sample into retained editor
+   storage, keeping native property controls alive. Source/collection/history
+   changes still rebuild the field cache and refresh handles.
+   Native manual numeric keying reads the pending value, then the old Section
+   curve with unit weight; it must not enter property-blender interrogation.
+5. Runtime restores cached defaults, samples active parameter Sections, resolves
+   Subjects against the current Sequence instance, evaluates the type and writes
+   the managed CineCamera. A gap/muted parameter restores the default. Despawn
+   clears the live Subject; respawn resolves the same saved binding again.
+6. In Shot Editor > Sequence, Go to Clip selects the bound Activation and frames
+   it without moving the playhead. Move the playhead outside that clip and click
+   Duplicate At Playhead: a new instance opens in the editor, with the anchor
+   start aligned to the playhead. Subjects and curves survive, all key times move
+   by the same offset, infinite parameter Sections stay infinite, and output is
+   independent. Existing Camera Cuts must remain unchanged on overlap. Undo/Redo
+   removes/restores the whole duplicate. In draft mode, both bound-clip actions
+   are disabled; after insertion, the drag icon and description are disabled.
+   Clip groups Create above Navigate / Duplicate; all text buttons share full
+   column width and centered wrapping labels. Check narrow/wide panels and DPI.
+   CameraInstance.ClipActions covers these actions; test visible selection and
+   preview manually. Native duplication of the top binding remains supported.
+   Move parameter Sections: their keys move with
+   them. Move the single activation interval: its generated Cut follows when free
+   of conflicts. Delete the instance binding and Undo/Redo; output/Cut ownership
+   must remain consistent and no repair transaction may be created during Undo.
+7. Reopen a prototype root-Track Sequence: the owner attaches beneath its existing
+   output binding in an undoable upgrade; existing curves remain. Add a parameter
+   lane for an old channel to transfer its stored ranges/keys. Legacy ShotSection
+   assets retain their existing editor/evaluator path.
+
+Required editor checks: close UE, compile in Rider/VS; run CameraInstance.* and
+ShotEditor.*. Test two independent instances, native keys/curves/Auto Key,
+Subject respawn, generic inputs and preview, Undo/Redo, save/reopen, nested
+Sequences, Camera Cuts first frame and MRQ. Confirm a drop targeting an existing
+LSActor/ShotActor still creates exactly one instance without appending a legacy
+Section or triggering !bWasConsumed. PatchTypeAsset keeps its Patch workflow.
 
 Add a new flow when a feature crosses at least two major systems, for example:
 

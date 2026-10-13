@@ -533,7 +533,8 @@ bool FShotEditorPreviewDisplayPolicyTest::RunTest(const FString&)
 	for (EShotPlacementMode Mode : { EShotPlacementMode::AnchorOrbit, EShotPlacementMode::AnchorAtScreen, EShotPlacementMode::FixedWorldPosition })
 	{
 		Shot.Placement.Mode = Mode;
-		TestEqual(TEXT("Follow screen handle only exists in screen placement mode"), ShowFollowHandle(Shot), Mode == EShotPlacementMode::AnchorAtScreen);
+		TestEqual(TEXT("Selected Follow screen handle only exists in screen placement mode"), ShowFollowHandle(Shot, true), Mode == EShotPlacementMode::AnchorAtScreen);
+		TestFalse(TEXT("Leaving Follow hides its screen handle in every placement mode"), ShowFollowHandle(Shot, false));
 	}
 	Shot.Aim.Mode = EShotAimMode::NoOp;
 	TestFalse(TEXT("NoOp hides Aim handle"), ShowLookAtHandle(Shot, true));

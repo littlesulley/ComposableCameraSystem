@@ -90,6 +90,7 @@ private:
  FDelegateHandle LevelSequenceComponentTrackEditorHandle;
  FDelegateHandle PatchTrackEditorHandle;
  FDelegateHandle ShotTrackEditorHandle;
+ FDelegateHandle CameraInstanceTrackEditorHandle;
 
  /** Sequencer creation callback - adds the new instance to ActiveSequencers
  * so the Shot Editor's preview can later resolve binding overrides

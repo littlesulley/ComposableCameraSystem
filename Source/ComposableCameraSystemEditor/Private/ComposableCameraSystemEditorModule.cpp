@@ -37,6 +37,9 @@
 #include "Sequencer/ComposableCameraLevelSequenceComponentTrackEditor.h"
 #include "Sequencer/ComposableCameraPatchTrackEditor.h"
 #include "Sequencer/ComposableCameraShotTrackEditor.h"
+#include "Sequencer/ComposableCameraInstanceTrackEditor.h"
+#include "Editors/ComposableCameraInstanceEditorSession.h"
+#include "MovieScene/MovieSceneComposableCameraInstanceSection.h"
 #include "Trace/ComposableCameraRewindDebuggerExtension.h"
 #include "Trace/ComposableCameraRewindDebuggerTrack.h"
 #include "Trace/ComposableCameraTraceModule.h"
@@ -56,6 +59,7 @@ FComposableCameraSystemEditorModule::~FComposableCameraSystemEditorModule() = de
 
 void FComposableCameraSystemEditorModule::StartupModule()
 {
+	UMovieSceneComposableCameraInstanceSection::OnGetEditorValue.BindStatic(&FComposableCameraInstanceEditorSession::ReadEditorValue);
 #if WITH_EDITOR
 	FIsSimulatingInEditor::GetIsSimulatingInEditorDelegate.BindLambda([]() -> bool
 	{
@@ -166,6 +170,7 @@ void FComposableCameraSystemEditorModule::StartupModule()
 
 void FComposableCameraSystemEditorModule::ShutdownModule()
 {
+	UMovieSceneComposableCameraInstanceSection::OnGetEditorValue.Unbind();
 	UnregisterRewindDebuggerSupport();
 
 #if WITH_EDITOR
@@ -402,6 +407,8 @@ void FComposableCameraSystemEditorModule::UnregisterGraphNodeFactory()
 void FComposableCameraSystemEditorModule::RegisterSequencerTrackEditor()
 {
 	ISequencerModule& SequencerModule = FModuleManager::LoadModuleChecked<ISequencerModule>("Sequencer");
+	CameraInstanceTrackEditorHandle = SequencerModule.RegisterTrackEditor(FOnCreateTrackEditor::CreateStatic(
+		&FComposableCameraInstanceTrackEditor::CreateTrackEditor));
 	LevelSequenceComponentTrackEditorHandle = SequencerModule.RegisterTrackEditor(FOnCreateTrackEditor::CreateStatic(
 		&FComposableCameraLevelSequenceComponentTrackEditor::CreateTrackEditor));
 	PatchTrackEditorHandle = SequencerModule.RegisterTrackEditor(FOnCreateTrackEditor::CreateStatic(
@@ -413,6 +420,11 @@ void FComposableCameraSystemEditorModule::RegisterSequencerTrackEditor()
 void FComposableCameraSystemEditorModule::UnregisterSequencerTrackEditor()
 {
 	ISequencerModule* SequencerModule = FModuleManager::GetModulePtr<ISequencerModule>("Sequencer");
+	if (CameraInstanceTrackEditorHandle.IsValid())
+	{
+		if (SequencerModule) SequencerModule->UnRegisterTrackEditor(CameraInstanceTrackEditorHandle);
+		CameraInstanceTrackEditorHandle.Reset();
+	}
 	if (LevelSequenceComponentTrackEditorHandle.IsValid())
 	{
 		if (SequencerModule)

@@ -42,6 +42,7 @@ public class ComposableCameraSystemEditor : ModuleRules
                 "RewindDebuggerInterface",
                 "RHI",
                 "Sequencer",
+                "SequencerWidgets",
                 // SequencerCore exports UE::Sequencer::MakeAddButton (used by
                 // FComposableCameraPatchTrackEditor::BuildOutlinerEditWidget for
                 // the section + button). The symbol's declaration lives in
@@ -66,13 +67,16 @@ public class ComposableCameraSystemEditor : ModuleRules
         // Details customization implements an IClassViewerFilter. Editor dump
         // code also calls exported GameplayTags methods directly; runtime's
         // dependency is not transitive for linker symbols.
+        // The Subject binding test calls MovieScene's inline AddBinding helper,
+        // which constructs and destroys UniversalObjectLocator values here.
         PrivateDependencyModuleNames.AddRange(
             new string[]
             {
                 "ClassViewer",
                 "GeometryCore",
                 "GeometryFramework",
-                "GameplayTags"
+                "GameplayTags",
+                "UniversalObjectLocator"
             }
         );
     }

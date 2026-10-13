@@ -23,5 +23,5 @@ namespace ComposableCameraSystem::ShotAuthoring
 		bool bDialogue, bool bSpawnable, UMovieSceneComposableCameraShotSection* ReuseSource,
 		FString& Reason);
 	UMovieSceneComposableCameraShotSection* DuplicateInSequence(TSharedRef<ISequencer> Sequencer,
-		UMovieSceneComposableCameraShotSection& Source, FString& Reason);
+		UMovieSceneComposableCameraShotSection& Source, FString& Reason, TOptional<FFrameNumber> StartOverride = {});
 }

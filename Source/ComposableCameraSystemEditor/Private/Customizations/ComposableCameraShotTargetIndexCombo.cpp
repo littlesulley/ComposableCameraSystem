@@ -1,19 +1,59 @@
 // Copyright 2026 Sulley. All Rights Reserved.
 
 #include "Customizations/ComposableCameraShotTargetIndexCombo.h"
+#include "Editors/ComposableCameraShotSubjectLabel.h"
+#include "ComposableCameraSystemEditorModule.h"
 
 #include "DataAssets/ComposableCameraShot.h"
 #include "DataAssets/ComposableCameraShotTarget.h"
 #include "DataAssets/ComposableCameraTargetInfo.h"
+#include "MovieScene/MovieSceneComposableCameraShotSection.h"
+#include "MovieScene.h"
+#include "MovieSceneSequence.h"
 
+#include "Engine/SkeletalMesh.h"
+#include "Evaluation/MovieSceneEvaluationTemplateInstance.h"
 #include "Framework/MultiBox/MultiBoxBuilder.h"
 #include "GameFramework/Actor.h"
+#include "ISequencer.h"
+#include "Modules/ModuleManager.h"
 #include "Misc/Paths.h"
 #include "PropertyHandle.h"
 #include "Widgets/Input/SComboButton.h"
 #include "Widgets/Text/STextBlock.h"
 
 #define LOCTEXT_NAMESPACE "ShotTargetIndexCombo"
+
+namespace
+{
+UMovieSceneComposableCameraShotSection* ResolveLabelSection(const TSharedPtr<IPropertyHandle>& Item,
+	TWeakObjectPtr<UObject> Host)
+{
+	if (Host.IsValid()) return Cast<UMovieSceneComposableCameraShotSection>(Host.Get());
+	TArray<UObject*> Outers;
+	Item->GetOuterObjects(Outers);
+	// Struct-only generators receive an explicit host. Never borrow another open
+	// Shot Editor's global host, and never choose one arbitrary multi-edit source.
+	return Outers.Num() == 1 ? Cast<UMovieSceneComposableCameraShotSection>(Outers[0]) : nullptr;
+}
+
+UMovieScene* ResolveBindingScene(UMovieSceneComposableCameraShotSection& Section, const FMovieSceneObjectBindingID& Binding)
+{
+	UMovieSceneSequence* Source = Section.GetTypedOuter<UMovieSceneSequence>();
+	if (!Source) return nullptr;
+	// A local binding's authored name survives closing Sequencer or despawning
+	// its actor. Cross-sequence names must come from their actual sequence.
+	if (Binding == FMovieSceneObjectBindingID(UE::MovieScene::FRelativeObjectBindingID(Binding.GetGuid())))
+		return Source->GetMovieScene();
+	const auto* Module = FModuleManager::GetModulePtr<FComposableCameraSystemEditorModule>(TEXT("ComposableCameraSystemEditor"));
+	const auto Sequencer = Module ? Module->FindOpenSequencerForSequence(Source) : nullptr;
+	if (!Sequencer) return nullptr;
+	const FMovieSceneSequenceID SourceID = Sequencer->GetFocusedMovieSceneSequence() == Source
+		? Sequencer->GetFocusedTemplateID() : MovieSceneSequenceID::Root;
+	UMovieSceneSequence* BoundSequence = Sequencer->GetEvaluationTemplate().GetSequence(Binding.ResolveSequenceID(SourceID, *Sequencer));
+	return BoundSequence ? BoundSequence->GetMovieScene() : nullptr;
+}
+}
 
 TSharedPtr<IPropertyHandleArray> FShotTargetIndexCombo::ResolveTargetsArrayUpwards(const TSharedPtr<IPropertyHandle>& Start)
 {
@@ -40,7 +80,8 @@ TSharedPtr<IPropertyHandleArray> FShotTargetIndexCombo::ResolveTargetsArrayUpwar
 	return nullptr;
 }
 
-FText FShotTargetIndexCombo::FormatTargetEntryLabel(const TSharedPtr<IPropertyHandleArray>& TargetsArray, int32 Idx)
+FText FShotTargetIndexCombo::FormatTargetEntryLabel(const TSharedPtr<IPropertyHandleArray>& TargetsArray, int32 Idx,
+	TWeakObjectPtr<UObject> Host)
 {
 	if (!TargetsArray.IsValid())
 	{
@@ -66,8 +107,22 @@ FText FShotTargetIndexCombo::FormatTargetEntryLabel(const TSharedPtr<IPropertyHa
 		? InfoHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FComposableCameraTargetInfo, Actor))
 		: nullptr;
 
-	FString ActorLabel = TEXT("(unset)");
-	if (ActorHandle.IsValid())
+	FText Identity = LOCTEXT("UnsetIdentity", "unset");
+	bool bHasBinding = false;
+	if (UMovieSceneComposableCameraShotSection* Section = ResolveLabelSection(ItemHandle, Host))
+	{
+		for (const auto& Override : Section->TargetActorOverrides)
+		{
+			if (Override.TargetIndex != Idx || !Override.Binding.IsValid()) continue;
+			bHasBinding = true;
+			Identity = LOCTEXT("UnresolvedBinding", "unresolved binding");
+			if (UMovieScene* Scene = ResolveBindingScene(*Section, Override.Binding); Scene && Scene->FindBinding(Override.Binding.GetGuid()))
+				Identity = Scene->GetObjectDisplayName(Override.Binding.GetGuid());
+			break;
+		}
+	}
+	FString ActorLabel;
+	if (!bHasBinding && ActorHandle.IsValid())
 	{
 		void* RawPtr = nullptr;
 		if (ActorHandle->GetValueData(RawPtr) == FPropertyAccess::Success && RawPtr)
@@ -99,14 +154,27 @@ FText FShotTargetIndexCombo::FormatTargetEntryLabel(const TSharedPtr<IPropertyHa
 			}
 		}
 	}
+	if (!bHasBinding && ActorLabel.IsEmpty() && InfoHandle.IsValid())
+	{
+#if WITH_EDITORONLY_DATA
+		// Preview-only subjects also need a useful name before any actor is bound.
+		const auto MeshHandle = InfoHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FComposableCameraTargetInfo, EditorPreviewMesh));
+		void* RawMesh = nullptr;
+		if (MeshHandle && MeshHandle->GetValueData(RawMesh) == FPropertyAccess::Success && RawMesh)
+		{
+			const auto& Mesh = *static_cast<const TSoftObjectPtr<USkeletalMesh>*>(RawMesh);
+			ActorLabel = Mesh.IsValid() ? Mesh.Get()->GetName() : Mesh.ToSoftObjectPath().GetAssetName();
+		}
+#endif
+	}
+	if (!bHasBinding && !ActorLabel.IsEmpty()) Identity = FText::FromString(ActorLabel);
 
-	return FText::Format(LOCTEXT("EntryFormat", "{0} - {1}"),
-		FText::AsNumber(Idx),
-		FText::FromString(ActorLabel));
+	const FText Subject = ComposableCameraSystem::ShotSubjectLabels::ToText(Idx);
+	return FText::Format(LOCTEXT("SubjectEntryFormat", "{0} - {1} ({2})"), FText::AsNumber(Idx), Subject, Identity);
 }
 
 FText FShotTargetIndexCombo::GetCurrentSelectionText(const TSharedPtr<IPropertyHandle>& IndexHandle,
-	const TSharedPtr<IPropertyHandleArray>& TargetsArray)
+	const TSharedPtr<IPropertyHandleArray>& TargetsArray, TWeakObjectPtr<UObject> Host)
 {
 	if (!IndexHandle.IsValid())
 	{
@@ -117,12 +185,12 @@ FText FShotTargetIndexCombo::GetCurrentSelectionText(const TSharedPtr<IPropertyH
 	{
 		return LOCTEXT("MultipleValues", "<multiple values>");
 	}
-	return FormatTargetEntryLabel(TargetsArray, CurIdx);
+	return FormatTargetEntryLabel(TargetsArray, CurIdx, Host);
 }
 
 void FShotTargetIndexCombo::BuildIndexMenu(FMenuBuilder& MenuBuilder,
 	const TWeakPtr<IPropertyHandle>& WeakIndexHandle,
-	const TSharedPtr<IPropertyHandleArray>& TargetsArray)
+	const TSharedPtr<IPropertyHandleArray>& TargetsArray, TWeakObjectPtr<UObject> Host)
 {
 	if (!TargetsArray.IsValid())
 	{
@@ -146,7 +214,7 @@ void FShotTargetIndexCombo::BuildIndexMenu(FMenuBuilder& MenuBuilder,
 	for (uint32 i = 0; i < Num; ++i)
 	{
 		const int32 IdxToSet = static_cast<int32>(i);
-		MenuBuilder.AddMenuEntry(FormatTargetEntryLabel(TargetsArray, IdxToSet),
+		MenuBuilder.AddMenuEntry(FormatTargetEntryLabel(TargetsArray, IdxToSet, Host),
 			FText::GetEmpty(),
 			FSlateIcon(),
 			FUIAction(FExecuteAction::CreateLambda([WeakIndexHandle, IdxToSet]()
@@ -159,7 +227,7 @@ void FShotTargetIndexCombo::BuildIndexMenu(FMenuBuilder& MenuBuilder,
 	}
 }
 
-TSharedRef<SWidget> FShotTargetIndexCombo::Build(const TSharedRef<IPropertyHandle>& IndexHandle)
+TSharedRef<SWidget> FShotTargetIndexCombo::Build(const TSharedRef<IPropertyHandle>& IndexHandle, TWeakObjectPtr<UObject> Host)
 {
 	// Capture IndexHandle STRONGLY so the combo widget keeps the property
 	// handle alive past customization tear-down. `IPropertyHandle::GetChildHandle`
@@ -178,18 +246,18 @@ TSharedRef<SWidget> FShotTargetIndexCombo::Build(const TSharedRef<IPropertyHandl
 	const TSharedPtr<IPropertyHandle> StrongIndex = IndexHandle;
 
 	return SNew(SComboButton)
-		.OnGetMenuContent_Lambda([StrongIndex]() -> TSharedRef<SWidget>
+		.OnGetMenuContent_Lambda([StrongIndex, Host]() -> TSharedRef<SWidget>
 		{
 			TSharedPtr<IPropertyHandleArray> Arr = ResolveTargetsArrayUpwards(StrongIndex);
 			FMenuBuilder MenuBuilder(/*bShouldCloseWindowAfterMenuSelection=*/true, nullptr);
-			BuildIndexMenu(MenuBuilder, StrongIndex, Arr);
+			BuildIndexMenu(MenuBuilder, StrongIndex, Arr, Host);
 			return MenuBuilder.MakeWidget();
 		})
 		.ButtonContent()
 		[SNew(STextBlock)
-			.Text_Lambda([StrongIndex]() -> FText
+			.Text_Lambda([StrongIndex, Host]() -> FText
 			{
-				return GetCurrentSelectionText(StrongIndex, ResolveTargetsArrayUpwards(StrongIndex));
+				return GetCurrentSelectionText(StrongIndex, ResolveTargetsArrayUpwards(StrongIndex), Host);
 			})];
 }
 

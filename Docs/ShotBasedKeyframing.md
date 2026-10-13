@@ -1,6 +1,6 @@
 # Shot-Based Keyframing
 
-Updated: 2026-10-11
+Updated: 2026-10-13
 
 This document describes the current shot authoring and composition solver path.
 Old phase plans and shipped task lists were removed. Runtime context lives in
@@ -22,6 +22,35 @@ A shot describes:
 The solver converts that intent into `FComposableCameraPose`.
 
 ## 2. Main Types
+
+Implementation update, 2026-10-12 (IDE verification pending): one native
+object-binding row represents one Camera Instance. Its Activation Track owns
+configuration/Subjects; sibling parameter Tracks own Sections/native channels.
+New parameter Tracks default to unbounded Sections. Existing finite ranges stay
+intact and can be explicitly converted through Make Section Infinite; Activation
+independently controls the camera's active interval.
+No output folder or extra camera instance is created. Section double-click opens
+a sampled Shot Editor; quick pages and generic exposed parameters share the
+same editing view. Auto Key writes changed inputs; manual animated edits wait
+for native key insertion. Subject IDs/binding IDs survive reopening and respawn.
+Sequence drafts are available through Sequencer + Track > New Camera Shot or
+Shot Editor > Create. Select a Composable Camera Shot Template Library DataAsset,
+then choose a named Shot from its dropdown. Each entry contains only Name and an existing ShotAsset reference;
+the referenced asset's Subject count and values are copied into a new independent
+draft. Create libraries from Content Browser > Composable Camera System.
+Create Empty Shot, outside and below the Shot template group with
+a lighter background, instead starts with zero Subjects. Bind Subjects in Edit by
+Sequence ID, preview composition,
+then drag the handle icon onto the timeline (or click to add at the playhead).
+The displayed read-only duration becomes the new Activation interval, and editing transfers
+to the created instance. Another drop always creates another instance, including
+drops onto existing Tracks. Cross-sequence drops are refused; Cancel keeps the draft.
+Once bound, the drag icon and explanation are disabled. Go to Clip selects the
+bound activation without seeking. Duplicate At Playhead copies authored values,
+Subjects and animation into an independent instance/output, shifting keys and
+activation ranges together. Both bound-clip actions are disabled for drafts.
+No camera actor/Track is needed until insertion. The ShotTrack/ShotSection types below describe
+the compatible legacy path; no ShotAsset/type-asset migration is required.
 
 Runtime:
 
@@ -227,7 +256,9 @@ Viewport/editor features include:
 - anchor and zone overlays.
 - distance/roll controls.
 - reverse-solve helpers for interactive handles.
-- single/pair/group templates and live numeric authoring.
+- actionable solver/source diagnostics with related parameter navigation.
+- restored user/project splitter, page, subgroup folds and HUD/Guides preferences.
+- named DataAsset template libraries and live numeric authoring.
 - current-level/Sequencer preview plus isolated template preview.
 - one-click labelled Sequence sections, subject bindings, Spawn coverage and
   Camera Cuts; three-clip dialogue sets and duplication.
@@ -284,7 +315,7 @@ refresh, and the up/down square buttons are removed. Motion removes its extra
 Aim response title and two help lines while retaining response parameters.
 Only whole-Subject headers keep the primary gray fill/bold text; all nested
 foldouts use dark rounded native expandable rows and regular text, matching
-the preview-transform foldouts. Create and Edit omit the final Swap actors A / B
+the preview-transform foldouts. Edit omits the final Swap actors A / B
 button.
 Presets navigation uses an open-folder icon. Numeric, Boolean and Enum commits
 retain page/control widgets and scroll positions, including scalar Subject edits.
@@ -299,7 +330,7 @@ can be deleted; Add remains available on the empty list. Shared presets stay
 unchanged when deleting from a Section's local override copy.
 Mode/basis/anchor-policy changes show/hide existing fields. Source/array changes,
 external edits and history refresh handles while retaining page containers.
-Centered Level Preview and Follow playhead buttons stay at navigation right.
+The centered Level Preview button stays at navigation right.
 One camera-frame/anchor icon identifies the tab, Tools entry, asset toolbar,
 Sequencer action and ShotAsset thumbnail. Navigation is
 view state only and preserves the current Shot, transactions and active source.
@@ -314,7 +345,7 @@ it. Small frames hide the control instead of drawing beyond the image.
 The Follow Anchor has no separate 3D orbit-center point; the lower-left globe
 and orbit/distance operations remain available.
 
-Create and Edit / Subjects show Pivot/Bone points, Offset connections, coordinate
+Edit / Subjects shows Pivot/Bone points, Offset connections, coordinate
 axes and configured bounds when Guides is on. Drag RGB axis endpoints to change
 Offset in the selected world/local space. Set BoundsShape = ManualExtent and
 drag a yellow face point to change its world-aligned half-extent; either face
@@ -350,11 +381,13 @@ Camera templates supply inactive spawnable settings;
 detached presets/drafts use the CineCamera default. Window size never changes
 Shot framing aspect. Wheel and drag-release scalar commits retain the parameter
 controls and remain undoable.
-Follow playhead is opt-in and stops during gestures/Inspect; a missing explicit
-binding does not substitute a different actor. Preview uses game-view visibility
+Scrubbing keeps the edited source fixed while Instance values and preview sample
+current LS time. A missing explicit binding does not substitute a different actor.
+Preview uses game-view visibility
 locally, hiding editor collision shapes, selection and other scene helpers.
-Guides controls the Shot overlays: Follow screen handle appears only in
-AnchorAtScreen; Aim requires Edit / Aim selected and LookAtAnchor active. Orbit anchors remain configurable
+Guides controls the Shot overlays: Follow screen handle, zones and projection require
+Edit / Follow selected and AnchorAtScreen active; Aim requires Edit / Aim selected
+and LookAtAnchor active. Leaving Follow hides its guides and blocks stale drag input. Orbit anchors remain configurable
 without displaying an unused Follow screen marker.
 
 Transactions must wrap edits. Preview state must not leak into runtime assets
@@ -393,8 +426,9 @@ when verifying code changes.
   block-load.
 - Object/Actor pin class mismatch diagnostics could be earlier in the graph
   layout step.
-- V1 still authors `FComposableCameraShot`. Generic native CineCamera/free-pose
-  adapters and parameter keyframing/baking belong to later versions.
+- Legacy V1 authors `FComposableCameraShot`. New Camera Instances additionally
+  support exposed CameraType inputs/native parameter channels. Free-pose adapters
+  and baking remain separate work.
 - Templates provide initial framing from subject bounds; shoulder occlusion and
   dialogue timing still need designer adjustment.
 

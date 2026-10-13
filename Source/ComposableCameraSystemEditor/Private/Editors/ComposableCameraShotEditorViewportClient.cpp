@@ -1,6 +1,7 @@
 // Copyright 2026 Sulley. All Rights Reserved.
 
 #include "Editors/ComposableCameraShotEditorViewportClient.h"
+#include "Editors/ComposableCameraShotSubjectLabel.h"
 #include "Widgets/ComposableCameraShotViewportDisplayUtils.h"
 #include "Widgets/ComposableCameraShotViewportOverlayUtils.h"
 #include "Widgets/ComposableCameraShotSubjectGizmoUtils.h"
@@ -297,6 +298,7 @@ void FComposableCameraShotEditorViewportClient::SetShowCompositionGuides(bool bI
 
 void FComposableCameraShotEditorViewportClient::SetActiveShot(FComposableCameraShot* InShot, UObject* InHost)
 {
+	PreviewDiagnostic = {};
 	if (ActiveShot != InShot || ActiveHost.Get() != InHost)
 	{
 		EndDrag();
@@ -359,6 +361,13 @@ FIntPoint FComposableCameraShotEditorViewportClient::GetRenderSize() const
 	return GetRenderRect().Size();
 }
 
+bool FComposableCameraShotEditorViewportClient::ShowFollowHandle() const
+{
+	const auto Session = AuthoringSession.Pin();
+	return ActiveShot && ComposableCameraSystem::ShotViewportDisplay::ShowFollowHandle(*ActiveShot,
+		Session && Session->bShowFollowGuide);
+}
+
 bool FComposableCameraShotEditorViewportClient::ShowLookAtHandle() const
 {
 	const auto Session = AuthoringSession.Pin();
@@ -370,7 +379,7 @@ bool FComposableCameraShotEditorViewportClient::ShowOrbitControl() const
 {
 	const auto Session = AuthoringSession.Pin();
 	return ActiveShot && ActiveHost.IsValid() && ComposableCameraSystem::ShotViewportDisplay::ShowOrbitControl(*ActiveShot,
-		Session && Session->bShowOrbitGuide);
+		Session && Session->bShowFollowGuide);
 }
 
 bool FComposableCameraShotEditorViewportClient::IsEditingGesture() const
@@ -459,6 +468,8 @@ void FComposableCameraShotEditorViewportClient::Tick(float DeltaSeconds)
 
 	if (!ActiveShot)
 	{
+		if (const auto Session = AuthoringSession.Pin(); Session && Session->IsGenericInstance())
+		{ RunSolverAndDriveCamera(DeltaSeconds); return; }
 		// No Shot to drive camera with - leave camera where the user (or
 		// the default ctor pose) put it. Proxies were cleared on detach.
 		bCachedDoFValid = false;
@@ -470,6 +481,7 @@ void FComposableCameraShotEditorViewportClient::Tick(float DeltaSeconds)
 		EndDrag();
 		EndRollDrag();
 	}
+	if (ActiveDragHandleType == EHandleType::PlacementAnchor && !ShowFollowHandle()) EndDrag();
 	if (ActiveDragHandleType == EHandleType::OrbitDirection)
 	{
 		const auto Session = AuthoringSession.Pin();
@@ -815,9 +827,8 @@ void FComposableCameraShotEditorViewportClient::DrawSubjectHandles(FCanvas& Canv
 		if (!Resolve(Subject.Target, Geometry)) continue;
 		FVector2D PivotPixel;
 		if (!ProjectWorldToViewport(Geometry.Pivot, PivotPixel)) continue;
-		TCHAR NumberedLabel[32] = {};
-		if (Index >= 2) FCString::Snprintf(NumberedLabel, UE_ARRAY_COUNT(NumberedLabel), TEXT("Subject %d"), Index + 1);
-		const TCHAR* Label = Index == 0 ? TEXT("Subject A") : Index == 1 ? TEXT("Subject B") : NumberedLabel;
+		TCHAR Label[32];
+		ComposableCameraSystem::ShotSubjectLabels::WriteLabel(Index, Label);
 		if (Image.IsInside(PivotPixel))
 			DrawLabel(ViewportToCanvas(PivotPixel, Scale) + FVector2D(8.f, -20.f), Label, FLinearColor::White, 96.f);
 		// Approximate constant 36-Slate-unit axis length, stable across camera distance and editor DPI.
@@ -937,9 +948,9 @@ void FComposableCameraShotEditorViewportClient::DrawHandles(FViewport& InViewpor
 	const bool bInteractive = CurrentMode == EShotEditorMode::Drag && (!Session || Session->CanEdit());
 	const bool bDisabled = !bInteractive;
 
-	// Only draw screen controls consumed by the current solver mode.
+	// Screen controls require both the selected editor section and a consuming solver mode.
 	const bool bShowAim = ShowLookAtHandle();
-	const bool bShowPlacement = ComposableCameraSystem::ShotViewportDisplay::ShowFollowHandle(*ActiveShot);
+	const bool bShowPlacement = ShowFollowHandle();
 	const bool bAimDisabled = bDisabled;
 	const bool bAimInteractive = bInteractive && bShowAim;
 	const bool bPlacementDisabled = bDisabled;
@@ -1453,7 +1464,7 @@ bool FComposableCameraShotEditorViewportClient::HitTestHandles(int32 PixelX, int
 		const FHandleScreenPosCache& H = CachedHandles[i];
 		// Input can arrive between a mode edit and the next paint; reject stale cached hits.
 		if (!ActiveShot
-			|| (H.Type == EHandleType::PlacementAnchor && !ComposableCameraSystem::ShotViewportDisplay::ShowFollowHandle(*ActiveShot))
+			|| (H.Type == EHandleType::PlacementAnchor && !ShowFollowHandle())
 			|| (H.Type == EHandleType::AimAnchor && !ShowLookAtHandle())) continue;
 		if ((H.Type == EHandleType::SubjectOffsetAxis || H.Type == EHandleType::SubjectBoundsFace) && !IsSubjectHandleValid(H)) continue;
 		if (H.Type == EHandleType::OrbitDirection)
@@ -1486,7 +1497,7 @@ void FComposableCameraShotEditorViewportClient::StartHandleDrag(const FHandleScr
 	if (!ActiveShot || !ActiveHost.IsValid() || !bShowCompositionGuides || CurrentMode != EShotEditorMode::Drag
 		|| Hit.Type == EHandleType::None || IsEditingGesture() || (Session && !Session->CanEdit())) return;
 	if ((Hit.Type == EHandleType::OrbitDirection && !ShowOrbitControl())
-		|| (Hit.Type == EHandleType::PlacementAnchor && !ComposableCameraSystem::ShotViewportDisplay::ShowFollowHandle(*ActiveShot))
+		|| (Hit.Type == EHandleType::PlacementAnchor && !ShowFollowHandle())
 		|| (Hit.Type == EHandleType::AimAnchor && !ShowLookAtHandle())) return;
 	const bool bSubject = Hit.Type == EHandleType::SubjectOffsetAxis || Hit.Type == EHandleType::SubjectBoundsFace;
 	if (bSubject && !IsSubjectHandleValid(Hit)) return;
@@ -1517,7 +1528,7 @@ void FComposableCameraShotEditorViewportClient::ApplyDragToShot(int32 PixelX, in
 	const auto Session = AuthoringSession.Pin();
 	if (!ActiveShot || !ActiveHost.IsValid() || !Viewport || !bShowCompositionGuides || CurrentMode != EShotEditorMode::Drag
 		|| (Session && !Session->CanEdit()) || ActiveDragHandleType == EHandleType::None
-		|| (ActiveDragHandleType == EHandleType::PlacementAnchor && !ComposableCameraSystem::ShotViewportDisplay::ShowFollowHandle(*ActiveShot))
+		|| (ActiveDragHandleType == EHandleType::PlacementAnchor && !ShowFollowHandle())
 		|| (ActiveDragHandleType == EHandleType::AimAnchor && !ShowLookAtHandle())
 		|| (ActiveDragHandleType == EHandleType::OrbitDirection && !ShowOrbitControl())) return;
 	if (ActiveDragHandleType == EHandleType::SubjectOffsetAxis || ActiveDragHandleType == EHandleType::SubjectBoundsFace)
@@ -2446,8 +2457,9 @@ void FComposableCameraShotEditorViewportClient::SyncProxyTransforms()
 void FComposableCameraShotEditorViewportClient::RunSolverAndDriveCamera(float DeltaSeconds)
 {
 	using namespace ComposableCameraSystem::ShotSolver;
+	PreviewDiagnostic = {};
 
-	if (!ActiveShot || !Viewport)
+	if (!Viewport)
 	{
 		return;
 	}
@@ -2466,9 +2478,13 @@ void FComposableCameraShotEditorViewportClient::RunSolverAndDriveCamera(float De
 			CachedFocusDistance = Camera->CurrentFocusDistance;
 			CachedAperture = Camera->CurrentAperture;
 			bCachedDoFValid = true;
+			if (ActiveShot && EnsureEffectiveShotCache())
+				PreviewDiagnostic = DiagnoseShotPreview(CachedEffectiveShot, true, false, ViewFOV, true);
+			else if (ActiveShot) PreviewDiagnostic.Issue = EShotEditorDiagnosticIssue::SourceUnavailable;
 			return;
 		}
 	}
+	if (!ActiveShot) return;
 	// Detached templates and free inspection retain the configured camera aspect.
 	ControllingActorViewInfo.bConstrainAspectRatio = true;
 	ControllingActorViewInfo.AspectRatio = GetCameraAspectRatio();
@@ -2488,6 +2504,8 @@ void FComposableCameraShotEditorViewportClient::RunSolverAndDriveCamera(float De
 	FComposableCameraShot EffectiveShot;
 	if (!BuildEffectiveShotForPreview(EffectiveShot))
 	{
+		PreviewDiagnostic = { EShotEditorDiagnosticIssue::SourceUnavailable, EShotEditorDiagnosticPage::Follow,
+			INDEX_NONE, CurrentMode == EShotEditorMode::Drag };
 		return;
 	}
 
@@ -2528,6 +2546,8 @@ void FComposableCameraShotEditorViewportClient::RunSolverAndDriveCamera(float De
 	}
 
 	const FShotSolveResult Result = SolveShot(EffectiveShot, Context, PriorPosePtr, DeltaSeconds);
+	PreviewDiagnostic = DiagnoseShotPreview(EffectiveShot, Result.bValid,
+		!Result.bValid && CurrentMode == EShotEditorMode::Drag, Result.FieldOfView);
 
 	// LENS (FOV) - always applied, regardless of `Result.bValid` AND
 	// regardless of editor mode. The solver pre-fills `R.FieldOfView`
@@ -2759,6 +2779,7 @@ bool FComposableCameraShotEditorViewportClient::EnsureEffectiveShotCache() const
 	for (int32 i = 0; i < CachedEffectiveShot.Targets.Num(); ++i)
 	{
 		bool bExplicitBinding = false;
+		if (const auto Session = AuthoringSession.Pin()) bExplicitBinding = Session->GetTargetBinding(i).IsValid();
 		if (const auto* Section = Cast<UMovieSceneComposableCameraShotSection>(ActiveHost.Get()))
 			for (const auto& Override : Section->TargetActorOverrides)
 				bExplicitBinding |= Override.TargetIndex == i && Override.Binding.IsValid();

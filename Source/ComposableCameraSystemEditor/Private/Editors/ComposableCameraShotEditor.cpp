@@ -11,9 +11,13 @@
 #include "LevelSequence.h"
 #include "MovieScene.h"
 #include "MovieScene/MovieSceneComposableCameraShotSection.h"
+#include "MovieScene/MovieSceneComposableCameraInstanceTrack.h"
+#include "MovieScene/ComposableCameraInstanceData.h"
 #include "Subsystems/AssetEditorSubsystem.h"
 #include "Widgets/Docking/SDockTab.h"
 #include "Widgets/SShotEditorRoot.h"
+#include "Framework/Notifications/NotificationManager.h"
+#include "Widgets/Notifications/SNotificationList.h"
 
 #define LOCTEXT_NAMESPACE "ComposableCameraShotEditor"
 
@@ -141,6 +145,29 @@ void FComposableCameraShotEditor::OpenForShotSection(UMovieSceneComposableCamera
 					AssetEditor->OpenEditorForAsset(LS);
 				}
 			}
+		}
+	}
+}
+
+void FComposableCameraShotEditor::OpenForCameraInstance(UMovieSceneComposableCameraInstanceTrack* Track)
+{
+	if (!Track || !Track->Instance || !Track->IsInMovieScene()) return;
+	if (auto* Sequence = Track->GetTypedOuter<ULevelSequence>())
+		if (auto* Editors = GEditor ? GEditor->GetEditorSubsystem<UAssetEditorSubsystem>() : nullptr)
+			if (!Editors->FindEditorForAsset(Sequence, false)) Editors->OpenEditorForAsset(Sequence);
+	OpenForShot(Track->Instance->bComposition ? &Track->Instance->Shot : nullptr, Track->Instance);
+}
+
+void FComposableCameraShotEditor::OpenForSequenceDraft(TSharedRef<ISequencer> Sequencer)
+{
+	if (!FGlobalTabmanager::Get()->TryInvokeTab(FTabId(TabId))) return;
+	if (const auto Root = GLiveRootWidget.Pin())
+	{
+		FString Error;
+		if (!Root->StartSequenceDraft(Sequencer, Error))
+		{
+			FNotificationInfo Info(FText::FromString(Error)); Info.ExpireDuration = 6.f;
+			FSlateNotificationManager::Get().AddNotification(Info);
 		}
 	}
 }

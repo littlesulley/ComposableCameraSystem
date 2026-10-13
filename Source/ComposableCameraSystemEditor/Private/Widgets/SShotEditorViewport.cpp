@@ -153,3 +153,7 @@ TSharedRef<FEditorViewportClient> SShotEditorViewport::MakeEditorViewportClient(
 	ViewportClient = MakeShared<FComposableCameraShotEditorViewportClient>(PreviewScene.Get(), SharedThis(this));
 	return ViewportClient.ToSharedRef();
 }
+FShotEditorDiagnostic SShotEditorViewport::GetPreviewDiagnostic() const
+{
+	return ViewportClient ? ViewportClient->GetPreviewDiagnostic() : FShotEditorDiagnostic{};
+}

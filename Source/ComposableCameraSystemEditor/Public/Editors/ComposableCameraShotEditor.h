@@ -10,6 +10,8 @@ class SShotEditorRoot;
 class SDockTab;
 class FSpawnTabArgs;
 class UMovieSceneComposableCameraShotSection;
+class UMovieSceneComposableCameraInstanceTrack;
+class ISequencer;
 
 /**
  * Static API + module-lifetime registry for the Shot Editor. The editor is a
@@ -82,6 +84,9 @@ public:
 	 * auto-swaps the editor's context).
 	 */
 	static void OpenForShotSection(UMovieSceneComposableCameraShotSection* Section);
+	/** Open the Sequence instance at the current playhead, sharing quick-page and parameter values. */
+	static void OpenForCameraInstance(UMovieSceneComposableCameraInstanceTrack* Track);
+	static void OpenForSequenceDraft(TSharedRef<ISequencer> Sequencer);
 
 	/**
 	 * Return the host UObject the *currently live* Shot Editor tab is bound

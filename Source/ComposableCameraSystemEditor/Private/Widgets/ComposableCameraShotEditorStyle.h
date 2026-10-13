@@ -40,7 +40,6 @@ inline FLinearColor SecondaryTabColor(bool bSelected)
 {
 	return bSelected ? SoftAccent(.65f) : FStyleColors::Secondary.GetSpecifiedColor();
 }
-inline FLinearColor HeaderColor() { return FLinearColor(.085f, .09f, .10f, 1.f); }
 inline const FButtonStyle* ActionStyle()
 {
 	return &FAppStyle::Get().GetWidgetStyle<FButtonStyle>("Button");
@@ -76,16 +75,40 @@ inline TSharedRef<SWidget> Action(TSharedRef<SButton> Button, float Width = 156.
 }
 inline TSharedRef<SWidget> GroupHeader(const FText& Label)
 {
-	return SNew(SBorder).BorderImage(FAppStyle::GetBrush("WhiteBrush"))
-		.BorderBackgroundColor(HeaderColor()).Padding(8.f, 4.f)
-		[SNew(STextBlock).Text(Label).Font(FAppStyle::GetFontStyle("BoldFont"))
-			.ColorAndOpacity(FStyleColors::ForegroundHover)];
+	return SNew(SBorder).BorderImage(FComposableCameraEditorStyle::Get()->GetBrush(TEXT("DebugTooltip.Header"))).Padding(6.f, 5.f)
+		[SNew(SHorizontalBox)
+			+ SHorizontalBox::Slot().AutoWidth().Padding(0.f, 0.f, 7.f, 0.f)
+			[SNew(SBorder).BorderImage(FAppStyle::GetBrush("WhiteBrush"))
+				.BorderBackgroundColor(Accent()).Padding(FMargin(2.f, 10.f))]
+			+ SHorizontalBox::Slot().FillWidth(1.f).VAlign(VAlign_Center)
+			[SNew(STextBlock).Text(Label).Font(FCoreStyle::GetDefaultFontStyle("Bold", 9))
+				.ColorAndOpacity(FStyleColors::Foreground)]];
+}
+/** Content-sized actions for longer captions/localization; no fixed width clipping. */
+inline TSharedRef<SWidget> AutoSizedAction(TSharedRef<SButton> Button)
+{
+	Button->SetButtonStyle(ActionStyle());
+	Button->SetContentPadding(FMargin(10.f, 3.f));
+	Button->SetHAlign(HAlign_Center);
+	Button->SetVAlign(VAlign_Center);
+	return SNew(SBox).HAlign(HAlign_Left)
+		[SNew(SBox).MinDesiredWidth(156.f).MinDesiredHeight(24.f)[Button]];
 }
 inline TSharedRef<SWidget> SubsectionHeader(const FText& Label)
 {
 	// Match the retained native struct/array rows (e.g. preview transforms).
 	return SNew(SBox).MinDesiredHeight(24.f).VAlign(VAlign_Center).Padding(0.f, 1.f)
 		[SNew(STextBlock).Text(Label).Font(FAppStyle::GetFontStyle("NormalFont"))];
+}
+/** Equal-width Clip actions. Wrapping captions remain readable in narrow columns. */
+inline TSharedRef<SWidget> SequenceAction(const FText& Label, TSharedRef<SButton> Button)
+{
+	Button->SetButtonStyle(ActionStyle());
+	Button->SetContentPadding(FMargin(10.f, 5.f));
+	Button->SetHAlign(HAlign_Fill);
+	Button->SetVAlign(VAlign_Center);
+	Button->SetContent(SNew(STextBlock).Text(Label).AutoWrapText(true).Justification(ETextJustify::Center));
+	return SNew(SBox).MinDesiredHeight(28.f)[Button];
 }
 inline float ColumnWidth(float Available)
 {
@@ -95,8 +118,14 @@ inline float ColumnWidth(float Available)
 inline TSharedRef<SWidget> Group(const FText& Label, TSharedRef<SWidget> Content)
 {
 	return SNew(SVerticalBox)
-		+ SVerticalBox::Slot().AutoHeight().Padding(0.f, 0.f, 0.f, 6.f)
+		+ SVerticalBox::Slot().AutoHeight()
 		[GroupHeader(Label)]
-		+ SVerticalBox::Slot().AutoHeight().Padding(8.f, 0.f)[Content];
+		+ SVerticalBox::Slot().AutoHeight()
+		[SNew(SBorder).BorderImage(FComposableCameraEditorStyle::Get()->GetBrush(TEXT("DebugTooltip.Background")))
+			.Padding(FMargin(8.f, 7.f, 8.f, 10.f))[Content]];
+}
+inline TSharedRef<SWidget> ParameterSection(const FText& Label, TSharedRef<SWidget> Content)
+{
+	return Group(Label, Content);
 }
 }

@@ -10,6 +10,7 @@ class IDetailTreeNode;
 class IPropertyRowGenerator;
 class IPropertyHandle;
 class SVerticalBox;
+class SExpandableArea;
 
 enum class EShotEditorParameterSection : uint8 { Follow, LookAt, LensFocus, Motion, Subject };
 
@@ -17,7 +18,10 @@ enum class EShotEditorParameterSection : uint8 { Follow, LookAt, LensFocus, Moti
 class SShotEditorParameterPanel : public SCompoundWidget
 {
 public:
-	SLATE_BEGIN_ARGS(SShotEditorParameterPanel) : _NotifyHook(nullptr), _Section(EShotEditorParameterSection::Follow), _SubjectIndex(INDEX_NONE) {}
+	SLATE_BEGIN_ARGS(SShotEditorParameterPanel) : _PersistViewState(false), _NotifyHook(nullptr), _Section(EShotEditorParameterSection::Follow), _SubjectIndex(INDEX_NONE) {}
+		SLATE_ARGUMENT(bool, PersistViewState)
+		SLATE_ARGUMENT(FString, ViewStateIni)
+		SLATE_ARGUMENT(FString, ViewKey)
 		SLATE_ARGUMENT(TSharedPtr<FComposableCameraShotAuthoringSession>, Session)
 		SLATE_ARGUMENT(FNotifyHook*, NotifyHook)
 		SLATE_ARGUMENT(EShotEditorParameterSection, Section)
@@ -26,9 +30,11 @@ public:
 	void Construct(const FArguments& Args);
 	/** Rebind handles; collection updates can replace their controls atomically in the same Slate tick. */
 	void RefreshSource(bool bImmediate = false);
+	TSharedPtr<SWidget> RevealProperty(const FString& Path);
 	virtual ~SShotEditorParameterPanel() override;
 	virtual void Tick(const FGeometry& Geometry, double Time, float DeltaTime) override;
 #if WITH_DEV_AUTOMATION_TESTS
+	friend class FCameraInstanceScrubTest;
 	void RefreshForTesting();
 	void GetVisiblePropertyNamesForTesting(TSet<FName>& Names) const;
 	void GetRenderedPropertyPathsForTesting(TSet<FString>& Paths) const;
@@ -56,6 +62,14 @@ private:
 	TSharedRef<SWidget> NodeWidget(TSharedRef<IDetailTreeNode> Node, const FString& Path);
 	TSharedRef<SWidget> Group(const FText& Label, TSharedRef<SWidget> Content);
 	TMap<FString, bool> ExpandedNodes;
+	TMap<FString, TWeakPtr<SExpandableArea>> ExpandableRows;
+	TMap<FString, TWeakPtr<SWidget>> PropertyRows;
+	FString HighlightPath;
+	FString ViewKey;
+	bool bPersistViewState = false;
+	FString ViewStateIni;
+	bool IsExpanded(const FString& Path, bool bDefault);
+	void SetExpansion(const FString& Path, bool bExpanded);
 #if WITH_DEV_AUTOMATION_TESTS
 	uint32 RebuildCount = 0;
 	TMap<FString, TAttribute<EVisibility>> RenderedPropertyVisibility;

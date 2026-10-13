@@ -18,7 +18,8 @@ namespace ComposableCameraSystem::ShotEditorStatusBar
 	enum class EShotEditorStatusBarActions: uint8
 	{
 		None,
-		FreeExit
+		FreeExit,
+		Diagnostic
 	};
 
 	struct FShotEditorStatusBarState
@@ -31,7 +32,8 @@ namespace ComposableCameraSystem::ShotEditorStatusBar
 		bool bHasActiveShot,
 		bool bHostValid,
 		bool bHasPendingFreeExitMode,
-		EShotEditorMode CurrentMode)
+		EShotEditorMode CurrentMode,
+		bool bHasDiagnostic = false)
 	{
 		if (bHasActiveShot && !bHostValid)
 		{
@@ -56,6 +58,8 @@ namespace ComposableCameraSystem::ShotEditorStatusBar
 			return State;
 		}
 
+		if (bHasDiagnostic)
+			return { EShotEditorStatusBarKind::Warning, EShotEditorStatusBarActions::Diagnostic };
 		return FShotEditorStatusBarState();
 	}
 

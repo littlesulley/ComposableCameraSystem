@@ -31,10 +31,9 @@ class UMovieSceneComposableCameraShotTrack;
  * ISequencerSection that paints a section title formatted as
  * `"Inline Shot (N targets)"` for Inline sections or the ShotAsset's
  * name (or "(no asset)") for AssetReference sections.
- * 4. **ShotAsset drag-drop** - `HandleAssetAdded` creates an
- * AssetReference Section pre-bound to the dropped asset, on the Shot
- * track of the binding the user dropped on (must be an LSActor
- * binding; ignored otherwise).
+ * Asset drops belong exclusively to FComposableCameraInstanceTrackEditor.
+ * This editor retains legacy track/section authoring without consuming drops.
+ * Sequencer queries every editor and asserts if two claim the same asset.
  *
  * Mirrors `FComposableCameraPatchTrackEditor` minus the Patch-specific
  * envelope / bag-leaf-keying paths - Shot sections carry structured Shot data
@@ -57,12 +56,6 @@ public:
 	virtual bool SupportsType(TSubclassOf<UMovieSceneTrack> Type) const override;
 	virtual bool SupportsSequence(UMovieSceneSequence* InSequence) const override;
 	virtual const FSlateBrush* GetIconBrush() const override;
-
-	/** Drag-and-drop entry: Content Browser drop of `UComposableCameraShotAsset`
-	 * onto an LSActor binding row creates (or reuses) a Shot track under
-	 * that binding and adds an AssetReference section pre-bound to the
-	 * dropped asset. Unbound drops are ignored. */
-	virtual bool HandleAssetAdded(UObject* Asset, const FGuid& TargetObjectGuid) override;
 
 private:
 	/** Click handler for the menu entry - adds a Shot track under the bound

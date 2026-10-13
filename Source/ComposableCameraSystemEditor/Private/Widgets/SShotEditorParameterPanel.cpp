@@ -1,6 +1,7 @@
 // Copyright 2026 Sulley. All Rights Reserved.
 #include "Widgets/SShotEditorParameterPanel.h"
 #include "Widgets/ComposableCameraShotEditorStyle.h"
+#include "Widgets/ComposableCameraShotEditorLayoutState.h"
 #include "Customizations/ComposableCameraShotRetainedRowCustomization.h"
 
 #include "DataAssets/ComposableCameraShot.h"
@@ -58,10 +59,13 @@ void SShotEditorParameterPanel::Construct(const FArguments& Args)
 	Session = Args._Session;
 	Section = Args._Section;
 	SubjectIndex = Args._SubjectIndex;
+	bPersistViewState = Args._PersistViewState;
+	ViewStateIni = Args._ViewStateIni.IsEmpty() ? GEditorPerProjectIni : Args._ViewStateIni;
+	ViewKey = Args._ViewKey.IsEmpty() ? FString::Printf(TEXT("ShotEditor.Parameters.%d"), static_cast<int32>(Section)) : Args._ViewKey;
 	FPropertyRowGeneratorArgs GeneratorArgs;
 	GeneratorArgs.NotifyHook = Args._NotifyHook;
 	Generator = FModuleManager::LoadModuleChecked<FPropertyEditorModule>("PropertyEditor").CreatePropertyRowGenerator(GeneratorArgs);
-	FShotEditorRetainedRowCustomization::Register(*Generator);
+	FShotEditorRetainedRowCustomization::Register(*Generator, Session);
 	Generator->OnRowsRefreshed().AddSP(this, &SShotEditorParameterPanel::RequestRebuild);
 	ChildSlot[SAssignNew(Body, SVerticalBox).IsEnabled_Lambda([this]() { return Session->CanEdit(); })];
 	RefreshSource();
@@ -70,6 +74,7 @@ void SShotEditorParameterPanel::Construct(const FArguments& Args)
 
 void SShotEditorParameterPanel::RefreshSource(bool bImmediate)
 {
+	HighlightPath.Reset();
 	// Keep the entire Shot as the root so target-index pickers can resolve Targets.
 	// Regenerate handles after source/array edits while retaining expansion state.
 	if (auto* Shot = Session->GetShot())
@@ -120,19 +125,48 @@ void SShotEditorParameterPanel::AddLayerRows(FName RootName, TSharedRef<SVertica
 	for (const auto& Child : Children)
 	{
 		const FString Path = RootName.ToString() + TEXT(".") + ShotParameterName(Child).ToString();
-		if (ShotParameterName(Child) == GET_MEMBER_NAME_CHECKED(FShotFocus, FocusAnchor)) ExpandedNodes.FindOrAdd(Path, true);
+		if (ShotParameterName(Child) == GET_MEMBER_NAME_CHECKED(FShotFocus, FocusAnchor)) IsExpanded(Path, true);
 		Rows->AddSlot().AutoHeight()[NodeWidget(Child, Path)];
 	}
 }
 
+bool SShotEditorParameterPanel::IsExpanded(const FString& Path, bool bDefault)
+{
+	if (const bool* Value = ExpandedNodes.Find(Path)) return *Value;
+	const bool bExpanded = bPersistViewState ? ComposableCameraSystem::ShotEditorLayout::ReadFold(ViewKey + TEXT(".") + Path, bDefault, ViewStateIni) : bDefault;
+	ExpandedNodes.Add(Path, bExpanded);
+	return bExpanded;
+}
+
+void SShotEditorParameterPanel::SetExpansion(const FString& Path, bool bExpanded)
+{
+	ExpandedNodes.Add(Path, bExpanded);
+	if (bPersistViewState) ComposableCameraSystem::ShotEditorLayout::WriteFold(ViewKey + TEXT(".") + Path, bExpanded, ViewStateIni);
+}
+
+TSharedPtr<SWidget> SShotEditorParameterPanel::RevealProperty(const FString& Path)
+{
+	HighlightPath = Path;
+	for (const auto& Entry : ExpandableRows)
+		if (Path == Entry.Key || Path.StartsWith(Entry.Key + TEXT(".")))
+			if (const auto Area = Entry.Value.Pin()) Area->SetExpanded(true);
+	const auto* Row = PropertyRows.Find(Path);
+	return Row ? Row->Pin() : nullptr;
+}
+
 TSharedRef<SWidget> SShotEditorParameterPanel::SubjectGroup(const FText& Label, const FString& Path, TSharedRef<SWidget> Content, bool bExpanded)
 {
-	ExpandedNodes.FindOrAdd(Path, bExpanded);
-	return SNew(SExpandableArea).Tag(FName(*Path)).InitiallyCollapsed(!ExpandedNodes.FindRef(Path)).Padding(0.f)
+	const bool bOpen = IsExpanded(Path, bExpanded);
+	const auto Area = SNew(SExpandableArea).Tag(FName(*Path)).InitiallyCollapsed(!bOpen).Padding(0.f)
 		.BodyBorderImage(FAppStyle::GetBrush("NoBorder")).BodyBorderBackgroundColor(FLinearColor::Transparent)
-		.OnAreaExpansionChanged_Lambda([this, Path](bool bOpen) { ExpandedNodes.Add(Path, bOpen); })
-		.HeaderContent()[ComposableCameraSystem::ShotEditorStyle::SubsectionHeader(Label)]
+		.OnAreaExpansionChanged_Lambda([this, Path](bool bExpandedNow) { SetExpansion(Path, bExpandedNow); })
+		.HeaderContent()[SNew(SBorder).BorderImage(FAppStyle::GetBrush("WhiteBrush")).Padding(0.f)
+			.BorderBackgroundColor_Lambda([this, Path]() { return HighlightPath == Path ? FLinearColor(.04f, .22f, .19f, .6f) : FLinearColor::Transparent; })
+			[ComposableCameraSystem::ShotEditorStyle::SubsectionHeader(Label)]]
 		.BodyContent()[Content];
+	ExpandableRows.Add(Path, Area);
+	PropertyRows.Add(Path, Area);
+	return Area;
 }
 
 void SShotEditorParameterPanel::BuildSubject()
@@ -220,7 +254,7 @@ TSharedRef<SWidget> SShotEditorParameterPanel::Group(const FText& Label, TShared
 	return SNew(SBox).WidthOverride_Lambda([this]()
 		{
 			return ComposableCameraSystem::ShotEditorStyle::ColumnWidth(static_cast<float>(GetCachedGeometry().GetLocalSize().X) - 16.f);
-		})[ComposableCameraSystem::ShotEditorStyle::Group(Label, Content)];
+		})[ComposableCameraSystem::ShotEditorStyle::ParameterSection(Label, Content)];
 }
 
 TSharedRef<SWidget> SShotEditorParameterPanel::NodeWidget(TSharedRef<IDetailTreeNode> Node, const FString& Path)
@@ -245,6 +279,8 @@ TSharedRef<SWidget> SShotEditorParameterPanel::NodeWidget(TSharedRef<IDetailTree
 			+ SHorizontalBox::Slot().FillWidth(.60f).VAlign(VAlign_Center)
 			[Widgets.ValueWidget.IsValid() ? Widgets.ValueWidget.ToSharedRef() : SNullWidget::NullWidget];
 	TSharedRef<SWidget> Row = Widgets.WholeRowWidget.IsValid() ? Widgets.WholeRowWidget.ToSharedRef() : StaticCastSharedRef<SWidget>(Columns);
+	Row = SNew(SBorder).BorderImage(FAppStyle::GetBrush("WhiteBrush")).Padding(0.f)
+		.BorderBackgroundColor_Lambda([this, Path]() { return HighlightPath == Path ? FLinearColor(.04f, .22f, .19f, .6f) : FLinearColor::Transparent; })[Row];
 
 	TArray<TSharedRef<IDetailTreeNode>> Children;
 	if (!IsInlineShotParameter(Handle)) Node->GetChildren(Children, true);
@@ -253,12 +289,17 @@ TSharedRef<SWidget> SShotEditorParameterPanel::NodeWidget(TSharedRef<IDetailTree
 		const TSharedRef<SVerticalBox> Nested = SNew(SVerticalBox);
 		for (const auto& Child : Children)
 			Nested->AddSlot().AutoHeight()[NodeWidget(Child, Path + TEXT(".") + ShotParameterName(Child).ToString())];
-		return SNew(SExpandableArea).Tag(FName(*Path)).Visibility(Visibility).InitiallyCollapsed(!ExpandedNodes.FindRef(Path)).Padding(0.f)
-			.OnAreaExpansionChanged_Lambda([this, Path](bool bExpanded) { ExpandedNodes.Add(Path, bExpanded); })
+		const auto Area = SNew(SExpandableArea).Tag(FName(*Path)).Visibility(Visibility).InitiallyCollapsed(!IsExpanded(Path, false)).Padding(0.f)
+			.OnAreaExpansionChanged_Lambda([this, Path](bool bExpanded) { SetExpansion(Path, bExpanded); })
 			.HeaderContent()[SNew(SBox).MinDesiredHeight(24.f).Padding(0.f, 1.f)[Row]]
 			.BodyContent()[SNew(SBox).Padding(12.f, 0.f, 0.f, 4.f)[Nested]];
+		ExpandableRows.Add(Path, Area);
+		PropertyRows.Add(Path, Area);
+		return Area;
 	}
-	return SNew(SBox).Tag(FName(*Path)).Visibility(Visibility).MinDesiredHeight(24.f).Padding(0.f, 1.f)[Row];
+	const auto Box = SNew(SBox).Tag(FName(*Path)).Visibility(Visibility).MinDesiredHeight(24.f).Padding(0.f, 1.f)[Row];
+	PropertyRows.Add(Path, Box);
+	return Box;
 }
 
 void SShotEditorParameterPanel::Rebuild()
@@ -270,6 +311,8 @@ void SShotEditorParameterPanel::Rebuild()
 #endif
 	bRebuildPending = false;
 	Body->ClearChildren();
+	ExpandableRows.Reset();
+	PropertyRows.Reset();
 	const auto* Shot = Session->GetShot();
 	if (!Shot)
 	{
@@ -322,7 +365,7 @@ void SShotEditorParameterPanel::Rebuild()
 		const FString Path = RootName.ToString() + TEXT(".") + Name.ToString();
 		if (bAnchor || bZones)
 		{
-			ExpandedNodes.FindOrAdd(Path, true);
+			IsExpanded(Path, true);
 			(bZones ? ScreenZones : Target)->AddSlot().AutoHeight()[NodeWidget(Child, Path)];
 		}
 		else Behavior->AddSlot().AutoHeight()[NodeWidget(Child, Path)];

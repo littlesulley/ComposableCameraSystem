@@ -1,6 +1,7 @@
 // Copyright 2026 Sulley. All Rights Reserved.
 
 #include "Sequencer/ComposableCameraShotTrackEditor.h"
+#include "MovieScene/MovieSceneComposableCameraInstanceTrack.h"
 
 #include "ComposableCameraEditorStyle.h"
 #include "ContentBrowserModule.h"
@@ -188,6 +189,10 @@ void FComposableCameraShotTrackEditor::BuildObjectBindingTrackMenu(FMenuBuilder&
 	{
 		return;
 	}
+	// Managed instances already have their configuration/evaluator; a legacy Shot driver would compete with it.
+	if (const auto Seq = GetSequencer(); Seq && Seq->GetFocusedMovieSceneSequence())
+		for (const FGuid Binding : ObjectBindings)
+			if (UMovieSceneComposableCameraInstanceTrack::Find(Seq->GetFocusedMovieSceneSequence()->GetMovieScene(), Binding)) return;
 
 	MenuBuilder.AddMenuEntry(LOCTEXT("AddShotTrack", "Composable Camera Shot Track"),
 		LOCTEXT("AddShotTrackTooltip",
@@ -221,65 +226,6 @@ TSharedRef<ISequencerSection> FComposableCameraShotTrackEditor::MakeSectionInter
 {
 	check(SupportsType(SectionObject.GetOuter()->GetClass()));
 	return MakeShareable(new FComposableCameraShotSectionInterface(SectionObject, GetSequencer()));
-}
-
-bool FComposableCameraShotTrackEditor::HandleAssetAdded(UObject* Asset, const FGuid& TargetObjectGuid)
-{
-	UComposableCameraShotAsset* ShotAsset = Cast<UComposableCameraShotAsset>(Asset);
-	if (!ShotAsset || !TargetObjectGuid.IsValid())
-	{
-		return false;
-	}
-
-	UMovieScene* MovieScene = GetFocusedMovieScene();
-	if (!MovieScene || MovieScene->IsReadOnly())
-	{
-		return false;
-	}
-
-	// Confirm the drop target is an LSActor binding - otherwise the Shot
-	// track would be meaningless on that binding row. We can't read the
-	// possessable's class without a Sequencer-side helper, so trust the
-	// outliner's drop validation: the user dropped a ShotAsset onto a binding
-	// that already accepts our track type, OR onto an arbitrary binding (in
-	// which case we silently bail rather than create an orphan track).
-	const FMovieScenePossessable* Possessable = MovieScene->FindPossessable(TargetObjectGuid);
-	const FMovieSceneSpawnable* Spawnable = MovieScene->FindSpawnable(TargetObjectGuid);
-	const UClass* TargetClass = Possessable ? Possessable->GetPossessedObjectClass()
-		: (Spawnable && Spawnable->GetObjectTemplate() ? Spawnable->GetObjectTemplate()->GetClass() : nullptr);
-	if (!IsLSActorBinding(TargetClass))
-	{
-		return false;
-	}
-
-	const FScopedTransaction Transaction(LOCTEXT("AddShotSection_Transaction",
-		"Add Composable Camera Shot Section from Asset"));
-
-	UMovieSceneComposableCameraShotTrack* Track = FindShotTrackForBinding(MovieScene, TargetObjectGuid);
-	if (!Track)
-	{
-		MovieScene->Modify();
-		Track = MovieScene->AddTrack<UMovieSceneComposableCameraShotTrack>(TargetObjectGuid);
-		if (!Track)
-		{
-			return false;
-		}
-		Track->SetDisplayName(LOCTEXT("ShotTrackDefaultName", "Composable Camera Shot"));
-	}
-
-	TSharedPtr<ISequencer> SequencerPtr = GetSequencer();
-	UMovieSceneComposableCameraShotSection* NewSection =
-		CreateShotSectionAtPlayhead(Track, SequencerPtr, INDEX_NONE);
-	if (!NewSection)
-	{
-		return false;
-	}
-	NewSection->Modify();
-	NewSection->Source = EComposableCameraShotSource::AssetReference;
-	NewSection->ShotAssetRef = ShotAsset;
-	NewSection->RefreshShotOverridesFromSource();
-
-	return true;
 }
 
 void FComposableCameraShotTrackEditor::HandleAddShotTrackMenuEntryExecute(TArray<FGuid> ObjectBindings)

@@ -29,7 +29,8 @@ class FMenuBuilder;
  * (Shot->Aim ->AimAnchor->TargetIndex) and triple-level (Shot->Placement
  * ->PlacementAnchor -> WeightedTargets[i] ->TargetIndex).
  *
- * No state, no allocations on the hot path beyond the SComboButton itself.
+ * Section-backed labels use authored binding names, including inactive Spawnables.
+ * Formatting happens in UI label/menu requests, never in camera evaluation.
  */
 struct FShotTargetIndexCombo
 {
@@ -38,24 +39,27 @@ struct FShotTargetIndexCombo
 	 * ancestor exists (detached / unit-test wrap / multi-edit conflict). */
 	static TSharedPtr<IPropertyHandleArray> ResolveTargetsArrayUpwards(const TSharedPtr<IPropertyHandle>& Start);
 
-	/** Format `"<i> - <ActorLabel>"` for entry `Idx`. Loaded actor's
-	 * `GetActorLabel()` first, soft-path's tail name when unloaded,
-	 * `"(unset)"` for empty slots. Out-of-range surfaces as
+	/** Format `"<i> - Subject A/B/C/... (<identity>)"` for entry `Idx`. Section
+	 * binding display name takes precedence over the authored actor/preview mesh.
+	 * Host is explicit for struct-only Shot Editor generators; normal Details
+	 * discovers its Section from the property's outer object. Empty slots remain
+	 * distinguishable by their subject role. Out-of-range surfaces as
 	 * `"<idx> - (invalid)"`. */
-	static FText FormatTargetEntryLabel(const TSharedPtr<IPropertyHandleArray>& TargetsArray, int32 Idx);
+	static FText FormatTargetEntryLabel(const TSharedPtr<IPropertyHandleArray>& TargetsArray, int32 Idx,
+		TWeakObjectPtr<UObject> Host = {});
 
 	/** Combo button label - formats the current `IndexHandle` value through
 	 * `FormatTargetEntryLabel`. Multi-edit with mixed values returns
 	 * `"<multiple values>"`. */
 	static FText GetCurrentSelectionText(const TSharedPtr<IPropertyHandle>& IndexHandle,
-		const TSharedPtr<IPropertyHandleArray>& TargetsArray);
+		const TSharedPtr<IPropertyHandleArray>& TargetsArray, TWeakObjectPtr<UObject> Host = {});
 
 	/** Fill `MenuBuilder` with one entry per Targets index, each entry
 	 * writing its index into `IndexHandle` on click. Empty / unreachable
 	 * Targets surface as a single disabled hint entry. */
 	static void BuildIndexMenu(FMenuBuilder& MenuBuilder,
 		const TWeakPtr<IPropertyHandle>& WeakIndexHandle,
-		const TSharedPtr<IPropertyHandleArray>& TargetsArray);
+		const TSharedPtr<IPropertyHandleArray>& TargetsArray, TWeakObjectPtr<UObject> Host = {});
 
 	/** Build the full SComboButton + menu widget for `IndexHandle`.
 	 * `IndexHandle` is captured STRONGLY (TSharedPtr by value into the
@@ -65,5 +69,6 @@ struct FShotTargetIndexCombo
 	 * moment the customization's local handle goes out of scope and the
 	 * combo would render "(no handle)" forever. Menu rebuilds resolve
 	 * the Targets array each open via `ResolveTargetsArrayUpwards(IndexHandle)`. */
-	static TSharedRef<SWidget> Build(const TSharedRef<IPropertyHandle>& IndexHandle);
+	static TSharedRef<SWidget> Build(const TSharedRef<IPropertyHandle>& IndexHandle,
+		TWeakObjectPtr<UObject> Host = {});
 };

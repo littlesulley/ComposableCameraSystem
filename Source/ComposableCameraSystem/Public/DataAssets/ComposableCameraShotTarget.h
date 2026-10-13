@@ -73,6 +73,10 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraShotTarget
 {
 	GENERATED_BODY()
 
+	/** Stable instance-channel identity. Legacy shots may leave this invalid until instanced. */
+	UPROPERTY()
+	FGuid SubjectId;
+
 	/** Identity + pivot resolution. Drives the world point this target
 	 *  contributes to all solver passes. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Shot Target")

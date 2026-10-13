@@ -94,9 +94,12 @@ class FComposableCameraShotEditorViewportClient: public FEditorViewportClient
 public:
 #if WITH_DEV_AUTOMATION_TESTS
 	friend class FShotEditorViewportValueCommitsTest;
+	friend class FShotEditorFollowGuideSelectionTest;
+	friend class FCameraSequenceDraftTest;
 	friend class FShotEditorOrbitControlTest;
 	friend class FShotEditorSubjectGizmosTest;
 	friend class FShotEditorPreviewCompatibilityTest;
+	friend class FShotEditorActionableDiagnosticsTest;
 #endif
 	FComposableCameraShotEditorViewportClient(FPreviewScene* InPreviewScene,
 		const TSharedRef<class SEditorViewport>& InEditorViewportWidget);
@@ -111,6 +114,7 @@ public:
 	void SetActiveShot(FComposableCameraShot* InShot, UObject* InHost);
 	void SetAuthoringSession(TSharedPtr<FComposableCameraShotAuthoringSession> Session);
 	bool IsEditingGesture() const;
+	FShotEditorDiagnostic GetPreviewDiagnostic() const { return ActiveShot && ActiveHost.IsValid() ? PreviewDiagnostic : FShotEditorDiagnostic{}; }
 	virtual UWorld* GetWorld() const override;
 
 	/** Diagnostic accessor. Returns nullptr while no Shot is bound. */
@@ -184,11 +188,13 @@ public:
 	// source above).
 
 private:
+	FShotEditorDiagnostic PreviewDiagnostic;
 	TWeakPtr<FComposableCameraShotAuthoringSession> AuthoringSession;
 	TWeakObjectPtr<UCineCameraComponent> OutputCamera;
 	bool bUseLevelWorld = false;
 	FIntRect GetRenderRect() const;
 	float GetCameraAspectRatio() const;
+	bool ShowFollowHandle() const;
 	bool ShowLookAtHandle() const;
 	bool ShowOrbitControl() const;
 	FIntPoint GetRenderSize() const;

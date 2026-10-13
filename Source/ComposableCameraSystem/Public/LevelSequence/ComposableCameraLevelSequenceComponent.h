@@ -14,6 +14,8 @@
 class AComposableCameraCameraBase;
 class UCineCameraComponent;
 class UComposableCameraTransitionDataAsset;
+class UComposableCameraInstanceData;
+class UMovieSceneComposableCameraInstanceTrack;
 class UMovieSceneSequencePlayer;
 class UMovieSceneComposableCameraPatchSection;
 class UMovieSceneComposableCameraShotSection;
@@ -170,6 +172,15 @@ public:
 	 *  Blueprint-supported (see the struct comment). */
 	UPROPERTY(EditAnywhere, Category = "Composable Camera")
 	FComposableCameraTypeAssetReference TypeAssetReference;
+
+	/** Managed outputs are evaluated by MovieScene, including subframe render samples. */
+	UPROPERTY()
+	bool bCameraInstanceDriven = false;
+	/** Persistent ownership also distinguishes a copied track from the original output. */
+	UPROPERTY()
+	TObjectPtr<UMovieSceneComposableCameraInstanceTrack> CameraInstanceOwner;
+	void EvaluateCameraInstance(const UComposableCameraInstanceData& Values, float DeltaTime, bool bReset);
+	void ReleaseCameraInstance();
 
 	/** Reference to the Actor's UCineCameraComponent used as the viewport
 	 *  terminal. Assigned by the owning Actor's constructor (primary path)
