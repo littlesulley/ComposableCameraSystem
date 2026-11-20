@@ -1,6 +1,6 @@
 # ComposableCameraSystem Editor Design
 
-Updated: 2026-10-13
+Updated: 2026-11-20
 
 This document describes the current editor module. It replaces the old
 phase-by-phase implementation plan. Runtime architecture lives in
@@ -419,22 +419,36 @@ Current behavior:
   suffixes; the editor does not keep a persistent left-side Shot outliner.
 - task navigation sits below the host toolbar: Create / Edit / Sequence /
   Presets / Advanced. A flexible left slot holds compact task buttons; centered,
-  the fixed-size Level Preview button stays at the row's right.
+  the fixed-size Level Preview button stays at the row's right for composition
+  sources. Ordinary Camera Types instead show a noninteractive Preview: Level label.
+  A separate header row identifies Draft / In Sequence / Asset independently of
+  the instance name, shows Editing unavailable when the session cannot edit, and
+  offers a source-type link for ordinary instances. A name ending in Draft is not
+  used to infer lifecycle state.
   Task buttons are 28 Slate units high, with 14-unit icons and regular 9-point labels;
-  Edit subtabs are 26 units high with regular 9-point labels. Presets uses the native
+  Edit subtabs are 28 units high with regular 9-point labels. Presets uses the native
   open-folder library icon rather than a save icon. Application/DPI scaling
-  remains authoritative. Buttons retain their original styling: CameraNodeTitle
-  (#14968C) fills selected primary navigation and enabled preview toggles; Edit
-  subtabs mix 65% accent into native Secondary gray. Unselected buttons use
-  Secondary gray, without accent stripes. Parameter-page actions use the native
+  remains authoritative. CameraNodeTitle (#14968C) fills selected rounded primary
+  buttons and enabled preview toggles; unselected primary buttons use Secondary gray.
+  Edit subtabs instead use transparent text buttons, neutral hover/pressed fills,
+  brighter selected text and a two-unit camera-accent underline. The underline's
+  space remains reserved when unselected. A separate Panel-colored strip, eight-unit
+  gap below primary navigation and inset tabs make hierarchy visible without relying
+  on tint alone. Both ordinary Parameters/Subjects and composition Edit tabs share
+  this treatment; narrow panels retain wrapping. Parameter-page actions use the native
   AppStyle Button, retaining fixed 156 x 24 size and centered captions.
   Shot Template, Subjects, Sequence and Presets group headers share the parameter
   cards' Runtime Debug header brush, accent stripe and bold 9-point title; group
   bodies use the same dark background brush. No task action uses PrimaryButton.
-- `SShotEditorPreviewLayout` is a native horizontal splitter with exactly two
+- `SShotEditorPreviewLayout` is a native horizontal splitter with two retained
   full-height columns: complete parameter pages on the left (default 40%) and
   Preview on the right (default 60%). Users drag the divider to adjust widths;
-  reopening restores their saved coefficient. There is
+  reopening restores their saved coefficient. Preview has no source/frame text
+  strip. Maximize collapses the authoring
+  child and task navigation, keeping the same viewport and camera-aspect frame;
+  Restore returns the previous widths. This temporary view state is not saved.
+  Maximize/Restore stays in the floating viewport toolbar, accessible even when
+  Tools is collapsed, and is blocked during edit gestures/transactions. There is
   no lower parameter region or separate preview-side page. Create contains the template library picker, Shot dropdown and empty-draft action; Edit keeps behavior, anchor/screen zones,
   lens/focus or motion response together in each section; Sequence keeps
   destination/duration and clip actions together; Presets keeps apply/restore
@@ -532,8 +546,13 @@ Current behavior:
   shrink removes tail cards. All native parameter handles are rebound against
   current storage and their controls replaced in the same idle Slate tick,
   preserving card folds, page/scroll containers and avoiding a blank refresh frame.
-  Sequence has read-only Level Sequence / Clip Duration and one Clip group for
-  creation, draft drag insertion, duplication and clip selection. There is no separate Current
+  Sequence shows the Level Sequence icon and bold asset name, with parallel
+  Frame range and Duration metrics below. Captions are muted; values are larger.
+  The frame range uses display frames; its tooltip explains the exclusive end.
+  Long asset names ellipsize with the full path in a tooltip. Draft ranges read
+  On insert; unavailable metrics use a dash. One Clip group holds actions. Drafts show insertion;
+  bound instances show navigation/duplication. Legacy source creation remains
+  available through its existing path. There is no separate Current
   Clip group, ownership checkbox or explanatory footer. Presets separates
   apply/restore from save.
 - The layout borrows task tabs, a dominant preview and grouped controls from
@@ -579,9 +598,9 @@ Current behavior:
   clears the selection; Create Empty Shot also clears it after successful creation.
   Missing/empty libraries disable the dropdown and display a short placeholder.
   Create Empty Shot is a separate action below the entire Shot template group,
-  left-aligned and sized to its caption with a 24-unit minimum height and compact
-  padding. Its background lightens the shared camera accent toward white, with
-  dark text for contrast. It ignores the library and creates default
+  with an eight-unit left inset matching the Camera Type group's content. It
+  shares Create Draft's native AppStyle Button, 156 x 24 size and centered caption,
+  so their edges and background styles match. It ignores the library and creates default
   composition with zero Subjects. Create has no Use Selected Actors, Apply Template
   or Subjects controls/guides. Edit retains Add Subject / Add Selected Actors.
   Library or referenced ShotAsset property changes and Undo/Redo close an open
@@ -680,21 +699,19 @@ Current behavior:
   Inside the current section, creation appends after it and reuses its camera.
   Dialogue Set creates two-shot / shoulder A / reverse B consecutively on one
   camera. Duplicate after current preserves full Section data and bindings.
-- Sequence drafts instead use Drag into Sequence (click also adds at the playhead).
-  Its compact icon button uses the native drag-handle glyph; a separate wrapping
-  description on the right explains dragging and click-to-add. The icon retains
-  the drag/click input and detailed hover tooltip; the description is static text.
-  The icon and description are disabled together once the editor binds an LS clip.
+- Sequence drafts use an Add at Playhead button with the native drag-handle glyph.
+  The same button also drags into the timeline; a wrapping hint below explains
+  dropping and Cut replacement. Draft insertion collapses after binding a clip.
   Go to Clip selects the bound clip and frames its time range without seeking.
   Duplicate At Playhead copies the bound instance, including Subjects and animation,
   to an independent binding/output at the playhead and opens the copy for editing.
-  Both actions are disabled for drafts; read-only clips allow selection but not
+  Both actions are hidden for drafts; read-only clips allow selection but not
   duplication. Legacy clips use their existing Section-copy path, with the new
   start time; Duplicate after current remains available for those clips.
   All actions share the Clip group, organized under Create and Navigate / Duplicate
-  subheadings with one separator. Standard buttons fill the same column width,
-  use centered wrapping captions and a minimum 28-unit height. The drag icon and
-  adjacent explanation keep their compact horizontal row on that same left edge.
+  subheadings visible only where applicable. Standard buttons fill the same column
+  width, use centered wrapping captions and a minimum 28-unit height. The draft
+  insertion button and hint share the same left edge.
   Legacy creation stays in Create; Duplicate after current stays with duplication.
   Other compact actions retain their existing layout.
 - Creation preflights read-only/range/overlap conflicts. Existing cuts are
@@ -2123,7 +2140,7 @@ regardless of selected/target binding; another drop makes another instance.
 Legacy ShotTrackEditor inherits the base rejection. UE5.6 calls every registered
 handler and asserts on a second consumer; registration order is not priority.
 Patch assets retain their exclusive workflow. Drops initially create a five-second
-activation interval and preserve conflicting Camera Cuts.
+activation interval and replace active Camera Cuts within that interval.
 
 Sequencer + Track > New Camera Shot opens a fresh Sequence draft in Shot Editor.
 Create Empty Shot in Create/Sequence uses the current source Sequence, falling back
@@ -2139,9 +2156,10 @@ identity and strip transient Actor paths. Preview resolves current actors each
 sample and uses the existing solver in the real-level viewport. Starting a draft
 selects Compose and keeps that draft as the edited source while scrubbing.
 
-Clip Duration is read-only and follows the legacy Shot Section or current instance
-Activation range. Outside the instance's intervals it shows the first interval;
-drafts and sources without a finite positive interval default to five seconds.
+Clip duration is a text summary and follows the legacy Shot Section or current
+instance Activation range. Outside the instance's intervals it shows the first
+interval. Draft insertion defaults to five seconds; unbounded existing clips
+display an unbounded range and omit finite duration.
 Change existing clip lengths in Sequencer. Creation and drag insertion use this
 same displayed duration. Drag into Sequence freezes configuration and duration.
 Native Track-area drop uses the pointer's frame; empty space uses the timeline
@@ -2150,14 +2168,15 @@ use the playhead. Track hover supplies a finite preview interval using the same
 duration/range validation as creation; rejected handled drags supply a bounded
 empty interval so native preview painting can safely read both endpoints.
 Each drop creates a new named instance binding, Activation,
-managed generic output and a Cut when no authored Cut conflicts. It never appends
+managed generic output and a Cut covering that interval. It never appends
 to the target instance. The source editor transfers to the new instance at its
 start time. Cancel leaves the draft intact. Read-only/foreign Sequence destinations
 are rejected; the displayed destination stays pinned to the source Sequence.
 Drag insertion needs no temporary saved asset or special ShotActor. The optional
 template library supplies starting configuration; the inserted instance keeps its own copy.
 
-After insertion the drag icon and explanation are disabled. Go to Clip selects
+After insertion the draft Create group and insertion explanation collapse;
+the Navigate / Duplicate group becomes visible. Go to Clip selects
 the active Activation Section, or the instance's first Section when the playhead
 is outside its intervals. It frames that interval without changing the playhead.
 Duplicate At Playhead uses the same Section as its alignment anchor: copy the
@@ -2165,12 +2184,52 @@ instance's authored defaults, Subjects, all Activation Sections and all sibling
 parameter tracks, then shift their ranges and keys by playhead minus anchor start.
 Unbounded parameter Sections stay unbounded. It creates an independent output
 and transfers Shot Editor to the copy. Pending unkeyed preview values are not
-animation and are not copied. Existing Camera Cuts are preserved; a fresh Cut
-for the copied anchor is added only when its interval is free. Multiple Activation
+animation and are not copied. A fresh Cut for the copied anchor replaces active
+Camera Cuts within that interval. Multiple Activation
 intervals retain relative timing; additional Camera Cuts remain author-controlled.
+Cut replacement keeps the requested insertion frame and duration. Overlapping active
+Cuts are trimmed, split or removed; their outside portions retain their camera binding.
+Inactive Cuts are retained. A locked active overlap rejects creation/duplication before
+any binding is created, and draft hover reports that rejection. An affected old managed
+Cut loses its Activation-range management; its retained pieces become authored Cuts,
+so later Activation edits cannot regrow the overwritten range. Their existing output
+references receive the normal authored-Cut protection during orphan cleanup. Undo/Redo
+restores section membership, ranges and management along with the new instance.
+This applies to instance creation, asset/draft drops and Duplicate At Playhead;
+ordinary moves and legacy Shot creation retain their previous conflict rules.
+
+Set Camera Cut in Sequence operates on the same displayed active/first Activation
+as Go to Clip. It reuses that instance's owned output and the existing interval
+replacement policy without copying configuration, bindings or parameter lanes.
+It works outside the source Activation, does not seek, and is one Undo operation.
+An already correct managed Cut with no active overlap is a no-op. Missing Cut
+sections/tracks can be rebuilt. Disabled/locked/unbounded Activations, foreign or
+read-only Sequences, locked active overlaps and active edit gestures are rejected.
+A missing/foreign output is not implicitly recreated: use Repair Managed Output
+on the Activation track first. This keeps output identity repair explicit.
+
+Generated Cuts remain editable in the native Camera Cuts track. Moving or trimming
+a Cut to a range different from Activation releases its range management in the
+same transaction, retaining the output binding and authored result. Subsequent
+Activation edits do not overwrite it. Undo restores both the range and management;
+Set Camera Cut explicitly rebuilds a managed interval. An untouched Cut still
+follows edits to its single Activation, subject to locks and conflict checks.
+Manual Cut editing releases management for multi-Activation instances too.
+Batch Activation moves check all proposed Cut ranges before applying them, so
+adjacent managed Cuts do not block one another with their old positions. A rejected
+move retains its old range and blocks any other move that would overlap it.
+Moving both together to the same range retains management. Unrelated data changes
+never force an old mismatch back into sync. Cutting does not move Activation or
+parameter keys: the camera still evaluates only inside its Activation intervals.
+
+For ordinary bound cameras, editor property changes on a resolved Subject or its
+subobjects invalidate the next sample. A same-time Sequencer evaluation then reads
+the updated component/socket without advancing damping again. This works without
+Shot Editor open and does not request evaluation from inside a property callback.
+
 Navigation needs a live bound clip. Duplication additionally requires an editable
 focused Sequence, an unlocked finite anchor and no active edit transaction; the
-playhead may be outside the source activation. Both actions are disabled for drafts
+playhead may be outside the source activation. Both actions are hidden for drafts
 or detached/deleted clips. Creation, output, lanes and Cut undo as one edit.
 
 Double-click any instance Section, or use Open in Shot Editor on the binding/Track.
@@ -2218,6 +2277,13 @@ CameraInstanceOutput creates/adopts the generic LSActor Spawnable directly as
 the instance root. It retains native Spawn and Camera Cut behavior. Duplication
 adopts the duplicate binding's template/live output; the whole binding is the
 unit to duplicate when copying an instance with all its parameter animation.
+New/adopted output templates and their components have RF_Transient cleared so
+they survive saving. Legacy Shot creation uses the same persistence normalization.
+Repair Managed Output also restores a missing legacy Spawnable template under its
+existing native binding when that binding matches the instance's local OutputBinding.
+The repair retains the binding GUID, parameter lanes, ManagedCut and locked/user
+Cut references; read-only scenes refuse it and one Undo restores the prior state.
+Existing broken assets need this explicit repair followed by saving the Sequence.
 Transactional maintenance retains weak owner identities to remove generated Cuts
 when native binding deletion removes the owner before notification. Locked/user
 Cuts remain protected. Maintenance skips Undo/Redo and external non-transactional
@@ -2241,5 +2307,61 @@ MRQ. Run CameraInstance.SequenceDraft, CameraInstance.ClipActions, CameraInstanc
 ShotEditor.SequenceActionWidth and ShotEditor.ClipActionAlignment for draft
 transport/respawn/Undo, bound-clip actions, native Rename/header/history sync,
 caption allocation and aligned Clip rows across widths/DPI.
-Cross-sequence picker UX and hot graph schema changes remain
-outside this integration.
+Cross-sequence picker UX remains outside this integration. Ordinary type interface
+refresh follows the limited non-destructive policy below.
+
+### Ordinary CameraType in the shared Shot Editor (2026-11-17)
+
+Create adds a Camera Type picker plus an explicit Create Draft button. Selecting an
+asset alone creates nothing; Patch assets are excluded. First scope requires the
+currently focused editable LS, and adds no asset class or TemplateLibrary entry kind.
+The draft uses existing transient InstanceData/AuthoringSession. Generic Edit shows
+Parameters (native Details) and Subjects (real Actor input paths), while Create and
+Sequence/Clip navigation remain shared. Composition-only tabs/guides/actions stay
+gated by composition capability. Camera/Inspect switches do not reverse-solve a Shot.
+
+SubjectPicker accepts either a composition subject index or a generic input path.
+Generic rows come from Parameters.* and Variables.* Actor fields; no arbitrary Add
+Subject action exists. Non-Actor object assets stay in Details. Binding metadata lists
+inactive Spawnables, filters the input class, and supports Clear. Level-actor selection
+creates/reuses a possessable inside the same transaction. The picker rejects a stale
+source/revision. Both draft and bound edits route through AuthoringSession; the bound
+case commits through the existing sampled session. Authored data never stores the
+resolved Actor. Binding labels show unresolved state without replacing the saved ID.
+Each ordinary Actor input is a card with its friendly name, class and Required /
+Optional metadata, with full Parameters.* / Variables.* identity in a tooltip.
+Class/required/label changes refresh presentation even when paths are unchanged.
+An explanation clarifies that choosing Level actors adds references, not duplicates.
+Per-input diagnostics distinguish required/optional unbound, resolved, missing
+binding, unspawned, unresolved Actor, class mismatch, unavailable Sequence and stale
+type interface. Unresolved Possessables may be deleted or unloaded; the UI does not
+claim deletion without evidence. UE5.6 custom Spawnables use the engine's binding
+classification. Locate in Sequence selects the binding, expands ancestors and
+scrolls it into view, even when no Actor is spawned. Locate Actor selects and frames
+the currently resolved Actor in level viewports. Both recheck the current session
+on click and never seek or write bindings. Relative binding IDs retain their source
+Sequence context; foreign bindings cannot select a same-GUID local row. Local
+metadata labels remain readable when the source Sequence is closed, while navigation
+requires the appropriate live context. Generic navigation remains available in
+read-only Sequences; stale type interfaces withhold Actor navigation.
+
+FComposableCameraInstanceDraftPreview owns a hidden transient generic LSActor and
+evaluation copy. It resolves Actors at focused Sequence time and calls the existing
+instance evaluator/projection. Same-time actor transform or property edits invalidate
+preview; repeated unchanged viewport ticks do not advance simulation. Source refresh
+rebuilds caches between gestures. Closed/unfocused Sequence, missing required inputs,
+incompatible interface or failed output produce a status and withhold the active camera.
+Insertion and source switching release the temporary actor/evaluator. Modified drafts
+prompt before UI replacement or tab close. Draft numeric edits remain defaults even
+when Sequencer Auto Key is enabled; insertion then uses the existing native key rules.
+
+Ordinary interface additions seed defaults without destroying previous bags/channels.
+Destructive interface changes retain data and disable Shot Editor input editing and
+evaluation until source restoration or a fresh draft. Reported source graph build
+errors also pause evaluation until the graph builds successfully. New inputs become available to native parameter menus;
+the first key migrates authored defaults in its transaction. Time-only sampling retains
+Details backing memory and widgets. No automatic rename mapping or existing Type swap.
+
+New automation: CameraInstance.GenericDraft, InterfaceRetention and ColdReset. Tests
+are written, not run. Full IDE compile, native manual-key/curve UI, close/replace prompt,
+save/reopen, legacy Shot/template workflows, nested Sequence and MRQ remain to validate.

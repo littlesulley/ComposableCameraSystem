@@ -51,6 +51,7 @@ public:
 	friend class FShotEditorActionableDiagnosticsTest;
 	friend class FCameraInstanceScrubTest;
 	friend class FCameraInstanceRenameTest;
+	friend class FCameraInstanceGenericDraftTest;
 #endif
 	SLATE_BEGIN_ARGS(SShotEditorRoot) : _PersistViewState(true) {}
 		SLATE_ARGUMENT(bool, PersistViewState)
@@ -74,6 +75,7 @@ public:
 	 */
 	void SetActiveShot(FComposableCameraShot* Shot, UObject* HostObject);
 	bool StartSequenceDraft(TSharedRef<ISequencer> Sequencer, FString& Error);
+	bool ConfirmDiscardDraft() const;
 
 	// SWidget interface - used to detect host destruction between frames
 	// (the host's TWeakObjectPtr can go stale at any GC pass).
@@ -132,10 +134,12 @@ private:
 	TSharedPtr<FComposableCameraShotAuthoringSession> AuthoringSession;
 	TSharedPtr<SShotEditorAuthoringPanel> AuthoringPanel;
 	bool bAuthoringRefreshPending = false;
+	FText CachedGenericStatus;
 
 	/** Collapses the viewport-local command strip down to a small Tools
 	 * button so it does not cover diagnostic HUD text. */
 	bool bViewportToolbarCollapsed = false;
+	bool bPreviewMaximized = false;
 	bool bPersistViewState = true;
 	float AuthoringFraction = .4f;
 	bool bInitialShowHud = false;

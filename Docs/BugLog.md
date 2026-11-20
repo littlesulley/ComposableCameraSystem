@@ -8681,3 +8681,349 @@
   host packages to validate contained objects. Playback/scrubbing does not load them.
   Pruned entries are not restored automatically by Undo; reopening the restored Shot
   adds it again. Runtime output, channels, Subjects and asset serialization are unchanged.
+
+## 2026-11-17 — Ordinary Camera Instance retained node history across seeks
+
+- Symptom / repro: use an ordinary type containing pivot damping, advance a moving
+  Actor, then jump backwards or reactivate its Activation. The old implementation
+  passed bReset to composition framing only; ordinary duplicated nodes retained
+  previous state. Treating every non-Playing status as a reset also conflated MRQ
+  subframe evaluation with editor seeks.
+- Root cause: clearing TickCamera's sample cache is not resetting arbitrary node
+  state. DestroyInternalCamera was not suitable for a same-instance reset because
+  it also removed all registered Sequencer Patch overlays.
+- History / blast radius: reviewed CameraInstance sampled-edit/manual-key and scrub
+  regressions, component preview cleanup and Patch overlay ownership; audited every
+  EvaluateCameraInstance/ReleaseCameraInstance caller, output lifetime and source
+  revision consumers. Legacy Shot evaluation remains on its existing path.
+- Fix / files: ComposableCameraInstanceTime.h, MovieSceneComposableCameraInstanceTrackInstance.h/.cpp,
+  ComposableCameraLevelSequenceComponent.h/.cpp, and new editor DraftPreview helper.
+  Derive dt from Sequence time, skip repeated unchanged samples, cold-reconstruct
+  ordinary evaluator on discontinuity/invalidation. Keep Patch registrations and
+  original output seed transform across activation gaps; teardown clears validity.
+  Required Actor fields pause evaluation until resolution succeeds again.
+- Regression: CameraInstance.ColdReset checks subframes/repeated time and real pivot
+  damping, plus retained Patch registration. GenericDraft checks inactive/respawn
+  binding preview. Tests written, not executed; full Rider/VS compile required.
+- IDE verification: scrub forward/backward, play continuously, leave/re-enter
+  Activation, reopen at same time; test a Patch overlay plus MRQ subframes and first
+  Camera Cut frame. No history replay is implemented; seek and continuous damping
+  are intentionally different initialization histories.
+- Prevention / conflicts: distinguish evaluator state, sample cache and output
+  ownership. Reconstruction allocates on discontinuities only; continuous playback
+  retains buffers/nodes. This changes generic seek semantics, not legacy component
+  tracks or composition solver reset behavior. Camera Cut/MRQ ordering is not certified.
+
+## 2026-11-17 — Type interface refresh could erase instance overrides
+
+- Symptom / repro: save an ordinary instance with overrides/Actor bindings, remove,
+  rename or change an exposed input in its shared Type, then reopen the instance.
+  InstanceData.PostLoad blindly rebuilt bags, dropping incompatible fields. A
+  same-pointer Type edit also escaped the existing Sequence-signature cache.
+  Adding a field can also lose unchanged overrides: UE5.6 bag migration copies by
+  descriptor GUID, while freshly assembled layouts can generate different GUIDs.
+- Root cause: destructive bag migration ran before compatibility validation, with
+  no source revision. Sampled/TrackInstance caches observed Scene signatures only.
+  Newly exposed fields also had to reach authored defaults before first Auto Key.
+- History / blast radius: reviewed generic-default, stable scrub storage, native
+  manual-key and Undo/Redo history. Audited InitializeFromType, CopyForAuthoring,
+  PostLoad, sampled Commit, parameter/Subjects menus, drag snapshots and graph
+  SyncToTypeAsset/Build. Existing bags/channels/slot path format is retained.
+- Fix / files: ComposableCameraTypeAsset.h/.cpp, ComposableCameraInstanceData.h/.cpp,
+  InstanceTrackInstance, InstanceEditorSession, ShotAuthoringSession, InstanceTrackEditor
+  and InstanceDragDropOp. Compare both candidate bags first; incompatible changes
+  retain data and pause the instance. Copy validated existing fields explicitly by
+  name with CopyCompleteValue before swapping candidate bags; additions seed source
+  defaults. Cache type+process-local revision; inline-data Undo invalidates validation.
+  Migrate authored defaults inside edits before first key; reject stale drag payloads.
+- Regression: CameraInstance.InterfaceRetention covers addition, deletion, type
+  change, PostLoad retention and source Undo. GenericDraft checks first Auto Key of
+  a new source variable. Existing GenericEditor/ScrubRetainsControls verify stable
+  sampled backing memory. Tests added, not executed.
+- IDE verification: full compile/restart, run these tests; save/reopen a real LS
+  after source deletion/rename/type change, restore the source, verify old values,
+  curves and binding IDs return. Test Undo after compatible additions as well.
+- Prevention / conflicts: validate before replacing serialized storage; source
+  identity alone cannot prove layout validity. No automatic rename migration,
+  existing-instance Type swap, channel deletion or legacy component-track migration.
+  Source changes may pause the whole affected ordinary instance by design.
+
+## 2026-11-18 - Camera Instance insertion silently lacks a Cut on a one-frame overlap
+
+- Symptom / repro: Shot Editor draft dropped beside an existing Cut creates an
+  Activation/output but no Camera Cut. UI inspection confirmed old Cut `[0,150)`
+  and new Activation `[149,299)` at 30 fps: visually adjacent, actually overlapping
+  one frame. User explicitly changed the policy to let the new Cut replace overlap.
+- Root cause: Create/DuplicateAtTime gated Cut creation on `!HasCutConflict` while
+  still creating the instance. This implemented the earlier preserve-old-Cuts
+  policy, but did not satisfy the newly requested overwrite workflow.
+- History / blast radius: reviewed exclusive asset-drop ownership, draft transport,
+  bounded drag-hover feedback, ClipActions and output/Cut cleanup. Audited Create,
+  DuplicateAtTime, OnDataChanged, RemoveOrphans and all ManagedCut consumers.
+  Legacy Shot authoring and its PreserveCameraCuts test retain their prior rules.
+- Fix / files: ComposableCameraInstanceTrackEditor.h/.cpp shares locked-overlap
+  preflight and interval replacement across Create and Duplicate. Preserve outside
+  old ranges/bindings, duplicate enclosing Cuts for the right remainder, remove
+  wholly covered Cuts, retain inactive Cuts. Clear easing only on newly cut edges.
+  Temporarily suppress native gap filling, restore its setting, and keep sorted
+  section membership. Release affected old ManagedCut ownership so later edits
+  cannot regrow overwritten ranges. InstanceDragDropOp.cpp uses the same preflight
+  for hover and describes replacement. No serialized/runtime API changes.
+- Regression: ComposableCameraSystem.CameraInstance.CutOverwrite and
+  CutOverwriteRanges in ComposableCameraInstanceCutTests.cpp. Real draft drop,
+  shared creation and Duplicate; one-frame overlap, trim/split/remove/open bounds,
+  adjacent/inactive/multiple Cuts, lock rejection without new bindings, easing,
+  auto-arrange preference, old management release, Undo/Redo and later edits.
+- Verification / blocker: tests written before the implementation; red/green runs
+  and compilation remain unexecuted because AGENTS.md requires IDE-side compilation
+  and editor automation. Close UE, compile in Rider/Visual Studio, reopen and run
+  those tests plus GenericDraft, SequenceDraft, ClipActions and legacy
+  ShotAuthoring.PreserveCameraCuts. Repeat `[0,150)` + `[149,299)` in the actual UI;
+  expect old `[0,149)` plus new `[149,299)`. Check save/reopen and Undo/Redo.
+- Documentation: DesignDoc, EditorDesignDoc, TechDoc, ExecutionFlowExamples,
+  ShotBasedKeyframing and CameraTypeAssetShotEditorHandoff updated with the new policy.
+- Prevention / conflicts: distinguish interval overlap from visual adjacency;
+  share preflight/commit rules and test through the draft transport. Do not use
+  native Cut deletion with gap filling enabled for range subtraction. Old retained
+  fragments become authored Cuts and receive existing output-reference cleanup
+  protection; their ranges no longer follow old Activation. Existing Activation,
+  parameter keys, runtime evaluation, ordinary move conflict checks and legacy
+  Shot creation are unchanged. Reopening old assets alone does not rewrite Cuts.
+
+## 2026-11-18 - Subject binding diagnostic label fails UE5.6 compilation
+
+- Symptom / repro: compile the UE5_6 Editor target in Rider/Visual Studio after
+  adding Actor input diagnostics. ComposableCameraShotSubjectBinding.cpp reports
+  C2662 at GetObjectDisplayName because the call discards const qualifiers.
+- Root cause: Inspect unnecessarily declared its local Scene as const UMovieScene*.
+  GetMovieScene returns UMovieScene*, and UE5.6 GetObjectDisplayName is non-const.
+  This repeats the 2026-10-12 breadcrumb compile regression already recorded above.
+- History / blast radius: checked that entry and TechDoc's existing API note;
+  inspected the installed UE5.6.1 declarations and nearby label consumers in the
+  Subject picker, root breadcrumb and instance track editor. Those callers retain
+  mutable Scene pointers. Inspection's remaining calls need no signature change.
+- Fix / touched files: ComposableCameraShotSubjectBinding.cpp retains explicit
+  UMovieScene* and documents the engine API requirement; this BugLog entry records
+  the regression. No const_cast, engine edits or binding mutations are introduced.
+- Regression check: UE56.SubjectBindingDiagnostics.EditorCompile (manual IDE
+  compile). Runtime tests cannot execute until this translation unit compiles;
+  no extra runtime assertion is added for a compiler qualifier error. After
+  compiling, run existing ShotEditor.SubjectBindingPicker and CameraInstance.GenericDraft
+  to check authored labels and the diagnostic paths.
+- Verification / blocker: header signatures and diff checked. AGENTS.md requires
+  compilation in the user's IDE; recompile the same target and confirm C2662 is
+  absent. No compile pass claimed here.
+- Prevention / conflicts: preserve the engine accessor's actual pointer type for
+  display-name queries, including read-only inspection helpers. Runtime evaluation,
+  serialization, Cut replacement, navigation and saved binding IDs are unchanged.
+
+## 2026-11-19 - Camera Cut loses its managed output after editor restart
+
+- Symptom / repro: create an ordinary Camera Type draft, insert it into LS,
+  save the Sequence, restart UE and reopen it. The Cut retains its GUID but
+  shows Object Binding / Bound Object is missing. UE5_6.log reports that
+  CT_LS_SimpleFraming Draft has no valid object template (2026-11-19 01:07 UTC).
+  Earlier local logs contain the same warning for other ordinary instances.
+- Root cause: CameraInstanceOutput::Ensure stages an RF_Transient Actor and calls
+  ISequencer::MakeNewSpawnable. In installed UE5.6.1,
+  LevelSequenceEditor/Private/Misc/LevelSequenceEditorActorSpawner.cpp copies
+  actor sources using StaticDuplicateObject(..., RF_AllFlags). The resulting
+  MovieScene template inherits RF_Transient and is omitted from package exports;
+  the binding and Camera Cut still serialize. Prior repair allocated a new
+  binding and cleared ManagedCut, stranding references to the original GUID.
+- History / blast radius: reviewed native hierarchy/output ownership, Spawnable
+  append, Subject custom-binding compatibility, Cut overwrite/locked-cut protection
+  and interface-retention entries. Audited all MakeNewSpawnable, Ensure,
+  OutputBinding and ManagedCut consumers. Legacy Shot authoring stages transient
+  actors through the same UE5.6 path and needs the same creation safeguard.
+- Fix / touched files: new private Sequencer/ComposableCameraSpawnableTemplate.h
+  normalizes only the stored template actor and its components, clearing
+  RF_Transient and marking the package dirty. ComposableCameraInstanceOutput.cpp
+  applies it on creation/adoption; when a native binding matches the instance's
+  local output identity and its legacy Spawnable template is null, it restores
+  a transactional template under the same MovieScene without changing GUID,
+  Cut, parameter lanes or locks. Its private header documents the contract.
+  ComposableCameraShotAuthoring.cpp uses the same helper for newly created
+  legacy Shot templates. Updated ComposableCameraInstanceCutTests.cpp,
+  DesignDoc, EditorDesignDoc, TechDoc and the handoff document.
+- Regression tests: ComposableCameraSystem.CameraInstance.OutputPersistence
+  saves an isolated package to an OS temporary file and loads a distinct package
+  through FLinkerInstancingContext. It verifies template export flags, original
+  binding/Cut identity, component owner, parameter key and actual camera resolution.
+  ComposableCameraSystem.CameraInstance.RepairMissingOutputTemplate covers
+  still-live transient templates, the null-template state, read-only rejection,
+  locked Cut/parameter preservation, single Undo and Redo.
+- Verification / blocker: source/API and whitespace checks only. Per AGENTS.md,
+  compile in Rider/Visual Studio, restart UE and run both tests plus SetCameraCut,
+  CutOverwrite, CutOverwriteRanges and existing output/duplication tests. Repair
+  an affected instance through Activation > Repair Managed Output, save LS,
+  restart and verify the same Cut resolves. Also save/reopen a newly created
+  ordinary instance, Shot-based instance and legacy Shot camera. No IDE compile
+  or automation execution has been claimed.
+- Prevention: a live working camera is not evidence of persistence. Validate
+  flags on the asset-owned template (including components), then exercise a real
+  save/load into distinct objects. In-memory copying/PostLoad cannot detect missing
+  exports. Keep temporary world actors transient.
+- Possible conflicts / limits: no runtime schema, asset type, Cut range or
+  binding identity changes. Explicit null-template repair applies only to an
+  existing native instance binding with matching local OutputBinding and a legacy
+  Spawnable record. It does not claim recovery of arbitrary deleted bindings,
+  foreign outputs or missing UE5.6 custom-binding objects. Old assets are not
+  automatically rewritten simply by opening them; explicit repair/save is needed.
+
+## 2026-11-19 - Managed Camera Cut snaps back when moved or trimmed
+
+- Symptom / repro: open an existing Camera Instance in Shot Editor, use Sequence
+  > Set Camera Cut, then drag or trim the resulting Section in Camera Cuts. The
+  Section returns to its Activation range. Newly created managed Cuts have the
+  same defect; this is independent of the missing-template persistence bug above.
+- Root cause: FComposableCameraInstanceTrackEditor::OnDataChanged treated every
+  range mismatch during any transaction as an Activation edit. Native Sequencer
+  drag notifications therefore overwrote the user's Cut range immediately.
+  Comparing only current ranges cannot identify which side was actually edited.
+- History / blast radius: reviewed native hierarchy/output ownership, infinite
+  parameter sections, Cut overwrite and output persistence entries. Audited all
+  ManagedCut consumers, SetCameraCut/Create/Duplicate and RemoveOrphans. Checked
+  installed UE5.6 EditToolDragOperations.cpp notification timing and Sequencer.cpp
+  PostUndo/PostRedo/focus callbacks. Retained Cut conflict and lock protection.
+- Fix / touched files: ComposableCameraInstanceTrackEditor.h/.cpp cache weak
+  Activation/Cut identities and their last observed ranges on data/focus/history
+  notifications. Direct Cut range changes release ManagedCut in the current
+  transaction when they diverge from Activation, preserving the authored range
+  and camera binding. Activation-only range edits retain conflict-safe following;
+  equal group moves retain management, and unrelated edits do not resize Cuts.
+  Non-transactional/history notifications refresh snapshots without mutations.
+  Updated ComposableCameraInstanceCutTests.cpp, DesignDoc, EditorDesignDoc,
+  TechDoc, ExecutionFlowExamples and CameraTypeAssetShotEditorHandoff.
+- Regression tests: ComposableCameraSystem.CameraInstance.ManualCutEditing
+  exercises the actual SetCameraCut entry point, repeated interactive move
+  notifications, post-transaction notification, trim, Undo/Redo, immediate
+  Activation-follow after Undo, preservation after later Activation edits and
+  explicit SetCameraCut reset. CameraInstance.ManagedCutFollowing covers equal
+  group movement, Activation-only trim, active overlap protection, no resync on
+  an unrelated edit and different simultaneous ranges. Existing CutOverwrite,
+  CutOverwriteRanges, SetCameraCut and output tests remain regression coverage.
+- Verification / blocker: source/API, consumer and diff checks only. AGENTS.md
+  requires Rider/Visual Studio compilation and in-editor automation; neither was
+  run here. Close UE, compile the Editor target, restart and run both new tests.
+  Manually drag/trim a SetCameraCut Section, undo/redo, then save/reopen and verify
+  the authored range remains. Check adjacent native Cut auto-arrange, locked
+  Cuts, grouped moves and an untouched Cut following its Activation.
+- Prevention: range following must be directional and based on actual edits,
+  not enforced after every timeline change. Prime snapshots after history/focus
+  changes and after-commit actions without adding an independent Undo transaction.
+- Possible conflicts / limits: native auto-arrange edits of adjacent Cuts also
+  become authored when their range differs from Activation. Released Cuts retain
+  existing authored-reference orphan protection. Activation/parameter timing and
+  runtime evaluation are unchanged; Cut coverage outside Activation does not
+  activate the camera. Existing single-Activation automatic-follow restriction
+  remains. No new asset type, serialized field, binding or automatic asset
+  migration; manual edits persist through the existing ManagedCut property.
+
+## 2026-11-20 - CR: multiple Activation moves can leave managed Cuts behind
+
+- Status: P2 found by CR; implementation and regression test written, IDE verification pending.
+- Symptom / repro: create two managed instances A [0,150) and B [150,300).
+  Select only their Activation Sections and move both +10 in one gesture. When
+  MovieScene binding traversal processes A first, its Cut stays at [0,150) while
+  B's Cut moves to [160,310). Reverse traversal can reproduce by moving left.
+- Root cause: OnDataChanged checks A's proposed range against B's old Cut before
+  updating B. CacheManagedCuts then stores A's new Activation range despite the
+  rejected follow. Later notifications see no Activation change and never retry.
+  The new snapshots turn the pre-existing single-pass ordering issue into a
+  persistent mismatch; native EndTransaction notifies after ending the transaction.
+- History / blast radius: follows the 2026-11-19 manual Cut editing fix. Checked
+  HasCutConflict, native GUID-sorted binding order, native batch drag notifications,
+  reentrancy guards, locks and the existing ManagedCutFollowing test. Its GroupMove
+  case moves one Activation plus its Cut, not Activations from multiple owners.
+- Fix: ComposableCameraInstanceTrackEditor.cpp collects eligible destinations in
+  a local map. Conflicts use proposed peer ranges, or current ranges for fixed
+  peers. Repeatedly reject blocked moves until stable, then apply the remainder
+  together. No helper framework or public API added; authored/locked Cuts remain
+  obstacles and a blocked tail prevents overlapping predecessor moves.
+- Regression: CameraInstance.ManagedCutBatchMove in ComposableCameraInstanceCutTests.cpp
+  covers three adjacent owners moving in both directions with the same binding
+  order, final transaction notification, Undo/Redo and an authored external Cut
+  both unlocked and locked. It also checks rejection along the whole dependency chain.
+- Verification / blocker: source/API review and diff checks only. Per AGENTS.md,
+  compile in Rider/Visual Studio, restart and run the regression plus
+  ManagedCutFollowing, ManualCutEditing and CutOverwrite tests. Manually batch-drag
+  two adjacent Activations without selecting their Cuts and verify both follow.
+- Prevention / possible conflicts: validate coordinated edits against final
+  candidate ranges, not partially updated peers. Preserve explicit Cut overwrite,
+  conflict refusal, native Auto Arrange preference and authored Cut ownership.
+- Touched files: ComposableCameraInstanceTrackEditor.cpp, ComposableCameraInstanceCutTests.cpp,
+  DesignDoc, EditorDesignDoc, TechDoc, ExecutionFlowExamples, handoff and BugLog.
+
+## 2026-11-20 - CR: multi-Activation Cut trims retain automatic management
+
+- Status: P2 found by CR; implementation and regression test written, IDE verification pending.
+- Symptom / repro: one instance has Activations [0,150) and [200,260). Set Camera
+  Cut for the first, trim its Cut to [10,120), delete the second Activation, then
+  move the remaining Activation +10. The authored Cut is overwritten to [10,160).
+- Root cause: CacheManagedCuts and OnDataChanged skip owners with more than one
+  Activation before detecting direct Cut edits. The trim never clears ManagedCut.
+  Once one Activation remains, snapshots resume and automatic following overwrites
+  the authored trim. The single-Activation follow restriction is older; this is
+  an incomplete boundary of the new manual-edit ownership transfer.
+- History / blast radius: checked the 2026-11-19 manual Cut fix, SetCameraCut's
+  displayed-Activation selection, AddInterval, overwrite ownership release and
+  output orphan protection. Multiple Activation intervals remain supported.
+- Fix: CacheManagedCuts retains Cut identity/range regardless of Activation count.
+  OnDataChanged detects manual Cut edits before the single-Activation follow gate.
+  Existing ManagedCut clearing/Undo semantics are reused, with no serialized additions.
+- Regression: CameraInstance.MultiActivationCutOwnership in ComposableCameraInstanceCutTests.cpp
+  covers SetCameraCut with two Activations, initial trim/release, Undo/Redo, removing
+  another Activation, moving the survivor and explicit SetCameraCut restoration.
+- Verification / blocker: source/API review and diff checks only. Compile in the
+  IDE and run the test after restarting UE. Manually repeat the reproduction and
+  save/reopen to verify the authored Cut remains released; automation is not claimed
+  to cover this scenario's file save/load.
+- Prevention / possible conflicts: separate explicit edit detection from the
+  eligibility rule for automatic following. Retain authored-reference cleanup
+  protection, locked Cut behavior and existing single-Activation follow semantics.
+- Touched files: ComposableCameraInstanceTrackEditor.cpp, ComposableCameraInstanceCutTests.cpp,
+  DesignDoc, EditorDesignDoc, TechDoc, ExecutionFlowExamples, handoff and BugLog.
+
+## 2026-11-20 - CR: fixed-time Subject component edits leave generic output stale
+
+- Status: P2 found by CR; implementation and regression test written, IDE verification pending.
+- Symptom / repro: an ordinary Camera Type uses ReceivePivotActor with
+  bUseBoneForPivot enabled, bound to a character Actor possessable. Its skeletal
+  mesh component has no separate binding/Transform track. With Auto Change Mode
+  None and Allow All Edits, pause LS, edit the mesh RelativeLocation in Details,
+  then ForceEvaluate at the same time. The socket moves but the camera stays at
+  the previous position until time or the Actor root transform changes.
+- Root cause: the new generic clock skips EvaluateCameraInstance for unchanged
+  time unless a tracked dependency invalidates it. Only Actor identity/root
+  transform, Scene/Section signatures and Type revision are checked. Socket state
+  depends on the skeletal component. With Auto Key disabled and no component
+  binding, native transform-property handling creates no track/key and does not
+  change the MovieScene signature. ForceEvaluate itself does not change it either.
+- History / blast radius: checked ColdReset, GenericDraft and interface-retention
+  changes plus native SequencerObjectChangeListener/TransformTrackEditor,
+  KeyframeTrackEditor and ForceEvaluate paths. DraftPreview already receives
+  Subject/subobject property invalidation; bound runtime instances do not. The
+  baseline evaluated generic cameras on every OnAnimate notification.
+- Fix: MovieSceneComposableCameraInstanceTrackInstance.cpp/.h adds an editor-only
+  property notification subscription during OnInitialize, removed in OnDestroyed.
+  Changes to a currently resolved Subject Actor or its subobjects set the existing
+  bReset flag. The next evaluation cold-samples at zero delta; no per-frame scan,
+  serialized field, new public API or Shot Editor dependency is added. The callback
+  does not force evaluation or change native editor scheduling. Runtime setters
+  without an editor property event remain outside this hook.
+- Regression: CameraInstance.SubjectComponentRefresh in ComposableCameraGenericDraftTests.cpp
+  uses real Sequencer creation, a skeletal component's socket fallback, Auto Key
+  disabled, an unchanged Actor root/Scene signature, same-time property edits,
+  damping preservation on unchanged repeated samples, Undo/Redo and old-Subject
+  rejection after rebinding.
+- Verification / blocker: no IDE compilation or editor automation run. Close UE,
+  compile in Rider/Visual Studio and restart; run SubjectComponentRefresh plus
+  ColdReset and GenericDraft. Repeat the Details edit at a fixed playhead and
+  request same-time Sequencer evaluation; verify the camera samples the new position.
+- Prevention / possible conflicts: Actor pointer/root-transform equality is not
+  equality of all node inputs. Preserve stateful-node no-double-step guarantees,
+  avoid steady-state allocations and keep editor/runtime invalidation aligned.
+- Touched files: MovieSceneComposableCameraInstanceTrackInstance.cpp/.h,
+  ComposableCameraGenericDraftTests.cpp, DesignDoc, EditorDesignDoc, TechDoc,
+  CameraTypeAssetShotEditorHandoff and BugLog.

@@ -1,5 +1,6 @@
 // Copyright 2026 Sulley. All Rights Reserved.
 #include "Sequencer/ComposableCameraShotAuthoring.h"
+#include "Sequencer/ComposableCameraSpawnableTemplate.h"
 
 #include "Editors/ComposableCameraShotTemplates.h"
 #include "Editor.h"
@@ -9,6 +10,7 @@
 #include "ISequencer.h"
 #include "LevelSequence/ComposableCameraLevelSequenceShotActor.h"
 #include "MovieScene.h"
+#include "MovieSceneCommonHelpers.h"
 #include "MovieScene/MovieSceneComposableCameraShotSection.h"
 #include "MovieScene/MovieSceneComposableCameraShotTrack.h"
 #include "MovieSceneSequence.h"
@@ -246,6 +248,8 @@ UMovieSceneComposableCameraShotSection* CreateInSequence(TSharedRef<ISequencer> 
 		if (bSpawnable)
 		{
 			CameraGuid = Sequencer->MakeNewSpawnable(*Camera, nullptr, false);
+			if (auto* Template = Cast<AActor>(MovieSceneHelpers::GetObjectTemplate(Sequence, CameraGuid, Sequencer->GetSharedPlaybackState())))
+				SpawnableTemplate::MakePersistent(*Template);
 			Camera->Destroy();
 		}
 		else

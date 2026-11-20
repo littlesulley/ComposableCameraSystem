@@ -12,6 +12,7 @@ class UMovieSceneSection;
 class ISequencer;
 class UComposableCameraShotAsset;
 class UComposableCameraShotTemplateLibrary;
+class UComposableCameraTypeAsset;
 class SVerticalBox;
 class SBox;
 class SScrollBox;
@@ -31,6 +32,7 @@ public:
 		SLATE_ARGUMENT(FString, ViewStateIni)
 		SLATE_ARGUMENT(TSharedPtr<FComposableCameraShotAuthoringSession>, Session)
 		SLATE_ARGUMENT(TSharedPtr<SWidget>, AdvancedContent)
+		SLATE_ARGUMENT(TSharedPtr<SWidget>, InstanceContent)
 		SLATE_ARGUMENT(FNotifyHook*, NotifyHook)
 	SLATE_END_ARGS()
 	void Construct(const FArguments& Args);
@@ -46,6 +48,7 @@ public:
 	friend class FCameraInstanceClipActionsTest;
 	friend class FShotEditorFollowGuideSelectionTest;
 	friend class FShotEditorTemplateLibraryTest;
+	friend class FCameraInstanceGenericDraftTest;
 	void SelectLookAtForTesting(bool bSelected) { ActivePage = EPage::Edit; ActiveEditSection = bSelected ? EEditSection::LookAt : EEditSection::Follow; UpdateGuideSelection(); }
 	void SelectCreateForTesting() { ActivePage = EPage::Create; UpdateGuideSelection(); }
 	void SelectSequenceForTesting() { ActivePage = EPage::Sequence; UpdateGuideSelection(); }
@@ -73,6 +76,11 @@ private:
 	enum class EEditSection : uint8 { Follow, LookAt, Lens, Motion, Subjects };
 	TSharedPtr<FComposableCameraShotAuthoringSession> Session;
 	TSharedPtr<SWidget> AdvancedContent;
+	TSharedPtr<SWidget> InstanceContent;
+	TSharedPtr<SVerticalBox> GenericSubjectRows;
+	TArray<FName> GenericInputs;
+	TArray<FString> GenericInputPresentation;
+	TObjectPtr<UComposableCameraTypeAsset> SelectedType;
 	TSharedPtr<SVerticalBox> Body;
 	TSharedPtr<SBox> EditSubjectsBox;
 	TSharedPtr<SVerticalBox> EditSubjectRows;
@@ -115,6 +123,10 @@ private:
 	TSharedRef<SWidget> Section(const FText& Label, TSharedRef<SWidget> Content);
 	TSharedRef<SWidget> CreatePage();
 	TSharedRef<SWidget> EditPage();
+	TSharedRef<SWidget> GenericEditPage();
+	void SyncGenericSubjects();
+	FReply CreateTypeDraft();
+	bool ConfirmReplaceDraft() const;
 	TSharedRef<SWidget> PresetActions();
 	TSharedRef<SWidget> Subjects();
 	void SyncSubjects();
@@ -140,6 +152,7 @@ private:
 	FReply CreateSequenceShot(bool bDialogue);
 	FReply DuplicateShot();
 	FReply GoToClip();
+	FReply SetCameraCut();
 	FReply DuplicateAtPlayhead();
 	void SetMessage(const FString& Reason);
 };

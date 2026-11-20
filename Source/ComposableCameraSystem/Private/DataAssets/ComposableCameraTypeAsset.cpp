@@ -1465,6 +1465,7 @@ void UComposableCameraTypeAsset::ApplyDelegateBindings(
 #if WITH_EDITOR
 void UComposableCameraTypeAsset::Build(bool bLogResult)
 {
+	++EvaluationRevision;
 	BuildMessages.Reset();
 	BuildStatus = EComposableCameraBuildStatus::Success;
 
@@ -2406,6 +2407,7 @@ void UComposableCameraTypeAsset::PostLoad()
 
 void UComposableCameraTypeAsset::PostEditChangeChainProperty(FPropertyChangedChainEvent& PropertyChangedEvent)
 {
+	++EvaluationRevision;
 	// Whenever the user touches InternalVariables / ExposedVariables. Add,
 	// duplicate, paste. Make sure every entry has a valid GUID. Without
 	// this, newly-added variables would share an invalid GUID and the
@@ -2425,6 +2427,12 @@ void UComposableCameraTypeAsset::PostEditChangeChainProperty(FPropertyChangedCha
 	}
 
 	Super::PostEditChangeChainProperty(PropertyChangedEvent);
+}
+
+void UComposableCameraTypeAsset::PostEditUndo()
+{
+	Super::PostEditUndo();
+	++EvaluationRevision;
 }
 #endif
 

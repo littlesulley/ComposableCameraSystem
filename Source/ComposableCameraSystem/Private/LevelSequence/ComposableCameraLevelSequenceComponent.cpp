@@ -131,12 +131,14 @@ void UComposableCameraLevelSequenceComponent::OnUnregister()
 	// that also triggers EndPlay. The second DestroyInternalCamera is a no-op
 	// because InternalCamera is already null. No double-free risk.
 	DestroyInternalCamera();
+	bHasCameraInstanceInitialTransform = false;
 	Super::OnUnregister();
 }
 
 void UComposableCameraLevelSequenceComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
 	DestroyInternalCamera();
+	bHasCameraInstanceInitialTransform = false;
 	Super::EndPlay(EndPlayReason);
 }
 
@@ -252,12 +254,24 @@ float UComposableCameraLevelSequenceComponent::ResolveSequencerAwareDeltaTime(fl
 void UComposableCameraLevelSequenceComponent::EvaluateCameraInstance(
 	const UComposableCameraInstanceData& Values, float DeltaTime, bool bReset)
 {
-	if (!bCameraInstanceDriven || !Values.Camera.TypeAsset) return;
-	if (!InternalCamera || TypeAssetReference.TypeAsset != Values.Camera.TypeAsset)
+	bHasCameraInstanceResult = false;
+	if (!bCameraInstanceDriven || !Values.IsTypeInterfaceCurrent() || !Values.IsTypeInterfaceValid()) return;
+	if (!bHasCameraInstanceInitialTransform)
 	{
-		// Activation/respawn only. The persistent evaluator is independent of the editor tab.
-		DestroyInternalCamera();
+		CameraInstanceInitialTransform = GetOwner() ? GetOwner()->GetActorTransform() : FTransform::Identity;
+		bHasCameraInstanceInitialTransform = true;
+	}
+	if (!IsValid(InternalCamera) || TypeAssetReference.TypeAsset != Values.Camera.TypeAsset
+		|| CameraInstanceTypeRevision != Values.Camera.TypeAsset->GetEvaluationRevision() || (bReset && !Values.bComposition))
+	{
+		// Generic state belongs to the duplicated nodes, including custom BP nodes. Cold
+		// starts rebuild those nodes on discontinuities, never during continuous playback.
+		// Keep Patch registrations: DestroyInternalCamera also releases overlays and is
+		// reserved for ownership/lifetime teardown, not a seek of this same instance.
+		if (IsValid(InternalCamera)) InternalCamera->Destroy();
+		InternalCamera = nullptr;
 		TypeAssetReference = Values.Camera;
+		CameraInstanceTypeRevision = Values.Camera.TypeAsset->GetEvaluationRevision();
 		EnsureInternalCamera();
 		bReset = true;
 	}
@@ -277,12 +291,13 @@ void UComposableCameraLevelSequenceComponent::EvaluateCameraInstance(
 	InternalCamera->InvalidateTickCache();
 	FComposableCameraPose Pose = InternalCamera->TickCamera(DeltaTime);
 	if (!SequencerPatchOverlays.IsEmpty()) ApplySequencerPatchOverlays(Pose, DeltaTime);
-	ProjectPoseToCineCamera(Pose);
+	bHasCameraInstanceResult = ProjectPoseToCineCamera(Pose) == EComposableCameraTraceProjectionStatus::ProjectedToCineCamera;
 }
 
 void UComposableCameraLevelSequenceComponent::ReleaseCameraInstance()
 {
 	if (bCameraInstanceDriven) DestroyInternalCamera();
+	bHasCameraInstanceResult = false;
 }
 
 void UComposableCameraLevelSequenceComponent::EvaluateOnce(float DeltaTime)
@@ -459,13 +474,17 @@ void UComposableCameraLevelSequenceComponent::EnsureInternalCamera()
 	SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
 	// No replication / input. This actor is a pure local evaluator.
 	SpawnParams.bNoFail = true;
+#if WITH_EDITOR
+	SpawnParams.bHideFromSceneOutliner = bCameraInstanceDriven;
+#endif
 
 	// Spawn at the owning Actor's transform. We're a UActorComponent (no
 	// transform of our own); use the Actor as the anchor. The exact spawn
 	// transform doesn't matter much. Nodes typically overwrite the pose
 	// every tick via TickCamera. But starting near the Actor avoids the
 	// camera being briefly visible at the world origin on the first frame.
-	const FTransform SpawnTransform = GetOwner() ? GetOwner()->GetActorTransform() : FTransform::Identity;
+	const FTransform SpawnTransform = bCameraInstanceDriven && bHasCameraInstanceInitialTransform
+		? CameraInstanceInitialTransform : GetOwner() ? GetOwner()->GetActorTransform() : FTransform::Identity;
 	InternalCamera = World->SpawnActor<AComposableCameraCameraBase>(
 		AComposableCameraCameraBase::StaticClass(),
 		SpawnTransform,
@@ -491,6 +510,9 @@ void UComposableCameraLevelSequenceComponent::EnsureInternalCamera()
 	// calls; its own actor tick has no work and would just cost a scheduler
 	// visit per frame. Suppress it.
 	InternalCamera->SetActorTickEnabled(false);
+#if WITH_EDITOR
+	if (bCameraInstanceDriven) InternalCamera->SetIsTemporarilyHiddenInEditor(true);
+#endif
 
 	// Initialize with PCM = nullptr. The camera base null-guards its
 	// BindCameraActionsForNewCamera call, and nodes that
@@ -520,6 +542,7 @@ void UComposableCameraLevelSequenceComponent::NotifyTypeAssetExternallyChanged()
 
 void UComposableCameraLevelSequenceComponent::DestroyInternalCamera()
 {
+	bHasCameraInstanceResult = false;
 	if (InternalCamera && IsValid(InternalCamera))
 	{
 		InternalCamera->Destroy();

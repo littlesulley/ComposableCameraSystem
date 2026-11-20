@@ -8,6 +8,8 @@
 #include "Styling/AppStyle.h"
 #include "Widgets/Images/SImage.h"
 #include "Widgets/Layout/SBox.h"
+#include "Widgets/SBoxPanel.h"
+#include "Widgets/Text/STextBlock.h"
 
 void SShotEditorSequenceDragButton::Construct(const FArguments& Args)
 {
@@ -18,9 +20,13 @@ void SShotEditorSequenceDragButton::Construct(const FArguments& Args)
 		.ContentPadding(FMargin(6.f)).HAlign(HAlign_Center).VAlign(VAlign_Center)
 		.IsEnabled_Lambda([this]() { const auto S = WeakSession.Pin(); return S && S->IsSequenceDraft() && S->CanEdit() && !S->IsEditing(); })
 		.OnClicked(this, &SShotEditorSequenceDragButton::AddAtPlayhead)
-		[SNew(SBox).WidthOverride(16.f).HeightOverride(16.f)
-			[SNew(SImage).Image(FAppStyle::GetBrush("Icons.DragHandle"))
-				.ColorAndOpacity(FSlateColor::UseForeground()).Visibility(EVisibility::HitTestInvisible)]]);
+		[SNew(SHorizontalBox).Visibility(EVisibility::HitTestInvisible)
+			+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
+			[SNew(STextBlock).Text(NSLOCTEXT("ShotEditor", "AddAtPlayhead", "Add at Playhead"))]
+			+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(10.f, 0.f, 0.f, 0.f)
+			[SNew(SBox).WidthOverride(16.f).HeightOverride(16.f)
+				[SNew(SImage).Image(FAppStyle::GetBrush("Icons.DragHandle"))
+					.ColorAndOpacity(FSlateColor::UseForeground())]]]);
 }
 
 TSharedPtr<FComposableCameraInstanceDragDropOp> SShotEditorSequenceDragButton::MakeOperation()

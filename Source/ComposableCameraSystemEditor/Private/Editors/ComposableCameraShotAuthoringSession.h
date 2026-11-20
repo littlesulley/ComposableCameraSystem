@@ -7,6 +7,8 @@
 
 class ISequencer;
 class FComposableCameraInstanceEditorSession;
+class FComposableCameraInstanceDraftPreview;
+class UComposableCameraTypeAsset;
 class UMovieSceneComposableCameraInstanceTrack;
 class UComposableCameraInstanceData;
 class FScopedTransaction;
@@ -29,6 +31,8 @@ public:
 	bool StartSequenceDraft(TSharedRef<ISequencer> Sequencer, FString& Reason);
 	/** Copy a template into a new draft. Null Sequencer creates a standalone draft. */
 	bool StartTemplateDraft(const FComposableCameraShot& Shot, const FText& Name, TSharedPtr<ISequencer> Sequencer, FString& Reason);
+	bool StartTypeDraft(UComposableCameraTypeAsset* Type, TSharedPtr<ISequencer> Sequencer, FString& Reason);
+	bool HasModifiedDraft() const { return IsSequenceDraft() && bDraftModified; }
 	FText GetDraftName() const { return DraftName; }
 	bool IsSequenceDraft() const;
 	FComposableCameraShot* GetShot() const;
@@ -39,6 +43,12 @@ public:
 	UMovieSceneComposableCameraInstanceTrack* GetInstanceTrack() const;
 	UComposableCameraInstanceData* GetInstanceValues() const;
 	bool IsGenericInstance() const;
+	FText GetGenericStatus() const;
+	const UClass* GetInputActorClass(FName Input) const;
+	FMovieSceneObjectBindingID GetInputBinding(FName Input) const;
+	AActor* ResolveInputActor(FName Input) const;
+	bool SetInputBinding(FName Input, const FGuid& BindingGuid, FString& Reason);
+	bool SetInputActor(FName Input, AActor* Actor, FString& Reason);
 	UMovieSceneSequence* GetSequence() const;
 	TSharedPtr<ISequencer> GetSequencer() const;
 	AActor* ResolveTarget(int32 Index) const;
@@ -91,6 +101,7 @@ private:
 	FText DraftName;
 	TUniquePtr<FScopedTransaction> Transaction;
 	TUniquePtr<FComposableCameraInstanceEditorSession> InstanceEditor;
+	TUniquePtr<FComposableCameraInstanceDraftPreview> DraftPreview;
 	FDelegateHandle PropertyChangedHandle;
 	FDelegateHandle ObjectTransactedHandle;
 	FComposableCameraShot PreviewScratch;
@@ -98,6 +109,10 @@ private:
 	bool bGestureChanged = false;
 	bool bStructuralChange = false;
 	bool bNotifyingHost = false;
+	bool bDraftModified = false;
+	mutable FString LastGenericError;
+	mutable FText CachedGenericError;
+	void WriteInputBinding(FName Input, const FMovieSceneObjectBindingID& Binding);
 	void OnPropertyChanged(UObject* Object, struct FPropertyChangedEvent& Event);
 	void OnObjectTransacted(UObject* Object, const FTransactionObjectEvent& Event);
 	void NotifyHost();

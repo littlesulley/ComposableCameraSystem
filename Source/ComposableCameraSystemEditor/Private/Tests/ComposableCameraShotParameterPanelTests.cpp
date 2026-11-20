@@ -902,8 +902,9 @@ bool FShotEditorAdaptivePreviewResizeTest::RunTest(const FString&)
 	float Ratio = 16.f / 9.f;
 	const auto Frame = SNew(SShotEditorPreviewFrame).AspectRatio_Lambda([&]() { return FOptionalSize(Ratio); })
 		[SNullWidget::NullWidget];
+	const auto Authoring = SNew(SBox)[SNullWidget::NullWidget];
 	const auto Layout = SNew(SShotEditorPreviewLayout)
-		.Authoring()[SNullWidget::NullWidget].Preview()[Frame];
+		.Authoring()[Authoring].Preview()[Frame];
 	TestTrue(TEXT("Native divider remains hit-testable for mouse resizing"), Layout->GetVisibility().IsHitTestVisible());
 	const auto ImageSize = [&](FVector2D Available, float Scale = 1.f) -> FVector2D
 	{
@@ -967,6 +968,18 @@ bool FShotEditorAdaptivePreviewResizeTest::RunTest(const FString&)
 	}
 	TestTrue(TEXT("Screen frame decoration never intercepts viewport mouse input"), Frame->GetVisibility() == EVisibility::SelfHitTestInvisible);
 	TestTrue(TEXT("Resize retains original preview frame"), Layout->SlotAt(1).GetWidget() == Frame);
+	const FVector2D BeforeMaximize = ImageSize(FVector2D(1440, 1000));
+	Authoring->SetVisibility(EVisibility::Collapsed);
+	Layout->SlatePrepass();
+	FArrangedChildren Maximized(EVisibility::Visible);
+	Layout->ArrangeChildren(FGeometry::MakeRoot(FVector2D(1440, 1000), FSlateLayoutTransform()), Maximized, true);
+	if (TestEqual(TEXT("Maximized preview has one visible column"), Maximized.Num(), 1))
+	{
+		TestTrue(TEXT("Maximized preview consumes authoring space and divider"), Maximized[0].Geometry.GetLocalSize().Equals(FVector2D(1440, 1000), 1.));
+		TestTrue(TEXT("Maximize retains the same preview widget"), Maximized[0].Widget == Frame);
+	}
+	Authoring->SetVisibility(EVisibility::Visible);
+	TestTrue(TEXT("Restore retains resized pane widths and camera aspect"), ImageSize(FVector2D(1440, 1000)).Equals(BeforeMaximize, .01));
 	return true;
 }
 
@@ -1393,7 +1406,7 @@ bool FShotEditorParameterPageContentsTest::RunTest(const FString&)
 	TestEqual(TEXT("Create page contains template configuration"), CountTags(Authoring).FindRef(FName(TEXT("ShotEditor.Template"))), 1);
 	Authoring->SelectSequenceForTesting();
 	Authoring->SlatePrepass(1.f);
-	TestEqual(TEXT("Sequence page contains its destination picker"), CountTags(Authoring).FindRef(FName(TEXT("ShotEditor.Destination"))), 1);
+	TestEqual(TEXT("Sequence page contains its destination summary"), CountTags(Authoring).FindRef(FName(TEXT("ShotEditor.Destination"))), 1);
 	Authoring->SelectPresetsForTesting();
 	Authoring->SlatePrepass(1.f);
 	TestEqual(TEXT("Presets page contains apply/restore configuration"), CountTags(Authoring).FindRef(FName(TEXT("ShotEditor.Preset"))), 1);

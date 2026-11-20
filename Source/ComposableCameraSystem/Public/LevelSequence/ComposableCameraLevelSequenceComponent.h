@@ -181,6 +181,8 @@ public:
 	TObjectPtr<UMovieSceneComposableCameraInstanceTrack> CameraInstanceOwner;
 	void EvaluateCameraInstance(const UComposableCameraInstanceData& Values, float DeltaTime, bool bReset);
 	void ReleaseCameraInstance();
+	bool HasCameraInstanceResult() const { return bHasCameraInstanceResult; }
+	void InvalidateCameraInstanceResult() { bHasCameraInstanceResult = false; }
 
 	/** Reference to the Actor's UCineCameraComponent used as the viewport
 	 *  terminal. Assigned by the owning Actor's constructor (primary path)
@@ -332,6 +334,11 @@ private:
 	 *  component's TickComponent. */
 	UPROPERTY(Transient)
 	TObjectPtr<AComposableCameraCameraBase> InternalCamera;
+	// Stable cold-start seed, independent of the previous evaluated output transform.
+	FTransform CameraInstanceInitialTransform = FTransform::Identity;
+	bool bHasCameraInstanceInitialTransform = false;
+	uint32 CameraInstanceTypeRevision = 0;
+	bool bHasCameraInstanceResult = false;
 
 	/** Local evaluation switch; see SetEvaluationEnabled. */
 	bool bEvaluationEnabled = false;

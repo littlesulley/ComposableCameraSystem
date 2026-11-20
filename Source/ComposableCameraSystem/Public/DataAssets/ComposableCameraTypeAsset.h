@@ -575,6 +575,8 @@ public:
 
 public:
 	// --- Runtime API -------------------------------------------------------
+	/** Process-local invalidation for isolated Sequencer evaluators. Never an asset identity. */
+	uint32 GetEvaluationRevision() const { return EvaluationRevision; }
 
 	/** Get the list of exposed parameters for K2Node / DataTable introspection. */
 	const TArray<FComposableCameraExposedParameter>& GetExposedParameters() const { return ExposedParameters; }
@@ -696,9 +698,12 @@ public:
 	// --- UObject Editor Interface ------------------------------------------
 	virtual void PostLoad() override;
 	virtual void PostEditChangeChainProperty(FPropertyChangedChainEvent& PropertyChangedEvent) override;
+	virtual void PostEditUndo() override;
 #endif
 
 	// --- UPrimaryDataAsset Interface ---------------------------------------
 
 	virtual FPrimaryAssetId GetPrimaryAssetId() const override;
+private:
+	uint32 EvaluationRevision = 1;
 };

@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 #include "EntitySystem/TrackInstance/MovieSceneTrackInstance.h"
 #include "MovieScene/ComposableCameraInstanceData.h"
+#include "MovieScene/ComposableCameraInstanceTime.h"
 #include "MovieSceneComposableCameraInstanceTrackInstance.generated.h"
 
 class UComposableCameraLevelSequenceComponent;
@@ -21,7 +22,10 @@ struct FComposableCameraInstanceEvaluation
 	FGuid SectionSignature;
 	TArray<FComposableCameraInstanceField> Fields;
 	TArray<double> Defaults;
+	TArray<FTransform> ActorTransforms;
+	FFrameTime LastTime;
 	bool bReset = true;
+	FComposableCameraInstanceTime Clock;
 };
 
 UCLASS()
@@ -29,6 +33,10 @@ class UMovieSceneComposableCameraInstanceTrackInstance : public UMovieSceneTrack
 {
 	GENERATED_BODY()
 private:
+#if WITH_EDITOR
+	virtual void OnInitialize() override;
+	void OnSubjectPropertyChanged(UObject* Object, FPropertyChangedEvent& Event);
+#endif
 	virtual void OnAnimate() override;
 	virtual void OnInputAdded(const FMovieSceneTrackInstanceInput& Input) override;
 	virtual void OnInputRemoved(const FMovieSceneTrackInstanceInput& Input) override;

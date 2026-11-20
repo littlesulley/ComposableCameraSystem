@@ -8,9 +8,11 @@ class UMovieSceneComposableCameraInstanceTrack;
 namespace ComposableCameraSystem::CameraInstanceOutput
 {
 	bool IsCreating();
+	/** Read-only ownership check; never creates or reattaches an output. */
+	bool HasOwnedOutput(TSharedRef<ISequencer> Sequencer, const UMovieSceneComposableCameraInstanceTrack& Track);
 	/** Compatibility normalization on editor load/attachment. Native binding names own the label. */
 	void ClearLegacyDisplayName(UMovieSceneComposableCameraInstanceTrack& Track);
-	/** Creates only missing/foreign outputs. Never takes ownership of another instance's camera. */
+	/** Restores missing legacy templates in place; creates missing/foreign outputs without stealing ownership. */
 	bool Ensure(TSharedRef<ISequencer> Sequencer, UMovieSceneComposableCameraInstanceTrack& Track, FString& Error);
 	/** Called inside the edit transaction. Retains outputs referenced by surviving user Cuts. */
 	bool RemoveOrphans(TSharedRef<ISequencer> Sequencer);

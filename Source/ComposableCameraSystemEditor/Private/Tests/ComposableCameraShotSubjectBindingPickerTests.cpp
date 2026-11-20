@@ -118,7 +118,7 @@ bool FShotEditorSubjectBindingPickerTest::RunTest(const FString&)
 	TestFalse(TEXT("An active gesture refuses binding assignment"), Picker->ChooseBindingForTesting(Possessed));
 	Session->EndEdit();
 	TestTrue(TEXT("Fixture removes the selected Spawnable"), Scene->RemoveSpawnable(Spawned));
-	TestTrue(TEXT("Removed binding remains explicitly unresolved"), ContainsBindingPickerText(Picker.ToSharedRef(), TEXT("Unresolved binding")));
+	TestTrue(TEXT("Removed binding is explicitly identified"), ContainsBindingPickerText(Picker.ToSharedRef(), TEXT("Missing binding")));
 	TestTrue(TEXT("Clear works without a spawned actor"), Picker->ChooseBindingForTesting(FGuid()));
 	TestFalse(TEXT("Clear removes the Section override"), Session->GetTargetBinding(0).IsValid());
 	TestTrue(TEXT("Custom actor binding can be assigned without spawning"), Picker->ChooseBindingForTesting(CustomSpawned));

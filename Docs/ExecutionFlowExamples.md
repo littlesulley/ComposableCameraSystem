@@ -1,6 +1,6 @@
 # Execution Flow Examples
 
-Updated: 2026-10-13
+Updated: 2026-11-20
 
 This file gives compact end-to-end flows. Keep examples current with source.
 
@@ -1079,7 +1079,8 @@ Draft-first entry:
    fresh instance through the same service as ShotAsset. Existing Track rows use
    OnDrop with the pointer frame. Shift-drop/click uses the playhead. Neither route
    appends to another instance. Cancel and foreign/read-only destinations make no
-   camera/Track. Existing conflicting Camera Cuts remain intact.
+   camera/Track. Active Camera Cuts inside the new interval are replaced; outside
+   fragments remain. Locked active overlaps reject the insertion.
 4. The source editor binds the new instance at its start time. Check values,
    Subjects, managed output, Undo/Redo and reopening; then continue with parameter
    Tracks/native keying below. The drag icon and its explanation now appear disabled.
@@ -1129,7 +1130,8 @@ Asset-first entry and shared animation:
    Duplicate At Playhead: a new instance opens in the editor, with the anchor
    start aligned to the playhead. Subjects and curves survive, all key times move
    by the same offset, infinite parameter Sections stay infinite, and output is
-   independent. Existing Camera Cuts must remain unchanged on overlap. Undo/Redo
+   independent. Its anchor Cut replaces overlapping active Cut ranges, preserving
+   their outside fragments and rejecting locked active overlaps. Undo/Redo
    removes/restores the whole duplicate. In draft mode, both bound-clip actions
    are disabled; after insertion, the drag icon and description are disabled.
    Clip groups Create above Navigate / Duplicate; all text buttons share full
@@ -1151,6 +1153,60 @@ Subject respawn, generic inputs and preview, Undo/Redo, save/reopen, nested
 Sequences, Camera Cuts first frame and MRQ. Confirm a drop targeting an existing
 LSActor/ShotActor still creates exactly one instance without appending a legacy
 Section or triggering !bWasConsumed. PatchTypeAsset keeps its Patch workflow.
+
+### Ordinary CameraType draft to the existing instance workflow (2026-11-17)
+
+1. Focus an editable LS. Create > Camera Type > Create Draft allocates transient
+   InstanceData with real exposed defaults. No camera binding, Track or Cut is added.
+2. Edit > Subjects binds Parameters.Subject (or an exposed Actor variable) to an LS
+   binding. An inactive Spawnable remains selectable; required unresolved inputs
+   withhold output. A level actor can receive a possessable through the same edit.
+3. The session's hidden transient LSActor resolves binding IDs into an evaluation
+   copy and evaluates the type at Sequence time. Parameter edits preview immediately
+   without keys, including with Auto Key on. Actor respawn resolves the same ID to
+   the new Actor. Camera/Inspect never reverse-solves or writes a composition Shot.
+4. Sequence/Clip drag snapshots InstanceData and calls existing creation. One new
+   output binding owns Activation and sibling parameter lanes; its Cut replaces active
+   overlaps inside the interval. The temporary preview is released and sampled editing takes over. Auto
+   Key, native manual keys, pending preview values and Clip actions keep existing rules.
+5. Add a source input: retain overrides, seed the new default, refresh Details once.
+   Remove/rename/change an old input: pause the instance, retain bags/slots/curves.
+   Restore the source to recover it, or create a fresh draft. Do not reinterpret old
+   paths automatically. Source Undo and loaded instances use the same validation.
+6. A backwards seek or jump cold-starts ordinary node state at current inputs; a
+   continuous forward subframe advances the retained evaluator. Same-time repeats
+   do not advance twice. Seek results need not equal continuous damping history.
+   Confirm required-input diagnostics, close/replacement cleanup, save/reopen and
+   MRQ first-frame/subframe behavior in the editor after a full Rider/VS compile.
+
+### Existing instance recovery and Actor input navigation (2026-11-19)
+
+1. Delete an instance's Camera Cut but retain its Activation and owned output.
+   Open Sequence in Shot Editor; the summary identifies the active interval, or
+   the first interval when the playhead lies outside all Activations.
+2. Set Camera Cut validates that source, output ownership and overlapping locks.
+   Reuse interval replacement to trim/split/remove old active Cuts within that
+   range. Keep outside fragments and parameter lanes. One Undo restores the old
+   Cuts and management; a repeated already-correct request creates no new edit.
+   Missing output instead points to the existing explicit output repair action.
+   Drag/trim the new Cut in Camera Cuts: a differing range becomes authored and
+   is no longer forced back to Activation. Activation/parameter timing is unchanged.
+   Undo restores management; another Set Camera Cut restores Activation coverage.
+   This also releases manual edits for multi-Activation instances. When moving
+   several untouched Activations together, their managed Cuts follow as a batch;
+   fixed/locked Cut conflicts still prevent unsafe moves.
+3. Open Subjects. An unbound required field, missing binding, unavailable
+   Possessable, unspawned Spawnable and mismatched class have distinct messages.
+   Moving into/out of spawn coverage changes diagnosis without rewriting the ID.
+4. Locate in Sequence reveals the saved local binding even while unspawned.
+   Locate Actor requires a live resolved Actor and frames it in the level viewport.
+   Neither operation seeks, assigns another Actor, or modifies the type asset.
+   A relative external binding is never mistaken for a same-GUID local row.
+
+IDE/editor verification pending: CameraInstance.SetCameraCut, ManualCutEditing,
+ManagedCutFollowing, ClipActions,
+GenericDraft and ShotEditor.SubjectBindingPicker, plus manual Actor framing and
+outliner scrolling with collapsed folders and filters.
 
 Add a new flow when a feature crosses at least two major systems, for example:
 

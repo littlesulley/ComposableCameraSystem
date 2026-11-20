@@ -33,6 +33,7 @@
 #include "Framework/Notifications/NotificationManager.h"
 #include "Widgets/SWindow.h"
 #include "UObject/UnrealType.h"
+#include "UObject/StrongObjectPtr.h"
 
 #define LOCTEXT_NAMESPACE "ComposableCameraInstanceTrackEditor"
 
@@ -63,6 +64,124 @@ static bool HasCutConflict(const UMovieScene& Scene, const TRange<FFrameNumber>&
 	return false;
 }
 
+bool CanReplaceCameraCut(const UMovieScene& Scene, const TRange<FFrameNumber>& Range, FString& Error)
+{
+	Error.Reset();
+	if (Scene.IsReadOnly() || Range.IsEmpty() || !Range.HasLowerBound() || !Range.HasUpperBound())
+	{ Error = TEXT("Choose a finite interval in an editable Level Sequence."); return false; }
+	const auto* Cuts = Scene.GetCameraCutTrack();
+	if ((!Cuts && !UMovieScene::IsTrackClassAllowed(UMovieSceneCameraCutTrack::StaticClass()))
+		|| (Cuts && !Cuts->IsA<UMovieSceneCameraCutTrack>()))
+	{ Error = TEXT("This sequence cannot create a Camera Cut Track."); return false; }
+	if (Cuts) for (const auto* Cut : Cuts->GetAllSections())
+		if (Cut && Cut->IsActive() && Cut->GetRange().Overlaps(Range) && Cut->IsLocked())
+		{ Error = TEXT("A locked Camera Cut overlaps this interval. Unlock it or choose another interval."); return false; }
+	return true;
+}
+
+static void ReleaseCutManagement(UMovieScene& Scene, const UMovieSceneSection& Cut)
+{
+	const auto Release = [&Cut](UMovieSceneTrack* Track)
+	{
+		if (auto* Owner = Cast<UMovieSceneComposableCameraInstanceTrack>(Track); Owner && Owner->ManagedCut == &Cut)
+		{
+			Owner->Modify();
+			Owner->ManagedCut = nullptr;
+		}
+	};
+	for (auto* Track : Scene.GetTracks()) Release(Track);
+	for (const auto& Binding : Scene.GetBindings()) for (auto* Track : Binding.GetTracks()) Release(Track);
+}
+
+static bool ReplaceCameraCut(UMovieScene& Scene, UMovieSceneComposableCameraInstanceTrack& Owner,
+	const TRange<FFrameNumber>& Range, FString& Error)
+{
+	if (!CanReplaceCameraCut(Scene, Range, Error)) return false;
+	auto* Cuts = Cast<UMovieSceneCameraCutTrack>(Scene.GetCameraCutTrack());
+	if (!Cuts) Cuts = Cast<UMovieSceneCameraCutTrack>(Scene.AddCameraCutTrack(UMovieSceneCameraCutTrack::StaticClass()));
+	if (!Cuts) { Error = TEXT("Could not create the Camera Cut Track."); return false; }
+	Cuts->Modify();
+	// RemoveSection normally fills gaps. Keep the exact outside ranges and the user's setting.
+	const bool bAutoArrange = Cuts->IsAutoManagingSections();
+	Cuts->SetIsAutoManagingSections(false);
+	const auto Existing = Cuts->GetAllSections();
+	for (auto* Base : Existing)
+	{
+		auto* Cut = Cast<UMovieSceneCameraCutSection>(Base);
+		if (!Cut || !Cut->IsActive() || !Cut->GetRange().Overlaps(Range)) continue;
+		const auto OldRange = Cut->GetRange();
+		const auto Remainders = TRange<FFrameNumber>::Difference(OldRange, Range);
+		// Otherwise a later Activation edit could expand the old Cut across the replacement.
+		ReleaseCutManagement(Scene, *Cut);
+		Cut->Modify();
+		if (Remainders.IsEmpty()) { Cuts->RemoveSection(*Cut); continue; }
+		auto* Right = Remainders.Num() == 2 ? DuplicateObject<UMovieSceneCameraCutSection>(Cut, Cuts) : nullptr;
+		const auto SetRemainder = [&OldRange](UMovieSceneCameraCutSection& Section, const TRange<FFrameNumber>& Remainder)
+		{
+			Section.SetRange(Remainder);
+			// Keep easing on original outer edges, not on newly cut internal boundaries.
+			if (Remainder.GetLowerBound() != OldRange.GetLowerBound())
+			{
+				Section.Easing.AutoEaseInDuration = 0; Section.Easing.bManualEaseIn = false; Section.Easing.ManualEaseInDuration = 0;
+			}
+			if (Remainder.GetUpperBound() != OldRange.GetUpperBound())
+			{
+				Section.Easing.AutoEaseOutDuration = 0; Section.Easing.bManualEaseOut = false; Section.Easing.ManualEaseOutDuration = 0;
+			}
+		};
+		SetRemainder(*Cut, Remainders[0]);
+		if (Right) { SetRemainder(*Right, Remainders[1]); Cuts->AddSection(*Right); }
+	}
+	Owner.Modify();
+	Owner.ManagedCut = CastChecked<UMovieSceneCameraCutSection>(Cuts->CreateNewSection());
+	Owner.ManagedCut->SetRange(Range);
+	Owner.ManagedCut->SetCameraBindingID(Owner.OutputBinding);
+	Cuts->AddSection(*Owner.ManagedCut);
+	// Keep native chronological ordering without invoking gap filling or blend arrangement.
+	auto Sorted = Cuts->GetAllSections();
+	MovieSceneHelpers::SortConsecutiveSections(Sorted);
+	Cuts->RemoveAllAnimationData();
+	for (auto* Cut : Sorted) Cuts->AddSection(*Cut);
+	Cuts->SetIsAutoManagingSections(bAutoArrange);
+	return true;
+}
+
+bool CanSetCameraCut(TSharedRef<ISequencer> Sequencer, const UMovieSceneComposableCameraInstanceTrack& Owner,
+	const UMovieSceneSection& Activation, FString& Error)
+{
+	Error.Reset();
+	const auto* Sequence = Cast<ULevelSequence>(Sequencer->GetFocusedMovieSceneSequence());
+	const auto* Scene = Sequence ? Sequence->GetMovieScene() : nullptr;
+	if (!GEditor || GIsTransacting || GEditor->IsTransactionActive() || !Scene || Sequencer->IsReadOnly()
+		|| Owner.GetOuter() != Scene || !Owner.IsInMovieScene() || !Owner.Instance || !Owner.HasSection(Activation)
+		|| Activation.IsLocked() || !Activation.IsActive())
+	{ Error = TEXT("Focus this clip's editable Level Sequence and choose an enabled, unlocked Activation outside an edit gesture."); return false; }
+	if (!CanReplaceCameraCut(*Scene, Activation.GetRange(), Error)) return false;
+	if (!CameraInstanceOutput::HasOwnedOutput(Sequencer, Owner))
+	{ Error = TEXT("Repair Managed Output from the Activation track's context menu, then set its Camera Cut."); return false; }
+	return true;
+}
+
+bool SetCameraCut(TSharedRef<ISequencer> Sequencer, UMovieSceneComposableCameraInstanceTrack& Owner,
+	UMovieSceneSection& Activation, FString& Error)
+{
+	if (!CanSetCameraCut(Sequencer, Owner, Activation, Error)) return false;
+	auto* Scene = Owner.GetTypedOuter<UMovieScene>();
+	auto* Cuts = Scene->GetCameraCutTrack();
+	const auto* Existing = Owner.ManagedCut.Get();
+	if (Cuts && Existing && Cuts->HasSection(*Existing) && Existing->IsActive()
+		&& Existing->GetRange() == Activation.GetRange() && Existing->GetCameraBindingID() == Owner.OutputBinding
+		&& !HasCutConflict(*Scene, Activation.GetRange(), Existing)) return true;
+	{
+		FScopedTransaction Transaction(LOCTEXT("SetCameraCut", "Set Camera Instance Cut"));
+		Sequencer->GetFocusedMovieSceneSequence()->Modify(); Scene->Modify();
+		if (!ReplaceCameraCut(*Scene, Owner, Activation.GetRange(), Error)) { Transaction.Cancel(); return false; }
+	}
+	// Notify after committing: automatic output repair must not enlarge this Cut-only transaction.
+	Sequencer->NotifyMovieSceneDataChanged(EMovieSceneDataChangeType::MovieSceneStructureItemsChanged);
+	return true;
+}
+
 UMovieSceneComposableCameraInstanceTrack* Create(TSharedRef<ISequencer> Sequencer,
 	UObject* Source, FFrameNumber Start, FString& Error, double DurationSeconds, FText Label)
 {
@@ -76,12 +195,12 @@ UMovieSceneComposableCameraInstanceTrack* Create(TSharedRef<ISequencer> Sequence
 	if (!Scene || Scene->IsReadOnly() || Sequencer->IsReadOnly() || !World || (!Preset && !Type && !Draft) || !Sequence->AllowsSpawnableObjects())
 	{ Error = TEXT("Open an editable Level Sequence with a valid world and Spawnable support."); return nullptr; }
 	if (Type && Type->IsA<UComposableCameraPatchTypeAsset>()) { Error = TEXT("Camera Patches use the existing Patch Track workflow."); return nullptr; }
+	if (Draft && (!Draft->IsTypeInterfaceCurrent() || !Draft->IsTypeInterfaceValid()))
+	{ Error = TEXT("The Camera Type interface changed. Refresh the draft before inserting it."); return nullptr; }
 	TRange<FFrameNumber> Range;
 	if (!MakeCreationRange(Scene->GetTickResolution(), Start, DurationSeconds, Range, Error)) return nullptr;
-	// A drop into an occupied edit is still a valid instance creation. Existing cuts are
-	// preserved; Camera Cuts can select this output explicitly once the range is free.
-	const bool bCreateCut = !HasCutConflict(*Scene, Range);
-	const FScopedTransaction Transaction(LOCTEXT("Create", "Create Camera Instance"));
+	if (!CanReplaceCameraCut(*Scene, Range, Error)) return nullptr;
+	FScopedTransaction Transaction(LOCTEXT("Create", "Create Camera Instance"));
 	Sequence->Modify();
 	Scene->Modify();
 	auto* Track = Scene->AddTrack<UMovieSceneComposableCameraInstanceTrack>();
@@ -98,20 +217,15 @@ UMovieSceneComposableCameraInstanceTrack* Create(TSharedRef<ISequencer> Sequence
 		Scene->RemoveTrack(*Track);
 		return nullptr;
 	}
-	if (bCreateCut)
+	if (!ReplaceCameraCut(*Scene, *Track, Range, Error))
 	{
-		auto* Cuts = Cast<UMovieSceneCameraCutTrack>(Scene->GetCameraCutTrack());
-		if (!Cuts) Cuts = Cast<UMovieSceneCameraCutTrack>(Scene->AddCameraCutTrack(UMovieSceneCameraCutTrack::StaticClass()));
-		if (Cuts)
-		{
-			Cuts->Modify();
-			Track->ManagedCut = CastChecked<UMovieSceneCameraCutSection>(Cuts->CreateNewSection());
-			Track->ManagedCut->SetRange(Range);
-			Track->ManagedCut->SetCameraBindingID(Track->OutputBinding);
-			Cuts->AddSection(*Track->ManagedCut);
-		}
+		const FGuid Binding = Track->OutputBinding.GetGuid();
+		Sequence->UnbindPossessableObjects(Binding);
+		Scene->RemoveSpawnable(Binding); Scene->RemovePossessable(Binding); Scene->RemoveTrack(*Track);
+		Transaction.Cancel();
+		Sequencer->NotifyMovieSceneDataChanged(EMovieSceneDataChangeType::MovieSceneStructureItemsChanged);
+		return nullptr;
 	}
-	else Error = TEXT("Camera instance created. Existing Camera Cuts occupy this interval and were preserved; assign its output in Camera Cuts to view it.");
 	if (!Scene->IsPlaybackRangeLocked()) Scene->SetPlaybackRange(TRange<FFrameNumber>::Hull(Scene->GetPlaybackRange(), Range));
 	Sequencer->NotifyMovieSceneDataChanged(EMovieSceneDataChangeType::MovieSceneStructureItemAdded);
 	Sequencer->EmptySelection();
@@ -170,6 +284,10 @@ UMovieSceneComposableCameraInstanceTrack* DuplicateAtTime(TSharedRef<ISequencer>
 	}
 	const FFrameNumber Delta(static_cast<int32>(Delta64));
 	const int32 AnchorIndex = Source.GetAllSections().IndexOfByKey(&Anchor);
+	auto CutRange = Anchor.GetRange();
+	CutRange.SetLowerBoundValue(CutRange.GetLowerBoundValue() + Delta);
+	CutRange.SetUpperBoundValue(CutRange.GetUpperBoundValue() + Delta);
+	if (!CanReplaceCameraCut(*Scene, CutRange, Error)) return nullptr;
 	const auto ShiftSections = [Delta](UMovieSceneTrack& Track)
 	{
 		for (UMovieSceneSection* Base : Track.GetAllSections())
@@ -220,20 +338,14 @@ UMovieSceneComposableCameraInstanceTrack* DuplicateAtTime(TSharedRef<ISequencer>
 		}
 		CopiedAnchor = Copy->GetAllSections()[AnchorIndex];
 		const auto Range = CopiedAnchor->GetRange();
-		if (!HasCutConflict(*Scene, Range))
+		if (!ReplaceCameraCut(*Scene, *Copy, Range, Error))
 		{
-			auto* Cuts = Cast<UMovieSceneCameraCutTrack>(Scene->GetCameraCutTrack());
-			if (!Cuts) Cuts = Cast<UMovieSceneCameraCutTrack>(Scene->AddCameraCutTrack(UMovieSceneCameraCutTrack::StaticClass()));
-			if (Cuts)
-			{
-				Cuts->Modify();
-				Copy->ManagedCut = CastChecked<UMovieSceneCameraCutSection>(Cuts->CreateNewSection());
-				Copy->ManagedCut->SetRange(Range);
-				Copy->ManagedCut->SetCameraBindingID(Copy->OutputBinding);
-				Cuts->AddSection(*Copy->ManagedCut);
-			}
+			Sequence->UnbindPossessableObjects(Output);
+			Scene->RemoveSpawnable(Output); Scene->RemovePossessable(Output); Scene->RemoveTrack(*Copy);
+			Transaction.Cancel();
+			Sequencer->NotifyMovieSceneDataChanged(EMovieSceneDataChangeType::MovieSceneStructureItemsChanged);
+			return nullptr;
 		}
-		else Error = TEXT("Camera instance duplicated. Existing Camera Cuts were preserved; assign the new output in Camera Cuts to view it.");
 		if (!Scene->IsPlaybackRangeLocked())
 			for (const UMovieSceneSection* Section : Copy->GetAllSections())
 				if (Section->HasStartFrame() && Section->HasEndFrame())
@@ -252,8 +364,11 @@ bool SetSubjectBinding(UMovieSceneComposableCameraInstanceTrack& Track, FName In
 	UMovieSceneSequence* Sequence = Track.GetTypedOuter<UMovieSceneSequence>();
 	UMovieScene* Scene = Sequence ? Sequence->GetMovieScene() : nullptr;
 	if (!Track.Instance || !Scene || Scene->IsReadOnly() || !Track.IsInMovieScene()) return false;
+	TStrongObjectPtr<UComposableCameraInstanceData> Candidate(NewObject<UComposableCameraInstanceData>());
+	Candidate->CopyConfiguration(*Track.Instance);
+	if (!Candidate->RefreshTypeInterface()) return false;
 	TArray<FComposableCameraInstanceField> Fields;
-	Track.Instance->GatherFields(Fields);
+	Candidate->GatherFields(Fields);
 	const auto* Field = Fields.FindByPredicate([&](const auto& Item) { return Item.Path == Input; });
 	const auto* Property = Field ? CastField<FObjectPropertyBase>(Field->Property) : nullptr;
 	if (!Property || !Property->PropertyClass->IsChildOf(AActor::StaticClass())) return false;
@@ -261,11 +376,11 @@ bool SetSubjectBinding(UMovieSceneComposableCameraInstanceTrack& Track, FName In
 	if (LocalBinding.IsValid() && (!Class || !Class->IsChildOf(Property->PropertyClass))) return false;
 	Track.Modify();
 	Track.Instance->Modify();
-	Track.Instance->RefreshSubjectSlots();
-	auto* Slot = Track.Instance->Subjects.FindByPredicate([&](const auto& Item) { return Item.Input == Input; });
+	auto* Slot = Candidate->Subjects.FindByPredicate([&](const auto& Item) { return Item.Input == Input; });
 	if (!Slot) return false;
 	Slot->Binding = LocalBinding.IsValid() ? FMovieSceneObjectBindingID(UE::MovieScene::FRelativeObjectBindingID(LocalBinding)) : FMovieSceneObjectBindingID();
 	Field->WriteObject(nullptr);
+	Track.Instance->CopyConfiguration(*Candidate.Get());
 	Track.MarkAsChanged();
 	return true;
 }
@@ -281,8 +396,11 @@ void BuildSubjectsMenu(FMenuBuilder& Menu, UMovieSceneComposableCameraInstanceTr
 		FNewMenuDelegate::CreateLambda([Instance, WeakSequencer](FMenuBuilder& InputsMenu)
 		{
 			if (!Instance.IsValid() || !Instance->Instance) return;
+			TStrongObjectPtr<UComposableCameraInstanceData> Candidate(NewObject<UComposableCameraInstanceData>());
+			Candidate->CopyConfiguration(*Instance->Instance);
+			if (!Candidate->RefreshTypeInterface()) return;
 			TArray<FComposableCameraInstanceField> Fields;
-			Instance->Instance->GatherFields(Fields);
+			Candidate->GatherFields(Fields);
 			for (const auto& Field : Fields)
 			{
 				const auto* Property = CastField<FObjectPropertyBase>(Field.Property);
@@ -370,17 +488,16 @@ TSharedRef<ISequencerTrackEditor> FComposableCameraInstanceTrackEditor::CreateTr
 FComposableCameraInstanceTrackEditor::FComposableCameraInstanceTrackEditor(TSharedRef<ISequencer> Sequencer) : FMovieSceneTrackEditor(Sequencer)
 {
 	DataChangedHandle = Sequencer->OnMovieSceneDataChanged().AddRaw(this, &FComposableCameraInstanceTrackEditor::OnDataChanged);
-	if (const auto* Sequence = Sequencer->GetFocusedMovieSceneSequence())
-	{
-		const auto* Scene = Sequence->GetMovieScene();
-		for (auto* Track : Scene->GetTracks()) if (auto* Owner = Cast<UMovieSceneComposableCameraInstanceTrack>(Track)) KnownInstances.Add(Owner);
-		for (const auto& Binding : Scene->GetBindings())
-			for (auto* Track : Binding.GetTracks()) if (auto* Owner = Cast<UMovieSceneComposableCameraInstanceTrack>(Track)) KnownInstances.Add(Owner);
-	}
+	SequenceActivatedHandle = Sequencer->OnActivateSequence().AddLambda([this](FMovieSceneSequenceIDRef) { CacheManagedCuts(); });
+	CacheManagedCuts();
 }
 FComposableCameraInstanceTrackEditor::~FComposableCameraInstanceTrackEditor()
 {
-	if (const auto Sequencer = GetSequencer()) Sequencer->OnMovieSceneDataChanged().Remove(DataChangedHandle);
+	if (const auto Sequencer = GetSequencer())
+	{
+		Sequencer->OnMovieSceneDataChanged().Remove(DataChangedHandle);
+		Sequencer->OnActivateSequence().Remove(SequenceActivatedHandle);
+	}
 }
 bool FComposableCameraInstanceTrackEditor::SupportsType(TSubclassOf<UMovieSceneTrack> Type) const { return Type == UMovieSceneComposableCameraInstanceTrack::StaticClass() || Type == UMovieSceneComposableCameraInstanceParameterTrack::StaticClass(); }
 bool FComposableCameraInstanceTrackEditor::SupportsSequence(UMovieSceneSequence* Sequence) const { return Sequence && Sequence->IsA<ULevelSequence>(); }
@@ -472,15 +589,50 @@ void FComposableCameraInstanceTrackEditor::BuildTrackContextMenu(FMenuBuilder& M
 			}
 		})));
 }
+void FComposableCameraInstanceTrackEditor::CacheManagedCuts()
+{
+	const auto Sequencer = GetSequencer();
+	auto* Scene = Sequencer && Sequencer->GetFocusedMovieSceneSequence() ? Sequencer->GetFocusedMovieSceneSequence()->GetMovieScene() : nullptr;
+	CachedScene = Scene;
+	KnownInstances.Reset();
+	ManagedCutStates.Reset();
+	if (!Scene) return;
+	const auto CacheTrack = [this](UMovieSceneTrack* Track)
+	{
+		auto* Owner = Cast<UMovieSceneComposableCameraInstanceTrack>(Track);
+		if (!Owner) return;
+		KnownInstances.Add(Owner);
+		if (!Owner->ManagedCut) return;
+		FManagedCutState& State = ManagedCutStates.Add(Owner);
+		State.Cut = Owner->ManagedCut.Get();
+		State.CutRange = Owner->ManagedCut->GetRange();
+		if (Owner->GetAllSections().Num() == 1)
+			if (auto* Activation = Owner->GetAllSections()[0])
+			{
+				State.Activation = Activation;
+				State.ActivationRange = Activation->GetRange();
+			}
+	};
+	for (UMovieSceneTrack* Track : Scene->GetTracks()) CacheTrack(Track);
+	for (const auto& Binding : Scene->GetBindings())
+		for (UMovieSceneTrack* Track : Binding.GetTracks()) CacheTrack(Track);
+}
+
 void FComposableCameraInstanceTrackEditor::OnDataChanged(EMovieSceneDataChangeType)
 {
 	// Never create a second Undo entry from a notification, or mutate while Undo/Redo is
 	// restoring objects. Explicit repair remains available for external, non-transactional edits.
-	if (bSynchronizing || ComposableCameraSystem::CameraInstanceOutput::IsCreating()
-		|| GIsTransacting || !GEditor || !GEditor->IsTransactionActive()) return;
+	if (bSynchronizing || ComposableCameraSystem::CameraInstanceOutput::IsCreating()) return;
 	const auto Sequencer = GetSequencer();
 	UMovieScene* Scene = Sequencer && Sequencer->GetFocusedMovieSceneSequence() ? Sequencer->GetFocusedMovieSceneSequence()->GetMovieScene() : nullptr;
-	if (!Scene || Scene->IsReadOnly() || Sequencer->IsReadOnly()) return;
+	if (!Scene || CachedScene.Get() != Scene || GIsTransacting || !GEditor || !GEditor->IsTransactionActive()
+		|| Scene->IsReadOnly() || Sequencer->IsReadOnly())
+	{
+		// Set Camera Cut notifies after commit; Undo/Redo and focus changes also need
+		// a fresh baseline without rewriting restored/authored data.
+		CacheManagedCuts();
+		return;
+	}
 	TGuardValue<bool> Guard(bSynchronizing, true);
 	bool bChanged = false;
 	// Native deletion of the top binding also removes its tracks. Retain weak identities
@@ -493,30 +645,63 @@ void FComposableCameraInstanceTrackEditor::OnDataChanged(EMovieSceneDataChangeTy
 	bChanged |= ComposableCameraSystem::CameraInstanceOutput::RemoveOrphans(Sequencer.ToSharedRef());
 	TArray<UMovieSceneTrack*> InstanceTracks = Scene->GetTracks();
 	for (const auto& Binding : Scene->GetBindings()) InstanceTracks.Append(Binding.GetTracks());
-	KnownInstances.Reset();
+	TMap<UMovieSceneSection*, TRange<FFrameNumber>> PendingCutRanges;
 	for (UMovieSceneTrack* Root : InstanceTracks)
 	{
 		auto* Track = Cast<UMovieSceneComposableCameraInstanceTrack>(Root);
 		if (!Track) continue;
-		KnownInstances.Add(Track);
 		const FMovieSceneObjectBindingID PreviousOutput = Track->OutputBinding;
 		const FGuid PreviousParent = Track->FindObjectBindingGuid();
 		FString Error;
 		if (!ComposableCameraSystem::CameraInstanceOutput::Ensure(Sequencer.ToSharedRef(), *Track, Error)) continue;
 		bChanged |= Track->OutputBinding != PreviousOutput || Track->FindObjectBindingGuid() != PreviousParent;
-		if (!Track->ManagedCut || Track->GetAllSections().Num() != 1 || Track->ManagedCut->IsLocked()) continue;
-		const UMovieSceneSection* Section = Track->GetAllSections()[0];
-		if (!Section || Track->ManagedCut->GetCameraBindingID() != Track->OutputBinding) continue;
+		if (!Track->ManagedCut || Track->ManagedCut->IsLocked() || Track->ManagedCut->GetCameraBindingID() != Track->OutputBinding) continue;
 		const UMovieSceneTrack* Cuts = Scene->GetCameraCutTrack();
 		if (!Cuts || !Cuts->HasSection(*Track->ManagedCut)) continue;
-		if (Track->ManagedCut->GetRange() != Section->GetRange()
-			&& !ComposableCameraSystem::CameraInstanceAuthoring::HasCutConflict(*Scene, Section->GetRange(), Track->ManagedCut))
+		const FManagedCutState* Previous = ManagedCutStates.Find(Track);
+		if (!Previous || Previous->Cut.Get() != Track->ManagedCut.Get()) continue;
+		const UMovieSceneSection* Section = Track->GetAllSections().Num() == 1 ? Track->GetAllSections()[0] : nullptr;
+		if (Section && Track->ManagedCut->GetRange() == Section->GetRange()) continue;
+		if (Track->ManagedCut->GetRange() != Previous->CutRange)
 		{
-			Track->ManagedCut->Modify();
-			Track->ManagedCut->SetRange(Section->GetRange());
+			// Native Cut moves/trims (including adjacent Cut auto-arrange) take ownership
+			// of the edit. Keep the camera binding, but stop forcing its Activation range.
+			Track->Modify();
+			Track->ManagedCut = nullptr;
 			bChanged = true;
 		}
+		else if (Section && Previous->Activation.Get() == Section && Section->GetRange() != Previous->ActivationRange)
+		{
+			PendingCutRanges.Add(Track->ManagedCut.Get(), Section->GetRange());
+		}
 	}
+	// Compare the whole edit's destinations before moving any Cut. If a move is
+	// blocked, its old range must also block any other move that depended on it leaving.
+	if (const UMovieSceneTrack* Cuts = Scene->GetCameraCutTrack())
+	{
+		bool bRejected;
+		do
+		{
+			bRejected = false;
+			for (auto Move = PendingCutRanges.CreateIterator(); Move; ++Move)
+				for (UMovieSceneSection* Other : Cuts->GetAllSections())
+				{
+					if (!Other || Other == Move.Key() || !Other->IsActive()) continue;
+					const auto* Destination = PendingCutRanges.Find(Other);
+					if (Move.Value().Overlaps(Destination ? *Destination : Other->GetRange()))
+					{
+						Move.RemoveCurrent(); bRejected = true; break;
+					}
+				}
+		} while (bRejected);
+	}
+	for (const auto& Move : PendingCutRanges)
+	{
+		Move.Key->Modify();
+		Move.Key->SetRange(Move.Value);
+		bChanged = true;
+	}
+	CacheManagedCuts();
 	if (bChanged) Sequencer->NotifyMovieSceneDataChanged(EMovieSceneDataChangeType::MovieSceneStructureItemsChanged);
 }
 
@@ -531,8 +716,11 @@ void FComposableCameraInstanceTrackEditor::BuildObjectBindingTrackMenu(FMenuBuil
 	Menu.AddSubMenu(LOCTEXT("Inputs", "Camera Parameters"), FText(), FNewMenuDelegate::CreateLambda([WeakOwner, WeakSeq](FMenuBuilder& Inputs)
 	{
 		if (!WeakOwner.IsValid() || !WeakOwner->Instance) return;
+		TStrongObjectPtr<UComposableCameraInstanceData> Candidate(NewObject<UComposableCameraInstanceData>());
+		Candidate->CopyConfiguration(*WeakOwner->Instance);
+		if (!Candidate->RefreshTypeInterface()) return;
 		TArray<FComposableCameraInstanceField> Fields;
-		WeakOwner->Instance->GatherFields(Fields);
+		Candidate->GatherFields(Fields);
 		for (const auto& Field : Fields)
 		{
 			if (Field.Type == EComposableCameraInstanceFieldType::Object) continue;

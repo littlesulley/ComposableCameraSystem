@@ -1,6 +1,10 @@
 // Copyright 2026 Sulley. All Rights Reserved.
 #include "Editors/ComposableCameraShotAuthoringSession.h"
 #include "Editors/ComposableCameraInstanceEditorSession.h"
+#include "Editors/ComposableCameraInstanceDraftPreview.h"
+#include "DataAssets/ComposableCameraTypeAsset.h"
+#include "DataAssets/ComposableCameraPatchTypeAsset.h"
+#include "Nodes/ComposableCameraCameraNodeBase.h"
 #include "MovieScene/MovieSceneComposableCameraInstanceTrack.h"
 #include "MovieScene/MovieSceneComposableCameraInstanceSection.h"
 #include "Widgets/ComposableCameraShotViewportDisplayUtils.h"
@@ -49,6 +53,9 @@ FComposableCameraShotAuthoringSession::~FComposableCameraShotAuthoringSession()
 void FComposableCameraShotAuthoringSession::Bind(FComposableCameraShot* Shot, UObject* InHost)
 {
 	EndEdit();
+	DraftPreview.Reset();
+	bDraftModified = false;
+	if (InHost != SequenceDraft.Get()) { SequenceDraft = nullptr; DraftSequence = nullptr; }
 	Host = InHost;
 	DraftName = FText::GetEmpty();
 	CachedSequencer.Reset();
@@ -123,6 +130,28 @@ bool FComposableCameraShotAuthoringSession::StartTemplateDraft(const FComposable
 	return true;
 }
 
+bool FComposableCameraShotAuthoringSession::StartTypeDraft(UComposableCameraTypeAsset* Type, TSharedPtr<ISequencer> Sequencer, FString& Reason)
+{
+	Reason.Reset();
+	auto* Sequence = Sequencer ? Cast<ULevelSequence>(Sequencer->GetFocusedMovieSceneSequence()) : nullptr;
+	if (!Type || Type->IsA<UComposableCameraPatchTypeAsset>())
+	{ Reason = TEXT("Choose a Camera Type asset. Camera Patches use their own workflow."); return false; }
+	if (!Sequence || !Sequence->GetMovieScene() || Sequence->GetMovieScene()->IsReadOnly() || Sequencer->IsReadOnly()
+		|| !Sequence->AllowsSpawnableObjects() || !Sequencer->GetPlaybackContext())
+	{ Reason = TEXT("Open and focus an editable Level Sequence before creating a Camera Type draft."); return false; }
+	if (IsEditing() || (GEditor && GEditor->IsTransactionActive()))
+	{ Reason = TEXT("Finish the current edit gesture before creating a draft."); return false; }
+	DraftSequence = Sequence;
+	SequenceDraft = NewObject<UComposableCameraInstanceData>(GetTransientPackage(), NAME_None, RF_Transient | RF_Transactional);
+	SequenceDraft->InitializeFromType(Type);
+	Bind(nullptr, SequenceDraft);
+	DraftName = FText::Format(LOCTEXT("TypeDraftName", "{0} Draft"), FText::FromString(Type->GetName()));
+	CachedSequencer = Sequencer;
+	DraftPreview = MakeUnique<FComposableCameraInstanceDraftPreview>();
+	if (OnChanged) OnChanged(true);
+	return true;
+}
+
 bool FComposableCameraShotAuthoringSession::IsSequenceDraft() const
 {
 	return SequenceDraft && Host.Get() == SequenceDraft.Get();
@@ -165,11 +194,119 @@ bool FComposableCameraShotAuthoringSession::IsGenericInstance() const
 	const auto* Values = GetInstanceValues();
 	return Values && !Values->bComposition;
 }
+
+FText FComposableCameraShotAuthoringSession::GetGenericStatus() const
+{
+	const auto* Values = GetInstanceValues();
+	if (!Values || Values->bComposition) return FText::GetEmpty();
+	if (LastGenericError != Values->GetTypeInterfaceError())
+	{
+		LastGenericError = Values->GetTypeInterfaceError();
+		CachedGenericError = FText::FromString(LastGenericError);
+	}
+	if (!CachedGenericError.IsEmpty()) return CachedGenericError;
+	const auto Seq = GetSequencer();
+	if (!Seq || Seq->GetFocusedMovieSceneSequence() != GetSequence())
+		return LOCTEXT("GenericSequenceUnavailable", "Open and focus this camera's Level Sequence to edit and preview it.");
+	if (!Values->IsTypeInterfaceCurrent()) return LOCTEXT("GenericRefresh", "Camera Type changed. Finish the current edit to refresh its interface.");
+	if (IsSequenceDraft()) return DraftPreview ? DraftPreview->GetStatus() : LOCTEXT("GenericStarting", "Preparing camera preview.");
+	if (const auto* Track = GetInstanceTrack(); !Track || !Track->IsInMovieScene())
+		return LOCTEXT("GenericRemoved", "Camera instance was removed. Undo or open another instance.");
+	if (!GetOutputCamera()) return LOCTEXT("GenericInactive", "No valid output at this time. Check Activation, Actor inputs and the output binding.");
+	if (Values->Camera.TypeAsset)
+	{
+		bool bRequiresPCM = false;
+		for (const UComposableCameraCameraNodeBase* Node : Values->Camera.TypeAsset->NodeTemplates)
+			if (Node && Node->GetLevelSequenceCompatibility() == EComposableCameraNodeLevelSequenceCompatibility::RequiresPCM) bRequiresPCM = true;
+		if (bRequiresPCM || !Values->Camera.TypeAsset->ComputeNodeTemplates.IsEmpty())
+			return LOCTEXT("GenericCompatibility", "Level Sequence preview: PCM-dependent nodes and BeginPlay compute logic are unavailable.");
+	}
+	return FText::GetEmpty();
+}
+
+const UClass* FComposableCameraShotAuthoringSession::GetInputActorClass(FName Input) const
+{
+	auto* Values = GetInstanceValues();
+	if (!Values || !Values->IsTypeInterfaceCurrent() || !Values->IsTypeInterfaceValid()) return nullptr;
+	TArray<FComposableCameraInstanceField> Fields;
+	Values->GatherFields(Fields);
+	const auto* Field = Fields.FindByPredicate([Input](const auto& Item) { return Item.Path == Input; });
+	const auto* Property = Field ? CastField<FObjectPropertyBase>(Field->Property) : nullptr;
+	return Property && Property->PropertyClass->IsChildOf(AActor::StaticClass()) ? Property->PropertyClass.Get() : nullptr;
+}
+
+FMovieSceneObjectBindingID FComposableCameraShotAuthoringSession::GetInputBinding(FName Input) const
+{
+	if (const auto* Values = GetInstanceValues())
+		for (const auto& Subject : Values->Subjects) if (Subject.Input == Input) return Subject.Binding;
+	return FMovieSceneObjectBindingID();
+}
+
+AActor* FComposableCameraShotAuthoringSession::ResolveInputActor(FName Input) const
+{
+	const auto Binding = GetInputBinding(Input);
+	const auto Seq = GetSequencer();
+	if (Seq && Binding.IsValid() && Seq->GetFocusedMovieSceneSequence() == GetSequence())
+		for (const auto Object : Binding.ResolveBoundObjects(Seq->GetFocusedTemplateID(), *Seq))
+			if (auto* Actor = Cast<AActor>(Object.Get())) return Actor;
+	return nullptr;
+}
+
+void FComposableCameraShotAuthoringSession::WriteInputBinding(FName Input, const FMovieSceneObjectBindingID& Binding)
+{
+	auto* Values = GetInstanceValues();
+	Values->RefreshSubjectSlots();
+	for (auto& Subject : Values->Subjects) if (Subject.Input == Input) Subject.Binding = Binding;
+	TArray<FComposableCameraInstanceField> Fields; Values->GatherFields(Fields);
+	for (const auto& Field : Fields) if (Field.Path == Input) Field.WriteObject(nullptr);
+	Changed();
+}
+
+bool FComposableCameraShotAuthoringSession::SetInputBinding(FName Input, const FGuid& BindingGuid, FString& Reason)
+{
+	Reason.Reset();
+	const auto Seq = GetSequencer();
+	const UClass* RequiredClass = GetInputActorClass(Input);
+	if (!CanEdit() || !Seq || Seq->GetFocusedMovieSceneSequence() != GetSequence() || !RequiredClass)
+	{ Reason = TEXT("Choose an editable Actor input in the focused Level Sequence."); return false; }
+	if (IsEditing() || !GEditor || GEditor->IsTransactionActive())
+	{ Reason = TEXT("Finish the current gesture before assigning an input."); return false; }
+	const UClass* BoundClass = BindingGuid.IsValid() ? MovieSceneHelpers::GetBoundObjectClass(GetSequence(), BindingGuid) : nullptr;
+	if (BindingGuid.IsValid() && (!BoundClass || !BoundClass->IsChildOf(RequiredClass)))
+	{ Reason = TEXT("The binding does not match this Actor input's class."); return false; }
+	const FMovieSceneObjectBindingID Binding = BindingGuid.IsValid()
+		? FMovieSceneObjectBindingID(UE::MovieScene::FRelativeObjectBindingID(BindingGuid)) : FMovieSceneObjectBindingID();
+	if (GetInputBinding(Input) == Binding) return true;
+	BeginEdit(LOCTEXT("BindInput", "Bind Camera Actor Input"));
+	WriteInputBinding(Input, Binding);
+	EndEdit();
+	return true;
+}
+
+bool FComposableCameraShotAuthoringSession::SetInputActor(FName Input, AActor* Actor, FString& Reason)
+{
+	if (!Actor) return SetInputBinding(Input, FGuid(), Reason);
+	Reason.Reset();
+	const auto Seq = GetSequencer();
+	const UClass* RequiredClass = GetInputActorClass(Input);
+	if (!CanEdit() || !RequiredClass || !Actor->IsA(RequiredClass) || !Seq
+		|| Seq->GetFocusedMovieSceneSequence() != GetSequence() || IsEditing() || !GEditor || GEditor->IsTransactionActive())
+	{ Reason = TEXT("Choose a compatible Actor in the focused editable Level Sequence."); return false; }
+	FMovieSceneObjectBindingID Binding;
+	if (!ResolveSubjectBinding(*Seq, Actor, false, Binding, Reason)) return false;
+	BeginEdit(LOCTEXT("BindInputActor", "Bind Camera Actor Input"));
+	if (!ResolveSubjectBinding(*Seq, Actor, true, Binding, Reason)) { AbortBindingEdit(); return false; }
+	WriteInputBinding(Input, Binding);
+	EndEdit();
+	return true;
+}
+
 bool FComposableCameraShotAuthoringSession::CanEdit() const
 {
 	if (InstanceEditor) return InstanceEditor->CanEdit();
 	if (IsSequenceDraft())
 	{
+		if (!SequenceDraft->IsTypeInterfaceCurrent() || !SequenceDraft->IsTypeInterfaceValid()) return false;
 		const auto Seq = GetSequencer();
 		return DraftSequence && DraftSequence->GetMovieScene() && !DraftSequence->GetMovieScene()->IsReadOnly()
 			&& Seq && !Seq->IsReadOnly() && Seq->GetFocusedMovieSceneSequence() == DraftSequence;
@@ -241,6 +378,9 @@ AActor* FComposableCameraShotAuthoringSession::ResolveTarget(int32 Index) const
 
 UCineCameraComponent* FComposableCameraShotAuthoringSession::GetOutputCamera() const
 {
+	if (IsGenericInstance())
+		if (const auto* Values = GetInstanceValues(); !Values || !Values->IsTypeInterfaceCurrent() || !Values->IsTypeInterfaceValid()) return nullptr;
+	if (IsSequenceDraft() && IsGenericInstance()) return DraftPreview ? DraftPreview->GetCamera() : nullptr;
 	if (auto* Track = GetInstanceTrack())
 	{
 		const auto Seq = GetSequencer();
@@ -255,6 +395,7 @@ UCineCameraComponent* FComposableCameraShotAuthoringSession::GetOutputCamera() c
 
 UCineCameraComponent* FComposableCameraShotAuthoringSession::GetConfiguredCamera(bool bAllowTemplate) const
 {
+	if (IsSequenceDraft() && IsGenericInstance()) return DraftPreview ? DraftPreview->GetCamera(!bAllowTemplate) : nullptr;
 	UMovieSceneComposableCameraShotSection* Section = GetSection();
 	TSharedPtr<ISequencer> Sequencer = GetSequencer();
 	if ((!Section && !GetInstanceTrack()) || !Sequencer || Sequencer->GetFocusedMovieSceneSequence() != GetSequence()) return nullptr;
@@ -266,6 +407,7 @@ UCineCameraComponent* FComposableCameraShotAuthoringSession::GetConfiguredCamera
 		{
 			if (UComposableCameraLevelSequenceComponent* Component = Actor->FindComponentByClass<UComposableCameraLevelSequenceComponent>())
 			{
+				if (!bAllowTemplate && IsGenericInstance() && !Component->HasCameraInstanceResult()) return nullptr;
 				return Component->OutputCineCameraComponent;
 			}
 		}
@@ -305,6 +447,7 @@ void FComposableCameraShotAuthoringSession::BeginEdit(const FText& Description)
 
 void FComposableCameraShotAuthoringSession::Changed(bool bStructural)
 {
+	if (IsSequenceDraft()) bDraftModified = true;
 	if (IsSequenceDraft() && bStructural) { SequenceDraft->EnsureSubjectIdentities(); SequenceDraft->RefreshSubjectSlots(); }
 	if (InstanceEditor) InstanceEditor->Commit(bStructural);
 	bPreviewPending = true;
@@ -366,6 +509,7 @@ void FComposableCameraShotAuthoringSession::EndEdit()
 
 void FComposableCameraShotAuthoringSession::OnPropertyChanged(UObject* Object, FPropertyChangedEvent& Event)
 {
+	if (DraftPreview && DraftPreview->IsSubjectObject(Object)) bPreviewPending = true;
 	if (Object == Host.Get())
 	{
 		bPreviewPending = true;
@@ -385,6 +529,27 @@ void FComposableCameraShotAuthoringSession::OnObjectTransacted(UObject* Object, 
 
 void FComposableCameraShotAuthoringSession::Tick()
 {
+	if (IsSequenceDraft() && IsGenericInstance())
+	{
+		const auto Seq = GetSequencer();
+		if (!Seq || Seq->GetFocusedMovieSceneSequence() != DraftSequence)
+		{
+			DraftPreview.Reset(); bPreviewPending = true;
+			return;
+		}
+		// Invalidate property handles only between gestures. Keep old bags on a
+		// destructive interface change, including changes discovered after load.
+		if (!SequenceDraft->IsTypeInterfaceCurrent())
+		{
+			if (IsEditing() || (GEditor && GEditor->IsTransactionActive())) return;
+			SequenceDraft->RefreshTypeInterface(); bPreviewPending = true;
+			if (OnChanged) OnChanged(true);
+		}
+		if (!DraftPreview) DraftPreview = MakeUnique<FComposableCameraInstanceDraftPreview>();
+		DraftPreview->Update(*SequenceDraft, *Seq, bPreviewPending);
+		bPreviewPending = false;
+		return;
+	}
 	if (InstanceEditor)
 	{
 		if (!IsEditing() && (!GEditor || !GEditor->IsTransactionActive()))
@@ -436,7 +601,7 @@ void FComposableCameraShotAuthoringSession::AbortBindingEdit()
 
 bool FComposableCameraShotAuthoringSession::CanAddTargets() const
 {
-	return (!GetHost() || CanEdit()) && !IsEditing() && GEditor && !GEditor->IsTransactionActive();
+	return !IsGenericInstance() && (!GetHost() || CanEdit()) && !IsEditing() && GEditor && !GEditor->IsTransactionActive();
 }
 
 bool FComposableCameraShotAuthoringSession::AddTarget(AActor* Actor, FString& Reason)

@@ -32,13 +32,15 @@ inline FLinearColor TabColor(bool bSelected)
 {
 	return bSelected ? Accent() : FStyleColors::Secondary.GetSpecifiedColor();
 }
-inline FLinearColor SoftAccent(float Strength)
+inline const FButtonStyle* SecondaryTabStyle()
 {
-	return FMath::Lerp(FStyleColors::Secondary.GetSpecifiedColor(), Accent(), Strength);
-}
-inline FLinearColor SecondaryTabColor(bool bSelected)
-{
-	return bSelected ? SoftAccent(.65f) : FStyleColors::Secondary.GetSpecifiedColor();
+	// Secondary navigation reads as text tabs; the retained child draws selection below the label.
+	static const FButtonStyle Style = FButtonStyle(FAppStyle::Get().GetWidgetStyle<FButtonStyle>("Button"))
+		.SetNormal(FSlateRoundedBoxBrush(FLinearColor::Transparent, 3.f))
+		.SetHovered(FSlateRoundedBoxBrush(FStyleColors::Hover, 3.f))
+		.SetPressed(FSlateRoundedBoxBrush(FStyleColors::Input, 3.f))
+		.SetNormalPadding(FMargin(0.f)).SetPressedPadding(FMargin(0.f));
+	return &Style;
 }
 inline const FButtonStyle* ActionStyle()
 {

@@ -41,6 +41,7 @@ TSharedRef<SDockTab> FComposableCameraShotEditor::SpawnTab(const FSpawnTabArgs& 
 
 	return SNew(SDockTab)
 		.TabRole(ETabRole::NomadTab)
+		.OnCanCloseTab(SDockTab::FCanCloseTab::CreateSP(Root, &SShotEditorRoot::ConfirmDiscardDraft))
 		.Label(LOCTEXT("ShotEditorTabLabel", "Shot Editor"))
 		[Root];
 }

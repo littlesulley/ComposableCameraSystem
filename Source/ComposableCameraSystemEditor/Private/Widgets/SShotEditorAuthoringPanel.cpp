@@ -11,8 +11,11 @@
 #include "ComposableCameraSystemEditorModule.h"
 #include "DataAssets/ComposableCameraShotAsset.h"
 #include "DataAssets/ComposableCameraShotTemplateLibrary.h"
+#include "DataAssets/ComposableCameraTypeAsset.h"
+#include "DataAssets/ComposableCameraPatchTypeAsset.h"
 #include "Editor.h"
 #include "Editors/ComposableCameraShotAuthoringSession.h"
+#include "Editors/ComposableCameraInstanceEditorSession.h"
 #include "Editors/ComposableCameraShotSubjectLabel.h"
 #include "Editors/ComposableCameraShotEditor.h"
 #include "Engine/SkeletalMesh.h"
@@ -26,7 +29,9 @@
 #include "MovieScene/MovieSceneComposableCameraShotSection.h"
 #include "Modules/ModuleManager.h"
 #include "Misc/TransactionObjectEvent.h"
+#include "Misc/MessageDialog.h"
 #include "UObject/UObjectGlobals.h"
+#include "UObject/UnrealType.h"
 #include "GameFramework/Actor.h"
 #include "PropertyCustomizationHelpers.h"
 #include "Selection.h"
@@ -65,6 +70,7 @@ void SShotEditorAuthoringPanel::Construct(const FArguments& Args)
 {
 	Session = Args._Session;
 	AdvancedContent = Args._AdvancedContent;
+	InstanceContent = Args._InstanceContent;
 	NotifyHook = Args._NotifyHook;
 	bPersistViewState = Args._PersistViewState;
 	ViewStateIni = Args._ViewStateIni.IsEmpty() ? GEditorPerProjectIni : Args._ViewStateIni;
@@ -100,6 +106,7 @@ SShotEditorAuthoringPanel::~SShotEditorAuthoringPanel()
 void SShotEditorAuthoringPanel::AddReferencedObjects(FReferenceCollector& Collector)
 {
 	Collector.AddReferencedObject(TemplateLibrary);
+	Collector.AddReferencedObject(SelectedType);
 }
 
 void SShotEditorAuthoringPanel::OnTemplatePropertyChanged(UObject* Object, FPropertyChangedEvent& Event)
@@ -124,6 +131,7 @@ TSharedRef<SWidget> SShotEditorAuthoringPanel::BuildNavigation()
 	const auto PageTab = [this](EPage Page, const FText& Label, const FName Icon) -> TSharedRef<SWidget>
 	{
 		return SNew(SBox).HeightOverride(28.f)
+			.Visibility_Lambda([this, Page]() { return Session->IsGenericInstance() && (Page == EPage::Presets || Page == EPage::Advanced) ? EVisibility::Collapsed : EVisibility::Visible; })
 			[SNew(SButton).ButtonStyle(TabStyle()).ContentPadding(FMargin(8.f, 2.f))
 				.ButtonColorAndOpacity_Lambda([this, Page]() { return TabColor(ActivePage == Page); })
 				.OnClicked_Lambda([this, Page]()
@@ -145,9 +153,9 @@ TSharedRef<SWidget> SShotEditorAuthoringPanel::BuildNavigation()
 	};
 	const auto EditTab = [this](EEditSection Section, const FText& Label) -> TSharedRef<SWidget>
 	{
-		return SNew(SBox).HeightOverride(26.f)
-			[SNew(SButton).ButtonStyle(TabStyle()).ContentPadding(FMargin(12.f, 3.f))
-				.ButtonColorAndOpacity_Lambda([this, Section]() { return SecondaryTabColor(ActiveEditSection == Section); })
+		return SNew(SBox).HeightOverride(28.f)
+			.Visibility_Lambda([this, Section]() { return Session->IsGenericInstance() && Section != EEditSection::Follow && Section != EEditSection::Subjects ? EVisibility::Collapsed : EVisibility::Visible; })
+			[SNew(SButton).ButtonStyle(SecondaryTabStyle()).ContentPadding(0.f).HAlign(HAlign_Fill).VAlign(VAlign_Fill)
 				.OnClicked_Lambda([this, Section]()
 				{
 					if (!Session->IsEditing() && (!GEditor || !GEditor->IsTransactionActive()))
@@ -157,12 +165,21 @@ TSharedRef<SWidget> SShotEditorAuthoringPanel::BuildNavigation()
 					}
 					return FReply::Handled();
 				})
-				[SNew(STextBlock).Text(Label).Font(FCoreStyle::GetDefaultFontStyle("Regular", 9))
-					.ColorAndOpacity(FStyleColors::ForegroundHover)]];
+				[SNew(SVerticalBox)
+					+ SVerticalBox::Slot().FillHeight(1.f).VAlign(VAlign_Center).Padding(12.f, 0.f)
+					[SNew(STextBlock).Text_Lambda([this, Section, Label]() { return Session->IsGenericInstance() && Section == EEditSection::Follow ? LOCTEXT("ParametersTab", "Parameters") : Label; })
+						.Font(FCoreStyle::GetDefaultFontStyle("Regular", 9))
+						.ColorAndOpacity_Lambda([this, Section]() { return ActiveEditSection == Section ? FStyleColors::ForegroundHover : FStyleColors::Foreground; })]
+					+ SVerticalBox::Slot().AutoHeight().Padding(8.f, 0.f)
+					[SNew(SBox).HeightOverride(2.f)
+						[SNew(SBorder).BorderImage(FAppStyle::GetBrush("WhiteBrush")).Padding(0.f)
+							.BorderBackgroundColor_Lambda([this, Section]() { return ActiveEditSection == Section ? Accent() : FLinearColor::Transparent; })]]]];
 	};
 	const TSharedRef<SWidget> LevelPreview = SNew(SBox).WidthOverride(104.f).HeightOverride(24.f)
+			.Visibility_Lambda([this]() { return Session->IsGenericInstance() ? EVisibility::Collapsed : EVisibility::Visible; })
 			[SNew(SButton).ButtonStyle(TabStyle()).HAlign(HAlign_Center).VAlign(VAlign_Center).ContentPadding(0.f)
 				.Tag(FName(TEXT("ShotEditor.LevelPreview")))
+				.IsEnabled_Lambda([this]() { return !Session->IsGenericInstance(); })
 				.ToolTipText(LOCTEXT("LevelPreviewTip", "Render the current level. Turn off for isolated preview."))
 				.ButtonColorAndOpacity_Lambda([this]() { return TabColor(Session->bUseLevelWorld); })
 				.OnClicked_Lambda([this]()
@@ -184,11 +201,18 @@ TSharedRef<SWidget> SShotEditorAuthoringPanel::BuildNavigation()
 				+ SWrapBox::Slot()[PageTab(EPage::Presets, LOCTEXT("PresetsPage", "Presets"), "Icons.FolderOpen")]
 				+ SWrapBox::Slot()[PageTab(EPage::Advanced, LOCTEXT("AdvancedPage", "Advanced"), "Icons.Settings")]]
 			+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(8.f, 0.f, 0.f, 0.f)
-			[LevelPreview]]
-		+ SVerticalBox::Slot().AutoHeight().Padding(0.f, 4.f, 0.f, 0.f)
-		[SNew(SBorder).BorderImage(NavigationBrush()).Padding(0.f)
+			[SNew(SVerticalBox)
+				+ SVerticalBox::Slot().AutoHeight()[LevelPreview]
+				+ SVerticalBox::Slot().AutoHeight()
+				[SNew(STextBlock).Text(LOCTEXT("LevelPreviewStatus", "Preview: Level"))
+					.Font(FCoreStyle::GetDefaultFontStyle("Regular", 9)).ColorAndOpacity(FStyleColors::Foreground)
+					.ToolTipText(LOCTEXT("GenericLevelPreviewTip", "This Camera Type previews in the focused Level Sequence's world."))
+					.Visibility_Lambda([this]() { return Session->IsGenericInstance() ? EVisibility::Visible : EVisibility::Collapsed; })]]]
+		+ SVerticalBox::Slot().AutoHeight().Padding(0.f, 8.f, 0.f, 0.f)
+		[SNew(SBorder).BorderImage(FAppStyle::GetBrush("WhiteBrush"))
+			.BorderBackgroundColor(FStyleColors::Panel).Padding(FMargin(8.f, 3.f, 8.f, 0.f))
 			.Visibility_Lambda([this]() { return ActivePage == EPage::Edit ? EVisibility::Visible : EVisibility::Collapsed; })
-			[SNew(SWrapBox).UseAllottedSize(true).InnerSlotPadding(FVector2D(4.f, 4.f))
+			[SNew(SWrapBox).UseAllottedSize(true).InnerSlotPadding(FVector2D(2.f, 3.f))
 				+ SWrapBox::Slot()[EditTab(EEditSection::Follow, LOCTEXT("FollowTab", "Follow"))]
 				+ SWrapBox::Slot()[EditTab(EEditSection::LookAt, LOCTEXT("AimTab", "Aim"))]
 				+ SWrapBox::Slot()[EditTab(EEditSection::Lens, LOCTEXT("LensTab", "Lens & Focus"))]
@@ -236,9 +260,9 @@ void SShotEditorAuthoringPanel::ShowSubjects()
 
 void SShotEditorAuthoringPanel::UpdateGuideSelection()
 {
-	Session->bShowLookAtGuide = ActivePage == EPage::Edit && ActiveEditSection == EEditSection::LookAt;
-	Session->bShowFollowGuide = ActivePage == EPage::Edit && ActiveEditSection == EEditSection::Follow;
-	Session->bShowSubjectGuide = ActivePage == EPage::Edit && ActiveEditSection == EEditSection::Subjects;
+	Session->bShowLookAtGuide = !Session->IsGenericInstance() && ActivePage == EPage::Edit && ActiveEditSection == EEditSection::LookAt;
+	Session->bShowFollowGuide = !Session->IsGenericInstance() && ActivePage == EPage::Edit && ActiveEditSection == EEditSection::Follow;
+	Session->bShowSubjectGuide = !Session->IsGenericInstance() && ActivePage == EPage::Edit && ActiveEditSection == EEditSection::Subjects;
 	if (bPersistViewState && GConfig)
 	{
 		using namespace ComposableCameraSystem::ShotEditorLayout;
@@ -272,6 +296,12 @@ void SShotEditorAuthoringPanel::Tick(const FGeometry& Geometry, double Time, flo
 void SShotEditorAuthoringPanel::Rebuild()
 {
 	bRefreshPending = false;
+	if (Session->IsGenericInstance())
+	{
+		if (ActivePage == EPage::Presets || ActivePage == EPage::Advanced) ActivePage = EPage::Edit;
+		if (ActiveEditSection != EEditSection::Subjects) ActiveEditSection = EEditSection::Follow;
+		UpdateGuideSelection();
+	}
 	DisplayedActors.Reset();
 	if (const auto* Shot = Session->GetShot())
 		for (int32 Index = 0; Index < Shot->Targets.Num(); ++Index)
@@ -281,13 +311,16 @@ void SShotEditorAuthoringPanel::Rebuild()
 	{
 		for (const auto& Panel : { FollowPanel, LookAtPanel, LensFocusPanel, MotionPanel }) Panel->RefreshSource(true);
 		SyncSubjects();
+		SyncGenericSubjects();
 		return;
 	}
 	bPagesBuilt = true;
 #if WITH_DEV_AUTOMATION_TESTS
 	++PageBuildCount;
 #endif
-	EditPageWidget = EditPage();
+	EditPageWidget = SNew(SWidgetSwitcher).WidgetIndex_Lambda([this]() { return Session->IsGenericInstance() ? 1 : 0; })
+		+ SWidgetSwitcher::Slot()[EditPage()]
+		+ SWidgetSwitcher::Slot()[GenericEditPage()];
 	CreatePageWidget = CreatePage();
 	// Switchers keep page widgets alive. Navigation does not rebuild controls,
 	// rebind the source or disturb a numeric gesture.
@@ -336,16 +369,109 @@ TSharedRef<SWidget> SShotEditorAuthoringPanel::CreatePage()
 	return SNew(SVerticalBox)
 		+ SVerticalBox::Slot().AutoHeight()
 		[Section(LOCTEXT("TemplateSection", "Shot template"), Content)]
-		+ SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Left).Padding(0.f, 8.f, 0.f, 0.f)
-		[SNew(SBox).MinDesiredHeight(24.f)
-			[SNew(SButton).Tag(FName(TEXT("ShotEditor.Create.NewDraft"))).ButtonStyle(TabStyle())
-				.ButtonColorAndOpacity(FMath::Lerp(Accent(), FLinearColor::White, .18f))
-				.ContentPadding(FMargin(10.f, 3.f)).HAlign(HAlign_Center).VAlign(VAlign_Center)
-				.IsEnabled_Lambda([this]() { return !Session->IsEditing() && (!GEditor || !GEditor->IsTransactionActive()); })
-				.ToolTipText(LOCTEXT("EmptyDraftTip", "Create an empty Shot with no Subjects, without using a template."))
-				.OnClicked(this, &SShotEditorAuthoringPanel::NewSequenceDraft)
-				[SNew(STextBlock).Text(LOCTEXT("NewDraft", "Create Empty Shot"))
-					.Font(FCoreStyle::GetDefaultFontStyle("Regular", 9)).ColorAndOpacity(FStyleColors::ForegroundInverted)]]];
+		// Match the Camera Type group's eight-unit content inset and shared action style.
+		+ SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Left).Padding(8.f, 8.f, 0.f, 0.f)
+		[Action(SNew(SButton).Tag(FName(TEXT("ShotEditor.Create.NewDraft"))).Text(LOCTEXT("NewDraft", "Create Empty Shot"))
+			.IsEnabled_Lambda([this]() { return !Session->IsEditing() && (!GEditor || !GEditor->IsTransactionActive()); })
+			.ToolTipText(LOCTEXT("EmptyDraftTip", "Create an empty Shot with no Subjects, without using a template."))
+			.OnClicked(this, &SShotEditorAuthoringPanel::NewSequenceDraft))]
+		+ SVerticalBox::Slot().AutoHeight().Padding(0.f, 16.f, 0.f, 0.f)
+		[Section(LOCTEXT("CameraTypeSection", "Camera Type"), SNew(SVerticalBox)
+			+ SVerticalBox::Slot().AutoHeight().Padding(0.f, 0.f, 0.f, 8.f)
+			[SNew(SObjectPropertyEntryBox).Tag(FName(TEXT("ShotEditor.CameraType")))
+				.AllowedClass(UComposableCameraTypeAsset::StaticClass())
+				.OnShouldFilterAsset(FOnShouldFilterAsset::CreateLambda([](const FAssetData& Asset)
+					{ return Asset.GetClass() && Asset.GetClass()->IsChildOf(UComposableCameraPatchTypeAsset::StaticClass()); }))
+				.ObjectPath_Lambda([this]() { return SelectedType ? SelectedType->GetPathName() : FString(); })
+				.OnObjectChanged_Lambda([this](const FAssetData& Asset) { SelectedType = Cast<UComposableCameraTypeAsset>(Asset.GetAsset()); })]
+			+ SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Left)
+			[Action(SNew(SButton).Tag(FName(TEXT("ShotEditor.Create.TypeDraft"))).Text(LOCTEXT("CreateTypeDraft", "Create Draft"))
+				.IsEnabled_Lambda([this]() { return SelectedType && !Session->IsEditing() && (!GEditor || !GEditor->IsTransactionActive()); })
+				.OnClicked(this, &SShotEditorAuthoringPanel::CreateTypeDraft))])];
+}
+
+bool SShotEditorAuthoringPanel::ConfirmReplaceDraft() const
+{
+	return !Session->HasModifiedDraft() || FMessageDialog::Open(EAppMsgType::YesNo,
+		LOCTEXT("DiscardDraft", "Discard this modified draft? It has not been inserted into Level Sequence.")) == EAppReturnType::Yes;
+}
+
+FReply SShotEditorAuthoringPanel::CreateTypeDraft()
+{
+	if (!ConfirmReplaceDraft()) return FReply::Handled();
+	auto& Module = FModuleManager::LoadModuleChecked<FComposableCameraSystemEditorModule>("ComposableCameraSystemEditor");
+	auto Seq = Session->GetSequencer();
+	if (!Seq && !Session->GetSequence())
+	{
+		const auto Live = Module.GetLiveSequencers();
+		if (Live.Num()) Seq = Live[0];
+	}
+	FString Reason;
+	if (Session->StartTypeDraft(SelectedType, Seq, Reason))
+	{
+		Sequence = Cast<ULevelSequence>(Session->GetSequence());
+		ActivePage = EPage::Edit;
+		ActiveEditSection = Session->GetInstanceValues()->Subjects.IsEmpty() ? EEditSection::Follow : EEditSection::Subjects;
+		UpdateGuideSelection(); Refresh();
+	}
+	SetMessage(Reason);
+	return FReply::Handled();
+}
+
+TSharedRef<SWidget> SShotEditorAuthoringPanel::GenericEditPage()
+{
+	SAssignNew(GenericSubjectRows, SVerticalBox);
+	SyncGenericSubjects();
+	return SNew(SWidgetSwitcher).Tag(FName(TEXT("ShotEditor.GenericEdit")))
+		.WidgetIndex_Lambda([this]() { return ActiveEditSection == EEditSection::Subjects ? 1 : 0; })
+		+ SWidgetSwitcher::Slot()[InstanceContent ? InstanceContent.ToSharedRef() : SNullWidget::NullWidget]
+		+ SWidgetSwitcher::Slot()[ShotAuthoringPageScroll(GenericSubjectRows.ToSharedRef())];
+}
+
+void SShotEditorAuthoringPanel::SyncGenericSubjects()
+{
+	if (!GenericSubjectRows) return;
+	TArray<FName> Inputs;
+	TArray<FText> Labels, Descriptions;
+	TArray<const UClass*> ActorClasses;
+	TArray<bool> RequiredInputs;
+	TArray<FString> Presentation;
+	if (auto* Values = Session->GetInstanceValues(); Values && !Values->bComposition)
+	{
+		TArray<FComposableCameraInstanceField> Fields; Values->GatherFields(Fields);
+		for (const auto& Field : Fields)
+			if (const auto* Property = CastField<FObjectPropertyBase>(Field.Property); Property && Property->PropertyClass->IsChildOf(AActor::StaticClass()))
+			{
+				Inputs.Add(Field.Path);
+				ActorClasses.Add(Property->PropertyClass.Get()); RequiredInputs.Add(Field.bRequiredActor);
+				Labels.Add(ComposableCameraSystem::CameraInstanceAuthoring::ParameterLabel(*Values, Field.Path));
+				Descriptions.Add(FText::Format(LOCTEXT("ActorInputMetadata", "{0} | {1}"),
+					Property->PropertyClass->GetDisplayNameText(), Field.bRequiredActor ? LOCTEXT("RequiredInput", "Required") : LOCTEXT("OptionalInput", "Optional")));
+				Presentation.Add(Labels.Last().ToString() + TEXT("\n") + Descriptions.Last().ToString() + TEXT("\n") + Property->PropertyClass->GetPathName());
+			}
+	}
+	if (Inputs == GenericInputs && Presentation == GenericInputPresentation && GenericSubjectRows->GetChildren()->Num() > 0) return;
+	GenericInputs = Inputs;
+	GenericInputPresentation = MoveTemp(Presentation);
+	GenericSubjectRows->ClearChildren();
+	if (Inputs.IsEmpty())
+		GenericSubjectRows->AddSlot().AutoHeight()[SNew(STextBlock).Text(LOCTEXT("NoActorInputs", "This Camera Type exposes no Actor inputs.")).AutoWrapText(true)];
+	if (!Inputs.IsEmpty())
+		GenericSubjectRows->AddSlot().AutoHeight().Padding(0.f, 0.f, 0.f, 12.f)
+		[SNew(STextBlock).AutoWrapText(true).Text(LOCTEXT("ActorInputGuide", "Bind the Actor inputs exposed by this Camera Type. Level actors are referenced through Sequence bindings; the actors are not duplicated."))];
+	for (int32 Index = 0; Index < Inputs.Num(); ++Index)
+	{
+		const FName Input = Inputs[Index];
+		GenericSubjectRows->AddSlot().AutoHeight().Padding(0.f, 0.f, 0.f, 12.f)
+		[SNew(SBox).ToolTipText(FText::FromName(Input))
+		[ComposableCameraSystem::ShotEditorStyle::Group(Labels[Index], SNew(SVerticalBox)
+			+ SVerticalBox::Slot().AutoHeight().Padding(0.f, 0.f, 0.f, 6.f)
+			[SNew(STextBlock).Text(Descriptions[Index]).AutoWrapText(true).Font(FCoreStyle::GetDefaultFontStyle("Regular", 9))]
+			+ SVerticalBox::Slot().AutoHeight()
+			[SNew(SShotEditorSubjectPicker).Session(Session).InputPath(Input)
+				.ActorClass(ActorClasses[Index]).RequiredInput(RequiredInputs[Index])
+				.OnError_Lambda([this](const FString& Reason) { SetMessage(Reason); })])]];
+	}
 }
 
 void SShotEditorAuthoringPanel::SetTemplateLibrary(UComposableCameraShotTemplateLibrary* Library)
@@ -634,38 +760,79 @@ TSharedRef<SWidget> SShotEditorAuthoringPanel::BonePicker(int32 Index)
 TSharedRef<SWidget> SShotEditorAuthoringPanel::SequenceActions()
 {
 	using namespace ComposableCameraSystem::ShotEditorStyle;
-	const TSharedRef<SWidget> DestinationControls = Section(LOCTEXT("DestinationSection", "Destination / duration"), SNew(SVerticalBox)
-			+ SVerticalBox::Slot().AutoHeight().Padding(0.f, 0.f, 0.f, 8.f)
-			[SNew(STextBlock).Text(LOCTEXT("SequenceAsset", "Level Sequence"))]
-			+ SVerticalBox::Slot().AutoHeight().Padding(0.f, 0.f, 0.f, 8.f)
-			[SNew(SObjectPropertyEntryBox).Tag(FName(TEXT("ShotEditor.Destination"))).AllowedClass(ULevelSequence::StaticClass())
-				.IsEnabled(false)
-				.ObjectPath_Lambda([this]() { return Session->GetSequence() ? Session->GetSequence()->GetPathName() : Sequence.ToSoftObjectPath().ToString(); })]
+	const auto Metric = [](const FText& Label, const FText& Tooltip, TSharedRef<SWidget> Value) -> TSharedRef<SWidget>
+	{
+		return SNew(SBorder).BorderImage(FAppStyle::GetBrush("Brushes.Panel"))
+			.Padding(8.f).ToolTipText(Tooltip).ForegroundColor(FStyleColors::ForegroundHeader)
+			[SNew(SVerticalBox)
+				+ SVerticalBox::Slot().AutoHeight().Padding(0.f, 0.f, 0.f, 4.f)
+				[SNew(STextBlock).Text(Label).Font(FCoreStyle::GetDefaultFontStyle("Regular", 9))
+					.ColorAndOpacity(FStyleColors::Foreground).OverflowPolicy(ETextOverflowPolicy::Ellipsis)]
+				+ SVerticalBox::Slot().AutoHeight()[Value]];
+	};
+	const TSharedRef<SWidget> DestinationControls = Section(LOCTEXT("SequenceSummarySection", "Sequence"), SNew(SVerticalBox)
+			+ SVerticalBox::Slot().AutoHeight().Padding(2.f, 4.f, 2.f, 12.f)
+			[SNew(SHorizontalBox)
+				+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0.f, 0.f, 8.f, 0.f)
+				[SNew(SBox).WidthOverride(16.f).HeightOverride(16.f)
+					[SNew(SImage).Image(FAppStyle::GetBrush("ClassIcon.LevelSequence"))]]
+				+ SHorizontalBox::Slot().FillWidth(1.f).VAlign(VAlign_Center)
+				[SNew(STextBlock).Tag(FName(TEXT("ShotEditor.Destination")))
+					.Font(FCoreStyle::GetDefaultFontStyle("Bold", 11)).ColorAndOpacity(FStyleColors::ForegroundHeader).OverflowPolicy(ETextOverflowPolicy::Ellipsis)
+					.Text_Lambda([this]() { const auto* Target = Session->GetSequence() ? Session->GetSequence() : Sequence.Get(); return Target ? FText::FromString(Target->GetName()) : LOCTEXT("NoSequenceDestination", "No Level Sequence"); })
+					.ToolTipText_Lambda([this]() { const auto* Target = Session->GetSequence() ? Session->GetSequence() : Sequence.Get(); return Target ? FText::FromString(Target->GetPathName()) : LOCTEXT("NoDestination", "Open a Level Sequence to insert a clip."); })]]
 			+ SVerticalBox::Slot().AutoHeight()
 			[SNew(SHorizontalBox)
-				+ SHorizontalBox::Slot().FillWidth(1.f).VAlign(VAlign_Center)[SNew(STextBlock).Text(LOCTEXT("Duration", "Clip Duration (s)"))]
-				+ SHorizontalBox::Slot().AutoWidth()
-				[SNew(SNumericEntryBox<float>).Tag(FName(TEXT("ShotEditor.ClipDuration"))).MinDesiredValueWidth(90.f)
-					.IsEnabled(false).AllowSpin(false).Value_Lambda([this]() { return TOptional<float>(GetClipDuration()); })]]);
+				+ SHorizontalBox::Slot().FillWidth(.55f).Padding(0.f, 0.f, 8.f, 0.f)
+				[Metric(LOCTEXT("ClipFrameRangeLabel", "Frame range"),
+					LOCTEXT("ClipFrameRangeTooltip", "Sequence display frames. Start included; end excluded. A draft gets its start when dropped on the timeline or added at the playhead."),
+					SNew(STextBlock).Font(FCoreStyle::GetDefaultFontStyle("Regular", 12)).OverflowPolicy(ETextOverflowPolicy::Ellipsis)
+					.Text_Lambda([this]()
+					{
+						const auto* Clip = GetBoundClip();
+						const auto* Scene = Clip ? Clip->GetTypedOuter<UMovieScene>() : nullptr;
+						if (!Scene) return Session->IsSequenceDraft() ? LOCTEXT("DraftRangeOnInsert", "On insert") : LOCTEXT("SequenceMetricUnavailable", "-");
+						if (!Clip->HasStartFrame() || !Clip->HasEndFrame()) return LOCTEXT("ClipRangeUnbounded", "Unbounded");
+						const FFrameRate Tick = Scene->GetTickResolution(), Display = Scene->GetDisplayRate();
+						return FText::Format(LOCTEXT("ClipDisplayRangeValue", "{0} - {1}"),
+							FText::AsNumber(FFrameRate::TransformTime(Clip->GetInclusiveStartFrame(), Tick, Display).AsDecimal()),
+							FText::AsNumber(FFrameRate::TransformTime(Clip->GetExclusiveEndFrame(), Tick, Display).AsDecimal()));
+					}))]
+				+ SHorizontalBox::Slot().FillWidth(.45f)
+				[Metric(LOCTEXT("ClipDurationLabel", "Duration"), LOCTEXT("ClipDurationTooltip", "Clip duration in seconds."),
+					SNew(STextBlock).Tag(FName(TEXT("ShotEditor.ClipDuration")))
+					.Font(FCoreStyle::GetDefaultFontStyle("Regular", 12)).OverflowPolicy(ETextOverflowPolicy::Ellipsis)
+					.Text_Lambda([this]()
+					{
+						const auto* Clip = GetBoundClip();
+						if (!Session->IsSequenceDraft() && (Clip ? !Clip->HasStartFrame() || !Clip->HasEndFrame() : Session->GetShot() == nullptr))
+							return LOCTEXT("SequenceMetricUnavailable", "-");
+						return FText::Format(LOCTEXT("ClipDurationValue", "{0} s"), FText::AsNumber(GetClipDuration()));
+					}))]]);
 	return SNew(SWrapBox).UseAllottedSize(true).InnerSlotPadding(FVector2D(24.f, 16.f))
 		+ SWrapBox::Slot()[DestinationControls]
 		+ SWrapBox::Slot()
 		[Section(LOCTEXT("ClipSection", "Clip"), SNew(SVerticalBox).Tag(FName(TEXT("ShotEditor.ClipActions")))
+			+ SVerticalBox::Slot().AutoHeight()
+			[SNew(SVerticalBox).Tag(FName(TEXT("ShotEditor.CreateActions")))
+				.Visibility_Lambda([this]() { return Session->IsSequenceDraft() || !Session->GetInstanceValues() ? EVisibility::Visible : EVisibility::Collapsed; })
 			+ SVerticalBox::Slot().AutoHeight().Padding(0.f, 0.f, 0.f, 6.f)
 			[SubsectionHeader(LOCTEXT("ClipCreateActions", "Create"))]
 			+ SVerticalBox::Slot().AutoHeight().Padding(0.f, 0.f, 0.f, 8.f)
-			[SequenceAction(LOCTEXT("NewDraft", "Create Empty Shot"), SNew(SButton).Tag(FName(TEXT("ShotEditor.NewDraft")))
-				.OnClicked(this, &SShotEditorAuthoringPanel::NewSequenceDraft))]
+			[SNew(SBox).Visibility_Lambda([this]() { return Session->IsGenericInstance() ? EVisibility::Collapsed : EVisibility::Visible; })
+				[SequenceAction(LOCTEXT("NewDraft", "Create Empty Shot"), SNew(SButton).Tag(FName(TEXT("ShotEditor.NewDraft")))
+					.OnClicked(this, &SShotEditorAuthoringPanel::NewSequenceDraft))]]
 			+ SVerticalBox::Slot().AutoHeight().Padding(0.f, 0.f, 0.f, 8.f)
-			[SNew(SHorizontalBox).Tag(FName(TEXT("ShotEditor.DragRow")))
+			[SNew(SVerticalBox).Tag(FName(TEXT("ShotEditor.DragRow")))
+				.Visibility_Lambda([this]() { return Session->IsSequenceDraft() ? EVisibility::Visible : EVisibility::Collapsed; })
 				.IsEnabled_Lambda([this]() { return Session->IsSequenceDraft() && Session->CanEdit() && !Session->IsEditing(); })
-				+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
+				+ SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Left)
 				[SNew(SShotEditorSequenceDragButton).Tag(FName(TEXT("ShotEditor.DragIntoSequence"))).Session(Session)
 					.Duration_Lambda([this]() { return static_cast<double>(GetClipDuration()); })
 					.OnError_Lambda([this](const FText& Error) { Message = Error; })]
-				+ SHorizontalBox::Slot().FillWidth(1.f).VAlign(VAlign_Center).Padding(8.f, 0.f)
-				[SNew(STextBlock).AutoWrapText(true).Text(LOCTEXT("DragIntoSequenceDescription",
-					"Drag into Sequence.\nClick to add at the playhead."))]]
+				+ SVerticalBox::Slot().AutoHeight().Padding(0.f, 6.f, 0.f, 0.f)
+				[SNew(STextBlock).AutoWrapText(true).Text(LOCTEXT("DragIntoSequenceHint",
+					"Or drag this button onto the timeline. The new Camera Cut replaces overlapping cuts."))]]
 			+ SVerticalBox::Slot().AutoHeight()
 			[SNew(SBox).Visibility_Lambda([this]() { return Session->GetInstanceValues() ? EVisibility::Collapsed : EVisibility::Visible; })
 			[SNew(SVerticalBox)
@@ -677,8 +844,10 @@ TSharedRef<SWidget> SShotEditorAuthoringPanel::SequenceActions()
 				[SequenceAction(LOCTEXT("Dialogue", "Create Dialogue Set"), SNew(SButton)
 					.IsEnabled_Lambda([this]() { const auto* Shot = Session->GetShot(); return Shot && Shot->Targets.Num() == 2; })
 					.ToolTipText(LOCTEXT("DialogueTip", "Requires two subjects. Creates a two-shot and two reverse shoulder clips."))
-					.OnClicked_Lambda([this]() { return CreateSequenceShot(true); }))]]]
-			+ SVerticalBox::Slot().AutoHeight().Padding(0.f, 8.f, 0.f, 8.f)[SNew(SSeparator)]
+					.OnClicked_Lambda([this]() { return CreateSequenceShot(true); }))]]]]
+			+ SVerticalBox::Slot().AutoHeight()
+			[SNew(SVerticalBox).Tag(FName(TEXT("ShotEditor.BoundActions")))
+				.Visibility_Lambda([this]() { return GetBoundClip() ? EVisibility::Visible : EVisibility::Collapsed; })
 			+ SVerticalBox::Slot().AutoHeight().Padding(0.f, 0.f, 0.f, 6.f)
 			[SubsectionHeader(LOCTEXT("ClipExistingActions", "Navigate / Duplicate"))]
 			+ SVerticalBox::Slot().AutoHeight().Padding(0.f, 0.f, 0.f, 8.f)
@@ -686,6 +855,21 @@ TSharedRef<SWidget> SShotEditorAuthoringPanel::SequenceActions()
 				.ToolTipText(LOCTEXT("GoToClipTip", "Select this clip and frame its time range in Level Sequence."))
 				.IsEnabled_Lambda([this]() { return GetBoundClip() != nullptr && !Session->IsEditing(); })
 				.OnClicked(this, &SShotEditorAuthoringPanel::GoToClip))]
+			+ SVerticalBox::Slot().AutoHeight().Padding(0.f, 0.f, 0.f, 8.f)
+			[SNew(SBox).Visibility_Lambda([this]() { return Session->GetInstanceTrack() ? EVisibility::Visible : EVisibility::Collapsed; })
+				[SequenceAction(LOCTEXT("SetCameraCut", "Set Camera Cut"), SNew(SButton).Tag(FName(TEXT("ShotEditor.SetCameraCut")))
+					.IsEnabled_Lambda([this]()
+					{
+						const auto Seq = Session->GetSequencer(); const auto* Owner = Session->GetInstanceTrack(); const auto* Clip = GetBoundClip(); FString Reason;
+						return !Session->IsEditing() && Seq && Owner && Clip && ComposableCameraSystem::CameraInstanceAuthoring::CanSetCameraCut(Seq.ToSharedRef(), *Owner, *Clip, Reason);
+					})
+					.ToolTipText_Lambda([this]()
+					{
+						const auto Seq = Session->GetSequencer(); const auto* Owner = Session->GetInstanceTrack(); const auto* Clip = GetBoundClip(); FString Reason;
+						if (Seq && Owner && Clip && !ComposableCameraSystem::CameraInstanceAuthoring::CanSetCameraCut(Seq.ToSharedRef(), *Owner, *Clip, Reason)) return FText::FromString(Reason);
+						return LOCTEXT("SetCameraCutTip", "Set this instance's camera over the frame range shown above. Replaces overlapping Cuts, preserves their outside ranges. One Undo; no new instance or playhead change.");
+					})
+					.OnClicked(this, &SShotEditorAuthoringPanel::SetCameraCut))]]
 			+ SVerticalBox::Slot().AutoHeight()
 			[SequenceAction(LOCTEXT("DuplicateAtPlayhead", "Duplicate At Playhead"), SNew(SButton).Tag(FName(TEXT("ShotEditor.DuplicateAtPlayhead")))
 				.ToolTipText(LOCTEXT("DuplicateAtPlayheadTip", "Duplicate this clip's configuration, Subjects and animation at the current playhead."))
@@ -704,7 +888,7 @@ TSharedRef<SWidget> SShotEditorAuthoringPanel::SequenceActions()
 				.Visibility_Lambda([this]() { return Session->GetSection() ? EVisibility::Visible : EVisibility::Collapsed; })
 				[SequenceAction(LOCTEXT("Duplicate", "Duplicate after current"), SNew(SButton)
 					.IsEnabled_Lambda([this]() { return Session->GetSection() && Session->CanEdit() && Session->GetSequencer().IsValid(); })
-					.OnClicked(this, &SShotEditorAuthoringPanel::DuplicateShot))]])];
+					.OnClicked(this, &SShotEditorAuthoringPanel::DuplicateShot))]]])];
 }
 
 UMovieSceneSection* SShotEditorAuthoringPanel::GetBoundClip() const
@@ -783,6 +967,7 @@ FReply SShotEditorAuthoringPanel::NewSequenceDraft()
 
 FReply SShotEditorAuthoringPanel::CreateDraft(const FComposableCameraShot& Shot, const FText& Name)
 {
+	if (!ConfirmReplaceDraft()) return FReply::Handled();
 	auto& Module = FModuleManager::LoadModuleChecked<FComposableCameraSystemEditorModule>("ComposableCameraSystemEditor");
 	ULevelSequence* Target = Session->GetSequence() ? Cast<ULevelSequence>(Session->GetSequence()) : Sequence.LoadSynchronous();
 	if (!Target)
@@ -839,6 +1024,17 @@ FReply SShotEditorAuthoringPanel::GoToClip()
 		if (End > Start) Sequencer->SetViewRange(TRange<double>(Start - Margin, End + Margin), EViewRangeInterpolation::Immediate);
 	}
 	Message = FText::GetEmpty();
+	return FReply::Handled();
+}
+
+FReply SShotEditorAuthoringPanel::SetCameraCut()
+{
+	const auto Seq = OpenClipSequencer(); auto* Owner = Session->GetInstanceTrack(); auto* Clip = GetBoundClip();
+	if (!Seq || !Owner || !Clip || Session->IsEditing()) return FReply::Handled();
+	FString Reason;
+	if (ComposableCameraSystem::CameraInstanceAuthoring::SetCameraCut(Seq.ToSharedRef(), *Owner, *Clip, Reason))
+		Message = LOCTEXT("CameraCutSet", "Camera Cut now covers this clip's displayed range.");
+	else SetMessage(Reason);
 	return FReply::Handled();
 }
 

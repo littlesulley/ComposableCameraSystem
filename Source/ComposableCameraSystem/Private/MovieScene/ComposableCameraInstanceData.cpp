@@ -76,11 +76,12 @@ void UComposableCameraInstanceData::InitializeFromType(UComposableCameraTypeAsse
 	Camera = FComposableCameraTypeAssetReference();
 	Camera.TypeAsset = Type;
 	Camera.RebuildBagsFromTypeAsset();
-	if (!Type) return;
+	if (!Type) { RefreshTypeInterface(); return; }
 	for (const FComposableCameraExposedParameter& Parameter : Type->ExposedParameters)
 		Camera.Parameters.SetValueSerializedString(Parameter.ParameterName, Type->GetExposedParameterDefaultValue(Parameter));
 	for (const FComposableCameraInternalVariable& Variable : Type->ExposedVariables)
 		Camera.Variables.SetValueSerializedString(Variable.VariableName, Variable.InitialValueString);
+	RefreshTypeInterface();
 	RefreshSubjectSlots();
 }
 
@@ -100,6 +101,7 @@ void UComposableCameraInstanceData::InitializeFromShot(const FComposableCameraSh
 	Camera.RebuildBagsFromTypeAsset();
 	bComposition = true;
 	SourcePreset = Preset;
+	RefreshTypeInterface();
 	Shot = InShot;
 	Subjects.Reset();
 	EnsureSubjectIdentities();
@@ -115,6 +117,9 @@ void UComposableCameraInstanceData::CopyConfiguration(const UComposableCameraIns
 	Shot = Source.Shot;
 	Subjects = Source.Subjects;
 	SourcePreset = Source.SourcePreset;
+	ValidatedType = Source.ValidatedType;
+	ValidatedRevision = Source.ValidatedRevision;
+	TypeInterfaceError = Source.TypeInterfaceError;
 }
 
 void UComposableCameraInstanceData::CopyForAuthoring(const UComposableCameraInstanceData& Source)
@@ -122,6 +127,7 @@ void UComposableCameraInstanceData::CopyForAuthoring(const UComposableCameraInst
 	CopyConfiguration(Source);
 	BuiltInType = Source.BuiltInType ? DuplicateObject<UComposableCameraTypeAsset>(Source.BuiltInType, this) : nullptr;
 	if (BuiltInType) Camera.TypeAsset = BuiltInType;
+	RefreshTypeInterface();
 	EnsureSubjectIdentities();
 	RefreshSubjectSlots();
 }
@@ -157,6 +163,15 @@ void UComposableCameraInstanceData::GatherFields(TArray<FComposableCameraInstanc
 	OutFields.Reset();
 	Gather(const_cast<UPropertyBag*>(Camera.Parameters.GetPropertyBagStruct()), Camera.Parameters.GetMutableValue().GetMemory(), TEXT("Parameters"), OutFields);
 	Gather(const_cast<UPropertyBag*>(Camera.Variables.GetPropertyBagStruct()), Camera.Variables.GetMutableValue().GetMemory(), TEXT("Variables"), OutFields);
+	if (Camera.TypeAsset)
+		for (const auto& Parameter : Camera.TypeAsset->ExposedParameters)
+			if (Parameter.bRequired)
+			{
+				const FName Path(*(TEXT("Parameters.") + Parameter.ParameterName.ToString()));
+				for (auto& Field : OutFields)
+					if (const auto* Object = CastField<FObjectPropertyBase>(Field.Property); Field.Path == Path && Object
+						&& Object->PropertyClass->IsChildOf(AActor::StaticClass())) Field.bRequiredActor = true;
+			}
 	if (!bComposition) return;
 	Gather(FComposableCameraShot::StaticStruct(), &Shot, TEXT("Shot"), OutFields);
 	for (FComposableCameraShotTarget& Target : Shot.Targets)
@@ -171,18 +186,108 @@ void UComposableCameraInstanceData::PostLoad()
 {
 	Super::PostLoad();
 	EnsureSubjectIdentities();
-	Camera.RebuildBagsFromTypeAsset();
+	if (Camera.TypeAsset) Camera.TypeAsset->ConditionalPostLoad();
+	RefreshTypeInterface();
 	RefreshSubjectSlots();
 }
 
 #if WITH_EDITOR
+void UComposableCameraInstanceData::PostEditUndo()
+{
+	Super::PostEditUndo();
+	// Undo restores serialized bags, not the process-local validation cache.
+	ValidatedType = nullptr; ValidatedRevision = 0; TypeInterfaceError.Reset();
+}
+
 void UComposableCameraInstanceData::PostEditChangeProperty(FPropertyChangedEvent& Event)
 {
 	Super::PostEditChangeProperty(Event);
 	EnsureSubjectIdentities();
 	if (Event.GetPropertyName() == GET_MEMBER_NAME_CHECKED(FComposableCameraTypeAssetReference, TypeAsset))
-		Camera.RebuildBagsFromTypeAsset();
+		RefreshTypeInterface();
 	RefreshSubjectSlots();
 	if (UMovieSceneComposableCameraInstanceTrack* Track = GetTypedOuter<UMovieSceneComposableCameraInstanceTrack>()) Track->MarkAsChanged();
 }
 #endif
+
+bool UComposableCameraInstanceData::IsTypeInterfaceCurrent() const
+{
+	return ValidatedType == Camera.TypeAsset
+		&& ValidatedRevision == (Camera.TypeAsset ? Camera.TypeAsset->GetEvaluationRevision() : 0);
+}
+
+bool UComposableCameraInstanceData::RefreshTypeInterface()
+{
+	ValidatedType = Camera.TypeAsset;
+	ValidatedRevision = Camera.TypeAsset ? Camera.TypeAsset->GetEvaluationRevision() : 0;
+	TypeInterfaceError.Reset();
+	if (!Camera.TypeAsset)
+	{
+		TypeInterfaceError = TEXT("Camera Type is unavailable. Existing values and bindings were retained.");
+		return false;
+	}
+#if WITH_EDITORONLY_DATA
+	if (Camera.TypeAsset->BuildStatus == EComposableCameraBuildStatus::Failed)
+	{
+		TypeInterfaceError = TEXT("Camera Type has build errors. Fix and build its graph to resume this instance. Existing data was retained.");
+		return false;
+	}
+#endif
+	// Build a candidate layout before touching authored storage. A removal/rename/type
+	// change must not silently discard overrides during PostLoad or an editor refresh.
+	FComposableCameraTypeAssetReference Candidate;
+	Candidate.TypeAsset = Camera.TypeAsset;
+	Candidate.RebuildBagsFromTypeAsset();
+	auto Compatible = [this](const FInstancedPropertyBag& Old, const FInstancedPropertyBag& Next, const TCHAR* Prefix)
+	{
+		if (const UPropertyBag* Layout = Old.GetPropertyBagStruct())
+			for (const auto& Desc : Layout->GetPropertyDescs())
+			{
+				const auto* NewDesc = Next.FindPropertyDescByName(Desc.Name);
+				if (!NewDesc || !Desc.CachedProperty || !NewDesc->CachedProperty
+					|| NewDesc->ValueType != Desc.ValueType || NewDesc->ValueTypeObject != Desc.ValueTypeObject
+					|| NewDesc->ContainerTypes != Desc.ContainerTypes)
+				{
+					TypeInterfaceError = FString::Printf(TEXT("Camera Type input %s.%s was removed, renamed or changed type. Restore the source interface or create a new draft. Existing values, keys and bindings were retained."), Prefix, *Desc.Name.ToString());
+					return false;
+				}
+			}
+		return true;
+	};
+	if (!Compatible(Camera.Parameters, Candidate.Parameters, TEXT("Parameters"))
+		|| !Compatible(Camera.Variables, Candidate.Variables, TEXT("Variables"))) return false;
+
+	// UE bag migration matches descriptor GUIDs. Newly assembled layouts can have
+	// different GUIDs even for the same name/type. Copy only the fields validated
+	// above, by their input names, before swapping either bag. This also preserves
+	// saved overrides whose bag GUIDs came from a previous editor process.
+	const auto CopyValues = [](const FInstancedPropertyBag& Old, FInstancedPropertyBag& Next)
+	{
+		if (const UPropertyBag* Layout = Old.GetPropertyBagStruct())
+			for (const auto& Desc : Layout->GetPropertyDescs())
+			{
+				const auto* NewDesc = Next.FindPropertyDescByName(Desc.Name);
+				NewDesc->CachedProperty->CopyCompleteValue(
+					NewDesc->CachedProperty->ContainerPtrToValuePtr<void>(Next.GetMutableValue().GetMemory()),
+					Desc.CachedProperty->ContainerPtrToValuePtr<void>(Old.GetValue().GetMemory()));
+			}
+	};
+	CopyValues(Camera.Parameters, Candidate.Parameters);
+	CopyValues(Camera.Variables, Candidate.Variables);
+	for (const auto& Parameter : Camera.TypeAsset->ExposedParameters)
+		if (!Camera.Parameters.FindPropertyDescByName(Parameter.ParameterName))
+			Candidate.Parameters.SetValueSerializedString(Parameter.ParameterName, Camera.TypeAsset->GetExposedParameterDefaultValue(Parameter));
+	for (const auto& Variable : Camera.TypeAsset->ExposedVariables)
+		if (!Camera.Variables.FindPropertyDescByName(Variable.VariableName))
+			Candidate.Variables.SetValueSerializedString(Variable.VariableName, Variable.InitialValueString);
+	Camera.Parameters = MoveTemp(Candidate.Parameters);
+	Camera.Variables = MoveTemp(Candidate.Variables);
+	// Sequence Actor identity always comes from Subjects, including newly added inputs.
+	TArray<FComposableCameraInstanceField> Fields;
+	GatherFields(Fields);
+	for (const auto& Field : Fields)
+		if (const auto* Object = CastField<FObjectPropertyBase>(Field.Property); Object && Object->PropertyClass->IsChildOf(AActor::StaticClass()))
+			Field.WriteObject(nullptr);
+	RefreshSubjectSlots();
+	return true;
+}

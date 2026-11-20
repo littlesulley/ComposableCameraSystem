@@ -26,6 +26,7 @@ struct COMPOSABLECAMERASYSTEM_API FComposableCameraInstanceField
 	FProperty* Property = nullptr;
 	void* Value = nullptr;
 	EComposableCameraInstanceFieldType Type = EComposableCameraInstanceFieldType::Number;
+	bool bRequiredActor = false;
 	double ReadNumber() const;
 	void WriteNumber(double Number) const;
 	void WriteObject(UObject* Object) const;
@@ -72,6 +73,11 @@ public:
 	void CopyForAuthoring(const UComposableCameraInstanceData& Source);
 	void EnsureSubjectIdentities();
 	void RefreshSubjectSlots();
+	/** Activation/source-change operation. Additive changes seed real defaults; incompatible changes retain both old bags. */
+	bool RefreshTypeInterface();
+	bool IsTypeInterfaceCurrent() const;
+	bool IsTypeInterfaceValid() const { return Camera.TypeAsset && TypeInterfaceError.IsEmpty(); }
+	const FString& GetTypeInterfaceError() const { return TypeInterfaceError; }
 	/** Reflection/path compilation is an authoring/activation operation, never a frame operation. */
 	void GatherFields(TArray<FComposableCameraInstanceField>& OutFields);
 	/** Reapply exposed inputs without rebuilding a temporary ParameterBlock each frame. */
@@ -79,9 +85,14 @@ public:
 	virtual void PostLoad() override;
 #if WITH_EDITOR
 	virtual void PostEditChangeProperty(FPropertyChangedEvent& Event) override;
+	virtual void PostEditUndo() override;
 #endif
 private:
 	/** Inline built-in type belongs to this instance; ordinary types remain external references. */
 	UPROPERTY(Instanced)
 	TObjectPtr<UComposableCameraTypeAsset> BuiltInType;
+	UPROPERTY(Transient)
+	TObjectPtr<UComposableCameraTypeAsset> ValidatedType;
+	uint32 ValidatedRevision = 0;
+	FString TypeInterfaceError;
 };

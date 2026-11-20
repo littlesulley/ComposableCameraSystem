@@ -6,6 +6,7 @@
 class UComposableCameraInstanceData;
 class UMovieSceneComposableCameraInstanceTrack;
 class UMovieSceneSection;
+class UMovieSceneCameraCutSection;
 class UMovieScene;
 
 namespace ComposableCameraSystem::CameraInstanceAuthoring
@@ -13,6 +14,13 @@ namespace ComposableCameraSystem::CameraInstanceAuthoring
 	/** Shared hover/creation interval. Failure leaves a bounded empty range at Start. */
 	bool MakeCreationRange(FFrameRate TickResolution, FFrameNumber Start, double DurationSeconds,
 		TRange<FFrameNumber>& Range, FString& Error);
+	/** Read-only preflight shared by hover, creation and duplication. Locked active Cuts block replacement. */
+	bool CanReplaceCameraCut(const UMovieScene& Scene, const TRange<FFrameNumber>& Range, FString& Error);
+	/** Set this existing Activation's output as the cut over its range, without creating an instance. */
+	bool CanSetCameraCut(TSharedRef<ISequencer> Sequencer, const UMovieSceneComposableCameraInstanceTrack& Owner,
+		const UMovieSceneSection& Activation, FString& Error);
+	bool SetCameraCut(TSharedRef<ISequencer> Sequencer, UMovieSceneComposableCameraInstanceTrack& Owner,
+		UMovieSceneSection& Activation, FString& Error);
 	/** Shared creation for asset drops and sampled/draft configuration snapshots. */
 	UMovieSceneComposableCameraInstanceTrack* Create(TSharedRef<ISequencer> Sequencer,
 		UObject* Source, FFrameNumber Start, FString& Error, double DurationSeconds = 5.0, FText Label = FText::GetEmpty());
@@ -42,11 +50,22 @@ public:
 	virtual TSharedPtr<SWidget> BuildOutlinerEditWidget(const FGuid& Binding, UMovieSceneTrack* Track, const FBuildEditWidgetParams& Params) override;
 	virtual void Tick(float DeltaTime) override;
 private:
+	struct FManagedCutState
+	{
+		TWeakObjectPtr<UMovieSceneSection> Activation;
+		TWeakObjectPtr<UMovieSceneCameraCutSection> Cut;
+		TRange<FFrameNumber> ActivationRange;
+		TRange<FFrameNumber> CutRange;
+	};
+	void CacheManagedCuts();
 	void InitializeBindingNames();
 	void OnDataChanged(EMovieSceneDataChangeType Change);
 	FDelegateHandle DataChangedHandle;
+	FDelegateHandle SequenceActivatedHandle;
 	bool bSynchronizing = false;
 	TArray<TWeakObjectPtr<UMovieSceneComposableCameraInstanceTrack>> KnownInstances;
+	TMap<TWeakObjectPtr<UMovieSceneComposableCameraInstanceTrack>, FManagedCutState> ManagedCutStates;
+	TWeakObjectPtr<UMovieScene> CachedScene;
 	TSet<TWeakObjectPtr<UMovieSceneComposableCameraInstanceTrack>> AttemptedUpgrades;
 	TWeakObjectPtr<UMovieScene> NamingScene;
 };

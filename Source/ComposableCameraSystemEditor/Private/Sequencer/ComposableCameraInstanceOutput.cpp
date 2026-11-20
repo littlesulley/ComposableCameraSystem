@@ -1,5 +1,6 @@
 // Copyright 2026 Sulley. All Rights Reserved.
 #include "Sequencer/ComposableCameraInstanceOutput.h"
+#include "Sequencer/ComposableCameraSpawnableTemplate.h"
 #include "Engine/World.h"
 #include "ISequencer.h"
 #include "LevelSequence.h"
@@ -31,6 +32,18 @@ static UComposableCameraLevelSequenceComponent* GetTemplate(TSharedRef<ISequence
 {
 	AActor* Actor = Cast<AActor>(MovieSceneHelpers::GetObjectTemplate(Sequencer->GetFocusedMovieSceneSequence(), Guid, Sequencer->GetSharedPlaybackState()));
 	return Actor ? Actor->FindComponentByClass<UComposableCameraLevelSequenceComponent>() : nullptr;
+}
+
+bool HasOwnedOutput(TSharedRef<ISequencer> Sequencer, const UMovieSceneComposableCameraInstanceTrack& Track)
+{
+	const auto* Sequence = Sequencer->GetFocusedMovieSceneSequence();
+	const auto* Scene = Sequence ? Sequence->GetMovieScene() : nullptr;
+	const FGuid Binding = Track.OutputBinding.GetGuid();
+	if (!Scene || Track.GetOuter() != Scene || !Track.IsInMovieScene() || !Binding.IsValid()
+		|| Track.FindObjectBindingGuid() != Binding || !Scene->FindBinding(Binding)
+		|| Track.OutputBinding != FMovieSceneObjectBindingID(UE::MovieScene::FRelativeObjectBindingID(Binding))) return false;
+	const auto* Template = GetTemplate(Sequencer, Binding);
+	return Template && Template->bCameraInstanceDriven && Template->CameraInstanceOwner == &Track;
 }
 
 static void RemoveFolderBinding(UMovieSceneFolder& Folder, FGuid Guid)
@@ -86,9 +99,33 @@ bool Ensure(TSharedRef<ISequencer> Sequencer, UMovieSceneComposableCameraInstanc
 	UWorld* World = Cast<UWorld>(Sequencer->GetPlaybackContext());
 	if (!Scene || Scene->IsReadOnly() || Sequencer->IsReadOnly() || !World || !Track.Instance || Track.GetOuter() != Scene) return false;
 	const FGuid CurrentBinding = Track.FindObjectBindingGuid();
+	// Old releases saved the binding/Cut but skipped the RF_Transient actor template.
+	// Repair that exact owned spawnable in place: a new GUID would strand existing
+	// Cuts, parameter lanes and references. A pasted/foreign output still takes the
+	// normal ownership path below.
+	if (CurrentBinding.IsValid() && Track.OutputBinding == FMovieSceneObjectBindingID(UE::MovieScene::FRelativeObjectBindingID(CurrentBinding))
+		&& UMovieSceneComposableCameraInstanceTrack::Find(Scene, CurrentBinding) == &Track)
+		if (auto* Spawnable = Scene->FindSpawnable(CurrentBinding); Spawnable && !Spawnable->GetObjectTemplate())
+		{
+			if (bCreating) return false;
+			TGuardValue<bool> CreatingGuard(bCreating, true);
+			Scene->Modify();
+			auto* Template = NewObject<AComposableCameraLevelSequenceActor>(Scene, NAME_None, RF_Transactional);
+			auto* Component = Template->FindComponentByClass<UComposableCameraLevelSequenceComponent>();
+			Component->bCameraInstanceDriven = true;
+			Component->CameraInstanceOwner = &Track;
+			Component->TypeAssetReference = Track.Instance->Camera;
+			Template->SetActorLabel(Spawnable->GetName());
+			SpawnableTemplate::MakePersistent(*Template);
+			Spawnable->SetObjectTemplate(Template);
+			FMovieSceneSpawnable::MarkSpawnableTemplate(*Template);
+			Track.MarkAsChanged();
+			return AttachToBinding(*Scene, Track);
+		}
 	if (CurrentBinding.IsValid() && UMovieSceneComposableCameraInstanceTrack::Find(Scene, CurrentBinding) == &Track)
 		if (auto* Template = GetTemplate(Sequencer, CurrentBinding); Template && Template->bCameraInstanceDriven)
 		{
+			SpawnableTemplate::MakePersistent(*Template->GetOwner());
 			// Native object-binding duplication copies all child tracks and the spawn template.
 			// Reattach to that copied template, keeping the duplicate's parameter lanes together.
 			if (Template->CameraInstanceOwner != &Track || Track.OutputBinding.GetGuid() != CurrentBinding)
@@ -104,7 +141,10 @@ bool Ensure(TSharedRef<ISequencer> Sequencer, UMovieSceneComposableCameraInstanc
 			return AttachToBinding(*Scene, Track);
 		}
 	if (auto* Template = GetTemplate(Sequencer, Track.OutputBinding.GetGuid()); Template && Template->CameraInstanceOwner == &Track)
+	{
+		SpawnableTemplate::MakePersistent(*Template->GetOwner());
 		return AttachToBinding(*Scene, Track);
+	}
 	if (bCreating) return false;
 	TGuardValue<bool> CreatingGuard(bCreating, true);
 	Track.Modify();
@@ -130,6 +170,8 @@ bool Ensure(TSharedRef<ISequencer> Sequencer, UMovieSceneComposableCameraInstanc
 		Camera->Destroy();
 	}
 	if (!Binding.IsValid()) { Error = TEXT("Could not create the managed output camera."); return false; }
+	if (auto* Template = GetTemplate(Sequencer, Binding))
+		SpawnableTemplate::MakePersistent(*Template->GetOwner());
 	if (const FMovieSceneBinding* Output = Scene->FindBinding(Binding))
 	{
 		const auto Tracks = Output->GetTracks();

@@ -278,7 +278,9 @@ bool FShotClipActionAlignmentTest::RunTest(const FString&)
 			for (int32 Index = 0; Index < Children.Num(); ++Index) Collect(Children[Index].Widget, Children[Index].Geometry);
 		};
 		Collect(Column.ToSharedRef(), FGeometry::MakeRoot(FVector2D(Width, 800.), FSlateLayoutTransform(Scale)));
-		for (const TCHAR* Tag : {TEXT("ShotEditor.NewDraft"), TEXT("ShotEditor.GoToClip"), TEXT("ShotEditor.DuplicateAtPlayhead"), TEXT("ShotEditor.DragRow")})
+		TestFalse(TEXT("Empty source does not arrange bound clip actions"), Arranged.Contains(TEXT("ShotEditor.GoToClip")) || Arranged.Contains(TEXT("ShotEditor.DuplicateAtPlayhead")));
+		TestFalse(TEXT("Empty source does not arrange draft insertion"), Arranged.Contains(TEXT("ShotEditor.DragRow")));
+		for (const TCHAR* Tag : {TEXT("ShotEditor.NewDraft")})
 		{
 			const auto* Geometry = Arranged.Find(FName(Tag));
 			if (!TestNotNull(TEXT("Production action participates in layout"), Geometry)) return false;

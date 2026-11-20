@@ -1,6 +1,6 @@
 # ComposableCameraSystem Design
 
-Updated: 2026-10-13
+Updated: 2026-11-20
 
 This document describes the current runtime architecture of the UE 5.6
 ComposableCameraSystem plugin. It is intentionally compact. Implementation
@@ -474,6 +474,13 @@ No separate instance display-name override competes with it. The open Shot Edito
 reads that same name and updates after Rename/Undo/Redo; naming does not alter
 instance identity, Subjects, animation or output ownership.
 
+The MovieScene-owned output Actor template and its components must be persistent;
+only the temporary source/live evaluator actors are transient. Repairing a missing
+legacy Spawnable template under an existing native instance binding restores that
+template in place. It preserves the GUID, Cut references and sibling parameter
+lanes, including locked Cuts. This repair is available through Repair Managed
+Output; opening an old asset alone does not rewrite it.
+
 A new parameter Track starts with one unbounded Section, matching ordinary
 numeric property authoring. Activation keeps its finite default interval and
 controls camera evaluation independently. Explicit additional parameter intervals
@@ -544,11 +551,21 @@ changes and commits; source/history changes still invalidate native handles.
 
 The managed output is a generic LevelSequenceActor Spawnable, not a dedicated
 LevelSequenceShotActor. Native Camera Cuts reference the top binding. Existing
-Cuts are preserved on overlap; a conflicting drop creates no replacement Cut.
+Instance creation/duplication replaces active Cuts inside the new interval, retaining
+their outside portions. Locked active overlaps reject creation. Modified old Cuts
+become authored Cuts, released from automatic Activation-range management.
+Direct Cut moves/trims likewise become authored edits when their range diverges
+from Activation. An untouched managed Cut follows changes to its single Activation
+only when unlocked and conflict-free; unrelated edits cannot force it back into sync.
+Batch Activation edits check the proposed Cut ranges together before applying them.
+Blocked moves keep their old ranges as obstacles. Direct Cut edits release management
+even when the instance has multiple Activations; only automatic following requires one.
+Cut editing does not move Activation or parameter keys. Evaluation still requires
+Activation coverage; Set Camera Cut explicitly restores a matching managed interval.
 The owner component skips autonomous evaluation and releases transient evaluators
 on destruction. Binding duplication adopts its own duplicated output template;
 deleting the binding/owner removes its generated Cut in the same transaction.
-User Cuts and locked Cuts retain their existing protection.
+Authored Cut references retain output-cleanup protection; locked Cuts remain protected.
 
 Prototype root Instance Tracks are reparented under their existing output binding
 in an undoable editor upgrade; native animation is preserved. Adding a parameter
@@ -559,9 +576,46 @@ instance bindings to avoid a second camera driver.
 
 Implemented but not IDE/runtime verified: native binding hierarchy, parameter
 Track/Section + controls, native value/key/curve editing, sampled Shot Editor,
-Auto Key, binding-aware preview and Sequence draft dragging. Cross-sequence picker UX,
-graph-layout/rename refresh, generic stateful-node seek reset, and Camera Cuts/
-MRQ first-frame ordering validation remain separate integration work.
+Auto Key, binding-aware preview and Sequence draft dragging. Cross-sequence picker UX
+and Camera Cuts/MRQ first-frame ordering validation remain separate integration work.
+
+### Ordinary CameraType drafts and evaluation continuity (2026-11-17; IDE verification pending)
+
+Ordinary types now use the same Create/Edit/Sequence shell and inline InstanceData.
+Create requires an editable focused Level Sequence. A transient draft copies real
+exposed defaults; Actor fields store only Subjects binding IDs. A session-owned,
+transient generic LSActor previews the type before any camera binding, Track or Cut
+exists. It uses the existing instance component evaluator/CineCamera projection,
+with autonomous ticking disabled. Insertion snapshots the same configuration through
+the existing creation service, destroys the preview and switches to sampled editing.
+One instance still owns one native top-level output binding and sibling parameter lanes.
+
+Sequence time drives ordinary draft and bound evaluation. Repeated unchanged samples do not
+advance state; forward playback retains node instances. Backward time, explicit jump/
+scrub/step, reactivation, source revision or Actor identity changes cold-start ordinary
+nodes by reconstructing the internal evaluator. Reconstruction keeps component Patch
+registrations and the output actor's initial seed transform. A paused status alone is
+not a runtime discontinuity (MRQ may use non-playing subframe samples). Editor draft
+seeks while paused cold-start. No history replay is performed, so a seek is deterministic
+from current inputs but need not match the result of continuous damping playback.
+Required exposed Actor parameters with no resolved Actor withhold output; reactivation
+resolves binding identities again. Optional missing Actors are passed as null.
+Same-time Actor transform changes invalidate the ordinary sample. In editor builds,
+property changes on a resolved Subject Actor or its subobjects also invalidate the
+bound instance, even without Shot Editor open. The next Sequencer evaluation
+cold-samples once at dt=0; the callback does not force evaluation or change scheduling.
+Composition instances retain the existing framing solver's resampling/reset contract.
+
+Type Build/graph sync/property edits/Undo invalidate evaluators through a transient
+revision, not asset identity or a serialized version change. InstanceData validates a
+candidate interface before replacing either bag, including during PostLoad. Compatible
+additions retain overrides and seed only new fields from true source defaults. Removal,
+rename or type/container change pauses the whole instance and retains old bags, binding
+slots and tracks/channels. Restore the source or create a new draft; automatic rename
+mapping and changing an existing instance's Type are outside this scope. Undo of inline
+data invalidates its validation cache. Legacy Shot/component workflows retain their
+existing storage and evaluation routes. PCM-dependent behavior and BeginPlay compute
+logic remain unavailable in the isolated LS path; the editor reports this limitation.
 
 Shot data lives in:
 

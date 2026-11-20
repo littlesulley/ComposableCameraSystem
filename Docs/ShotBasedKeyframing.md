@@ -1,6 +1,6 @@
 # Shot-Based Keyframing
 
-Updated: 2026-10-13
+Updated: 2026-11-19
 
 This document describes the current shot authoring and composition solver path.
 Old phase plans and shipped task lists were removed. Runtime context lives in
@@ -38,17 +38,23 @@ Shot Editor > Create. Select a Composable Camera Shot Template Library DataAsset
 then choose a named Shot from its dropdown. Each entry contains only Name and an existing ShotAsset reference;
 the referenced asset's Subject count and values are copied into a new independent
 draft. Create libraries from Content Browser > Composable Camera System.
-Create Empty Shot, outside and below the Shot template group with
-a lighter background, instead starts with zero Subjects. Bind Subjects in Edit by
+Create Empty Shot sits outside and below the Shot template group, aligned with
+Create Draft and sharing its button size and background style. It starts with zero Subjects. Bind Subjects in Edit by
 Sequence ID, preview composition,
-then drag the handle icon onto the timeline (or click to add at the playhead).
+then use Add at Playhead or drag that button onto the timeline.
 The displayed read-only duration becomes the new Activation interval, and editing transfers
 to the created instance. Another drop always creates another instance, including
 drops onto existing Tracks. Cross-sequence drops are refused; Cancel keeps the draft.
-Once bound, the drag icon and explanation are disabled. Go to Clip selects the
+Once bound, draft insertion controls collapse. Go to Clip selects the
 bound activation without seeking. Duplicate At Playhead copies authored values,
 Subjects and animation into an independent instance/output, shifting keys and
-activation ranges together. Both bound-clip actions are disabled for drafts.
+activation ranges together. Both bound-clip actions are hidden for drafts.
+For an existing Camera Instance, Set Camera Cut rebuilds its missing Cut or
+replaces active overlaps over the displayed Activation range, using the same
+output and one Undo. It does not seek or create another instance. Locked overlaps
+are refused; missing outputs use Repair Managed Output first. Actor input rows
+show binding diagnostics and separate Locate in Sequence / Locate Actor actions.
+Inactive Spawnables can be selected in Sequence without forcing a spawn or seek.
 No camera actor/Track is needed until insertion. The ShotTrack/ShotSection types below describe
 the compatible legacy path; no ShotAsset/type-asset migration is required.
 
@@ -330,7 +336,14 @@ can be deleted; Add remains available on the empty list. Shared presets stay
 unchanged when deleting from a Section's local override copy.
 Mode/basis/anchor-policy changes show/hide existing fields. Source/array changes,
 external edits and history refresh handles while retaining page containers.
-The centered Level Preview button stays at navigation right.
+The centered Level Preview button stays at navigation right for composition
+sources; ordinary types show Preview: Level text. The header separates lifecycle
+state from the instance name and links ordinary instances to their source type.
+Sequence shows an asset icon/name row above parallel Frame range and Duration
+metrics. The exclusive-end explanation lives in the frame-range tooltip.
+Preview has no source/frame text strip. Maximize/Restore in the floating toolbar
+temporarily hides/restores the authoring pane without changing the camera aspect
+or saved pane widths, and stays accessible when Tools is collapsed.
 One camera-frame/anchor icon identifies the tab, Tools entry, asset toolbar,
 Sequencer action and ShotAsset thumbnail. Navigation is
 view state only and preserves the current Shot, transactions and active source.
@@ -392,6 +405,33 @@ without displaying an unused Follow screen marker.
 
 Transactions must wrap edits. Preview state must not leak into runtime assets
 unless the edited host is the asset itself.
+
+### Ordinary CameraType workflow (2026-11-17; implementation awaiting IDE validation)
+
+Ordinary types share Create/Edit/Sequence. Create > Camera Type > Create Draft
+requires an editable focused LS; Parameters and Subjects expose the type's actual
+inputs. Actor inputs bind Sequence identities, including inactive Spawnables. No
+composition Shot or arbitrary Subject role is fabricated. Camera/Inspect views do
+not reverse-solve generic inputs. The existing template library stays Shot-only.
+
+Draft preview owns a transient generic LSActor using the same instance evaluator
+and CineCamera projection. Draft edits change defaults even under Auto Key. Sequence
+drag creates the usual single binding/output and switches to sampled editing; no
+new channel or output ownership model is introduced. Close/replacement of modified
+drafts asks before discarding. Ordinary offline drafts remain outside first scope.
+
+Instance insertion and Duplicate At Playhead create a Cut across the requested
+interval, trimming/splitting/removing overlapping active Cuts. Outside fragments
+retain their output references and become authored Cuts. Locked active overlaps
+reject the operation. Existing Activation/parameter animation is not retimed.
+One Undo/Redo restores/reapplies the replacement and instance together.
+
+Source interface additions preserve old values; removal/rename/type changes pause
+the affected instance and retain data. Stateful nodes cold-start on discontinuities,
+not by replaying history. PCM-dependent behavior and BeginPlay compute logic remain
+unavailable. Missing required Actor inputs withhold the evaluated camera. Run the
+new GenericDraft/InterfaceRetention/ColdReset tests plus the existing CameraInstance
+and ShotEditor suites in the editor; no compile or runtime pass is claimed here.
 
 ## 10. Patch and Shot Interaction
 

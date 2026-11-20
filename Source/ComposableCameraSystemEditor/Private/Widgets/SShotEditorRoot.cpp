@@ -1,6 +1,7 @@
 // Copyright 2026 Sulley. All Rights Reserved.
 
 #include "Widgets/SShotEditorRoot.h"
+#include "Misc/MessageDialog.h"
 
 #include "DataAssets/ComposableCameraShot.h"
 #include "DataAssets/ComposableCameraShotAsset.h"
@@ -40,6 +41,7 @@
 #include "UObject/StructOnScope.h"
 #include "UObject/UObjectGlobals.h"
 #include "Styling/AppStyle.h"
+#include "Subsystems/AssetEditorSubsystem.h"
 #include "Widgets/ComposableCameraShotEditorLayoutState.h"
 #include "Widgets/ComposableCameraShotEditorModeSwitchUtils.h"
 #include "Widgets/ComposableCameraShotMenuUtils.h"
@@ -94,10 +96,12 @@ void SShotEditorRoot::Construct(const FArguments& InArgs)
 		InstanceDetailsView->SetIsPropertyVisibleDelegate(FIsPropertyVisible::CreateLambda([](const FPropertyAndParent& Item)
 		{
 			const FName Name = Item.Property.GetFName();
+			const auto* Object = CastField<FObjectPropertyBase>(&Item.Property);
 			return Name != GET_MEMBER_NAME_CHECKED(UComposableCameraInstanceData, Shot)
 				&& Name != GET_MEMBER_NAME_CHECKED(UComposableCameraInstanceData, Subjects)
 				&& Name != GET_MEMBER_NAME_CHECKED(UComposableCameraInstanceData, bComposition)
-				&& Name != GET_MEMBER_NAME_CHECKED(UComposableCameraInstanceData, SourcePreset);
+				&& Name != GET_MEMBER_NAME_CHECKED(UComposableCameraInstanceData, SourcePreset)
+				&& !(Object && Object->PropertyClass->IsChildOf(AActor::StaticClass()));
 		}));
 		InstanceDetailsView->SetIsPropertyReadOnlyDelegate(FIsPropertyReadOnly::CreateLambda([](const FPropertyAndParent& Item)
 		{
@@ -127,7 +131,8 @@ void SShotEditorRoot::Construct(const FArguments& InArgs)
 		+ SVerticalBox::Slot()
 		.AutoHeight()
 		.Padding(8.f, 0.f, 8.f, 8.f)
-		[SNew(SBox).Visibility_Lambda([this]() { return AuthoringSession->IsGenericInstance() ? EVisibility::Collapsed : EVisibility::Visible; })[AuthoringPanel->BuildNavigation()]]
+		[SNew(SBox).Visibility_Lambda([this]() { return bPreviewMaximized ? EVisibility::Collapsed : EVisibility::Visible; })
+			[AuthoringPanel->BuildNavigation()]]
 
 		// Parameters and preview share the full remaining height; divider adjusts widths.
 		+ SVerticalBox::Slot()
@@ -136,7 +141,7 @@ void SShotEditorRoot::Construct(const FArguments& InArgs)
 		[SNew(SShotEditorPreviewLayout)
 			.AuthoringFraction(AuthoringFraction)
 			.OnAuthoringFractionChanged_Lambda([this](float Value) { AuthoringFraction = Value; SavePersistedLayoutState(); })
-			.Authoring()[AuthoringPane]
+			.Authoring()[SNew(SBox).Visibility_Lambda([this]() { return bPreviewMaximized ? EVisibility::Collapsed : EVisibility::Visible; })[AuthoringPane]]
 			.Preview()[PreviewPane]]];
 	Viewport->SetAuthoringSession(AuthoringSession);
 }
@@ -151,6 +156,7 @@ SShotEditorRoot::~SShotEditorRoot()
 
 void SShotEditorRoot::SetActiveShot(FComposableCameraShot* Shot, UObject* HostObject)
 {
+	if (HostObject != AuthoringSession->GetHost() && !ConfirmDiscardDraft()) return;
 	AuthoringSession->Bind(Shot, HostObject);
 	ActiveShot = AuthoringSession->GetShot();
 	ActiveHost = AuthoringSession->GetHost();
@@ -168,6 +174,7 @@ void SShotEditorRoot::SetActiveShot(FComposableCameraShot* Shot, UObject* HostOb
 
 bool SShotEditorRoot::StartSequenceDraft(TSharedRef<ISequencer> Sequencer, FString& Error)
 {
+	if (!ConfirmDiscardDraft()) { Error = TEXT("The current draft was kept."); return false; }
 	if (!AuthoringSession->StartSequenceDraft(Sequencer, Error)) return false;
 	ActiveShot = AuthoringSession->GetShot(); ActiveHost = AuthoringSession->GetHost();
 	AuthoringPanel->ShowSubjects();
@@ -201,6 +208,7 @@ void SShotEditorRoot::Tick(const FGeometry& AllottedGeometry, const double InCur
 	if (!AuthoringSession->IsEditing() && !Viewport->IsEditingGesture() && (!GEditor || !GEditor->IsTransactionActive()))
 	{
 		const auto Diagnostic = Viewport->GetPreviewDiagnostic();
+		CachedGenericStatus = AuthoringSession->GetGenericStatus();
 		if (!(Diagnostic == CachedDiagnostic))
 		{
 			CachedDiagnostic = Diagnostic;
@@ -211,6 +219,7 @@ void SShotEditorRoot::Tick(const FGeometry& AllottedGeometry, const double InCur
 
 void SShotEditorRoot::OnActiveShotChanged()
 {
+	CachedGenericStatus = FText::GetEmpty();
 	CachedDiagnostic = {};
 	CachedDiagnosticText = FText::GetEmpty();
 	bAuthoringRefreshPending = false;
@@ -220,7 +229,7 @@ void SShotEditorRoot::OnActiveShotChanged()
 	if (Viewport.IsValid())
 	{
 		Viewport->SetActiveShot(ActiveShot, ActiveHost.Get());
-		if (AuthoringSession->IsSequenceDraft()) Viewport->SetMode(EShotEditorMode::Drag);
+		if (AuthoringSession->IsSequenceDraft() || AuthoringSession->IsGenericInstance()) Viewport->SetMode(EShotEditorMode::Drag);
 	}
 
 	// Details panel: re-bind to the new Shot (or clear if no Shot bound).
@@ -268,20 +277,15 @@ void SShotEditorRoot::RefreshDetailsView()
 TSharedRef<SWidget> SShotEditorRoot::BuildDetailsPane()
 {
 	SAssignNew(AuthoringPanel, SShotEditorAuthoringPanel)
-		.Session(AuthoringSession).NotifyHook(this).AdvancedContent(StructureDetailsView->GetWidget()).PersistViewState(bPersistViewState);
-	return SNew(SWidgetSwitcher).WidgetIndex_Lambda([this]() { return AuthoringSession->IsGenericInstance() ? 1 : 0; })
-		+ SWidgetSwitcher::Slot()[AuthoringPanel.ToSharedRef()]
-		+ SWidgetSwitcher::Slot()[SNew(SVerticalBox)
-			+ SVerticalBox::Slot().AutoHeight().Padding(8.f)
-			[SNew(SComboButton).IsEnabled_Lambda([this]() { return AuthoringSession->CanEdit(); })
-				.OnGetMenuContent_Lambda([this]()
-				{
-					FMenuBuilder Menu(true, nullptr);
-					ComposableCameraSystem::CameraInstanceAuthoring::BuildSubjectsMenu(Menu, AuthoringSession->GetInstanceTrack(), AuthoringSession->GetSequencer());
-					return Menu.MakeWidget();
-				})
-				.ButtonContent()[SNew(STextBlock).Text(LOCTEXT("InstanceSubjects", "Subjects"))]]
-			+ SVerticalBox::Slot().FillHeight(1.f)[InstanceDetailsView.ToSharedRef()]];
+		.Session(AuthoringSession).NotifyHook(this).AdvancedContent(StructureDetailsView->GetWidget())
+		.InstanceContent(InstanceDetailsView.ToSharedRef()).PersistViewState(bPersistViewState);
+	return AuthoringPanel.ToSharedRef();
+}
+
+bool SShotEditorRoot::ConfirmDiscardDraft() const
+{
+	return !AuthoringSession->HasModifiedDraft() || FMessageDialog::Open(EAppMsgType::YesNo,
+		LOCTEXT("DiscardDraft", "Discard this modified draft? It has not been inserted into Level Sequence.")) == EAppReturnType::Yes;
 }
 
 TSharedRef<SWidget> SShotEditorRoot::BuildViewportPane()
@@ -317,6 +321,14 @@ TSharedRef<SWidget> SShotEditorRoot::BuildViewportFloatingToolbar()
 							? LOCTEXT("ViewportToolbarExpand", "Tools +")
 							: LOCTEXT("ViewportToolbarCollapse", "Tools -");
 					})]]
+
+			+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0.f, 0.f, 4.f, 0.f)
+			[SNew(SButton).Tag(FName(TEXT("ShotEditor.MaximizePreview")))
+				.ButtonStyle(FAppStyle::Get(), "SimpleButton")
+				.IsEnabled_Lambda([this]() { return !AuthoringSession->IsEditing() && (!GEditor || !GEditor->IsTransactionActive()); })
+				.ToolTipText(LOCTEXT("MaximizePreviewTip", "Hide the authoring pane to enlarge the preview. Restore keeps the previous pane widths."))
+				.OnClicked_Lambda([this]() { bPreviewMaximized = !bPreviewMaximized; return FReply::Handled(); })
+				[SNew(STextBlock).Text_Lambda([this]() { return bPreviewMaximized ? LOCTEXT("RestorePreview", "Restore") : LOCTEXT("MaximizePreview", "Maximize"); })]]
 
 			+ SHorizontalBox::Slot()
 			.AutoWidth()
@@ -511,13 +523,13 @@ FText SShotEditorRoot::BuildHostContextChain() const
 {
 	if (const auto* Track = AuthoringSession->GetInstanceTrack())
 		return BuildInstanceContextChain(*Track);
-	if (!ActiveShot)
-	{
-		return LOCTEXT("NoShotLoadedLabel", "Create -> Choose a Shot template or Create Empty Shot");
-	}
 	if (AuthoringSession->IsSequenceDraft())
 		return FText::Format(LOCTEXT("NamedSequenceDraftBreadcrumb", "{0} / {1} (Draft)"),
 			FText::FromString(AuthoringSession->GetSequence()->GetName()), AuthoringSession->GetDraftName());
+	if (!ActiveShot)
+	{
+		return LOCTEXT("NoShotLoadedLabel", "Create -> Choose a Shot template, Camera Type, or Create Empty Shot");
+	}
 
 	UObject* Host = ActiveHost.Get();
 	if (!Host)
@@ -881,6 +893,10 @@ void SShotEditorRoot::TrySetMode(EShotEditorMode NewMode)
 		return;
 	}
 	const EShotEditorMode OldMode = Viewport->GetMode();
+	if (AuthoringSession->IsGenericInstance())
+	{
+		ClearPendingFreeExitMode(); Viewport->SetMode(NewMode); return;
+	}
 
 	using namespace ComposableCameraSystem::ShotEditorModeSwitch;
 	switch (ClassifyModeRequest(OldMode, NewMode))
@@ -1028,6 +1044,44 @@ TSharedRef<SWidget> SShotEditorRoot::BuildHeaderArea()
 		.AutoHeight()
 		[BuildTopBar()]
 
+		+ SVerticalBox::Slot().AutoHeight().Padding(8.f, 4.f)
+		[SNew(SHorizontalBox)
+			.Visibility_Lambda([this]() { return AuthoringSession->GetHost() ? EVisibility::Visible : EVisibility::Collapsed; })
+			+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
+			[SNew(SBorder).BorderImage(FAppStyle::GetBrush("WhiteBrush")).BorderBackgroundColor(FStyleColors::Secondary).Padding(8.f, 3.f)
+				[SNew(STextBlock).Tag(FName(TEXT("ShotEditor.SourceState"))).Font(FCoreStyle::GetDefaultFontStyle("Bold", 9))
+					.Text_Lambda([this]()
+					{
+						const auto* Host = AuthoringSession->GetHost();
+						if (AuthoringSession->IsSequenceDraft()) return LOCTEXT("StateDraft", "Draft");
+						if (AuthoringSession->GetInstanceTrack() || AuthoringSession->GetSection()) return LOCTEXT("StateInSequence", "In Sequence");
+						if (Host && Host->HasAnyFlags(RF_Transient)) return LOCTEXT("StateDraft", "Draft");
+						return LOCTEXT("StateAsset", "Asset");
+					})]]
+			+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(8.f, 0.f)
+			[SNew(STextBlock).Font(FCoreStyle::GetDefaultFontStyle("Regular", 9))
+				.Text(LOCTEXT("EditingUnavailable", "Editing unavailable"))
+				.Visibility_Lambda([this]() { return AuthoringSession->CanEdit() ? EVisibility::Collapsed : EVisibility::Visible; })]
+			+ SHorizontalBox::Slot().FillWidth(1.f).VAlign(VAlign_Center)
+			[SNew(SButton).ButtonStyle(FAppStyle::Get(), "SimpleButton").HAlign(HAlign_Left)
+				.Visibility_Lambda([this]() { return AuthoringSession->IsGenericInstance() ? EVisibility::Visible : EVisibility::Collapsed; })
+				.IsEnabled_Lambda([this]() { const auto* Values = AuthoringSession->GetInstanceValues(); return GEditor && Values && IsValid(Values->Camera.TypeAsset); })
+				.ToolTipText(LOCTEXT("OpenSourceTypeTip", "Open the source Camera Type asset."))
+				.OnClicked_Lambda([this]()
+				{
+					const auto* Values = AuthoringSession->GetInstanceValues();
+					if (GEditor && Values && IsValid(Values->Camera.TypeAsset))
+						GEditor->GetEditorSubsystem<UAssetEditorSubsystem>()->OpenEditorForAsset(Values->Camera.TypeAsset.Get());
+					return FReply::Handled();
+				})
+				[SNew(STextBlock).OverflowPolicy(ETextOverflowPolicy::Ellipsis).Font(FCoreStyle::GetDefaultFontStyle("Regular", 9))
+					.Text_Lambda([this]()
+					{
+						const auto* Values = AuthoringSession->GetInstanceValues();
+						return FText::Format(LOCTEXT("SourceCameraType", "Source: {0}"), Values && Values->Camera.TypeAsset
+							? FText::FromString(Values->Camera.TypeAsset->GetName()) : LOCTEXT("MissingCameraType", "Missing Camera Type"));
+					})]]]
+
 		+ SVerticalBox::Slot()
 		.AutoHeight()
 		.Padding(0.f, 2.f, 0.f, 0.f)
@@ -1102,18 +1156,18 @@ TSharedRef<SWidget> SShotEditorRoot::BuildTopBar()
 					TrySetMode(NewMode);
 				})
 				+ SSegmentedControl<EShotEditorMode>::Slot(EShotEditorMode::Drag)
-					.Text(LOCTEXT("ModeDrag", "Compose"))
-					.ToolTip(LOCTEXT("ModeDragTip",
+					.Text_Lambda([this]() { return AuthoringSession->IsGenericInstance() ? LOCTEXT("ModeCamera", "Camera") : LOCTEXT("ModeDrag", "Compose"); })
+					.ToolTip_Lambda([this]() { return AuthoringSession->IsGenericInstance() ? LOCTEXT("ModeCameraTip", "View this camera's evaluated output. Edit its exposed inputs in Parameters and Subjects.") : LOCTEXT("ModeDragTip",
 						"Compose: the Shot drives the camera. Drag visible guides "
 						"to edit composition; wheel adjusts follow distance, Alt+RMB "
-						"adjusts roll. Select Follow, Aim or Subjects to show their guides."))
+						"adjusts roll. Select Follow, Aim or Subjects to show their guides."); })
 				+ SSegmentedControl<EShotEditorMode>::Slot(EShotEditorMode::Free)
 					.Text(LOCTEXT("ModeFree", "Inspect"))
-					.ToolTip(LOCTEXT("ModeFreeTip",
+					.ToolTip_Lambda([this]() { return AuthoringSession->IsGenericInstance() ? LOCTEXT("GenericInspectTip", "Freely inspect the level. Returning to Camera restores its evaluated view without changing inputs.") : LOCTEXT("ModeFreeTip",
 						"Inspect: freely orbit, pan and dolly the preview camera. "
 						"Guides are read-only; lens and focus still preview live. "
 						"Alt+RMB adjusts roll on editable Shots. Returning to Compose "
-						"shows Save / Discard / Stay for the current framing."))]];
+						"shows Save / Discard / Stay for the current framing."); })]];
 }
 
 TSharedRef<SWidget> SShotEditorRoot::BuildStatusBar()
@@ -1180,6 +1234,7 @@ TSharedRef<SWidget> SShotEditorRoot::BuildStatusBar()
 
 EVisibility SShotEditorRoot::GetStatusBarVisibility() const
 {
+	if (AuthoringSession->IsGenericInstance()) return CachedGenericStatus.IsEmpty() ? EVisibility::Collapsed : EVisibility::Visible;
 	const EShotEditorMode CurrentMode = Viewport.IsValid()
 		? Viewport->GetMode()
 		: EShotEditorMode::Drag;
@@ -1196,6 +1251,7 @@ EVisibility SShotEditorRoot::GetStatusBarVisibility() const
 
 EVisibility SShotEditorRoot::GetStatusBarFreeExitActionsVisibility() const
 {
+	if (AuthoringSession->IsGenericInstance()) return EVisibility::Collapsed;
 	const EShotEditorMode CurrentMode = Viewport.IsValid()
 		? Viewport->GetMode()
 		: EShotEditorMode::Drag;
@@ -1212,6 +1268,7 @@ EVisibility SShotEditorRoot::GetStatusBarFreeExitActionsVisibility() const
 
 FSlateColor SShotEditorRoot::GetStatusBarBackgroundColor() const
 {
+	if (AuthoringSession->IsGenericInstance()) return FSlateColor(FLinearColor(0.16f, 0.12f, 0.05f, 1.f));
 	const EShotEditorMode CurrentMode = Viewport.IsValid()
 		? Viewport->GetMode()
 		: EShotEditorMode::Drag;
@@ -1236,6 +1293,7 @@ FSlateColor SShotEditorRoot::GetStatusBarBackgroundColor() const
 
 FSlateColor SShotEditorRoot::GetStatusBarTextColor() const
 {
+	if (AuthoringSession->IsGenericInstance()) return FSlateColor(FLinearColor(0.95f, 0.88f, 0.66f, 1.f));
 	const EShotEditorMode CurrentMode = Viewport.IsValid()
 		? Viewport->GetMode()
 		: EShotEditorMode::Drag;
@@ -1260,6 +1318,7 @@ FSlateColor SShotEditorRoot::GetStatusBarTextColor() const
 
 FText SShotEditorRoot::GetStatusBarText() const
 {
+	if (AuthoringSession->IsGenericInstance()) return CachedGenericStatus;
 	const EShotEditorMode CurrentMode = Viewport.IsValid()
 		? Viewport->GetMode()
 		: EShotEditorMode::Drag;
@@ -1300,6 +1359,7 @@ FText SShotEditorRoot::GetStatusBarText() const
 
 EVisibility SShotEditorRoot::GetStatusBarDiagnosticActionVisibility() const
 {
+	if (AuthoringSession->IsGenericInstance()) return EVisibility::Collapsed;
 	using namespace ComposableCameraSystem::ShotEditorStatusBar;
 	const auto State = ResolveStatusBarState(ActiveShot != nullptr, ActiveHost.IsValid(), bHasPendingFreeExitMode,
 		Viewport ? Viewport->GetMode() : EShotEditorMode::Drag, CachedDiagnostic.HasIssue());

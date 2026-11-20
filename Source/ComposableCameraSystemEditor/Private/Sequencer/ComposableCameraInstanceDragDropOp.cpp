@@ -37,7 +37,7 @@ TSharedPtr<FComposableCameraInstanceDragDropOp> FComposableCameraInstanceDragDro
 		: Values->SourcePreset ? FText::FromString(Values->SourcePreset->GetName()) : NSLOCTEXT("CameraInstance", "DraftLabel", "Camera Shot");
 	// FAssetData can describe a loaded transient UObject. This neither registers nor saves an asset.
 	Op->Init({FAssetData(Op->Snapshot.Get())}, {}, TScriptInterface<IAssetFactoryInterface>());
-	Op->DefaultHoverText = NSLOCTEXT("CameraInstance", "DragHint", "Create Camera Instance in this Level Sequence");
+	Op->DefaultHoverText = NSLOCTEXT("CameraInstance", "DragOverwriteHint", "Create Camera Instance and replace Camera Cuts in this interval");
 	Op->CurrentHoverText = Op->DefaultHoverText;
 	Op->Construct();
 	GCameraInstanceDrag = Op;
@@ -57,6 +57,8 @@ bool FComposableCameraInstanceDragDropOp::CanDrop(const ISequencer& Sequencer, F
 	Error.Reset();
 	if (bDropped || !Snapshot || !SourceSequence || Sequencer.GetFocusedMovieSceneSequence() != SourceSequence)
 	{ Error = TEXT("Drop into the draft's original focused Level Sequence. Subject bindings belong to that sequence."); return false; }
+	if (!Snapshot->IsTypeInterfaceCurrent() || !Snapshot->IsTypeInterfaceValid())
+	{ Error = TEXT("The Camera Type changed during this drag. Refresh the draft and drag again."); return false; }
 	const auto* Scene = SourceSequence->GetMovieScene();
 	if (!Scene || Scene->IsReadOnly() || Sequencer.IsReadOnly() || !SourceSequence->AllowsSpawnableObjects() || !Sequencer.GetPlaybackContext())
 	{ Error = TEXT("The destination sequence is closed, read-only or cannot create a camera."); return false; }
@@ -70,7 +72,9 @@ void FComposableCameraInstanceDragDropOp::UpdateFeedback(const ISequencer& Seque
 	PreviewRange = TRange<FFrameNumber>(Frame, Frame);
 	FString Error;
 	const bool bAllowed = CanDrop(Sequencer, Error) && ComposableCameraSystem::CameraInstanceAuthoring::MakeCreationRange(
-		Sequencer.GetFocusedTickResolution(), Frame, DurationSeconds, PreviewRange, Error);
+		Sequencer.GetFocusedTickResolution(), Frame, DurationSeconds, PreviewRange, Error)
+		&& ComposableCameraSystem::CameraInstanceAuthoring::CanReplaceCameraCut(*SourceSequence->GetMovieScene(), PreviewRange, Error);
+	if (!bAllowed) PreviewRange = TRange<FFrameNumber>(Frame, Frame);
 	SetToolTip(bAllowed ? DefaultHoverText : FText::FromString(Error),
 		FAppStyle::GetBrush(bAllowed ? "Graph.ConnectorFeedback.OK" : "Graph.ConnectorFeedback.Error"));
 }

@@ -1,6 +1,6 @@
 # ComposableCameraSystem Tech Notes
 
-Updated: 2026-10-13
+Updated: 2026-11-20
 
 Purpose: compact implementation reference. Keep this file current when code
 patterns, public APIs, hot-path rules, node catalogs, or gotchas change.
@@ -1014,15 +1014,21 @@ Shot Editor V1 authoring technique:
   intact. Button styling stays separate from card styling. TabStyle retains its
   four-unit rounded tintable brushes; TabColor supplies full accent for selected
   primary navigation/preview toggles and Secondary gray otherwise.
-  SecondaryTabColor mixes 65% accent for selected Edit tabs. Navigation captions
-  remain regular 9-point text with no selection stripes. ActionStyle returns the
+  SecondaryTabStyle supplies transparent normal and neutral hover/pressed brushes
+  for Edit text tabs. Equal zero normal/pressed padding prevents label movement.
+  A retained two-unit bottom strip uses an accent/transparent color attribute;
+  selection changes neither widget identity nor desired size. The separate Panel
+  background and eight-unit vertical gap distinguish secondary navigation from
+  primary filled buttons. Navigation captions remain regular 9-point text.
+  ActionStyle returns the
   native AppStyle Button. Live color attributes retain selection feedback without
   rebuilding controls. Disabled behavior stays native.
   Static brushes avoid per-frame
   allocation. Tasks are 28 units high (14-unit icons, 9-point labels), Edit tabs
-  are 26 units high (9-point labels), native parameter rows are 24 units high.
+  are 28 units high (9-point labels), native parameter rows are 24 units high.
   Level Preview is a centered 104 x 24 button in a reserved AutoWidth slot at
-  the navigation's right. Its stable tag supports layout tests. Source selection
+  the navigation's right for composition sources. Ordinary types collapse it and
+  show Preview: Level text. Its stable tag supports layout tests. Source selection
   is explicit: the root Tick does not scan Camera Cuts or switch Shot Sections.
   InstanceEditor::Refresh still samples current Sequencer time independently.
   Actions use an outer left-aligned box plus a fixed 156 x 24 inner box; a lone
@@ -1030,6 +1036,23 @@ Shot Editor V1 authoring technique:
   Inspect / Preview copies native segmented-control shapes with themed states.
 - `SShotEditorPreviewLayout` uses native SSplitter arrangement and input, with no
   custom height fractions, cached geometry probe or authoring-height reserve.
+  Root Maximize collapses the retained authoring SBox; native SSplitter excludes
+  that slot and its divider. Restore changes visibility only, preserving the
+  coefficient, widgets and edit source. There is no source/frame text strip.
+  Maximize/Restore is an always-visible sibling of the Tools toggle in the
+  floating toolbar, outside its collapsible controls. No preference write occurs
+  for maximize. AdaptivePreviewResize also checks maximize/restore geometry.
+  The header state reads session identity, never name suffixes. Generic Actor
+  cards snapshot only label/class/required text during structural refresh; their
+  metadata signature participates in refresh even if field paths are unchanged.
+  Native binding pickers continue resolving live session binding IDs.
+  Sequence summary uses a native LevelSequence icon/name row and two proportional
+  metric cells, with muted captions, larger values and ellipsis overflow. It uses
+  MovieScene display rate for frame labels and tick resolution for seconds;
+  exclusive-end semantics live in the frame-range tooltip. Draft range reads
+  On insert; unbounded clips show Unbounded and a dash for duration. Visibility
+  attributes retain draft and bound action groups across
+  source swaps; ClipActions covers the switch and read-only navigation.
   Keep its default Visible state: SelfHitTestInvisible would disable splitter
   handle input. Skip arrangement when available width cannot fit the five-unit
   divider or height is nonpositive, avoiding negative viewport extents during
@@ -3280,7 +3303,87 @@ Update this document when:
   blank-area drops already own a transaction; reuse the instance creation service
   without globally undoing a caller's transaction. After success, force evaluation
   at the created start and rebind the originating session only if it still edits
-  the captured source. Existing conflicting Cuts are preserved with feedback.
+  the captured source. Camera Cuts within the inserted interval are replaced.
+- UE5.6 MakeNewSpawnable's legacy actor path calls StaticDuplicateObject with
+  RF_AllFlags. Passing an RF_Transient staging actor therefore yields a transient
+  MovieScene template: the GUID/Cut save, but the template is omitted and reopening
+  reports a missing object template. SpawnableTemplate::MakePersistent clears that
+  flag on the stored actor and its components, then marks the package dirty; it
+  never makes the staging/live actor persistent. Both instance and legacy Shot
+  creation use this helper, as does adoption of existing owned templates.
+  Ensure repairs a null legacy template only when the existing native binding,
+  local OutputBinding and unique owning Activation agree. Construct a transactional
+  generic LSActor template under MovieScene, restore the instance driver/owner/type,
+  and mark it as a spawnable template without changing the binding or Cuts. Do not
+  fall through to new-binding creation for this known saved-data defect.
+  CameraInstance.OutputPersistence saves a real package to an isolated OS temporary
+  file, loads distinct objects with package remapping and checks camera resolution,
+  Cut/owner identity and parameter keys. RepairMissingOutputTemplate
+  checks old transient normalization, null-template recovery, read-only refusal,
+  retained locked Cuts/lanes and Undo/Redo. Both require IDE-side execution.
+- CanReplaceCameraCut shares read-only preflight across hover/Create/Duplicate:
+  reject locked active overlaps before creating an output. ReplaceCameraCut uses
+  TRange::Difference to retain zero/one/two old fragments, duplicating the original
+  section for a right remainder. Preserve binding and outer-edge easing; clear
+  easing on new internal boundaries. Modify old sections/owners/track in the same
+  transaction. Release affected ManagedCut references so OnDataChanged cannot
+  restore the old Activation-sized range. Remainders are authored references and
+  participate in existing output-orphan protection. Native RemoveSection fills
+  gaps by default: temporarily disable auto-management, rebuild sorted membership,
+  then restore the preference. Never invoke gap filling during interval replacement.
+  References checked: UE5.6 MovieSceneCameraCutTrack.cpp RemoveSection/AddSection,
+  MovieSceneSection.cpp SplitSection and Core Math/Range.h Difference. No engine
+  code copied. CutOverwrite/CutOverwriteRanges cover real creation and draft drop,
+  duplication, bounds, locks, ownership and Undo/Redo; execution remains IDE-side.
+- Managed Cut synchronization compares notification-time snapshots of both section
+  identities and ranges. A Cut range edit that differs from Activation clears
+  ManagedCut with Owner.Modify in the existing gesture transaction. Cache the Cut
+  even for multi-Activation owners; only automatic following needs a single
+  Activation. An Activation range edit with an unchanged Cut adds its target to
+  a local pending-range map. Prune conflicts against each peer's proposed range
+  (or its current range if not moving) until no further move is rejected, then
+  apply the remaining ranges. This handles adjacent batch moves and propagates
+  blocked moves without depending on binding traversal order for valid batches.
+  Equal group moves retain management. Neither changed means no range write.
+  CacheManagedCuts records weak identities on open, focus changes, data changes
+  and Undo/Redo, including notifications outside transactions. It neither dirties
+  restored data nor adds an Undo entry, and does not scan from idle Tick/evaluation.
+  New section identities prime a baseline. Native Cut auto-arrange changes to
+  adjacent sections count as authored edits too. Cleared management persists in
+  the existing property; no new serialized field or asset migration is needed.
+  UE5.6 EditToolDragOperations.cpp notifies during drag and after EndTransaction;
+  Sequencer.cpp PostUndo notifies and broadcasts OnActivateSequence (also for Redo).
+  ManualCutEditing covers Set Camera Cut, repeated drag notifications, trims,
+  Undo/Redo, restored following and explicit reset. ManagedCutFollowing covers
+  group moves, Activation-only edits, conflicts and unrelated notifications.
+  ManagedCutBatchMove covers several owners in both directions and blocked
+  dependency chains; MultiActivationCutOwnership covers direct edits before and
+  after reducing an instance to one Activation, including Undo/Redo.
+  These tests still require IDE/editor execution.
+- CanSetCameraCut checks editable focused ownership, enabled finite unlocked
+  Activation, gesture/transaction guards and the shared locked-overlap preflight.
+  CameraInstanceOutput::HasOwnedOutput is read-only: local top-level binding and
+  template component must both belong to the instance. SetCameraCut reuses
+  ReplaceCameraCut inside one transaction, never calls Ensure, and notifies after
+  commit so automatic repair cannot widen the Cut-only transaction. Correct
+  managed range/binding with no active conflict returns before creating Undo.
+  CameraInstance.SetCameraCut covers missing Cut/track, output reuse, overwrite,
+  one Undo after repeated requests, Redo, locked/read-only/foreign/unbounded
+  rejection. ClipActions exercises the actual panel action outside Activation.
+- ShotSubjectBinding::Inspect is an editor-only read query. Retained rows supply
+  weak class/required metadata; inspection uses the current session binding ID
+  and source-focused template context. No property-bag reflection or cached live
+  Actor pointer is added to runtime evaluation. GetMessage handles every status.
+  Local metadata can be read without an open Sequencer; resolution requires focus.
+  IsBoundToAnySpawnable handles legacy and UE5.6 custom binding references, where
+  FindSpawnable alone is insufficient. Locate re-inspects on click, uses native
+  SelectObject plus the public Outliner model/view to expand/scroll, or native
+  editor Actor selection/framing. Cross-Sequence GUIDs cannot select local rows.
+  GenericDraft checks diagnostics, custom Spawnable classification, respawn,
+  read-only binding navigation, no seek/write, missing and foreign binding IDs.
+  SubjectBindingPicker retains offline label and old Section assignment coverage.
+  Engine references: MovieSceneCommonHelpers.h IsBoundToAnySpawnable, ISequencer.h
+  GetOutlinerViewWidget/SelectObject, Sequencer's public ObjectBindingModelStorageExtension.
 - AutoSizedAction remains for standalone creation actions, using native caption
   desired size and minimum dimensions. Clip uses SequenceAction instead: fill the
   shared vertical column, center a wrapping STextBlock, and keep a 28-unit minimum
@@ -3289,15 +3392,14 @@ Update this document when:
   the actual tagged rows at 180/300/420 units and 1x/1.5x/2x DPI; SequenceActionWidth
   retains coverage for content-sized actions elsewhere.
 - SequenceDragButton retains its native SButton mouse/click/drag handlers with
-  an Icons.DragHandle SImage in a 16-unit box and six-unit content padding. The
-  image is hit-test invisible and inherits foreground tint. Its parent uses an
-  AutoWidth icon slot and a FillWidth wrapping description, keeping explanatory
-  text outside the drag target without constraining localized caption width.
+  an Add at Playhead caption, an Icons.DragHandle SImage in a 16-unit box and
+  six-unit content padding. The content row is hit-test invisible and inherits
+  foreground tint. A wrapping description below stays outside the drag target.
 - The drag row and button both require IsSequenceDraft; MakeOperation enforces
   the same rule so a bound instance cannot start an insertion through input fallback.
   GetBoundClip checks MovieScene membership, then chooses active/first Activation
   (or the legacy Section). Go to Clip selects that Section and frames its range
-  without seeking. Bound actions are disabled for drafts and removed clips.
+  without seeking. Bound actions collapse for drafts and removed clips.
 - Use native Spawnable/Possessable SetName when initializing managed bindings.
   UE5.6 FObjectBindingModel::Rename writes those names; MovieScene's
   ObjectsToDisplayNames override is read first and would mask later Rename.
@@ -3330,8 +3432,8 @@ Update this document when:
   Rebuild each copied channel proxy, then use native MoveSection for both bounds
   and keys; temporarily unlock only the copies, restoring their original lock state.
   Open bounds stay open; interpolation/defaults and stable Subject IDs survive.
-  All activation intervals move relative to the selected anchor. A free anchor
-  interval gets a new Cut; conflicts leave authored Cuts unchanged. One transaction
+  All activation intervals move relative to the selected anchor. The anchor
+  interval gets a new Cut using the shared replacement policy. One transaction
   owns the complete edit; failures remove only newly created objects, never undo
   unrelated history. Navigation works in read-only scenes; duplication does not.
   The source need not be active at the destination playhead. Copy authored data,
@@ -3369,5 +3471,56 @@ existing-curve updates, Undo/Redo and coexistence with Auto Key. InfiniteParamet
 checks unbounded defaults and transactional conversion of existing bounded keys.
 Tests added, not executed. Successful drag dispatch, native key-button capture,
 output lifecycle and MRQ still require IDE/editor integration checks. This work
-does not certify hot graph changes, generic seek-state reset or first-frame
-Camera Cut/render ordering.
+does not certify first-frame Camera Cut/render ordering. The following ordinary-type
+extension adds source-interface checks and cold resets, still pending IDE execution.
+
+### Ordinary drafts, interface retention and cold resets — 2026-11-17
+
+- InstanceData.RefreshTypeInterface compares both candidate bags before migration:
+  name, value type, referenced type and container shape must survive. Keep old bags
+  and slots intact on any incompatible field. PostLoad uses this gate; never call
+  destructive RebuildBagsFromTypeAsset blindly on an existing instance. Additions
+  seed new fields only. UE5.6 MigrateToNewBagStruct copies by descriptor GUID, not
+  name: fresh layouts may generate fresh GUIDs. After validation, explicitly copy
+  old named properties with CopyCompleteValue into the candidate, then swap bags.
+  Actor references are cleared; Subjects remain authoritative.
+- TypeAsset's process-local revision advances on Build (also graph sync), property
+  changes and Undo. Evaluation/editor copies cache type+revision. InstanceData Undo
+  invalidates that cache because serialized bags can revert independently. Native
+  menus inspect a refreshed temporary copy; commits migrate defaults transactionally
+  before creating the first parameter lane for a newly exposed input. Adding sibling
+  lanes must not replace already-current bags while Commit holds default-field pointers.
+- GatherFields compiles required-Actor metadata alongside property/value pointers.
+  Runtime resolves binding objects into evaluation copies, clearing missing Actors;
+  it withholds output when a required Actor is unavailable. These checks do not add
+  per-frame reflection, strings or growing containers.
+- FComposableCameraInstanceTime shares sequence/subframe delta and repeated-time
+  handling. Stopped alone does not reset runtime samples. Jump/scrub/step, backwards
+  time and invalidation reset with dt=0. Generic reset reconstructs nodes, including
+  custom node state, rather than clearing only TickCamera's cache. This explicitly
+  allocates on discontinuities/authoring invalidation; continuous playback reuses
+  evaluators/bags/compiled fields. No checkpoint cache or warm-up replay is added.
+- In editor builds, the instance TrackInstance subscribes to OnObjectPropertyChanged
+  in OnInitialize and removes the subscription in OnDestroyed. A change on a
+  currently resolved Subject Actor or its subobject sets the existing bReset flag.
+  The next same-time evaluation cold-samples once; the callback does not call
+  ForceEvaluate. No new serialized state, per-frame scan or Shot Editor dependency
+  is added. This handles native Details/Undo notifications; runtime setters that
+  emit no editor property event are outside this invalidation hook.
+- Do not call DestroyInternalCamera for a same-instance seek: it clears Patch
+  registrations too. Reconstruct only the camera evaluator; full Release/teardown
+  owns overlay cleanup. Retain the output's original seed across activation gaps.
+- DraftPreview uses the existing generic LSActor/component, with transient flags,
+  editor hiding and disabled autonomous ticks. FGCObject holds Actor/Values; the
+  session releases it on insertion/source switch/focus loss/destruction. Subject
+  transforms and identity are cached; editor property changes invalidate preview.
+  Parameter edits invalidate only the evaluation copy, not source Type defaults.
+- Tests: CameraInstance.GenericDraft exercises real Create/Subjects/preview/drag/
+  Auto Key, inactive respawn, binding Undo/Redo and no pre-insertion LS writes;
+  InterfaceRetention covers additive defaults, deletion/type changes, load hook and
+  source Undo; ColdReset uses real pivot damping and verifies Patch registration
+  survives reconstruction. SubjectComponentRefresh uses a real bound camera and
+  an unbound skeletal component: fixed-time property edits, unchanged root/Scene
+  signature, repeated-sample damping stability, Undo/Redo and Subject replacement.
+  Existing GenericEditor and ScrubRetainsControls cover
+  stable sampled memory/rows. Compilation and execution remain IDE-side work.

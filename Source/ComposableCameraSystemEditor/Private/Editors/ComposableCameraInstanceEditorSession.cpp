@@ -35,6 +35,7 @@ TOptional<double> FComposableCameraInstanceEditorSession::ReadEditorValue(const 
 		// Native AddKey calls Section.Modify before asking for external values; its
 		// signature has already changed here. Pending values are gated by identity/time.
 		if (!Owner || Editor->Track.Get() != Owner || !Seq || !Editor->Values || !Editor->PendingInputs.Contains(Input)
+			|| !Editor->Values->IsTypeInterfaceCurrent() || !Editor->Values->IsTypeInterfaceValid()
 			|| Seq->GetFocusedMovieSceneSequence() != Owner->GetTypedOuter<UMovieSceneSequence>()
 			|| Seq->GetLocalTime().Time != Editor->SampleTime) continue;
 		TArray<FComposableCameraInstanceField> Fields;
@@ -108,14 +109,24 @@ UMovieSceneComposableCameraInstanceSection* AddInterval(UMovieSceneTrack& Track,
 }
 UMovieSceneComposableCameraInstanceParameterTrack* AddParameterTrack(UMovieSceneComposableCameraInstanceTrack& Owner, FName Input, FFrameTime Time)
 {
-	if (auto* Existing = FindParameterTrack(Owner, Input)) return Existing;
 	auto* Scene = Owner.GetTypedOuter<UMovieScene>();
 	const FGuid Binding = Owner.FindObjectBindingGuid();
 	if (!Scene || Scene->IsReadOnly() || !Binding.IsValid() || !Owner.Instance || !Owner.IsInMovieScene()) return nullptr;
+	TStrongObjectPtr<UComposableCameraInstanceData> Candidate(NewObject<UComposableCameraInstanceData>());
+	Candidate->CopyConfiguration(*Owner.Instance);
+	if (!Candidate->RefreshTypeInterface()) return nullptr;
 	TArray<FComposableCameraInstanceField> Fields;
-	Owner.Instance->GatherFields(Fields);
+	Candidate->GatherFields(Fields);
 	const auto* Field = Fields.FindByPredicate([&](const auto& Item) { return Item.Path == Input; });
 	if (!Field || Field->Type == EComposableCameraInstanceFieldType::Object) return nullptr;
+	if (auto* Existing = FindParameterTrack(Owner, Input)) return Existing;
+	if (!Owner.Instance->IsTypeInterfaceCurrent())
+	{
+		// Commit may be iterating compiled default-field addresses. Do not replace
+		// already-current storage merely because another sibling lane is added.
+		Owner.Modify(); Owner.Instance->Modify();
+		Owner.Instance->CopyConfiguration(*Candidate.Get());
+	}
 	Scene->Modify();
 	auto* Parameter = Scene->AddTrack<UMovieSceneComposableCameraInstanceParameterTrack>(Binding);
 	if (!Parameter) return nullptr;
@@ -181,6 +192,7 @@ bool FComposableCameraInstanceEditorSession::CanEdit() const
 	const auto* Scene = Owner ? Owner->GetTypedOuter<UMovieScene>() : nullptr;
 	if (!Owner || !Owner->Instance || !Owner->IsInMovieScene() || !Scene || Scene->IsReadOnly() || !Seq || Seq->IsReadOnly()
 		|| Seq->GetFocusedMovieSceneSequence() != Owner->GetTypedOuter<UMovieSceneSequence>()) return false;
+	if (!Values || !Values->IsTypeInterfaceCurrent() || !Values->IsTypeInterfaceValid()) return false;
 	const auto* Active = UMovieSceneComposableCameraInstanceTrack::FindActiveSection(*Owner, Seq->GetLocalTime().Time);
 	return Active && !Active->IsLocked();
 }
@@ -208,13 +220,19 @@ FComposableCameraInstanceEditorSession::ERefreshResult FComposableCameraInstance
 		|| Seq->GetFocusedMovieSceneSequence() != Owner->GetTypedOuter<UMovieSceneSequence>()) return ERefreshResult::None;
 	const auto* Scene = Owner->GetTypedOuter<UMovieScene>();
 	const FFrameTime Time = Seq->GetLocalTime().Time;
-	const bool bSourceChanged = Signature != Scene->GetSignature();
+	const bool bSourceChanged = Signature != Scene->GetSignature() || !Values->IsTypeInterfaceCurrent();
 	if (!bSourceChanged && SampleTime == Time) return ERefreshResult::None;
 	if (bSourceChanged)
 	{
 		Values->CopyConfiguration(*Owner->Instance);
+		Values->RefreshTypeInterface();
 		Baseline->CopyConfiguration(*Values);
 		CacheFields();
+	}
+	if (!Values->IsTypeInterfaceValid())
+	{
+		PendingInputs.Reset(); Signature = Scene->GetSignature(); SampleTime = Time;
+		return bSourceChanged ? ERefreshResult::Source : ERefreshResult::None;
 	}
 	// Native widgets read these addresses. Seeking must not replace bags/arrays or
 	// rebuild the property tree. Restore defaults first for gaps and muted lanes.
@@ -237,6 +255,13 @@ void FComposableCameraInstanceEditorSession::Commit(bool bStructural)
 	const FFrameTime Time = Seq->GetLocalTime().Time;
 	// A gesture owns its sample time. Never apply stale values to another frame.
 	if (Time != SampleTime) { Signature.Invalidate(); return; }
+	// New source inputs must exist in authored defaults before the first Auto Key
+	// creates a sibling lane. Migration belongs to this edit's transaction.
+	if (!Owner->Instance->IsTypeInterfaceCurrent())
+	{
+		Owner->Modify(); Owner->Instance->Modify();
+		if (!Owner->Instance->RefreshTypeInterface()) return;
+	}
 	Values->EnsureSubjectIdentities(); Values->RefreshSubjectSlots();
 	// Structural actions (selected actors, templates, appended subjects) share the same binding conversion.
 	// Only the editing buffer may temporarily carry actor pointers.
@@ -311,14 +336,23 @@ void FComposableCameraInstanceEditorSession::Preview()
 		const auto* Field = Fields.FindByPredicate([&](const auto& Item) { return Item.Path == Binding.Input; });
 		if (!Field) continue;
 		UObject* Actor = nullptr;
-		if (Binding.Binding.IsValid()) for (const auto Object : Binding.Binding.ResolveBoundObjects(Seq->GetFocusedTemplateID(), *Seq))
-			if (Object.IsValid()) { Actor = Object.Get(); break; }
+		const auto* Property = CastField<FObjectPropertyBase>(Field->Property);
+		if (Property && Binding.Binding.IsValid()) for (const auto Object : Binding.Binding.ResolveBoundObjects(Seq->GetFocusedTemplateID(), *Seq))
+			if (Object.IsValid() && Object->IsA(Property->PropertyClass)) { Actor = Object.Get(); break; }
 		Field->WriteObject(Actor);
 	}
+	const bool bRequiredMissing = Fields.ContainsByPredicate([](const auto& Field)
+	{
+		const auto* Property = CastField<FObjectPropertyBase>(Field.Property);
+		return Field.bRequiredActor && Property && !IsValid(Property->GetObjectPropertyValue(Field.Value));
+	});
 	for (const auto Object : Owner->OutputBinding.ResolveBoundObjects(Seq->GetFocusedTemplateID(), *Seq))
 		if (auto* Actor = Cast<AActor>(Object.Get()))
 			if (auto* Output = Actor->FindComponentByClass<UComposableCameraLevelSequenceComponent>(); Output && Output->CameraInstanceOwner == Owner)
-				Output->EvaluateCameraInstance(*PreviewValues.Get(), 0.f, true);
+				{
+					if (bRequiredMissing) Output->InvalidateCameraInstanceResult();
+					else Output->EvaluateCameraInstance(*PreviewValues.Get(), 0.f, true);
+				}
 }
 void FComposableCameraInstanceEditorSession::AddReferencedObjects(FReferenceCollector& Collector)
 {
