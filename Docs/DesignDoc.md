@@ -1,6 +1,6 @@
 # ComposableCameraSystem Design
 
-Updated: 2026-11-20
+Updated: 2026-11-21
 
 This document describes the current runtime architecture of the UE 5.6
 ComposableCameraSystem plugin. It is intentionally compact. Implementation
@@ -165,6 +165,35 @@ Build converts the asset graph into:
 
 Editor graph data is transient. Durable state lives on the asset.
 
+Native asset validation (2026-11-20) uses the same const
+`CollectBuildMessages` collector as the type editor's Build command. Build
+publishes status/messages and advances `EvaluationRevision`; `IsDataValid`
+only returns local diagnostics. Content Browser validation must not dirty the
+asset, replace its stored Build result, or invalidate an active preview.
+
+The validation surface covers CameraType/Patch, Shot, ShotTemplateLibrary,
+MeshProfile, Action, Modifier, Transition and TransitionTable assets. It checks
+authored structure and references, not whether a reusable Shot's Actor inputs
+are currently bound in a level. Soft references use loaded objects or Asset
+Registry metadata without synchronous asset loads. Pending discovery produces
+a warning; a missing reference after discovery is an error. Referenced assets
+are validated separately, avoiding recursive traversal through asset cycles.
+
+Empty CameraTypes and Node Type Modifier entries with neither a node template
+nor a legacy target class are authoring warnings. These configurations have no
+camera-node effect and do not fail validation by themselves. Stale selected
+override properties remain errors.
+
+Shot mode validation follows the solver: AnchorAtScreen supports both
+LookAtAnchor and NoOp aim. NoOp does not consume the aim anchor, but
+FollowAimAnchor focus still does. Unknown modes and invalid consumed target
+indices remain errors.
+
+Type diagnostics include missing pin endpoints, exact storage-shape matching,
+stale exposed parameters and directly reflected Object/Actor wire constraints.
+Unrelated classes are errors; a general source feeding a narrower target is a
+warning because the runtime class guard still decides whether each object fits.
+
 ## 8. Cameras and Nodes
 
 `AComposableCameraCameraBase` is the runtime evaluator.
@@ -195,6 +224,17 @@ input pose
 
 Compute nodes run in the camera BeginPlay path. They seed data before normal
 per-frame camera nodes run.
+
+The Math palette supplies per-frame Scalar arithmetic, Clamp, Remap Range,
+Lerp, Sample Curve, Select, Float To Double and Double To Float nodes. They
+derive from camera nodes, run on Start, publish `Result`, and preserve the
+incoming pose. Wire their execution before consumers; a data wire alone does
+not schedule an unconnected node. Select chooses data, not an execution branch.
+
+Scalar operators use Float storage so results can drive FOV directly. Double
+inputs/outputs require explicit conversion nodes: runtime wires alias storage
+and cannot perform implicit numeric conversion. These nodes do not change the
+BeginPlay compute chain or introduce a separate pure-node evaluation scheduler.
 
 Built-in compute nodes cover activation-time helpers such as actor distance /
 direction, actor-between world positions with height offsets, and initial

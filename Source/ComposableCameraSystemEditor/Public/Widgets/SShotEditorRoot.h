@@ -123,9 +123,8 @@ private:
 	 * CameraTypeAsset / standalone-ShotAsset case. See Section 14 of EditorDesignDoc. */
 	TSharedPtr<SComboButton> LSShotsCombo;
 
-	/** "Recent" dropdown - module-lifetime history of the last 20 hosts the
-	 * Shot Editor was bound to. Always visible (greyed out when history is
-	 * empty). Backed by `FShotEditorHistory` singleton. */
+	/** "Recent" dropdown - persistent per-project history of the last 20 hosts.
+	 * Always visible, with an explanatory empty state. Backed by `FShotEditorHistory`. */
 	TSharedPtr<SComboButton> HistoryCombo;
 
 	/** The 3D preview viewport. Forwarded SetActiveShot calls drive proxy

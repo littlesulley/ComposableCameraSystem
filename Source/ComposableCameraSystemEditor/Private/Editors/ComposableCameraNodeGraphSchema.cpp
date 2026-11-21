@@ -1173,10 +1173,11 @@ bool UComposableCameraNodeGraphSchema::ArePinTypesCompatible(const FEdGraphPinTy
 		return false;
 	}
 
-	// For Real type, Float and Double are interchangeable.
+	// The data block aliases connected storage; it does not insert a numeric cast.
+	// Use the explicit Math conversion nodes to cross float/double boundaries.
 	if (SourceType.PinCategory == UEdGraphSchema_K2::PC_Real)
 	{
-		return true;
+		return SourceType.PinSubCategory == TargetType.PinSubCategory;
 	}
 
 	// For Struct type, the specific struct must match.

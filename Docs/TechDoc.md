@@ -1,6 +1,6 @@
 # ComposableCameraSystem Tech Notes
 
-Updated: 2026-11-20
+Updated: 2026-11-22
 
 Purpose: compact implementation reference. Keep this file current when code
 patterns, public APIs, hot-path rules, node catalogs, or gotchas change.
@@ -150,6 +150,25 @@ Blueprint/K2/DataTable
   -> FinishSpawning
   -> evaluation tree activation
 ```
+
+Asset validation uses `UComposableCameraTypeAsset::CollectBuildMessages`, a
+const collector with local scratch arrays. `Build()` publishes its result and
+advances `EvaluationRevision`; native `IsDataValid()` maps local messages into
+`FDataValidationContext` without modifying the asset or preview revision.
+Patch-specific checks still enter through `ValidateAdditional`.
+The shared helper in `Private/DataAssets/ComposableCameraAssetValidation.*`
+checks other asset families and direct pin shapes/classes. It deliberately does
+not resolve Shot Actors or recursively validate referenced asset contents.
+Soft-reference checks use Asset Registry metadata/redirects without forced
+loads; the runtime module adds AssetRegistry only for editor builds.
+Successful native checks normalize the base NotValidated result to Valid.
+For generic Modifier entries without a NodeTemplate or legacy NodeClass, add a
+warning to the validation context, not an error. Runtime registration skips
+entries with no target class. Warning-only assets remain Valid; errors from
+other entries still make the result Invalid. Empty CameraTypes likewise warn.
+ValidateShot permits AnchorAtScreen with NoOp, matching SolveShot's fixed-rotation
+branch. Aim anchors are checked for LookAtAnchor or when consumed by Focus;
+unknown Aim modes and required placement targets retain their checks.
 
 ### Node Property Modifiers
 
@@ -357,6 +376,34 @@ Rules:
   path skips compute nodes after spawn because BeginPlay happened before node
   construction in that path.
 
+### Per-Frame Math Nodes
+
+Per-frame Math operators are camera nodes, not compute nodes. Their declarations
+and reflection bindings are prepared on cold paths; tick performs scalar math,
+curve evaluation and cached output-slot writes. No per-tick containers, string
+formatting, reflection discovery or synchronous asset loading are introduced.
+
+Numerical contracts:
+
+- Scalar: Add, Subtract, Multiply, Divide, Minimum, Maximum, Absolute. Division
+  uses `DivideByZeroValue` when `abs(B) <= UE_SMALL_NUMBER`.
+- Clamp sorts reversed bounds. Remap preserves reversed input/output direction;
+  a zero/near-zero input width yields OutputMin. Remap and Lerp clamp their
+  weights by default and allow explicit extrapolation.
+- Remap/Lerp use double intermediates and check representability before a float
+  cast. Non-finite/unrepresentable results become zero.
+- Sample Curve uses a hard `TObjectPtr<UCurveFloat>` and the curve's own
+  extrapolation settings. Missing curve/non-finite input yields FallbackValue;
+  every evaluation republishes a result, including after clearing the curve.
+- Select picks TrueValue/FalseValue from bCondition without skipping execution
+  of upstream nodes. Scalar outputs sanitize non-finite results to zero.
+- Float To Double widens; Double To Float saturates finite values to the float
+  range. Non-finite conversion inputs yield zero. Conversion is explicit because
+  data-block aliasing requires identical pin storage shapes.
+
+These nodes preserve pose and must precede consumers on Start. A data wire does
+not add an execution step. BeginPlay compute semantics remain unchanged.
+
 ## 8. Evaluation Tree
 
 `FComposableCameraEvaluationTreeNode` is a `TVariant` wrapper with:
@@ -486,6 +533,16 @@ apply latest parameter bags, tick evaluators, and blend by section envelope
 alpha.
 
 ## 12. Level Sequence
+
+Editor viewport persistence uses `Sequencer/ComposableCameraSequencerViewport`.
+`OnPreSequencerInit` repairs persisted editing Roll before camera-cut capture;
+`OnShutdownPostPackagesSaved` restores native pre-animated state before
+`SLevelViewport::OnEditorClose` saves the view. `OnSequencerCreated` is too late
+as a general pre-initialization hook, and module shutdown is too late for saving.
+Disable Camera Cuts on all eligible sessions before restoration; the final tick
+must not take control again. Do not close tabs early or overwrite Saved config.
+Traversal/allocation occurs only at open/shutdown. Open-session weak references
+retain creation order and are removed on Close, not only on shared-pointer expiry.
 
 Main types:
 
@@ -1580,6 +1637,14 @@ Current node classes:
 - `UComposableCameraTwoPointMoveNode`
 - `UComposableCameraViewTargetProxyNode`
 - `UComposableCameraVolumeConstraintNode`
+- `UComposableCameraScalarMathNode`
+- `UComposableCameraClampNode`
+- `UComposableCameraRemapNode`
+- `UComposableCameraLerpNode`
+- `UComposableCameraCurveSampleNode`
+- `UComposableCameraSelectNode`
+- `UComposableCameraFloatToDoubleNode`
+- `UComposableCameraDoubleToFloatNode`
 
 Node notes:
 
@@ -1606,6 +1671,7 @@ Base classes:
 
 - `UComposableCameraCameraNodeBase`
 - `UComposableCameraComputeNodeBase`
+- `UComposableCameraScalarNodeBase` (common Float Result publication)
 
 ## 17. Built-In Transitions
 
@@ -1665,6 +1731,37 @@ Interpolators:
 - `UComposableCameraSpringDamperInterpolator`
 
 ## 19. Current Automation Tests
+
+Added 2026-11-22; IDE compilation and editor execution pending:
+
+- `ComposableCameraSystem.Editor.SequencerViewport.StartupRollRecovery`
+- `ComposableCameraSystem.Editor.SequencerViewport.ShutdownRestore`
+- `ComposableCameraSystem.Editor.SequencerViewport.Scope`
+
+The viewport regressions create isolated editor worlds and a real native Camera
+Cut, exercise pre-initialization and close callbacks, verify shutdown restoration
+with both restore-position settings, and protect locked/opted-out/orthographic/
+other-world views. They do not broadcast a real shutdown or restart the user's UE.
+
+Added 2026-11-20/21; IDE compilation and editor execution pending:
+
+- `ComposableCameraSystem.Math.Boundaries`
+- `ComposableCameraSystem.Math.CurveAndConversion`
+- `ComposableCameraSystem.Math.WiredEvaluationAndIsolation`
+- `ComposableCameraSystem.Validation.ReadOnlyTypeAndPatch`
+- `ComposableCameraSystem.Validation.PinStorageAndObjectClasses`
+- `ComposableCameraSystem.Validation.ShotTemplates`
+- `ComposableCameraSystem.Validation.ProfilesAndEffectTemplates`
+- `ComposableCameraSystem.Validation.TransitionTableResult`
+- `ComposableCameraSystem.Validation.EmptyAuthoringWarnings`
+- `ComposableCameraSystem.Validation.AnchorAtScreenNoOp`
+- `ComposableCameraSystem.Editor.MathGraph.NumericCompatibility`
+- `ComposableCameraSystem.Editor.MathGraph.RoundTrip`
+
+`Validation.AnchorAtScreenNoOp` checks solver/native-validation/Build parity for
+the supported AnchorAtScreen + NoOp combination. It also preserves rejection of
+unknown Aim modes, invalid placement indices and invalid aim anchors consumed
+by Focus. Fix applied; IDE compilation and test execution pending.
 
 Existing test files include:
 
@@ -1779,6 +1876,17 @@ Rules:
 
 ## 21. Gotchas
 
+- UE5.6 can save a rolled Camera Cut view when the editor exits before Sequencer
+  restores its original view. Auto-reopening the sequence can capture that saved
+  Roll as the next session's restore pose; closing it then returns to the tilt.
+  The CCS lifecycle guard above repairs the incoming pose and restores before
+  exit persistence. `LevelEditorViewportSettings.EditorViews` and editor `BugIt`
+  provide read-only evidence. For existing unlocked views, native editor command
+  `MODE` (no arguments) remains a manual Roll reset, retaining location/pitch/yaw
+  and leaving Shot parameters/preview intact. This is not a per-frame clamp.
+  Reference: `MainFrameHandler.cpp` shutdown ordering, `SLevelViewport.cpp`
+  SaveViewportInfo/LoadViewportInfo, `MovieSceneCameraCutEditorHandler.cpp` native
+  pre-animated restore, and `UnrealEdSrv.cpp` Exec_Mode; engine remains read-only.
 - `EnsureContext` means "exists and top", not merely "exists".
 - `ReferenceLeaf` captures tree topology. It is not a live director pointer.
 - Same camera UObject can be reached twice in one frame through snapshots.
@@ -1810,9 +1918,20 @@ Rules:
   `SLATE_ARGUMENT` / `SLATE_ATTRIBUTE` fields. Adding a leading argument also
   requires moving its explicit initializer; otherwise MSVC reports C5038 even
   when independent default values are correct. Check this in an IDE compile.
+- `UWorld::WorldType` is `TEnumAsByte<EWorldType::Type>` in UE5.6. Scoped guards
+  must bind that wrapper type, not an `EWorldType::Type&`; implicit enum value
+  conversion cannot supply a mutable enum reference. World-kind tests also
+  assert that the original editor type is restored after each guard scope.
 - Runtime data-block shape checks and byte-bounds checks are independent.
-- Object/Actor pin class constraints still need earlier layout-time diagnostics;
-  runtime guards prevent corruption but do not give the best authoring message.
+- Direct Object/Actor wires with reflected property constraints now get early
+  diagnostics. Unrelated classes fail; general-to-derived wires warn and retain
+  runtime guards. Virtual/nested/class-specific constraints still depend on
+  their runtime resolver where no same-name reflected class is available.
+- Float and Double cannot share a wire slot. Use the Math conversion nodes;
+  matching editor PC_Real categories alone does not imply storage compatibility.
+- Native asset validation must not call mutating Build(): its revision bump can
+  reset active previews. Use the const collector, and validate soft-reference
+  metadata without forcing loads or rejecting pending registry discovery.
 - Local-player subsystem caches need weak pointers plus parent identity checks.
 - Mesh active Layer identity is `(StorageActor, LayerGuid)`, not GUID alone:
   Level Instance copies can contain identical serialized Layer GUIDs. Cleanup
@@ -3223,8 +3342,10 @@ Update this document when:
   duplication of the complete binding preserves parameter membership without a
   second serialized owner pointer. No generated folder is needed.
 - UE5.6 UMovieScene::GetObjectDisplayName is non-const. Binding labels, including
-  the Shot Editor breadcrumb, must retain the mutable Scene pointer returned by
-  GetTypedOuter; a const widget method does not make the referenced UObject const.
+  the Shot Editor breadcrumb and both Recent instance/Section descriptions, must
+  retain the mutable Scene pointer returned by GetTypedOuter. Prefer an explicit
+  UMovieScene* here; a const widget/host does not make its Outer UObject const.
+  RecentPresentation checks that both label lookups leave the Scene signature unchanged.
 - Parameter Sections do not import camera-evaluator entities. The Activation
   evaluator samples sibling lanes, after restoring cached numeric defaults.
   Scene signatures include sibling Section edits. A muted lane or a time gap must
@@ -3425,6 +3546,16 @@ Update this document when:
   callbacks. Scratch drafts are excluded, transient hosts are never persisted, and
   Save uses contiguous indices even when skipping entries. RecentHistoryValidity
   uses a private in-memory history so regression checks do not overwrite user recents.
+- Recent presentation lives in private Widgets/ComposableCameraShotRecentMenu.
+  Describe snapshots live host metadata on menu opening, without loading referenced
+  Shot assets or retaining UObject pointers. Never parse the saved breadcrumb into
+  fields: all four supported host kinds have different ownership and rename rules.
+  MakeEntry uses constrained Slate text with ellipsis and full-text tooltips;
+  FMenuBuilder's custom-content AddMenuEntry keeps native selection, keyboard and
+  CanExecute behavior. Width is 460 Slate units; native scrolling caps height at
+  520. The current-host marker is independent of the preserved newest-first order.
+  RecentPresentation covers live asset/binding names, same-name asset folders,
+  Section labels/source modes/time bounds/rows, node ownership and long tooltips.
 - DuplicateAtTime captures sibling parameter tracks before creating a new binding
   invalidates the MovieScene binding array. It preflights range/key offsets in int64,
   duplicates the Track-owned data, clears inherited OutputBinding/ManagedCut, and

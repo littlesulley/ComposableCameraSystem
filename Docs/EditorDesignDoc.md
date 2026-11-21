@@ -1,6 +1,6 @@
 # ComposableCameraSystem Editor Design
 
-Updated: 2026-11-20
+Updated: 2026-11-22
 
 This document describes the current editor module. It replaces the old
 phase-by-phase implementation plan. Runtime architecture lives in
@@ -164,6 +164,16 @@ Pure data nodes:
 Cross-chain direct execution wires are rejected. Data flow is allowed only where
 the runtime data model can represent it safely.
 
+Math palette nodes (Scalar, Clamp, Remap Range, Lerp, Sample Curve, Select and
+the two Float/Double converters) are regular Start-chain nodes. Their data
+outputs become current when their execution step runs. Place each producer
+before its consumers; disconnected data operators are not evaluated on demand.
+They use the existing graph sync/rebuild format and leave camera pose unchanged.
+
+Real pins must match their Float/Double subcategory. Connect an explicit Math
+conversion node when changing precision. Previously authored mixed-precision
+wires now produce Build/native-validation errors and require reconnection.
+
 ## 7. Pin Editing
 
 Editor pins mirror runtime pin declarations.
@@ -185,8 +195,10 @@ Editor responsibilities:
 - provide object/class pickers where applicable.
 - avoid silently dropping Struct, Name, Enum, or Delegate pins.
 
-Object and Actor pins have runtime class guards. Earlier layout-time diagnostics
-for class mismatch remain a useful future improvement.
+Object and Actor pins retain runtime class guards. Build/native validation also
+checks direct wires whose same-name UPROPERTY supplies a class constraint:
+unrelated classes are errors, while potentially valid downcasts are warnings.
+Virtual pins without a reflected class retain the generic Actor/Object bound.
 
 ## 8. Parameters and Variables
 
@@ -225,6 +237,28 @@ Use them for:
 - data layout failures.
 
 Messages should attach to the relevant graph node when possible.
+
+`CollectBuildMessages` is shared with native `IsDataValid`. The editor Build
+command updates stored diagnostics and evaluation revision; native validation
+does neither. Use Unreal's existing Validate Assets action for a selection or
+folder; no separate CCS batch-validation menu is needed. CameraType/Patch,
+Shot, ShotTemplateLibrary, MeshProfile, Action, Modifier, Transition and
+TransitionTable participate. A valid asset returns Valid, including when it
+has warnings, rather than inheriting UObject's NotValidated result.
+
+An empty CameraType or a Node Type Modifier entry with no node type selected
+produces a warning. Each Modifier warning identifies its array index and states
+that the entry has no effect. These authoring placeholders alone do not fail
+validation; stale override-property errors still do.
+
+Shot checks cover consumed target indices, weighted anchors, framing ranges,
+bounds and mode combinations. AnchorAtScreen accepts NoOp aim as well as
+LookAtAnchor; an unused aim anchor is ignored unless Focus consumes it.
+Unbound Actor placeholders are allowed. Profile
+checks apply only to the selected effect family. Soft references are checked
+through loaded objects/Asset Registry metadata without loading their assets;
+incomplete discovery is a warning requiring another validation after scanning.
+Dependency contents are validated as separate assets, not recursively here.
 
 ## 10. Patch Asset Editor
 
@@ -324,6 +358,24 @@ Actor values are not parsed from DataTable strings. Use Blueprint/K2 activation
 for actor references.
 
 ## 13. Level Sequence Editor Integration
+
+Editor viewport lifecycle:
+
+- Before Sequencer initialization, CCS sequences normalize stale Roll on unlocked
+  perspective Level viewports in their editor playback world, before native
+  pre-animated capture. CCS detection includes legacy actor/component bindings,
+  Shot/Camera Instance sections and nested sequences, with cycle protection.
+  Pilot/cinematic locks, opted-out viewports, other worlds, orthographic views,
+  PIE and isolated preview worlds are excluded. Authored camera Roll stays intact.
+- `OnShutdownPostPackagesSaved` disables CCS Camera Cuts and invokes native
+  pre-animated restoration before UE broadcasts editor close and saves Level
+  viewport transforms. It then clears residual Roll on unlocked eligible views.
+  Native restore-position preferences still apply. Tabs stay open until normal
+  asset-editor shutdown so startup tab restoration keeps working.
+- The module tracks open Sequencers in creation order and removes them on their
+  close event, even if a preview still owns a shared reference. Shutdown restores
+  newer sessions first. Delegate handles are removed on module unload; there is
+  no per-frame Roll clamp or custom editor-view config serialization.
 
 Editor integration covers:
 
@@ -2119,6 +2171,16 @@ remain reopenable; opening Recent can synchronously load their packages to valid
 subobject membership. No history loading/cleanup runs on playhead changes. Menu
 actions recheck ownership; instance labels use the current native binding name.
 Renamed live hosts refresh their saved paths without reordering the history.
+Recent uses fixed-width, multi-line rows in a height-limited native menu. Each row
+shows a class icon, prominent live name, source-kind badge (Instance, Section,
+Asset or Node), and Current marker for the active host. Secondary text identifies
+the Sequence/binding/track, asset folder, or node owner; Section details separate
+the seconds range, zero-based row and Inline/Asset reference mode from the title.
+Open range bounds remain explicit. Long text elides; a tooltip retains the full
+name, context and object path. All captions are rebuilt from live hosts on menu
+open, with the saved label only a fallback. Recent order and guarded native menu
+actions are unchanged. The toolbar tooltip describes per-project persistence
+across restarts and the 20-entry limit.
 Activation stores the single inline instance configuration and activation range;
 parameter Tracks are siblings under that binding. Their Sections contain native
 double/integer/bool channels. The root + > Camera Parameters adds an input Track;

@@ -8,6 +8,23 @@
 void UComposableCameraPatchTypeAsset::ValidateAdditional(
 	TArray<FComposableCameraBuildMessage>& OutMessages) const
 {
+	const auto CheckDuration = [&OutMessages](float Value, const TCHAR* Name)
+	{
+		if (!FMath::IsFinite(Value) || Value < 0.f)
+		{
+			auto& Message = OutMessages.AddDefaulted_GetRef();
+			Message.Severity = 2;
+			Message.Message = FText::Format(
+				NSLOCTEXT("ComposableCameraPatchValidation", "Duration", "{0} must be finite and non-negative."), FText::FromString(Name));
+		}
+	};
+	CheckDuration(DefaultEnterDuration, TEXT("DefaultEnterDuration"));
+	CheckDuration(DefaultExitDuration, TEXT("DefaultExitDuration"));
+	if (DefaultExpirationType & static_cast<uint8>(EComposableCameraPatchExpirationType::Duration))
+	{
+		CheckDuration(DefaultDuration, TEXT("DefaultDuration"));
+	}
+
 	for (int32 i = 0; i < NodeTemplates.Num(); ++i)
 	{
 		const UComposableCameraCameraNodeBase* Node = NodeTemplates[i];

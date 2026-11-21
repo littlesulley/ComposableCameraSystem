@@ -36,6 +36,10 @@ class COMPOSABLECAMERASYSTEM_API UComposableCameraShotAsset : public UDataAsset
 	GENERATED_BODY()
 
 public:
+#if WITH_EDITOR
+	virtual EDataValidationResult IsDataValid(FDataValidationContext& Context) const override;
+#endif
+
 	/** Authored shot. Edited via the Shot Editor or the Details panel when
 	 *  opened directly from the Content Browser. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Shot",

@@ -19,6 +19,10 @@ class COMPOSABLECAMERASYSTEM_API UComposableCameraTransitionDataAsset
 	GENERATED_BODY()
 
 public:
+#if WITH_EDITOR
+	virtual EDataValidationResult IsDataValid(FDataValidationContext& Context) const override;
+#endif
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Instanced, Category = "Transition")
-	UComposableCameraTransitionBase* Transition;
+	TObjectPtr<UComposableCameraTransitionBase> Transition;
 };

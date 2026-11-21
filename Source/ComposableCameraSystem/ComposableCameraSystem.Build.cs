@@ -45,6 +45,8 @@ public class ComposableCameraSystem : ModuleRules
 			// packaged targets compile the trace writers out and do not need TraceLog.
 			PublicDependencyModuleNames.Add("TraceLog");
 			PrivateDependencyModuleNames.Add("UnrealEd");
+			// Read-only native asset validation checks soft references without loading packages.
+			PrivateDependencyModuleNames.Add("AssetRegistry");
 		}
 	}
 }

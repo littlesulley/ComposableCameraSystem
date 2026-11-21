@@ -103,6 +103,10 @@ class COMPOSABLECAMERASYSTEM_API UComposableCameraMeshProfile : public UDataAsse
 	GENERATED_BODY()
 
 public:
+#if WITH_EDITOR
+	virtual EDataValidationResult IsDataValid(FDataValidationContext& Context) const override;
+#endif
+
 	virtual void Serialize(FArchive& Ar) override;
 	virtual void PostLoad() override;
 

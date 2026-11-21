@@ -66,9 +66,8 @@ public:
 	 * Capped at MaxEntries. Persists the updated list to disk before
 	 * returning.
 	 *
-	 * Caller is responsible for computing the label - keeps the history
-	 * free of presentation logic + lets the same label appear in both the
-	 * history dropdown and the active-host row. */
+	 * Caller supplies a fallback label; the menu formats current host metadata
+	 * when opened. The history model stays free of presentation logic. */
 	void Push(UObject* Host, const FText& DisplayLabel);
 
 	/** Read-only view, most-recent-first. Stable for the duration of the

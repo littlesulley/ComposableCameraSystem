@@ -9027,3 +9027,369 @@
 - Touched files: MovieSceneComposableCameraInstanceTrackInstance.cpp/.h,
   ComposableCameraGenericDraftTests.cpp, DesignDoc, EditorDesignDoc, TechDoc,
   CameraTypeAssetShotEditorHandoff and BugLog.
+
+
+## 2026-11-20 - Float/Double graph wires silently lose runtime binding
+
+- **Symptom:** An authored numeric wire appears connected, but the consumer uses
+  its default instead of the producer's value.
+- **Trigger / reproduction:** Connect a Float output to a Double input (or the
+  reverse) in a CameraType graph, save, then activate it. The previous schema
+  accepted both as PC_Real; BuildRuntimeDataLayout rejects their unequal storage
+  shapes and does not install the wire alias.
+- **Root cause:** Editor compatibility allowed implicit numeric conversion,
+  while runtime wires only alias identically shaped data-block slots. No
+  conversion step existed between the two precisions.
+- **History / blast radius:** Reviewed prior native-pin-default and schema-driver
+  loss entries (2026-10-02), plus data-layout consumers and graph compatibility.
+  The rule also applies to variable Get/Set numeric wires. Existing same-type
+  wires and BeginPlay scheduling retain their behavior.
+- **Touched files:** Editor `ComposableCameraNodeGraphSchema.cpp`; runtime
+  `ComposableCameraAssetValidation.*`, `ComposableCameraTypeAsset.*`,
+  `ComposableCameraMathNodes.*`; new asset-validation/math/graph tests; runtime,
+  editor, technical and execution-flow docs.
+- **Fix:** Require identical Real subcategories when authoring. Shared Build and
+  native-validation diagnostics reject stored mixed-precision direct wires.
+  Explicit per-frame Float To Double / Double To Float nodes perform conversion
+  in execution order; finite narrowing saturates to the Float range.
+- **Regression tests:** `ComposableCameraSystem.Editor.MathGraph.NumericCompatibility`,
+  `ComposableCameraSystem.Validation.PinStorageAndObjectClasses`,
+  `ComposableCameraSystem.Math.CurveAndConversion`,
+  `ComposableCameraSystem.Editor.MathGraph.RoundTrip`.
+- **Verification:** Tests added, not executed. Project policy requires Rider/VS
+  compilation and editor-side automation. Restart editor after full compilation
+  because reflected node classes and module dependencies changed. Manually
+  reconnect an old mixed-precision wire through a converter and inspect output.
+- **Prevention:** Treat editor pin compatibility as a storage contract. Any
+  implicit conversion needs an actual evaluated conversion step and regression
+  coverage for both drag directions and runtime output.
+- **Possible conflicts:** Existing mixed-precision links require explicit repair;
+  no automatic graph migration is performed. These Math converters belong on
+  Start, not the activation-time BeginPlay compute chain. A data link alone does
+  not schedule them. Native validation does not mutate stored graph state.
+
+## 2026-11-20 - Valid TransitionTables remain NotValidated
+
+- **Symptom:** Native asset validation cannot report a valid TransitionTable as
+  Valid even when all its own checks pass (including an empty table).
+- **Trigger / reproduction:** Validate an empty TransitionTable, or a table with
+  valid source/target references and an optional missing Transition override.
+  UObject::IsDataValid returns NotValidated; the previous implementation only
+  changed that result on errors.
+- **Root cause:** Parent NotValidated was treated as the final success state
+  after the subclass had actually performed validation.
+- **History / blast radius:** Reviewed BugLog and all TransitionTable validation
+  and runtime lookup consumers. Runtime matching and transition selection are
+  unaffected; the corrected result serves the editor Data Validation framework.
+- **Touched files:** `ComposableCameraTransitionTableDataAsset.cpp`, shared
+  `ComposableCameraAssetValidation.*`, `ComposableCameraAssetValidationTests.cpp`,
+  and validation documentation.
+- **Fix:** Normalize successful subclass validation to Valid, preserve parent
+  Invalid and newly collected errors, and keep warnings non-fatal. Check soft
+  source/target references through loaded objects or Asset Registry metadata
+  without synchronously loading their assets.
+- **Regression test:** `ComposableCameraSystem.Validation.TransitionTableResult`
+  covers valid empty data, missing required references and warning-only entries.
+- **Verification:** Test added, not executed. Compile in Rider/VS, then run the
+  named editor automation and Validate Assets on representative TransitionTables.
+- **Prevention:** Every native validator must distinguish NotValidated (no
+  validator ran) from Valid (this validator ran and found no errors).
+- **Possible conflicts:** Batch validation now includes these assets in its valid
+  count. Missing reference metadata after registry discovery is an error; pending
+  discovery emits a warning and should be retried. No recursive dependency
+  validation or runtime lookup behavior changes are introduced.
+
+
+## 2026-11-21 - Empty Node Type Modifier entries fail asset validation
+
+- **Symptom:** Validate Assets reports errors for unfinished generic Modifier
+  entries in CM_Level_2 and CM_Level_3. The user expects warnings for these
+  no-effect authoring placeholders, consistent with an empty CameraType.
+- **Trigger / reproduction:** Create a Modifier asset, add a Node Type entry,
+  leave its node type unset, then run native Validate Assets. Both NodeTemplate
+  and legacy NodeClass are empty; each entry previously added an error.
+- **Root cause:** The new validator used the hard Require helper for a missing
+  generic target, although ModifierManager already skips entries with no target
+  class. Diagnostic severity did not match the requested authoring policy.
+- **History / blast radius:** Reviewed the 2026-07-15 custom-wrapper branch fix
+  and 2026-11-20 native-validation result fix. Audited GetTargetNodeClass,
+  ModifierManager registration, the validator and its tests. Custom Modifier
+  dispatch, runtime registration and asset contents are not modified.
+- **Touched files:** `ComposableCameraAssetValidation.cpp`,
+  `ComposableCameraAssetValidationTests.cpp`, `Docs/DesignDoc.md`,
+  `Docs/TechDoc.md`, `Docs/EditorDesignDoc.md`, and this log.
+- **Fix:** Emit an indexed warning for generic entries with neither a valid
+  NodeTemplate nor a legacy NodeClass. Warning-only assets return Valid through
+  the existing Finish helper. Empty CameraTypes retain their existing warning.
+  Stale override-property errors continue to make mixed results Invalid.
+- **Regression test:** `ComposableCameraSystem.Validation.EmptyAuthoringWarnings`
+  covers empty CameraTypes, multiple empty generic entries, legacy target
+  compatibility and mixed warning/error results.
+- **Verification:** Source review and whitespace checks only; automation not run.
+  Compile in Rider/VS, then run the named test and revalidate the screenshot's
+  assets in the editor. Clear old Message Log entries before comparing severity.
+- **Prevention:** Distinguish unfinished no-effect authoring placeholders from
+  invalid configured operations; assert both diagnostic severity and aggregate
+  validation result.
+- **Possible conflicts:** Batch validators now accept these generic placeholders
+  with warnings. Null Modifier objects, malformed Custom Modifier configurations,
+  missing Transition templates and stale selected properties retain their current
+  error rules. No serialization, reflected header or module-dependency change.
+
+
+## 2026-11-21 - CR: Shot validation rejects supported AnchorAtScreen + NoOp aim
+
+- **Status:** Fix applied after user confirmation; IDE compilation and automation
+  execution pending.
+- **Symptom:** A Shot that solves successfully is reported Invalid by native
+  validation. The same inline Shot makes a CameraType graph Build fail.
+- **Trigger / reproduction:** Set Placement.Mode=AnchorAtScreen, use a fixed-world
+  placement anchor at (500,0,0), Distance=250, ScreenPosition=(0.2,-0.1), Aim.Mode=NoOp,
+  Manual Focus and Manual FOV=90. SolveShot returns a valid fixed-rotation pose.
+  Validate the ShotAsset or build a CameraType containing this Framing node:
+  the new rule reports "AnchorAtScreen requires LookAtAnchor aim."
+- **Root cause:** ValidateShot introduces an unsupported mode restriction instead
+  of matching the existing SolveShot branches. SolveShot explicitly handles NoOp
+  when choosing assumed rotation and when producing final rotation. This behavior
+  is already covered by ShotSolver.AnchorAtScreenWithNoOpAim.
+- **History / blast radius:** Reviewed Shot solver tests, framing node, native
+  validation, shared Build collector and CameraInstance.RefreshTypeInterface.
+  The latter refuses Type assets whose BuildStatus is Failed, so this is not
+  merely an extra warning: a valid inline Shot can prevent instance evaluation
+  after the graph is built. No math-node or transition behavior causes it.
+- **Affected implementation:**
+  `Private/DataAssets/ComposableCameraAssetValidation.cpp`, ValidateShot's
+  ScreenAim restriction. Shared CollectTypeMessages forwards it into Build.
+- **Touched files:** `Private/DataAssets/ComposableCameraAssetValidation.cpp`,
+  `Private/Tests/ComposableCameraAssetValidationTests.cpp`, `Docs/DesignDoc.md`,
+  `Docs/EditorDesignDoc.md`, `Docs/TechDoc.md`, and this log.
+- **Fix:** Removed the extra LookAtAnchor-only restriction for AnchorAtScreen.
+  NoOp now follows the solver's supported fixed-rotation behavior. Retained
+  unknown-Aim-mode rejection and validation of anchors consumed by placement,
+  LookAtAnchor aim or independent Focus modes.
+- **Regression test:** `ComposableCameraSystem.Validation.AnchorAtScreenNoOp`
+  verifies a valid solver result, ShotAsset native validation, inline CameraType
+  native validation and graph Build. Negative cases also cover unknown Aim modes,
+  invalid placement targets and invalid aim targets consumed by Focus. Tests
+  updated but not executed.
+- **Manual IDE verification:** Compile in Rider/VS, run the named regression and
+  existing `System.Engine.ComposableCameraSystem.ShotSolver.AnchorAtScreenWithNoOpAim`,
+  then Validate Assets on the reproduction Shot and build its inline CameraType.
+  Project policy prohibits shell compilation or automation execution.
+- **Prevention:** Before adding cross-mode restrictions, audit all solver switch
+  branches and existing tests. Add validation-versus-runtime parity coverage.
+- **Possible conflicts:** No global relaxation of target-index or unknown-enum
+  checks. Focus may still consume an anchor while Aim is NoOp; the positive case
+  uses Manual Focus and a negative case checks FollowAimAnchor independently.
+
+## 2026-11-22 - Startup Level viewport restores a persisted camera roll
+
+- **Status:** Initial investigation recovered the live view through native `MODE`.
+  Subsequent user reproduction identified the exit/auto-reopen lifecycle; see the
+  following entry for its fix and regression coverage.
+- **Symptom:** The DefaultLevel editor viewport starts tilted before Play;
+  it appears to have inherited a Shot camera.
+- **Trigger / reproduction:** User launches UE5.6 and opens DefaultLevel without
+  entering PIE. Read-only inspection of
+  `Saved/Config/WindowsEditor/EditorPerProjectUserSettings.ini`,
+  `LevelEditorViewportSettings.EditorViews`, finds the perspective entry at
+  (-341.978789, 685.898024, 136.422477), with rotation
+  (Pitch=0.279092, Yaw=-14.615797, Roll=-18.941204). The native editor `BugIt`
+  command reports exactly the same live location and rotation.
+- **Cause / mechanism:** UE5.6 `SLevelViewport.cpp` SaveViewportInfo stores the
+  current full view rotation; LoadViewportInfo restores it, including Roll.
+  This explains the tilt surviving launch. Evidence does not establish who
+  originally introduced the Roll or prove a plugin startup takeover.
+- **History / blast radius:** Reviewed earlier Shot preview aspect/display
+  isolation fixes, all plugin SetViewRotation and active Level viewport consumers,
+  ShotEditorViewportClient::RunSolverAndDriveCamera, native Sequencer camera-cut
+  restoration, and UE Level viewport save/load. Shot preview camera setters target
+  their own client. Native Camera Cuts can drive Level viewports independently.
+- **Recovery:** Executed `MODE` without arguments in the live UE editor console.
+  UE5.6 UUnrealEdEngine::Exec_Mode calls RemoveCameraRoll on perspective Level
+  viewports and redraws them. Location, pitch, yaw and authored camera assets are
+  untouched. Observed the main view become upright while the Shot Editor preview
+  retained its distinct tilted composition. No Saved file was manually edited.
+- **Touched files:** `Docs/TechDoc.md` and this log only; engine source read-only.
+- **Regression / verification:** Manual case `StartupLevelViewportRollRecovery`:
+  capture `BugIt`, clear an unlocked view with `MODE`, confirm upright Level view
+  and unchanged Shot preview, exit normally and reopen the project, then confirm
+  the Level view remains upright before PIE. Live recovery passed visually;
+  shutdown/relaunch portion remains for the user.
+- **Automation blocker:** The original producer is not reproducible from current
+  evidence; the confirmed persistence boundary belongs to engine shutdown/startup
+  and the user's live viewport configuration. No plugin function was changed.
+  A synthetic plugin unit test would not reproduce that lifecycle; do not overwrite
+  user config or close/relaunch their editor as an automation fixture.
+- **Prevention:** Check cached editor rotation before modifying camera solvers.
+  Release Pilot/Sequencer camera control and verify the editing view before exit.
+  If a specific action recreates tilt or immediately overrides recovery, capture
+  that ownership transition and add a focused regression for its actual writer.
+- **Possible conflicts:** `MODE` clears Roll in all perspective Level viewports;
+  it is a manual recovery, not a per-frame clamp. Active camera locks may reapply
+  a legitimate cinematic Roll. Avoid globally removing Roll from Shot outputs.
+
+## 2026-11-22 - Sequence auto-reopen recaptures a rolled shutdown viewport
+
+- **Status:** Plugin-side lifecycle fix and automated regressions added. Static
+  source review only; Rider/VS compilation, automation and restart acceptance pending.
+- **Symptom:** Closing an automatically reopened Level Sequence leaves the Level
+  viewport tilted permanently. The Shot itself must retain its authored Roll.
+- **Trigger / reproduction:** Open a Level Sequence containing a tilted Shot with
+  Camera Cuts controlling the Level viewport. Quit UE directly with the sequence
+  open. Relaunch and allow asset restoration, then close the reopened Sequence.
+  User reproduced the persistent tilt through this exact workflow.
+- **Root cause:** UE5.6's editor-close broadcast includes both Level viewport
+  persistence and asset-editor closure. A Level view saved before Sequencer closes
+  contains the current cinematic Roll. On restart it is loaded as an editing view;
+  native pre-animated capture can then cache that already-rolled pose. Native
+  close restoration faithfully restores the polluted pose instead of leveling it.
+  Engine references checked: MainFrameHandler::ShutDownEditor,
+  SLevelViewport::OnEditorClose/LoadViewportInfo, FSequencer::Close and
+  FPreAnimatedCameraCutEditorTraits::CachePreAnimatedValue/RestorePreAnimatedValue.
+- **History / blast radius:** Builds on the earlier read-only saved-view diagnosis
+  and successful `MODE` recovery. Audited native camera-cut restoration, all plugin
+  viewport writers, Shot preview isolation, module live-Sequencer consumers,
+  nested sequences, restore-position preferences and delegate teardown. Existing
+  weak-pointer pruning used swap removal, which could reorder surviving sessions;
+  it now preserves creation order for reverse restoration. Explicit close events
+  remove instances retained by Shot Editor shared references before shutdown.
+- **Fix:** Register OnPreSequencerInit to clear stale editing Roll before native
+  capture for CCS sequences. Register OnShutdownPostPackagesSaved (before editor
+  close/persistence) to disable cuts and invoke native pre-animated restoration
+  for open CCS sessions, newest first, then clear residual unlocked Roll. Do not
+  close asset tabs early; UE retains automatic reopening. No engine, asset or
+  Saved-file edits, startup config deletion, runtime solver change or Tick clamp.
+- **Scope:** Editor playback worlds only; legacy CCS actor/component bindings,
+  Shot/Camera Instance sections and recursive subsequences. Roll normalization
+  skips other worlds, orthographic views, disabled cinematic control and any
+  actor/cinematic lock (including stale weak locks). Runtime/PIE and independent
+  Shot preview clients remain outside the policy. Native position restoration
+  honors the user's Restore Original Viewport on Camera Cut Unlock setting.
+- **Touched files:** Editor module `.h/.cpp`,
+  `Private/Sequencer/ComposableCameraSequencerViewport.h/.cpp`,
+  `Private/Tests/ComposableCameraSequencerViewportTests.cpp`,
+  `Docs/EditorDesignDoc.md`, `Docs/TechDoc.md`, `Docs/ExecutionFlowExamples.md`,
+  and this log.
+- **Regression tests:** `ComposableCameraSystem.Editor.SequencerViewport.`
+  `StartupRollRecovery`, `ShutdownRestore`, and `Scope`. Tests exercise native
+  Camera Cut capture/evaluation/close with nonzero Roll in isolated editor worlds,
+  pre-init repair, close-cache removal while a shared reference survives, both
+  restore-position preferences, a late evaluation before close, nested/instance
+  scope and preservation of locked, opted-out, orthographic, PIE/preview and
+  unrelated-world views. No real editor-shutdown broadcast or user-map writes.
+- **Manual IDE verification:** Close UE, compile UE5_6Editor in Rider/VS, restart
+  (editor-module header layout changed; do not rely on Live Coding). Run the three
+  regressions, then repeat the user's actual exit/auto-reopen/close sequence.
+  The locked Shot must still tilt; closing it must restore upright editing.
+  Also verify ordinary camera cuts, legacy Shot and Camera Instance sequences,
+  nested sequences and normal tab restoration. No shell build/test attempted.
+- **Prevention:** Treat editor-view persistence and pre-animated camera capture as
+  distinct lifecycle boundaries. Restore before persistence, normalize inherited
+  editing state before capture, and test actual native camera ownership rather
+  than a standalone rotator helper.
+- **Possible conflicts:** Shutdown restoration affects the eligible sequence's
+  other pre-animated state as native close would; it runs after package-save
+  decisions and does not close tabs. Forced process termination/crashes skip the
+  orderly shutdown hook; opening a CCS sequence still repairs an unlocked stale
+  editing Roll. Intentionally rolled free editing views are leveled when opening
+  CCS sequences; active Pilot/cinematic views retain their camera's Roll.
+
+## 2026-11-22 - Viewport Scope test uses the wrong WorldType guard type
+
+- **Symptom / reproduction:** Compile UE5_6Editor after adding
+  `ComposableCameraSequencerViewportTests.cpp`. MSVC reports C2665 at the PIE
+  and EditorPreview `TGuardValue<EWorldType::Type>` declarations (reported lines
+  202 and 206), preventing the editor module and regressions from building.
+- **Root cause:** `UWorld::WorldType` is a `TEnumAsByte<EWorldType::Type>` field.
+  The guard used the bare enum as RefType and required an enum lvalue
+  reference, which cannot bind to the wrapper through a value conversion.
+- **History / blast radius:** Reviewed the lifecycle fix immediately above and
+  earlier TGuardValue usage in this log. Searched all plugin source for WorldType
+  guards; only these two declarations use the mismatched type. Verified the field
+  in UE5.6 World.h, the guard constructor in UnrealTemplate.h and the wrapper's
+  enum constructor in EnumAsByte.h. Production viewport behavior is unaffected.
+- **Fix / touched files:** Use `TGuardValue<TEnumAsByte<EWorldType::Type>>` in
+  both scopes in `Private/Tests/ComposableCameraSequencerViewportTests.cpp`.
+  Add post-scope restoration assertions; update `Docs/TechDoc.md` and this log.
+- **Regression test:** Existing
+  `ComposableCameraSystem.Editor.SequencerViewport.Scope` now explicitly checks
+  restoration to Editor after both temporary world-kind changes, in addition
+  to preserving Roll while each excluded kind is active.
+- **Verification:** Static checks only. Recompile in Rider/VS and run Scope;
+  no shell build or automation attempted. The overall lifecycle fix still
+  requires its three regressions and manual quit/relaunch acceptance.
+- **Prevention:** Inspect actual UE field storage before selecting a mutable
+  reference template argument; do not infer it from the enum used for assignment.
+- **Possible conflicts:** Test-only type correction; no API, reflection, runtime
+  behavior or serialized data changes. Each guard restores the wrapped field
+  before later tests use the same world.
+
+## 2026-11-22 - Shot Editor Recent mixes source identity into wide stale captions
+
+- **Symptom / reproduction:** Open a standalone Shot asset, a Sequence instance and
+  a legacy Shot Section, then open Recent. Asset/node/instance/Section entries look
+  alike; long Sequence/track/time breadcrumbs stretch the menu. Rename an asset or
+  edit a Section label after opening it: non-instance entries still show the saved
+  caption. The toolbar tooltip incorrectly says history lasts only one session.
+- **Why / root cause:** The menu used one unbounded text label for every source
+  kind, refreshed only instance binding names, and retained an obsolete tooltip
+  from before history gained per-project persistence.
+- **History / blast radius:** Reviewed the 2026-10-13 deleted-Shot history fix,
+  native binding rename tests, history persistence, all supported host types and
+  reopen actions. Keep pruning, ownership checks, weak captures, click revalidation,
+  deduplication, recent ordering and saved path/label format intact.
+- **Fix / touched files:** Add private Widgets/ComposableCameraShotRecentMenu.h/.cpp
+  to describe live sources and build constrained multi-line rows. Wire it into
+  SShotEditorRoot.cpp: type icon/badge, current-host marker, context, Section timing
+  and source mode, full tooltips, scroll limit and corrected persistence text.
+  Update comments in SShotEditorRoot.h and ComposableCameraShotEditorHistory.h;
+  tests in ComposableCameraShotEditorHistoryTests.cpp; EditorDesignDoc.md, TechDoc.md
+  and this log. No runtime, history serialization or reflected layout changes.
+- **Regression test:** ComposableCameraSystem.ShotEditor.RecentPresentation covers
+  same-name asset folders, asset/binding renames, complete long labels/tooltips,
+  Section source/label/time/row differences, open bounds, node owner and null fallback.
+  Fixtures are unsaved and never touch the history singleton or user settings.
+  Existing RecentHistoryValidity and CameraInstance.Rename retain ownership and
+  end-to-end menu rename coverage.
+- **Verification:** Static source/API and diff checks only. Compile in Rider/VS;
+  run RecentPresentation, RecentHistoryValidity and CameraInstance.Rename. Inspect
+  Recent with mixed sources and long names, hover for full paths, scroll a full
+  history, use keyboard selection, reopen an item and verify Current moves. Restart
+  and confirm persistent entries still reopen. No shell build/test launch.
+- **Prevention:** Separate display fields from persisted fallback labels; constrain
+  layout without truncating data, and format live metadata for every supported kind.
+- **Possible conflicts:** Native custom-content menu entries must keep existing
+  FUIAction lifetime checks; the formatter must stay menu-open-only. Referenced
+  Shot assets are named through soft paths without loading. Zero-based Section row
+  numbers match the existing header/Sequencer convention; no timing edits occur.
+
+## 2026-11-22 - Recent presentation adds const to UE5.6 binding-label receivers
+
+- **Symptom / reproduction:** Compile UE5_6Editor after the Recent menu formatting
+  change. ComposableCameraShotRecentMenu.cpp reports C2662 at both
+  GetObjectDisplayName calls (reported lines 72 and 90).
+- **Why / root cause:** Both instance and Section branches declared their Scene
+  as const auto*. GetTypedOuter<UMovieScene>() returns UMovieScene* even on a const
+  host, but the extra qualifier prevents calling UE5.6's non-const display-name
+  getter. The existing TechDoc gotcha was missed during the preceding change.
+- **History / blast radius:** Reviewed prior GetObjectDisplayName const failures
+  in the breadcrumb/Inspect paths and the Recent ownership/presentation entries.
+  Audited plugin call sites; checked MovieScene.h/.cpp and UObjectBaseUtility.h
+  in UE5.6. The getter reads display overrides and native binding names; no menu
+  ordering, source ownership or label precedence change is required.
+- **Fix / touched files:** Keep explicit UMovieScene* receivers in both branches
+  of Widgets/ComposableCameraShotRecentMenu.cpp. Extend
+  Tests/ComposableCameraShotEditorHistoryTests.cpp and the existing TechDoc gotcha;
+  record this entry. No casts, public API, headers or reflected layout changes.
+- **Regression test:** ComposableCameraSystem.ShotEditor.RecentPresentation already
+  exercises both binding-label paths and native renames. Add checks that both
+  descriptions preserve the owning Scene's signature despite the non-const API.
+- **Verification:** Source/API and diff checks only. Recompile the same UE5_6Editor
+  target in Rider/VS, then run RecentPresentation and CameraInstance.Rename.
+  No command-line build or automation run attempted.
+- **Prevention:** Check the actual UE getter qualifier before choosing a local
+  pointee type. Use explicit UMovieScene* for binding-label access; review existing
+  API gotchas when adding another consumer.
+- **Possible conflicts:** None expected; local pointer qualifier correction only.
+  Recent formatting, persistence, liveness checks and runtime evaluation stay intact.

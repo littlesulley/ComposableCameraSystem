@@ -45,6 +45,7 @@
 #include "Widgets/ComposableCameraShotEditorLayoutState.h"
 #include "Widgets/ComposableCameraShotEditorModeSwitchUtils.h"
 #include "Widgets/ComposableCameraShotMenuUtils.h"
+#include "Widgets/ComposableCameraShotRecentMenu.h"
 #include "Widgets/ComposableCameraShotEditorStatusBarUtils.h"
 #include "Widgets/ComposableCameraShotViewportToolbarUtils.h"
 #include "Widgets/Images/SImage.h"
@@ -162,7 +163,7 @@ void SShotEditorRoot::SetActiveShot(FComposableCameraShot* Shot, UObject* HostOb
 	ActiveHost = AuthoringSession->GetHost();
 	OnActiveShotChanged();
 
-	// Push the new context onto the in-memory recents list. Skipped when no
+	// Push the new context onto the persistent recents list. Skipped when no
 	// host is bound (placeholder transitions shouldn't pollute the list).
 	// `BuildHostContextChain` reads from ActiveShot/ActiveHost above so the
 	// label snapshot reflects the post-swap state.
@@ -816,11 +817,13 @@ TSharedRef<SWidget> SShotEditorRoot::BuildHistoryMenu()
 	FShotEditorHistory::Get().PruneUnavailable();
 	const TArray<FShotEditorHistoryEntry>& Entries =
 		FShotEditorHistory::Get().GetEntries();
+	MenuBuilder.BeginSection("RecentSources", LOCTEXT("RecentSources", "Recent sources - newest first"));
 	if (Entries.IsEmpty())
 	{
-		MenuBuilder.AddMenuEntry(LOCTEXT("HistoryEmpty", "History is empty."),
+		MenuBuilder.AddMenuEntry(LOCTEXT("HistoryEmpty", "No recent sources. Open a Shot to get started."),
 			FText::GetEmpty(), FSlateIcon(), FUIAction(),
 			NAME_None, EUserInterfaceActionType::None);
+		MenuBuilder.EndSection();
 		return MenuBuilder.MakeWidget();
 	}
 
@@ -829,13 +832,8 @@ TSharedRef<SWidget> SShotEditorRoot::BuildHistoryMenu()
 		const TWeakObjectPtr<UObject> WeakHost = Entry.Host;
 		const FSoftObjectPath HostPath = Entry.HostPath;
 
-		FText DisplayLabel = Entry.DisplayLabel;
-		if (const auto* Instance = Cast<UComposableCameraInstanceData>(WeakHost.Get()))
-			if (const auto* Track = Instance->GetTypedOuter<UMovieSceneComposableCameraInstanceTrack>())
-				DisplayLabel = BuildInstanceContextChain(*Track);
-		MenuBuilder.AddMenuEntry(DisplayLabel,
-			LOCTEXT("HistoryAliveTip", "Click to reopen this Shot."),
-			FSlateIcon(),
+		const auto Presentation = ComposableCameraSystem::ShotRecentMenu::Describe(WeakHost.Get(), Entry.DisplayLabel);
+		MenuBuilder.AddMenuEntry(
 			FUIAction(FExecuteAction::CreateLambda([WeakHost, HostPath]()
 				{
 					// Re-resolve through the singleton so the live-then-
@@ -880,10 +878,13 @@ TSharedRef<SWidget> SShotEditorRoot::BuildHistoryMenu()
 				FCanExecuteAction::CreateLambda([WeakHost]()
 				{
 					return FShotEditorHistory::IsHostAvailable(WeakHost.Get());
-				})));
+				})),
+			ComposableCameraSystem::ShotRecentMenu::MakeEntry(Presentation, WeakHost == ActiveHost),
+			NAME_None, Presentation.ToolTip);
 	}
 
-	return MenuBuilder.MakeWidget();
+	MenuBuilder.EndSection();
+	return MenuBuilder.MakeWidget(nullptr, 520);
 }
 
 void SShotEditorRoot::TrySetMode(EShotEditorMode NewMode)
@@ -1135,8 +1136,8 @@ TSharedRef<SWidget> SShotEditorRoot::BuildTopBar()
 			.Padding(0.f, 0.f, 8.f, 0.f)
 			[SAssignNew(HistoryCombo, SComboButton)
 				.ToolTipText(LOCTEXT("HistoryTooltip",
-					"Reopen a recently edited Shot. History is in-memory "
-					"for the current editor session (last 20 entries)."))
+					"Reopen a recently edited Shot or camera instance. The last 20 sources are saved "
+					"for this project across editor restarts, newest first."))
 				.OnGetMenuContent(this, &SShotEditorRoot::BuildHistoryMenu)
 				.ButtonContent()
 				[SNew(STextBlock).Text(LOCTEXT("HistoryLabel", "Recent"))]]

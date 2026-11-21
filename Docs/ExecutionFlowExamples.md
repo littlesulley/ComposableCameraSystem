@@ -1,6 +1,6 @@
 # Execution Flow Examples
 
-Updated: 2026-11-20
+Updated: 2026-11-22
 
 This file gives compact end-to-end flows. Keep examples current with source.
 
@@ -1050,7 +1050,66 @@ IDE/editor acceptance after a full UE5.6 build and restart:
 These are required manual integration checks; source inspection does not claim
 they have passed. Builds and automation are launched in the user's IDE/editor.
 
-## 13. When To Add Examples
+### Editor exit with a rolled Shot and automatic Sequence restoration
+
+1. Open a CCS Level Sequence with Camera Cuts enabled. The pre-initialization
+   callback clears stale Roll only on eligible unlocked editing views. Native
+   Sequencer captures this clean pose, then presents the authored Shot Roll.
+2. Exit UE while the sequence is still open. After package-save decisions,
+   `OnShutdownPostPackagesSaved` disables CCS cuts, restores native pre-animated
+   state and clears residual unlocked editing Roll. UE's subsequent editor-close
+   broadcast saves the restored view and records the open asset tabs normally.
+3. Relaunch and let UE reopen the sequence. While locked to its Shot, the cinematic
+   view still rolls. Close the Sequence: native restoration returns an upright
+   editing view. Opening an older session with polluted view config is repaired
+   by step 1 before that pose can be captured again.
+
+Run `ComposableCameraSystem.Editor.SequencerViewport.*` in the editor, then
+repeat the actual quit/relaunch workflow manually. The tests exercise native
+capture/restore in isolated worlds; they do not restart the live editor.
+
+## 13. Runtime Math And Unified Validation
+
+Create a CameraType graph with `Start -> Math: Remap Range -> Field Of View
+-> Output`. Wire Remap.Result to FieldOfView.FieldOfView. Set InputMin/Max to
+0/600 and OutputMin/Max to 60/120. Expose Remap.Value as a Float parameter named
+Speed for an activation-time input. Speed=300 produces FOV=90 each evaluation.
+
+For a changing input, feed Value from an upstream per-frame producer or a graph
+variable written before Remap. An exposed parameter alone does not read actor
+velocity or create an external per-frame update API. The execution and data
+paths are separate:
+
+```text
+Start -> producer / SetVariable -> Remap -> FieldOfView -> Output
+                  data value ----> Value
+                                    Result -> FieldOfView
+```
+
+1. Sync persists the math node templates, main execution entries and data wire.
+   Rebuild reconstructs them using the existing type-asset representation.
+2. Activation duplicates templates and builds independent runtime data blocks.
+3. Each frame, the existing input resolver reads Remap's current Value before
+   its tick. Remap publishes Result; the later FOV node reads that slot.
+4. A Double consumer instead needs `Remap -> Float To Double -> consumer` in
+   execution order, plus matching data wires. A Double source feeding scalar
+   math uses Double To Float. Neither converter changes camera pose.
+5. Build reports missing pins, stale exposed parameters and incompatible wire
+   storage/classes. Native Validate Assets uses the same diagnostics without
+   replacing stored Build messages or incrementing the preview revision.
+
+For a folder validation, include the relevant CameraType/Patch, Shot/library,
+Profile and effect assets. Profiles check the selected family; a reusable Shot
+may leave Actors unbound. Validate again after Asset Registry scanning finishes
+if a soft reference reports incomplete discovery. Each referenced asset's
+contents are validated separately. Validation does not repair data or recurse
+through reference cycles.
+
+Added automation covers numeric boundaries, next-frame inputs, independent
+instances, graph round-trip, exact Float/Double compatibility and native asset
+validation. IDE compilation and editor execution remain pending.
+
+## 14. When To Add Examples
 
 ### Camera Instance native authoring flow (2026-10-12; IDE verification pending)
 

@@ -18,6 +18,10 @@ class COMPOSABLECAMERASYSTEM_API UComposableCameraActionTypeAsset : public UPrim
 	GENERATED_BODY()
 
 public:
+#if WITH_EDITOR
+	virtual EDataValidationResult IsDataValid(FDataValidationContext& Context) const override;
+#endif
+
 	UPROPERTY(EditAnywhere, Instanced, BlueprintReadOnly, Category = "Action")
 	TObjectPtr<UComposableCameraActionBase> ActionTemplate;
 

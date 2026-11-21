@@ -336,7 +336,7 @@ void UComposableCameraCompositionFramingNode::OnTickNode_Implementation(
 	// instance. Defensive null-check below.
 	UComposableCameraTransitionBase* TransInst =
 		(bHasSecondaryShot && ActiveBlendTransition)
-			? ActiveBlendTransition->Transition
+			? ActiveBlendTransition->Transition.Get()
 			: nullptr;
 
 	if (TransInst)

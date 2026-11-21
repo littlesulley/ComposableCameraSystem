@@ -7,6 +7,7 @@
 
 #if WITH_EDITOR
 #include "Misc/DataValidation.h"
+#include "DataAssets/ComposableCameraAssetValidation.h"
 #endif
 
 #define LOCTEXT_NAMESPACE "ComposableCameraTransitionTableDataAsset"
@@ -102,6 +103,11 @@ void UComposableCameraTransitionTableDataAsset::PostEditChangeProperty(FProperty
 EDataValidationResult UComposableCameraTransitionTableDataAsset::IsDataValid(FDataValidationContext& Context) const
 {
 	EDataValidationResult Result = Super::IsDataValid(Context);
+	const uint32 InitialErrors = Context.GetNumErrors();
+	if (Result == EDataValidationResult::NotValidated)
+	{
+		Result = EDataValidationResult::Valid;
+	}
 
 	for (int32 Index = 0; Index < Entries.Num(); ++Index)
 	{
@@ -124,6 +130,16 @@ EDataValidationResult UComposableCameraTransitionTableDataAsset::IsDataValid(FDa
 				FText::AsNumber(Index)));
 			Result = EDataValidationResult::Invalid;
 		}
+		if (!Entry.SourceTypeAsset.IsNull())
+		{
+			ComposableCameraAssetValidation::ValidateSoftAsset(Entry.SourceTypeAsset.ToSoftObjectPath(),
+				UComposableCameraTypeAsset::StaticClass(), Context, FString::Printf(TEXT("Entries[%d].SourceTypeAsset"), Index));
+		}
+		if (!Entry.TargetTypeAsset.IsNull())
+		{
+			ComposableCameraAssetValidation::ValidateSoftAsset(Entry.TargetTypeAsset.ToSoftObjectPath(),
+				UComposableCameraTypeAsset::StaticClass(), Context, FString::Printf(TEXT("Entries[%d].TargetTypeAsset"), Index));
+		}
 
 		if (!Entry.Transition)
 		{
@@ -134,7 +150,7 @@ EDataValidationResult UComposableCameraTransitionTableDataAsset::IsDataValid(FDa
 		}
 	}
 
-	return Result;
+	return Context.GetNumErrors() > InitialErrors ? EDataValidationResult::Invalid : Result;
 }
 #endif
 

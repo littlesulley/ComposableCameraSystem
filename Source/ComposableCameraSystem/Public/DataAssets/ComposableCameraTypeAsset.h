@@ -634,9 +634,13 @@ public:
 	 */
 	void Build(bool bLogResult = true);
 
+	/** Read-only validation shared with the editor Build button. Never bumps EvaluationRevision. */
+	EComposableCameraBuildStatus CollectBuildMessages(TArray<FComposableCameraBuildMessage>& OutMessages) const;
+	virtual EDataValidationResult IsDataValid(FDataValidationContext& Context) const override;
+
 	/**
-	 * Subclass extension point. Called from the tail of Build() so subclasses
-	 * can append their own validation results without having to override Build
+	 * Subclass extension point. Called by the const collector for Build and IsDataValid,
+	 * so subclasses can append validation results without having to override Build
 	 * itself. Default: empty.
 	 *
 	 * Messages appended here flow through the same BuildMessages / inline-badge

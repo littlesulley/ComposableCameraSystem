@@ -97,11 +97,15 @@ private:
  * against it. Registered against `ISequencerModule::OnSequencerCreated`
  * in StartupModule, unregistered in ShutdownModule. */
  void OnSequencerCreated(TSharedRef<ISequencer> InSequencer);
+ void OnSequencerClosed(TSharedRef<ISequencer> InSequencer);
+ void OnEditorShutdown();
 
+ FDelegateHandle PreSequencerInitHandle;
  FDelegateHandle SequencerCreatedHandle;
+ FDelegateHandle EditorShutdownHandle;
 
- /** Weak refs to every Sequencer that's currently open. Pruned of dead
- * refs lazily during FindOpenSequencerForSequence. */
+ /** Open Sequencers in creation order. Close events remove retained-but-closed
+ * instances; lookup also prunes dead weak refs. */
  mutable TArray<TWeakPtr<ISequencer>> ActiveSequencers;
 };
 

@@ -34,6 +34,10 @@ class COMPOSABLECAMERASYSTEM_API UComposableCameraNodeModifierDataAsset
 	GENERATED_BODY()
 
 public:
+#if WITH_EDITOR
+	virtual EDataValidationResult IsDataValid(FDataValidationContext& Context) const override;
+#endif
+
 	/**
 	 * Existing assets deserialize to ReactivateCamera because it is value zero.
 	 * ModifyExistingInstance is opt-in and never inserts nodes into the

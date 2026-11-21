@@ -38,6 +38,7 @@
 #include "Sequencer/ComposableCameraPatchTrackEditor.h"
 #include "Sequencer/ComposableCameraShotTrackEditor.h"
 #include "Sequencer/ComposableCameraInstanceTrackEditor.h"
+#include "Sequencer/ComposableCameraSequencerViewport.h"
 #include "Editors/ComposableCameraInstanceEditorSession.h"
 #include "MovieScene/MovieSceneComposableCameraInstanceSection.h"
 #include "Trace/ComposableCameraRewindDebuggerExtension.h"
@@ -117,7 +118,7 @@ void FComposableCameraSystemEditorModule::StartupModule()
 			TSharedPtr<ISequencer> Live = ActiveSequencers[i].Pin();
 			if (!Live.IsValid())
 			{
-				ActiveSequencers.RemoveAtSwap(i, EAllowShrinking::No);
+				ActiveSequencers.RemoveAt(i, EAllowShrinking::No);
 				continue;
 			}
 
@@ -164,12 +165,32 @@ void FComposableCameraSystemEditorModule::StartupModule()
 	// through the live Sequencer instance for the section's sequence.
 	{
 		ISequencerModule& SequencerModule = FModuleManager::LoadModuleChecked<ISequencerModule>("Sequencer");
+		PreSequencerInitHandle = SequencerModule.RegisterOnPreSequencerInit(FOnPreSequencerInit::FDelegate::CreateLambda(
+			[](TSharedRef<ISequencer>, TSharedRef<ISequencerObjectChangeListener>, const FSequencerInitParams& Params)
+			{
+				ComposableCameraSystem::SequencerViewport::PrepareForOpen(Params);
+			}));
 		SequencerCreatedHandle = SequencerModule.RegisterOnSequencerCreated(FOnSequencerCreated::FDelegate::CreateRaw(this, &FComposableCameraSystemEditorModule::OnSequencerCreated));
 	}
+	EditorShutdownHandle = FEditorDelegates::OnShutdownPostPackagesSaved.AddRaw(this, &FComposableCameraSystemEditorModule::OnEditorShutdown);
 }
 
 void FComposableCameraSystemEditorModule::ShutdownModule()
 {
+	FEditorDelegates::OnShutdownPostPackagesSaved.Remove(EditorShutdownHandle);
+	EditorShutdownHandle.Reset();
+	if (PreSequencerInitHandle.IsValid())
+	{
+		if (ISequencerModule* SequencerModule = FModuleManager::GetModulePtr<ISequencerModule>("Sequencer"))
+		{
+			SequencerModule->UnregisterOnPreSequencerInit(PreSequencerInitHandle);
+		}
+		PreSequencerInitHandle.Reset();
+	}
+	for (const TWeakPtr<ISequencer>& WeakSequencer : ActiveSequencers)
+	{
+		if (const TSharedPtr<ISequencer> Sequencer = WeakSequencer.Pin()) Sequencer->OnCloseEvent().RemoveAll(this);
+	}
 	UMovieSceneComposableCameraInstanceSection::OnGetEditorValue.Unbind();
 	UnregisterRewindDebuggerSupport();
 
@@ -253,12 +274,27 @@ void FComposableCameraSystemEditorModule::UnregisterRewindDebuggerSupport()
 void FComposableCameraSystemEditorModule::OnSequencerCreated(TSharedRef<ISequencer> InSequencer)
 {
 	ActiveSequencers.Add(InSequencer);
+	InSequencer->OnCloseEvent().AddRaw(this, &FComposableCameraSystemEditorModule::OnSequencerClosed);
 	UE_LOG(LogComposableCameraSystemEditor, Log,
 		TEXT("Cached new Sequencer (focused sequence: %s). Total tracked: %d."),
 		InSequencer->GetFocusedMovieSceneSequence()
 		? *InSequencer->GetFocusedMovieSceneSequence()->GetName()
 		: TEXT("<none>"),
 		ActiveSequencers.Num());
+}
+
+void FComposableCameraSystemEditorModule::OnSequencerClosed(TSharedRef<ISequencer> InSequencer)
+{
+	InSequencer->OnCloseEvent().RemoveAll(this);
+	ActiveSequencers.RemoveAll([&](const TWeakPtr<ISequencer>& WeakSequencer)
+	{
+		return !WeakSequencer.IsValid() || WeakSequencer.Pin() == InSequencer;
+	});
+}
+
+void FComposableCameraSystemEditorModule::OnEditorShutdown()
+{
+	ComposableCameraSystem::SequencerViewport::RestoreBeforeShutdown(ActiveSequencers);
 }
 
 TSharedPtr<ISequencer> FComposableCameraSystemEditorModule::FindOpenSequencerForSequence(UMovieSceneSequence* Sequence) const
@@ -268,8 +304,7 @@ TSharedPtr<ISequencer> FComposableCameraSystemEditorModule::FindOpenSequencerFor
 		return nullptr;
 	}
 
-	// Walk the cache and prune dead refs in the same pass - Sequencer windows
-	// close without notifying us, leaving stale weak ptrs.
+	// Close notifications remove live-but-closed instances; also prune dead refs.
 	TSharedPtr<ISequencer> Hit;
 	int32 LiveCount = 0;
 	for (int32 i = ActiveSequencers.Num() - 1; i >= 0; --i)
@@ -277,7 +312,7 @@ TSharedPtr<ISequencer> FComposableCameraSystemEditorModule::FindOpenSequencerFor
 		TSharedPtr<ISequencer> Live = ActiveSequencers[i].Pin();
 		if (!Live.IsValid())
 		{
-			ActiveSequencers.RemoveAtSwap(i, EAllowShrinking::No);
+			ActiveSequencers.RemoveAt(i, EAllowShrinking::No);
 			continue;
 		}
 		++LiveCount;
@@ -309,7 +344,7 @@ TArray<TSharedPtr<ISequencer>> FComposableCameraSystemEditorModule::GetLiveSeque
 		TSharedPtr<ISequencer> Live = ActiveSequencers[i].Pin();
 		if (!Live.IsValid())
 		{
-			ActiveSequencers.RemoveAtSwap(i, EAllowShrinking::No);
+			ActiveSequencers.RemoveAt(i, EAllowShrinking::No);
 			continue;
 		}
 

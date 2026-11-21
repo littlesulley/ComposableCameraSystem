@@ -27,6 +27,10 @@ class COMPOSABLECAMERASYSTEM_API UComposableCameraShotTemplateLibrary : public U
 	GENERATED_BODY()
 
 public:
+#if WITH_EDITOR
+	virtual EDataValidationResult IsDataValid(FDataValidationContext& Context) const override;
+#endif
+
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Templates", meta = (TitleProperty = "Name"))
 	TArray<FComposableCameraShotTemplate> Shots;
 };

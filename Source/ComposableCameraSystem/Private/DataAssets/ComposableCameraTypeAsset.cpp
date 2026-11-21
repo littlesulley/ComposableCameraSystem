@@ -8,6 +8,10 @@
 #include "Nodes/ComposableCameraComputeNodeBase.h"
 #include "Transitions/ComposableCameraTransitionBase.h"
 #include "UObject/UnrealType.h"
+#if WITH_EDITOR
+#include "Misc/DataValidation.h"
+#include "DataAssets/ComposableCameraAssetValidation.h"
+#endif
 
 namespace ComposableCameraTypeAssetPrivate
 {
@@ -1466,8 +1470,22 @@ void UComposableCameraTypeAsset::ApplyDelegateBindings(
 void UComposableCameraTypeAsset::Build(bool bLogResult)
 {
 	++EvaluationRevision;
-	BuildMessages.Reset();
-	BuildStatus = EComposableCameraBuildStatus::Success;
+	BuildStatus = CollectBuildMessages(BuildMessages);
+	if (bLogResult)
+	{
+		UE_LOG(LogComposableCameraSystem, Log, TEXT("Build complete for '%s': %s (%d messages)."),
+			*GetName(),
+			BuildStatus == EComposableCameraBuildStatus::Success ? TEXT("Success") :
+			BuildStatus == EComposableCameraBuildStatus::SuccessWithWarnings ? TEXT("Warnings") : TEXT("Failed"),
+			BuildMessages.Num());
+	}
+}
+
+EComposableCameraBuildStatus UComposableCameraTypeAsset::CollectBuildMessages(
+	TArray<FComposableCameraBuildMessage>& OutMessages) const
+{
+	OutMessages.Reset();
+	EComposableCameraBuildStatus Status = EComposableCameraBuildStatus::Success;
 
 	// Check: empty node chain.
 	if (NodeTemplates.Num() == 0)
@@ -1475,8 +1493,8 @@ void UComposableCameraTypeAsset::Build(bool bLogResult)
 		FComposableCameraBuildMessage Msg;
 		Msg.Severity = 1; // Warning
 		Msg.Message = FText::FromString(TEXT("Camera type has no nodes."));
-		BuildMessages.Add(Msg);
-		BuildStatus = EComposableCameraBuildStatus::SuccessWithWarnings;
+		OutMessages.Add(Msg);
+		Status = EComposableCameraBuildStatus::SuccessWithWarnings;
 	}
 
 	// Check: null node templates.
@@ -1490,8 +1508,8 @@ void UComposableCameraTypeAsset::Build(bool bLogResult)
 				FText::FromString(TEXT("Node at index {0} is null.")),
 				FText::AsNumber(i));
 			Msg.NodeIndex = i;
-			BuildMessages.Add(Msg);
-			BuildStatus = EComposableCameraBuildStatus::Failed;
+			OutMessages.Add(Msg);
+			Status = EComposableCameraBuildStatus::Failed;
 		}
 	}
 	for (int32 i = 0; i < ComputeNodeTemplates.Num(); ++i)
@@ -1505,8 +1523,8 @@ void UComposableCameraTypeAsset::Build(bool bLogResult)
 				FText::AsNumber(i));
 			Msg.NodeIndex = i;
 			Msg.bIsComputeChain = true;
-			BuildMessages.Add(Msg);
-			BuildStatus = EComposableCameraBuildStatus::Failed;
+			OutMessages.Add(Msg);
+			Status = EComposableCameraBuildStatus::Failed;
 		}
 	}
 
@@ -1522,8 +1540,8 @@ void UComposableCameraTypeAsset::Build(bool bLogResult)
 				Msg.Message = FText::Format(
 					FText::FromString(TEXT("Duplicate exposed parameter name: '{0}'.")),
 					FText::FromName(Param.ParameterName));
-				BuildMessages.Add(Msg);
-				BuildStatus = EComposableCameraBuildStatus::Failed;
+				OutMessages.Add(Msg);
+				Status = EComposableCameraBuildStatus::Failed;
 			}
 			SeenNames.Add(Param.ParameterName);
 		}
@@ -1541,8 +1559,8 @@ void UComposableCameraTypeAsset::Build(bool bLogResult)
 				Msg.Message = FText::Format(
 					FText::FromString(TEXT("Duplicate internal variable name: '{0}'.")),
 					FText::FromName(Var.VariableName));
-				BuildMessages.Add(Msg);
-				BuildStatus = EComposableCameraBuildStatus::Failed;
+				OutMessages.Add(Msg);
+				Status = EComposableCameraBuildStatus::Failed;
 			}
 			SeenNames.Add(Var.VariableName);
 		}
@@ -1560,8 +1578,8 @@ void UComposableCameraTypeAsset::Build(bool bLogResult)
 				Msg.Message = FText::Format(
 					FText::FromString(TEXT("Duplicate exposed variable name: '{0}'.")),
 					FText::FromName(Var.VariableName));
-				BuildMessages.Add(Msg);
-				BuildStatus = EComposableCameraBuildStatus::Failed;
+				OutMessages.Add(Msg);
+				Status = EComposableCameraBuildStatus::Failed;
 			}
 			SeenNames.Add(Var.VariableName);
 		}
@@ -1596,8 +1614,8 @@ void UComposableCameraTypeAsset::Build(bool bLogResult)
 					FText::FromName(Name),
 					FText::FromString(*ExistingCategory),
 					FText::FromString(Category));
-				BuildMessages.Add(Msg);
-				BuildStatus = EComposableCameraBuildStatus::Failed;
+				OutMessages.Add(Msg);
+				Status = EComposableCameraBuildStatus::Failed;
 			}
 			else
 			{
@@ -1628,7 +1646,7 @@ void UComposableCameraTypeAsset::Build(bool bLogResult)
 	// slot, the parser cannot parse a value, and the runtime would silently
 	// drop the field. Flag those at authoring time.
 	{
-		auto ValidateStructTypeOrFlag = [this](
+		auto ValidateStructTypeOrFlag = [&OutMessages, &Status](
 			EComposableCameraPinType PinType,
 			UScriptStruct* StructType,
 			FName Name,
@@ -1646,8 +1664,8 @@ void UComposableCameraTypeAsset::Build(bool bLogResult)
 					FText::FromString(TEXT("{0} '{1}' has Struct pin type but no StructType set.")),
 					FText::FromString(Kind),
 					FText::FromName(Name));
-				BuildMessages.Add(Msg);
-				BuildStatus = EComposableCameraBuildStatus::Failed;
+				OutMessages.Add(Msg);
+				Status = EComposableCameraBuildStatus::Failed;
 			}
 		};
 
@@ -1677,8 +1695,8 @@ void UComposableCameraTypeAsset::Build(bool bLogResult)
 			FComposableCameraBuildMessage Msg;
 			Msg.Severity = 2;
 			Msg.Message = FText::FromString(TEXT("Connection references out-of-bounds node index."));
-			BuildMessages.Add(Msg);
-			BuildStatus = EComposableCameraBuildStatus::Failed;
+			OutMessages.Add(Msg);
+			Status = EComposableCameraBuildStatus::Failed;
 		}
 	}
 	for (const FComposableCameraPinConnection& Conn : ComputePinConnections)
@@ -1695,8 +1713,8 @@ void UComposableCameraTypeAsset::Build(bool bLogResult)
 				Msg.NodeIndex = Conn.TargetNodeIndex;
 				Msg.PinName = Conn.TargetPinName;
 			}
-			BuildMessages.Add(Msg);
-			BuildStatus = EComposableCameraBuildStatus::Failed;
+			OutMessages.Add(Msg);
+			Status = EComposableCameraBuildStatus::Failed;
 		}
 	}
 
@@ -1728,8 +1746,8 @@ void UComposableCameraTypeAsset::Build(bool bLogResult)
 					FText::FromName(Param.ParameterName));
 				Msg.NodeIndex = Param.TargetNodeIndex;
 				Msg.PinName = Param.TargetPinName;
-				BuildMessages.Add(Msg);
-				BuildStatus = EComposableCameraBuildStatus::Failed;
+				OutMessages.Add(Msg);
+				Status = EComposableCameraBuildStatus::Failed;
 			}
 		}
 	}
@@ -1844,8 +1862,8 @@ void UComposableCameraTypeAsset::Build(bool bLogResult)
 							FText::FromString(Node->GetClass()->GetName()));
 						Msg.NodeIndex = NodeIdx;
 						Msg.PinName = Pin.PinName;
-						BuildMessages.Add(Msg);
-						BuildStatus = EComposableCameraBuildStatus::Failed;
+						OutMessages.Add(Msg);
+						Status = EComposableCameraBuildStatus::Failed;
 					}
 					else if (Pin.bRequired && (bHasDefaultValue || bHasPropertyDefault))
 					{
@@ -1870,10 +1888,10 @@ void UComposableCameraTypeAsset::Build(bool bLogResult)
 							FText::FromString(Node->GetClass()->GetName()));
 						Msg.NodeIndex = NodeIdx;
 						Msg.PinName = Pin.PinName;
-						BuildMessages.Add(Msg);
-						if (BuildStatus == EComposableCameraBuildStatus::Success)
+						OutMessages.Add(Msg);
+						if (Status == EComposableCameraBuildStatus::Success)
 						{
-							BuildStatus = EComposableCameraBuildStatus::SuccessWithWarnings;
+							Status = EComposableCameraBuildStatus::SuccessWithWarnings;
 						}
 					}
 					else if (!Pin.bRequired && !bHasDefaultValue && !bHasPropertyDefault)
@@ -1887,10 +1905,10 @@ void UComposableCameraTypeAsset::Build(bool bLogResult)
 							FText::FromString(Node->GetClass()->GetName()));
 						Msg.NodeIndex = NodeIdx;
 						Msg.PinName = Pin.PinName;
-						BuildMessages.Add(Msg);
-						if (BuildStatus == EComposableCameraBuildStatus::Success)
+						OutMessages.Add(Msg);
+						if (Status == EComposableCameraBuildStatus::Success)
 						{
-							BuildStatus = EComposableCameraBuildStatus::SuccessWithWarnings;
+							Status = EComposableCameraBuildStatus::SuccessWithWarnings;
 						}
 					}
 				}
@@ -1987,8 +2005,8 @@ void UComposableCameraTypeAsset::Build(bool bLogResult)
 						Msg.NodeIndex = NodeIdx;
 						Msg.bIsComputeChain = true;
 						Msg.PinName = Pin.PinName;
-						BuildMessages.Add(Msg);
-						BuildStatus = EComposableCameraBuildStatus::Failed;
+						OutMessages.Add(Msg);
+						Status = EComposableCameraBuildStatus::Failed;
 					}
 					else if (Pin.bRequired && (bHasDefaultValue || bHasPropertyDefault))
 					{
@@ -2002,10 +2020,10 @@ void UComposableCameraTypeAsset::Build(bool bLogResult)
 						Msg.NodeIndex = NodeIdx;
 						Msg.bIsComputeChain = true;
 						Msg.PinName = Pin.PinName;
-						BuildMessages.Add(Msg);
-						if (BuildStatus == EComposableCameraBuildStatus::Success)
+						OutMessages.Add(Msg);
+						if (Status == EComposableCameraBuildStatus::Success)
 						{
-							BuildStatus = EComposableCameraBuildStatus::SuccessWithWarnings;
+							Status = EComposableCameraBuildStatus::SuccessWithWarnings;
 						}
 					}
 					else if (!Pin.bRequired && !bHasDefaultValue && !bHasPropertyDefault)
@@ -2020,10 +2038,10 @@ void UComposableCameraTypeAsset::Build(bool bLogResult)
 						Msg.NodeIndex = NodeIdx;
 						Msg.bIsComputeChain = true;
 						Msg.PinName = Pin.PinName;
-						BuildMessages.Add(Msg);
-						if (BuildStatus == EComposableCameraBuildStatus::Success)
+						OutMessages.Add(Msg);
+						if (Status == EComposableCameraBuildStatus::Success)
 						{
-							BuildStatus = EComposableCameraBuildStatus::SuccessWithWarnings;
+							Status = EComposableCameraBuildStatus::SuccessWithWarnings;
 						}
 					}
 				}
@@ -2077,10 +2095,10 @@ void UComposableCameraTypeAsset::Build(bool bLogResult)
 					FText::AsNumber(NodeIdx),
 					FText::FromString(NodeTemplates[NodeIdx]->GetClass()->GetName()));
 				Msg.NodeIndex = NodeIdx;
-				BuildMessages.Add(Msg);
-				if (BuildStatus == EComposableCameraBuildStatus::Success)
+				OutMessages.Add(Msg);
+				if (Status == EComposableCameraBuildStatus::Success)
 				{
-					BuildStatus = EComposableCameraBuildStatus::SuccessWithWarnings;
+					Status = EComposableCameraBuildStatus::SuccessWithWarnings;
 				}
 			}
 		}
@@ -2120,10 +2138,10 @@ void UComposableCameraTypeAsset::Build(bool bLogResult)
 					FText::FromString(ComputeNodeTemplates[NodeIdx]->GetClass()->GetName()));
 				Msg.NodeIndex = NodeIdx;
 				Msg.bIsComputeChain = true;
-				BuildMessages.Add(Msg);
-				if (BuildStatus == EComposableCameraBuildStatus::Success)
+				OutMessages.Add(Msg);
+				if (Status == EComposableCameraBuildStatus::Success)
 				{
-					BuildStatus = EComposableCameraBuildStatus::SuccessWithWarnings;
+					Status = EComposableCameraBuildStatus::SuccessWithWarnings;
 				}
 			}
 		}
@@ -2131,33 +2149,41 @@ void UComposableCameraTypeAsset::Build(bool bLogResult)
 
 	// Subclass extension point. Append any validation from the concrete asset
 	// class (e.g. UComposableCameraPatchTypeAsset checks node Patch compatibility).
-	// Each appended message's severity rolls BuildStatus up toward the more
+	// Each appended message's severity rolls Status up toward the more
 	// severe category so the editor banner / per-node badges reflect it.
 	{
 		TArray<FComposableCameraBuildMessage> ExtraMessages;
+		ComposableCameraAssetValidation::CollectTypeMessages(*this, ExtraMessages);
 		ValidateAdditional(ExtraMessages);
 		for (const FComposableCameraBuildMessage& Msg : ExtraMessages)
 		{
-			BuildMessages.Add(Msg);
+			OutMessages.Add(Msg);
 			if (Msg.Severity >= 2) // Error
 			{
-				BuildStatus = EComposableCameraBuildStatus::Failed;
+				Status = EComposableCameraBuildStatus::Failed;
 			}
-			else if (Msg.Severity == 1 && BuildStatus == EComposableCameraBuildStatus::Success) // Warning
+			else if (Msg.Severity == 1 && Status == EComposableCameraBuildStatus::Success) // Warning
 			{
-				BuildStatus = EComposableCameraBuildStatus::SuccessWithWarnings;
+				Status = EComposableCameraBuildStatus::SuccessWithWarnings;
 			}
 		}
 	}
 
-	if (bLogResult)
+	return Status;
+}
+
+EDataValidationResult UComposableCameraTypeAsset::IsDataValid(FDataValidationContext& Context) const
+{
+	const EDataValidationResult ParentResult = Super::IsDataValid(Context);
+	TArray<FComposableCameraBuildMessage> Messages;
+	const EComposableCameraBuildStatus Status = CollectBuildMessages(Messages);
+	for (const FComposableCameraBuildMessage& Message : Messages)
 	{
-		UE_LOG(LogComposableCameraSystem, Log, TEXT("Build complete for '%s': %s (%d messages)."),
-			*GetName(),
-			BuildStatus == EComposableCameraBuildStatus::Success ? TEXT("Success") :
-			BuildStatus == EComposableCameraBuildStatus::SuccessWithWarnings ? TEXT("Warnings") : TEXT("Failed"),
-			BuildMessages.Num());
+		if (Message.Severity >= 2) Context.AddError(Message.Message);
+		else if (Message.Severity == 1) Context.AddWarning(Message.Message);
 	}
+	return ParentResult == EDataValidationResult::Invalid || Status == EComposableCameraBuildStatus::Failed
+		? EDataValidationResult::Invalid : EDataValidationResult::Valid;
 }
 
 void UComposableCameraTypeAsset::EnsureInternalVariableGuids()
